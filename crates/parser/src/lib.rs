@@ -1,9 +1,12 @@
 //! Análise sintática do subconjunto Dart 3.6.2, com limites explícitos de complexidade.
 //! Mixins aceitam implements e aplicações with, mas restrições on e padrões de
 //! objeto com extração de campos permanecem explicitamente fora do subconjunto.
+//! Metadados limitam-se a override/deprecated/Deprecated e Native escalar em
+//! funções external de topo; campos, parâmetros e anotações customizadas são rejeitados.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
-    BinaryOp, Class, ClassKind, ClassModifier, Expr, ExprKind, Extension, Field, Function,
+    Annotation, AnnotationKind, BinaryOp, Class, ClassKind, ClassModifier, Constructor,
+    ConstructorParameter, Expr, ExprKind, Extension, Field, Function, NativeBinding, NativeType,
     Parameter, Pattern, Program, Statement, StatementKind, SwitchArm, SwitchCase, Token, TokenKind,
     Type, TypeShape, UnaryOp,
 };
@@ -31,6 +34,12 @@ pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>,
     let mut functions = Vec::new();
     for function in program.functions {
         if function.name == "main" {
+            if function.native_binding.is_some() {
+                return Err(Diagnostic::new(
+                    "native main entrypoints are not supported",
+                    function.span,
+                ));
+            }
             if main.is_some() {
                 return Err(Diagnostic::new("duplicate main function", function.span));
             }
@@ -94,14 +103,19 @@ pub fn parse_unit<'a>(
     let mut extensions = Vec::new();
     let mut functions = Vec::new();
     while cursor.peek().is_some() {
+        let declaration_index = skip_metadata(tokens, cursor.index)?;
+        let declaration_kind = tokens.get(declaration_index).map(|token| token.kind);
         if matches!(
-            cursor.peek(),
+            declaration_kind,
             Some(TokenKind::Word(
                 "class" | "abstract" | "interface" | "enum" | "base" | "final" | "sealed" | "mixin"
             ))
         ) {
             classes.push(cursor.class()?);
-        } else if cursor.peek() == Some(TokenKind::Word("extension")) {
+        } else if declaration_kind == Some(TokenKind::Word("extension")) {
+            if cursor.peek() == Some(TokenKind::Symbol('@')) {
+                return Err(cursor.error("annotations on extensions are not supported yet"));
+            }
             let id =
                 u32::try_from(extensions.len()).map_err(|_| cursor.error("too many extensions"))?;
             extensions.push(cursor.extension(id)?);
@@ -109,13 +123,118 @@ pub fn parse_unit<'a>(
             functions.push(cursor.function()?);
         }
     }
-    Ok(Program {
+    let program = Program {
         types: cursor.types,
         extensions,
         classes,
         functions,
         statements: Vec::new(),
-    })
+    };
+    validate_metadata_bindings(&program, &cursor.class_ids)?;
+    Ok(program)
+}
+
+/// Rejeita metadados conhecidos cujo nome não designa inequivocamente o builtin.
+/// Membros em interfaces e mixins locais contam conservadoramente como sombra;
+/// a resolução geral de constantes usadas como anotações não é implementada.
+fn validate_metadata_bindings(
+    program: &Program<'_>,
+    class_ids: &std::collections::BTreeMap<&str, u32>,
+) -> Result<(), Diagnostic> {
+    // O caminho comum sem metadata não aloca tabelas nem percorre hierarquias.
+    if program.functions.iter().all(|f| f.annotations.is_empty())
+        && program.classes.iter().all(|c| {
+            c.annotations.is_empty()
+                && c.methods
+                    .iter()
+                    .chain(&c.abstract_methods)
+                    .all(|f| f.annotations.is_empty())
+        })
+        && program
+            .extensions
+            .iter()
+            .all(|e| e.methods.iter().all(|f| f.annotations.is_empty()))
+    {
+        return Ok(());
+    }
+    let global_names: std::collections::HashSet<_> = class_ids
+        .keys()
+        .copied()
+        .chain(program.functions.iter().map(|function| function.name))
+        .collect();
+    let classes: std::collections::HashMap<_, _> = program
+        .classes
+        .iter()
+        .map(|class| (class.id, class))
+        .collect();
+    for class in &program.classes {
+        check_metadata_names(&class.annotations, &global_names, &Default::default())?;
+        if class
+            .methods
+            .iter()
+            .chain(&class.abstract_methods)
+            .all(|f| f.annotations.is_empty())
+        {
+            continue;
+        }
+        let mut members = std::collections::HashSet::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut pending = vec![class.id];
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            let Some(class) = classes.get(&id) else {
+                continue;
+            };
+            members.extend(class.fields.iter().map(|field| field.name));
+            members.extend(class.enum_values.iter().copied());
+            members.extend(
+                class
+                    .methods
+                    .iter()
+                    .chain(&class.abstract_methods)
+                    .map(|method| method.name),
+            );
+            pending.extend(class.superclass);
+            pending.extend(&class.interfaces);
+            pending.extend(&class.mixins);
+        }
+        for method in class.methods.iter().chain(&class.abstract_methods) {
+            check_metadata_names(&method.annotations, &global_names, &members)?;
+        }
+    }
+    for function in &program.functions {
+        check_metadata_names(&function.annotations, &global_names, &Default::default())?;
+    }
+    for extension in &program.extensions {
+        let members = extension.methods.iter().map(|method| method.name).collect();
+        for method in &extension.methods {
+            check_metadata_names(&method.annotations, &global_names, &members)?;
+        }
+    }
+    Ok(())
+}
+/// Exige que o nome de cada anotação reconhecida permaneça sem sombreamento.
+fn check_metadata_names(
+    annotations: &[Annotation],
+    globals: &std::collections::HashSet<&str>,
+    members: &std::collections::HashSet<&str>,
+) -> Result<(), Diagnostic> {
+    for annotation in annotations {
+        let name = match annotation.kind {
+            AnnotationKind::Override => "override",
+            AnnotationKind::Deprecated { message: Some(_) } => "Deprecated",
+            AnnotationKind::Deprecated { message: None } => "deprecated",
+        };
+        if globals.contains(name) || members.contains(name) {
+            return Err(Diagnostic::new(
+                format!("shadowed annotation {name} is not supported in this subset"),
+                annotation.span,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Nome declarado no topo de uma biblioteca, com intervalo do identificador.
@@ -150,7 +269,17 @@ pub struct UnitDeclarations<'a> {
 pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diagnostic> {
     let mut declarations = UnitDeclarations::default();
     let mut index = 0;
-    while let Some(first) = tokens.get(index) {
+    while tokens.get(index).is_some() {
+        index = skip_metadata(tokens, index)?;
+        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("external")) {
+            index += 1;
+        }
+        let first = tokens.get(index).ok_or_else(|| {
+            Diagnostic::new(
+                "expected declaration after metadata",
+                tokens.last().unwrap().span,
+            )
+        })?;
         if first.kind == TokenKind::Word("extension") {
             return Err(Diagnostic::new(
                 "extensions in library import graphs are not supported yet",
@@ -256,6 +385,10 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 index += 1;
             }
             index = skip_delimited(tokens, index, '(', ')', first.span)?;
+            if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol(';')) {
+                index += 1;
+                continue;
+            }
         }
         if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
             // O parser completo validará a expressão; aqui apenas indexamos nomes.
@@ -485,6 +618,14 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê campos inicializados e métodos de uma classe nominal.
     fn class(&mut self) -> Result<Class<'a>, Diagnostic> {
         let start = self.position();
+        let (annotations, native_binding) = self.metadata()?;
+        if native_binding.is_some()
+            || annotations
+                .iter()
+                .any(|annotation| matches!(annotation.kind, AnnotationKind::Override))
+        {
+            return Err(self.error("Native and override annotations are not valid on classes"));
+        }
         let header = nominal_header(self.tokens, self.index)?;
         self.index = header.name_index;
         let NominalHeader {
@@ -500,7 +641,7 @@ impl<'a> Cursor<'_, 'a> {
             self.error("declared class is missing from the supplied class environment")
         })?;
         if is_enum {
-            return self.enumeration(id, name, start);
+            return self.enumeration(id, name, start, annotations);
         }
         let superclass = if self.take(TokenKind::Word("extends")) {
             let parent = self.name()?;
@@ -541,8 +682,28 @@ impl<'a> Cursor<'_, 'a> {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut abstract_methods = Vec::new();
+        let mut constructor = None;
         while self.peek() != Some(TokenKind::Symbol('}')) {
             let index = self.index;
+            let (metadata, native) = self.metadata()?;
+            if self.peek() == Some(TokenKind::Word(name))
+                && self.tokens.get(self.index + 1).map(|token| token.kind)
+                    == Some(TokenKind::Symbol('('))
+            {
+                if kind != ClassKind::Class {
+                    return Err(
+                        self.error("mixin declarations cannot declare generative constructors")
+                    );
+                }
+                if constructor.is_some() {
+                    return Err(self.error("only one unnamed constructor is supported"));
+                }
+                if !metadata.is_empty() || native.is_some() {
+                    return Err(self.error("constructor annotations are not supported yet"));
+                }
+                constructor = Some(self.constructor(name)?);
+                continue;
+            }
             let field_start = self.position();
             let is_final = self.take(TokenKind::Word("final"));
             let ty = self.ty(!is_final)?;
@@ -560,11 +721,17 @@ impl<'a> Cursor<'_, 'a> {
                     methods.push(method);
                 }
             } else {
+                if !metadata.is_empty() || native.is_some() {
+                    return Err(self.error("annotations on fields are not supported yet"));
+                }
                 if ty == Type::Void {
                     return Err(self.error("fields cannot have void type"));
                 }
-                self.expect(TokenKind::Operator("="))?;
-                let initializer = self.expression()?;
+                let initializer = if self.take(TokenKind::Operator("=")) {
+                    Some(self.expression()?)
+                } else {
+                    None
+                };
                 self.expect(TokenKind::Symbol(';'))?;
                 fields.push(Field {
                     name: field_name,
@@ -579,7 +746,18 @@ impl<'a> Cursor<'_, 'a> {
             }
         }
         self.expect(TokenKind::Symbol('}'))?;
+        if let Some(constructor) = &mut constructor {
+            for parameter in &mut constructor.parameters {
+                if let Some(name) = parameter.field
+                    && let Some(field) = fields.iter().find(|field| field.name == name)
+                {
+                    parameter.ty = field.ty;
+                }
+            }
+        }
         Ok(Class {
+            constructor,
+            annotations,
             is_mixin_application: false,
             mixin_origin: None,
             modifier,
@@ -610,6 +788,7 @@ impl<'a> Cursor<'_, 'a> {
         id: u32,
         name: &'a str,
         start: usize,
+        annotations: Vec<Annotation>,
     ) -> Result<Class<'a>, Diagnostic> {
         let mixins = self.nominal_list("with")?;
         let mut interfaces = Vec::new();
@@ -684,10 +863,7 @@ impl<'a> Cursor<'_, 'a> {
                         name,
                         ty,
                         is_final: true,
-                        initializer: Expr {
-                            kind: ExprKind::Null,
-                            span,
-                        },
+                        initializer: None,
                         span,
                     });
                 } else {
@@ -702,6 +878,8 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("enum arguments and fields require a const constructor"));
         }
         Ok(Class {
+            constructor: None,
+            annotations,
             is_mixin_application: false,
             mixin_origin: None,
             modifier: ClassModifier::None,
@@ -720,6 +898,50 @@ impl<'a> Cursor<'_, 'a> {
             superclass: None,
             fields,
             methods,
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
+    }
+    /// Lê construtor posicional sem nome; this.campo obtém o tipo após ler a classe.
+    fn constructor(&mut self, name: &'a str) -> Result<Constructor<'a>, Diagnostic> {
+        let start = self.position();
+        self.expect(TokenKind::Word(name))?;
+        self.expect(TokenKind::Symbol('('))?;
+        let mut parameters = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol(')')) {
+            let start = self.position();
+            let (name, ty, field) = if self.take(TokenKind::Word("this")) {
+                self.expect(TokenKind::Symbol('.'))?;
+                let name = self.name()?;
+                (name, Type::Inferred, Some(name))
+            } else {
+                let ty = self.ty(false)?;
+                (self.name()?, ty, None)
+            };
+            parameters.push(ConstructorParameter {
+                name,
+                ty,
+                field,
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+            if !self.take(TokenKind::Symbol(',')) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(')'))?;
+        let body = if self.take(TokenKind::Symbol(';')) {
+            Vec::new()
+        } else {
+            self.block(0)?
+        };
+        Ok(Constructor {
+            parameters,
+            body,
             span: Span {
                 start,
                 end: self.end(),
@@ -761,7 +983,14 @@ impl<'a> Cursor<'_, 'a> {
         self.expect(TokenKind::Symbol('{'))?;
         let mut methods = Vec::new();
         while self.peek() != Some(TokenKind::Symbol('}')) {
-            methods.push(self.function()?);
+            let method = self.function_with_abstract(false, false)?.0;
+            if method.is_getter {
+                return Err(Diagnostic::new(
+                    "extension getters are not supported yet",
+                    method.span,
+                ));
+            }
+            methods.push(method);
         }
         self.expect(TokenKind::Symbol('}'))?;
         Ok(Extension {
@@ -776,6 +1005,133 @@ impl<'a> Cursor<'_, 'a> {
         })
     }
     /// Lê a assinatura tipada e o corpo em bloco ou expressão de uma função/método.
+    /// Lê somente os metadados reconhecidos; anotações arbitrárias são rejeitadas.
+    fn metadata(&mut self) -> Result<(Vec<Annotation>, Option<NativeBinding<'a>>), Diagnostic> {
+        let mut annotations = Vec::new();
+        let mut native = None;
+        while self.peek() == Some(TokenKind::Symbol('@')) {
+            let start = self.position();
+            self.index += 1;
+            let first = self.name()?;
+            let (prefix, name) = if self.take(TokenKind::Symbol('.')) {
+                (Some(first), self.name()?)
+            } else {
+                (None, first)
+            };
+            if name == "Native" {
+                if native.is_some() {
+                    return Err(self.error("duplicate Native annotation"));
+                }
+                self.expect(TokenKind::Operator("<"))?;
+                let result = self.native_type(prefix)?;
+                self.expect(TokenKind::Word("Function"))?;
+                self.expect(TokenKind::Symbol('('))?;
+                let mut parameters = Vec::new();
+                while self.peek() != Some(TokenKind::Symbol(')')) {
+                    parameters.push(self.native_type(prefix)?);
+                    if !self.take(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::Symbol(')'))?;
+                self.expect(TokenKind::Operator(">"))?;
+                self.expect(TokenKind::Symbol('('))?;
+                let mut symbol = None;
+                let mut is_leaf = None;
+                while self.peek() != Some(TokenKind::Symbol(')')) {
+                    let option = self.name()?;
+                    self.expect(TokenKind::Symbol(':'))?;
+                    match option {
+                        "symbol" if symbol.is_none() => {
+                            let value = self.metadata_string()?;
+                            if value.is_empty() {
+                                return Err(self.error("Native symbol must not be empty"));
+                            }
+                            symbol = Some(value);
+                        }
+                        "isLeaf" if is_leaf.is_none() => {
+                            is_leaf = Some(if self.take(TokenKind::Word("true")) {
+                                true
+                            } else if self.take(TokenKind::Word("false")) {
+                                false
+                            } else {
+                                return Err(self.error("Native isLeaf requires a bool literal"));
+                            });
+                        }
+                        _ => return Err(self.error("unsupported or repeated Native option")),
+                    }
+                    if !self.take(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::Symbol(')'))?;
+                native = Some(NativeBinding {
+                    prefix,
+                    symbol: symbol.unwrap_or_default(),
+                    result,
+                    parameters,
+                    is_leaf: is_leaf.unwrap_or(false),
+                    span: Span {
+                        start,
+                        end: self.end(),
+                    },
+                });
+                continue;
+            }
+            if prefix.is_some() {
+                return Err(self.error("prefixed metadata other than Native is not supported"));
+            }
+            let kind = match name {
+                "override" => AnnotationKind::Override,
+                "deprecated" => AnnotationKind::Deprecated { message: None },
+                "Deprecated" => {
+                    self.expect(TokenKind::Symbol('('))?;
+                    let message = self.metadata_string()?;
+                    self.take(TokenKind::Symbol(','));
+                    self.expect(TokenKind::Symbol(')'))?;
+                    AnnotationKind::Deprecated { message: Some(message) }
+                }
+                _ => return Err(self.error("unsupported annotation; supported metadata: override, deprecated, Deprecated and Native")),
+            };
+            annotations.push(Annotation {
+                kind,
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+        }
+        Ok((annotations, native))
+    }
+    /// Lê um tipo ABI escalar com o mesmo prefixo usado pela anotação Native.
+    fn native_type(&mut self, prefix: Option<&'a str>) -> Result<NativeType, Diagnostic> {
+        if let Some(prefix) = prefix {
+            self.expect(TokenKind::Word(prefix))?;
+            self.expect(TokenKind::Symbol('.'))?;
+        }
+        let name = self.name()?;
+        match name {
+            "Void" => Ok(NativeType::Void),
+            "Int32" => Ok(NativeType::Int32),
+            "Int64" => Ok(NativeType::Int64),
+            _ => Err(self.error("supported native types are Void, Int32 and Int64")),
+        }
+    }
+    /// Decodifica strings de metadados mantendo a representação UTF-8 validada.
+    fn metadata_string(&mut self) -> Result<String, Diagnostic> {
+        let token = self
+            .tokens
+            .get(self.index)
+            .ok_or_else(|| self.error("expected annotation string"))?;
+        let value = match token.kind {
+            TokenKind::String(value) => decode_string(value, token.span)?,
+            TokenKind::RawString(value) => value.to_owned(),
+            _ => return Err(self.error("expected annotation string literal")),
+        };
+        self.index += 1;
+        Ok(value)
+    }
+    /// Lê a assinatura tipada e o corpo em bloco ou expressão de uma função/método.
     fn function(&mut self) -> Result<Function<'a>, Diagnostic> {
         self.function_with_abstract(false, true)
             .map(|(function, _)| function)
@@ -787,6 +1143,22 @@ impl<'a> Cursor<'_, 'a> {
         allow_generic: bool,
     ) -> Result<(Function<'a>, bool), Diagnostic> {
         let start = self.position();
+        let (annotations, mut native_binding) = self.metadata()?;
+        let external = self.take(TokenKind::Word("external"));
+        if external != native_binding.is_some() {
+            return Err(self
+                .error("external functions require Native and Native functions require external"));
+        }
+        if !allow_generic && native_binding.is_some() {
+            return Err(self.error("Native is supported only on top-level functions"));
+        }
+        if allow_generic
+            && annotations
+                .iter()
+                .any(|annotation| matches!(annotation.kind, AnnotationKind::Override))
+        {
+            return Err(self.error("override is supported only on methods"));
+        }
         let previous_parameters = std::mem::take(&mut self.type_parameters);
         self.type_parameters = if allow_generic {
             self.scan_type_parameters()?
@@ -799,6 +1171,11 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("top-level getters are not supported yet"));
         }
         let name = self.name()?;
+        if let Some(binding) = native_binding.as_mut()
+            && binding.symbol.is_empty()
+        {
+            binding.symbol = name.to_owned();
+        }
         if self.take(TokenKind::Operator("<")) {
             if !allow_generic {
                 return Err(self.error("generic methods are not supported yet"));
@@ -843,8 +1220,11 @@ impl<'a> Cursor<'_, 'a> {
         if !is_getter {
             self.expect(TokenKind::Symbol(')'))?;
         }
-        let abstract_body = allow_abstract && self.take(TokenKind::Symbol(';'));
-        let body = if abstract_body {
+        let abstract_body = !external && allow_abstract && self.take(TokenKind::Symbol(';'));
+        let body = if external {
+            self.expect(TokenKind::Symbol(';'))?;
+            Vec::new()
+        } else if abstract_body {
             Vec::new()
         } else if self.take(TokenKind::Operator("=>")) {
             let start = self.position();
@@ -878,6 +1258,8 @@ impl<'a> Cursor<'_, 'a> {
         let type_parameters = std::mem::replace(&mut self.type_parameters, previous_parameters);
         Ok((
             Function {
+                annotations,
+                native_binding,
                 type_parameters,
                 is_getter,
                 name,
@@ -1418,12 +1800,10 @@ impl<'a> Cursor<'_, 'a> {
                 } else if self.peek() == Some(TokenKind::Symbol('(')) {
                     let arguments = self.arguments(depth)?;
                     if let Some(&class_id) = self.class_ids.get(name) {
-                        if !arguments.is_empty() {
-                            return Err(self.error(
-                                "only implicit constructors without arguments are supported",
-                            ));
+                        ExprKind::Construct {
+                            class_id,
+                            arguments,
                         }
-                        ExprKind::Construct { class_id }
                     } else {
                         ExprKind::Call { name, arguments }
                     }
@@ -1724,6 +2104,49 @@ impl<'a> Cursor<'_, 'a> {
     }
 }
 
+/// Avança metadados balanceados durante a indexação; o parser completo valida seu conteúdo.
+fn skip_metadata(tokens: &[Token<'_>], mut index: usize) -> Result<usize, Diagnostic> {
+    while tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol('@')) {
+        let span = tokens[index].span;
+        index += 1;
+        if !matches!(
+            tokens.get(index).map(|token| token.kind),
+            Some(TokenKind::Word(_))
+        ) {
+            return Err(Diagnostic::new("expected annotation name", span));
+        }
+        index += 1;
+        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol('.')) {
+            index += 1;
+            if !matches!(
+                tokens.get(index).map(|token| token.kind),
+                Some(TokenKind::Word(_))
+            ) {
+                return Err(Diagnostic::new("expected qualified annotation name", span));
+            }
+            index += 1;
+        }
+        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Operator("<")) {
+            let mut depth = 1usize;
+            index += 1;
+            while depth > 0 {
+                let token = tokens.get(index).ok_or_else(|| {
+                    Diagnostic::new("unterminated annotation type arguments", span)
+                })?;
+                match token.kind {
+                    TokenKind::Operator("<") => depth += 1,
+                    TokenKind::Operator(">") => depth -= 1,
+                    _ => {}
+                }
+                index += 1;
+            }
+        }
+        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol('(')) {
+            index = skip_delimited(tokens, index, '(', ')', span)?;
+        }
+    }
+    Ok(index)
+}
 /// Cabeçalho compartilhado pelo índice de bibliotecas e pela análise completa.
 struct NominalHeader {
     name_index: usize,
@@ -2046,6 +2469,162 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Inicializadores this.campo recebem tipos próprios mesmo antes da declaração do campo.
+    #[test]
+    fn positional_constructors_and_initializing_formals() {
+        let source = "class Usuario{Usuario(this.username,this.email){print(username);} final String username;final String email;} class Counter{int value=0;Counter(int value){this.value=value;}} void main(){var user=Usuario('ana','a@b');Counter(2);}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().classes.len(), 2);
+        let program = parse(&tokens, source.len()).unwrap();
+        let constructor = program.classes[0].constructor.as_ref().unwrap();
+        assert_eq!(constructor.parameters.len(), 2);
+        assert!(constructor.parameters.iter().all(
+            |parameter| parameter.ty == Type::String && parameter.field == Some(parameter.name)
+        ));
+        assert!(
+            program.classes[0]
+                .fields
+                .iter()
+                .all(|field| field.initializer.is_none())
+        );
+        assert!(program.classes[1].fields[0].initializer.is_some());
+        assert!(
+            program.classes[1].constructor.as_ref().unwrap().parameters[0]
+                .field
+                .is_none()
+        );
+        let StatementKind::Variable { initializer, .. } = &program.statements[0].kind else {
+            panic!()
+        };
+        assert!(
+            matches!(&initializer.kind, ExprKind::Construct { arguments, .. } if arguments.len() == 2)
+        );
+        let source = "class A{A(this.value,);int value;} class B{B();} void main(){}";
+        let program = parsed(source);
+        assert!(
+            program.classes[0]
+                .constructor
+                .as_ref()
+                .unwrap()
+                .body
+                .is_empty()
+        );
+        assert!(
+            program.classes[1]
+                .constructor
+                .as_ref()
+                .unwrap()
+                .parameters
+                .is_empty()
+        );
+    }
+    /// Construtores nomeados, listas de inicialização e parâmetros opcionais são rejeitados.
+    #[test]
+    fn rejects_constructor_forms_outside_subset() {
+        for declaration in [
+            "class C{C();C(){}}",
+            "class C{C.named();}",
+            "class C{const C();}",
+            "class C{factory C();}",
+            "class C{C():super();}",
+            "class C{C():x=1;int x;}",
+            "class C{C([int x=1]);}",
+            "class C{C({int x=1});}",
+            "class C{C(super.x);}",
+            "class C{C(int this.x);int x;}",
+            "mixin class C{C();}",
+            "class C{@deprecated C();}",
+        ] {
+            let source = format!("{declaration} void main(){{}}");
+            assert!(
+                parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err(),
+                "{source}"
+            );
+        }
+    }
+    /// Mantém assinatura ABI, símbolo original e metadados sem depender do linker.
+    #[test]
+    fn native_annotations_and_metadata_are_preserved() {
+        let source = "@Deprecated('use novo') @ffi.Native<ffi.Int32 Function(ffi.Int32,ffi.Int32)>(symbol:'somar_valores',isLeaf:true) external int somarValores(int a,int b); @Native<Void Function()>() external void limpar(); @deprecated class C{@override int value()=>1;} void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        let index = index_unit(&tokens).unwrap();
+        assert_eq!(
+            index
+                .functions
+                .iter()
+                .map(|item| item.name)
+                .collect::<Vec<_>>(),
+            ["somarValores", "limpar", "main"]
+        );
+        assert_eq!(index.classes[0].name, "C");
+        let program = parse(&tokens, source.len()).unwrap();
+        let binding = program.functions[0].native_binding.as_ref().unwrap();
+        assert_eq!(binding.prefix, Some("ffi"));
+        assert_eq!(binding.result, NativeType::Int32);
+        assert_eq!(binding.parameters, [NativeType::Int32, NativeType::Int32]);
+        assert_eq!(binding.symbol, "somar_valores");
+        assert!(binding.is_leaf);
+        assert!(program.functions[0].body.is_empty());
+        assert!(
+            matches!(&program.functions[0].annotations[0].kind, AnnotationKind::Deprecated { message: Some(message) } if message == "use novo")
+        );
+        let default = program.functions[1].native_binding.as_ref().unwrap();
+        assert_eq!(default.symbol, "limpar");
+        assert!(!default.is_leaf);
+        assert!(matches!(
+            program.classes[0].annotations[0].kind,
+            AnnotationKind::Deprecated { message: None }
+        ));
+        assert!(matches!(
+            program.classes[0].methods[0].annotations[0].kind,
+            AnnotationKind::Override
+        ));
+        assert!(source[binding.span.start..binding.span.end].starts_with("@ffi.Native"));
+    }
+    /// Anotações não suportadas e vínculos externos incompletos não são ignorados.
+    #[test]
+    fn rejects_unsupported_annotations_and_native_declarations() {
+        for declaration in [
+            "class Deprecated{} @Deprecated('obsolete') void f(){}",
+            "int deprecated()=>1; @deprecated class C{}",
+            "class C{int override=1; @override int f()=>1;}",
+            "class A{int override=1;} class C extends A{@override int f()=>1;}",
+            "mixin M{int Deprecated=1;} class C with M{@Deprecated('old') int f()=>1;}",
+            "@Custom() int f()=>1;",
+            "@override int f()=>1;",
+            "@override class C{}",
+            "external int f();",
+            "@Native<Int64 Function()>() int f()=>1;",
+            "@Native<Int64 Function()>() external int f()=>1;",
+            "@Native<Int64 Function()>(assetId:'x') external int f();",
+            "@Native<Int64 Function()>(isLeaf:1) external int f();",
+            "@Native<Int64 Function()>(symbol:'') external int f();",
+            "@Native<Int64 Function()>(symbol:'x',symbol:'y') external int f();",
+            "@Native<Double Function()>() external int f();",
+            "@ffi.Native<Int64 Function()>() external int f();",
+            "@Native<Void Function()>() class C{}",
+            "class C{@Native<Int64 Function()>() external int f();}",
+            "class C{@deprecated int field=1;}",
+            "int f(@deprecated int x)=>x;",
+            "@Native<Void Function()>() external void main();",
+        ] {
+            let source = format!("{declaration} void main(){{}}");
+            assert!(
+                parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err(),
+                "{source}"
+            );
+        }
+        for source in [
+            "@",
+            "@ffi.",
+            "@Native<Int32 Function()",
+            "@Deprecated('msg')",
+        ] {
+            let tokens = dartforge_lexer::lex(source).unwrap();
+            let error = index_unit(&tokens).unwrap_err();
+            assert!(error.span.start <= error.span.end && error.span.end <= source.len());
+        }
+    }
     /// Preserva modificadores, aplicações ordenadas e padrões vazios de objeto.
     #[test]
     fn modifiers_mixins_and_empty_object_patterns() {
@@ -2444,7 +3023,7 @@ mod tests {
         assert_eq!(*annotation, Some(Type::Class(0)));
         assert!(matches!(
             initializer.kind,
-            ExprKind::Construct { class_id: 0 }
+            ExprKind::Construct { class_id: 0, .. }
         ));
         assert!(matches!(
             p.statements[1].kind,
@@ -2468,19 +3047,18 @@ mod tests {
             })
         ));
     }
-    /// Rejeita construtores explícitos e demais formas fora do subconjunto nominal.
+    /// Rejeita formas ainda fora do subconjunto nominal.
     #[test]
     fn invalid_class_forms_and_member_limits() {
         for source in [
-            "class C { C() {} } void main(){}",
-            "class C { int x; } void main(){}",
+            "class C { C.named() {} } void main(){}",
+            "class C { late int x; } void main(){}",
             "class C { static int x=1; } void main(){}",
             "class C { void x=1; } void main(){}",
             "class C extends Missing {} void main(){}",
             "class C {} class C {} void main(){}",
             "class int {} void main(){}",
             "class C<T> {} void main(){}",
-            "class C {} void main(){ C(1); }",
             "class C {} void main(){ new C(); }",
             "class C {} void main(){ class Nested{} }",
             "void main(){ print(1.5); }",

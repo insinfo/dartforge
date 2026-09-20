@@ -348,3 +348,19 @@ Seleção por primeira correspondência em imports/exports, perfis imutáveis Da
 Veja [contrato e limites](docs/IMPLEMENTACAO-15.md). Próximos passos incluem
 implementação das bibliotecas padrão adicionais e backend Wasm; as flags atuais
 descrevem a seleção compatível com o SDK, sem habilitar essas APIs.
+
+### Incremento 16 — anotações e FFI escalar estático
+
+Metadados reconhecidos, assinatura @Native/external, validação de import e ligação
+de objetos nativos com Int32/Int64/Void. Veja [contrato](docs/IMPLEMENTACAO-16.md).
+Próximos passos: tipos Pointer e memória externa com lifetime explícito, layout de
+structs/unions por ABI, callbacks, finalização, resolução de assets e bibliotecas
+dinâmicas; expandir metadata para constantes customizadas e ferramentas.
+
+### Incremento 17 — this e construtores posicionais
+
+Construtores generativos sem nome, initializing formals, campos sem inicializador
+e resolução de membros com escopo léxico. JS e LLVM preservam a ordem de avaliação
+e inicialização. Próximos passos: construtores nomeados, listas de inicialização,
+super explícito, factory, const geral e parâmetros opcionais/nomeados.
+Contrato em [THIS-CONSTRUCTORS.md](docs/THIS-CONSTRUCTORS.md).

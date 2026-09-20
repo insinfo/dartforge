@@ -29,7 +29,12 @@ pub fn fold_constants(program: &mut Program<'_>) -> FoldStats {
     let mut stats = FoldStats::default();
     for class in &mut program.classes {
         for field in &mut class.fields {
-            fold_expression(&mut field.initializer, &mut stats);
+            if let Some(initializer) = &mut field.initializer {
+                fold_expression(initializer, &mut stats);
+            }
+        }
+        if let Some(constructor) = &mut class.constructor {
+            fold_statements(&mut constructor.body, &mut stats);
         }
         for method in &mut class.methods {
             fold_statements(&mut method.body, &mut stats);
@@ -190,7 +195,9 @@ fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
                 fold_binary(*op, &left.kind, &right.kind)
             }
         }
-        ExprKind::Call { arguments, .. } | ExprKind::GenericCall { arguments, .. } => {
+        ExprKind::Call { arguments, .. }
+        | ExprKind::GenericCall { arguments, .. }
+        | ExprKind::Construct { arguments, .. } => {
             for argument in arguments {
                 fold_expression(argument, stats);
             }
@@ -453,8 +460,14 @@ mod tests {
             }),
             binary(
                 BinaryOp::Equal,
-                expr(ExprKind::Construct { class_id: 0 }),
-                expr(ExprKind::Construct { class_id: 0 }),
+                expr(ExprKind::Construct {
+                    class_id: 0,
+                    arguments: vec![],
+                }),
+                expr(ExprKind::Construct {
+                    class_id: 0,
+                    arguments: vec![],
+                }),
             ),
         ] {
             let (value, stats) = folded(value);
@@ -465,7 +478,10 @@ mod tests {
             assert_eq!(stats.folded_expressions, 0);
         }
         let (value, stats) = folded(expr(ExprKind::MethodCall {
-            receiver: Box::new(expr(ExprKind::Construct { class_id: 0 })),
+            receiver: Box::new(expr(ExprKind::Construct {
+                class_id: 0,
+                arguments: vec![],
+            })),
             name: "effect",
             arguments: vec![binary(BinaryOp::Add, int(1), int(2))],
         }));
@@ -499,6 +515,8 @@ mod tests {
             types: vec![],
             extensions: vec![],
             classes: vec![Class {
+                constructor: None,
+                annotations: vec![],
                 modifier: dartforge_syntax::ClassModifier::None,
                 kind: dartforge_syntax::ClassKind::Class,
                 mixins: vec![],
@@ -519,10 +537,12 @@ mod tests {
                     name: "x",
                     ty: Type::Int,
                     is_final: false,
-                    initializer: sum(),
+                    initializer: Some(sum()),
                     span: SPAN,
                 }],
                 methods: vec![Function {
+                    annotations: vec![],
+                    native_binding: None,
                     is_getter: false,
                     type_parameters: vec![],
                     name: "f",
@@ -534,6 +554,8 @@ mod tests {
                 span: SPAN,
             }],
             functions: vec![Function {
+                annotations: vec![],
+                native_binding: None,
                 is_getter: false,
                 type_parameters: vec![],
                 name: "g",
@@ -557,7 +579,10 @@ mod tests {
                 }))),
                 body: vec![
                     stmt(StatementKind::FieldAssign {
-                        receiver: expr(ExprKind::Construct { class_id: 0 }),
+                        receiver: expr(ExprKind::Construct {
+                            class_id: 0,
+                            arguments: vec![],
+                        }),
                         name: "x",
                         value: sum(),
                     }),
@@ -568,7 +593,11 @@ mod tests {
         let stats = fold_constants(&mut program);
         assert_eq!(stats.folded_expressions, 7);
         assert!(matches!(
-            program.classes[0].fields[0].initializer.kind,
+            program.classes[0].fields[0]
+                .initializer
+                .as_ref()
+                .unwrap()
+                .kind,
             ExprKind::Int(3)
         ));
         assert!(matches!(

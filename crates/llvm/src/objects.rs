@@ -15,6 +15,12 @@
 //! Declarações abstratas conservam separadamente assinatura e implementação herdada.
 //! Enums usam singletons do runtime; slots 0/1 guardam index/name. Consulte SDK
 //! 3.6.2 sdk/lib/core/enum.dart para identidade nominal e ordinal de declaração.
+//! Construtores sem nome recebem argumentos avaliados antes da alocação. Campos
+//! são inicializados da derivada para a base; corpos executam da base para a derivada.
+//! Helpers void preservam return sem perder o handle retornado pelo factory.
+//! Initializing formals não são locais no corpo, conforme SDK 3.6.2
+//! tests/language/initializing_formal/scope_test.dart; parâmetros comuns podem sombrear campos.
+//! Não há super(...) neste subconjunto: bases com parâmetros obrigatórios são diagnosticadas.
 use super::*;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -58,6 +64,7 @@ struct Layout {
     fields: BTreeMap<String, Field>,
     methods: BTreeMap<String, Method>,
     slots: usize,
+    constructor_parameters: Vec<Ty>,
 }
 /// Metadados nominais compartilhados e constantes de strings do módulo.
 pub(super) struct Objects {
@@ -111,7 +118,9 @@ impl Objects {
                     slots = 2;
                 }
                 for field in &class.fields {
-                    validate_expression(&field.initializer)?;
+                    if let Some(initializer) = &field.initializer {
+                        validate_expression(initializer)?;
+                    }
                     let ty = value_ty(field.ty, field.span)?;
                     fields.insert(field.name.into(), Field { ty, offset: slots });
                     slots += if matches!(ty, Ty::NullableInt | Ty::NullableBool) {
@@ -154,6 +163,39 @@ impl Objects {
                     );
                 }
 
+                let constructor_parameters = if let Some(constructor) = &class.constructor {
+                    validate_statements(&constructor.body)?;
+                    constructor
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            let parameter_type = if let Some(field) = parameter.field {
+                                class
+                                    .fields
+                                    .iter()
+                                    .find(|candidate| candidate.name == field)
+                                    .ok_or_else(|| {
+                                        error(
+                                            parameter.span,
+                                            "campo de initializing formal ausente",
+                                        )
+                                    })?
+                                    .ty
+                            } else {
+                                parameter.ty
+                            };
+                            value_ty(parameter_type, parameter.span)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    vec![]
+                };
+                if parent.is_some_and(|layout| !layout.constructor_parameters.is_empty()) {
+                    return Err(error(
+                        class.span,
+                        "construtor da base exige argumentos; super(...) não suportado",
+                    ));
+                }
                 layouts.insert(
                     class.id,
                     Layout {
@@ -164,6 +206,7 @@ impl Objects {
                         fields,
                         methods,
                         slots,
+                        constructor_parameters,
                     },
                 );
             }
@@ -224,21 +267,69 @@ impl Objects {
         for class in &module.classes {
             if !class.is_abstract && class.enum_values.is_empty() {
                 let mut emitter = FunctionEmitter::new(signatures, self, Ty::Class(class.id));
-                let object = emitter.register();
+                let mut parameters = vec![];
+                if let Some(constructor) = &class.constructor {
+                    for (index, _) in constructor.parameters.iter().enumerate() {
+                        let ty = self.layouts[&class.id].constructor_parameters[index];
+                        let value = Value {
+                            ty,
+                            text: format!("%a{index}"),
+                        };
+                        parameters.push(format!("{} %a{index}", ty.ir()));
+                        emitter.root(&value);
+                    }
+                }
+                emitter.this_class = Some(class.id);
                 emitter.line(format!(
-                    "{object} = call i64 @dartforge_object_new(i64 {}, i64 {})",
+                    "%this = call i64 @dartforge_object_new(i64 {}, i64 {})",
                     class.id, self.layouts[&class.id].slots
                 ));
                 let receiver = Value {
                     ty: Ty::Class(class.id),
-                    text: object,
+                    text: "%this".into(),
                 };
                 emitter.root(&receiver);
+                let mut chain = vec![];
                 let mut current = Some(class.id);
                 while let Some(id) = current {
                     let declaration = module.classes.iter().find(|c| c.id == id).unwrap();
+                    chain.push(declaration);
                     for field in &declaration.fields {
-                        let value = emitter.expression(&field.initializer)?;
+                        let parameter_index =
+                            declaration.constructor.as_ref().and_then(|constructor| {
+                                constructor
+                                    .parameters
+                                    .iter()
+                                    .position(|parameter| parameter.field == Some(field.name))
+                            });
+                        // Mesmo um formal que sobrescreve o campo preserva os efeitos do initializer.
+                        let initialized = field
+                            .initializer
+                            .as_ref()
+                            .map(|initializer| emitter.expression(initializer))
+                            .transpose()?;
+                        let value = if let Some(index) = parameter_index {
+                            if id != class.id {
+                                return Err(error(field.span, "argumentos de construtor base"));
+                            }
+                            Value {
+                                ty: self.layouts[&class.id].constructor_parameters[index],
+                                text: format!("%a{index}"),
+                            }
+                        } else if let Some(initialized) = initialized {
+                            initialized
+                        } else {
+                            if !self.layouts[&class.id].fields[field.name].ty.nullable() {
+                                return Err(error(
+                                    field.span,
+                                    "campo não nullable sem inicializador ou initializing formal",
+                                ));
+                            }
+                            Value {
+                                ty: Ty::Null,
+                                text: "zeroinitializer".into(),
+                            }
+                        };
                         emitter.store_field(
                             &receiver,
                             &self.layouts[&class.id].fields[field.name],
@@ -248,10 +339,54 @@ impl Objects {
                     }
                     current = declaration.superclass;
                 }
+                // Campos derivados precedem os da base; os corpos seguem a ordem inversa.
+                for declaration in chain.into_iter().rev() {
+                    if let Some(constructor) = &declaration.constructor {
+                        let mut arguments = vec!["i64 %this".to_owned()];
+                        for (index, _) in constructor.parameters.iter().enumerate() {
+                            let ty = self.layouts[&declaration.id].constructor_parameters[index];
+                            arguments.push(format!("{} %a{index}", ty.ir()));
+                        }
+                        emitter.line(format!(
+                            "call void @df_ctorbody_{}({})",
+                            declaration.id,
+                            arguments.join(", ")
+                        ));
+                    }
+                }
                 emitter.end_frame();
-                emitter.line(format!("ret i64 {}", receiver.text));
+                emitter.line("ret i64 %this".into());
                 emitter.terminated = true;
-                output.push_str(&emitter.finish(&format!("df_new_{}", class.id), ""));
+                output.push_str(
+                    &emitter.finish(&format!("df_new_{}", class.id), &parameters.join(", ")),
+                );
+            }
+            if let Some(constructor) = &class.constructor {
+                let mut emitter = FunctionEmitter::new(signatures, self, Ty::Void);
+                emitter.this_class = Some(class.id);
+                emitter.root(&Value {
+                    ty: Ty::Class(class.id),
+                    text: "%this".into(),
+                });
+                let mut parameters = vec!["i64 %this".to_owned()];
+                for (index, parameter) in constructor.parameters.iter().enumerate() {
+                    let ty = self.layouts[&class.id].constructor_parameters[index];
+                    let value = Value {
+                        ty,
+                        text: format!("%a{index}"),
+                    };
+                    parameters.push(format!("{} %a{index}", ty.ir()));
+                    emitter.root(&value);
+                    if parameter.field.is_none() {
+                        let pointer = emitter.local(parameter.name, ty);
+                        emitter.root_local(&pointer, &value);
+                        emitter.line(format!("store {} {}, ptr {pointer}", ty.ir(), value.text));
+                    }
+                }
+                emitter.block(&constructor.body)?;
+                output.push_str(
+                    &emitter.finish(&format!("df_ctorbody_{}", class.id), &parameters.join(", ")),
+                );
             }
             for (index, method) in class.methods.iter().enumerate() {
                 let info = &self.layouts[&class.id].methods[method.name];
@@ -392,6 +527,41 @@ impl Objects {
 }
 
 impl FunctionEmitter<'_> {
+    /// Avalia argumentos em ordem e protege referências antes da alocação no construtor.
+    pub(super) fn construct(
+        &mut self,
+        class_id: u32,
+        arguments: &[Expr<'_>],
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let layout = self
+            .objects
+            .layouts
+            .get(&class_id)
+            .ok_or_else(|| error(span, "classe ausente"))?;
+        if layout.is_abstract || !layout.enum_values.is_empty() {
+            return Err(error(span, "instanciação de classe abstrata ou enum"));
+        }
+        let types = layout.constructor_parameters.clone();
+        if types.len() != arguments.len() {
+            return Err(error(span, "quantidade de argumentos do construtor"));
+        }
+        let mut values = vec![];
+        for (argument, ty) in arguments.iter().zip(types) {
+            let value = self.expression(argument)?;
+            let value = self.coerce(value, ty, argument.span)?;
+            values.push(format!("{} {}", ty.ir(), value.text));
+        }
+        let result = self.register();
+        self.line(format!(
+            "{result} = call i64 @df_new_{class_id}({})",
+            values.join(", ")
+        ));
+        Ok(Value {
+            ty: Ty::Class(class_id),
+            text: result,
+        })
+    }
     /// Usa o dono físico do método clonado para localizar campos após o prefixo da base.
     pub(super) fn this_value(&self, span: Span) -> Result<Value, Diagnostic> {
         Ok(Value {

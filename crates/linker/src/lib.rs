@@ -43,6 +43,7 @@ struct ClassNames<'a> {
 /// ```
 pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<String, GraphError> {
     compile_graph_with(graph, optimize_constants, |module| {
+        dartforge_codegen::validate_javascript(module)?;
         Ok(dartforge_codegen::emit(module))
     })
 }
@@ -205,6 +206,58 @@ pub fn compile_graph_with_options(
             dartforge_parser::parse_unit(&tokens[unit_id], unit.source.len(), env)
                 .map_err(|error| source_error(graph, unit_id, error))?,
         );
+        let program = programs.last().unwrap();
+        for annotation in program
+            .functions
+            .iter()
+            .flat_map(|f| &f.annotations)
+            .chain(program.classes.iter().flat_map(|c| &c.annotations))
+            .chain(
+                program
+                    .classes
+                    .iter()
+                    .flat_map(|c| c.methods.iter().chain(&c.abstract_methods))
+                    .flat_map(|f| &f.annotations),
+            )
+        {
+            let name = metadata_name(annotation);
+            if visible[unit_id].contains_key(name) {
+                return Err(source_error(
+                    graph,
+                    unit_id,
+                    Diagnostic::new(
+                        "anotação sombreada exige resolução de constantes ainda não suportada",
+                        annotation.span,
+                    ),
+                ));
+            }
+        }
+        for function in &program.functions {
+            if let Some(binding) = &function.native_binding {
+                let imported = unit
+                    .imports
+                    .iter()
+                    .any(|edge| edge.uri == "dart:ffi" && edge.prefix.as_deref() == binding.prefix);
+                let shadowed = binding.prefix.map_or_else(
+                    || {
+                        ["Native", "Int32", "Int64", "Void"]
+                            .iter()
+                            .any(|name| visible[unit_id].contains_key(name))
+                    },
+                    |prefix| visible[unit_id].contains_key(prefix),
+                );
+                if !imported || shadowed {
+                    return Err(source_error(
+                        graph,
+                        unit_id,
+                        Diagnostic::new(
+                            "@Native exige import dart:ffi correspondente, sem sombreamento",
+                            binding.span,
+                        ),
+                    ));
+                }
+            }
+        }
     }
     let mut classes = HashMap::new();
     for (owner, program) in programs.iter_mut().enumerate() {
@@ -213,9 +266,7 @@ pub fn compile_graph_with_options(
             classes.insert(
                 class.id,
                 ClassNames {
-                    supports_implicit_members: !class.enum_values.is_empty()
-                        || class.kind != dartforge_syntax::ClassKind::Class
-                        || !class.mixins.is_empty(),
+                    supports_implicit_members: true,
                     mixins: class.mixins.clone(),
                     owner,
                     superclass: class.superclass,
@@ -232,6 +283,39 @@ pub fn compile_graph_with_options(
             );
         }
     }
+    for (owner, program) in programs.iter().enumerate() {
+        for class in &program.classes {
+            for annotation in class
+                .methods
+                .iter()
+                .chain(&class.abstract_methods)
+                .flat_map(|f| &f.annotations)
+            {
+                let name = metadata_name(annotation);
+                let mut pending = vec![class.id];
+                let mut seen = HashSet::new();
+                while let Some(id) = pending.pop() {
+                    if !seen.insert(id) {
+                        continue;
+                    }
+                    if let Some(info) = classes.get(&id) {
+                        if info.members.contains(name) {
+                            return Err(source_error(
+                                graph,
+                                owner,
+                                Diagnostic::new(
+                                    "anotação sombreada por membro exige resolução de constantes ainda não suportada",
+                                    annotation.span,
+                                ),
+                            ));
+                        }
+                        pending.extend(info.superclass);
+                        pending.extend(&info.mixins);
+                    }
+                }
+            }
+        }
+    }
     let entry_function = programs[graph.entry]
         .functions
         .iter()
@@ -243,7 +327,10 @@ pub fn compile_graph_with_options(
                 Diagnostic::new("entrada exige void main()", Span { start: 0, end: 0 }),
             )
         })?;
-    if entry_function.return_type != Type::Void || !entry_function.parameters.is_empty() {
+    if entry_function.return_type != Type::Void
+        || !entry_function.parameters.is_empty()
+        || entry_function.native_binding.is_some()
+    {
         return Err(source_error(
             graph,
             graph.entry,
@@ -481,6 +568,15 @@ fn source_error(graph: &SourceGraph, unit: usize, error: Diagnostic) -> GraphErr
     }
 }
 
+/// Recupera o nome core reconhecido antes de qualquer renomeação de símbolos.
+fn metadata_name(annotation: &dartforge_syntax::Annotation) -> &'static str {
+    match &annotation.kind {
+        dartforge_syntax::AnnotationKind::Override => "override",
+        dartforge_syntax::AnnotationKind::Deprecated { message: None } => "deprecated",
+        dartforge_syntax::AnnotationKind::Deprecated { message: Some(_) } => "Deprecated",
+    }
+}
+
 /// Resolve nomes originais antes de substituir símbolos e membros privados na AST.
 fn remap_type(ty: Type, offset: u32) -> Type {
     match ty {
@@ -581,6 +677,9 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Resolve uma classe sem permitir que renomeação esconda colisões originais.
     fn class(&mut self, class: &mut Class<'a>) -> Result<(), GraphError> {
+        for annotation in &mut class.annotations {
+            self.span(&mut annotation.span);
+        }
         self.current_class = Some(class.id);
         for name in &mut class.enum_constructor_fields {
             *name = self.member_name(name);
@@ -596,12 +695,35 @@ impl<'a> Resolver<'a, '_> {
             }
             self.ty(field.ty, field.span)?;
             field.ty = remap_type(field.ty, self.type_offset);
-            self.expression(&mut field.initializer)?;
+            if let Some(initializer) = &mut field.initializer {
+                self.expression(initializer)?;
+            }
             field.name = self.member_name(field.name);
             self.span(&mut field.span);
         }
         for interface in &class.interfaces {
             self.ty(Type::Class(*interface), class.span)?;
+        }
+        if let Some(constructor) = &mut class.constructor {
+            for parameter in &mut constructor.parameters {
+                self.ty(parameter.ty, parameter.span)?;
+                parameter.ty = remap_type(parameter.ty, self.type_offset);
+                if let Some(field) = &mut parameter.field {
+                    *field = self.member_name(field);
+                }
+                self.span(&mut parameter.span);
+            }
+            self.scopes.push(
+                constructor
+                    .parameters
+                    .iter()
+                    .filter(|p| p.field.is_none())
+                    .map(|p| p.name)
+                    .collect(),
+            );
+            self.block(&mut constructor.body)?;
+            self.scopes.pop();
+            self.span(&mut constructor.span);
         }
         for method in class.methods.iter_mut().chain(&mut class.abstract_methods) {
             if method.name == class.name {
@@ -616,6 +738,12 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Resolve assinatura fora do escopo de parâmetros e corpo em escopo aninhado.
     fn function(&mut self, function: &mut Function<'a>, top_level: bool) -> Result<(), GraphError> {
+        if let Some(binding) = &mut function.native_binding {
+            self.span(&mut binding.span);
+        }
+        for annotation in &mut function.annotations {
+            self.span(&mut annotation.span);
+        }
         self.ty(function.return_type, function.span)?;
         function.return_type = remap_type(function.return_type, self.type_offset);
         for parameter in &mut function.parameters {
@@ -917,7 +1045,13 @@ impl<'a> Resolver<'a, '_> {
                     *name = self.names[&(symbol.owner, *name)].as_str();
                 }
             }
-            ExprKind::Construct { class_id } => {
+            ExprKind::Construct {
+                class_id,
+                arguments,
+            } => {
+                for argument in arguments {
+                    self.expression(argument)?;
+                }
                 let (_, name) = self
                     .class_origins
                     .get(class_id)
@@ -1092,6 +1226,7 @@ mod tests {
                     imports: targets
                         .iter()
                         .map(|&target| dartforge_packages::Import {
+                            prefix: None,
                             uri: format!("library_{target}.dart"),
                             target,
                             span: Span { start: 0, end: 0 },
@@ -1105,6 +1240,7 @@ mod tests {
     /// Constrói uma diretiva resolvida para testar filtros sem alterar texto fonte.
     fn edge(target: usize, combinators: Vec<Combinator>) -> dartforge_packages::Import {
         dartforge_packages::Import {
+            prefix: None,
             uri: format!("library_{target}.dart"),
             target,
             span: Span { start: 0, end: 0 },
@@ -1411,7 +1547,6 @@ mod tests {
         for source in [
             "class A {int f=1;int x=f();} void main(){}",
             "class A {int C=1;C make(){return C();}} void main(){}",
-            "class A {int f(){return 1;} int g(){return f();}} void main(){}",
         ] {
             assert!(
                 compile_graph(
@@ -1422,6 +1557,13 @@ mod tests {
                 "{source}"
             );
         }
+        let source = "class A {int f(){return 1;} int g(){return f();}} void main(){}";
+        let js = compile_graph(
+            &graph(&[(source, &[1]), ("int f(){return 9;}", &[])]),
+            false,
+        )
+        .unwrap();
+        assert!(js.contains("return this.$df_f();"));
     }
     /// Interfaces transitivas ocultam globais antes da renomeação, inclusive em diamantes.
     #[test]
@@ -1437,13 +1579,9 @@ mod tests {
             ),
         ]);
         for optimize in [false, true] {
-            let error = compile_graph(&graph, optimize).unwrap_err();
-            assert!(
-                error.message.contains("this explícito"),
-                "{}",
-                error.message
-            );
-            assert_eq!(error.path, PathBuf::from("library_0.dart"));
+            let js = compile_graph(&graph, optimize).unwrap();
+            assert!(js.contains("return this.$df_f();"));
+            assert!(!js.contains("return $df_$lib0$f();"));
         }
     }
     /// Um membro privado de interface estrangeira não oculta o global privado local.

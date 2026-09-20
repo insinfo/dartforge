@@ -158,3 +158,18 @@ Diretivas com if e igualdade de strings selecionam a primeira alternativa verdad
 por perfil Dart 3.6.2. Veja [o incremento 15](IMPLEMENTACAO-15.md). JS e Native AOT
 usam seus próprios perfis; Wasm só permite inspeção do grafo. Bibliotecas SDK
 anunciadas pelas condições não estão automaticamente implementadas no DartForge.
+
+## Anotações e funções nativas
+
+O [incremento 16](IMPLEMENTACAO-16.md) admite @override/@deprecated/@Deprecated
+nas declarações descritas no contrato e @Native em funções external top-level.
+Import dart:ffi é aceito no perfil Native AOT para Int32/Int64/Void, com ligação
+estática de objetos. Isso substitui a limitação anterior de import FFI inteiramente
+indisponível, sem habilitar o restante da biblioteca.
+
+## this e construtores generativos
+
+O [incremento 17](IMPLEMENTACAO-17.md) implementa o subconjunto de construtores
+posicionais descrito em [THIS-CONSTRUCTORS.md](THIS-CONSTRUCTORS.md), nos backends
+JavaScript e LLVM. Isso substitui as restrições anteriores de construtores apenas
+implícitos ou exclusivos de enums, mantendo os demais limites explícitos.

@@ -143,8 +143,9 @@ O código original está sob [MIT](LICENSE); projetos de referência mantêm sua
 
 O [incremento 11](docs/IMPLEMENTACAO-11.md) amplia os backends JS e LLVM.
 `cargo run -p dartforge-cli -- abi-info wasm32` descreve um perfil de ABI e suas limitações.
-A nova crate `dartforge-abi` valida assinaturas escalares C; ainda não há execução de
-`dart:ffi` nem compilação de programas Dart para WebAssembly. Veja [o contrato](docs/ABI-FFI-WASM.md).
+A crate `dartforge-abi` valida assinaturas escalares C. O incremento 16 acrescenta
+`@Native` escalar ao AOT; compilação Dart para WebAssembly permanece pendente.
+Veja [o contrato](docs/ABI-FFI-WASM.md).
 
 ## Coleções e closures
 
@@ -175,3 +176,16 @@ O [incremento 15](docs/IMPLEMENTACAO-15.md) seleciona a primeira condição verd
 com perfis Dart 3.6.2 para JavaScript e Native AOT. `graph --target wasm` permite
 inspecionar a seleção Wasm; a emissão desse backend permanece pendente.
 Alternativas inativas não são carregadas. Veja a [matriz verificada no SDK](docs/ENVIRONMENT-REFERENCIAS.md).
+
+## Anotações e FFI escalar
+
+O [incremento 16](docs/IMPLEMENTACAO-16.md) acrescenta metadados reconhecidos e
+`@Native` com `external` para Int32/Int64/Void no backend LLVM. O driver AOT aceita
+`--link-object` para ligar implementações nativas. Ponteiros, callbacks, assets,
+finalizadores e FFI dinâmico permanecem pendentes.
+
+## this e construtores
+
+O [incremento 17](docs/IMPLEMENTACAO-17.md) implementa construtores posicionais,
+`this.campo`, inicialização definida e escopos com sombreamento em JS e LLVM.
+Veja [contratos e limites](docs/THIS-CONSTRUCTORS.md).

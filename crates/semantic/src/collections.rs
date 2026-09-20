@@ -354,6 +354,7 @@ impl<'a> Validator<'a> {
         }
         nested.scopes.push(scope);
         nested.loop_depth = 0;
+        nested.in_constructor = false;
         nested.switch_depth = 0;
         nested.return_type = if annotation != Type::Inferred {
             annotation
@@ -492,7 +493,12 @@ pub(super) fn captured_writes<'a>(program: &Program<'a>) -> HashSet<&'a str> {
     }
     for c in &program.classes {
         for f in &c.fields {
-            scan_expr(&f.initializer, &mut names);
+            if let Some(initializer) = &f.initializer {
+                scan_expr(initializer, &mut names);
+            }
+        }
+        if let Some(constructor) = &c.constructor {
+            scan_body(&constructor.body, false, &mut names);
         }
         for m in &c.methods {
             scan_body(&m.body, false, &mut names);
@@ -601,7 +607,11 @@ fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
             }
         }
         ExprKind::Closure { body, .. } => scan_body(body, true, names),
-        ExprKind::List { elements, .. }
+        ExprKind::Construct {
+            arguments: elements,
+            ..
+        }
+        | ExprKind::List { elements, .. }
         | ExprKind::Call {
             arguments: elements,
             ..

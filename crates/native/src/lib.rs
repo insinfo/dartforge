@@ -119,7 +119,50 @@ pub fn build_executable_with_report(
     output: &Path,
     options: &NativeOptions,
 ) -> Result<BuildReport, NativeError> {
+    build_executable_with_report_and_objects(ir, output, options, &[])
+}
+
+/// Liga objetos nativos explicitamente fornecidos, preservando as opções existentes.
+/// Os objetos devem usar a ABI C do mesmo host; handles gerenciados não são ponteiros C.
+///
+/// # Erros
+/// Rejeita caminhos inexistentes/não arquivos e propaga erros das ferramentas de ligação.
+pub fn build_executable_with_objects(
+    ir: &str,
+    output: &Path,
+    options: &NativeOptions,
+    objects: &[PathBuf],
+) -> Result<(), NativeError> {
+    build_executable_with_report_and_objects(ir, output, options, objects).map(|_| ())
+}
+
+/// Compila e mede a ligação com objetos externos, sem shell ou concatenação de comandos.
+/// Caminhos absolutos são passados individualmente ao linker, inclusive quando contêm espaços.
+/// Os bytes dos objetos continuam sob responsabilidade do chamador durante esta operação.
+///
+/// # Erros
+/// Retorna diagnósticos de objetos, compilação e publicação sem substituir saída existente.
+pub fn build_executable_with_report_and_objects(
+    ir: &str,
+    output: &Path,
+    options: &NativeOptions,
+    objects: &[PathBuf],
+) -> Result<BuildReport, NativeError> {
     let started = Instant::now();
+    let objects = objects
+        .iter()
+        .map(|path| {
+            let canonical = std::fs::canonicalize(path)
+                .map_err(|error| failure("objects", format!("{}: {error}", path.display())))?;
+            if !canonical.is_file() {
+                return Err(failure(
+                    "objects",
+                    format!("objeto não é arquivo: {}", path.display()),
+                ));
+            }
+            Ok(canonical)
+        })
+        .collect::<Result<Vec<_>, NativeError>>()?;
     if ir.lines().any(|line| {
         let mut words = line.split_whitespace();
         words.next() == Some("target") && matches!(words.next(), Some("triple" | "datalayout"))
@@ -178,24 +221,28 @@ pub fn build_executable_with_report(
     let phase = Instant::now();
     let mut link_argument = std::ffi::OsString::from("link-arg=");
     link_argument.push(&object);
-    run(
-        "rustc",
-        Command::new(&options.rustc)
-            .arg("--edition=2024")
-            .arg("--crate-name")
-            .arg("dartforge_native_program")
-            .arg(&runtime)
-            .arg("-C")
-            .arg(link_argument)
-            .arg("-C")
-            .arg(if options.optimize {
-                "opt-level=2"
-            } else {
-                "opt-level=0"
-            })
-            .arg("-o")
-            .arg(&executable),
-    )?;
+    let mut rustc = Command::new(&options.rustc);
+    rustc
+        .arg("--edition=2024")
+        .arg("--crate-name")
+        .arg("dartforge_native_program")
+        .arg(&runtime)
+        .arg("-C")
+        .arg(link_argument)
+        .arg("-C")
+        .arg(if options.optimize {
+            "opt-level=2"
+        } else {
+            "opt-level=0"
+        })
+        .arg("-o")
+        .arg(&executable);
+    for external in &objects {
+        let mut argument = std::ffi::OsString::from("link-arg=");
+        argument.push(external);
+        rustc.arg("-C").arg(argument);
+    }
+    run("rustc", &mut rustc)?;
     let rustc_link = phase.elapsed();
     let phase = Instant::now();
     let mut source =
@@ -339,6 +386,23 @@ mod tests {
         }
         assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 2);
     }
+    /// Caminhos inválidos são recusados antes de executar qualquer ferramenta.
+    #[test]
+    fn external_objects_require_existing_files() {
+        let root = fixture();
+        for object in [root.0.join("missing.obj"), root.0.clone()] {
+            let error = build_executable_with_objects(
+                "define void @dartforge_entry(){ret void}",
+                &root.0.join("out.exe"),
+                &NativeOptions::default(),
+                &[object],
+            )
+            .unwrap_err();
+            assert_eq!(error.stage, "objects");
+            assert!(!root.0.join("out.exe").exists());
+        }
+    }
+
     /// A ausência da ferramenta não publica saída nem mantém staging.
     #[test]
     fn missing_tool_cleans_up_without_output() {

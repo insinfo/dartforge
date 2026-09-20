@@ -15,6 +15,23 @@ use dartforge_syntax::{
     BinaryOp, Class, Expr, ExprKind, Function, Statement, StatementKind, Type, UnaryOp,
 };
 use std::fmt::Write;
+/// Rejeita bindings nativos antes da emissão JavaScript, inclusive em código morto.
+/// # Erros
+/// FFI exige o backend Native AOT e não pode virar um corpo JavaScript vazio.
+pub fn validate_javascript(module: &Module<'_>) -> Result<(), dartforge_diagnostics::Diagnostic> {
+    if let Some(binding) = module
+        .functions
+        .iter()
+        .find_map(|function| function.native_binding.as_ref())
+    {
+        return Err(dartforge_diagnostics::Diagnostic::new(
+            "@Native não é suportado pelo backend JavaScript",
+            binding.span,
+        ));
+    }
+    Ok(())
+}
+mod constructors;
 mod features;
 
 /// Estado local de emissão com a resolução estática fornecida pela análise.
@@ -24,6 +41,7 @@ struct Output<'a> {
     collections: bool,
     modulo_used: bool,
     enum_ids: std::collections::HashSet<u32>,
+    constructor_factories: std::collections::HashSet<u32>,
     nominal_members: std::collections::HashMap<u32, Vec<u32>>,
     next_switch: usize,
     break_targets: Vec<Option<String>>,
@@ -71,6 +89,7 @@ pub fn emit(module: &Module<'_>) -> String {
         text: String::from("// Saída do subconjunto DartForge\n"),
         resolution: &module.resolution,
         modulo_used: false,
+        constructor_factories: constructors::factory_ids(&module.classes),
         enum_ids: module
             .classes
             .iter()
@@ -102,10 +121,15 @@ pub fn emit(module: &Module<'_>) -> String {
             .iter()
             .any(|function| statements_need_null_assert(&function.body))
         || module.classes.iter().any(|class| {
-            class
-                .fields
-                .iter()
-                .any(|field| expression_needs_null_assert(&field.initializer))
+            class.fields.iter().any(|field| {
+                field
+                    .initializer
+                    .as_ref()
+                    .is_some_and(expression_needs_null_assert)
+            }) || class
+                .constructor
+                .as_ref()
+                .is_some_and(|ctor| statements_need_null_assert(&ctor.body))
                 || class
                     .methods
                     .iter()
@@ -135,6 +159,7 @@ pub fn emit(module: &Module<'_>) -> String {
         }
     }
     emit_classes(&module.classes, &mut output);
+    constructors::emit(&module.classes, &mut output);
     for function in &module.functions {
         output.push_str("function ");
         identifier(function.name, &mut output);
@@ -231,29 +256,36 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
             write!(output, " extends $dartforgeClass{base}").expect("escrever em String não falha");
         }
         output.push_str(" {\n");
-        indent(1, output);
-        output.push_str("constructor() {\n");
-        // Dart avalia os campos da classe derivada antes dos campos da base.
-        // Temporários não usam this antes de super, como exige o JavaScript.
-        for (index, field) in class.fields.iter().enumerate() {
-            indent(2, output);
-            write!(output, "const $dartforgeField{index} = ")
-                .expect("escrever em String não falha");
-            expression(&field.initializer, output);
-            output.push_str(";\n");
+        if !output.constructor_factories.contains(&class.id) {
+            indent(1, output);
+            output.push_str("constructor() {\n");
+            // Dart avalia os campos da classe derivada antes dos campos da base.
+            // Temporários não usam this antes de super, como exige o JavaScript.
+            for (index, field) in class.fields.iter().enumerate() {
+                indent(2, output);
+                write!(output, "const $dartforgeField{index} = ")
+                    .expect("escrever em String não falha");
+                if let Some(initializer) = &field.initializer {
+                    expression(initializer, output);
+                } else {
+                    output.push_str("null");
+                }
+                output.push_str(";\n");
+            }
+            if class.superclass.is_some() {
+                indent(2, output);
+                output.push_str("super();\n");
+            }
+            for (index, field) in class.fields.iter().enumerate() {
+                indent(2, output);
+                output.push_str("this.");
+                identifier(field.name, output);
+                writeln!(output, " = $dartforgeField{index};")
+                    .expect("escrever em String não falha");
+            }
+            indent(1, output);
+            output.push_str("}\n");
         }
-        if class.superclass.is_some() {
-            indent(2, output);
-            output.push_str("super();\n");
-        }
-        for (index, field) in class.fields.iter().enumerate() {
-            indent(2, output);
-            output.push_str("this.");
-            identifier(field.name, output);
-            writeln!(output, " = $dartforgeField{index};").expect("escrever em String não falha");
-        }
-        indent(1, output);
-        output.push_str("}\n");
         for method in &class.methods {
             indent(1, output);
             if method.is_getter {
@@ -323,7 +355,9 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
         ExprKind::Binary { left, right, .. } => {
             expression_needs_null_assert(left) || expression_needs_null_assert(right)
         }
-        ExprKind::Call { arguments, .. } | ExprKind::GenericCall { arguments, .. } => {
+        ExprKind::Call { arguments, .. }
+        | ExprKind::GenericCall { arguments, .. }
+        | ExprKind::Construct { arguments, .. } => {
             arguments.iter().any(expression_needs_null_assert)
         }
         ExprKind::Member { receiver, .. } => expression_needs_null_assert(receiver),
@@ -683,9 +717,22 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         }
         ExprKind::Null => output.push_str("null"),
         ExprKind::This => output.push_str("this"),
-        ExprKind::Construct { class_id } => {
-            write!(output, "new $dartforgeClass{class_id}()")
-                .expect("escrever em String não falha");
+        ExprKind::Construct {
+            class_id,
+            arguments,
+        } => {
+            if output.constructor_factories.contains(class_id) {
+                write!(output, "$dartforgeNew{class_id}(").unwrap();
+            } else {
+                write!(output, "new $dartforgeClass{class_id}(").unwrap();
+            }
+            for (index, argument) in arguments.iter().enumerate() {
+                if index != 0 {
+                    output.push(',');
+                }
+                expression(argument, output);
+            }
+            output.push(')');
         }
         ExprKind::Member { receiver, name } => {
             expression(receiver, output);
@@ -1058,6 +1105,8 @@ mod tests {
         body: Vec<Statement<'static>>,
     ) -> Function<'static> {
         Function {
+            annotations: vec![],
+            native_binding: None,
             is_getter: false,
             type_parameters: vec![],
             name,
@@ -1611,6 +1660,8 @@ mod tests {
         use dartforge_syntax::Field;
         let span = Span { start: 0, end: 0 };
         let base = Class {
+            constructor: None,
+            annotations: vec![],
             modifier: dartforge_syntax::ClassModifier::None,
             kind: dartforge_syntax::ClassKind::Class,
             mixins: vec![],
@@ -1632,7 +1683,7 @@ mod tests {
                 name: "value",
                 ty: Type::Int,
                 is_final: false,
-                initializer: asserted(call("initialize", vec![])),
+                initializer: Some(asserted(call("initialize", vec![]))),
                 span,
             }],
             methods: vec![function(
@@ -1646,6 +1697,8 @@ mod tests {
             )],
         };
         let child = Class {
+            constructor: None,
+            annotations: vec![],
             modifier: dartforge_syntax::ClassModifier::None,
             kind: dartforge_syntax::ClassKind::Class,
             mixins: vec![],
@@ -1700,7 +1753,14 @@ mod tests {
                 ),
             ],
             statements: vec![
-                variable("class_0", false, expr(ExprKind::Construct { class_id: 1 })),
+                variable(
+                    "class_0",
+                    false,
+                    expr(ExprKind::Construct {
+                        class_id: 1,
+                        arguments: vec![],
+                    }),
+                ),
                 print(method(name("class_0"), "get")),
                 statement(StatementKind::FieldAssign {
                     receiver: call("receiver", vec![name("class_0")]),
@@ -1730,6 +1790,8 @@ mod tests {
     /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
     fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
         Class {
+            constructor: None,
+            annotations: vec![],
             modifier: dartforge_syntax::ClassModifier::None,
             kind: dartforge_syntax::ClassKind::Class,
             mixins: vec![],

@@ -50,15 +50,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             serde_json::to_string_pretty(&serde_json::json!({
                 "schema_version":1,"triple":target.triple(),"pointer_bits":target.pointer_bits(),
                 "native_type_layouts":layouts,"profile_supports_dynamic_libraries":target.supports_dynamic_libraries(),
-                "ffi_execution_implemented":false,"wasm_emission_implemented":false,
-                "note":"Contrato de tipos/ABI; o driver AOT atual compila somente para o host. Não carrega bibliotecas nem compila dart:ffi."
+                "ffi_execution_implemented":false,"native_static_scalar_bindings_implemented":true,"wasm_emission_implemented":false,
+                "note":"FFI completo ainda pendente. AOT host aceita @Native Int32/Int64/Void com objetos ligados explicitamente; não carrega bibliotecas dinamicamente. Perfis não habilitam cross-compilation."
             }))?
         );
         return Ok(());
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }
@@ -89,7 +89,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "dart_library_flags": environment.library_flags(),
                 "sdk_profile_version": "3.6.2",
                 "wasm_emission_implemented": false,
-                "note": "Grafo selecionado pelo perfil do SDK. As flags não implementam APIs dart:; o subconjunto atual oferece somente dart:core. Wasm permite inspeção do grafo, sem emissão."
+                "note": "Grafo selecionado pelo perfil do SDK. As flags não implementam APIs dart:; há subconjuntos de dart:core e Native escalar de dart:ffi no AOT. Wasm permite inspeção do grafo, sem emissão."
             }))?
         );
         return Ok(());
@@ -97,19 +97,26 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "aot" {
         if args.len() < 3 {
             return Err(
-                "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]".into(),
+                "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]".into(),
             );
         }
         let mut optimize = false;
         let mut merge_identical_functions = false;
         let mut timings = false;
-        for flag in &args[3..] {
+        let mut objects = Vec::new();
+        let mut flags = args[3..].iter();
+        while let Some(flag) = flags.next() {
             if flag == "--optimize" && !optimize {
                 optimize = true;
             } else if flag == "--merge-identical-functions" && !merge_identical_functions {
                 merge_identical_functions = true;
             } else if flag == "--timings" && !timings {
                 timings = true;
+            } else if flag == "--link-object" {
+                let path = flags
+                    .next()
+                    .ok_or("--link-object exige caminho de objeto nativo")?;
+                objects.push(PathBuf::from(path));
             } else {
                 return Err(format!(
                     "opção AOT desconhecida ou repetida: {}",
@@ -137,7 +144,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent)?;
         }
-        let report = dartforge_native::build_executable_with_report(&ir, &output, &options)?;
+        let report = dartforge_native::build_executable_with_report_and_objects(
+            &ir, &output, &options, &objects,
+        )?;
         let total = total_start.elapsed();
         if timings {
             println!(

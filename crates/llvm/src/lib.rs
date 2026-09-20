@@ -17,12 +17,15 @@
 //! dartforge_entry(). Strings internas UTF-8 ainda não oferecem indexação UTF-16.
 //! Interfaces de métodos e classes abstratas participam do despacho; enums simples
 //! oferecem identidade, index, name e nullabilidade por singletons gerenciados.
+//! @Native aceita somente Int32/Int64/Void por ligação estática de símbolos C.
+//! Adaptadores truncam Int32 e estendem seu sinal; isLeaf não altera a ABI nem habilita callbacks.
 //! Consulte LLVM 17 LangRef (alloca, phi, br, add) e SDK Dart 3.6.2 sdk/lib/core/int.dart.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_hir::Module;
 use dartforge_syntax::{BinaryOp, Expr, ExprKind, Statement, StatementKind, Type, UnaryOp};
 use std::collections::HashMap;
 use std::fmt::Write;
+mod native;
 mod objects;
 use objects::Objects;
 
@@ -139,6 +142,7 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     {
         return Err(error(c.span, "enums avançadas"));
     }
+    native::validate(module)?;
     let objects = Objects::new(module)?;
     if let Some(extension) = module.extensions.first() {
         return Err(error(extension.span, "extensions"));
@@ -181,8 +185,13 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     let mut output = String::from(
         "; DartForge LLVM: inteiros i64 modulares, sem target fixo\ndeclare void @dartforge_print_i64(i64)\ndeclare void @dartforge_print_bool(i8)\ndeclare void @dartforge_print_null()\ndeclare void @dartforge_null_assert_fail() noreturn\n\n",
     );
+    output.push_str(&native::declarations(module));
     for function in &module.functions {
         let signature = &signatures[function.name];
+        if let Some(binding) = &function.native_binding {
+            output.push_str(&native::wrapper(binding, &signature.symbol));
+            continue;
+        }
         let mut emitter = FunctionEmitter::new(&signatures, &objects, signature.result);
         let mut params = vec![];
         for (index, parameter) in function.parameters.iter().enumerate() {
@@ -336,10 +345,14 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         | ExprKind::Invoke { .. } => return Err(error(value.span, "coleções e closures")),
         ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) | ExprKind::Null => {}
         ExprKind::This
-        | ExprKind::Construct { .. }
         | ExprKind::EnumValue { .. }
         | ExprKind::String(_)
         | ExprKind::OwnedString(_) => {}
+        ExprKind::Construct { arguments, .. } => {
+            for argument in arguments {
+                validate_expression(argument)?;
+            }
+        }
         ExprKind::Member { receiver, .. } => validate_expression(receiver)?,
         ExprKind::MethodCall {
             receiver,
@@ -1049,14 +1062,10 @@ impl<'a> FunctionEmitter<'a> {
                 ),
                 text: "%this".into(),
             },
-            ExprKind::Construct { class_id } => {
-                let r = self.register();
-                self.line(format!("{r} = call i64 @df_new_{class_id}()"));
-                Value {
-                    ty: Ty::Class(*class_id),
-                    text: r,
-                }
-            }
+            ExprKind::Construct {
+                class_id,
+                arguments,
+            } => self.construct(*class_id, arguments, expression.span)?,
             ExprKind::EnumValue { class_id, name } => {
                 self.enum_value(*class_id, name, expression.span)?
             }

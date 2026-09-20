@@ -10,7 +10,6 @@ workspace = true
 dartforge-hir = { path = "../hir" }
 serde_json = "1"
 dartforge-syntax = { path = "../syntax" }
-[dev-dependencies]
 dartforge-diagnostics = { path = "../diagnostics" }
 
 [[bench]]

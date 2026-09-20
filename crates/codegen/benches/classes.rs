@@ -38,6 +38,8 @@ fn main() {
             classes: (0..count)
                 .rev()
                 .map(|id| Class {
+                    constructor: None,
+                    annotations: vec![],
                     modifier: dartforge_syntax::ClassModifier::None,
                     kind: dartforge_syntax::ClassKind::Class,
                     mixins: vec![],

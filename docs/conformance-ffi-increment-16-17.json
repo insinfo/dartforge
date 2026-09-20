@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "dartVersion": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"windows_x64\"",
+  "generatedAt": "2026-09-20T18:09:34.7384813-03:00",
+  "sourceSha256": "332052B45E8140FAFCCCB68ACBF1DB88BD47C8E98554F73D5CFF2A7E3CACE0C9",
+  "nativeSourceSha256": "1169A213DFB775507EBB154455A64A487A90AB1FC633F6F73178F1A1388465E1",
+  "oracle": "SDK @Native unchanged; wrapper explicitly loads exported DLL before fixture.main",
+  "distinction": "SDK resolves DLL symbols at runtime; DartForge links the matching C object explicitly",
+  "vm": [
+    "-1",
+    "-2147483648",
+    "7",
+    "4294967303",
+    "-42",
+    "12",
+    "2"
+  ],
+  "aot": [
+    "-1",
+    "-2147483648",
+    "7",
+    "4294967303",
+    "-42",
+    "12",
+    "2"
+  ],
+  "results": [
+    {
+      "optimization": "O0",
+      "status": "pass",
+      "output": [
+        "-1",
+        "-2147483648",
+        "7",
+        "4294967303",
+        "-42",
+        "12",
+        "2"
+      ],
+      "timings": {
+        "backend": "llvm",
+        "clang_ns": 51919300,
+        "driver_total_ns": 589623400,
+        "executable_bytes": 165888,
+        "frontend_ns": 796000,
+        "merge_identical_functions": false,
+        "optimization": "O0",
+        "prepare_ns": 2790400,
+        "publish_ns": 7510600,
+        "rustc_link_ns": 522590900,
+        "schema_version": 1,
+        "total_ns": 590533600
+      }
+    },
+    {
+      "optimization": "O2",
+      "status": "pass",
+      "output": [
+        "-1",
+        "-2147483648",
+        "7",
+        "4294967303",
+        "-42",
+        "12",
+        "2"
+      ],
+      "timings": {
+        "backend": "llvm",
+        "clang_ns": 55870000,
+        "driver_total_ns": 766108400,
+        "executable_bytes": 141312,
+        "frontend_ns": 587200,
+        "merge_identical_functions": false,
+        "optimization": "O2",
+        "prepare_ns": 3427400,
+        "publish_ns": 4977800,
+        "rustc_link_ns": 697322300,
+        "schema_version": 1,
+        "total_ns": 766778200
+      }
+    }
+  ]
+}

@@ -42,6 +42,7 @@ dependencies = [
  "dartforge-packages",
  "dartforge-parser",
  "dartforge-semantic",
+ "dartforge-syntax",
  "serde_json",
 ]
 
@@ -89,6 +90,7 @@ dependencies = [
  "dartforge-diagnostics",
  "dartforge-hir",
  "dartforge-lexer",
+ "dartforge-native",
  "dartforge-parser",
  "dartforge-semantic",
  "dartforge-syntax",

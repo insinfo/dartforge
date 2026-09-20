@@ -1,0 +1,2765 @@
+{
+  "gitRevision": "cd9fa542a9febf8a9e9a9d09a661bc3744fce0ef",
+  "gitStatusPorcelain": "M .github/workflows/ci.yml\r\n M Cargo.lock\r\n M PLANO.md\r\n M README.md\r\n M crates/cli/src/main.rs\r\n M crates/codegen/Cargo.toml\r\n M crates/codegen/benches/classes.rs\r\n M crates/codegen/src/lib.rs\r\n M crates/compiler/Cargo.toml\r\n M crates/compiler/src/lib.rs\r\n M crates/hir/src/mixins.rs\r\n M crates/lexer/src/lib.rs\r\n M crates/linker/src/lib.rs\r\n M crates/llvm/Cargo.toml\r\n M crates/llvm/src/lib.rs\r\n M crates/llvm/src/objects.rs\r\n M crates/native/src/lib.rs\r\n M crates/optimizer/src/lib.rs\r\n M crates/optimizer/src/merge.rs\r\n M crates/packages/src/lib.rs\r\n M crates/parser/src/lib.rs\r\n M crates/semantic/src/collections.rs\r\n M crates/semantic/src/lib.rs\r\n M crates/syntax/src/lib.rs\r\n M docs/ABI-FFI-WASM.md\r\n M docs/SUBCONJUNTO.md\r\n?? crates/codegen/src/constructors.rs\r\n?? crates/compiler/tests/constructors17.rs\r\n?? crates/compiler/tests/ffi_native.rs\r\n?? crates/compiler/tests/ffi_resolution.rs\r\n?? crates/llvm/src/native.rs\r\n?? crates/llvm/tests/\r\n?? crates/semantic/src/constructors.rs\r\n?? crates/semantic/src/native.rs\r\n?? crates/semantic/tests/constructors.rs\r\n?? crates/semantic/tests/native_annotations.rs\r\n?? docs/FFI-ANNOTATIONS-REFERENCIAS.md\r\n?? docs/IMPLEMENTACAO-16.md\r\n?? docs/IMPLEMENTACAO-17.md\r\n?? docs/THIS-CONSTRUCTORS.md\r\n?? docs/conformance-ffi-increment-16-17.json\r\n?? docs/conformance-js-increment-17.json\r\n?? examples/ffi/\r\n?? scripts/conformance-ffi.ps1\r\n?? tests/conformance/cases/annotations.dart\r\n?? tests/conformance/modules/constructors17/\r\n?? tests/ffi/\r\n?? tests/native/cases/annotations.dart\r\n?? tests/native/cases/annotations.stdout\r\n?? tests/native/modules/constructors17/",
+  "target": "3.6.2",
+  "dartVersion": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"windows_x64\"",
+  "clangVersion": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\r\nTarget: x86_64-pc-windows-msvc\r\nThread model: posix\r\nInstalledDir: D:\\LLVM\\22.1.8\\bin",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\r\nbinary: rustc\r\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\r\ncommit-date: 2026-09-01\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.98.1\r\nLLVM version: 22.1.8",
+  "samples": 1,
+  "generatedAt": "2026-09-20T18:11:45.9292361-03:00",
+  "backend": "LLVM object + Rust runtime/link",
+  "note": "Process timings include compiler startup, LLVM, runtime compilation and linking. Warm filesystem; no DDC/JS comparison; small subset, not production-performance evidence.",
+  "results": [
+    {
+      "case": "annotations.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "42",
+        "7"
+      ],
+      "referenceOutput": [
+        "42",
+        "7"
+      ],
+      "compileMs": [
+        503.2782
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 47936800,
+          "driver_total_ns": 484051400,
+          "executable_bytes": 215552,
+          "frontend_ns": 581800,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 5567000,
+          "publish_ns": 9650100,
+          "rustc_link_ns": 417030600,
+          "schema_version": 1,
+          "total_ns": 484746200
+        }
+      ],
+      "officialCompileMs": [
+        1463.5509
+      ],
+      "gcStats": [
+        {
+          "allocations": 1,
+          "collections": 1,
+          "reclaimed": 0,
+          "live_objects": 1,
+          "reserved_slots": 1,
+          "root_slots": 0,
+          "peak_root_slots": 5,
+          "live_roots": 0,
+          "peak_roots": 5,
+          "live_bytes": 32,
+          "peak_live_bytes": 32,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "annotations.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "42",
+        "7"
+      ],
+      "referenceOutput": [
+        "42",
+        "7"
+      ],
+      "compileMs": [
+        806.1215
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 52772300,
+          "driver_total_ns": 781617300,
+          "executable_bytes": 153600,
+          "frontend_ns": 504500,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3732200,
+          "publish_ns": 8465800,
+          "rustc_link_ns": 708705000,
+          "schema_version": 1,
+          "total_ns": 782212500
+        }
+      ],
+      "officialCompileMs": [
+        1463.5509
+      ],
+      "gcStats": [
+        {
+          "allocations": 1,
+          "collections": 1,
+          "reclaimed": 0,
+          "live_objects": 1,
+          "reserved_slots": 1,
+          "root_slots": 0,
+          "peak_root_slots": 5,
+          "live_roots": 0,
+          "peak_roots": 5,
+          "live_bytes": 32,
+          "peak_live_bytes": 32,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "arithmetic.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "3628800",
+        "81",
+        "4611686014132420609",
+        "-8589934591",
+        "8589934591",
+        "false",
+        "true"
+      ],
+      "referenceOutput": [
+        "3628800",
+        "81",
+        "4611686014132420609",
+        "-8589934591",
+        "8589934591",
+        "false",
+        "true"
+      ],
+      "compileMs": [
+        490.8478
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 52361100,
+          "driver_total_ns": 473120800,
+          "executable_bytes": 165888,
+          "frontend_ns": 501700,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 4565100,
+          "publish_ns": 10083400,
+          "rustc_link_ns": 399377200,
+          "schema_version": 1,
+          "total_ns": 473714600
+        }
+      ],
+      "officialCompileMs": [
+        1413.9747
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "arithmetic.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "3628800",
+        "81",
+        "4611686014132420609",
+        "-8589934591",
+        "8589934591",
+        "false",
+        "true"
+      ],
+      "referenceOutput": [
+        "3628800",
+        "81",
+        "4611686014132420609",
+        "-8589934591",
+        "8589934591",
+        "false",
+        "true"
+      ],
+      "compileMs": [
+        875.3463
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 57304000,
+          "driver_total_ns": 856206900,
+          "executable_bytes": 141824,
+          "frontend_ns": 543500,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2909800,
+          "publish_ns": 9088300,
+          "rustc_link_ns": 783415100,
+          "schema_version": 1,
+          "total_ns": 856887600
+        }
+      ],
+      "officialCompileMs": [
+        1413.9747
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "calls.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "1",
+        "2",
+        "3",
+        "true",
+        "77"
+      ],
+      "referenceOutput": [
+        "1",
+        "2",
+        "3",
+        "true",
+        "77"
+      ],
+      "compileMs": [
+        493.8887
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 46596400,
+          "driver_total_ns": 476746300,
+          "executable_bytes": 165888,
+          "frontend_ns": 552900,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3425300,
+          "publish_ns": 8018100,
+          "rustc_link_ns": 415486500,
+          "schema_version": 1,
+          "total_ns": 477388900
+        }
+      ],
+      "officialCompileMs": [
+        1531.5131
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "calls.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "1",
+        "2",
+        "3",
+        "true",
+        "77"
+      ],
+      "referenceOutput": [
+        "1",
+        "2",
+        "3",
+        "true",
+        "77"
+      ],
+      "compileMs": [
+        759.6644
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 49499600,
+          "driver_total_ns": 745846600,
+          "executable_bytes": 141312,
+          "frontend_ns": 559500,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3929600,
+          "publish_ns": 7181600,
+          "rustc_link_ns": 681180800,
+          "schema_version": 1,
+          "total_ns": 746498000
+        }
+      ],
+      "officialCompileMs": [
+        1531.5131
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "coalesce_promotion.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "1",
+        "42",
+        "8",
+        "false"
+      ],
+      "referenceOutput": [
+        "1",
+        "42",
+        "8",
+        "false"
+      ],
+      "compileMs": [
+        474.1186
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 53209800,
+          "driver_total_ns": 455228500,
+          "executable_bytes": 169472,
+          "frontend_ns": 792400,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 4596600,
+          "publish_ns": 8141100,
+          "rustc_link_ns": 386428100,
+          "schema_version": 1,
+          "total_ns": 456292800
+        }
+      ],
+      "officialCompileMs": [
+        1418.8213
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "coalesce_promotion.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "1",
+        "42",
+        "8",
+        "false"
+      ],
+      "referenceOutput": [
+        "1",
+        "42",
+        "8",
+        "false"
+      ],
+      "compileMs": [
+        750.6833
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 51812500,
+          "driver_total_ns": 735774800,
+          "executable_bytes": 141312,
+          "frontend_ns": 487300,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2463300,
+          "publish_ns": 8635300,
+          "rustc_link_ns": 668769600,
+          "schema_version": 1,
+          "total_ns": 736346100
+        }
+      ],
+      "officialCompileMs": [
+        1418.8213
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "control_flow.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "13",
+        "3",
+        "4",
+        "3",
+        "1",
+        "0",
+        "false",
+        "true",
+        "300",
+        "true",
+        "5",
+        "4"
+      ],
+      "referenceOutput": [
+        "13",
+        "3",
+        "4",
+        "3",
+        "1",
+        "0",
+        "false",
+        "true",
+        "300",
+        "true",
+        "5",
+        "4"
+      ],
+      "compileMs": [
+        509.8407
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 49033700,
+          "driver_total_ns": 489857300,
+          "executable_bytes": 166400,
+          "frontend_ns": 1134500,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3757100,
+          "publish_ns": 7929000,
+          "rustc_link_ns": 425968400,
+          "schema_version": 1,
+          "total_ns": 491322500
+        }
+      ],
+      "officialCompileMs": [
+        1422.5931
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "control_flow.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "13",
+        "3",
+        "4",
+        "3",
+        "1",
+        "0",
+        "false",
+        "true",
+        "300",
+        "true",
+        "5",
+        "4"
+      ],
+      "referenceOutput": [
+        "13",
+        "3",
+        "4",
+        "3",
+        "1",
+        "0",
+        "false",
+        "true",
+        "300",
+        "true",
+        "5",
+        "4"
+      ],
+      "compileMs": [
+        784.9035
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 57650600,
+          "driver_total_ns": 767160300,
+          "executable_bytes": 141312,
+          "frontend_ns": 532900,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 4105300,
+          "publish_ns": 6093700,
+          "rustc_link_ns": 686067800,
+          "schema_version": 1,
+          "total_ns": 767781200
+        }
+      ],
+      "officialCompileMs": [
+        1422.5931
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "edge_cfg.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "16",
+        "1",
+        "4",
+        "2",
+        "false",
+        "7",
+        "false",
+        "8",
+        "true",
+        "-9223372036854775808",
+        "-9223372036854775808",
+        "9223372036854775807",
+        "0",
+        "42"
+      ],
+      "referenceOutput": [
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "16",
+        "1",
+        "4",
+        "2",
+        "false",
+        "7",
+        "false",
+        "8",
+        "true",
+        "-9223372036854775808",
+        "-9223372036854775808",
+        "9223372036854775807",
+        "0",
+        "42"
+      ],
+      "compileMs": [
+        540.326
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 58118000,
+          "driver_total_ns": 523398000,
+          "executable_bytes": 166400,
+          "frontend_ns": 630900,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 4038900,
+          "publish_ns": 6080100,
+          "rustc_link_ns": 451017300,
+          "schema_version": 1,
+          "total_ns": 524122100
+        }
+      ],
+      "officialCompileMs": [
+        1457.9715
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "edge_cfg.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "16",
+        "1",
+        "4",
+        "2",
+        "false",
+        "7",
+        "false",
+        "8",
+        "true",
+        "-9223372036854775808",
+        "-9223372036854775808",
+        "9223372036854775807",
+        "0",
+        "42"
+      ],
+      "referenceOutput": [
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "16",
+        "1",
+        "4",
+        "2",
+        "false",
+        "7",
+        "false",
+        "8",
+        "true",
+        "-9223372036854775808",
+        "-9223372036854775808",
+        "9223372036854775807",
+        "0",
+        "42"
+      ],
+      "compileMs": [
+        931.1632
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 65232900,
+          "driver_total_ns": 907476500,
+          "executable_bytes": 141824,
+          "frontend_ns": 659700,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3182100,
+          "publish_ns": 5795000,
+          "rustc_link_ns": 829348200,
+          "schema_version": 1,
+          "total_ns": 908223700
+        }
+      ],
+      "officialCompileMs": [
+        1457.9715
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "expression_bodies.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "42",
+        "3"
+      ],
+      "referenceOutput": [
+        "42",
+        "3"
+      ],
+      "compileMs": [
+        481.4032
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 48125500,
+          "driver_total_ns": 449502100,
+          "executable_bytes": 164864,
+          "frontend_ns": 597700,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3599500,
+          "publish_ns": 8677600,
+          "rustc_link_ns": 385429400,
+          "schema_version": 1,
+          "total_ns": 450213900
+        }
+      ],
+      "officialCompileMs": [
+        1622.7333
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "expression_bodies.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "42",
+        "3"
+      ],
+      "referenceOutput": [
+        "42",
+        "3"
+      ],
+      "compileMs": [
+        792.1076
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 49643800,
+          "driver_total_ns": 768337500,
+          "executable_bytes": 141312,
+          "frontend_ns": 502500,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3215400,
+          "publish_ns": 4898200,
+          "rustc_link_ns": 706993500,
+          "schema_version": 1,
+          "total_ns": 768931600
+        }
+      ],
+      "officialCompileMs": [
+        1622.7333
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "gc_root_slots.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "start!step!step!step!"
+      ],
+      "referenceOutput": [
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "start!step!step!step!"
+      ],
+      "compileMs": [
+        512.5745
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 48165600,
+          "driver_total_ns": 491419100,
+          "executable_bytes": 227328,
+          "frontend_ns": 844200,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3163300,
+          "publish_ns": 8418400,
+          "rustc_link_ns": 428157100,
+          "schema_version": 1,
+          "total_ns": 492392000
+        }
+      ],
+      "officialCompileMs": [
+        1413.7414
+      ],
+      "gcStats": [
+        {
+          "allocations": 20095,
+          "collections": 20095,
+          "reclaimed": 20089,
+          "live_objects": 6,
+          "reserved_slots": 12,
+          "root_slots": 0,
+          "peak_root_slots": 46,
+          "live_roots": 0,
+          "peak_roots": 33,
+          "live_bytes": 248,
+          "peak_live_bytes": 549,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "gc_root_slots.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "start!step!step!step!"
+      ],
+      "referenceOutput": [
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "next!",
+        "first!",
+        "first!",
+        "true",
+        "start!step!step!step!"
+      ],
+      "compileMs": [
+        789.9348
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 73687100,
+          "driver_total_ns": 769832000,
+          "executable_bytes": 160768,
+          "frontend_ns": 779900,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2943000,
+          "publish_ns": 7513000,
+          "rustc_link_ns": 681749200,
+          "schema_version": 1,
+          "total_ns": 770716400
+        }
+      ],
+      "officialCompileMs": [
+        1413.7414
+      ],
+      "gcStats": [
+        {
+          "allocations": 20095,
+          "collections": 20095,
+          "reclaimed": 20089,
+          "live_objects": 6,
+          "reserved_slots": 12,
+          "root_slots": 0,
+          "peak_root_slots": 46,
+          "live_roots": 0,
+          "peak_roots": 33,
+          "live_bytes": 248,
+          "peak_live_bytes": 549,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "interfaces_enums.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "81",
+        "leaf",
+        "3",
+        "leaf",
+        "17",
+        "green",
+        "2",
+        "true",
+        "true",
+        "false",
+        "true",
+        "green",
+        "2",
+        "ab",
+        "red"
+      ],
+      "referenceOutput": [
+        "81",
+        "leaf",
+        "3",
+        "leaf",
+        "17",
+        "green",
+        "2",
+        "true",
+        "true",
+        "false",
+        "true",
+        "green",
+        "2",
+        "ab",
+        "red"
+      ],
+      "compileMs": [
+        496.4104
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 48636600,
+          "driver_total_ns": 458151100,
+          "executable_bytes": 251392,
+          "frontend_ns": 868200,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 4141400,
+          "publish_ns": 10082400,
+          "rustc_link_ns": 392413300,
+          "schema_version": 1,
+          "total_ns": 459129800
+        }
+      ],
+      "officialCompileMs": [
+        1449.4771
+      ],
+      "gcStats": [
+        {
+          "allocations": 162,
+          "collections": 162,
+          "reclaimed": 146,
+          "live_objects": 16,
+          "reserved_slots": 16,
+          "root_slots": 0,
+          "peak_root_slots": 51,
+          "live_roots": 0,
+          "peak_roots": 42,
+          "live_bytes": 681,
+          "peak_live_bytes": 681,
+          "permanent_roots": 4
+        }
+      ]
+    },
+    {
+      "case": "interfaces_enums.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "81",
+        "leaf",
+        "3",
+        "leaf",
+        "17",
+        "green",
+        "2",
+        "true",
+        "true",
+        "false",
+        "true",
+        "green",
+        "2",
+        "ab",
+        "red"
+      ],
+      "referenceOutput": [
+        "81",
+        "leaf",
+        "3",
+        "leaf",
+        "17",
+        "green",
+        "2",
+        "true",
+        "true",
+        "false",
+        "true",
+        "green",
+        "2",
+        "ab",
+        "red"
+      ],
+      "compileMs": [
+        785.6775
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 66290300,
+          "driver_total_ns": 759910100,
+          "executable_bytes": 167936,
+          "frontend_ns": 881900,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 5597600,
+          "publish_ns": 7060700,
+          "rustc_link_ns": 677075700,
+          "schema_version": 1,
+          "total_ns": 760901200
+        }
+      ],
+      "officialCompileMs": [
+        1449.4771
+      ],
+      "gcStats": [
+        {
+          "allocations": 162,
+          "collections": 162,
+          "reclaimed": 146,
+          "live_objects": 16,
+          "reserved_slots": 16,
+          "root_slots": 0,
+          "peak_root_slots": 51,
+          "live_roots": 0,
+          "peak_roots": 42,
+          "live_bytes": 681,
+          "peak_live_bytes": 681,
+          "permanent_roots": 4
+        }
+      ]
+    },
+    {
+      "case": "managed_lifetimes.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "true",
+        "root!",
+        "left!right!",
+        "false",
+        "true",
+        "true",
+        "fallback!",
+        "false",
+        "ação 🦀"
+      ],
+      "referenceOutput": [
+        "true",
+        "root!",
+        "left!right!",
+        "false",
+        "true",
+        "true",
+        "fallback!",
+        "false",
+        "ação 🦀"
+      ],
+      "compileMs": [
+        497.2171
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 49488100,
+          "driver_total_ns": 475050800,
+          "executable_bytes": 225792,
+          "frontend_ns": 719000,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3478100,
+          "publish_ns": 8314500,
+          "rustc_link_ns": 409158400,
+          "schema_version": 1,
+          "total_ns": 475865300
+        }
+      ],
+      "officialCompileMs": [
+        1443.8902
+      ],
+      "gcStats": [
+        {
+          "allocations": 5433,
+          "collections": 5433,
+          "reclaimed": 5412,
+          "live_objects": 21,
+          "reserved_slots": 21,
+          "root_slots": 0,
+          "peak_root_slots": 49,
+          "live_roots": 0,
+          "peak_roots": 29,
+          "live_bytes": 976,
+          "peak_live_bytes": 976,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "managed_lifetimes.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "true",
+        "root!",
+        "left!right!",
+        "false",
+        "true",
+        "true",
+        "fallback!",
+        "false",
+        "ação 🦀"
+      ],
+      "referenceOutput": [
+        "true",
+        "root!",
+        "left!right!",
+        "false",
+        "true",
+        "true",
+        "fallback!",
+        "false",
+        "ação 🦀"
+      ],
+      "compileMs": [
+        786.9079
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 53349200,
+          "driver_total_ns": 764610500,
+          "executable_bytes": 160256,
+          "frontend_ns": 791200,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3890000,
+          "publish_ns": 6181900,
+          "rustc_link_ns": 695353500,
+          "schema_version": 1,
+          "total_ns": 765517800
+        }
+      ],
+      "officialCompileMs": [
+        1443.8902
+      ],
+      "gcStats": [
+        {
+          "allocations": 5433,
+          "collections": 5433,
+          "reclaimed": 5412,
+          "live_objects": 21,
+          "reserved_slots": 21,
+          "root_slots": 0,
+          "peak_root_slots": 49,
+          "live_roots": 0,
+          "peak_roots": 29,
+          "live_bytes": 976,
+          "peak_live_bytes": 976,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "managed_objects.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "child",
+        "base",
+        "child:base",
+        "7",
+        "42",
+        "null",
+        "left!right!",
+        "null",
+        "fallback!",
+        "true",
+        "same!😀",
+        "true",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null"
+      ],
+      "referenceOutput": [
+        "child",
+        "base",
+        "child:base",
+        "7",
+        "42",
+        "null",
+        "left!right!",
+        "null",
+        "fallback!",
+        "true",
+        "same!😀",
+        "true",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null"
+      ],
+      "compileMs": [
+        600.7105
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 65678500,
+          "driver_total_ns": 577860400,
+          "executable_bytes": 234496,
+          "frontend_ns": 995500,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3379800,
+          "publish_ns": 8159000,
+          "rustc_link_ns": 497012500,
+          "schema_version": 1,
+          "total_ns": 578978700
+        }
+      ],
+      "officialCompileMs": [
+        1451.4691
+      ],
+      "gcStats": [
+        {
+          "allocations": 58,
+          "collections": 58,
+          "reclaimed": 29,
+          "live_objects": 29,
+          "reserved_slots": 29,
+          "root_slots": 0,
+          "peak_root_slots": 61,
+          "live_roots": 0,
+          "peak_roots": 54,
+          "live_bytes": 1287,
+          "peak_live_bytes": 1287,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "managed_objects.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "child",
+        "base",
+        "child:base",
+        "7",
+        "42",
+        "null",
+        "left!right!",
+        "null",
+        "fallback!",
+        "true",
+        "same!😀",
+        "true",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null"
+      ],
+      "referenceOutput": [
+        "child",
+        "base",
+        "child:base",
+        "7",
+        "42",
+        "null",
+        "left!right!",
+        "null",
+        "fallback!",
+        "true",
+        "same!😀",
+        "true",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null",
+        "true",
+        "B!",
+        "false",
+        "null"
+      ],
+      "compileMs": [
+        923.3412
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 74557600,
+          "driver_total_ns": 903240800,
+          "executable_bytes": 165376,
+          "frontend_ns": 993900,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3262500,
+          "publish_ns": 6468600,
+          "rustc_link_ns": 814989400,
+          "schema_version": 1,
+          "total_ns": 904366200
+        }
+      ],
+      "officialCompileMs": [
+        1451.4691
+      ],
+      "gcStats": [
+        {
+          "allocations": 58,
+          "collections": 58,
+          "reclaimed": 29,
+          "live_objects": 29,
+          "reserved_slots": 29,
+          "root_slots": 0,
+          "peak_root_slots": 61,
+          "live_roots": 0,
+          "peak_roots": 54,
+          "live_bytes": 1287,
+          "peak_live_bytes": 1287,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "mixins.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "30",
+        "20",
+        "10",
+        "7",
+        "7",
+        "11",
+        "12",
+        "3",
+        "12",
+        "13",
+        "10",
+        "100",
+        "200",
+        "11",
+        "100",
+        "200",
+        "13",
+        "5",
+        "5"
+      ],
+      "referenceOutput": [
+        "30",
+        "20",
+        "10",
+        "7",
+        "7",
+        "11",
+        "12",
+        "3",
+        "12",
+        "13",
+        "10",
+        "100",
+        "200",
+        "11",
+        "100",
+        "200",
+        "13",
+        "5",
+        "5"
+      ],
+      "compileMs": [
+        494.0966
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 58532100,
+          "driver_total_ns": 475708700,
+          "executable_bytes": 226816,
+          "frontend_ns": 935100,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3626900,
+          "publish_ns": 7063100,
+          "rustc_link_ns": 402704000,
+          "schema_version": 1,
+          "total_ns": 476750700
+        }
+      ],
+      "officialCompileMs": [
+        1448.8101
+      ],
+      "gcStats": [
+        {
+          "allocations": 4,
+          "collections": 4,
+          "reclaimed": 0,
+          "live_objects": 4,
+          "reserved_slots": 4,
+          "root_slots": 0,
+          "peak_root_slots": 22,
+          "live_roots": 0,
+          "peak_roots": 20,
+          "live_bytes": 272,
+          "peak_live_bytes": 272,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "mixins.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "30",
+        "20",
+        "10",
+        "7",
+        "7",
+        "11",
+        "12",
+        "3",
+        "12",
+        "13",
+        "10",
+        "100",
+        "200",
+        "11",
+        "100",
+        "200",
+        "13",
+        "5",
+        "5"
+      ],
+      "referenceOutput": [
+        "30",
+        "20",
+        "10",
+        "7",
+        "7",
+        "11",
+        "12",
+        "3",
+        "12",
+        "13",
+        "10",
+        "100",
+        "200",
+        "11",
+        "100",
+        "200",
+        "13",
+        "5",
+        "5"
+      ],
+      "compileMs": [
+        882.9248
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 139062800,
+          "driver_total_ns": 863416800,
+          "executable_bytes": 163328,
+          "frontend_ns": 921700,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 4337900,
+          "publish_ns": 7831900,
+          "rustc_link_ns": 708522000,
+          "schema_version": 1,
+          "total_ns": 864458000
+        }
+      ],
+      "officialCompileMs": [
+        1448.8101
+      ],
+      "gcStats": [
+        {
+          "allocations": 4,
+          "collections": 4,
+          "reclaimed": 0,
+          "live_objects": 4,
+          "reserved_slots": 4,
+          "root_slots": 0,
+          "peak_root_slots": 22,
+          "live_roots": 0,
+          "peak_roots": 20,
+          "live_bytes": 272,
+          "peak_live_bytes": 272,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "null_flow_loops.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "13",
+        "12",
+        "11",
+        "10",
+        "null",
+        "true",
+        "false",
+        "null"
+      ],
+      "referenceOutput": [
+        "13",
+        "12",
+        "11",
+        "10",
+        "null",
+        "true",
+        "false",
+        "null"
+      ],
+      "compileMs": [
+        489.4443
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 49757000,
+          "driver_total_ns": 467359900,
+          "executable_bytes": 169984,
+          "frontend_ns": 886200,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3113600,
+          "publish_ns": 6358100,
+          "rustc_link_ns": 404976100,
+          "schema_version": 1,
+          "total_ns": 468368000
+        }
+      ],
+      "officialCompileMs": [
+        1496.3376
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "null_flow_loops.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "13",
+        "12",
+        "11",
+        "10",
+        "null",
+        "true",
+        "false",
+        "null"
+      ],
+      "referenceOutput": [
+        "13",
+        "12",
+        "11",
+        "10",
+        "null",
+        "true",
+        "false",
+        "null"
+      ],
+      "compileMs": [
+        763.5862
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 48537400,
+          "driver_total_ns": 741859200,
+          "executable_bytes": 141824,
+          "frontend_ns": 755800,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2441600,
+          "publish_ns": 5828000,
+          "rustc_link_ns": 681116600,
+          "schema_version": 1,
+          "total_ns": 742726900
+        }
+      ],
+      "officialCompileMs": [
+        1496.3376
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "null_safety.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "null",
+        "40",
+        "null",
+        "true",
+        "901",
+        "8",
+        "null",
+        "null",
+        "null",
+        "true",
+        "false",
+        "true",
+        "true",
+        "900",
+        "12",
+        "true",
+        "false",
+        "true",
+        "7",
+        "false",
+        "false",
+        "true",
+        "false",
+        "false",
+        "7",
+        "false",
+        "true",
+        "true",
+        "9",
+        "true",
+        "null",
+        "0",
+        "null",
+        "true",
+        "20",
+        "5",
+        "null",
+        "4",
+        "null",
+        "true",
+        "null",
+        "true",
+        "false",
+        "7",
+        "false",
+        "33"
+      ],
+      "referenceOutput": [
+        "null",
+        "40",
+        "null",
+        "true",
+        "901",
+        "8",
+        "null",
+        "null",
+        "null",
+        "true",
+        "false",
+        "true",
+        "true",
+        "900",
+        "12",
+        "true",
+        "false",
+        "true",
+        "7",
+        "false",
+        "false",
+        "true",
+        "false",
+        "false",
+        "7",
+        "false",
+        "true",
+        "true",
+        "9",
+        "true",
+        "null",
+        "0",
+        "null",
+        "true",
+        "20",
+        "5",
+        "null",
+        "4",
+        "null",
+        "true",
+        "null",
+        "true",
+        "false",
+        "7",
+        "false",
+        "33"
+      ],
+      "compileMs": [
+        493.3075
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 52050900,
+          "driver_total_ns": 471217200,
+          "executable_bytes": 171520,
+          "frontend_ns": 833300,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 2715800,
+          "publish_ns": 5882200,
+          "rustc_link_ns": 406131300,
+          "schema_version": 1,
+          "total_ns": 472145100
+        }
+      ],
+      "officialCompileMs": [
+        1603.6038
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "null_safety.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "null",
+        "40",
+        "null",
+        "true",
+        "901",
+        "8",
+        "null",
+        "null",
+        "null",
+        "true",
+        "false",
+        "true",
+        "true",
+        "900",
+        "12",
+        "true",
+        "false",
+        "true",
+        "7",
+        "false",
+        "false",
+        "true",
+        "false",
+        "false",
+        "7",
+        "false",
+        "true",
+        "true",
+        "9",
+        "true",
+        "null",
+        "0",
+        "null",
+        "true",
+        "20",
+        "5",
+        "null",
+        "4",
+        "null",
+        "true",
+        "null",
+        "true",
+        "false",
+        "7",
+        "false",
+        "33"
+      ],
+      "referenceOutput": [
+        "null",
+        "40",
+        "null",
+        "true",
+        "901",
+        "8",
+        "null",
+        "null",
+        "null",
+        "true",
+        "false",
+        "true",
+        "true",
+        "900",
+        "12",
+        "true",
+        "false",
+        "true",
+        "7",
+        "false",
+        "false",
+        "true",
+        "false",
+        "false",
+        "7",
+        "false",
+        "true",
+        "true",
+        "9",
+        "true",
+        "null",
+        "0",
+        "null",
+        "true",
+        "20",
+        "5",
+        "null",
+        "4",
+        "null",
+        "true",
+        "null",
+        "true",
+        "false",
+        "7",
+        "false",
+        "33"
+      ],
+      "compileMs": [
+        824.9297
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 59985000,
+          "driver_total_ns": 797818900,
+          "executable_bytes": 142848,
+          "frontend_ns": 787700,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3761700,
+          "publish_ns": 8152500,
+          "rustc_link_ns": 719847300,
+          "schema_version": 1,
+          "total_ns": 798697100
+        }
+      ],
+      "officialCompileMs": [
+        1603.6038
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "root_slots.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "42",
+        "true",
+        "ab",
+        "999",
+        "998",
+        "501501"
+      ],
+      "referenceOutput": [
+        "42",
+        "true",
+        "ab",
+        "999",
+        "998",
+        "501501"
+      ],
+      "compileMs": [
+        496.0749
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 45562700,
+          "driver_total_ns": 475003800,
+          "executable_bytes": 227840,
+          "frontend_ns": 669000,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3037100,
+          "publish_ns": 13192400,
+          "rustc_link_ns": 410069400,
+          "schema_version": 1,
+          "total_ns": 475761500
+        }
+      ],
+      "officialCompileMs": [
+        1476.5052
+      ],
+      "gcStats": [
+        {
+          "allocations": 20000,
+          "collections": 20000,
+          "reclaimed": 19983,
+          "live_objects": 17,
+          "reserved_slots": 19,
+          "root_slots": 0,
+          "peak_root_slots": 34,
+          "live_roots": 0,
+          "peak_roots": 24,
+          "live_bytes": 938,
+          "peak_live_bytes": 1058,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "root_slots.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "42",
+        "true",
+        "ab",
+        "999",
+        "998",
+        "501501"
+      ],
+      "referenceOutput": [
+        "42",
+        "true",
+        "ab",
+        "999",
+        "998",
+        "501501"
+      ],
+      "compileMs": [
+        789.3995
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 59755800,
+          "driver_total_ns": 768955300,
+          "executable_bytes": 160768,
+          "frontend_ns": 681700,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2941700,
+          "publish_ns": 9371800,
+          "rustc_link_ns": 693526000,
+          "schema_version": 1,
+          "total_ns": 769730300
+        }
+      ],
+      "officialCompileMs": [
+        1476.5052
+      ],
+      "gcStats": [
+        {
+          "allocations": 20000,
+          "collections": 20000,
+          "reclaimed": 19983,
+          "live_objects": 17,
+          "reserved_slots": 19,
+          "root_slots": 0,
+          "peak_root_slots": 34,
+          "live_roots": 0,
+          "peak_roots": 24,
+          "live_bytes": 938,
+          "peak_live_bytes": 1058,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/conditional15/main.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "native",
+        "absent=false",
+        "export native",
+        "package native",
+        "default",
+        "3"
+      ],
+      "referenceOutput": [
+        "native",
+        "absent=false",
+        "export native",
+        "package native",
+        "default",
+        "3"
+      ],
+      "compileMs": [
+        503.5432
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 47296800,
+          "driver_total_ns": 470887700,
+          "executable_bytes": 213504,
+          "frontend_ns": 1237400,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3149100,
+          "publish_ns": 7943300,
+          "rustc_link_ns": 406998400,
+          "schema_version": 1,
+          "total_ns": 472239200
+        }
+      ],
+      "officialCompileMs": [
+        1463.2519
+      ],
+      "gcStats": [
+        {
+          "allocations": 5,
+          "collections": 5,
+          "reclaimed": 0,
+          "live_objects": 5,
+          "reserved_slots": 5,
+          "root_slots": 0,
+          "peak_root_slots": 6,
+          "live_roots": 0,
+          "peak_roots": 5,
+          "live_bytes": 212,
+          "peak_live_bytes": 212,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/conditional15/main.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "native",
+        "absent=false",
+        "export native",
+        "package native",
+        "default",
+        "3"
+      ],
+      "referenceOutput": [
+        "native",
+        "absent=false",
+        "export native",
+        "package native",
+        "default",
+        "3"
+      ],
+      "compileMs": [
+        781.1567
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 54780000,
+          "driver_total_ns": 754055900,
+          "executable_bytes": 154624,
+          "frontend_ns": 1487600,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2880400,
+          "publish_ns": 6550300,
+          "rustc_link_ns": 685727600,
+          "schema_version": 1,
+          "total_ns": 755689200
+        }
+      ],
+      "officialCompileMs": [
+        1463.2519
+      ],
+      "gcStats": [
+        {
+          "allocations": 5,
+          "collections": 5,
+          "reclaimed": 0,
+          "live_objects": 5,
+          "reserved_slots": 5,
+          "root_slots": 0,
+          "peak_root_slots": 6,
+          "live_roots": 0,
+          "peak_roots": 5,
+          "live_bytes": 212,
+          "peak_live_bytes": 212,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/constructors17/main.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "a",
+        "b",
+        "20",
+        "30",
+        "a",
+        "local:a!",
+        "b",
+        "100",
+        "7",
+        "21",
+        "30",
+        "null",
+        "4",
+        "5",
+        "10",
+        "8",
+        "4"
+      ],
+      "referenceOutput": [
+        "a",
+        "b",
+        "20",
+        "30",
+        "a",
+        "local:a!",
+        "b",
+        "100",
+        "7",
+        "21",
+        "30",
+        "null",
+        "4",
+        "5",
+        "10",
+        "8",
+        "4"
+      ],
+      "compileMs": [
+        529.7467
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 48211500,
+          "driver_total_ns": 507007700,
+          "executable_bytes": 231936,
+          "frontend_ns": 1115100,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3475000,
+          "publish_ns": 9838600,
+          "rustc_link_ns": 441201000,
+          "schema_version": 1,
+          "total_ns": 508245900
+        }
+      ],
+      "officialCompileMs": [
+        1512.7271
+      ],
+      "gcStats": [
+        {
+          "allocations": 11,
+          "collections": 11,
+          "reclaimed": 1,
+          "live_objects": 10,
+          "reserved_slots": 10,
+          "root_slots": 0,
+          "peak_root_slots": 28,
+          "live_roots": 0,
+          "peak_roots": 20,
+          "live_bytes": 504,
+          "peak_live_bytes": 504,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/constructors17/main.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "a",
+        "b",
+        "20",
+        "30",
+        "a",
+        "local:a!",
+        "b",
+        "100",
+        "7",
+        "21",
+        "30",
+        "null",
+        "4",
+        "5",
+        "10",
+        "8",
+        "4"
+      ],
+      "referenceOutput": [
+        "a",
+        "b",
+        "20",
+        "30",
+        "a",
+        "local:a!",
+        "b",
+        "100",
+        "7",
+        "21",
+        "30",
+        "null",
+        "4",
+        "5",
+        "10",
+        "8",
+        "4"
+      ],
+      "compileMs": [
+        821.2518
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 72073100,
+          "driver_total_ns": 793618600,
+          "executable_bytes": 165888,
+          "frontend_ns": 1777900,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 4824700,
+          "publish_ns": 7694900,
+          "rustc_link_ns": 704481300,
+          "schema_version": 1,
+          "total_ns": 795598700
+        }
+      ],
+      "officialCompileMs": [
+        1512.7271
+      ],
+      "gcStats": [
+        {
+          "allocations": 11,
+          "collections": 11,
+          "reclaimed": 1,
+          "live_objects": 10,
+          "reserved_slots": 10,
+          "root_slots": 0,
+          "peak_root_slots": 28,
+          "live_roots": 0,
+          "peak_roots": 20,
+          "live_bytes": 504,
+          "peak_live_bytes": 504,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/interfaces/main.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "42",
+        "true",
+        "1",
+        "safe"
+      ],
+      "referenceOutput": [
+        "42",
+        "true",
+        "1",
+        "safe"
+      ],
+      "compileMs": [
+        524.0092
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 52357900,
+          "driver_total_ns": 503036800,
+          "executable_bytes": 243200,
+          "frontend_ns": 844700,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 2877600,
+          "publish_ns": 9825900,
+          "rustc_link_ns": 434314400,
+          "schema_version": 1,
+          "total_ns": 503981300
+        }
+      ],
+      "officialCompileMs": [
+        1484.6792
+      ],
+      "gcStats": [
+        {
+          "allocations": 3,
+          "collections": 3,
+          "reclaimed": 0,
+          "live_objects": 3,
+          "reserved_slots": 3,
+          "root_slots": 0,
+          "peak_root_slots": 10,
+          "live_roots": 0,
+          "peak_roots": 8,
+          "live_bytes": 132,
+          "peak_live_bytes": 132,
+          "permanent_roots": 1
+        }
+      ]
+    },
+    {
+      "case": "modules/interfaces/main.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "42",
+        "true",
+        "1",
+        "safe"
+      ],
+      "referenceOutput": [
+        "42",
+        "true",
+        "1",
+        "safe"
+      ],
+      "compileMs": [
+        797.9725
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 51415300,
+          "driver_total_ns": 776162200,
+          "executable_bytes": 162304,
+          "frontend_ns": 1153400,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 4272700,
+          "publish_ns": 5700500,
+          "rustc_link_ns": 710789200,
+          "schema_version": 1,
+          "total_ns": 777604500
+        }
+      ],
+      "officialCompileMs": [
+        1484.6792
+      ],
+      "gcStats": [
+        {
+          "allocations": 3,
+          "collections": 3,
+          "reclaimed": 0,
+          "live_objects": 3,
+          "reserved_slots": 3,
+          "root_slots": 0,
+          "peak_root_slots": 10,
+          "live_roots": 0,
+          "peak_roots": 8,
+          "live_bytes": 132,
+          "peak_live_bytes": 132,
+          "permanent_roots": 1
+        }
+      ]
+    },
+    {
+      "case": "modules/managed/main.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "base:child",
+        "changed:child"
+      ],
+      "referenceOutput": [
+        "base:child",
+        "changed:child"
+      ],
+      "compileMs": [
+        528.1787
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 48244500,
+          "driver_total_ns": 509501100,
+          "executable_bytes": 226816,
+          "frontend_ns": 892500,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 3410900,
+          "publish_ns": 11984600,
+          "rustc_link_ns": 441285200,
+          "schema_version": 1,
+          "total_ns": 510519400
+        }
+      ],
+      "officialCompileMs": [
+        1509.1025
+      ],
+      "gcStats": [
+        {
+          "allocations": 7,
+          "collections": 7,
+          "reclaimed": 2,
+          "live_objects": 5,
+          "reserved_slots": 5,
+          "root_slots": 0,
+          "peak_root_slots": 14,
+          "live_roots": 0,
+          "peak_roots": 13,
+          "live_bytes": 221,
+          "peak_live_bytes": 221,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/managed/main.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "base:child",
+        "changed:child"
+      ],
+      "referenceOutput": [
+        "base:child",
+        "changed:child"
+      ],
+      "compileMs": [
+        824.2737
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 62196500,
+          "driver_total_ns": 805043300,
+          "executable_bytes": 160768,
+          "frontend_ns": 817500,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 3258700,
+          "publish_ns": 8234900,
+          "rustc_link_ns": 725179800,
+          "schema_version": 1,
+          "total_ns": 805973700
+        }
+      ],
+      "officialCompileMs": [
+        1509.1025
+      ],
+      "gcStats": [
+        {
+          "allocations": 7,
+          "collections": 7,
+          "reclaimed": 2,
+          "live_objects": 5,
+          "reserved_slots": 5,
+          "root_slots": 0,
+          "peak_root_slots": 14,
+          "live_roots": 0,
+          "peak_roots": 13,
+          "live_bytes": 221,
+          "peak_live_bytes": 221,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/packages/main.dart",
+      "llvmOptimization": "O0",
+      "status": "pass",
+      "actual": [
+        "42"
+      ],
+      "referenceOutput": [
+        "42"
+      ],
+      "compileMs": [
+        559.4895
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 57790700,
+          "driver_total_ns": 534996300,
+          "executable_bytes": 164864,
+          "frontend_ns": 998400,
+          "merge_identical_functions": true,
+          "optimization": "O0",
+          "prepare_ns": 4189700,
+          "publish_ns": 7262600,
+          "rustc_link_ns": 462259400,
+          "schema_version": 1,
+          "total_ns": 536096300
+        }
+      ],
+      "officialCompileMs": [
+        1604.2075
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    },
+    {
+      "case": "modules/packages/main.dart",
+      "llvmOptimization": "O2",
+      "status": "pass",
+      "actual": [
+        "42"
+      ],
+      "referenceOutput": [
+        "42"
+      ],
+      "compileMs": [
+        781.1425
+      ],
+      "phaseTimings": [
+        {
+          "backend": "llvm",
+          "clang_ns": 62369600,
+          "driver_total_ns": 760372400,
+          "executable_bytes": 141312,
+          "frontend_ns": 869800,
+          "merge_identical_functions": true,
+          "optimization": "O2",
+          "prepare_ns": 2775000,
+          "publish_ns": 5280800,
+          "rustc_link_ns": 684517100,
+          "schema_version": 1,
+          "total_ns": 761364700
+        }
+      ],
+      "officialCompileMs": [
+        1604.2075
+      ],
+      "gcStats": [
+        {
+          "allocations": 0,
+          "collections": 0,
+          "reclaimed": 0,
+          "live_objects": 0,
+          "reserved_slots": 0,
+          "root_slots": 0,
+          "peak_root_slots": 0,
+          "live_roots": 0,
+          "peak_roots": 0,
+          "live_bytes": 0,
+          "peak_live_bytes": 0,
+          "permanent_roots": 0
+        }
+      ]
+    }
+  ],
+  "mergeIdenticalFunctions": true,
+  "gcStress": true,
+  "gcStats": true
+}

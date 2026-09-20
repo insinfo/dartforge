@@ -66,6 +66,8 @@ pub fn expand_mixins(program: &mut Program<'_>) -> Result<(), Diagnostic> {
                 .ok_or_else(|| Diagnostic::new("Synthetic class IDs exhausted", class.span))?;
             base_contract |= has_base_contract(mixin_id, original, &indices);
             rewritten.push(Class {
+                constructor: None,
+                annotations: vec![],
                 id: next,
                 name: "",
                 span: class.span,

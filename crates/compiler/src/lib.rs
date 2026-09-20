@@ -78,6 +78,7 @@ pub fn compile_with_options(source: &str, options: CompileOptions) -> Result<Str
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
+    reject_unresolved_native(&ast)?;
     dartforge_hir::expand_mixins(&mut ast)?;
     let resolution = dartforge_semantic::analyze(&ast)?;
     if options.optimization == Optimization::Constants {
@@ -185,7 +186,10 @@ pub(crate) fn compile_loaded_graph(
         graph,
         options.optimization == Optimization::Constants,
         options.merge_identical_functions,
-        |module| Ok(dartforge_codegen::emit(module)),
+        |module| {
+            dartforge_codegen::validate_javascript(module)?;
+            Ok(dartforge_codegen::emit(module))
+        },
     )
 }
 /// Compila uma unidade validada para LLVM IR do subconjunto nativo.
@@ -208,12 +212,28 @@ pub fn compile_llvm_with_options(
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
+    reject_unresolved_native(&ast)?;
     dartforge_hir::expand_mixins(&mut ast)?;
     let resolution = dartforge_semantic::analyze(&ast)?;
     if options.merge_identical_functions {
         dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);
     }
     dartforge_llvm::emit(&dartforge_hir::lower_resolved(ast, resolution))
+}
+
+/// Impede bindings sem resolução de biblioteca nas APIs de fonte isolada.
+fn reject_unresolved_native(ast: &dartforge_syntax::Program<'_>) -> Result<(), Diagnostic> {
+    if let Some(binding) = ast
+        .functions
+        .iter()
+        .find_map(|function| function.native_binding.as_ref())
+    {
+        return Err(Diagnostic::new(
+            "@Native exige import dart:ffi; use a API de compilação por arquivo",
+            binding.span,
+        ));
+    }
+    Ok(())
 }
 
 /// Compila uma entrada e seu grafo de bibliotecas para LLVM IR.

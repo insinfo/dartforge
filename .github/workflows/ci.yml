@@ -60,3 +60,6 @@ jobs:
       - name: Compare merged functions with dart2js O2
         shell: pwsh
         run: ./scripts/conformance.ps1 -MergeIdenticalFunctions
+      - name: Compare scalar Native FFI with Dart VM and AOT
+        shell: pwsh
+        run: ./scripts/conformance-ffi.ps1

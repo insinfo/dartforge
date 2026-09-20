@@ -9,8 +9,10 @@ use dartforge_syntax::{
 };
 mod collections;
 mod constants;
+mod constructors;
 mod generics;
 mod modifiers;
+mod native;
 mod switches;
 use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, rc::Rc};
@@ -37,6 +39,7 @@ struct FieldInfo {
 }
 #[derive(Clone)]
 struct ClassInfo<'a> {
+    constructor_parameters: Vec<Type>,
     modifier: ClassModifier,
     kind: ClassKind,
     is_mixin_application: bool,
@@ -59,6 +62,7 @@ struct ExtensionInfo<'a> {
 }
 #[derive(Clone)]
 struct Validator<'a> {
+    in_constructor: bool,
     exhaustive_switches: Rc<RefCell<HashSet<(usize, usize)>>>,
     type_parameters: Vec<&'a str>,
     switch_depth: usize,
@@ -109,6 +113,7 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
 /// ```
 pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     let mut validator = Validator {
+        in_constructor: false,
         exhaustive_switches: Rc::new(RefCell::new(HashSet::new())),
         type_parameters: vec![],
         switch_depth: 0,
@@ -140,6 +145,16 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     );
     let mut class_names = HashSet::new();
     for class in &program.classes {
+        if class
+            .annotations
+            .iter()
+            .any(|a| matches!(a.kind, dartforge_syntax::AnnotationKind::Override))
+        {
+            return Err(Diagnostic::new(
+                "@override requires an instance member",
+                class.span,
+            ));
+        }
         if !class.is_mixin_application
             && (!class_names.insert(class.name)
                 || matches!(class.name, "main" | "print" | "int" | "String" | "bool"))
@@ -150,6 +165,10 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             ));
         }
         let mut info = ClassInfo {
+            constructor_parameters: class
+                .constructor
+                .as_ref()
+                .map_or_else(Vec::new, |c| c.parameters.iter().map(|p| p.ty).collect()),
             modifier: class.modifier,
             kind: class.kind,
             is_mixin_application: class.is_mixin_application,
@@ -327,6 +346,9 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     validator.type_parameters.clear();
     for class in &program.classes {
         validator.validate_enum(class)?;
+        validator.current_class = Some(class.id);
+        validator.validate_constructor_fields(class)?;
+        validator.current_class = None;
         for field in &class.fields {
             validator.current_class = Some(class.id);
             validator.in_field_initializer = true;
@@ -353,11 +375,13 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 validator.current_class = None;
                 continue;
             }
-            validator.require_type(
-                validator.value_expected(&field.initializer, Some(field.ty))?,
-                field.ty,
-                field.span,
-            )?;
+            if let Some(initializer) = &field.initializer {
+                validator.require_type(
+                    validator.value_expected(initializer, Some(field.ty))?,
+                    field.ty,
+                    field.span,
+                )?;
+            }
             validator.in_field_initializer = false;
             validator.current_class = None;
         }
@@ -385,6 +409,11 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             if !class.is_mixin_application {
                 validator.function(method)?;
             }
+            validator.current_class = None;
+        }
+        if let Some(constructor) = &class.constructor {
+            validator.current_class = Some(class.id);
+            validator.constructor_body(constructor)?;
             validator.current_class = None;
         }
     }
@@ -618,6 +647,12 @@ impl<'a> Validator<'a> {
     }
     /// Valida assinatura abstrata sem exigir corpo ou retorno executável.
     fn signature_only(&self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        if function.native_binding.is_some() {
+            return Err(Diagnostic::new(
+                "@Native is supported only on external top-level functions",
+                function.span,
+            ));
+        }
         if function.is_getter && !function.parameters.is_empty()
             || !function.type_parameters.is_empty()
         {
@@ -649,6 +684,7 @@ impl<'a> Validator<'a> {
     }
     /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
     fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        self.in_constructor = false;
         self.type_parameters = function.type_parameters.clone();
         if function
             .type_parameters
@@ -702,6 +738,21 @@ impl<'a> Validator<'a> {
                     parameter.span,
                 ));
             }
+        }
+        if function
+            .annotations
+            .iter()
+            .any(|a| matches!(a.kind, dartforge_syntax::AnnotationKind::Override))
+            && self.current_class.is_none()
+            && self.current_extension.is_none()
+        {
+            return Err(Diagnostic::new(
+                "@override requires an instance member in this subset",
+                function.span,
+            ));
+        }
+        if function.native_binding.is_some() {
+            return self.validate_native(function);
         }
         self.scopes.push(parameters);
         self.return_type = function.return_type;
@@ -1011,6 +1062,10 @@ impl<'a> Validator<'a> {
                     value.span,
                 )
             }
+            StatementKind::Return(Some(_)) if self.in_constructor => Err(Diagnostic::new(
+                "A generative constructor cannot return a value",
+                statement.span,
+            )),
             StatementKind::Return(value) if self.inferred_returns.is_some() => {
                 let ty = if let Some(value) = value {
                     self.expression_expected(
@@ -1447,7 +1502,10 @@ impl<'a> Validator<'a> {
                 }
                 Ok(Type::Class(*class_id))
             }
-            ExprKind::Construct { class_id } => {
+            ExprKind::Construct {
+                class_id,
+                arguments,
+            } => {
                 let class = self
                     .classes
                     .get(class_id)
@@ -1467,6 +1525,19 @@ impl<'a> Validator<'a> {
                         "Local declaration shadows constructor",
                         expression.span,
                     ));
+                }
+                if arguments.len() != class.constructor_parameters.len() {
+                    return Err(Diagnostic::new(
+                        "Incorrect constructor argument count",
+                        expression.span,
+                    ));
+                }
+                for (argument, expected) in arguments.iter().zip(&class.constructor_parameters) {
+                    self.require_type(
+                        self.value_expected(argument, Some(*expected))?,
+                        *expected,
+                        argument.span,
+                    )?;
                 }
                 Ok(Type::Class(*class_id))
             }
@@ -1919,6 +1990,8 @@ mod tests {
         body: Vec<Statement<'static>>,
     ) -> dartforge_syntax::Function<'static> {
         dartforge_syntax::Function {
+            annotations: vec![],
+            native_binding: None,
             type_parameters: vec![],
             is_getter: false,
             name,
@@ -2053,7 +2126,8 @@ mod tests {
                 classes: vec![c],
                 functions: vec![],
                 statements: vec![print(extension_call(expr(ExprKind::Construct {
-                    class_id: 0
+                    class_id: 0,
+                    arguments: vec![]
                 })))]
             })
             .unwrap()
@@ -2069,7 +2143,8 @@ mod tests {
                 classes: vec![c],
                 functions: vec![],
                 statements: vec![print(extension_call(expr(ExprKind::Construct {
-                    class_id: 0
+                    class_id: 0,
+                    arguments: vec![]
                 })))]
             })
             .is_err()
@@ -2097,7 +2172,10 @@ mod tests {
                         name: "x",
                         annotation,
                         is_final: false,
-                        initializer: expr(ExprKind::Construct { class_id: 1 }),
+                        initializer: expr(ExprKind::Construct {
+                            class_id: 1,
+                            arguments: vec![],
+                        }),
                     }),
                     print(extension_call(id("x"))),
                 ],
@@ -2122,7 +2200,10 @@ mod tests {
                         name: "x",
                         annotation: Some(Type::Class(0)),
                         is_final: false,
-                        initializer: expr(ExprKind::Construct { class_id: 1 })
+                        initializer: expr(ExprKind::Construct {
+                            class_id: 1,
+                            arguments: vec![]
+                        })
                     }),
                     print(expr(ExprKind::MethodCall {
                         receiver: Box::new(id("x")),
@@ -2141,6 +2222,8 @@ mod tests {
         superclass: Option<u32>,
     ) -> dartforge_syntax::Class<'static> {
         dartforge_syntax::Class {
+            constructor: None,
+            annotations: vec![],
             modifier: ClassModifier::None,
             kind: ClassKind::Class,
             mixins: vec![],
@@ -2168,7 +2251,7 @@ mod tests {
             name,
             ty: Type::Int,
             is_final,
-            initializer: int(),
+            initializer: Some(int()),
             span: SPAN,
         }
     }
@@ -2206,7 +2289,10 @@ mod tests {
                         name: "b",
                         annotation: Some(Type::Class(0)),
                         is_final: false,
-                        initializer: expr(ExprKind::Construct { class_id: 1 })
+                        initializer: expr(ExprKind::Construct {
+                            class_id: 1,
+                            arguments: vec![]
+                        })
                     }),
                     stmt(StatementKind::FieldAssign {
                         receiver: id("b"),
@@ -2233,7 +2319,10 @@ mod tests {
                     name: "c",
                     annotation: Some(Type::Class(1)),
                     is_final: false,
-                    initializer: expr(ExprKind::Construct { class_id: 0 })
+                    initializer: expr(ExprKind::Construct {
+                        class_id: 0,
+                        arguments: vec![]
+                    })
                 })]
             })
             .is_err()
@@ -2327,7 +2416,13 @@ mod tests {
                 classes: vec![c],
                 functions: vec![],
                 statements: vec![
-                    local("a", expr(ExprKind::Construct { class_id: 0 })),
+                    local(
+                        "a",
+                        expr(ExprKind::Construct {
+                            class_id: 0,
+                            arguments: vec![]
+                        })
+                    ),
                     stmt(StatementKind::FieldAssign {
                         receiver: id("a"),
                         name: "x",
@@ -2343,7 +2438,10 @@ mod tests {
                 extensions: vec![],
                 classes: vec![class(0, "A", None)],
                 functions: vec![],
-                statements: vec![print(expr(ExprKind::Construct { class_id: 0 }))]
+                statements: vec![print(expr(ExprKind::Construct {
+                    class_id: 0,
+                    arguments: vec![]
+                }))]
             })
             .is_err()
         );
@@ -2355,7 +2453,13 @@ mod tests {
                 functions: vec![],
                 statements: vec![
                     local("A", int()),
-                    local("a", expr(ExprKind::Construct { class_id: 0 }))
+                    local(
+                        "a",
+                        expr(ExprKind::Construct {
+                            class_id: 0,
+                            arguments: vec![]
+                        })
+                    )
                 ]
             })
             .is_err()
@@ -2365,7 +2469,7 @@ mod tests {
             name: "self",
             ty: Type::Class(0),
             is_final: true,
-            initializer: expr(ExprKind::This),
+            initializer: Some(expr(ExprKind::This)),
             span: SPAN,
         });
         assert!(
@@ -2388,7 +2492,7 @@ mod tests {
             name: "x",
             ty: Type::Int,
             is_final: false,
-            initializer: call("f", vec![]),
+            initializer: Some(call("f", vec![])),
             span: SPAN,
         });
         assert!(
@@ -2407,7 +2511,10 @@ mod tests {
             "make",
             Type::Class(0),
             vec![],
-            vec![ret(expr(ExprKind::Construct { class_id: 0 }))],
+            vec![ret(expr(ExprKind::Construct {
+                class_id: 0,
+                arguments: vec![],
+            }))],
         ));
         assert!(
             validate(&Program {
@@ -2458,7 +2565,10 @@ mod tests {
             "f",
             Type::Class(1),
             vec![("x", Type::Class(0))],
-            vec![ret(expr(ExprKind::Construct { class_id: 1 }))],
+            vec![ret(expr(ExprKind::Construct {
+                class_id: 1,
+                arguments: vec![],
+            }))],
         ));
         assert!(
             validate(&Program {
@@ -2501,7 +2611,7 @@ mod tests {
             name: "x",
             ty: Type::NullableInt,
             is_final: false,
-            initializer: expr(ExprKind::Null),
+            initializer: Some(expr(ExprKind::Null)),
             span: SPAN,
         });
         c.methods.push(function(

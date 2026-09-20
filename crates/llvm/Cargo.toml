@@ -14,3 +14,4 @@ dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-lexer = { path = "../lexer" }
 dartforge-parser = { path = "../parser" }
 dartforge-semantic = { path = "../semantic" }
+dartforge-native = { path = "../native" }

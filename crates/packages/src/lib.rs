@@ -39,6 +39,8 @@ pub struct SourceUnit {
 /// Aresta resolvida de uma diretiva import.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Import {
+    /// Prefixo explícito, atualmente permitido somente para dart:ffi.
+    pub prefix: Option<String>,
     /// Caminho relativo escrito na string da diretiva.
     pub uri: String,
     /// Filtros aplicados sequencialmente ao namespace importado ou exportado.
@@ -153,7 +155,7 @@ pub fn load_with_config_and_environment(
         imports: vec![],
         exports: vec![],
     }];
-    let mut core_unit = None;
+    let mut sdk_units = HashMap::new();
     let mut current = 0;
     while current < units.len() {
         let path = units[current].path.clone();
@@ -164,6 +166,7 @@ pub fn load_with_config_and_environment(
             span,
             combinators,
             export,
+            prefix,
         } in directives
         {
             if let Some(alternative) = alternatives.into_iter().find(|alternative| {
@@ -172,18 +175,32 @@ pub fn load_with_config_and_environment(
                 uri = alternative.uri;
             }
             config::validate_uri(&uri).map_err(|message| error_at(&path, Some(span), message))?;
-            if uri == "dart:core" {
+            if prefix.is_some() && uri != "dart:ffi" {
+                return Err(error_at(
+                    &path,
+                    Some(span),
+                    "prefixos fora de dart:ffi ainda não suportados".into(),
+                ));
+            }
+            if matches!(uri.as_str(), "dart:core" | "dart:ffi") {
                 if export || !combinators.is_empty() {
                     return Err(error_at(
                         &path,
                         Some(span),
-                        "dart:core com export/show/hide ainda não suportado".into(),
+                        "biblioteca SDK com export/show/hide ainda não suportada".into(),
                     ));
                 }
-                let target = *core_unit.get_or_insert_with(|| {
+                if uri == "dart:ffi" && environment.target() != CompilationTarget::Native {
+                    return Err(error_at(
+                        &path,
+                        Some(span),
+                        "dart:ffi exige o backend Native AOT".into(),
+                    ));
+                }
+                let target = *sdk_units.entry(uri.clone()).or_insert_with(|| {
                     let id = units.len();
                     units.push(SourceUnit {
-                        path: PathBuf::from("dart:core"),
+                        path: PathBuf::from(&uri),
                         source: String::new(),
                         imports: vec![],
                         exports: vec![],
@@ -191,6 +208,7 @@ pub fn load_with_config_and_environment(
                     id
                 });
                 units[current].imports.push(Import {
+                    prefix,
                     uri,
                     target,
                     span,
@@ -229,6 +247,7 @@ pub fn load_with_config_and_environment(
                 id
             };
             let edge = Import {
+                prefix,
                 uri,
                 target,
                 span,
@@ -260,6 +279,7 @@ fn error_at(path: &Path, span: Option<Span>, message: String) -> GraphError {
 
 /// Diretiva sintática antes da resolução do destino.
 struct Directive {
+    prefix: Option<String>,
     uri: String,
     alternatives: Vec<ConditionalUri>,
     span: Span,
@@ -405,6 +425,27 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
             });
         }
         let mut combinators = Vec::new();
+        let prefix = if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("as")) {
+            index += 1;
+            let Some(TokenKind::Word(name)) = tokens.get(index).map(|t| t.kind) else {
+                return Err(error_at(
+                    path,
+                    Some(token_span(&tokens, index, source.len())),
+                    "prefixo exige identificador".into(),
+                ));
+            };
+            if export || reserved_combinator(name) {
+                return Err(error_at(
+                    path,
+                    Some(tokens[index].span),
+                    "prefixo inválido na diretiva".into(),
+                ));
+            }
+            index += 1;
+            Some(name.to_owned())
+        } else {
+            None
+        };
         while let Some(TokenKind::Word(kind @ ("show" | "hide"))) =
             tokens.get(index).map(|t| t.kind)
         {
@@ -442,10 +483,11 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
             return Err(error_at(
                 path,
                 Some(token_span(&tokens, index, source.len())),
-                "diretiva exige ; (as/deferred não suportados)".into(),
+                "diretiva exige ; (deferred não suportado)".into(),
             ));
         }
         directives.push(Directive {
+            prefix,
             uri,
             alternatives,
             combinators,
@@ -686,6 +728,31 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    /// Prefixos FFI são restritos ao perfil nativo e participam da identidade do grafo.
+    #[test]
+    fn ffi_import_prefix_requires_native_profile() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "import 'dart:ffi' as ffi; void main(){}");
+        assert!(load(&entry).is_err());
+        assert!(load_with_environment(&entry, &CompilationEnvironment::wasm()).is_err());
+        let graph = load_with_environment(&entry, &CompilationEnvironment::native()).unwrap();
+        assert_eq!(graph.units[0].imports[0].prefix.as_deref(), Some("ffi"));
+        assert_eq!(graph.units[1].path, PathBuf::from("dart:ffi"));
+        for source in [
+            "export 'dart:ffi';",
+            "import 'dart:ffi' show Native;",
+            "import 'dart:core' as core;",
+            "import 'file.dart' as local;",
+            "import 'dart:ffi' as class;",
+        ] {
+            fixture.write("main.dart", source);
+            assert!(
+                load_with_environment(&entry, &CompilationEnvironment::native()).is_err(),
+                "{source}"
+            );
+        }
+    }
 
     /// A primeira condição verdadeira vence sem abrir alternativas inativas.
     #[test]

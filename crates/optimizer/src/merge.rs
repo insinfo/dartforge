@@ -44,6 +44,14 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
     }
     let mut forbidden = BTreeSet::new();
     for class in &program.classes {
+        if let Some(constructor) = &class.constructor {
+            forbidden.extend(
+                constructor
+                    .parameters
+                    .iter()
+                    .map(|parameter| parameter.name),
+            );
+        }
         for field in &class.fields {
             forbidden.insert(field.name);
         }
@@ -73,7 +81,7 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
     let mut representatives = BTreeMap::new();
     let mut replacements = BTreeMap::new();
     for f in &program.functions {
-        if f.name == "main" {
+        if f.name == "main" || f.native_binding.is_some() {
             continue;
         }
         let Some(key) = function_key(f, resolution) else {
@@ -321,7 +329,16 @@ impl<'a> Canonical<'a, '_> {
             String(s) => pack("str", &[(*s).into()]),
             OwnedString(s) => pack("str", std::slice::from_ref(s)),
             Identifier(n) => self.binding(n),
-            Construct { class_id } => format!("new{class_id}"),
+            Construct {
+                class_id,
+                arguments,
+            } => pack(
+                &format!("new{class_id}"),
+                &arguments
+                    .iter()
+                    .map(|arg| self.expression(arg))
+                    .collect::<Vec<_>>(),
+            ),
             EnumValue { class_id, name } => pack("enum", &[class_id.to_string(), (*name).into()]),
             Call { name, arguments } => {
                 // Chamadas a locais não têm representação no subconjunto validado.
@@ -394,7 +411,12 @@ fn visit_program<'a>(
 ) {
     for c in &mut p.classes {
         for f in &mut c.fields {
-            visit_expr(&mut f.initializer, e);
+            if let Some(initializer) = &mut f.initializer {
+                visit_expr(initializer, e);
+            }
+        }
+        if let Some(constructor) = &mut c.constructor {
+            visit_body(&mut constructor.body, s, e);
         }
         for m in &mut c.methods {
             visit_body(&mut m.body, s, e);
@@ -538,7 +560,7 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
                 visit_expr(x, e);
             }
         }
-        Call { arguments, .. } => {
+        Call { arguments, .. } | Construct { arguments, .. } => {
             for x in arguments {
                 visit_expr(x, e);
             }
@@ -566,7 +588,6 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
         | String(_)
         | OwnedString(_)
         | Identifier(_)
-        | Construct { .. }
         | EnumValue { .. } => {}
     }
 }

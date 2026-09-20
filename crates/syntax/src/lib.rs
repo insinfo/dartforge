@@ -117,6 +117,7 @@ pub enum ExprKind<'a> {
     This,
     Construct {
         class_id: u32,
+        arguments: Vec<Expr<'a>>,
     },
     Member {
         receiver: Box<Expr<'a>>,
@@ -223,6 +224,8 @@ pub struct Parameter<'a> {
 #[derive(Debug, Clone)]
 /// Função top-level com assinatura e corpo.
 pub struct Function<'a> {
+    pub annotations: Vec<Annotation>,
+    pub native_binding: Option<NativeBinding<'a>>,
     pub type_parameters: Vec<&'a str>,
     pub is_getter: bool,
     pub name: &'a str,
@@ -230,6 +233,35 @@ pub struct Function<'a> {
     pub parameters: Vec<Parameter<'a>>,
     pub body: Vec<Statement<'a>>,
     pub span: Span,
+}
+/// Tipo escalar da assinatura C; permanece separado do tipo Dart da função.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeType {
+    Void,
+    Int32,
+    Int64,
+}
+/// Vínculo externo declarado por Native, com símbolo preservado antes do linker.
+#[derive(Debug, Clone)]
+pub struct NativeBinding<'a> {
+    pub prefix: Option<&'a str>,
+    pub symbol: String,
+    pub result: NativeType,
+    pub parameters: Vec<NativeType>,
+    pub is_leaf: bool,
+    pub span: Span,
+}
+/// Anotação reconhecida, conservada para validação de alvo e ferramentas.
+#[derive(Debug, Clone)]
+pub struct Annotation {
+    pub kind: AnnotationKind,
+    pub span: Span,
+}
+/// Metadados suportados sem execução de construtores arbitrários.
+#[derive(Debug, Clone)]
+pub enum AnnotationKind {
+    Override,
+    Deprecated { message: Option<String> },
 }
 #[derive(Debug, Clone)]
 /// Programa com funções auxiliares e o corpo da entrada main.
@@ -288,6 +320,8 @@ pub enum ClassKind {
 /// Classe nominal com construtor implícito, herança e aplicações de mixins.
 #[derive(Debug, Clone)]
 pub struct Class<'a> {
+    pub constructor: Option<Constructor<'a>>,
+    pub annotations: Vec<Annotation>,
     /// Marca a classe sintética criada ao expandir uma aplicação de mixin.
     pub is_mixin_application: bool,
     /// Identidade da declaração de mixin que originou a classe sintética.
@@ -316,13 +350,29 @@ pub struct Class<'a> {
     pub methods: Vec<Function<'a>>,
     pub span: Span,
 }
-/// Campo tipado com inicialização obrigatória.
+/// Campo tipado; ausência de inicializador exige validação do construtor ou valor padrão.
 #[derive(Debug, Clone)]
 pub struct Field<'a> {
     pub name: &'a str,
     pub ty: Type,
     pub is_final: bool,
-    pub initializer: Expr<'a>,
+    pub initializer: Option<Expr<'a>>,
+    pub span: Span,
+}
+/// Construtor generativo sem nome, com parâmetros posicionais obrigatórios.
+#[derive(Debug, Clone)]
+pub struct Constructor<'a> {
+    pub parameters: Vec<ConstructorParameter<'a>>,
+    pub body: Vec<Statement<'a>>,
+    pub span: Span,
+}
+/// Parâmetro comum ou inicializador this.campo; field referencia somente campo próprio.
+/// Inicializadores this.campo não introduzem variáveis locais no corpo do construtor.
+#[derive(Debug, Clone)]
+pub struct ConstructorParameter<'a> {
+    pub name: &'a str,
+    pub ty: Type,
+    pub field: Option<&'a str>,
     pub span: Span,
 }
 
