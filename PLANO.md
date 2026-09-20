@@ -373,3 +373,11 @@ elementos de coleções. Próximos passos: binders distintos para classes e mét
 tipos nominais aplicados, substituição na herança, bounds recursivos e padrões
 parametrizados; depois compartilhar os descritores com LLVM/Wasm e GC. Medir custo
 de descritores e especializar somente preservando identidade e verificações Dart.
+
+### Incremento 19 — records e desestruturação
+
+Records estruturais e declarações var/final por padrão simples no JavaScript.
+Próximos passos: padrões aninhados e de atribuição, constantes de records e layout
+LLVM/Wasm; extension types precisam de identidade estática e erasure distinto de
+classes. Macros oficiais foram canceladas, portanto uma eventual metaprogramação
+experimental própria exige contrato separado da compatibilidade Dart 3.6.2.

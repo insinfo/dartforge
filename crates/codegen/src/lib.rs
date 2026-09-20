@@ -41,6 +41,8 @@ struct Output<'a> {
     resolution: &'a dartforge_syntax::Resolution,
     collections: bool,
     runtime_types_used: bool,
+    records: bool,
+    next_record: usize,
     modulo_used: bool,
     enum_ids: std::collections::HashSet<u32>,
     constructor_factories: std::collections::HashSet<u32>,
@@ -92,6 +94,12 @@ pub fn emit(module: &Module<'_>) -> String {
         resolution: &module.resolution,
         modulo_used: false,
         runtime_types_used: false,
+        records: module
+            .resolution
+            .types
+            .iter()
+            .any(|ty| matches!(ty, dartforge_syntax::TypeShape::Record { .. })),
+        next_record: 0,
         constructor_factories: constructors::factory_ids(&module.classes),
         enum_ids: module
             .classes
@@ -105,10 +113,15 @@ pub fn emit(module: &Module<'_>) -> String {
         collections: module.resolution.types.iter().any(|t| {
             matches!(
                 t,
-                dartforge_syntax::TypeShape::List(_) | dartforge_syntax::TypeShape::Iterable(_)
+                dartforge_syntax::TypeShape::List(_)
+                    | dartforge_syntax::TypeShape::Iterable(_)
+                    | dartforge_syntax::TypeShape::Record { .. }
             )
         }),
     };
+    if output.records {
+        output.push_str(include_str!("records.js"));
+    }
     if output.collections {
         output.runtime_types_used = true;
         output.push_str(include_str!("core.js"));
@@ -350,6 +363,9 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
 /// Detecta asserções em qualquer expressão, inclusive argumentos e operandos.
 fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
     match &value.kind {
+        ExprKind::Record { fields } => fields
+            .iter()
+            .any(|(_, field)| expression_needs_null_assert(field)),
         ExprKind::Const(e) => expression_needs_null_assert(e),
         ExprKind::TypeTest { operand, .. } | ExprKind::Cast { operand, .. } => {
             expression_needs_null_assert(operand)
@@ -418,7 +434,8 @@ fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
                 || expression_needs_null_assert(index)
                 || expression_needs_null_assert(value)
         }
-        StatementKind::Variable { initializer, .. } => expression_needs_null_assert(initializer),
+        StatementKind::RecordDestructure { initializer, .. }
+        | StatementKind::Variable { initializer, .. } => expression_needs_null_assert(initializer),
         StatementKind::FieldAssign {
             receiver, value, ..
         } => expression_needs_null_assert(receiver) || expression_needs_null_assert(value),
@@ -478,6 +495,38 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
     for statement in body {
         indent(depth, output);
         match &statement.kind {
+            StatementKind::RecordDestructure {
+                is_final,
+                positional,
+                named,
+                initializer,
+            } => {
+                let id = output.next_record;
+                output.next_record += 1;
+                write!(output, "const $dartforgeRecordTemp{id} = ").unwrap();
+                expression(initializer, output);
+                output.push_str(";\n");
+                for (index, (name, _)) in positional.iter().enumerate() {
+                    if *name == "_" {
+                        continue;
+                    }
+                    indent(depth, output);
+                    output.push_str(if *is_final { "const " } else { "let " });
+                    identifier(name, output);
+                    writeln!(output, " = $dartforgeRecordTemp{id}.$df_${};", index + 1).unwrap();
+                }
+                for (field, name, _) in named {
+                    if *name == "_" {
+                        continue;
+                    }
+                    indent(depth, output);
+                    output.push_str(if *is_final { "const " } else { "let " });
+                    identifier(name, output);
+                    write!(output, " = $dartforgeRecordTemp{id}.").unwrap();
+                    identifier(field, output);
+                    output.push_str(";\n");
+                }
+            }
             StatementKind::Switch { scrutinee, cases } => {
                 features::switch_statement(scrutinee, cases, depth, output)
             }
@@ -685,6 +734,24 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         return;
     }
     match &value.kind {
+        ExprKind::Record { fields } => {
+            output.push_str("$dartforgeRecord([");
+            for (index, (name, field)) in fields.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push('[');
+                if let Some(name) = name {
+                    string_literal(name, output);
+                } else {
+                    output.push_str("null");
+                }
+                output.push(',');
+                expression(field, output);
+                output.push(']');
+            }
+            output.push_str("])");
+        }
         ExprKind::TypeTest {
             operand,
             ty,
@@ -922,6 +989,20 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         } => {
             output.modulo_used = true;
             output.push_str("$dartforgeModulo(");
+            expression(left, output);
+            output.push(',');
+            expression(right, output);
+            output.push(')');
+        }
+        ExprKind::Binary {
+            op: op @ (BinaryOp::Equal | BinaryOp::NotEqual),
+            left,
+            right,
+        } if output.records => {
+            if *op == BinaryOp::NotEqual {
+                output.push('!');
+            }
+            output.push_str("$dartforgeEqual(");
             expression(left, output);
             output.push(',');
             expression(right, output);

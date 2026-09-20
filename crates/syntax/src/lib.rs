@@ -46,6 +46,11 @@ pub enum Type {
 /// Forma estrutural compartilhada sem retirar Copy dos tipos da AST.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeShape {
+    /// Tipo de record; nomes ordenados canonicamente, posições mantidas na ordem.
+    Record {
+        positional: Vec<Type>,
+        named: Vec<(String, Type)>,
+    },
     /// Nulabilidade estrutural normalizada durante a substituição genérica.
     Nullable(Type),
     List(Type),
@@ -90,6 +95,10 @@ pub struct Expr<'a> {
 #[derive(Debug, Clone)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
+    /// Literal de record; None indica posição e a lista preserva toda ordem de avaliação.
+    Record {
+        fields: Vec<(Option<&'a str>, Expr<'a>)>,
+    },
     TypeTest {
         operand: Box<Expr<'a>>,
         ty: Type,
@@ -176,6 +185,13 @@ pub struct Statement<'a> {
 #[derive(Debug, Clone)]
 /// Forma sintática de uma instrução.
 pub enum StatementKind<'a> {
+    /// Declaração por padrão simples; named contém campo, variável e span da variável.
+    RecordDestructure {
+        is_final: bool,
+        positional: Vec<(&'a str, Span)>,
+        named: Vec<(&'a str, &'a str, Span)>,
+        initializer: Expr<'a>,
+    },
     Switch {
         scrutinee: Expr<'a>,
         cases: Vec<SwitchCase<'a>>,

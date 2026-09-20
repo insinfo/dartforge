@@ -382,6 +382,16 @@ pub fn compile_graph_with_options(
             linked_types.push(match shape {
                 TypeShape::List(t) => TypeShape::List(remap_type(*t, type_offset)),
                 TypeShape::Nullable(t) => TypeShape::Nullable(remap_type(*t, type_offset)),
+                TypeShape::Record { positional, named } => TypeShape::Record {
+                    positional: positional
+                        .iter()
+                        .map(|t| remap_type(*t, type_offset))
+                        .collect(),
+                    named: named
+                        .iter()
+                        .map(|(name, t)| (name.clone(), remap_type(*t, type_offset)))
+                        .collect(),
+                },
                 TypeShape::Iterable(t) => TypeShape::Iterable(remap_type(*t, type_offset)),
                 TypeShape::Function { result, parameters } => TypeShape::Function {
                     result: remap_type(*result, type_offset),
@@ -652,6 +662,11 @@ impl<'a> Resolver<'a, '_> {
                 .get(id as usize)
                 .ok_or_else(|| self.error(span, "ID de tipo inválido"))?
             {
+                TypeShape::Record { positional, named } => {
+                    for t in positional.iter().chain(named.iter().map(|(_, t)| t)) {
+                        self.ty(*t, span)?;
+                    }
+                }
                 TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t) => {
                     self.ty(*t, span)?
                 }
@@ -782,12 +797,17 @@ impl<'a> Resolver<'a, '_> {
     fn block(&mut self, body: &mut [Statement<'a>]) -> Result<(), GraphError> {
         self.scopes.push(
             body.iter()
-                .filter_map(|statement| {
-                    if let StatementKind::Variable { name, .. } = statement.kind {
-                        Some(name)
-                    } else {
-                        None
-                    }
+                .flat_map(|statement| match &statement.kind {
+                    StatementKind::Variable { name, .. } => vec![*name],
+                    StatementKind::RecordDestructure {
+                        positional, named, ..
+                    } => positional
+                        .iter()
+                        .map(|(n, _)| *n)
+                        .chain(named.iter().map(|(_, n, _)| *n))
+                        .filter(|n| *n != "_")
+                        .collect(),
+                    _ => vec![],
                 })
                 .collect(),
         );
@@ -822,6 +842,20 @@ impl<'a> Resolver<'a, '_> {
     /// Resolve instrução e seus intervalos virtuais.
     fn statement(&mut self, statement: &mut Statement<'a>) -> Result<(), GraphError> {
         match &mut statement.kind {
+            StatementKind::RecordDestructure {
+                positional,
+                named,
+                initializer,
+                ..
+            } => {
+                self.expression(initializer)?;
+                for (_, span) in positional {
+                    self.span(span);
+                }
+                for (_, _, span) in named {
+                    self.span(span);
+                }
+            }
             StatementKind::Switch { scrutinee, cases } => {
                 self.expression(scrutinee)?;
                 for case in cases {
@@ -952,6 +986,11 @@ impl<'a> Resolver<'a, '_> {
             }
         }
         match &mut expression.kind {
+            ExprKind::Record { fields } => {
+                for (_, field) in fields {
+                    self.expression(field)?;
+                }
+            }
             ExprKind::TypeTest { operand, ty, .. } | ExprKind::Cast { operand, ty } => {
                 self.ty(*ty, expression.span)?;
                 *ty = remap_type(*ty, self.type_offset);

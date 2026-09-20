@@ -15,6 +15,10 @@ impl<'a> Validator<'a> {
             | Type::NullableBool
             | Type::NullableString => true,
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Record { positional, named }) => positional
+                    .iter()
+                    .chain(named.iter().map(|(_, ty)| ty))
+                    .all(|ty| self.printable_type(*ty)),
                 Some(
                     TypeShape::List(element)
                     | TypeShape::Iterable(element)
@@ -70,6 +74,14 @@ impl<'a> Validator<'a> {
                 })?;
                 stack.push((id, true));
                 let children = match shape {
+                    TypeShape::Record { positional, named } => {
+                        self.record_shape(positional.len(), named, Span { start: 0, end: 0 })?;
+                        positional
+                            .iter()
+                            .chain(named.iter().map(|(_, ty)| ty))
+                            .copied()
+                            .collect()
+                    }
                     TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t) => {
                         vec![*t]
                     }
@@ -95,13 +107,33 @@ impl<'a> Validator<'a> {
         expected: Type,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let fail = || {
-            Diagnostic::new(
-                "Incompatible structural type; List element types are invariant in this subset",
-                span,
-            )
-        };
+        let fail = || Diagnostic::new("Incompatible structural type", span);
         match (self.shape(actual), self.shape(expected)) {
+            (
+                Some(TypeShape::Record {
+                    positional: a,
+                    named: an,
+                }),
+                Some(TypeShape::Record {
+                    positional: b,
+                    named: bn,
+                }),
+            ) => {
+                if a.len() != b.len()
+                    || an.len() != bn.len()
+                    || an.iter().zip(&bn).any(|(a, b)| a.0 != b.0)
+                {
+                    return Err(fail());
+                }
+                for (a, b) in a
+                    .into_iter()
+                    .chain(an.into_iter().map(|(_, ty)| ty))
+                    .zip(b.into_iter().chain(bn.into_iter().map(|(_, ty)| ty)))
+                {
+                    self.require_type(a, b, span)?;
+                }
+                Ok(())
+            }
             (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => self.require_type(a, b, span),
             (Some(TypeShape::List(a) | TypeShape::Iterable(a)), Some(TypeShape::Iterable(b))) => {
                 self.require_type(a, b, span)
@@ -137,6 +169,19 @@ impl<'a> Validator<'a> {
             .shape(ty)
             .ok_or_else(|| Diagnostic::new("Unknown structural type", span))?;
         let (name, children) = match shape {
+            TypeShape::Record { positional, named } => {
+                self.record_shape(positional.len(), &named, span)?;
+                for child in positional
+                    .into_iter()
+                    .chain(named.into_iter().map(|(_, ty)| ty))
+                {
+                    if matches!(child, Type::Void | Type::Inferred) {
+                        return Err(Diagnostic::new("Unsupported record field type", span));
+                    }
+                    self.check_type_name(child, span)?;
+                }
+                return Ok(());
+            }
             TypeShape::Nullable(inner) => {
                 if matches!(inner, Type::Void | Type::Inferred) {
                     return Err(Diagnostic::new(
@@ -210,6 +255,37 @@ impl<'a> Validator<'a> {
                 }
             }
             match (self.shape(a), self.shape(b)) {
+                (
+                    Some(TypeShape::Record {
+                        positional: a,
+                        named: an,
+                    }),
+                    Some(TypeShape::Record {
+                        positional: b,
+                        named: bn,
+                    }),
+                ) => {
+                    if a.len() != b.len()
+                        || an.len() != bn.len()
+                        || an.iter().zip(&bn).any(|(a, b)| a.0 != b.0)
+                    {
+                        return Err(Diagnostic::new(
+                            "Least upper bound of different record shapes requires unsupported Record type",
+                            span,
+                        ));
+                    }
+                    let positional = a
+                        .into_iter()
+                        .zip(b)
+                        .map(|(a, b)| self.common(a, b, span))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let named = an
+                        .into_iter()
+                        .zip(bn)
+                        .map(|((name, a), (_, b))| self.common(a, b, span).map(|ty| (name, ty)))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(self.intern(TypeShape::Record { positional, named }));
+                }
                 (Some(TypeShape::List(x)), Some(TypeShape::List(y))) => {
                     return Ok(self.intern(TypeShape::List(self.common(x, y, span)?)));
                 }
@@ -298,6 +374,7 @@ impl<'a> Validator<'a> {
         expected: Option<Type>,
     ) -> Result<Type, Diagnostic> {
         let ty = match &e.kind {
+            ExprKind::Record { fields } => self.record_expression(fields, expected, e.span)?,
             ExprKind::Const(inner) => {
                 let ty = self.expression_expected(inner, expected)?;
                 self.evaluate_constant(e)?;
@@ -627,6 +704,7 @@ fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a s
                 scan_expr(value, names);
             }
             StatementKind::Variable { initializer, .. }
+            | StatementKind::RecordDestructure { initializer, .. }
             | StatementKind::Print(initializer)
             | StatementKind::Expression(initializer) => scan_expr(initializer, names),
             StatementKind::FieldAssign {
@@ -686,6 +764,11 @@ fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a s
 /// Visita closures aninhadas e coleta também efeitos em argumentos e receptores.
 fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
     match &e.kind {
+        ExprKind::Record { fields } => {
+            for (_, value) in fields {
+                scan_expr(value, names);
+            }
+        }
         ExprKind::TypeTest { operand, .. } | ExprKind::Cast { operand, .. } => {
             scan_expr(operand, names)
         }

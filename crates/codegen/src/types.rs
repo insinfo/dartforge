@@ -45,6 +45,27 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
                 descriptor(element, output);
                 output.push(']');
             }
+            TypeShape::Record { positional, named } => {
+                output.push_str("['record',[");
+                for (index, field) in positional.iter().enumerate() {
+                    if index > 0 {
+                        output.push(',');
+                    }
+                    descriptor(*field, output);
+                }
+                output.push_str("],[");
+                for (index, (name, field)) in named.iter().enumerate() {
+                    if index > 0 {
+                        output.push(',');
+                    }
+                    output.push('[');
+                    string_literal(name, output);
+                    output.push(',');
+                    descriptor(*field, output);
+                    output.push(']');
+                }
+                output.push_str("]]");
+            }
             TypeShape::Function { result, parameters } => {
                 function_descriptor(result, &parameters, output)
             }

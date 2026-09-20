@@ -55,6 +55,20 @@ void main() {
 "#
 }
 
+/// Exercita records tipados, desestruturação e igualdade através de Object.
+fn record_corpus() -> &'static str {
+    r#"
+(T, {T value}) pair<T>(T value) => (value, value: value);
+void main() {
+  final (first, value: second) = pair<int>(7);
+  var records = <(int, {int value})>[(first, value: second)];
+  Object erased = records[0];
+  print(erased is (int, {int value}));
+  print(erased == (value: 7, 7));
+}
+"#
+}
+
 /// Lê um inteiro positivo da configuração ou aplica o padrão informado.
 fn setting(name: &str, default: usize) -> usize {
     std::env::var(name).map_or(default, |value| {
@@ -121,6 +135,10 @@ fn main() {
     dartforge_semantic::validate(&ast).unwrap();
     let module = dartforge_hir::lower(dartforge_parser::parse(&tokens, source.len()).unwrap());
     let reified_source = reified_corpus();
+    let record_source = record_corpus();
+    let record_output_bytes = dartforge_compiler::compile(record_source)
+        .expect("corpus de records deve compilar")
+        .len();
     let reified_output_bytes = dartforge_compiler::compile(reified_source)
         .expect("corpus de genéricos reificados deve compilar")
         .len();
@@ -198,6 +216,13 @@ fn main() {
         iterations,
         samples,
     );
+    let record_pipeline = measure(
+        || {
+            black_box(dartforge_compiler::compile(black_box(record_source)).unwrap());
+        },
+        iterations,
+        samples,
+    );
     println!("{}", serde_json::to_string_pretty(&json!({
         "schema_version": 1, "kind": "warm_in_process_synthetic", "target_dart": "3.6.2",
         "os": std::env::consts::OS, "arch": std::env::consts::ARCH, "metadata": metadata,
@@ -208,6 +233,12 @@ fn main() {
         "note": "Inclui descarte das alocações; fases isoladas não incluem fases anteriores; não mede processo, disco, SDK, DDC nem otimizações globais. Mediana/p95 são de médias por lote, não latências individuais. Corpus analisa todas as funções, mas main chama apenas f0.",
         "phases": phases,
         "additional_corpora": {
+            "records": {
+                "source_bytes": record_source.len(), "javascript_bytes": record_output_bytes,
+                "iterations": iterations, "samples": samples, "warmup_iterations": iterations,
+                "phases": { "pipeline": record_pipeline },
+                "note": "Corpus fixo de records, genéricos, desestruturação e igualdade; não mede execução JS nem compara DDC/dart2js."
+            },
             "reified_generics": {
                 "source_bytes": reified_source.len(),
                 "javascript_bytes": reified_output_bytes,

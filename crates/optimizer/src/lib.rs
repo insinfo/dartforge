@@ -80,7 +80,10 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
             fold_expression(index, stats);
             fold_expression(value, stats);
         }
-        StatementKind::Variable { initializer, .. } => fold_expression(initializer, stats),
+        StatementKind::Variable { initializer, .. }
+        | StatementKind::RecordDestructure { initializer, .. } => {
+            fold_expression(initializer, stats)
+        }
         StatementKind::Assign { value, .. }
         | StatementKind::Print(value)
         | StatementKind::Expression(value) => fold_expression(value, stats),
@@ -135,6 +138,12 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
 /// Simplifica filhos puros e substitui somente operadores com resultado comprovado.
 fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
     let replacement = match &mut expression.kind {
+        ExprKind::Record { fields } => {
+            for (_, field) in fields {
+                fold_expression(field, stats);
+            }
+            None
+        }
         ExprKind::Const(e)
         | ExprKind::TypeTest { operand: e, .. }
         | ExprKind::Cast { operand: e, .. } => {

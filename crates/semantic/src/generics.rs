@@ -121,6 +121,16 @@ impl<'a> Validator<'a> {
                 .flatten()
                 .unwrap_or(unknown),
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Record { positional, named }) => self.intern(TypeShape::Record {
+                    positional: positional
+                        .into_iter()
+                        .map(|t| self.substitute(t, bindings, unknown))
+                        .collect(),
+                    named: named
+                        .into_iter()
+                        .map(|(n, t)| (n, self.substitute(t, bindings, unknown)))
+                        .collect(),
+                }),
                 Some(TypeShape::Nullable(t)) => {
                     self.nullable(self.substitute(t, bindings, unknown))
                 }
@@ -149,6 +159,10 @@ impl<'a> Validator<'a> {
         match ty {
             Type::Inferred => true,
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Record { positional, named }) => positional
+                    .into_iter()
+                    .chain(named.into_iter().map(|(_, t)| t))
+                    .any(|t| self.has_inferred(t)),
                 Some(TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t)) => {
                     self.has_inferred(t)
                 }
@@ -191,6 +205,30 @@ impl<'a> Validator<'a> {
                 });
             }
             Type::Applied(_) => match (self.shape(formal), self.shape(actual)) {
+                (
+                    Some(TypeShape::Record {
+                        positional: fp,
+                        named: fnames,
+                    }),
+                    Some(TypeShape::Record {
+                        positional: ap,
+                        named: anames,
+                    }),
+                ) if fp.len() == ap.len()
+                    && fnames
+                        .iter()
+                        .map(|(n, _)| n)
+                        .eq(anames.iter().map(|(n, _)| n)) =>
+                {
+                    for (f, a) in fp.into_iter().zip(ap).chain(
+                        fnames
+                            .into_iter()
+                            .map(|(_, t)| t)
+                            .zip(anames.into_iter().map(|(_, t)| t)),
+                    ) {
+                        self.infer(f, a, bindings, span)?;
+                    }
+                }
                 (Some(TypeShape::Nullable(inner)), _) => {
                     if actual != Type::Null {
                         self.infer(inner, self.without_null(actual), bindings, span)?;

@@ -13,6 +13,7 @@ mod constructors;
 mod generics;
 mod modifiers;
 mod native;
+mod records;
 mod reified;
 mod switches;
 use std::collections::{HashMap, HashSet};
@@ -923,6 +924,38 @@ impl<'a> Validator<'a> {
         let mut scope = HashMap::new();
         // Locais ocultam nomes externos em todo o bloco, inclusive antes da declaração.
         for statement in statements {
+            if let StatementKind::RecordDestructure {
+                is_final,
+                positional,
+                named,
+                ..
+            } = &statement.kind
+            {
+                let names = positional
+                    .iter()
+                    .copied()
+                    .chain(named.iter().map(|(_, name, span)| (*name, *span)));
+                for (name, span) in names {
+                    if name != "_"
+                        && scope
+                            .insert(
+                                name,
+                                Binding {
+                                    constant: None,
+                                    ty: None,
+                                    is_final: *is_final,
+                                    promoted: None,
+                                },
+                            )
+                            .is_some()
+                    {
+                        return Err(Diagnostic::new(
+                            format!("Duplicate local variable '{name}'"),
+                            span,
+                        ));
+                    }
+                }
+            }
             if let StatementKind::Variable {
                 name,
                 is_final,
@@ -957,6 +990,12 @@ impl<'a> Validator<'a> {
     /// Valida uma instrução e seus efeitos sobre o escopo semântico.
     fn statement(&mut self, statement: &Statement<'a>) -> Result<(), Diagnostic> {
         match &statement.kind {
+            StatementKind::RecordDestructure {
+                positional,
+                named,
+                initializer,
+                ..
+            } => self.record_destructure(positional, named, initializer, statement.span),
             StatementKind::Variable {
                 is_const,
                 name,
@@ -1512,7 +1551,7 @@ impl<'a> Validator<'a> {
                 type_arguments,
                 arguments,
             } => self.generic_call(name, type_arguments, arguments, expression.span, None),
-            ExprKind::Closure { .. } | ExprKind::List { .. } => {
+            ExprKind::Closure { .. } | ExprKind::List { .. } | ExprKind::Record { .. } => {
                 unreachable!("expressões contextuais são tratadas no wrapper")
             }
             ExprKind::Index { receiver, index } => {
@@ -1604,6 +1643,9 @@ impl<'a> Validator<'a> {
             }
             ExprKind::Member { receiver, name } => {
                 let receiver_type = self.upper_bound(self.value(receiver)?);
+                if matches!(self.shape(receiver_type), Some(TypeShape::Record { .. })) {
+                    return self.record_field(receiver_type, name, expression.span);
+                }
                 if let Some(element) = self.element(receiver_type) {
                     return match *name {
                         "length" => Ok(Type::Int),
@@ -1635,6 +1677,13 @@ impl<'a> Validator<'a> {
                 arguments,
             } => {
                 let receiver_type = self.upper_bound(self.value(receiver)?);
+                if matches!(self.shape(receiver_type), Some(TypeShape::Record { .. })) {
+                    return self.invoke(
+                        self.record_field(receiver_type, name, expression.span)?,
+                        arguments,
+                        expression.span,
+                    );
+                }
                 if self.element(receiver_type).is_some() {
                     return self.collection_call(receiver_type, name, arguments, expression.span);
                 }

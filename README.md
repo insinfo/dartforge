@@ -196,3 +196,10 @@ O [incremento 18](docs/IMPLEMENTACAO-18.md) amplia funções genéricas top-leve
 e descritores JavaScript para `is`, `is!` e `as`. Tipos de elementos acompanham
 listas e iteráveis; escritas covariantes são verificadas em execução.
 Veja [referências e limites](docs/GENERICS-REIFIED-REFERENCIAS.md).
+
+## Records e desestruturação
+
+O [incremento 19](docs/IMPLEMENTACAO-19.md) acrescenta records posicionais/nomeados,
+tipos estruturais, igualdade, reificação e desestruturação local var/final no JS.
+Extension types permanecem pendentes. O experimento oficial de macros foi
+cancelado; @JsonCodable não integra a compatibilidade estável anunciada.

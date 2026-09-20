@@ -236,9 +236,10 @@ fn ty(value: Type, _span: Span) -> Result<Ty, Diagnostic> {
         Type::Object | Type::NullableObject | Type::NullableParameter(_) => {
             Err(error(_span, "Object e parâmetros de tipo reificados"))
         }
-        Type::Parameter(_) | Type::Applied(_) | Type::Inferred => {
-            Err(error(_span, "coleções e funções como valores"))
-        }
+        Type::Parameter(_) | Type::Applied(_) | Type::Inferred => Err(error(
+            _span,
+            "tipos estruturais e genéricos (coleções, funções e records)",
+        )),
         Type::Int => Ok(Ty::Int),
         Type::Bool => Ok(Ty::Bool),
         Type::Void => Ok(Ty::Void),
@@ -270,6 +271,9 @@ fn validate_statements(body: &[Statement<'_>]) -> Result<(), Diagnostic> {
 /// Valida recursos em cada posição, incluindo cabeçalhos e blocos não executados.
 fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
     match &statement.kind {
+        StatementKind::RecordDestructure { .. } => {
+            return Err(error(statement.span, "desestruturação de records"));
+        }
         StatementKind::Switch { .. } => return Err(error(statement.span, "switch/patterns")),
         StatementKind::IndexAssign { .. } => {
             return Err(error(statement.span, "atribuição por índice"));
@@ -338,6 +342,7 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
 /// Rejeita expressões incompatíveis antes de qualquer simplificação ou emissão.
 fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
     match &value.kind {
+        ExprKind::Record { .. } => return Err(error(value.span, "records")),
         ExprKind::Const(e) => validate_expression(e)?,
         ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
             return Err(error(value.span, "testes e casts de tipos reificados"));
@@ -561,6 +566,9 @@ impl<'a> FunctionEmitter<'a> {
     /// Emite uma instrução e liga os blocos de controle correspondentes.
     fn statement(&mut self, statement: &Statement<'_>) -> Result<(), Diagnostic> {
         match &statement.kind {
+            StatementKind::RecordDestructure { .. } => {
+                return Err(error(statement.span, "desestruturação de records"));
+            }
             StatementKind::Switch { .. } => return Err(error(statement.span, "switch/patterns")),
             StatementKind::IndexAssign { .. } => {
                 return Err(error(statement.span, "atribuição por índice"));
@@ -1051,6 +1059,7 @@ impl<'a> FunctionEmitter<'a> {
     /// Emite expressão em ordem; && e || produzem CFG e phi, nunca avaliação ávida.
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
+            ExprKind::Record { .. } => return Err(error(expression.span, "records")),
             ExprKind::Const(e) => self.expression(e)?,
             ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
                 return Err(error(expression.span, "testes e casts de tipos reificados"));

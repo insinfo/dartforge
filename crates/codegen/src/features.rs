@@ -9,6 +9,17 @@ fn type_key(ty: Type, resolution: &dartforge_syntax::Resolution) -> String {
             TypeShape::List(t) => format!("List<{}>", type_key(*t, resolution)),
             TypeShape::Iterable(t) => format!("Iterable<{}>", type_key(*t, resolution)),
             TypeShape::Nullable(t) => format!("Nullable<{}>", type_key(*t, resolution)),
+            TypeShape::Record { positional, named } => format!(
+                "Record({:?};{:?})",
+                positional
+                    .iter()
+                    .map(|ty| type_key(*ty, resolution))
+                    .collect::<Vec<_>>(),
+                named
+                    .iter()
+                    .map(|(name, ty)| (name, type_key(*ty, resolution)))
+                    .collect::<Vec<_>>()
+            ),
             TypeShape::Function { result, parameters } => format!(
                 "Fn({:?})->{}",
                 parameters

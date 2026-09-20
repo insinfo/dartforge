@@ -28,6 +28,12 @@ fn validate(
     lookup: &impl Fn(&str) -> Option<ConstValue>,
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
+        ExprKind::Record { .. } => {
+            return Err(error(
+                expression.span,
+                "const records are not supported yet",
+            ));
+        }
         ExprKind::Int(_)
         | ExprKind::Bool(_)
         | ExprKind::String(_)
@@ -152,6 +158,10 @@ fn closed_type(ty: Type, resolution: &Resolution) -> bool {
     match ty {
         Type::Parameter(_) | Type::NullableParameter(_) | Type::Inferred | Type::Void => false,
         Type::Applied(id) => match resolution.types.get(id as usize) {
+            Some(TypeShape::Record { positional, named }) => positional
+                .iter()
+                .chain(named.iter().map(|(_, t)| t))
+                .all(|t| closed_type(*t, resolution)),
             Some(
                 TypeShape::List(element)
                 | TypeShape::Iterable(element)
@@ -177,6 +187,27 @@ fn same_type(left: Type, right: Type, resolution: &Resolution) -> bool {
             resolution.types.get(a as usize),
             resolution.types.get(b as usize),
         ) {
+            (
+                Some(TypeShape::Record {
+                    positional: ap,
+                    named: an,
+                }),
+                Some(TypeShape::Record {
+                    positional: bp,
+                    named: bn,
+                }),
+            ) => {
+                ap.len() == bp.len()
+                    && an.len() == bn.len()
+                    && ap
+                        .iter()
+                        .zip(bp)
+                        .all(|(a, b)| same_type(*a, *b, resolution))
+                    && an
+                        .iter()
+                        .zip(bn)
+                        .all(|((a, at), (b, bt))| a == b && same_type(*at, *bt, resolution))
+            }
             (Some(TypeShape::List(a)), Some(TypeShape::List(b)))
             | (Some(TypeShape::Iterable(a)), Some(TypeShape::Iterable(b)))
             | (Some(TypeShape::Nullable(a)), Some(TypeShape::Nullable(b))) => {

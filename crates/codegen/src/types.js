@@ -1,5 +1,6 @@
 // Descritores próprios do subconjunto; não expõem o runtimeType nem a representação do SDK.
 const $dartforgeTypeTags = new WeakMap();
+const $dartforgeRecordData = new WeakMap();
 let $dartforgeNominalMembers = {};
 function $dartforgeTyped(value, type) { $dartforgeTypeTags.set(value, type); return value; }
 function $dartforgeTypeOf(value) {
@@ -25,6 +26,11 @@ function $dartforgeSubtype(actual, expected) {
   if (e === 'object') return a !== 'void';
   if (a === 'class' && e === 'class') return ($dartforgeNominalMembers[expected[1]] || [expected[1]]).includes(actual[1]);
   if ((a === 'list' || a === 'iterable') && (e === a || e === 'iterable')) return $dartforgeSubtype(actual[1], expected[1]);
+  if (a === 'record' && e === 'record') {
+    return actual[1].length === expected[1].length && actual[2].length === expected[2].length &&
+      actual[1].every((field, i) => $dartforgeSubtype(field, expected[1][i])) &&
+      actual[2].every((field, i) => field[0] === expected[2][i][0] && $dartforgeSubtype(field[1], expected[2][i][1]));
+  }
   if (a === 'function' && e === 'function') {
     return actual[2].length === expected[2].length &&
       (expected[1][0] === 'void' || $dartforgeSubtype(actual[1], expected[1])) &&

@@ -82,6 +82,17 @@ function $dartforgeIndexSet(list, index, value) {
   list.values[index] = value;
 }
 function $dartforgeFormat(value, active = new Set()) {
+  const record = $dartforgeRecordData.get(value);
+  if (record) {
+    if (active.has(value)) return '(...)';
+    active.add(value);
+    try {
+      const parts = record[0].map(field => $dartforgeFormat(field, active));
+      for (const [name, field] of record[1]) parts.push(name + ': ' + $dartforgeFormat(field, active));
+      // SDK 3.6.2 imprime o record unário como (valor), sem a vírgula da sintaxe literal.
+      return '(' + parts.join(', ') + ')';
+    } finally { active.delete(value); }
+  }
   if (!(value instanceof $dartforgeIterable)) return String(value);
   const list = value instanceof $dartforgeList, open = list ? '[' : '(', close = list ? ']' : ')';
   if (active.has(value)) return open + '...' + close;

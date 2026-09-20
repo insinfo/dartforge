@@ -75,6 +75,13 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
             if let StatementKind::Variable { name, .. } = &s.kind {
                 forbidden.insert(*name);
             }
+            if let StatementKind::RecordDestructure {
+                positional, named, ..
+            } = &s.kind
+            {
+                forbidden.extend(positional.iter().map(|(name, _)| *name));
+                forbidden.extend(named.iter().map(|(_, name, _)| *name));
+            }
         },
         &mut |_| {},
     );
@@ -197,7 +204,7 @@ impl<'a> Canonical<'a, '_> {
     fn statement(&mut self, s: &Statement<'a>) -> String {
         use StatementKind::*;
         match &s.kind {
-            Switch { .. } => {
+            Switch { .. } | RecordDestructure { .. } => {
                 self.valid = false;
                 "switch".into()
             }
@@ -311,7 +318,12 @@ impl<'a> Canonical<'a, '_> {
     fn expression(&mut self, e: &Expr<'a>) -> String {
         use ExprKind::*;
         match &e.kind {
-            Const(_) | Switch { .. } | GenericCall { .. } | TypeTest { .. } | Cast { .. } => {
+            Const(_)
+            | Switch { .. }
+            | GenericCall { .. }
+            | TypeTest { .. }
+            | Cast { .. }
+            | Record { .. } => {
                 self.valid = false;
                 "new-expression".into()
             }
@@ -472,7 +484,9 @@ fn visit_stmt<'a>(
             visit_expr(index, e);
             visit_expr(value, e);
         }
-        Variable { initializer, .. } => visit_expr(initializer, e),
+        Variable { initializer, .. } | RecordDestructure { initializer, .. } => {
+            visit_expr(initializer, e)
+        }
         Assign { value, .. } | Print(value) | Expression(value) => visit_expr(value, e),
         FieldAssign {
             receiver, value, ..
@@ -526,6 +540,11 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
     e(x);
     use ExprKind::*;
     match &mut x.kind {
+        Record { fields } => {
+            for (_, field) in fields {
+                visit_expr(field, e);
+            }
+        }
         Const(v) | TypeTest { operand: v, .. } | Cast { operand: v, .. } => visit_expr(v, e),
         Switch { scrutinee, arms } => {
             visit_expr(scrutinee, e);

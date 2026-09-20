@@ -186,3 +186,11 @@ Classes e métodos genéricos, herança parametrizada e bounds recursivos perman
 fora do subconjunto. LLVM rejeita os novos testes/casts e genéricos explicitamente.
 Não há reflexão `runtimeType` completa. Detalhes e referências em
 [GENERICS-REIFIED-REFERENCIAS.md](GENERICS-REIFIED-REFERENCIAS.md).
+
+## Records no JavaScript
+
+Records posicionais/nomeados, campos imutáveis, igualdade estrutural e tipos
+reificados estão integrados a genéricos e nulabilidade. Declarações var/final
+podem desestruturar um record sem padrões aninhados. Veja
+[contrato e limites do incremento 19](IMPLEMENTACAO-19.md). LLVM, extension types
+e macros não ganham suporte por essa implementação.

@@ -108,6 +108,11 @@ pub fn parse_unit<'a>(
     while cursor.peek().is_some() {
         let declaration_index = skip_metadata(tokens, cursor.index)?;
         let declaration_kind = tokens.get(declaration_index).map(|token| token.kind);
+        if declaration_kind == Some(TokenKind::Word("macro")) {
+            return Err(
+                cursor.error("macro declarations and generated annotations are not supported")
+            );
+        }
         if matches!(
             declaration_kind,
             Some(TokenKind::Word(
@@ -299,13 +304,16 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
         if is_class {
             index = nominal_header(tokens, index - 1)?.name_index;
         }
-        if !matches!(first.kind, TokenKind::Word(_)) {
+        if !matches!(first.kind, TokenKind::Word(_) | TokenKind::Symbol('(')) {
             return Err(Diagnostic::new(
                 "expected top-level declaration",
                 first.span,
             ));
         }
         if !is_class {
+            if first.kind == TokenKind::Symbol('(') {
+                index = skip_delimited(tokens, index - 1, '(', ')', first.span)?;
+            }
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("<")) {
                 let mut depth = 1usize;
                 index += 1;
@@ -544,6 +552,7 @@ impl<'a> Cursor<'_, 'a> {
         }
         let word = self.peek();
         let mut ty = match word {
+            Some(TokenKind::Symbol('(')) => self.record_type(depth)?,
             Some(TokenKind::Word("int")) => Type::Int,
             Some(TokenKind::Word("String")) => Type::String,
             Some(TokenKind::Word("bool")) => Type::Bool,
@@ -572,7 +581,10 @@ impl<'a> Cursor<'_, 'a> {
             }
             _ => return Err(self.error("expected an explicitly supported type")),
         };
-        if !matches!(word, Some(TokenKind::Word("List" | "Iterable"))) {
+        if !matches!(
+            word,
+            Some(TokenKind::Word("List" | "Iterable") | TokenKind::Symbol('('))
+        ) {
             self.index += 1;
         }
         if self.take(TokenKind::Operator("?")) {
@@ -618,6 +630,56 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("void value type is unsupported"));
         }
         Ok(ty)
+    }
+    /// Lê tipo estrutural de record e ordena somente os nomes de sua identidade.
+    fn record_type(&mut self, depth: usize) -> Result<Type, Diagnostic> {
+        self.expect(TokenKind::Symbol('('))?;
+        let mut positional = Vec::new();
+        let mut named = Vec::new();
+        let mut labels = Vec::new();
+        let mut comma = false;
+        while self.peek() != Some(TokenKind::Symbol(')')) {
+            if self.take(TokenKind::Symbol('{')) {
+                if self.peek() == Some(TokenKind::Symbol('}')) {
+                    return Err(self.error("named record types require at least one field"));
+                }
+                while self.peek() != Some(TokenKind::Symbol('}')) {
+                    let ty = self.type_at(false, depth + 1)?;
+                    let label = self.name()?;
+                    labels.push(label);
+                    let name = label.to_owned();
+                    if named.iter().any(|(existing, _)| existing == &name) {
+                        return Err(self.error("duplicate named record field"));
+                    }
+                    named.push((name, ty));
+                    if !self.take(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::Symbol('}'))?;
+                break;
+            }
+            positional.push(self.type_at(false, depth + 1)?);
+            if matches!(self.peek(), Some(TokenKind::Word(name)) if !reserved(name)) {
+                labels.push(self.name()?);
+            }
+            comma = self.take(TokenKind::Symbol(','));
+            if !comma {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(')'))?;
+        if positional.len() == 1 && named.is_empty() && !comma {
+            return Err(self.error("single-field record types require a trailing comma"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for label in labels {
+            if !seen.insert(label) || invalid_record_field_name(label, positional.len()) {
+                return Err(self.error("invalid or duplicate record type field name"));
+            }
+        }
+        named.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(self.intern(TypeShape::Record { positional, named }))
     }
     /// Testa uma anotação local e restaura cursor e arena após a sondagem.
     fn starts_annotation(&mut self) -> bool {
@@ -1105,6 +1167,7 @@ impl<'a> Cursor<'_, 'a> {
                     self.expect(TokenKind::Symbol(')'))?;
                     AnnotationKind::Deprecated { message: Some(message) }
                 }
+                "JsonCodable" => return Err(self.error("JsonCodable macros are not implemented; annotations cannot generate code in this subset")),
                 _ => return Err(self.error("unsupported annotation; supported metadata: override, deprecated, Deprecated and Native")),
             };
             annotations.push(Annotation {
@@ -1308,12 +1371,20 @@ impl<'a> Cursor<'_, 'a> {
     }
     /// Pré-indexa nomes genéricos, ignorando limites balanceados até a assinatura formal.
     fn scan_type_parameters(&self) -> Result<Vec<&'a str>, Diagnostic> {
+        let mut return_parentheses = 0usize;
         for index in self.index..self.tokens.len() {
-            if matches!(
-                self.tokens[index].kind,
-                TokenKind::Symbol('{' | ';') | TokenKind::Operator("=>")
-            ) {
+            if return_parentheses == 0
+                && matches!(
+                    self.tokens[index].kind,
+                    TokenKind::Symbol('{' | ';') | TokenKind::Operator("=>")
+                )
+            {
                 break;
+            }
+            match self.tokens[index].kind {
+                TokenKind::Symbol('(') => return_parentheses += 1,
+                TokenKind::Symbol(')') => return_parentheses = return_parentheses.saturating_sub(1),
+                _ => {}
             }
             if self.tokens[index].kind != TokenKind::Operator("<") {
                 continue;
@@ -1338,7 +1409,8 @@ impl<'a> Cursor<'_, 'a> {
                             TokenKind::Operator(">") => angles = angles.saturating_sub(1),
                             TokenKind::Symbol('(') => parentheses += 1,
                             TokenKind::Symbol(')') => parentheses = parentheses.saturating_sub(1),
-                            TokenKind::Symbol('{' | ';') | TokenKind::Operator("=>") => break,
+                            TokenKind::Symbol('{') if parentheses == 0 => break,
+                            TokenKind::Symbol(';') | TokenKind::Operator("=>") => break,
                             _ => {}
                         }
                         cursor += 1;
@@ -1474,7 +1546,14 @@ impl<'a> Cursor<'_, 'a> {
             let initializer = if self.peek() == Some(TokenKind::Symbol(';')) {
                 None
             } else {
-                Some(Box::new(self.simple(true)?))
+                let initializer = self.simple(true)?;
+                if matches!(initializer.kind, StatementKind::RecordDestructure { .. }) {
+                    return Err(Diagnostic::new(
+                        "record destructuring in for initializers is not supported yet",
+                        initializer.span,
+                    ));
+                }
+                Some(Box::new(initializer))
             };
             self.expect(TokenKind::Symbol(';'))?;
             let condition = if self.peek() == Some(TokenKind::Symbol(';')) {
@@ -1548,6 +1627,19 @@ impl<'a> Cursor<'_, 'a> {
             let inferred = self.take(TokenKind::Word("var"));
             if is_final && inferred {
                 return Err(self.error("final var is not supported; use final name = expression"));
+            }
+            if self.peek() == Some(TokenKind::Symbol('(')) && !self.starts_annotation() {
+                if is_const {
+                    return Err(self.error("const record destructuring is not supported"));
+                }
+                let kind = self.record_destructure(is_final)?;
+                return Ok(Statement {
+                    kind,
+                    span: Span {
+                        start,
+                        end: self.end(),
+                    },
+                });
             }
             let annotation = if !inferred && self.starts_annotation() {
                 Some(self.ty(false)?)
@@ -1930,9 +2022,7 @@ impl<'a> Cursor<'_, 'a> {
             }
             Some(TokenKind::Symbol('(')) if self.starts_closure() => self.closure(depth)?,
             Some(TokenKind::Symbol('(')) => {
-                self.index += 1;
-                let mut value = self.binary(0, depth + 1)?;
-                self.expect(TokenKind::Symbol(')'))?;
+                let mut value = self.record_or_group(depth)?;
                 value.span = Span {
                     start,
                     end: self.end(),
@@ -1955,6 +2045,102 @@ impl<'a> Cursor<'_, 'a> {
             },
             depth,
         )
+    }
+    /// Distingue agrupamento de expressão de records, preservando a ordem total dos campos.
+    fn record_or_group(&mut self, depth: usize) -> Result<Expr<'a>, Diagnostic> {
+        let start = self.position();
+        self.expect(TokenKind::Symbol('('))?;
+        let mut fields = Vec::new();
+        let mut comma = false;
+        while self.peek() != Some(TokenKind::Symbol(')')) {
+            let name = if matches!(self.peek(), Some(TokenKind::Word(_)))
+                && self.tokens.get(self.index + 1).map(|token| token.kind)
+                    == Some(TokenKind::Symbol(':'))
+            {
+                let name = self.name()?;
+                self.expect(TokenKind::Symbol(':'))?;
+                if fields.iter().any(|(existing, _)| *existing == Some(name)) {
+                    return Err(self.error("duplicate named record field"));
+                }
+                Some(name)
+            } else {
+                None
+            };
+            fields.push((name, self.binary(0, depth + 1)?));
+            comma = self.take(TokenKind::Symbol(','));
+            if !comma {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(')'))?;
+        let span = Span {
+            start,
+            end: self.end(),
+        };
+        if fields.len() == 1 && fields[0].0.is_none() && !comma {
+            let mut expression = fields.pop().unwrap().1;
+            expression.span = span;
+            Ok(expression)
+        } else {
+            Ok(Expr {
+                kind: ExprKind::Record { fields },
+                span,
+            })
+        }
+    }
+    /// Lê desestruturação rasa com nomes simples; '_' permanece sentinela de wildcard.
+    fn record_destructure(&mut self, is_final: bool) -> Result<StatementKind<'a>, Diagnostic> {
+        self.expect(TokenKind::Symbol('('))?;
+        let mut positional = Vec::new();
+        let mut named = Vec::new();
+        let mut comma = false;
+        while self.peek() != Some(TokenKind::Symbol(')')) {
+            let shorthand = self.take(TokenKind::Symbol(':'));
+            let start = self.position();
+            let name = self.name().map_err(|_| self.error("record destructuring supports only simple untyped names, without nested patterns"))?;
+            let mut binding = name;
+            let mut span = Span {
+                start,
+                end: self.end(),
+            };
+            if shorthand || self.take(TokenKind::Symbol(':')) {
+                if !shorthand {
+                    let start = self.position();
+                    binding = self.name().map_err(|_| {
+                        self.error("record destructuring supports only simple untyped bindings")
+                    })?;
+                    span = Span {
+                        start,
+                        end: self.end(),
+                    };
+                }
+                if name == "_" {
+                    return Err(self.error("record field name cannot be private"));
+                }
+                if named.iter().any(|(field, _, _)| *field == name) {
+                    return Err(self.error("duplicate named record pattern field"));
+                }
+                named.push((name, binding, span));
+            } else {
+                positional.push((binding, span));
+            }
+            comma = self.take(TokenKind::Symbol(','));
+            if !comma {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(')'))?;
+        if positional.len() == 1 && named.is_empty() && !comma {
+            return Err(self.error("single-field record patterns require a trailing comma"));
+        }
+        self.expect(TokenKind::Operator("="))?;
+        let initializer = self.expression()?;
+        Ok(StatementKind::RecordDestructure {
+            is_final,
+            positional,
+            named,
+            initializer,
+        })
     }
     /// Mantém o separador de braço fora de closures parentetizadas no nível da guarda.
     fn guard(&mut self, depth: usize) -> Result<Expr<'a>, Diagnostic> {
@@ -2199,6 +2385,20 @@ impl<'a> Cursor<'_, 'a> {
     }
 }
 
+/// Valida nomes de campos, inclusive rótulos posicionais que não integram o tipo estrutural.
+fn invalid_record_field_name(name: &str, positional: usize) -> bool {
+    name.starts_with('_')
+        || matches!(
+            name,
+            "hashCode" | "runtimeType" | "toString" | "noSuchMethod"
+        )
+        || name.strip_prefix('$').is_some_and(|index| {
+            !index.starts_with('0')
+                && index
+                    .parse::<usize>()
+                    .is_ok_and(|index| index > 0 && index <= positional)
+        })
+}
 /// Avança metadados balanceados durante a indexação; o parser completo valida seu conteúdo.
 fn skip_metadata(tokens: &[Token<'_>], mut index: usize) -> Result<usize, Diagnostic> {
     while tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol('@')) {
@@ -2566,6 +2766,97 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Records preservam avaliação mista e tipos equivalentes ordenam apenas nomes.
+    #[test]
+    fn record_literals_types_and_destructuring() {
+        let source = "(int,{String z,int a}) first()=> (1,z:'x',a:2); (int,{int a,String z}) second()=> (a:2,1,z:'x'); (T,{T value}) pair<T>(T value)=>(value,value:value); void main(){var empty=();var single=(1,);var grouped=(1);var mixed=(1,label:2,3);var (x,:label,y)=mixed;final (a,)=single;var (_,_)=(1,2);print(mixed.$1);}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().functions.len(), 4);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(
+            program.functions[0].return_type,
+            program.functions[1].return_type
+        );
+        let Type::Applied(id) = program.functions[0].return_type else {
+            panic!()
+        };
+        let TypeShape::Record { named, .. } = &program.types[id as usize] else {
+            panic!()
+        };
+        assert_eq!(
+            named
+                .iter()
+                .map(|field| field.0.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "z"]
+        );
+        let StatementKind::Variable { initializer, .. } = &program.statements[3].kind else {
+            panic!()
+        };
+        let ExprKind::Record { fields } = &initializer.kind else {
+            panic!()
+        };
+        assert_eq!(
+            fields.iter().map(|field| field.0).collect::<Vec<_>>(),
+            [None, Some("label"), None]
+        );
+        let StatementKind::RecordDestructure {
+            positional,
+            named,
+            is_final,
+            ..
+        } = &program.statements[4].kind
+        else {
+            panic!()
+        };
+        assert!(!is_final);
+        assert_eq!(
+            positional.iter().map(|field| field.0).collect::<Vec<_>>(),
+            ["x", "y"]
+        );
+        assert_eq!((named[0].0, named[0].1), ("label", "label"));
+        assert_eq!(&source[named[0].2.start..named[0].2.end], "label");
+        assert!(matches!(
+            program.statements[5].kind,
+            StatementKind::RecordDestructure { is_final: true, .. }
+        ));
+        assert!(matches!(
+            &program.statements[7].kind,
+            StatementKind::Print(Expr {
+                kind: ExprKind::Member { name: "$1", .. },
+                ..
+            })
+        ));
+        parsed("void main(){({int x}) r=(x:1);var (x:y)=r;print(y);}");
+    }
+    /// Desestruturação aninhada/tipada, nomes inválidos e macros recebem diagnóstico.
+    #[test]
+    fn unsupported_record_patterns_and_invalid_record_types() {
+        for body in [
+            "for(var (x,y)=(1,2);x<3;x++){}",
+            "for(final (x,y)=(1,2);true;){}",
+            "var ((x,y),z)=((1,2),3);",
+            "var (int x,y)=(1,2);",
+            "var (x)=1;",
+            "const (x,y)=(1,2);",
+            "var (:_)=(x:1);",
+            "var (a:x,a:y)=(a:1);",
+            "var value=(x:1,x:2);",
+            "(int) value=(1,);",
+            "({}) value=();",
+            "(int x,int x) value=(1,2);",
+            "(int _x,) value=(1,);",
+            "(int hashCode,) value=(1,);",
+        ] {
+            rejected(body);
+        }
+        for source in [
+            "macro class Example{} void main(){}",
+            "@JsonCodable() class C{} void main(){}",
+        ] {
+            assert!(parse(&dartforge_lexer::lex(source).unwrap(), source.len()).is_err());
+        }
+    }
     /// Limites omitidos são Object? e testes/casts preservam tipos reificados e spans.
     #[test]
     fn bounded_functions_nullable_parameters_and_runtime_type_syntax() {

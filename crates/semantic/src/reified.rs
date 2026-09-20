@@ -75,6 +75,10 @@ impl<'a> Validator<'a> {
                         }
                     }
                     Type::Applied(_) => match self.shape(ty) {
+                        Some(TypeShape::Record { positional, named }) => {
+                            stack.extend(positional);
+                            stack.extend(named.into_iter().map(|(_, t)| t));
+                        }
                         Some(
                             TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t),
                         ) => stack.push(t),

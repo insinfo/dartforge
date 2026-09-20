@@ -55,9 +55,11 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
         let kind = if b == b'r' && matches!(bytes.get(i + 1), Some(b'\'' | b'"')) {
             i += 1;
             scan_string(source, &mut i, true, start)?
-        } else if b.is_ascii_alphabetic() || b == b'_' {
+        } else if b.is_ascii_alphabetic() || matches!(b, b'_' | b'$') {
             i += 1;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'$'))
+            {
                 i += 1;
             }
             TokenKind::Word(&source[start..i])
