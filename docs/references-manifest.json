@@ -33,7 +33,10 @@
     "name": "dart-sdk",
     "url": "https://github.com/dart-lang/sdk",
     "commit": "6c4009687d2c881f880127fc12b9ad7c72111d33",
-    "downloaded": "2026-09-20T02:14:58.8527837-03:00"
+    "downloaded": "2026-09-20T02:14:58.8527837-03:00",
+    "targetTag": "3.6.2",
+    "targetCommit": "b0cc5495e0f5e8ae150825a5352e708cb49e65ff",
+    "targetReadMethod": "git show 3.6.2:<path>; checkout unchanged"
   },
   {
     "name": "dart-language",

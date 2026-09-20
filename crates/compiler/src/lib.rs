@@ -1,5 +1,7 @@
 //! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript.
 use dartforge_diagnostics::Diagnostic;
+mod session;
+pub use session::{Compilation, CompilerSession, SessionStats};
 /// Compila o subconjunto suportado de Dart em um módulo JavaScript ESM.
 ///
 /// Executa tokenização, parsing, validação semântica, lowering estrutural e emissão.
@@ -51,6 +53,7 @@ pub fn compile_with_optimization(
     source: &str,
     optimization: Optimization,
 ) -> Result<String, Diagnostic> {
+    dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
     let resolution = dartforge_semantic::analyze(&ast)?;
@@ -61,10 +64,10 @@ pub fn compile_with_optimization(
         ast, resolution,
     )))
 }
-/// Compila um arquivo de entrada e suas bibliotecas relativas em um módulo JavaScript.
+/// Compila uma entrada e suas bibliotecas relativas ou package: em um módulo JavaScript.
 ///
 /// Cada biblioteca mantém namespace e privacidade próprios; apenas imports diretos
-/// tornam declarações públicas visíveis. O modo de otimização é aplicado depois
+/// tornam seus namespaces exportados visíveis. O modo de otimização é aplicado depois
 /// da resolução e da análise semântica do programa combinado.
 ///
 /// # Erros
@@ -83,8 +86,18 @@ pub fn compile_path(
     optimization: Optimization,
 ) -> Result<String, dartforge_packages::GraphError> {
     let graph = dartforge_packages::load(path)?;
+    compile_loaded_graph(&graph, optimization)
+}
+/// Compila um grafo recarregado pela rota compartilhada com a sessão.
+pub(crate) fn compile_loaded_graph(
+    graph: &dartforge_packages::SourceGraph,
+    optimization: Optimization,
+) -> Result<String, dartforge_packages::GraphError> {
     // A unidade isolada preserva o caminho direto e evita resolver um namespace sem imports.
-    if graph.units.len() == 1 && graph.units[0].imports.is_empty() {
+    if graph.units.len() == 1
+        && graph.units[0].imports.is_empty()
+        && graph.units[0].exports.is_empty()
+    {
         return compile_with_optimization(&graph.units[0].source, optimization).map_err(|error| {
             dartforge_packages::GraphError {
                 path: graph.units[0].path.clone(),
@@ -93,11 +106,22 @@ pub fn compile_path(
             }
         });
     }
-    dartforge_linker::compile_graph(&graph, optimization == Optimization::Constants)
+    dartforge_linker::compile_graph(graph, optimization == Optimization::Constants)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// As APIs em memória e por arquivo devem respeitar o mesmo alvo de linguagem.
+    #[test]
+    fn language_version_is_checked_before_optimization() {
+        for mode in [Optimization::None, Optimization::Constants] {
+            assert!(compile_with_optimization("// @dart = 2.9\nvoid main() {}", mode).is_err());
+            assert!(compile_with_optimization("// @dart = 3.6\nvoid main() {}", mode).is_ok());
+            assert!(
+                compile_with_optimization("/*\n// @dart = 2.9\n*/\nvoid main() {}", mode).is_ok()
+            );
+        }
+    }
     #[test]
     fn emits_unicode_and_quotes() {
         let js = compile("void main() { print('Olá \"Rust\"'); print('😀'); }").unwrap();

@@ -4,7 +4,7 @@ O compilador liga ASTs de cada biblioteca, sem concatenar nem reescrever os arqu
 
 ## Suportado
 
-- `import 'arquivo.dart';` relativo, inclusive diretórios, ciclos declarativos e diamantes. Caminhos canônicos identificam arquivos; imports repetidos são idempotentes.
+- `import 'arquivo.dart';` e `export 'arquivo.dart';` relativos, com combinadores `show`/`hide`, inclusive diretórios, ciclos declarativos e diamantes. Caminhos canônicos identificam arquivos; imports repetidos são idempotentes.
 - Cada arquivo é uma biblioteca. Somente declarações próprias e declarações públicas de imports **diretos** são visíveis. Imports não são transitivos e não equivalem a `export`.
 - Funções e classes recebem nomes distintos por biblioteca na AST. Classes recebem IDs globais antes do parsing dos corpos. Nomes iguais em bibliotecas separadas não colidem na emissão.
 - Membros e declarações iniciados por `_` são privados da biblioteca. A renomeação privada inclui a biblioteca declarante; membros privados de uma base estrangeira não sobrescrevem privados homônimos da derivada.
@@ -16,12 +16,13 @@ O compilador liga ASTs de cada biblioteca, sem concatenar nem reescrever os arqu
 
 ## Limites explícitos
 
-- Não há `package:`, `dart:`, `export`, `part`, `library`, `as`, `show`, `hide`, `deferred` ou imports condicionais. O carregador rejeita essas diretivas.
-- Ambiguidades entre imports diretos são rejeitadas mesmo quando o nome não é usado. Uma declaração própria com aquele nome resolve a colisão. Prefixos e combinadores virão em incremento posterior.
+- Não há `dart:`, `part`, `library`, `as`, `deferred` ou imports condicionais. Combinadores `show` e `hide` são suportados em imports e exports. A resolução de `package:` segue o suporte de package_config v2 oferecido pelo carregador.
+- Ambiguidades entre imports diretos são rejeitadas mesmo quando o nome não é usado. Uma declaração própria com aquele nome resolve a colisão. Use `show`/`hide` para desambiguar; prefixos `as` continuam fora do subconjunto.
 - Extensions ainda são rejeitadas pela compilação do grafo, para não atribuir alcance ou precedência incorretos a extensions importadas.
 - Chamadas de membros exigem receptor explícito; referências implícitas não são vinculadas silenciosamente a funções globais homônimas.
 - O namespace gerado usa `$lib<ID>$nome`, não aceito pelo lexer atual como identificador de usuário. Se o lexer passar a aceitar `$`, essa reserva precisa ser revista antes da ampliação.
 - Não há isolamento físico entre módulos JavaScript nem source maps. A privacidade é verificada pelo compilador DartForge; não é uma fronteira de segurança contra JavaScript externo.
+- Exports conflitantes são erros; reexportar a mesma origem por vários caminhos é idempotente. Nomes próprios da biblioteca prevalecem sobre exports e imports.
 - Todos os arquivos alcançados são analisados e emitidos; não há tree shaking, compilação incremental de módulos ou carregamento tardio.
 - `SourceGraph` passado diretamente à API deve obedecer ao contrato de `dartforge-packages::load`, incluindo spans de diretivas e arquivos UTF-8 originais.
 

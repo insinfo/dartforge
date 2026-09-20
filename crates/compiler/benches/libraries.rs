@@ -128,6 +128,33 @@ fn main() {
         },
         samples,
     );
+    let mut session = dartforge_compiler::CompilerSession::new();
+    session
+        .compile_path(&entry, dartforge_compiler::Optimization::None)
+        .unwrap();
+    let session_hit = measure(
+        || {
+            let result = session
+                .compile_path(black_box(&entry), dartforge_compiler::Optimization::None)
+                .unwrap();
+            assert!(result.stats.cache_hit);
+            assert_eq!(result.stats.compiled_units, 0);
+            black_box(result);
+        },
+        samples,
+    );
+    let session_miss = measure(
+        || {
+            session.clear();
+            let result = session
+                .compile_path(black_box(&entry), dartforge_compiler::Optimization::None)
+                .unwrap();
+            assert!(!result.stats.cache_hit);
+            assert_eq!(result.stats.compiled_units, corpus.files);
+            black_box(result);
+        },
+        samples,
+    );
     let rust = std::process::Command::new("rustc")
         .arg("-Vv")
         .output()
@@ -143,5 +170,5 @@ fn main() {
         .output()
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-    println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"kind":"synthetic_libraries_warm_filesystem","files":corpus.files,"bytes":corpus.bytes,"samples":samples,"warmup_per_phase":1,"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"rustc":rust,"git_revision":revision,"git_status_porcelain":dirty,"load":load,"link_preloaded_graph":link,"pipeline":pipeline,"pipeline_constants":optimized,"note":"Sem cache incremental. Carregamento/pipeline incluem leitura; link inclui lexer/parser/análise/emissão, mas não disco. Não compara DDC/dart2js nem executa JS."})).unwrap());
+    println!("{}",serde_json::to_string_pretty(&json!({"schema_version":2,"kind":"synthetic_libraries_warm_filesystem","files":corpus.files,"bytes":corpus.bytes,"samples":samples,"warmup_per_phase":1,"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"rustc":rust,"git_revision":revision,"git_status_porcelain":dirty,"load":load,"link_preloaded_graph":link,"pipeline":pipeline,"pipeline_constants":optimized,"session_exact_hit":session_hit,"session_cleared_miss":session_miss,"note":"Cache de saída integral; hit ainda recarrega todas as fontes. Sem recompilação incremental. Carregamento/pipeline incluem leitura; link inclui lexer/parser/análise/emissão, mas não disco. Não compara DDC/dart2js nem executa JS."})).unwrap());
 }

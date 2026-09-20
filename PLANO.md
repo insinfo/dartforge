@@ -234,6 +234,16 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 - [ ] Visibilidade de extensions importadas, getters/setters e generics.
 - [ ] Cache incremental por unidade, dependências semânticas e invalidação conservadora.
 
+## Sexto incremento — Pacotes, reexports e cache verificado
+
+- [x] Resolver `package:` por package_config v2, URIs e versão de linguagem 3.6.
+- [x] Compor show/hide e reexports com ciclos, identidade declarativa e precedência local.
+- [x] Cache limitado da última saída com releitura do grafo e comparação exata de conteúdo.
+- [x] Consultar testes do SDK na tag 3.6.2 e registrar decisões e experimentos.
+- [x] Comparar cache hit/miss no benchmark de bibliotecas, sem confundir cache com incremental.
+- [ ] Recompilação incremental por unidade e invalidação por dependências semânticas.
+- [ ] Prefixos, runtime dart:, parts, extensions importadas e aplicações ngdart reais.
+
 ## Próximas tarefas
 
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.

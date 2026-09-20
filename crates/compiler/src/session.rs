@@ -1,0 +1,404 @@
+//! Cache da última saída por conteúdo exato; não realiza compilação incremental.
+//!
+//! Cada solicitação recarrega fontes e resolução de pacotes. Um acerto economiza
+//! parsing/análise/emissão, mas não leituras, descoberta do grafo ou tokenização
+//! feita pelo carregador. Falhas descartam a entrada anterior.
+use crate::{Optimization, compile_loaded_graph};
+use dartforge_packages::{Combinator, GraphError, Import, SourceGraph};
+use std::{path::Path, sync::Arc};
+
+/// Estatísticas de uma solicitação concluída com sucesso.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionStats {
+    /// O grafo e a opção eram idênticos à última compilação armazenada.
+    pub cache_hit: bool,
+    /// Fontes carregadas nesta chamada; não inclui leituras de configuração/metadados.
+    pub source_units_loaded: usize,
+    /// Unidades enviadas ao pipeline; zero em acerto e todas as unidades em falha de cache.
+    pub compiled_units: usize,
+}
+
+/// JavaScript compartilhável e estatísticas da solicitação.
+#[derive(Debug, Clone)]
+pub struct Compilation {
+    /// Módulo ES completo. Arc evita copiar a saída em acertos do cache.
+    pub javascript: Arc<str>,
+    /// Contagens honestas desta solicitação, sem inferir granularidade incremental.
+    pub stats: SessionStats,
+}
+
+/// Sessão com no máximo uma entrada e orçamento de payload configurável.
+///
+/// O orçamento padrão é 16 MiB de texto/caminhos/URIs/nomes retidos. Exclui
+/// capacidade ociosa, estruturas, Arc e overhead do alocador; não limita a memória
+/// transitória da compilação nem Arcs de saída mantidos pelo chamador.
+pub struct CompilerSession {
+    cached: Option<Cached>,
+    max_payload_bytes: usize,
+}
+
+/// Snapshot integral e opção que produziram a saída armazenada.
+struct Cached {
+    graph: SourceGraph,
+    optimization: Optimization,
+    javascript: Arc<str>,
+}
+
+impl Default for CompilerSession {
+    /// Usa uma entrada com orçamento padrão de 16 MiB de payload.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CompilerSession {
+    /// Cria uma sessão vazia com orçamento padrão de 16 MiB.
+    ///
+    /// ```
+    /// let mut session = dartforge_compiler::CompilerSession::new();
+    /// session.clear();
+    /// ```
+    pub fn new() -> Self {
+        Self::with_cache_limit_bytes(16 * 1024 * 1024)
+    }
+
+    /// Define orçamento de payload; zero desativa retenção sem desativar compilação.
+    ///
+    /// ```
+    /// let _session = dartforge_compiler::CompilerSession::with_cache_limit_bytes(0);
+    /// ```
+    pub fn with_cache_limit_bytes(max_payload_bytes: usize) -> Self {
+        Self {
+            cached: None,
+            max_payload_bytes,
+        }
+    }
+
+    /// Descarta o snapshot e a referência da sessão à saída anterior.
+    ///
+    /// Saídas Arc já entregues continuam válidas enquanto o chamador as mantiver.
+    pub fn clear(&mut self) {
+        self.cached = None;
+    }
+
+    /// Recarrega o grafo, compara conteúdo exato e reutiliza somente a mesma saída.
+    ///
+    /// A chave inclui caminhos canônicos, fontes, imports/exports/combinadores,
+    /// entrada e opção de otimização. Não depende de mtime, tamanho ou hash.
+    /// Reconfigurar pacotes é observado pelo carregador antes da comparação.
+    ///
+    /// # Erros
+    ///
+    /// Qualquer erro de carga ou compilação é retornado e limpa o cache. Uma saída
+    /// antiga nunca é entregue no lugar de um erro da solicitação atual.
+    ///
+    /// ```no_run
+    /// use dartforge_compiler::{CompilerSession, Optimization};
+    /// let mut session = CompilerSession::new();
+    /// let result = session.compile_path(std::path::Path::new("main.dart"), Optimization::None)?;
+    /// println!("{} fontes", result.stats.source_units_loaded);
+    /// # Ok::<(), dartforge_packages::GraphError>(())
+    /// ```
+    pub fn compile_path(
+        &mut self,
+        path: &Path,
+        optimization: Optimization,
+    ) -> Result<Compilation, GraphError> {
+        // Retira antes de carregar: inclusive erros de filesystem invalidam a entrada.
+        let previous = self.cached.take();
+        let graph = dartforge_packages::load(path)?;
+        let count = graph.units.len();
+        if let Some(cached) = previous.as_ref()
+            && cached.optimization == optimization
+            && cached.graph == graph
+        {
+            let javascript = Arc::clone(&cached.javascript);
+            self.cached = previous;
+            return Ok(Compilation {
+                javascript,
+                stats: SessionStats {
+                    cache_hit: true,
+                    source_units_loaded: count,
+                    compiled_units: 0,
+                },
+            });
+        }
+        drop(previous);
+        let javascript: Arc<str> = compile_loaded_graph(&graph, optimization)?.into();
+        if payload_bytes(&graph).saturating_add(javascript.len()) <= self.max_payload_bytes {
+            self.cached = Some(Cached {
+                graph,
+                optimization,
+                javascript: Arc::clone(&javascript),
+            });
+        }
+        Ok(Compilation {
+            javascript,
+            stats: SessionStats {
+                cache_hit: false,
+                source_units_loaded: count,
+                compiled_units: count,
+            },
+        })
+    }
+}
+
+/// Soma bytes textuais de uma aresta e seus filtros sem medir memória do processo.
+fn import_payload(import: &Import) -> usize {
+    import
+        .combinators
+        .iter()
+        .fold(import.uri.len(), |total, combinator| {
+            let (Combinator::Show(names) | Combinator::Hide(names)) = combinator;
+            names
+                .iter()
+                .fold(total, |total, name| total.saturating_add(name.len()))
+        })
+}
+
+/// Calcula o payload retido; somas saturadas impedem orçamento contornado por overflow.
+fn payload_bytes(graph: &SourceGraph) -> usize {
+    graph.units.iter().fold(0usize, |total, unit| {
+        let total = total
+            .saturating_add(unit.source.len())
+            .saturating_add(unit.path.as_os_str().as_encoded_bytes().len());
+        unit.imports
+            .iter()
+            .chain(&unit.exports)
+            .fold(total, |total, import| {
+                total.saturating_add(import_payload(import))
+            })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    /// Diretório exclusivo dos testes, sem reutilizar arquivos existentes.
+    struct Fixture(PathBuf);
+    impl Fixture {
+        /// Reserva um caminho novo mesmo após execução anterior interrompida.
+        fn new() -> Self {
+            loop {
+                let path = std::env::temp_dir().join(format!(
+                    "dartforge-session-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("{error}"),
+                }
+            }
+        }
+        /// Grava fonte ou configuração somente no diretório reservado.
+        fn write(&self, name: &str, source: &str) -> PathBuf {
+            let path = self.0.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, source).unwrap();
+            path
+        }
+    }
+    impl Drop for Fixture {
+        /// Remove o diretório exclusivo; estes testes não criam links simbólicos.
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    /// Mesmo conteúdo reutiliza o Arc, mas o grafo continua sendo carregado.
+    #[test]
+    fn cache_hit_shares_output_and_reports_loaded_units() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "import 'dep.dart'; void main(){print(f());}");
+        fixture.write("dep.dart", "int f(){return 1;}");
+        let mut session = CompilerSession::new();
+        let first = session.compile_path(&entry, Optimization::None).unwrap();
+        let second = session.compile_path(&entry, Optimization::None).unwrap();
+        assert_eq!(
+            first.stats,
+            SessionStats {
+                cache_hit: false,
+                source_units_loaded: 2,
+                compiled_units: 2
+            }
+        );
+        assert_eq!(
+            second.stats,
+            SessionStats {
+                cache_hit: true,
+                source_units_loaded: 2,
+                compiled_units: 0
+            }
+        );
+        assert!(Arc::ptr_eq(&first.javascript, &second.javascript));
+    }
+
+    /// Alteração de mesmo tamanho e mtime preservado não pode servir saída antiga.
+    #[test]
+    fn dependency_change_is_detected_even_with_same_size_and_mtime() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "import 'dep.dart'; void main(){print(f());}");
+        let dep = fixture.write("dep.dart", "int f(){return 1;}");
+        let metadata = std::fs::metadata(&dep).unwrap();
+        let modified = metadata.modified().unwrap();
+        let mut session = CompilerSession::new();
+        let first = session.compile_path(&entry, Optimization::None).unwrap();
+        fixture.write("dep.dart", "int f(){return 2;}");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&dep)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        let after = std::fs::metadata(&dep).unwrap();
+        assert_eq!(after.len(), metadata.len());
+        assert_eq!(after.modified().unwrap(), modified);
+        let changed = session.compile_path(&entry, Optimization::None).unwrap();
+        assert!(!changed.stats.cache_hit);
+        assert_ne!(first.javascript, changed.javascript);
+    }
+
+    /// Erros de leitura e análise limpam o cache; recuperação recompila o grafo.
+    #[test]
+    fn failures_never_return_previous_output_and_recovery_recompiles() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "import 'dep.dart'; void main(){print(f());}");
+        let dep = fixture.write("dep.dart", "int f(){return 1;}");
+        let mut session = CompilerSession::new();
+        session.compile_path(&entry, Optimization::None).unwrap();
+        std::fs::remove_file(&dep).unwrap();
+        assert!(session.compile_path(&entry, Optimization::None).is_err());
+        fixture.write("dep.dart", "int f(){return 1;}");
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+        fixture.write("dep.dart", "int f(){return absent;}");
+        assert!(session.compile_path(&entry, Optimization::None).is_err());
+        fixture.write("dep.dart", "int f(){return 1;}");
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+    }
+
+    /// Troca da aresta ou opção recompila; só a última opção fica armazenada.
+    #[test]
+    fn changed_edges_and_optimization_invalidate_last_entry() {
+        let fixture = Fixture::new();
+        let entry = fixture.write(
+            "main.dart",
+            "import 'one.dart'; void main(){print(f()+2+3);}",
+        );
+        fixture.write("one.dart", "int f(){return 1;}");
+        fixture.write("two.dart", "int f(){return 1;}");
+        let mut session = CompilerSession::new();
+        session.compile_path(&entry, Optimization::None).unwrap();
+        fixture.write(
+            "main.dart",
+            "import 'two.dart'; void main(){print(f()+2+3);}",
+        );
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::Constants)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+        assert!(
+            session
+                .compile_path(&entry, Optimization::Constants)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+    }
+
+    /// Remapeamento de pacote invalida mesmo quando os dois arquivos são idênticos.
+    #[test]
+    fn package_config_remap_changes_canonical_graph_paths() {
+        let fixture = Fixture::new();
+        let entry = fixture.write(
+            "main.dart",
+            "import 'package:p/a.dart'; void main(){print(f());}",
+        );
+        fixture.write("v1/lib/a.dart", "int f(){return 1;}");
+        fixture.write("v2/lib/a.dart", "int f(){return 1;}");
+        let config = |version| {
+            format!(
+                r#"{{"configVersion":2,"packages":[{{"name":"p","rootUri":"../v{version}/","packageUri":"lib/","languageVersion":"3.6"}}]}}"#
+            )
+        };
+        fixture.write(".dart_tool/package_config.json", &config(1));
+        let mut session = CompilerSession::new();
+        session.compile_path(&entry, Optimization::None).unwrap();
+        assert!(
+            session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+        fixture.write(".dart_tool/package_config.json", &config(2));
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+    }
+
+    /// Orçamento zero não retém resultados; clear invalida uma entrada existente.
+    #[test]
+    fn payload_budget_and_clear_bound_retention() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "void main(){}");
+        let mut disabled = CompilerSession::with_cache_limit_bytes(0);
+        for _ in 0..2 {
+            assert!(
+                !disabled
+                    .compile_path(&entry, Optimization::None)
+                    .unwrap()
+                    .stats
+                    .cache_hit
+            );
+        }
+        let mut session = CompilerSession::new();
+        session.compile_path(&entry, Optimization::None).unwrap();
+        session.clear();
+        assert!(
+            !session
+                .compile_path(&entry, Optimization::None)
+                .unwrap()
+                .stats
+                .cache_hit
+        );
+    }
+}

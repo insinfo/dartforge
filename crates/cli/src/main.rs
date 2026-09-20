@@ -1,5 +1,27 @@
 //! Interface de linha de comando do compilador DartForge.
 use std::{env, fs, path::PathBuf, process::ExitCode};
+/// Serializa arestas e filtros mantendo a ordem das diretivas da fonte.
+fn edges_json(edges: &[dartforge_packages::Import]) -> Vec<serde_json::Value> {
+    edges
+        .iter()
+        .map(|edge| {
+            let filters: Vec<_> = edge
+                .combinators
+                .iter()
+                .map(|filter| match filter {
+                    dartforge_packages::Combinator::Show(names) => {
+                        serde_json::json!({"show": names})
+                    }
+                    dartforge_packages::Combinator::Hide(names) => {
+                        serde_json::json!({"hide": names})
+                    }
+                })
+                .collect();
+            serde_json::json!({"uri": edge.uri, "target": edge.target, "combinators": filters,
+            "span": {"start": edge.span.start, "end": edge.span.end}})
+        })
+        .collect()
+}
 /// Lê os argumentos, compila a entrada e grava uma saída que ainda não existe.
 ///
 /// # Erros
@@ -20,17 +42,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .enumerate()
             .map(|(id, unit)| {
-                let imports: Vec<_> = unit
-                    .imports
-                    .iter()
-                    .map(|import| {
-                        serde_json::json!({
-                            "uri": import.uri, "target": import.target,
-                            "span": {"start": import.span.start, "end": import.span.end}
-                        })
-                    })
-                    .collect();
-                serde_json::json!({"id": id, "path": unit.path, "imports": imports})
+                serde_json::json!({"id": id, "path": unit.path,
+                    "imports": edges_json(&unit.imports), "exports": edges_json(&unit.exports)})
             })
             .collect();
         println!(

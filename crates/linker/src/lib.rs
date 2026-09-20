@@ -1,14 +1,14 @@
 //! Liga bibliotecas Dart do grafo por símbolos e ASTs, sem concatenar fontes.
 //! Cada arquivo constitui uma biblioteca, com imports diretos e privacidade por unidade.
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_packages::{GraphError, SourceGraph};
+use dartforge_packages::{Combinator, GraphError, SourceGraph};
 use dartforge_syntax::{
     Class, Expr, ExprKind, Function, Program, Statement, StatementKind, TokenKind, Type,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 /// Símbolo declarado por uma biblioteca antes da análise de corpos.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Symbol {
     owner: usize,
     class_id: Option<u32>,
@@ -54,6 +54,7 @@ pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<St
         let prefix = unit
             .imports
             .iter()
+            .chain(&unit.exports)
             .map(|import| import.span.end)
             .max()
             .unwrap_or(0);
@@ -115,21 +116,23 @@ pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<St
         }
         own.push(symbols);
     }
+    let exported = exported_namespaces(graph, &own)?;
     let mut visible = own.clone();
     for (unit_id, unit) in graph.units.iter().enumerate() {
         for import in &unit.imports {
-            let imported = own.get(import.target).ok_or_else(|| {
+            let imported = exported.get(import.target).ok_or_else(|| {
                 source_error(
                     graph,
                     unit_id,
                     Diagnostic::new("destino de import inválido", import.span),
                 )
             })?;
-            // A ordem lexical evita que a semente do HashMap escolha o primeiro erro.
-            let mut imported_names: Vec<_> = imported.iter().collect();
-            imported_names.sort_unstable_by_key(|(name, _)| **name);
-            for (&name, &symbol) in imported_names {
-                if name.starts_with('_') || own[unit_id].contains_key(name) {
+            // O BTreeMap mantém a ordem lexical sem alocação ou ordenação adicional.
+            for (&name, &symbol) in imported {
+                if name.starts_with('_')
+                    || own[unit_id].contains_key(name)
+                    || !allows_name(name, &import.combinators)
+                {
                     continue;
                 }
                 if let Some(previous) = visible[unit_id].get(name)
@@ -139,9 +142,7 @@ pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<St
                         graph,
                         unit_id,
                         Diagnostic::new(
-                            format!(
-                                "import ambíguo: {name}; prefixos e combinadores ainda não suportados"
-                            ),
+                            format!("import ambíguo: {name}; use show/hide para desambiguar"),
                             import.span,
                         ),
                     ));
@@ -292,6 +293,103 @@ pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<St
         dartforge_optimizer::fold_constants(&mut linked);
     }
     Ok(dartforge_codegen::emit(&dartforge_hir::lower(linked)))
+}
+
+/// Aplica combinadores na ordem declarada sem tornar nomes privados públicos.
+fn allows_name(name: &str, combinators: &[Combinator]) -> bool {
+    !name.starts_with('_')
+        && combinators.iter().all(|combinator| match combinator {
+            Combinator::Show(names) => names.iter().any(|candidate| candidate == name),
+            Combinator::Hide(names) => !names.iter().any(|candidate| candidate == name),
+        })
+}
+
+/// Calcula exports transitivos por ponto fixo monotônico de origens declarativas.
+/// Declarações próprias prevalecem antes da união; imports nunca entram nesse conjunto.
+fn exported_namespaces<'a>(
+    graph: &SourceGraph,
+    own: &[HashMap<&'a str, Symbol>],
+) -> Result<Vec<BTreeMap<&'a str, Symbol>>, GraphError> {
+    let initial: Vec<BTreeMap<&'a str, BTreeSet<Symbol>>> = own
+        .iter()
+        .map(|symbols| {
+            symbols
+                .iter()
+                .filter(|(name, _)| !name.starts_with('_'))
+                .map(|(&name, &symbol)| (name, BTreeSet::from([symbol])))
+                .collect()
+        })
+        .collect();
+    let mut exported = initial;
+    let mut dependents = vec![Vec::new(); graph.units.len()];
+    for (owner, unit) in graph.units.iter().enumerate() {
+        for (index, directive) in unit.exports.iter().enumerate() {
+            let Some(parents) = dependents.get_mut(directive.target) else {
+                return Err(source_error(
+                    graph,
+                    owner,
+                    Diagnostic::new("destino de export inválido", directive.span),
+                ));
+            };
+            parents.push((owner, index));
+        }
+    }
+    let mut pending: VecDeque<_> = (0..graph.units.len()).collect();
+    let mut queued = vec![true; graph.units.len()];
+    while let Some(target) = pending.pop_front() {
+        queued[target] = false;
+        if dependents[target].is_empty() {
+            continue;
+        }
+        // A cópia fica restrita ao namespace que mudou, sem recomputar o grafo inteiro.
+        let namespace = exported[target].clone();
+        for &(owner, index) in &dependents[target] {
+            let directive = &graph.units[owner].exports[index];
+            let mut changed = false;
+            for (&name, symbols) in &namespace {
+                if own[owner].contains_key(name) || !allows_name(name, &directive.combinators) {
+                    continue;
+                }
+                let origins = exported[owner].entry(name).or_default();
+                let previous = origins.len();
+                origins.extend(symbols.iter().copied());
+                changed |= origins.len() != previous;
+            }
+            if changed && !queued[owner] {
+                queued[owner] = true;
+                pending.push_back(owner);
+            }
+        }
+    }
+    let mut result = Vec::with_capacity(exported.len());
+    for (unit_id, namespace) in exported.iter().enumerate() {
+        let mut resolved = BTreeMap::new();
+        for (&name, symbols) in namespace {
+            if symbols.len() > 1 {
+                let span = graph.units[unit_id]
+                    .exports
+                    .iter()
+                    .find(|directive| {
+                        allows_name(name, &directive.combinators)
+                            && exported[directive.target].contains_key(name)
+                    })
+                    .map_or(Span { start: 0, end: 0 }, |directive| directive.span);
+                return Err(source_error(
+                    graph,
+                    unit_id,
+                    Diagnostic::new(
+                        format!("export ambíguo: {name}; declarações de origens diferentes"),
+                        span,
+                    ),
+                ));
+            }
+            if let Some(&symbol) = symbols.first() {
+                resolved.insert(name, symbol);
+            }
+        }
+        result.push(resolved);
+    }
+    Ok(result)
 }
 
 /// Constrói erro associado ao arquivo sem alterar o intervalo original.
@@ -616,16 +714,152 @@ mod tests {
                 .map(|(id, (source, targets))| dartforge_packages::SourceUnit {
                     path: PathBuf::from(format!("library_{id}.dart")),
                     source: (*source).into(),
+                    exports: vec![],
                     imports: targets
                         .iter()
                         .map(|&target| dartforge_packages::Import {
                             uri: format!("library_{target}.dart"),
                             target,
                             span: Span { start: 0, end: 0 },
+                            combinators: vec![],
                         })
                         .collect(),
                 })
                 .collect(),
+        }
+    }
+    /// Constrói uma diretiva resolvida para testar filtros sem alterar texto fonte.
+    fn edge(target: usize, combinators: Vec<Combinator>) -> dartforge_packages::Import {
+        dartforge_packages::Import {
+            uri: format!("library_{target}.dart"),
+            target,
+            span: Span { start: 0, end: 0 },
+            combinators,
+        }
+    }
+    /// Show e hide filtram imports antes da combinação das origens visíveis.
+    #[test]
+    fn import_combinators_filter_ambiguity_and_compose() {
+        let mut sources = graph(&[
+            ("void main(){print(f());}", &[1, 2]),
+            ("int f(){return 1;} int a(){return 3;}", &[]),
+            ("int f(){return 2;} int b(){return 4;}", &[]),
+        ]);
+        sources.units[0].imports[0].combinators = vec![
+            Combinator::Show(vec!["f".into(), "a".into()]),
+            Combinator::Show(vec!["f".into()]),
+        ];
+        sources.units[0].imports[1].combinators = vec![Combinator::Hide(vec!["f".into()])];
+        assert!(compile_graph(&sources, false).is_ok());
+        sources.units[0].source = "void main(){print(a());}".into();
+        assert!(
+            compile_graph(&sources, false)
+                .unwrap_err()
+                .message
+                .contains("não visível")
+        );
+        sources.units[0].source = "void main(){print(f());}".into();
+        sources.units[0].imports[0].combinators = vec![
+            Combinator::Hide(vec!["f".into()]),
+            Combinator::Show(vec!["f".into()]),
+        ];
+        assert!(compile_graph(&sources, false).is_err());
+    }
+    /// Reexports transitivos em diamante e ciclo convergem sem duplicar a mesma origem.
+    #[test]
+    fn export_fixed_point_handles_diamond_and_cycles() {
+        let mut sources = graph(&[
+            ("void main(){print(f());}", &[1]),
+            ("", &[]),
+            ("", &[]),
+            ("", &[]),
+            ("int f(){return 7;}", &[]),
+        ]);
+        sources.units[1].exports = vec![edge(2, vec![]), edge(3, vec![])];
+        sources.units[2].exports = vec![edge(4, vec![])];
+        sources.units[3].exports = vec![edge(4, vec![])];
+        sources.units[4].exports = vec![edge(1, vec![])];
+        let js = compile_graph(&sources, false).unwrap();
+        assert_eq!(js.matches("function $df_$lib4$f(").count(), 1);
+        assert!(js.contains("console.log($df_$lib4$f())"));
+        sources.units[1].exports[0].combinators = vec![Combinator::Hide(vec!["f".into()])];
+        sources.units[1].exports[1].combinators = vec![Combinator::Hide(vec!["f".into()])];
+        assert!(compile_graph(&sources, false).is_err());
+    }
+    /// Declarações próprias prevalecem sobre exports conflitantes, mas privados nunca saem.
+    #[test]
+    fn export_local_precedence_privacy_and_ambiguity() {
+        let mut sources = graph(&[
+            ("void main(){print(f());}", &[1]),
+            ("int f(){return 10;}", &[]),
+            ("int f(){return 2;} int _secret(){return 99;}", &[]),
+            ("int f(){return 3;}", &[]),
+        ]);
+        sources.units[1].exports = vec![edge(2, vec![]), edge(3, vec![])];
+        assert!(
+            compile_graph(&sources, false)
+                .unwrap()
+                .contains("console.log($df_$lib1$f())")
+        );
+        sources.units[1].source = String::new();
+        let error = compile_graph(&sources, false).unwrap_err();
+        assert_eq!(error.path, PathBuf::from("library_1.dart"));
+        assert!(error.message.contains("export ambíguo: f"));
+        sources.units[1].exports = vec![edge(2, vec![Combinator::Show(vec!["_secret".into()])])];
+        sources.units[0].source = "void main(){print(_secret());}".into();
+        assert!(
+            compile_graph(&sources, false)
+                .unwrap_err()
+                .message
+                .contains("não visível")
+        );
+    }
+    /// Export não importa nomes para o próprio corpo e import não reexporta nomes.
+    #[test]
+    fn exports_and_imports_have_distinct_local_namespaces() {
+        let mut sources = graph(&[
+            ("void main(){print(f());}", &[1]),
+            ("", &[2]),
+            ("int f(){return 1;}", &[]),
+        ]);
+        assert!(compile_graph(&sources, false).is_err());
+        sources.units[1].imports.clear();
+        sources.units[1].exports = vec![edge(2, vec![])];
+        assert!(compile_graph(&sources, false).is_ok());
+        sources.units[1].source = "int local(){return f();}".into();
+        let error = compile_graph(&sources, false).unwrap_err();
+        assert_eq!(error.path, PathBuf::from("library_1.dart"));
+        assert!(error.message.contains("não visível"));
+        sources.units[1].imports = vec![edge(2, vec![])];
+        assert!(compile_graph(&sources, false).is_ok());
+    }
+    /// Executa uma classe reexportada e seleciona a função filtrada em ambos os modos.
+    #[test]
+    #[ignore = "requires Node.js on PATH"]
+    fn filtered_reexports_execute_in_both_modes() {
+        let mut sources = graph(&[
+            ("void main(){var c=C();print(c.value()+f());}", &[1, 2]),
+            ("", &[]),
+            ("int f(){return 100;} int unused(){return 1;}", &[]),
+            ("class C {int value(){return 5;}} int f(){return 2;}", &[]),
+        ]);
+        sources.units[1].exports = vec![edge(
+            3,
+            vec![Combinator::Show(vec!["C".into(), "f".into()])],
+        )];
+        sources.units[0].imports[1].combinators = vec![Combinator::Hide(vec!["f".into()])];
+        for optimize in [false, true] {
+            let js = compile_graph(&sources, optimize).unwrap();
+            let output = std::process::Command::new("node")
+                .args(["--input-type=module", "-e", &js])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "7");
         }
     }
     /// Bibliotecas homônimas em ramos distintos recebem nomes globais diferentes.
@@ -642,7 +876,7 @@ mod tests {
             assert_eq!(error.path, PathBuf::from("library_0.dart"));
             assert_eq!(
                 error.message,
-                "import ambíguo: alpha; prefixos e combinadores ainda não suportados"
+                "import ambíguo: alpha; use show/hide para desambiguar"
             );
         }
     }

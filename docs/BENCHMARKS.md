@@ -58,7 +58,9 @@ isolar emissão e ordenação topológica. Não inclui lexer, parser, análise o
 O de bibliotecas cria arquivos temporários antes de medir: separa carregamento do grafo,
 compilação do grafo pré-carregado e pipeline com leitura, nos dois modos. Todas as funções
 públicas são alcançáveis; os símbolos privados homônimos exercitam os namespaces.
-Não há sessão incremental nem cache persistente, e a criação do corpus fica fora do tempo.
+Também mede acerto exato e miss após limpar o cache da sessão. O acerto ainda carrega
+todas as fontes, mas evita parsing/análise/emissão e cópia do JavaScript. Não há
+recompilação incremental por unidade. A criação do corpus fica fora do tempo.
 
 DARTFORGE_BENCH_LIBRARIES controla o número de bibliotecas (100) e
 DARTFORGE_BENCH_SAMPLES controla amostras (21) no benchmark de bibliotecas. O relatório

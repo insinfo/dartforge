@@ -64,11 +64,11 @@ dentro de uma string de uma linha pode produzir uma quebra de linha no valor.
 ## Tipos anuláveis e objetos
 
 Veja os contratos de [null safety e fluxo](NULL-SAFETY.md) e [classes/herança](CLASSES.md).
-A ferramenta compila [bibliotecas relativas](MODULES.md) e aceita [extensions em uma unidade](EXTENSIONS.md).
+A ferramenta compila [bibliotecas, reexports e filtros show/hide](MODULES.md), resolve [pacotes](PACKAGES.md) e aceita [extensions em uma unidade](EXTENSIONS.md).
 
 ## Ainda não suportado
 
-Imports de pacotes, exports e partes, closures/funções locais, funções como valores, parâmetros nomeados ou
+Prefixos de import, partes, closures/funções locais, funções como valores, parâmetros nomeados ou
 opcionais, overloads, `double`, generics, extensions importadas, async, `for-in`, `switch`,
 rótulos, interpolação, strings triplas, surrogates isolados, coleções, Dart `const`,
 source maps e bibliotecas padrão completas. Atualizações compostas de campos, acesso a índices e atribuições
@@ -86,7 +86,8 @@ O parser limita aninhamento a 64 níveis e expressões a 128 nós, inclusive arg
 chamadas. Esses são limites temporários do protótipo, não da linguagem Dart.
 Não existe limite estático para recursão ou iterações executadas pelo programa gerado.
 
-Não há otimização global, cache incremental, servidor LSP, servidor HTTP ou compilador
+Há [cache da última saída](CACHE.md) validado pelo conteúdo integral do grafo.
+Não há otimização global, recompilação incremental por unidade, servidor LSP, servidor HTTP ou compilador
 ngdart completo. Também não há benchmark válido de vantagem sobre DDC/dart2js.
 
 ## Documentação e contribuições

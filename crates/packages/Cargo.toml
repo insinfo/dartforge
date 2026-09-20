@@ -10,3 +10,5 @@ workspace = true
 dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-lexer = { path = "../lexer" }
 dartforge-syntax = { path = "../syntax" }
+serde_json = "1"
+url = "2.5"

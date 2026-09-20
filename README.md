@@ -17,12 +17,13 @@ O protótipo suporta um subconjunto explícito:
 - Tipos anuláveis, promoção de fluxo, operadores `??` e `!`.
 - Classes, campos, métodos e herança simples com despacho dinâmico.
 - Extensions nomeadas em uma unidade, com alvos de chamadas resolvidos estaticamente.
-- Compilação conjunta de imports relativos com namespaces e privacidade por biblioteca.
+- Imports relativos e `package:`, filtros `show`/`hide` e reexports cíclicos com privacidade.
+- Sessão com cache da última saída validado pelo conteúdo integral do grafo.
 - Validação de nomes, tipos, argumentos, retornos e mutabilidade.
 - Avaliação opcional de constantes puras com `--optimize`.
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
-Ainda não compila aplicações Dart/ngdart completas. Faltam imports de pacotes, bibliotecas
+Ainda não compila aplicações Dart/ngdart completas. Faltam generics, construtores explícitos, bibliotecas
 padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
 vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
 
@@ -58,12 +59,12 @@ Na máquina de desenvolvimento original, Rust está em `D:\Rust` e o projeto em
 ## Análise, imports e desempenho
 
 Detalhes: [null safety](docs/NULL-SAFETY.md), [classes](docs/CLASSES.md),
-[bibliotecas/imports](docs/MODULES.md), [extensions](docs/EXTENSIONS.md) e [benchmarks](docs/BENCHMARKS.md).
+[bibliotecas/imports](docs/MODULES.md), [extensions](docs/EXTENSIONS.md), [pacotes](docs/PACKAGES.md), [cache](docs/CACHE.md) e [benchmarks](docs/BENCHMARKS.md).
 
     cargo run -p dartforge-cli -- graph caminho/main.dart
     cargo bench --locked -p dartforge-compiler --bench pipeline
 
-O comando `graph` mostra dependências; `compile` resolve e compila as bibliotecas relativas.
+O comando `graph` mostra dependências; `compile` resolve e compila bibliotecas relativas e pacotes configurados.
 
 ## Workspace
 

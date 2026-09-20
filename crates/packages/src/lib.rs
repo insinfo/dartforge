@@ -1,14 +1,15 @@
-//! Carrega o grafo de arquivos Dart com imports relativos do subconjunto.
+//! Carrega arquivos Dart, imports/exports locais e package_config v2 do subconjunto.
 //!
 //! Não resolve símbolos, bibliotecas, privacidade ou namespaces, nem combina a
 //! saída de múltiplos arquivos. O lexer existente valida a tokenização inteira.
-use dartforge_diagnostics::Span;
+mod config;
+use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{Token, TokenKind};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Grafo com IDs determinísticos pela ordem de descoberta em largura.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SourceGraph {
     /// Arquivos únicos por caminho canônico, indexados pelos IDs dos imports.
     pub units: Vec<SourceUnit>,
@@ -17,7 +18,7 @@ pub struct SourceGraph {
 }
 
 /// Fonte UTF-8 e diretivas pertencentes a um arquivo.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SourceUnit {
     /// Caminho absoluto canônico do arquivo.
     pub path: PathBuf,
@@ -25,21 +26,31 @@ pub struct SourceUnit {
     pub source: String,
     /// Arestas na ordem textual, inclusive imports repetidos.
     pub imports: Vec<Import>,
+    /// Arestas exportadas na ordem textual, com filtros show/hide.
+    pub exports: Vec<Import>,
 }
 
 /// Aresta resolvida de uma diretiva import.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Import {
     /// Caminho relativo escrito na string da diretiva.
     pub uri: String,
+    /// Filtros aplicados sequencialmente ao namespace importado ou exportado.
+    pub combinators: Vec<Combinator>,
     /// Índice da unidade de destino no grafo.
     pub target: usize,
     /// Intervalo da diretiva completa no arquivo importador.
     pub span: Span,
 }
 
+/// Filtro de nomes aplicado na ordem das cláusulas da diretiva.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Combinator {
+    Show(Vec<String>),
+    Hide(Vec<String>),
+}
 /// Erro de leitura, tokenização ou diretiva, associado ao arquivo de origem.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GraphError {
     /// Arquivo ao qual o diagnóstico e o span se referem.
     pub path: PathBuf,
@@ -60,7 +71,7 @@ impl std::fmt::Display for GraphError {
 }
 impl std::error::Error for GraphError {}
 
-/// Carrega imports relativos, deduplica caminhos canônicos e aceita ciclos.
+/// Carrega imports/exports relativos ou package:, deduplicando caminhos e aceitando ciclos.
 ///
 /// As diretivas devem preceder declarações. O carregamento usa uma fila, sem
 /// recursão proporcional à profundidade do grafo. Não compila as unidades.
@@ -68,8 +79,8 @@ impl std::error::Error for GraphError {}
 /// # Erros
 ///
 /// Retorna erro para arquivos inacessíveis ou não UTF-8, falhas do lexer e
-/// diretivas fora do subconjunto. Não aceita package:, dart:, caminhos absolutos,
-/// escapes em URI, export, part, library, as, show, hide ou deferred.
+/// diretivas fora do subconjunto. Aceita show/hide sequenciais e package_config v2.
+/// Não aceita dart:, escapes Dart em URI, part, library, as ou deferred.
 ///
 /// ```no_run
 /// use std::path::Path;
@@ -79,8 +90,25 @@ impl std::error::Error for GraphError {}
 /// # Ok::<(), dartforge_packages::GraphError>(())
 /// ```
 pub fn load(entry: &Path) -> Result<SourceGraph, GraphError> {
+    load_with_config(entry, None)
+}
+
+/// Carrega o grafo usando configuração explícita ou descoberta ascendente.
+///
+/// # Erros
+/// Retorna erros localizados de configuração, URI, diretiva ou leitura de fonte.
+///
+/// Exemplo de configuração explícita sem alterar a descoberta padrão.
+///
+///     let graph = dartforge_packages::load_with_config(std::path::Path::new("main.dart"), Some(std::path::Path::new("package_config.json")));
+///     // O resultado contém o grafo ou o diagnóstico localizado.
+pub fn load_with_config(
+    entry: &Path,
+    package_config: Option<&Path>,
+) -> Result<SourceGraph, GraphError> {
     let path =
         std::fs::canonicalize(entry).map_err(|error| error_at(entry, None, error.to_string()))?;
+    let config = config::Config::load(&path, package_config)?;
     let source =
         std::fs::read_to_string(&path).map_err(|error| error_at(&path, None, error.to_string()))?;
     let mut known = HashMap::from([(path.clone(), 0)]);
@@ -88,16 +116,22 @@ pub fn load(entry: &Path) -> Result<SourceGraph, GraphError> {
         path,
         source,
         imports: vec![],
+        exports: vec![],
     }];
     let mut current = 0;
     while current < units.len() {
         let path = units[current].path.clone();
         let directives = extract(&units[current].source, &path)?;
-        for (uri, span) in directives {
-            let candidate = path
-                .parent()
-                .expect("arquivo canônico tem diretório pai")
-                .join(&uri);
+        for Directive {
+            uri,
+            span,
+            combinators,
+            export,
+        } in directives
+        {
+            let candidate = config
+                .resolve(&path, &uri)
+                .map_err(|message| error_at(&path, Some(span), message))?;
             let target_path = std::fs::canonicalize(&candidate).map_err(|error| {
                 error_at(
                     &path,
@@ -121,10 +155,21 @@ pub fn load(entry: &Path) -> Result<SourceGraph, GraphError> {
                     path: target_path,
                     source,
                     imports: vec![],
+                    exports: vec![],
                 });
                 id
             };
-            units[current].imports.push(Import { uri, target, span });
+            let edge = Import {
+                uri,
+                target,
+                span,
+                combinators,
+            };
+            if export {
+                units[current].exports.push(edge);
+            } else {
+                units[current].imports.push(edge);
+            }
         }
         current += 1;
     }
@@ -140,39 +185,99 @@ fn error_at(path: &Path, span: Option<Span>, message: String) -> GraphError {
     }
 }
 
-/// Extrai somente o prefixo de imports, rejeitando diretivas posteriores.
-fn extract(source: &str, path: &Path) -> Result<Vec<(String, Span)>, GraphError> {
+/// Diretiva sintática antes da resolução do destino.
+struct Directive {
+    uri: String,
+    span: Span,
+    combinators: Vec<Combinator>,
+    export: bool,
+}
+
+/// Extrai imports e exports do prefixo, preservando combinadores sequenciais.
+fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
     let tokens = dartforge_lexer::lex(source)
         .map_err(|error| error_at(path, Some(error.span), error.message))?;
+    validate_language_version(source)
+        .map_err(|error| error_at(path, Some(error.span), error.message))?;
     let mut index = 0;
-    let mut imports = Vec::new();
-    while tokens
-        .get(index)
-        .is_some_and(|token| token.kind == TokenKind::Word("import"))
-    {
+    let mut directives = Vec::new();
+    while matches!(
+        tokens.get(index).map(|t| t.kind),
+        Some(TokenKind::Word("import" | "export"))
+    ) {
+        let export = tokens[index].kind == TokenKind::Word("export");
         let start = tokens[index].span.start;
         index += 1;
-        let uri =
-            match tokens.get(index).map(|token| token.kind) {
-                Some(TokenKind::String(uri) | TokenKind::RawString(uri)) if valid_uri(uri) => uri,
-                _ => return Err(error_at(
+        let uri = match tokens.get(index).map(|t| t.kind) {
+            Some(TokenKind::String(uri) | TokenKind::RawString(uri)) => {
+                config::validate_uri(uri).map_err(|message| {
+                    error_at(
+                        path,
+                        Some(token_span(&tokens, index, source.len())),
+                        message,
+                    )
+                })?;
+                uri.to_owned()
+            }
+            _ => {
+                return Err(error_at(
                     path,
                     Some(token_span(&tokens, index, source.len())),
-                    "import exige caminho relativo .dart sem escapes, esquema, query ou fragmento"
-                        .into(),
-                )),
-            };
+                    "diretiva exige URI string".into(),
+                ));
+            }
+        };
         index += 1;
-        if tokens.get(index).map(|token| token.kind) != Some(TokenKind::Symbol(';')) {
-            return Err(error_at(path, Some(token_span(&tokens, index, source.len())), "somente import 'relativo.dart'; é suportado; combinadores e imports condicionais não são aceitos".into()));
+        let mut combinators = Vec::new();
+        while let Some(TokenKind::Word(kind @ ("show" | "hide"))) =
+            tokens.get(index).map(|t| t.kind)
+        {
+            index += 1;
+            let mut names = Vec::new();
+            loop {
+                let Some(TokenKind::Word(name)) = tokens.get(index).map(|t| t.kind) else {
+                    return Err(error_at(
+                        path,
+                        Some(token_span(&tokens, index, source.len())),
+                        "combinador exige identificador".into(),
+                    ));
+                };
+                if reserved_combinator(name) {
+                    return Err(error_at(
+                        path,
+                        Some(tokens[index].span),
+                        "identificador de combinador inválido".into(),
+                    ));
+                }
+                names.push(name.to_owned());
+                index += 1;
+                if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
+                    break;
+                }
+                index += 1;
+            }
+            combinators.push(if kind == "show" {
+                Combinator::Show(names)
+            } else {
+                Combinator::Hide(names)
+            });
         }
-        imports.push((
-            uri.to_owned(),
-            Span {
+        if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(';')) {
+            return Err(error_at(
+                path,
+                Some(token_span(&tokens, index, source.len())),
+                "diretiva exige ; (as/deferred/condicionais não suportados)".into(),
+            ));
+        }
+        directives.push(Directive {
+            uri,
+            combinators,
+            export,
+            span: Span {
                 start,
                 end: tokens[index].span.end,
             },
-        ));
+        });
         index += 1;
     }
     let mut depth = 0usize;
@@ -184,26 +289,114 @@ fn extract(source: &str, path: &Path) -> Result<Vec<(String, Span)>, GraphError>
                 return Err(error_at(
                     path,
                     Some(token.span),
-                    format!("diretiva {word} fora do prefixo suportado de imports"),
+                    format!("diretiva {word} fora do prefixo suportado"),
                 ));
             }
             _ => {}
         }
     }
-    Ok(imports)
+    Ok(directives)
+}
+/// Respeita comentários aninhados e examina versões somente antes do primeiro token.
+///
+/// # Erros
+/// Retorna diagnóstico quando um marcador válido seleciona versão diferente de 3.6.
+///
+///     assert!(dartforge_packages::validate_language_version("// @dart = 3.6\nvoid main(){}").is_ok());
+pub fn validate_language_version(prefix: &str) -> Result<(), Diagnostic> {
+    let bytes = prefix.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes.get(i..i + 2) == Some(b"/*") {
+            i += 2;
+            let mut depth = 1;
+            while i < bytes.len() && depth > 0 {
+                if bytes.get(i..i + 2) == Some(b"/*") {
+                    depth += 1;
+                    i += 2;
+                } else if bytes.get(i..i + 2) == Some(b"*/") {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        } else if bytes.get(i..i + 2) == Some(b"//") {
+            let start = i;
+            i += 2;
+            let content = i;
+            while i < bytes.len() && !matches!(bytes[i], b'\r' | b'\n') {
+                i += 1;
+            }
+            let comment = prefix[content..i].trim_matches(' ');
+            if let Some(version) = comment
+                .strip_prefix("@dart")
+                .and_then(|s| s.trim_start_matches(' ').strip_prefix('='))
+                .map(|s| s.trim_matches(' '))
+                && let Some((major, minor)) = version.split_once('.')
+                && !major.is_empty()
+                && !minor.is_empty()
+                && major
+                    .bytes()
+                    .chain(minor.bytes())
+                    .all(|b| b.is_ascii_digit())
+                && (major.parse::<u32>().ok() != Some(3) || minor.parse::<u32>().ok() != Some(6))
+            {
+                return Err(Diagnostic::new(
+                    "versão @dart não suportada; somente 3.6 foi verificada",
+                    Span { start, end: i },
+                ));
+            }
+        } else if bytes[i].is_ascii_whitespace() {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    Ok(())
 }
 
-/// Restringe URIs a caminhos locais portáveis, sem interpretação parcial de URI.
-fn valid_uri(uri: &str) -> bool {
-    !uri.is_empty()
-        && uri.ends_with(".dart")
-        && !uri.starts_with('/')
-        && !uri
-            .chars()
-            .any(|c| c.is_control() || matches!(c, '\\' | ':' | '%' | '?' | '#'))
-        && !Path::new(uri).is_absolute()
+/// Rejeita palavras reservadas reais sem confundir identificadores contextuais show/hide.
+fn reserved_combinator(name: &str) -> bool {
+    matches!(
+        name,
+        "assert"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "default"
+            | "do"
+            | "else"
+            | "enum"
+            | "extends"
+            | "false"
+            | "final"
+            | "finally"
+            | "for"
+            | "if"
+            | "in"
+            | "is"
+            | "new"
+            | "null"
+            | "rethrow"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "import"
+            | "export"
+    )
 }
-
 /// Usa o token corrente ou um span vazio no fim da fonte.
 fn token_span(tokens: &[Token<'_>], index: usize, end: usize) -> Span {
     tokens
@@ -250,6 +443,144 @@ mod tests {
         }
     }
 
+    /// Raízes aninhadas são permitidas somente fora do diretório público do ancestral.
+    #[test]
+    fn package_root_nesting_rules() {
+        let f = Fixture::new();
+        let entry = f.write("main.dart", "void main(){}");
+        for (package_uri, child_root, valid) in [
+            ("lib/", "../root/tools/child/", true),
+            ("lib/", "../root/lib/child/", false),
+            ("tools/child/lib/", "../root/tools/child/", false),
+        ] {
+            let text = serde_json::json!({"configVersion":2,"packages":[
+                {"name":"parent","rootUri":"../root/","packageUri":package_uri},
+                {"name":"child","rootUri":child_root,"packageUri":"lib/"}
+            ]})
+            .to_string();
+            let path = f.write(".dart_tool/package_config.json", &text);
+            assert_eq!(
+                load_with_config(&entry, Some(&path)).is_ok(),
+                valid,
+                "{text}"
+            );
+        }
+    }
+    /// Ignora marcadores dentro de blocos, doc comments ou depois de declarações.
+    #[test]
+    fn language_comment_uses_lexical_preamble() {
+        let f = Fixture::new();
+        for source in [
+            "/* // @dart = 2.9 */ void main(){}",
+            "/* outer /* nested */\n// @dart = 2.9\n*/ void main(){}",
+            "void main(){}\n// @dart = 2.9",
+            "/// @dart = 2.9\nvoid main(){}",
+            "// @dart = 3.6 trailing text\nvoid main(){}",
+            "// @dart = 03.06\nvoid main(){}",
+        ] {
+            let entry = f.write("main.dart", source);
+            assert!(load(&entry).is_ok(), "{source}");
+        }
+        let entry = f.write("main.dart", "/* header */ // @dart = 2.9\nvoid main(){}");
+        assert!(load(&entry).unwrap_err().message.contains("@dart"));
+        f.write("other.dart", "int x(){return 1;}");
+        for keyword in ["return", "class", "true"] {
+            let entry = f.write("main.dart", &format!("import 'other.dart' show {keyword};"));
+            assert!(load(&entry).is_err());
+        }
+    }
+    /// Descobre a configuração ancestral e resolve espaços, Unicode e diretório padrão.
+    #[test]
+    fn package_config_discovery_uri_encoding_and_defaults() {
+        let f = Fixture::new();
+        let entry = f.write(
+            "app/bin/main.dart",
+            "import 'package:p/a.dart' show A hide B; export 'package:q/b.dart' show B;",
+        );
+        f.write("dep espaço/lib/a.dart", "class A {}");
+        f.write("outro/b.dart", "class B {}");
+        f.write("app/.dart_tool/package_config.json",r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../../dep%20espa%C3%A7o","packageUri":"lib","languageVersion":"3.6"},{"name":"q","rootUri":"../../outro"}]}"#);
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units.len(), 3);
+        assert_eq!(
+            graph.units[0].imports[0].combinators,
+            [
+                Combinator::Show(vec!["A".into()]),
+                Combinator::Hide(vec!["B".into()])
+            ]
+        );
+        assert_eq!(graph.units[0].exports.len(), 1);
+        assert_eq!(graph, load(&entry).unwrap());
+    }
+
+    /// Configuração explícita file URI funciona e um remapeamento aparece na carga seguinte.
+    #[test]
+    fn explicit_file_uri_and_config_remap() {
+        let f = Fixture::new();
+        let entry = f.write("src/main.dart", "import 'package:p/a.dart';");
+        f.write("one/lib/a.dart", "int a(){return 1;}");
+        f.write("two/lib/a.dart", "int a(){return 1;}");
+        let config = f.0.join("chosen.json");
+        let save = |dir: &str| {
+            let root = url::Url::from_directory_path(f.0.join(dir))
+                .unwrap()
+                .to_string();
+            std::fs::write(&config,serde_json::json!({"configVersion":2,"packages":[{"name":"p","rootUri":root,"packageUri":"lib/"}]}).to_string()).unwrap();
+        };
+        save("one");
+        let first = load_with_config(&entry, Some(&config)).unwrap();
+        save("two");
+        let second = load_with_config(&entry, Some(&config)).unwrap();
+        assert_ne!(first.units[1].path, second.units[1].path);
+        assert_eq!(first.units[1].source, second.units[1].source);
+    }
+
+    /// Configurações malformadas e versões não verificadas falham antes de compilar.
+    #[test]
+    fn invalid_configs_and_language_gates() {
+        let f = Fixture::new();
+        let entry = f.write("main.dart", "void main(){}");
+        for config in [
+            r#"{"configVersion":3,"packages":[]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../x","packageUri":"../outside"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../x","languageVersion":"3.7"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../x","languageVersion":"2.12"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../x","languageVersion":"03.6"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../x"},{"name":"p","rootUri":"../y"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../x"},{"name":"q","rootUri":"../x"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"http://example.com/x"}]}"#,
+            r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"bad%xx"}]}"#,
+        ] {
+            let path = f.write("config.json", config);
+            assert!(load_with_config(&entry, Some(&path)).is_err(), "{config}");
+        }
+        let versioned = f.write("old.dart", "// @dart = 2.9\nvoid main(){}");
+        assert!(load(&versioned).unwrap_err().message.contains("@dart"));
+        let source = f.write("unknown.dart", "import 'package:unknown/a.dart';");
+        assert!(load(&source).unwrap_err().message.contains("desconhecido"));
+    }
+
+    /// Exports e combinadores repetidos preservam sua ordem para o linker.
+    #[test]
+    fn repeated_combinators_and_relative_encoded_uri() {
+        let f = Fixture::new();
+        let entry = f.write(
+            "main.dart",
+            "export 'a%20b.dart' show A,B show A hide B; import 'a%20b.dart';",
+        );
+        f.write("a b.dart", "class A{} class B{}");
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units.len(), 2);
+        assert_eq!(graph.units[0].exports[0].combinators.len(), 3);
+        for source in [
+            "import 'a%20b.dart' show;",
+            "export 'a%20b.dart' hide A,;",
+            "import 'a%20b.dart' as p;",
+        ] {
+            f.write("main.dart", source);
+            assert!(load(&entry).is_err());
+        }
+    }
     /// IDs seguem largura e ordem textual; diamantes e ciclos reutilizam a unidade.
     #[test]
     fn nested_diamond_cycle_and_alias_are_deterministic() {
