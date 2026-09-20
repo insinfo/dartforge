@@ -4,7 +4,7 @@
 
 dartforge-native expõe NativeOptions (clang, rustc, optimize) e build_executable(ir, output, options). Defaults usam DARTFORGE_CLANG e DARTFORGE_RUSTC quando definidas; caso contrário, clang e rustc no PATH.
 
-A entrada é LLVM IR do subconjunto com void @dartforge_entry(), void @dartforge_print_i64(i64), void @dartforge_print_bool(i8), void @dartforge_print_null() e void @dartforge_null_assert_fail(). Esta última função não retorna: escreve o diagnóstico de asserção nula em stderr e encerra com código 101, sem exceções Dart capturáveis. Não há strings, classes, GC ou seleção de destino cross. IR com target triple ou target datalayout explícitos é rejeitado; Clang e rustc precisam pertencer ao toolchain nativo compatível do host.
+A entrada é LLVM IR do subconjunto com void @dartforge_entry(), impressão de escalares e operações de strings/objetos gerenciados. A ABI completa de handles, campos e raízes está em [runtime/README.md](../crates/runtime/README.md). dartforge_null_assert_fail() não retorna: escreve o diagnóstico de asserção nula em stderr e encerra com código 101, sem exceções Dart capturáveis. Não há seleção de destino cross. IR com target triple ou target datalayout explícitos é rejeitado; Clang e rustc precisam pertencer ao toolchain nativo compatível do host.
 
 1. Diretório temporário exclusivo é reservado junto da saída.
 2. Clang recebe argumentos separados: -x ir -c -O0 ou -O2 e produz objeto.
@@ -16,7 +16,7 @@ Nenhum comando passa por shell. O driver não executa o programa gerado. O runti
 
 ## Fronteira unsafe
 
-As crates compiladas pelo workspace mantêm unsafe_code=forbid. runtime/src/runtime_main.rs é um recurso include_str compilado separadamente pelo rustc. Nesse harness, unsafe fica restrito aos nomes ABI reservados, à declaração extern e à chamada de dartforge_entry. Print recebe somente i64 ou u8, nunca ponteiros; u8 evita estados inválidos de bool Rust. A segurança exige IR emitido pelo compilador com as assinaturas acordadas. O driver não é verificador de segurança para IR arbitrário.
+As crates compiladas pelo workspace mantêm unsafe_code=forbid. runtime/src/runtime_main.rs é um recurso include_str compilado separadamente pelo rustc com heap.rs. Nesse harness, unsafe fica restrito aos nomes ABI reservados, à declaração extern, à chamada de dartforge_entry e à leitura de constantes UTF-8 por ponteiro/comprimento. O emissor garante que esses bytes são legíveis; operações restantes usam handles inteiros e Rust seguro. u8 evita estados inválidos de bool Rust na ABI. A segurança exige IR emitido pelo compilador com as assinaturas acordadas. O driver não é verificador de segurança para IR arbitrário.
 
 ## Medição por fase
 

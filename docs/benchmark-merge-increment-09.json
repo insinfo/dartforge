@@ -1,0 +1,58 @@
+{
+  "corpus_functions": 200,
+  "iterations_per_sample": 10,
+  "results": [
+    {
+      "emitted_functions_including_main": 201,
+      "javascript_bytes": 18814,
+      "median_compile_ns": 475100,
+      "merge_identical_functions": false,
+      "samples_ns": [
+        399080,
+        399900,
+        409250,
+        434350,
+        436230,
+        442010,
+        467750,
+        475100,
+        482360,
+        491310,
+        496500,
+        509130,
+        535280,
+        572460,
+        672620
+      ]
+    },
+    {
+      "emitted_functions_including_main": 2,
+      "javascript_bytes": 214,
+      "median_compile_ns": 896550,
+      "merge_identical_functions": true,
+      "samples_ns": [
+        805460,
+        810620,
+        816470,
+        837260,
+        848430,
+        853660,
+        867550,
+        896550,
+        900950,
+        919530,
+        924500,
+        948900,
+        969750,
+        976510,
+        1107050
+      ]
+    }
+  ],
+  "samples": 15,
+  "schema_version": 1,
+  "source_bytes": 9735,
+  "measuredAt": "2026-09-20T14:42:14.9968900-03:00",
+  "rustc": "1.98.1 x86_64-pc-windows-msvc",
+  "note": "Local sequential in-process benchmark; synthetic duplicate-rich corpus, not a DDC/dart2js comparison."
+}

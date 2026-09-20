@@ -34,6 +34,21 @@ pub enum Optimization {
     Constants,
 }
 
+/// Opções independentes de transformação; ambas desativadas por padrão.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompileOptions {
+    pub optimization: Optimization,
+    pub merge_identical_functions: bool,
+}
+impl From<Optimization> for CompileOptions {
+    /// Preserva o comportamento das APIs anteriores.
+    fn from(optimization: Optimization) -> Self {
+        Self {
+            optimization,
+            merge_identical_functions: false,
+        }
+    }
+}
 /// Compila uma unidade e aplica somente a política de otimização solicitada.
 ///
 /// A análise semântica precede qualquer otimização, inclusive em ramos constantes.
@@ -53,12 +68,21 @@ pub fn compile_with_optimization(
     source: &str,
     optimization: Optimization,
 ) -> Result<String, Diagnostic> {
+    compile_with_options(source, optimization.into())
+}
+/// Compila JavaScript com opções independentes após análise completa.
+/// # Erros
+/// Retorna diagnósticos de sintaxe e semântica antes de transformar o programa.
+pub fn compile_with_options(source: &str, options: CompileOptions) -> Result<String, Diagnostic> {
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
     let resolution = dartforge_semantic::analyze(&ast)?;
-    if optimization == Optimization::Constants {
+    if options.optimization == Optimization::Constants {
         dartforge_optimizer::fold_constants(&mut ast);
+    }
+    if options.merge_identical_functions {
+        dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);
     }
     Ok(dartforge_codegen::emit(&dartforge_hir::lower_resolved(
         ast, resolution,
@@ -85,20 +109,29 @@ pub fn compile_path(
     path: &std::path::Path,
     optimization: Optimization,
 ) -> Result<String, dartforge_packages::GraphError> {
+    compile_path_with_options(path, optimization.into())
+}
+/// Compila arquivos e imports com todas as opções explícitas.
+/// # Erros
+/// Retorna falhas de carga, resolução e análise.
+pub fn compile_path_with_options(
+    path: &std::path::Path,
+    options: CompileOptions,
+) -> Result<String, dartforge_packages::GraphError> {
     let graph = dartforge_packages::load(path)?;
-    compile_loaded_graph(&graph, optimization)
+    compile_loaded_graph(&graph, options)
 }
 /// Compila um grafo recarregado pela rota compartilhada com a sessão.
 pub(crate) fn compile_loaded_graph(
     graph: &dartforge_packages::SourceGraph,
-    optimization: Optimization,
+    options: CompileOptions,
 ) -> Result<String, dartforge_packages::GraphError> {
     // A unidade isolada preserva o caminho direto e evita resolver um namespace sem imports.
     if graph.units.len() == 1
         && graph.units[0].imports.is_empty()
         && graph.units[0].exports.is_empty()
     {
-        return compile_with_optimization(&graph.units[0].source, optimization).map_err(|error| {
+        return compile_with_options(&graph.units[0].source, options).map_err(|error| {
             dartforge_packages::GraphError {
                 path: graph.units[0].path.clone(),
                 span: Some(error.span),
@@ -106,7 +139,12 @@ pub(crate) fn compile_loaded_graph(
             }
         });
     }
-    dartforge_linker::compile_graph(graph, optimization == Optimization::Constants)
+    dartforge_linker::compile_graph_with_options(
+        graph,
+        options.optimization == Optimization::Constants,
+        options.merge_identical_functions,
+        |module| Ok(dartforge_codegen::emit(module)),
+    )
 }
 /// Compila uma unidade validada para LLVM IR do subconjunto nativo.
 ///
@@ -116,10 +154,22 @@ pub(crate) fn compile_loaded_graph(
 /// # Erros
 /// Rejeita recursos ainda sem representação nativa, inclusive em código morto.
 pub fn compile_llvm(source: &str) -> Result<String, Diagnostic> {
+    compile_llvm_with_options(source, CompileOptions::default())
+}
+/// Compila LLVM com fusão opcional; constantes JS não são aplicadas ao alvo nativo.
+/// # Erros
+/// Retorna falhas semânticas ou recursos nativos não suportados.
+pub fn compile_llvm_with_options(
+    source: &str,
+    options: CompileOptions,
+) -> Result<String, Diagnostic> {
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
-    let ast = dartforge_parser::parse(&tokens, source.len())?;
+    let mut ast = dartforge_parser::parse(&tokens, source.len())?;
     let resolution = dartforge_semantic::analyze(&ast)?;
+    if options.merge_identical_functions {
+        dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);
+    }
     dartforge_llvm::emit(&dartforge_hir::lower_resolved(ast, resolution))
 }
 
@@ -131,12 +181,21 @@ pub fn compile_llvm(source: &str) -> Result<String, Diagnostic> {
 /// # Erros
 /// Retorna diagnósticos localizados para carga, análise e restrições do backend.
 pub fn compile_path_llvm(path: &std::path::Path) -> Result<String, dartforge_packages::GraphError> {
+    compile_path_llvm_with_options(path, CompileOptions::default())
+}
+/// Compila grafo LLVM com fusão estrutural opcional.
+/// # Erros
+/// Retorna diagnósticos localizados do grafo e backend.
+pub fn compile_path_llvm_with_options(
+    path: &std::path::Path,
+    options: CompileOptions,
+) -> Result<String, dartforge_packages::GraphError> {
     let graph = dartforge_packages::load(path)?;
     if graph.units.len() == 1
         && graph.units[0].imports.is_empty()
         && graph.units[0].exports.is_empty()
     {
-        return compile_llvm(&graph.units[0].source).map_err(|error| {
+        return compile_llvm_with_options(&graph.units[0].source, options).map_err(|error| {
             dartforge_packages::GraphError {
                 path: graph.units[0].path.clone(),
                 span: Some(error.span),
@@ -144,7 +203,12 @@ pub fn compile_path_llvm(path: &std::path::Path) -> Result<String, dartforge_pac
             }
         });
     }
-    dartforge_linker::compile_graph_with(&graph, false, dartforge_llvm::emit)
+    dartforge_linker::compile_graph_with_options(
+        &graph,
+        false,
+        options.merge_identical_functions,
+        dartforge_llvm::emit,
+    )
 }
 
 #[cfg(test)]

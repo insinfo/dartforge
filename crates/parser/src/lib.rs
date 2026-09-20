@@ -182,7 +182,25 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
             declarations.functions.push(item);
             index = skip_delimited(tokens, index, '(', ')', first.span)?;
         }
-        index = skip_delimited(tokens, index, '{', '}', first.span)?;
+        if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
+            // O parser completo validará a expressão; aqui apenas indexamos nomes.
+            index += 1;
+            while tokens
+                .get(index)
+                .is_some_and(|t| t.kind != TokenKind::Symbol(';'))
+            {
+                index += 1;
+            }
+            if tokens.get(index).is_none() {
+                return Err(Diagnostic::new(
+                    "expected semicolon after expression body",
+                    first.span,
+                ));
+            }
+            index += 1;
+        } else {
+            index = skip_delimited(tokens, index, '{', '}', first.span)?;
+        }
     }
     Ok(declarations)
 }
@@ -412,7 +430,7 @@ impl<'a> Cursor<'_, 'a> {
             },
         })
     }
-    /// Lê a assinatura tipada e o corpo de uma função de topo.
+    /// Lê a assinatura tipada e o corpo em bloco ou expressão de uma função/método.
     fn function(&mut self) -> Result<Function<'a>, Diagnostic> {
         let start = self.position();
         let return_type = self.ty(true)?;
@@ -439,7 +457,35 @@ impl<'a> Cursor<'_, 'a> {
             }
         }
         self.expect(TokenKind::Symbol(')'))?;
-        let body = self.block(0)?;
+        let body = if self.take(TokenKind::Operator("=>")) {
+            let start = self.position();
+            let value = self.expression()?;
+            self.expect(TokenKind::Symbol(';'))?;
+            let span = Span {
+                start,
+                end: self.end(),
+            };
+            if return_type == Type::Void {
+                // Dart permite `void f() => 42`: avalia o valor, mas o descarta.
+                vec![
+                    Statement {
+                        kind: StatementKind::Expression(value),
+                        span,
+                    },
+                    Statement {
+                        kind: StatementKind::Return(None),
+                        span,
+                    },
+                ]
+            } else {
+                vec![Statement {
+                    kind: StatementKind::Return(Some(value)),
+                    span,
+                }]
+            }
+        } else {
+            self.block(0)?
+        };
         Ok(Function {
             name,
             return_type,
@@ -1718,6 +1764,35 @@ mod tests {
                 ..
             }
         ));
+    }
+    #[test]
+    fn expression_bodies_lower_to_returns_and_index_libraries() {
+        let source = "int soma(int a, int b) => a + b; class C { int value() => 7; } void main() => print(soma(1, 2));";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        let names = index_unit(&tokens).unwrap();
+        assert_eq!(names.functions.len(), 2);
+        assert_eq!(names.classes.len(), 1);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert!(matches!(
+            program.functions[0].body[0].kind,
+            StatementKind::Return(Some(_))
+        ));
+        assert!(matches!(
+            program.classes[0].methods[0].body[0].kind,
+            StatementKind::Return(Some(_))
+        ));
+        assert!(matches!(
+            program.statements[0].kind,
+            StatementKind::Expression(_)
+        ));
+        assert!(matches!(
+            program.statements[1].kind,
+            StatementKind::Return(None)
+        ));
+        for invalid in ["int f() => ; void main() {}", "int f() => 1 void main() {}"] {
+            let tokens = dartforge_lexer::lex(invalid).unwrap();
+            assert!(parse(&tokens, invalid.len()).is_err());
+        }
     }
     #[test]
     fn function_signatures_and_unsupported_forms() {

@@ -3,7 +3,7 @@
 //! Cada solicitação recarrega fontes e resolução de pacotes. Um acerto economiza
 //! parsing/análise/emissão, mas não leituras, descoberta do grafo ou tokenização
 //! feita pelo carregador. Falhas descartam a entrada anterior.
-use crate::{Optimization, compile_loaded_graph};
+use crate::{CompileOptions, Optimization, compile_loaded_graph};
 use dartforge_packages::{Combinator, GraphError, Import, SourceGraph};
 use std::{path::Path, sync::Arc};
 
@@ -40,7 +40,7 @@ pub struct CompilerSession {
 /// Snapshot integral e opção que produziram a saída armazenada.
 struct Cached {
     graph: SourceGraph,
-    optimization: Optimization,
+    options: CompileOptions,
     javascript: Arc<str>,
 }
 
@@ -104,12 +104,22 @@ impl CompilerSession {
         path: &Path,
         optimization: Optimization,
     ) -> Result<Compilation, GraphError> {
+        self.compile_path_with_options(path, optimization.into())
+    }
+    /// Compila com chave de cache que inclui todos os passes opcionais.
+    /// # Erros
+    /// Erros de carga ou compilação invalidam a entrada anterior.
+    pub fn compile_path_with_options(
+        &mut self,
+        path: &Path,
+        options: CompileOptions,
+    ) -> Result<Compilation, GraphError> {
         // Retira antes de carregar: inclusive erros de filesystem invalidam a entrada.
         let previous = self.cached.take();
         let graph = dartforge_packages::load(path)?;
         let count = graph.units.len();
         if let Some(cached) = previous.as_ref()
-            && cached.optimization == optimization
+            && cached.options == options
             && cached.graph == graph
         {
             let javascript = Arc::clone(&cached.javascript);
@@ -124,11 +134,11 @@ impl CompilerSession {
             });
         }
         drop(previous);
-        let javascript: Arc<str> = compile_loaded_graph(&graph, optimization)?.into();
+        let javascript: Arc<str> = compile_loaded_graph(&graph, options)?.into();
         if payload_bytes(&graph).saturating_add(javascript.len()) <= self.max_payload_bytes {
             self.cached = Some(Cached {
                 graph,
-                optimization,
+                options,
                 javascript: Arc::clone(&javascript),
             });
         }

@@ -10,3 +10,6 @@ workspace = true
 dartforge-syntax = { path = "../syntax" }
 [dev-dependencies]
 dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-parser = { path = "../parser" }
+dartforge-lexer = { path = "../lexer" }
+dartforge-semantic = { path = "../semantic" }

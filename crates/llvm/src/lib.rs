@@ -1,21 +1,29 @@
 //! Emissão textual de LLVM IR 17+ com ponteiros opacos, sem bindings ou unsafe.
 //!
-//! O subconjunto nativo usa int de 64 bits com transbordamento modular, bool e
-//! void, int?, bool? e Null. Nullables usam {i1, payload}: presença e valor.
+//! O subconjunto nativo usa int de 64 bits com transbordamento modular, bool,
+//! void, strings, classes com herança simples e suas formas nullable. Int? e
+//! bool? usam {i1, payload}: presença e valor. Strings e objetos usam handles
+//! i64 rastreados pelo GC, reservando zero para null. Métodos têm despacho virtual
+//! e adaptadores de assinatura; campos herdados conservam seus slots de memória.
+//! Cada função mantém raízes de referências até retornar, inclusive temporários:
+//! chamadas longas e laços podem reter memória crescente nesta implementação.
 //! Promoções semânticas usam unwrap checado; essa ABI interna não imita o SDK.
 //! SDK 3.6.2 tests/language/if_null/behavior_test.dart fundamenta RHS condicional.
 //! Falhas ! chamam dartforge_null_assert_fail() noreturn; null usa print_null().
 //! Difere deliberadamente do backend JavaScript Number. Não fixa target
-//! triple/data layout: a ferramenta nativa escolhe o alvo. A ABI externa contém
-//! dartforge_print_i64(i64), dartforge_print_bool(i8) e dartforge_entry().
+//! triple/data layout: a ferramenta nativa escolhe o alvo. O runtime fornece
+//! impressão, falhas de null, frames de raízes, objetos e strings; o módulo define
+//! dartforge_entry(). Strings internas UTF-8 ainda não oferecem indexação UTF-16.
 //! Consulte LLVM 17 LangRef (alloca, phi, br, add) e SDK Dart 3.6.2 sdk/lib/core/int.dart.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_hir::Module;
 use dartforge_syntax::{BinaryOp, Expr, ExprKind, Statement, StatementKind, Type, UnaryOp};
 use std::collections::HashMap;
 use std::fmt::Write;
+mod objects;
+use objects::Objects;
 
-/// Tipo escalar interno da ABI e das operações LLVM.
+/// Tipo interno da ABI: escalares, agregados nullable e referências nominais.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Ty {
     Int,
@@ -24,12 +32,20 @@ enum Ty {
     Null,
     NullableInt,
     NullableBool,
+    String,
+    NullableString,
+    Class(u32),
+    NullableClass(u32),
 }
 impl Ty {
     /// Nome do tipo na IR; bool usa i1 internamente e i8 na impressão externa.
     fn ir(self) -> &'static str {
         match self {
-            Self::Int => "i64",
+            Self::Int
+            | Self::String
+            | Self::NullableString
+            | Self::Class(_)
+            | Self::NullableClass(_) => "i64",
             Self::Bool => "i1",
             Self::Void => "void",
             Self::Null | Self::NullableInt => "{ i1, i64 }",
@@ -41,12 +57,28 @@ impl Ty {
         match self {
             Self::NullableInt => Self::Int,
             Self::NullableBool => Self::Bool,
+            Self::NullableString => Self::String,
+            Self::NullableClass(id) => Self::Class(id),
             _ => self,
         }
     }
-    /// Tipos com representação agregada e possibilidade de ausência.
+    /// Referências são handles rastreados pelo runtime, com zero reservado a null.
+    fn reference(self) -> bool {
+        matches!(
+            self,
+            Self::String | Self::NullableString | Self::Class(_) | Self::NullableClass(_)
+        )
+    }
+    /// Tipos que permitem ausência, representada por tag ou handle zero.
     fn nullable(self) -> bool {
-        matches!(self, Self::Null | Self::NullableInt | Self::NullableBool)
+        matches!(
+            self,
+            Self::Null
+                | Self::NullableInt
+                | Self::NullableBool
+                | Self::NullableString
+                | Self::NullableClass(_)
+        )
     }
 }
 
@@ -57,7 +89,7 @@ impl Ty {
 /// permitindo promoção por mem2reg. Não fornece runtime, linker ou objeto nativo.
 ///
 /// # Erros
-/// Rejeita classes, extensions, strings e outras expressões
+/// Rejeita extensions e outras expressões
 /// fora do contrato. Diagnósticos conservam o span da AST. Nomes/tipos incorretos de
 /// AST construída manualmente também podem produzir diagnóstico.
 ///
@@ -69,9 +101,7 @@ impl Ty {
 /// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
 /// ```
 pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
-    if let Some(class) = module.classes.first() {
-        return Err(error(class.span, "classes"));
-    }
+    let objects = Objects::new(module)?;
     if let Some(extension) = module.extensions.first() {
         return Err(error(extension.span, "extensions"));
     }
@@ -115,11 +145,15 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     );
     for function in &module.functions {
         let signature = &signatures[function.name];
-        let mut emitter = FunctionEmitter::new(&signatures, signature.result);
+        let mut emitter = FunctionEmitter::new(&signatures, &objects, signature.result);
         let mut params = vec![];
         for (index, parameter) in function.parameters.iter().enumerate() {
             let parameter_ty = signature.parameters[index];
             params.push(format!("{} %a{index}", parameter_ty.ir()));
+            emitter.root(&Value {
+                ty: parameter_ty,
+                text: format!("%a{index}"),
+            });
             let pointer = emitter.local(parameter.name, parameter_ty);
             emitter.line(format!(
                 "store {} %a{index}, ptr {pointer}",
@@ -129,9 +163,12 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
         emitter.block(&function.body)?;
         output.push_str(&emitter.finish(&signature.symbol, &params.join(", ")));
     }
-    let mut emitter = FunctionEmitter::new(&signatures, Ty::Void);
+    let mut emitter = FunctionEmitter::new(&signatures, &objects, Ty::Void);
     emitter.block(&module.statements)?;
     output.push_str(&emitter.finish("dartforge_entry", ""));
+    output.push_str(&objects.emit(module, &signatures)?);
+    output.push_str(&objects.globals.borrow().join("\n"));
+    output.push_str(objects::DECLARATIONS);
     Ok(output)
 }
 
@@ -140,7 +177,7 @@ fn error(span: Span, feature: &str) -> Diagnostic {
     Diagnostic::new(format!("LLVM AOT ainda não suporta {feature}"), span)
 }
 /// Converte somente os tipos públicos do subconjunto nativo.
-fn ty(value: Type, span: Span) -> Result<Ty, Diagnostic> {
+fn ty(value: Type, _span: Span) -> Result<Ty, Diagnostic> {
     match value {
         Type::Int => Ok(Ty::Int),
         Type::Bool => Ok(Ty::Bool),
@@ -148,7 +185,10 @@ fn ty(value: Type, span: Span) -> Result<Ty, Diagnostic> {
         Type::Null => Ok(Ty::Null),
         Type::NullableInt => Ok(Ty::NullableInt),
         Type::NullableBool => Ok(Ty::NullableBool),
-        _ => Err(error(span, "este tipo")),
+        Type::String => Ok(Ty::String),
+        Type::NullableString => Ok(Ty::NullableString),
+        Type::Class(id) => Ok(Ty::Class(id)),
+        Type::NullableClass(id) => Ok(Ty::NullableClass(id)),
     }
 }
 /// Evita variáveis e parâmetros void mesmo em HIR criada manualmente.
@@ -222,7 +262,12 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
         }
         StatementKind::Block(body) => validate_statements(body)?,
         StatementKind::Break | StatementKind::Continue => {}
-        StatementKind::FieldAssign { .. } => return Err(error(statement.span, "campos")),
+        StatementKind::FieldAssign {
+            receiver, value, ..
+        } => {
+            validate_expression(receiver)?;
+            validate_expression(value)?;
+        }
     }
     Ok(())
 }
@@ -230,6 +275,21 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
 fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
     match &value.kind {
         ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) | ExprKind::Null => {}
+        ExprKind::This
+        | ExprKind::Construct { .. }
+        | ExprKind::String(_)
+        | ExprKind::OwnedString(_) => {}
+        ExprKind::Member { receiver, .. } => validate_expression(receiver)?,
+        ExprKind::MethodCall {
+            receiver,
+            arguments,
+            ..
+        } => {
+            validate_expression(receiver)?;
+            for arg in arguments {
+                validate_expression(arg)?;
+            }
+        }
         ExprKind::Call { arguments, .. } => {
             for argument in arguments {
                 validate_expression(argument)?;
@@ -242,14 +302,12 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
             validate_expression(left)?;
             validate_expression(right)?;
         }
-        _ => {
-            return Err(error(value.span, "strings ou objetos nesta expressão"));
-        }
     }
     Ok(())
 }
 
 /// Assinatura nominal traduzida para símbolo numérico seguro.
+#[derive(Clone)]
 struct Signature {
     symbol: String,
     result: Ty,
@@ -263,6 +321,8 @@ struct Value {
 /// Estado de uma função, incluindo escopos léxicos e destinos de laços.
 struct FunctionEmitter<'a> {
     signatures: &'a HashMap<String, Signature>,
+    objects: &'a Objects,
+    this_class: Option<u32>,
     result: Ty,
     scopes: Vec<HashMap<String, (Ty, String)>>,
     loops: Vec<(String, String)>,
@@ -272,12 +332,16 @@ struct FunctionEmitter<'a> {
     next_block: usize,
     current: String,
     terminated: bool,
+    has_roots: bool,
+    frame_exits: Vec<usize>,
 }
 impl<'a> FunctionEmitter<'a> {
     /// Inicia a função sem fixar alinhamento ou arquitetura de destino.
-    fn new(signatures: &'a HashMap<String, Signature>, result: Ty) -> Self {
+    fn new(signatures: &'a HashMap<String, Signature>, objects: &'a Objects, result: Ty) -> Self {
         Self {
             signatures,
+            objects,
+            this_class: None,
             result,
             scopes: vec![HashMap::new()],
             loops: vec![],
@@ -287,6 +351,8 @@ impl<'a> FunctionEmitter<'a> {
             next_block: 0,
             current: "entry".into(),
             terminated: false,
+            has_roots: false,
+            frame_exits: vec![],
         }
     }
     /// Reserva um nome SSA independente do texto do usuário.
@@ -351,6 +417,7 @@ impl<'a> FunctionEmitter<'a> {
     /// Fecha a função com terminador adequado também em bloco inalcançável.
     fn finish(mut self, symbol: &str, parameters: &str) -> String {
         if !self.terminated {
+            self.end_frame();
             self.line(if self.result == Ty::Void {
                 "ret void".into()
             } else if self.result.nullable() {
@@ -359,12 +426,28 @@ impl<'a> FunctionEmitter<'a> {
                 "unreachable".into()
             });
         }
+        // Posições são offsets de bytes capturados durante a emissão; inserir em
+        // ordem reversa preserva todos os offsets sem procurar texto na IR.
+        if self.has_roots {
+            for offset in self.frame_exits.iter().rev() {
+                self.code.insert_str(
+                    *offset,
+                    "  call void @dartforge_gc_pop_frame(i64 %gcframe)\n",
+                );
+            }
+            self.code
+                .insert_str(0, "  %gcframe = call i64 @dartforge_gc_push_frame()\n");
+        }
         format!(
             "define {} @{symbol}({parameters}) {{\nentry:\n{}{} }}\n\n",
             self.result.ir(),
             self.allocas,
             self.code
         )
+    }
+    /// Registra uma saída; funções sem raízes não precisam criar ou remover frame.
+    fn end_frame(&mut self) {
+        self.frame_exits.push(self.code.len());
     }
     /// Cria escopo lexical novo; instruções após terminador não são emitidas.
     fn block(&mut self, body: &[Statement<'_>]) -> Result<(), Diagnostic> {
@@ -420,6 +503,7 @@ impl<'a> FunctionEmitter<'a> {
                 if let Some(value) = value {
                     let value = self.expression(value)?;
                     let value = self.coerce(value, self.result, statement.span)?;
+                    self.end_frame();
                     self.line(if value.ty == Ty::Void {
                         "ret void".into()
                     } else {
@@ -432,6 +516,7 @@ impl<'a> FunctionEmitter<'a> {
                             statement.span,
                         ));
                     }
+                    self.end_frame();
                     self.line("ret void".into());
                 }
                 self.terminated = true;
@@ -493,7 +578,16 @@ impl<'a> FunctionEmitter<'a> {
                 };
                 self.jump(&target);
             }
-            _ => return Err(error(statement.span, "instrução")),
+            StatementKind::FieldAssign {
+                receiver,
+                name,
+                value,
+            } => {
+                let receiver = self.expression(receiver)?;
+                let field = self.objects.field(receiver.ty, name, statement.span)?;
+                let value = self.expression(value)?;
+                self.store_field(&receiver, &field, value, statement.span)?;
+            }
         }
         Ok(())
     }
@@ -560,6 +654,11 @@ impl<'a> FunctionEmitter<'a> {
                 self.line(format!("{register} = zext i1 {} to i8", value.text));
                 self.line(format!("call void @dartforge_print_bool(i8 {register})"));
             }
+            Ty::String | Ty::NullableString => self.line(format!(
+                "call void @dartforge_print_string(i64 {})",
+                value.text
+            )),
+            Ty::Class(_) | Ty::NullableClass(_) => return Err(error(span, "impressao de objetos")),
             Ty::Null => self.line("call void @dartforge_print_null()".into()),
             Ty::NullableInt | Ty::NullableBool => {
                 let present = self.present(&value);
@@ -588,6 +687,11 @@ impl<'a> FunctionEmitter<'a> {
         if !value.ty.nullable() {
             return "true".into();
         }
+        if value.ty.reference() {
+            let r = self.register();
+            self.line(format!("{r} = icmp ne i64 {}, 0", value.text));
+            return r;
+        }
         let register = self.register();
         self.line(format!(
             "{register} = extractvalue {} {}, 0",
@@ -598,6 +702,12 @@ impl<'a> FunctionEmitter<'a> {
     }
     /// Extrai payload sem teste em bloco cuja presença já foi verificada.
     fn payload(&mut self, value: &Value) -> Value {
+        if value.ty.reference() {
+            return Value {
+                ty: value.ty.base(),
+                text: value.text.clone(),
+            };
+        }
         if !value.ty.nullable() || value.ty == Ty::Null {
             return Value {
                 ty: value.ty,
@@ -635,6 +745,20 @@ impl<'a> FunctionEmitter<'a> {
     fn coerce(&mut self, value: Value, expected: Ty, span: Span) -> Result<Value, Diagnostic> {
         if value.ty == expected {
             return Ok(value);
+        }
+        if value.ty.reference()
+            && expected.reference()
+            && self.objects.assignable(value.ty.base(), expected.base())
+        {
+            let value = if value.ty.nullable() && !expected.nullable() {
+                self.assert_present(value)?
+            } else {
+                value
+            };
+            return Ok(Value {
+                ty: expected,
+                text: value.text,
+            });
         }
         if value.ty == Ty::Null && expected.nullable() {
             return Ok(Value {
@@ -675,6 +799,29 @@ impl<'a> FunctionEmitter<'a> {
     ) -> Result<Value, Diagnostic> {
         if left.ty == Ty::Void || right.ty == Ty::Void {
             return Err(error(span, "comparação void"));
+        }
+        if (left.ty.base() == Ty::String && right.ty.base() == Ty::String)
+            || (matches!(left.ty.base(), Ty::Class(_)) && matches!(right.ty.base(), Ty::Class(_)))
+        {
+            let r = self.register();
+            if left.ty.base() == Ty::String {
+                let byte = self.register();
+                self.line(format!(
+                    "{byte} = call i8 @dartforge_string_equal(i64 {}, i64 {})",
+                    left.text, right.text
+                ));
+                self.line(format!("{r} = trunc i8 {byte} to i1"));
+            } else {
+                self.line(format!("{r} = icmp eq i64 {}, {}", left.text, right.text));
+            }
+            let text = if op == BinaryOp::NotEqual {
+                let inv = self.register();
+                self.line(format!("{inv} = xor i1 {r}, true"));
+                inv
+            } else {
+                r
+            };
+            return Ok(Value { ty: Ty::Bool, text });
         }
         let lp = self.present(&left);
         let rp = self.present(&right);
@@ -727,7 +874,10 @@ impl<'a> FunctionEmitter<'a> {
         // A análise permite RHS de outro tipo quando lhs está promovido e não
         // pode ser null. A HIR conserva o slot nullable: esse ramo é morto para
         // programas válidos. Falha explícita evita UB em HIR que viole o contrato.
-        if left.ty != Ty::Null && right.ty != Ty::Null && right.ty.base() != base {
+        if left.ty != Ty::Null
+            && right.ty != Ty::Null
+            && !self.objects.assignable(right.ty.base(), base)
+        {
             self.line("call void @dartforge_null_assert_fail()".into());
             self.line("unreachable".into());
             self.terminated = true;
@@ -743,6 +893,8 @@ impl<'a> FunctionEmitter<'a> {
             match base {
                 Ty::Int => Ty::NullableInt,
                 Ty::Bool => Ty::NullableBool,
+                Ty::String => Ty::NullableString,
+                Ty::Class(id) => Ty::NullableClass(id),
                 _ => return Err(error(span, "tipo de ??")),
             }
         } else {
@@ -785,6 +937,36 @@ impl<'a> FunctionEmitter<'a> {
     /// Emite expressão em ordem; && e || produzem CFG e phi, nunca avaliação ávida.
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
+            ExprKind::String(s) => self.string(s),
+            ExprKind::OwnedString(s) => self.string(s),
+            ExprKind::This => Value {
+                ty: Ty::Class(
+                    self.this_class
+                        .ok_or_else(|| error(expression.span, "this fora de classe"))?,
+                ),
+                text: "%this".into(),
+            },
+            ExprKind::Construct { class_id } => {
+                let r = self.register();
+                self.line(format!("{r} = call i64 @df_new_{class_id}()"));
+                Value {
+                    ty: Ty::Class(*class_id),
+                    text: r,
+                }
+            }
+            ExprKind::Member { receiver, name } => {
+                let receiver = self.expression(receiver)?;
+                let field = self.objects.field(receiver.ty, name, expression.span)?;
+                self.load_field(&receiver, &field)
+            }
+            ExprKind::MethodCall {
+                receiver,
+                name,
+                arguments,
+            } => {
+                let receiver = self.expression(receiver)?;
+                self.method_call(receiver, name, arguments, expression.span)?
+            }
             ExprKind::Null => Value {
                 ty: Ty::Null,
                 text: "zeroinitializer".into(),
@@ -894,8 +1076,29 @@ impl<'a> FunctionEmitter<'a> {
                     return self.coalesce(left, right, expression.span);
                 }
                 let right = self.expression(right)?;
+                if *op == BinaryOp::Add
+                    && left.ty.base() == Ty::String
+                    && right.ty.base() == Ty::String
+                {
+                    let left = self.coerce(left, Ty::String, expression.span)?;
+                    let right = self.coerce(right, Ty::String, expression.span)?;
+                    let r = self.register();
+                    self.line(format!(
+                        "{r} = call i64 @dartforge_string_concat(i64 {}, i64 {})",
+                        left.text, right.text
+                    ));
+                    let v = Value {
+                        ty: Ty::String,
+                        text: r,
+                    };
+                    self.root(&v);
+                    return Ok(v);
+                }
                 if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
-                    && (left.ty.nullable() || right.ty.nullable())
+                    && (left.ty.nullable()
+                        || right.ty.nullable()
+                        || left.ty.reference()
+                        || right.ty.reference())
                 {
                     return self.equality(*op, left, right, expression.span);
                 }
@@ -947,8 +1150,8 @@ impl<'a> FunctionEmitter<'a> {
                     text: register,
                 }
             }
-            _ => return Err(error(expression.span, "expressão")),
         };
+        self.root(&value);
         Ok(value)
     }
     /// Registra os predecessores reais após avaliar subexpressões com seus próprios blocos.
@@ -1040,19 +1243,14 @@ mod tests {
         let first_branch = ir.find("br label %").unwrap();
         assert!(last_alloca < first_branch);
         assert!(!ir.contains("@dartforge_print_i64(i64 9)"));
-        assert!(ir.ends_with(" }\n\n"));
+        assert!(ir.contains("ret void\n }"));
     }
 
     /// Recursos inválidos são rejeitados mesmo em funções ou ramos nunca executados.
     #[test]
     fn unsupported_dead_code_has_original_span() {
-        for source in [
-            "void main(){return;print('dead');}",
-            "void unused(){print('dead');} void main(){}",
-            "void main(){if(false){String? n=null;}}",
-            "class C{} void main(){}",
-            "extension E on int{int x(){return this;}} void main(){}",
-        ] {
+        {
+            let source = "extension E on int{int x(){return this;}} void main(){}";
             let error = compile(source).unwrap_err();
             assert!(error.message.contains("LLVM AOT"), "{}", error.message);
             assert!(error.span.start < error.span.end && error.span.end <= source.len());
@@ -1115,5 +1313,48 @@ mod tests {
         assert!(
             compile("int? maybe(){return null;} void main(){print(maybe() ?? true);}").is_err()
         );
+    }
+
+    /// Objetos exercitam despacho virtual, campos herdados, raízes e ABI adaptada.
+    #[test]
+    fn managed_objects_and_strings() {
+        let ir = compile(include_str!(
+            "../../../tests/native/cases/managed_objects.dart"
+        ))
+        .unwrap();
+        assert!(ir.contains("switch i64 %class"));
+        assert!(ir.contains("@dartforge_gc_root(i64 %gcframe"));
+        assert!(ir.contains("call i64 @dartforge_string_concat"));
+        assert!(ir.contains("call i8 @dartforge_string_equal"));
+        assert!(ir.contains("insertvalue { i1, i64 }"));
+    }
+
+    /// Recursão e chamadores escalares não pagam pelo frame de um callee gerenciado.
+    #[test]
+    fn scalar_functions_omit_gc_frames() {
+        let ir = compile("int fib(int n){if(n<2){return n;}return fib(n-1)+fib(n-2);} void main(){print(fib(8));}").unwrap();
+        assert!(!ir.contains("call i64 @dartforge_gc_push_frame"));
+        assert!(!ir.contains("call void @dartforge_gc_pop_frame"));
+        let managed = compile("int text(){print('managed');return 1;} int caller(){return text();} void main(){print(caller());}").unwrap();
+        assert_eq!(
+            managed.matches("call i64 @dartforge_gc_push_frame").count(),
+            1
+        );
+        assert_eq!(
+            managed.matches("call void @dartforge_gc_pop_frame").count(),
+            1
+        );
+        assert!(managed.contains("call void @dartforge_gc_root"));
+    }
+
+    /// Retornos emitidos antes da primeira raiz também encerram o frame da função.
+    #[test]
+    fn early_return_before_managed_branch_has_frame_exit() {
+        let ir = compile(
+            "void f(bool early){if(early){return;} print('later');} void main(){f(true);f(false);}",
+        )
+        .unwrap();
+        assert_eq!(ir.matches("call i64 @dartforge_gc_push_frame").count(), 1);
+        assert_eq!(ir.matches("call void @dartforge_gc_pop_frame").count(), 2);
     }
 }

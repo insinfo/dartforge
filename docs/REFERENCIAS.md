@@ -86,3 +86,10 @@ A licença MIT do DartForge não substitui as licenças dos fontes clonados.
 Clone: references/rust-sitter — https://github.com/hydro-project/rust-sitter — licença MIT.
 Referência para gramáticas anotadas, AST e parsing. Avaliação: docs/RUST-SITTER.md.
 O parser atual do DartForge continua próprio; nenhum código do Rust Sitter é compilado nele.
+
+## Swift e Swift para JavaScript/WebAssembly
+
+Clones `swift`, `swiftwasm-swift`, `swift-to-js` e `shift-js` em `references/`.
+Veja [revisões, licenças, fontes consultadas e decisões](SWIFT-REFERENCIAS.md).
+SwiftWasm é uma organização; seu clone local usa `swiftwasm/swift`, branch `swiftwasm`.
+Os diretórios continuam ignorados pelo Git e não entram no build do workspace.

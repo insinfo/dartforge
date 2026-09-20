@@ -1,12 +1,16 @@
 param(
     [string]$DartExe = 'dart',
     [string]$ClangExe = '',
-    [ValidateRange(1,100)][int]$Samples = 1
+    [ValidateRange(1,100)][int]$Samples = 1,
+    [switch]$MergeIdenticalFunctions,
+    [switch]$GcStress
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/env.ps1"
 $root = Split-Path $PSScriptRoot
 $previousClang = $env:DARTFORGE_CLANG
+$previousGcStress = $env:DARTFORGE_GC_STRESS
+if ($GcStress) { $env:DARTFORGE_GC_STRESS = '1' }
 Push-Location $root
 try {
     $dartCommand = (Get-Command $DartExe -ErrorAction Stop).Source
@@ -50,6 +54,7 @@ try {
                 $nativeExe = Join-Path $runDir ($case.BaseName + '.forge.' + $optimized + '.' + $sample + $suffix)
                 $arguments = @('aot', $case.FullName, $nativeExe, '--timings')
                 if ($optimized) { $arguments += '--optimize' }
+                if ($MergeIdenticalFunctions) { $arguments += '--merge-identical-functions' }
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 $timingJson = & $compiler @arguments
                 if ($LASTEXITCODE) { throw "DartForge AOT failed: $($case.Name)" }
@@ -68,10 +73,13 @@ try {
     }
     $report = [ordered]@{ gitRevision=(& git rev-parse HEAD | Out-String).Trim(); gitStatusPorcelain=(& git status --porcelain | Out-String).Trim(); target='3.6.2'; dartVersion=$version; clangVersion=$clangVersion; rustc=$rustVersion; samples=$Samples; generatedAt=(Get-Date -Format o); backend='LLVM object + Rust runtime/link'; note='Process timings include compiler startup, LLVM, runtime compilation and linking. Warm filesystem; no DDC/JS comparison; small subset, not production-performance evidence.'; results=$results }
     $reportPath = Join-Path $runDir 'results.json'
+    $report.mergeIdenticalFunctions = [bool]$MergeIdenticalFunctions
+    $report.gcStress = $null -ne $env:DARTFORGE_GC_STRESS
     $report | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 $reportPath
     $results | Format-Table case,llvmOptimization,status -AutoSize
     Write-Host "Report: $reportPath"
 } finally {
     $env:DARTFORGE_CLANG = $previousClang
+    $env:DARTFORGE_GC_STRESS = $previousGcStress
     Pop-Location
 }

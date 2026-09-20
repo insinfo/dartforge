@@ -125,7 +125,7 @@
     "canonicalUrl": "https://github.com/dart-archive/sdk",
     "branch": "llvm",
     "commit": "07f12fa22c5a3c2652d258dde3770848e4542819",
-    "commitDate": "2016-12-01T13:48:28+01:00",
+    "commitDate": "2016-12-01T10:48:28-02:00",
     "downloaded": "2026-09-20T04:39:54.7281719-03:00",
     "archived": true,
     "license": "BSD-3-Clause with separately licensed components; see LICENSE.md",
@@ -139,12 +139,42 @@
     "url": "https://github.com/ErikCorryGoogle/llvm",
     "branch": "dartino-llvm",
     "commit": "e29ca27990a14fc9b5795a67814b44711bb9bc11",
-    "commitDate": "2016-12-02T14:50:12+01:00",
+    "commitDate": "2016-12-02T11:50:12-02:00",
     "downloaded": "2026-09-20T04:39:54.7306383-03:00",
     "archived": false,
     "license": "University of Illinois/NCSA and separately licensed components; see LICENSE.TXT",
     "cloneMode": "depth 1; filter blob:none; sparse checkout include/llvm/IR and lib/Transforms/Scalar plus root files",
     "historicalLLVMVersion": "3.9.0",
     "compiled": false
+  },
+  {
+    "name": "swift",
+    "url": "https://github.com/swiftlang/swift",
+    "commit": "6e75592c4025239130e370877ab0fab4006b675b",
+    "downloaded": "2026-09-20T14:30:36.9859436-03:00",
+    "checkout": "shallow filtered sparse: docs, SIL optimizer, runtime"
+  },
+  {
+    "name": "swiftwasm-swift",
+    "url": "https://github.com/swiftwasm/swift",
+    "commit": "da67a9923381d1936ab0a0635d284dcab2d979b4",
+    "downloaded": "2026-09-20T14:30:37.0297665-03:00",
+    "checkout": "shallow filtered sparse: docs, SIL optimizer, runtime",
+    "branch": "swiftwasm",
+    "note": "Default branch swiftwasm-distribution only contains release distribution; selected compiler source branch swiftwasm."
+  },
+  {
+    "name": "swift-to-js",
+    "url": "https://github.com/rpetrich/swift-to-js",
+    "commit": "c5ab852f7a6c8155424a993d4630efc2549a9527",
+    "downloaded": "2026-09-20T14:30:37.0719208-03:00",
+    "checkout": "shallow"
+  },
+  {
+    "name": "shift-js",
+    "url": "https://github.com/shift-js/shift-js",
+    "commit": "81c90c21f2cd0229877a5af71244854ba88dff64",
+    "downloaded": "2026-09-20T14:30:37.1173915-03:00",
+    "checkout": "shallow"
   }
 ]

@@ -83,3 +83,16 @@ link de bibliotecas e emissão da IR; `clang_ns` inclui o subprocesso LLVM e
 `rustc_link_ns` inclui compilação do harness e link. O total do CLI exclui seu
 próprio startup e serialização JSON; `compileMs` do runner inclui o processo.
 As fases não incluem cache; não devem ser interpretadas como recompilação incremental.
+
+## Fusão estrutural e GC
+
+`cargo bench -p dartforge-compiler --bench merge` mede o pipeline JS em memória,
+com e sem fusão, além da redução de bytes/funções em um corpus duplicado. O
+[contrato do passe](MERGE-FUNCOES.md) explica os limites desse cenário.
+`cargo test -p dartforge-runtime --release gc_microbenchmark -- --ignored --nocapture`
+mede alocação/enraizamento/coleta; resultados e limitações constam no
+[runtime](../crates/runtime/README.md). Não execute benchmarks durante outros builds.
+
+Os runners diferenciais aceitam `-MergeIdenticalFunctions`. O runner nativo também
+aceita `-GcStress`, que força coleta a cada alocação: é teste de correção, não
+configuração de desempenho. Cada relatório registra se essas opções foram usadas.

@@ -56,6 +56,17 @@ pub fn compile_graph_with(
     optimize_constants: bool,
     emit: impl FnOnce(&dartforge_hir::Module<'_>) -> Result<String, Diagnostic>,
 ) -> Result<String, GraphError> {
+    compile_graph_with_options(graph, optimize_constants, false, emit)
+}
+/// Resolve bibliotecas e aplica passes independentes antes da emissão.
+/// # Erros
+/// Retorna falhas localizadas de resolução, análise e backend.
+pub fn compile_graph_with_options(
+    graph: &SourceGraph,
+    optimize_constants: bool,
+    merge_identical: bool,
+    emit: impl FnOnce(&dartforge_hir::Module<'_>) -> Result<String, Diagnostic>,
+) -> Result<String, GraphError> {
     if graph.entry >= graph.units.len() {
         return Err(GraphError {
             path: std::path::PathBuf::new(),
@@ -308,6 +319,9 @@ pub fn compile_graph_with(
     })?;
     if optimize_constants {
         dartforge_optimizer::fold_constants(&mut linked);
+    }
+    if merge_identical {
+        dartforge_optimizer::merge_identical_functions(&mut linked, &Default::default());
     }
     emit(&dartforge_hir::lower(linked)).map_err(|error| {
         let unit_id = offsets

@@ -31,7 +31,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge emit-llvm <input.dart> <output.ll>\n       dartforge aot <input.dart> <output.exe> [--optimize] [--timings]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }
@@ -58,14 +58,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "aot" {
         if args.len() < 3 {
             return Err(
-                "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--timings]".into(),
+                "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]".into(),
             );
         }
         let mut optimize = false;
+        let mut merge_identical_functions = false;
         let mut timings = false;
         for flag in &args[3..] {
             if flag == "--optimize" && !optimize {
                 optimize = true;
+            } else if flag == "--merge-identical-functions" && !merge_identical_functions {
+                merge_identical_functions = true;
             } else if flag == "--timings" && !timings {
                 timings = true;
             } else {
@@ -80,7 +83,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let input = PathBuf::from(&args[1]);
         let output = PathBuf::from(&args[2]);
         let frontend_start = std::time::Instant::now();
-        let ir = dartforge_compiler::compile_path_llvm(&input)?;
+        let ir = dartforge_compiler::compile_path_llvm_with_options(
+            &input,
+            dartforge_compiler::CompileOptions {
+                merge_identical_functions,
+                ..Default::default()
+            },
+        )?;
         let frontend = frontend_start.elapsed();
         let options = dartforge_native::NativeOptions {
             optimize,
@@ -95,7 +104,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1, "backend": "llvm", "optimization": if optimize { "O2" } else { "O0" },
+                    "schema_version": 1, "backend": "llvm", "merge_identical_functions": merge_identical_functions, "optimization": if optimize { "O2" } else { "O0" },
                     "frontend_ns": frontend.as_nanos(), "prepare_ns": report.write_ir_runtime.as_nanos(),
                     "clang_ns": report.clang.as_nanos(), "rustc_link_ns": report.rustc_link.as_nanos(),
                     "publish_ns": report.publish.as_nanos(), "driver_total_ns": report.total.as_nanos(),
@@ -112,24 +121,32 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    if args.len() == 3 && args[0] == "emit-llvm" {
-        let ir = dartforge_compiler::compile_path_llvm(std::path::Path::new(&args[1]))?;
-        write_new(std::path::Path::new(&args[2]), &ir)?;
-        return Ok(());
+    if args.len() < 3 || (args[0] != "compile" && args[0] != "emit-llvm") {
+        return Err("usage: dartforge compile|emit-llvm <input> <output> [--optimize] [--merge-identical-functions]".into());
     }
-    let optimized = args.len() == 4 && args[3] == "--optimize";
-    if (args.len() != 3 && !optimized) || args[0] != "compile" {
-        return Err("usage: dartforge compile <input.dart> <output.mjs> [--optimize]".into());
+    let mut options = dartforge_compiler::CompileOptions::default();
+    for flag in &args[3..] {
+        if flag == "--optimize"
+            && options.optimization == dartforge_compiler::Optimization::None
+            && args[0] == "compile"
+        {
+            options.optimization = dartforge_compiler::Optimization::Constants;
+        } else if flag == "--merge-identical-functions" && !options.merge_identical_functions {
+            options.merge_identical_functions = true;
+        } else {
+            return Err(
+                format!("opção desconhecida ou repetida: {}", flag.to_string_lossy()).into(),
+            );
+        }
     }
     let input = PathBuf::from(&args[1]);
     let output = PathBuf::from(&args[2]);
-
-    let mode = if optimized {
-        dartforge_compiler::Optimization::Constants
-    } else {
-        dartforge_compiler::Optimization::None
-    };
-    let js = dartforge_compiler::compile_path(&input, mode)?;
+    if args[0] == "emit-llvm" {
+        let ir = dartforge_compiler::compile_path_llvm_with_options(&input, options)?;
+        write_new(&output, &ir)?;
+        return Ok(());
+    }
+    let js = dartforge_compiler::compile_path_with_options(&input, options)?;
     write_new(&output, &js)?;
     println!(
         "{} -> {} ({} bytes)",

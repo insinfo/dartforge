@@ -29,34 +29,28 @@ impl Drop for OutputDir {
 /// Nenhuma otimização pode esconder recursos ainda sem runtime nativo.
 #[test]
 fn rejects_unsupported_native_features_even_when_unused() {
-    for source in [
-        "class Box { int x = 1; } void main() {}",
-        "void main() { if (false) { print('unreachable'); } }",
-        "void main() { String? s = null; print(s); }",
-        "String unused() { return 'unused'; } void main() {}",
-    ] {
-        let error = compile_llvm(source).unwrap_err();
-        assert!(error.message.contains("LLVM"), "{error:?}");
-        assert!(error.span.end <= source.len());
-    }
+    let source = "extension Extra on int { int twice() { return this + this; } } void main() {}";
+    let error = compile_llvm(source).unwrap_err();
+    assert!(error.message.contains("LLVM"), "{error:?}");
+    assert!(error.span.end <= source.len());
 }
 
-/// O erro de backend deve preservar o caminho e o intervalo da biblioteca importada.
+/// O pipeline LLVM deve preservar caminho e intervalo de erros em imports.
 #[test]
-fn imported_backend_error_is_localized() {
+fn imported_error_is_localized() {
     let dir = OutputDir::new();
     std::fs::write(
         dir.0.join("main.dart"),
         "import 'lib.dart'; void main() { print(value()); }",
     )
     .unwrap();
-    let source = "int value() { print('unsupported'); return 1; }";
+    let source = "int value() { return missing; }";
     std::fs::write(dir.0.join("lib.dart"), source).unwrap();
     let error = compile_path_llvm(&dir.0.join("main.dart")).unwrap_err();
     assert_eq!(error.path.file_name().unwrap(), "lib.dart");
     let span = error.span.unwrap();
     assert!(span.start <= span.end && span.end <= source.len());
-    assert!(error.message.contains("LLVM"));
+    assert!(error.message.contains("missing"));
 }
 
 /// Confere resultados obtidos previamente com Dart 3.6.2; exige ferramentas reais.
@@ -73,7 +67,11 @@ fn executes_native_corpus_at_o0_and_o2() {
         "cases/null_safety.dart",
         "cases/null_flow_loops.dart",
         "cases/coalesce_promotion.dart",
+        "cases/expression_bodies.dart",
+        "cases/managed_objects.dart",
+        "cases/managed_lifetimes.dart",
         "modules/packages/main.dart",
+        "modules/managed/main.dart",
     ]
     .iter()
     .enumerate()

@@ -505,3 +505,6 @@ mod tests {
         assert_eq!(fold_constants(&mut program).folded_expressions, 0);
     }
 }
+
+mod merge;
+pub use merge::{MergeStats, merge_identical_functions};

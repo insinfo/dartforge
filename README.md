@@ -21,6 +21,7 @@ O protótipo suporta um subconjunto explícito:
 - Sessão com cache da última saída validado pelo conteúdo integral do grafo.
 - Validação de nomes, tipos, argumentos, retornos e mutabilidade.
 - Avaliação opcional de constantes puras com `--optimize`.
+- Fusão conservadora de funções idênticas com `--merge-identical-functions` (opt-in).
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
 Ainda não compila aplicações Dart/ngdart completas. Faltam generics, construtores explícitos, bibliotecas
@@ -73,8 +74,17 @@ O comando `graph` mostra dependências; `compile` resolve e compila bibliotecas 
     cargo run --release -p dartforge-cli -- aot examples/native/main.dart dist/native.exe --optimize
 
 O AOT suporta `int` de 64 bits com overflow modular, `bool`, funções/recursão,
-variáveis, condicionais, laços, imports/pacotes e null safety escalar (`int?`, `bool?`, `??`, `!`). Strings e objetos ainda
-recebem diagnóstico no backend nativo, mesmo quando aceitos no backend JS.
+variáveis, condicionais, laços, imports/pacotes e null safety (`int?`, `bool?`, `String?`, classes anuláveis, `??`, `!`).
+Strings, classes com construtor implícito, herança e despacho virtual usam um runtime
+Rust com GC preciso que coleta ciclos. Extensions ainda recebem diagnóstico nativo.
+As raízes temporárias duram até o retorno da função: laços longos podem reter memória.
+Veja o [contrato do runtime](crates/runtime/README.md) e as [referências Swift](docs/SWIFT-REFERENCIAS.md).
+
+Funções e métodos aceitam corpos tipados `=>`, por exemplo `int soma(int a, int b) => a + b;`.
+A opção `--merge-identical-functions` funciona em `compile`, `emit-llvm` e `aot`,
+independentemente de `--optimize`. Ela compara estrutura e assinaturas, redireciona
+chamadas e remove definições redundantes; não busca equivalência algébrica geral.
+Consulte [o contrato e os benchmarks da fusão](docs/MERGE-FUNCOES.md).
 
 Requer Clang/LLVM 17+ e rustc/linker nativo. Configure `DARTFORGE_CLANG` e
 `DARTFORGE_RUSTC` ou use as ferramentas no PATH. Na instalação original,
@@ -89,7 +99,7 @@ A falha de `!` sobre null encerra o processo com diagnóstico; ainda não há ex
 Dart capturáveis no alvo nativo. Veja [null safety AOT](docs/AOT-NULL-SAFETY.md).
 
 Detalhes: [driver e ABI](docs/AOT-DRIVER.md), [referências Dartino](docs/AOT-REFERENCIAS.md)
-e [incremento AOT](docs/IMPLEMENTACAO-07.md).
+e [incremento atual de objetos/GC e fusão](docs/IMPLEMENTACAO-09.md).
 
 ## Workspace
 

@@ -269,6 +269,17 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 
 ## Próximas tarefas
 
+### Nono incremento — objetos gerenciados e fusão opcional
+
+- [x] Clonar Swift, SwiftWasm, swift-to-js e Shift.JS com revisões registradas.
+- [x] Runtime Rust com handles, strings, campos tipados e coleta de ciclos por tracing.
+- [x] Classes/herança e despacho nativo, mantendo ordem de inicialização e null safety.
+- [x] Corpos de expressão tipados e fusão opt-in de funções estruturalmente idênticas.
+- [ ] Reduzir duração de raízes com análise de vida útil e slots estáticos reutilizáveis.
+- [ ] Gatilho de GC por bytes, gerações/barreiras e comparação de throughput/pausas.
+- [ ] Generalizar IR com IDs de símbolos; especializar genéricos após suporte semântico.
+- [ ] Cache de runtime/objetos para reduzir o custo medido de rustc/link por compilação.
+
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.
 2. Ampliar o parser para interpolação, strings triplas, `for-in` e controle de fluxo ainda ausente; planejar representação que preserve surrogates isolados.
 3. Ampliar resolução para bibliotecas e introduzir IDs de símbolo na IR.

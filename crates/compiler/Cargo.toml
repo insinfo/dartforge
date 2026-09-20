@@ -31,3 +31,7 @@ harness = false
 [[bench]]
 name = "libraries"
 harness = false
+
+[[bench]]
+name = 'merge'
+harness = false

@@ -87,7 +87,8 @@ chamadas. Esses são limites temporários do protótipo, não da linguagem Dart.
 Não existe limite estático para recursão ou iterações executadas pelo programa gerado.
 
 Há [cache da última saída](CACHE.md) validado pelo conteúdo integral do grafo.
-Não há otimização global, recompilação incremental por unidade, servidor LSP, servidor HTTP ou compilador
+Há fusão opcional e conservadora de funções top-level idênticas por `--merge-identical-functions`.
+Não há recompilação incremental por unidade, servidor LSP, servidor HTTP ou compilador
 ngdart completo. Também não há benchmark válido de vantagem sobre DDC/dart2js.
 
 ## Documentação e contribuições
@@ -100,9 +101,15 @@ que preservem efeitos, ordem de avaliação e escopos.
 ## Alvo nativo LLVM
 
 O backend nativo tem um subconjunto separado: int64 modular, bool, void,
-funções/recursão, variáveis, controle de fluxo e bibliotecas/pacotes. Não suporta
-strings, classes, herança ou extensions. Aceita int?/bool?, null, ?? e !, com
+funções/recursão, variáveis, controle de fluxo e bibliotecas/pacotes. Suporta strings,
+classes com construtor implícito, herança e despacho virtual, com GC de tracing preciso.
+Não suporta extensions nativas. Aceita int?/bool?/String?/classes anuláveis, null, ?? e !, com
 falha imediata da asserção em vez de exceção capturável. A validação da HIR rejeita os demais
 recursos antes do driver, inclusive em código não executado. Os literais ainda são
 limitados a i32 pelo parser compartilhado; os resultados das operações usam i64.
 O alvo JS mantém sua representação Number. Ver [referências e plano AOT](AOT-REFERENCIAS.md).
+
+Funções e métodos tipados aceitam corpos `=> expressão;`, inclusive `void` com
+descarte do resultado. Strings nativas usam UTF-8 para concatenação, igualdade e
+impressão do subconjunto. Não oferecem toda a API String/UTF-16. Referências
+temporárias ficam enraizadas até retorno; laços longos ainda podem reter memória.

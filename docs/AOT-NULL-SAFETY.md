@@ -24,7 +24,9 @@ O teste original `tests/native/cases/null_safety.dart` foi executado em `C:/tool
 
 Representação interna implementada pelo emissor: agregado LLVM `{ i1, i64 }` para `int?` e `{ i1, i1 }` para `bool?`, com tag true indicando presença. Null convertido a esses agregados tem tag false; o payload não representa um objeto nem um ponteiro. Essa ABI é interna ao programa gerado, não um layout Rust público estável. Chamadas ao runtime usam funções C explícitas para impressão e falha.
 
-Não há necessidade de GC para esses valores escalares. Isso não fornece suporte nativo a classes, strings, objetos, `this`, closures ou coleções.
+Não há necessidade de GC para esses valores escalares. O incremento seguinte
+acrescenta classes, strings, objetos e `this` por handles e GC separados; veja o
+[runtime gerenciado](../crates/runtime/README.md). Closures e coleções continuam ausentes.
 
 ## Falhas e limitações explícitas
 

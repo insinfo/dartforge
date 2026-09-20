@@ -76,6 +76,7 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
             bytes.get(i..i + 2),
             Some(
                 b"??"
+                    | b"=>"
                     | b"=="
                     | b"!="
                     | b"<="

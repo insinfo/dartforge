@@ -1,8 +1,12 @@
-//! Fonte Rust embarcada do runtime nativo mínimo de inteiros e booleanos.
-//! O harness é compilado separadamente: unsafe fica restrito à fronteira FFI.
+//! Runtime nativo com heap preciso, strings e objetos gerenciados.
+//! O harness FFI é compilado separadamente; o heap seguro participa dos testes.
+pub mod heap;
 
-/// Programa standalone Rust 2024 ligado ao objeto produzido pelo LLVM.
-///
-/// Os símbolos usam ABI C: entrada sem argumentos, impressão i64 e impressão u8.
-/// Inclui impressão de null e falha de asserção. Não implementa strings, classes ou GC.
-pub const RUNTIME_MAIN: &str = include_str!("runtime_main.rs");
+/// Programa Rust 2024 completo: heap e harness ligados ao objeto LLVM.
+/// O compilador mantém referências vivas por frames e tags de campos explícitas.
+pub const RUNTIME_MAIN: &str = concat!(
+    "mod heap {\n",
+    include_str!("heap.rs"),
+    "\n}\n",
+    include_str!("runtime_main.rs")
+);
