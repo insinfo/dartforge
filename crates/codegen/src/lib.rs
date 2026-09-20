@@ -33,12 +33,14 @@ pub fn validate_javascript(module: &Module<'_>) -> Result<(), dartforge_diagnost
 }
 mod constructors;
 mod features;
+mod types;
 
 /// Estado local de emissão com a resolução estática fornecida pela análise.
 struct Output<'a> {
     text: String,
     resolution: &'a dartforge_syntax::Resolution,
     collections: bool,
+    runtime_types_used: bool,
     modulo_used: bool,
     enum_ids: std::collections::HashSet<u32>,
     constructor_factories: std::collections::HashSet<u32>,
@@ -89,6 +91,7 @@ pub fn emit(module: &Module<'_>) -> String {
         text: String::from("// Saída do subconjunto DartForge\n"),
         resolution: &module.resolution,
         modulo_used: false,
+        runtime_types_used: false,
         constructor_factories: constructors::factory_ids(&module.classes),
         enum_ids: module
             .classes
@@ -107,6 +110,7 @@ pub fn emit(module: &Module<'_>) -> String {
         }),
     };
     if output.collections {
+        output.runtime_types_used = true;
         output.push_str(include_str!("core.js"));
     }
 
@@ -170,6 +174,13 @@ pub fn emit(module: &Module<'_>) -> String {
             }
             identifier(parameter.name, &mut output);
         }
+        if !function.type_parameters.is_empty() {
+            output.runtime_types_used = true;
+            if !function.parameters.is_empty() {
+                output.push(',');
+            }
+            output.push_str("$dartforgeTypes");
+        }
         output.push_str(") ");
         function_body(function, 0, &mut output);
         output.push('\n');
@@ -179,6 +190,10 @@ pub fn emit(module: &Module<'_>) -> String {
     output.push_str("}\n");
     if output.modulo_used {
         output.push_str("function $dartforgeModulo(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n");
+    }
+    if output.runtime_types_used {
+        types::metadata(module, &mut output);
+        output.text.insert_str(0, include_str!("types.js"));
     }
     output.push_str("const $df_main = main;\nmain();\n");
     output.text
@@ -320,8 +335,11 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
             | Type::NullableInt
             | Type::NullableString
             | Type::NullableBool
+            | Type::NullableObject
+            | Type::NullableParameter(_)
             | Type::NullableClass(_)
-    ) {
+    ) || matches!(function.return_type, Type::Applied(id) if matches!(output.resolution.types[id as usize], dartforge_syntax::TypeShape::Nullable(_)))
+    {
         indent(depth + 1, output);
         output.push_str("return null;\n");
     }
@@ -333,6 +351,9 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
 fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
     match &value.kind {
         ExprKind::Const(e) => expression_needs_null_assert(e),
+        ExprKind::TypeTest { operand, .. } | ExprKind::Cast { operand, .. } => {
+            expression_needs_null_assert(operand)
+        }
         ExprKind::Switch { scrutinee, arms } => {
             expression_needs_null_assert(scrutinee)
                 || arms.iter().any(|a| {
@@ -664,6 +685,27 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         return;
     }
     match &value.kind {
+        ExprKind::TypeTest {
+            operand,
+            ty,
+            negated,
+        } => {
+            if *negated {
+                output.push('!');
+            }
+            output.push_str("$dartforgeIs(");
+            expression(operand, output);
+            output.push(',');
+            types::descriptor(*ty, output);
+            output.push(')');
+        }
+        ExprKind::Cast { operand, ty } => {
+            output.push_str("$dartforgeCast(");
+            expression(operand, output);
+            output.push(',');
+            types::descriptor(*ty, output);
+            output.push(')');
+        }
         ExprKind::Const(e) => expression(e, output),
         ExprKind::Switch { scrutinee, arms } => {
             features::switch_expression(scrutinee, arms, output)
@@ -671,7 +713,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         ExprKind::Closure {
             parameters, body, ..
         } => {
-            output.push_str("((");
+            output.push_str("$dartforgeTyped(((");
             for (i, p) in parameters.iter().enumerate() {
                 if i > 0 {
                     output.push(',');
@@ -680,7 +722,14 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             }
             output.push_str(") => {\n");
             block(body, 1, output);
-            output.push_str("\nreturn null;\n})");
+            output.push_str("\nreturn null;\n}),");
+            let ty = *output
+                .resolution
+                .expr_types
+                .get(&(value.span.start, value.span.end))
+                .expect("closure sem tipo resolvido");
+            types::descriptor(ty, output);
+            output.push(')');
         }
         ExprKind::List { elements, .. } => {
             output.push_str("new $dartforgeList([");
@@ -690,7 +739,9 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 }
                 expression(e, output);
             }
-            output.push_str("])");
+            output.push_str("],");
+            types::descriptor(types::element_type(value, output), output);
+            output.push(')');
         }
         ExprKind::Index { receiver, index } => {
             output.push_str("$dartforgeIndex(");
@@ -770,6 +821,12 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 }
                 expression(argument, output);
             }
+            if *name == "map" && types::collection_element(value, output).is_some() {
+                if !arguments.is_empty() {
+                    output.push(',');
+                }
+                types::descriptor(types::element_type(value, output), output);
+            }
             output.push(')');
         }
         ExprKind::Int(value) => write!(output, "{value}").expect("escrever em String não falha"),
@@ -817,6 +874,24 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                     output.push_str(", ");
                 }
                 expression(argument, output);
+            }
+            if let Some(types) = output
+                .resolution
+                .generic_arguments
+                .get(&(value.span.start, value.span.end))
+                .cloned()
+            {
+                if !arguments.is_empty() {
+                    output.push(',');
+                }
+                output.push('[');
+                for (index, ty) in types.iter().enumerate() {
+                    if index > 0 {
+                        output.push(',');
+                    }
+                    types::descriptor(*ty, output);
+                }
+                output.push(']');
             }
             output.push(')');
         }
@@ -1898,6 +1973,7 @@ mod tests {
             statements: vec![print(selected)],
         };
         let resolution = Resolution {
+            generic_arguments: Default::default(),
             constant_values: Default::default(),
             implicit_members: Default::default(),
             getter_accesses: Default::default(),

@@ -23,6 +23,9 @@ version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
  "dartforge-hir",
+ "dartforge-lexer",
+ "dartforge-parser",
+ "dartforge-semantic",
  "dartforge-syntax",
  "serde_json",
 ]

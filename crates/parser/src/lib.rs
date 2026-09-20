@@ -6,9 +6,9 @@
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     Annotation, AnnotationKind, BinaryOp, Class, ClassKind, ClassModifier, Constructor,
-    ConstructorParameter, Expr, ExprKind, Extension, Field, Function, NativeBinding, NativeType,
-    Parameter, Pattern, Program, Statement, StatementKind, SwitchArm, SwitchCase, Token, TokenKind,
-    Type, TypeShape, UnaryOp,
+    ConstructorParameter, Expr, ExprKind, Extension, Field, Function, GenericParameter,
+    NativeBinding, NativeType, Parameter, Pattern, Program, Statement, StatementKind, SwitchArm,
+    SwitchCase, Token, TokenKind, Type, TypeShape, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -43,7 +43,10 @@ pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>,
             if main.is_some() {
                 return Err(Diagnostic::new("duplicate main function", function.span));
             }
-            if function.return_type != Type::Void || !function.parameters.is_empty() {
+            if function.return_type != Type::Void
+                || !function.parameters.is_empty()
+                || !function.type_parameters.is_empty()
+            {
                 return Err(Diagnostic::new(
                     "main must have signature void main()",
                     function.span,
@@ -373,16 +376,18 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
             declarations.functions.push(item);
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("<")) {
                 index += 1;
-                while tokens
-                    .get(index)
-                    .is_some_and(|t| t.kind != TokenKind::Operator(">"))
-                {
+                let mut depth = 1usize;
+                while depth > 0 {
+                    let token = tokens.get(index).ok_or_else(|| {
+                        Diagnostic::new("unterminated type parameters", first.span)
+                    })?;
+                    match token.kind {
+                        TokenKind::Operator("<") => depth += 1,
+                        TokenKind::Operator(">") => depth -= 1,
+                        _ => {}
+                    }
                     index += 1;
                 }
-                if tokens.get(index).is_none() {
-                    return Err(Diagnostic::new("unterminated type parameters", first.span));
-                }
-                index += 1;
             }
             index = skip_delimited(tokens, index, '(', ')', first.span)?;
             if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol(';')) {
@@ -542,6 +547,8 @@ impl<'a> Cursor<'_, 'a> {
             Some(TokenKind::Word("int")) => Type::Int,
             Some(TokenKind::Word("String")) => Type::String,
             Some(TokenKind::Word("bool")) => Type::Bool,
+            Some(TokenKind::Word("Object")) => Type::Object,
+            Some(TokenKind::Word("Null")) => Type::Null,
             Some(TokenKind::Word("void")) => Type::Void,
             Some(TokenKind::Word("List" | "Iterable")) => {
                 self.index += 1;
@@ -574,7 +581,11 @@ impl<'a> Cursor<'_, 'a> {
                 Type::Bool => Type::NullableBool,
                 Type::String => Type::NullableString,
                 Type::Class(id) => Type::NullableClass(id),
-                _ => return Err(self.error("nullable structural types are not supported yet")),
+                Type::Object => Type::NullableObject,
+                Type::Parameter(id) => Type::NullableParameter(id),
+                Type::Applied(_) => self.intern(TypeShape::Nullable(ty)),
+                Type::Null => Type::Null,
+                _ => return Err(self.error("type cannot be nullable")),
             };
         }
         let mut function_depth = depth;
@@ -599,6 +610,9 @@ impl<'a> Cursor<'_, 'a> {
                 result: ty,
                 parameters,
             });
+            if self.take(TokenKind::Operator("?")) {
+                ty = self.intern(TypeShape::Nullable(ty));
+            }
         }
         if ty == Type::Void && !allow_void {
             return Err(self.error("void value type is unsupported"));
@@ -1176,6 +1190,7 @@ impl<'a> Cursor<'_, 'a> {
         {
             binding.symbol = name.to_owned();
         }
+        let mut generic_parameters = Vec::new();
         if self.take(TokenKind::Operator("<")) {
             if !allow_generic {
                 return Err(self.error("generic methods are not supported yet"));
@@ -1184,12 +1199,28 @@ impl<'a> Cursor<'_, 'a> {
                 return Err(self.error("generic declarations require named type parameters"));
             }
             for index in 0..self.type_parameters.len() {
+                let start = self.position();
                 let name = self.name()?;
                 if name != self.type_parameters[index] {
                     return Err(self.error("unsupported type parameter declaration"));
                 }
+                let bound = if self.take(TokenKind::Word("extends")) {
+                    self.ty(false)?
+                } else {
+                    Type::NullableObject
+                };
+                generic_parameters.push(GenericParameter {
+                    name,
+                    bound,
+                    span: Span {
+                        start,
+                        end: self.end(),
+                    },
+                });
                 if index + 1 < self.type_parameters.len() {
                     self.expect(TokenKind::Symbol(','))?;
+                } else {
+                    self.take(TokenKind::Symbol(','));
                 }
             }
             self.expect(TokenKind::Operator(">"))?;
@@ -1255,7 +1286,8 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             self.block(0)?
         };
-        let type_parameters = std::mem::replace(&mut self.type_parameters, previous_parameters);
+        self.type_parameters = previous_parameters;
+        let type_parameters = generic_parameters;
         Ok((
             Function {
                 annotations,
@@ -1274,7 +1306,7 @@ impl<'a> Cursor<'_, 'a> {
             abstract_body,
         ))
     }
-    /// Pré-indexa parâmetros genéricos simples para resolver também o tipo de retorno.
+    /// Pré-indexa nomes genéricos, ignorando limites balanceados até a assinatura formal.
     fn scan_type_parameters(&self) -> Result<Vec<&'a str>, Diagnostic> {
         for index in self.index..self.tokens.len() {
             if matches!(
@@ -1294,9 +1326,29 @@ impl<'a> Cursor<'_, 'a> {
                 }
                 names.push(name);
                 cursor += 1;
+                if self.tokens.get(cursor).map(|t| t.kind) == Some(TokenKind::Word("extends")) {
+                    cursor += 1;
+                    let mut angles = 0usize;
+                    let mut parentheses = 0usize;
+                    while let Some(token) = self.tokens.get(cursor) {
+                        match token.kind {
+                            TokenKind::Operator(">") if angles == 0 && parentheses == 0 => break,
+                            TokenKind::Symbol(',') if angles == 0 && parentheses == 0 => break,
+                            TokenKind::Operator("<") => angles += 1,
+                            TokenKind::Operator(">") => angles = angles.saturating_sub(1),
+                            TokenKind::Symbol('(') => parentheses += 1,
+                            TokenKind::Symbol(')') => parentheses = parentheses.saturating_sub(1),
+                            TokenKind::Symbol('{' | ';') | TokenKind::Operator("=>") => break,
+                            _ => {}
+                        }
+                        cursor += 1;
+                    }
+                }
                 if self.tokens.get(cursor).map(|t| t.kind) == Some(TokenKind::Symbol(',')) {
                     cursor += 1;
-                    continue;
+                    if self.tokens.get(cursor).map(|t| t.kind) != Some(TokenKind::Operator(">")) {
+                        continue;
+                    }
                 }
                 if self.tokens.get(cursor).map(|t| t.kind) == Some(TokenKind::Operator(">"))
                     && self.tokens.get(cursor + 1).map(|t| t.kind) == Some(TokenKind::Symbol('('))
@@ -1648,12 +1700,55 @@ impl<'a> Cursor<'_, 'a> {
             );
         }
         let mut comparison = None;
-        while let Some(TokenKind::Operator(symbol)) = self.peek() {
+        let mut type_comparison = false;
+        loop {
+            if let Some(TokenKind::Word(operator @ ("is" | "as"))) = self.peek() {
+                if 4 < min {
+                    break;
+                }
+                if comparison == Some(4) {
+                    return Err(self.error(
+                        "type tests and relational operators cannot be chained without parentheses",
+                    ));
+                }
+                comparison = Some(4);
+                type_comparison = true;
+                self.charge(depth)?;
+                self.index += 1;
+                let negated = operator == "is" && self.take(TokenKind::Operator("!"));
+                let ty = self.ty(false)?;
+                let span = Span {
+                    start: left.span.start,
+                    end: self.end(),
+                };
+                left = Expr {
+                    kind: if operator == "is" {
+                        ExprKind::TypeTest {
+                            operand: Box::new(left),
+                            ty,
+                            negated,
+                        }
+                    } else {
+                        ExprKind::Cast {
+                            operand: Box::new(left),
+                            ty,
+                        }
+                    },
+                    span,
+                };
+                continue;
+            }
+            let Some(TokenKind::Operator(symbol)) = self.peek() else {
+                break;
+            };
             let Some((precedence, op)) = binary_op(symbol) else {
                 break;
             };
             if precedence < min {
                 break;
+            }
+            if type_comparison && precedence >= 4 {
+                return Err(self.error("operators after a type test or cast require parentheses"));
             }
             if matches!(precedence, 3 | 4) {
                 if comparison == Some(precedence) {
@@ -2393,6 +2488,8 @@ fn reserved(name: &str) -> bool {
         "abstract"
             | "List"
             | "Iterable"
+            | "Object"
+            | "Null"
             | "as"
             | "assert"
             | "async"
@@ -2469,6 +2566,116 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Limites omitidos são Object? e testes/casts preservam tipos reificados e spans.
+    #[test]
+    fn bounded_functions_nullable_parameters_and_runtime_type_syntax() {
+        let source = "class LoginService{int login()=>1;} T identity<T>(T value)=>value; T? nullable<T extends Object>(T? value)=>value; int use<T extends LoginService>(T value)=>value.login(); bool test<T extends Object?>(Object? value)=>value is T; void main(){Object? value=null;print(value is! int);print(value as Object?);List<int>? xs=null;}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().functions.len(), 5);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(
+            program.functions[0].type_parameters[0].bound,
+            Type::NullableObject
+        );
+        assert_eq!(program.functions[1].type_parameters[0].bound, Type::Object);
+        assert_eq!(program.functions[1].return_type, Type::NullableParameter(0));
+        assert_eq!(
+            program.functions[2].type_parameters[0].bound,
+            Type::Class(0)
+        );
+        let StatementKind::Return(Some(value)) = &program.functions[3].body[0].kind else {
+            panic!()
+        };
+        assert!(matches!(
+            value.kind,
+            ExprKind::TypeTest {
+                ty: Type::Parameter(0),
+                negated: false,
+                ..
+            }
+        ));
+        assert_eq!(&source[value.span.start..value.span.end], "value is T");
+        assert!(matches!(
+            &program.statements[1].kind,
+            StatementKind::Print(Expr {
+                kind: ExprKind::TypeTest { negated: true, .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            &program.statements[2].kind,
+            StatementKind::Print(Expr {
+                kind: ExprKind::Cast {
+                    ty: Type::NullableObject,
+                    ..
+                },
+                ..
+            })
+        ));
+        let source =
+            "T first<T extends List<int>,U extends T>(T value,U other)=>value; void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().functions.len(), 2);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(
+            program.functions[0].type_parameters[1].bound,
+            Type::Parameter(0)
+        );
+    }
+    /// Classes/métodos genéricos e encadeamentos relacionais ainda não são aceitos.
+    #[test]
+    fn generic_bounds_and_type_operator_rejections() {
+        for declaration in [
+            "class C<T>{}",
+            "class C{T f<T>(T value)=>value;}",
+            "T f<T extends>(T value)=>value;",
+            "T f<T extends Object,T>(T value)=>value;",
+            "T f<T extends void>(T value)=>value;",
+        ] {
+            let source = format!("{declaration} void main(){{}}");
+            assert!(
+                parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err(),
+                "{source}"
+            );
+        }
+        for body in [
+            "print(1 as int + 1);",
+            "print(1 as int is int);",
+            "print(1 is int is bool);",
+            "print(1 as int as Object);",
+            "print(1 is!);",
+            "print(1 as void);",
+        ] {
+            rejected(body);
+        }
+        parsed("void main(){print((1 as int)+1);print(1 is int == true);}");
+        let source = "void main(){print(1+2 is int && true);}";
+        let program = parsed(source);
+        let StatementKind::Print(Expr {
+            kind:
+                ExprKind::Binary {
+                    op: BinaryOp::And,
+                    left,
+                    ..
+                },
+            ..
+        }) = &program.statements[0].kind
+        else {
+            panic!()
+        };
+        let ExprKind::TypeTest { operand, .. } = &left.kind else {
+            panic!()
+        };
+        assert!(matches!(
+            operand.kind,
+            ExprKind::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
+        let source = "void main<T>(){}";
+        assert!(parse(&dartforge_lexer::lex(source).unwrap(), source.len()).is_err());
+    }
     /// Inicializadores this.campo recebem tipos próprios mesmo antes da declaração do campo.
     #[test]
     fn positional_constructors_and_initializing_formals() {
@@ -2728,7 +2935,7 @@ mod tests {
         let tokens = dartforge_lexer::lex(source).unwrap();
         assert_eq!(index_unit(&tokens).unwrap().functions.len(), 2);
         let program = parse(&tokens, source.len()).unwrap();
-        assert_eq!(program.functions[0].type_parameters, ["T"]);
+        assert_eq!(program.functions[0].type_parameters[0].name, "T");
         assert_eq!(program.functions[0].return_type, Type::Parameter(0));
         assert_eq!(program.classes[0].enum_constructor_fields, ["code"]);
         assert_eq!(program.classes[0].enum_arguments.len(), 2);
@@ -2749,7 +2956,7 @@ mod tests {
     #[test]
     fn increment_thirteen_rejects_unsupported_forms() {
         for source in [
-            "T f<T extends int>(T x)=>x;",
+            "T f<T extends>(T x)=>x;",
             "T f<T,T>(T x)=>x;",
             "enum E{a(1);final int n; E(this.n);}",
             "enum E{a(1);final int n=1;const E(this.n);}",
@@ -2795,7 +3002,7 @@ mod tests {
         for body in [
             "var f=({int x})=>x;",
             "var f=([int x])=>x;",
-            "List<int>? xs=null;",
+            "List<void>? xs=null;",
             "var xs=<int,String>[];",
             "var xs=[1,2;",
             "var f=(x=1)=>x;",

@@ -22,6 +22,10 @@ pub struct Token<'a> {
 pub enum Type {
     /// Parâmetro posicional do ambiente genérico da função corrente.
     Parameter(u32),
+    /// Parâmetro genérico tornado anulável explicitamente por T?.
+    NullableParameter(u32),
+    Object,
+    NullableObject,
     /// Índice de uma forma estrutural em Program.types.
     Applied(u32),
     /// Anotação omitida que a análise contextual precisa resolver.
@@ -42,9 +46,14 @@ pub enum Type {
 /// Forma estrutural compartilhada sem retirar Copy dos tipos da AST.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeShape {
+    /// Nulabilidade estrutural normalizada durante a substituição genérica.
+    Nullable(Type),
     List(Type),
     Iterable(Type),
-    Function { result: Type, parameters: Vec<Type> },
+    Function {
+        result: Type,
+        parameters: Vec<Type>,
+    },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Operação binária preservada na árvore de expressões.
@@ -81,6 +90,15 @@ pub struct Expr<'a> {
 #[derive(Debug, Clone)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
+    TypeTest {
+        operand: Box<Expr<'a>>,
+        ty: Type,
+        negated: bool,
+    },
+    Cast {
+        operand: Box<Expr<'a>>,
+        ty: Type,
+    },
     Const(Box<Expr<'a>>),
     GenericCall {
         name: &'a str,
@@ -226,12 +244,19 @@ pub struct Parameter<'a> {
 pub struct Function<'a> {
     pub annotations: Vec<Annotation>,
     pub native_binding: Option<NativeBinding<'a>>,
-    pub type_parameters: Vec<&'a str>,
+    pub type_parameters: Vec<GenericParameter<'a>>,
     pub is_getter: bool,
     pub name: &'a str,
     pub return_type: Type,
     pub parameters: Vec<Parameter<'a>>,
     pub body: Vec<Statement<'a>>,
+    pub span: Span,
+}
+/// Parâmetro genérico com limite explícito; o limite omitido é Object?.
+#[derive(Debug, Clone)]
+pub struct GenericParameter<'a> {
+    pub name: &'a str,
+    pub bound: Type,
     pub span: Span,
 }
 /// Tipo escalar da assinatura C; permanece separado do tipo Dart da função.
@@ -399,6 +424,8 @@ pub struct ExtensionTarget {
 /// deverá usar intervalos virtuais únicos ao combinar bibliotecas com extensions.
 #[derive(Debug, Default)]
 pub struct Resolution {
+    /// Argumentos reificados explícitos ou inferidos por chamada genérica.
+    pub generic_arguments: std::collections::BTreeMap<(usize, usize), Vec<Type>>,
     /// Valores constantes validados, incluindo listas canônicas e argumentos de enum.
     pub constant_values: std::collections::BTreeMap<(usize, usize), ConstValue>,
     /// Identificadores, chamadas e atribuições que usam receptor this implícito.

@@ -173,3 +173,16 @@ O [incremento 17](IMPLEMENTACAO-17.md) implementa o subconjunto de construtores
 posicionais descrito em [THIS-CONSTRUCTORS.md](THIS-CONSTRUCTORS.md), nos backends
 JavaScript e LLVM. Isso substitui as restrições anteriores de construtores apenas
 implícitos ou exclusivos de enums, mantendo os demais limites explícitos.
+
+## Genéricos reificados no JavaScript
+
+Funções genéricas top-level admitem limites superiores e `T?`; o limite padrão
+de `<T>` é `Object?`. `is`, `is!` e `as` usam descritores em execução, incluindo
+tipos nominais, funções, List e Iterable. A representação preserva argumentos de
+tipo em chamadas aninhadas e closures. Covariância de listas exige verificações
+nas escritas, conservando o tipo real dos elementos.
+
+Classes e métodos genéricos, herança parametrizada e bounds recursivos permanecem
+fora do subconjunto. LLVM rejeita os novos testes/casts e genéricos explicitamente.
+Não há reflexão `runtimeType` completa. Detalhes e referências em
+[GENERICS-REIFIED-REFERENCIAS.md](GENERICS-REIFIED-REFERENCIAS.md).

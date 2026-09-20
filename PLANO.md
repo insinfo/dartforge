@@ -364,3 +364,12 @@ e resolução de membros com escopo léxico. JS e LLVM preservam a ordem de aval
 e inicialização. Próximos passos: construtores nomeados, listas de inicialização,
 super explícito, factory, const geral e parâmetros opcionais/nomeados.
 Contrato em [THIS-CONSTRUCTORS.md](docs/THIS-CONSTRUCTORS.md).
+
+### Incremento 18 — bounds e reificação no JavaScript
+
+Funções genéricas top-level ganham bounds, anulabilidade e argumentos de tipo
+preservados em execução. Descritores suportam testes/casts e tipos originais dos
+elementos de coleções. Próximos passos: binders distintos para classes e métodos,
+tipos nominais aplicados, substituição na herança, bounds recursivos e padrões
+parametrizados; depois compartilhar os descritores com LLVM/Wasm e GC. Medir custo
+de descritores e especializar somente preservando identidade e verificações Dart.

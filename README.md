@@ -27,8 +27,8 @@ O protótipo suporta um subconjunto explícito:
 - Fusão conservadora de funções idênticas com `--merge-identical-functions` (opt-in).
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
-Ainda não compila aplicações Dart/ngdart completas. Faltam genéricos definidos pelo usuário, construtores explícitos, bibliotecas
-padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
+Ainda não compila aplicações Dart/ngdart completas. Faltam classes e métodos genéricos,
+bibliotecas padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
 vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
 
 ## Compilar e testar
@@ -189,3 +189,10 @@ finalizadores e FFI dinâmico permanecem pendentes.
 O [incremento 17](docs/IMPLEMENTACAO-17.md) implementa construtores posicionais,
 `this.campo`, inicialização definida e escopos com sombreamento em JS e LLVM.
 Veja [contratos e limites](docs/THIS-CONSTRUCTORS.md).
+
+## Limites genéricos e tipos reificados
+
+O [incremento 18](docs/IMPLEMENTACAO-18.md) amplia funções genéricas top-level com bounds, `T?`, `Object?`
+e descritores JavaScript para `is`, `is!` e `as`. Tipos de elementos acompanham
+listas e iteráveis; escritas covariantes são verificadas em execução.
+Veja [referências e limites](docs/GENERICS-REIFIED-REFERENCIAS.md).

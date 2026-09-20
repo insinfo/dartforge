@@ -233,6 +233,9 @@ fn error(span: Span, feature: &str) -> Diagnostic {
 /// Converte somente os tipos públicos do subconjunto nativo.
 fn ty(value: Type, _span: Span) -> Result<Ty, Diagnostic> {
     match value {
+        Type::Object | Type::NullableObject | Type::NullableParameter(_) => {
+            Err(error(_span, "Object e parâmetros de tipo reificados"))
+        }
         Type::Parameter(_) | Type::Applied(_) | Type::Inferred => {
             Err(error(_span, "coleções e funções como valores"))
         }
@@ -336,6 +339,9 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
 fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
     match &value.kind {
         ExprKind::Const(e) => validate_expression(e)?,
+        ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
+            return Err(error(value.span, "testes e casts de tipos reificados"));
+        }
         ExprKind::Switch { .. } | ExprKind::GenericCall { .. } => {
             return Err(error(value.span, "switch/genéricos"));
         }
@@ -1046,6 +1052,9 @@ impl<'a> FunctionEmitter<'a> {
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
             ExprKind::Const(e) => self.expression(e)?,
+            ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
+                return Err(error(expression.span, "testes e casts de tipos reificados"));
+            }
             ExprKind::Switch { .. } | ExprKind::GenericCall { .. } => {
                 return Err(error(expression.span, "switch/genéricos"));
             }

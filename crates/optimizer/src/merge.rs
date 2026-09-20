@@ -311,7 +311,7 @@ impl<'a> Canonical<'a, '_> {
     fn expression(&mut self, e: &Expr<'a>) -> String {
         use ExprKind::*;
         match &e.kind {
-            Const(_) | Switch { .. } | GenericCall { .. } => {
+            Const(_) | Switch { .. } | GenericCall { .. } | TypeTest { .. } | Cast { .. } => {
                 self.valid = false;
                 "new-expression".into()
             }
@@ -526,7 +526,7 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
     e(x);
     use ExprKind::*;
     match &mut x.kind {
-        Const(v) => visit_expr(v, e),
+        Const(v) | TypeTest { operand: v, .. } | Cast { operand: v, .. } => visit_expr(v, e),
         Switch { scrutinee, arms } => {
             visit_expr(scrutinee, e);
             for a in arms {

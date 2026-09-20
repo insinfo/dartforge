@@ -108,12 +108,22 @@ impl<'a> Validator<'a> {
     /// Substitui parâmetros dentro de funções e coleções, mantendo IDs originais intactos.
     pub(super) fn substitute(&self, ty: Type, bindings: &[Option<Type>], unknown: Type) -> Type {
         match ty {
+            Type::NullableParameter(id) => self.nullable(
+                bindings
+                    .get(id as usize)
+                    .copied()
+                    .flatten()
+                    .unwrap_or(unknown),
+            ),
             Type::Parameter(id) => bindings
                 .get(id as usize)
                 .copied()
                 .flatten()
                 .unwrap_or(unknown),
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Nullable(t)) => {
+                    self.nullable(self.substitute(t, bindings, unknown))
+                }
                 Some(TypeShape::List(t)) => {
                     self.intern(TypeShape::List(self.substitute(t, bindings, unknown)))
                 }
@@ -139,7 +149,9 @@ impl<'a> Validator<'a> {
         match ty {
             Type::Inferred => true,
             Type::Applied(_) => match self.shape(ty) {
-                Some(TypeShape::List(t) | TypeShape::Iterable(t)) => self.has_inferred(t),
+                Some(TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t)) => {
+                    self.has_inferred(t)
+                }
                 Some(TypeShape::Function { result, parameters }) => {
                     self.has_inferred(result)
                         || parameters.into_iter().any(|t| self.has_inferred(t))
@@ -158,6 +170,16 @@ impl<'a> Validator<'a> {
         span: Span,
     ) -> Result<(), Diagnostic> {
         match formal {
+            Type::NullableParameter(id) => {
+                if actual != Type::Null {
+                    self.infer(
+                        Type::Parameter(id),
+                        self.without_null(actual),
+                        bindings,
+                        span,
+                    )?;
+                }
+            }
             Type::Parameter(id) => {
                 let slot = bindings
                     .get_mut(id as usize)
@@ -169,6 +191,11 @@ impl<'a> Validator<'a> {
                 });
             }
             Type::Applied(_) => match (self.shape(formal), self.shape(actual)) {
+                (Some(TypeShape::Nullable(inner)), _) => {
+                    if actual != Type::Null {
+                        self.infer(inner, self.without_null(actual), bindings, span)?;
+                    }
+                }
                 (
                     Some(TypeShape::List(f) | TypeShape::Iterable(f)),
                     Some(TypeShape::List(a) | TypeShape::Iterable(a)),
@@ -256,11 +283,30 @@ impl<'a> Validator<'a> {
                 self.infer(formal, actual, &mut bindings, arg.span)?;
             }
         }
-        if bindings.iter().any(Option::is_none) {
-            return Err(Diagnostic::new(
-                "Generic inference needs explicit type arguments in this subset",
+        while bindings.iter().any(Option::is_none) {
+            let mut progressed = false;
+            for i in 0..bindings.len() {
+                if bindings[i].is_none() {
+                    let candidate = self.substitute(signature.bounds[i], &bindings, Type::Inferred);
+                    if !self.has_inferred(candidate) {
+                        bindings[i] = Some(candidate);
+                        progressed = true;
+                    }
+                }
+            }
+            if !progressed {
+                return Err(Diagnostic::new(
+                    "Cannot instantiate dependent generic bounds",
+                    span,
+                ));
+            }
+        }
+        for (actual, bound) in bindings.iter().zip(&signature.bounds) {
+            self.require_type(
+                actual.expect("argumento inferido"),
+                self.substitute(*bound, &bindings, Type::NullableObject),
                 span,
-            ));
+            )?;
         }
         for (arg, &formal) in arguments.iter().zip(&signature.parameters) {
             let expected = self.substitute(formal, &bindings, Type::Inferred);
@@ -270,6 +316,13 @@ impl<'a> Validator<'a> {
                 arg.span,
             )?;
         }
+        self.resolution.borrow_mut().generic_arguments.insert(
+            (span.start, span.end),
+            bindings
+                .iter()
+                .map(|t| t.expect("argumento inferido"))
+                .collect(),
+        );
         Ok(self.substitute(signature.result, &bindings, Type::Inferred))
     }
     /// Registra nomes resolvidos sobre this sem modificar a AST emprestada.

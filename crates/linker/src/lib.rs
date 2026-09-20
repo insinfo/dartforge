@@ -329,6 +329,7 @@ pub fn compile_graph_with_options(
         })?;
     if entry_function.return_type != Type::Void
         || !entry_function.parameters.is_empty()
+        || !entry_function.type_parameters.is_empty()
         || entry_function.native_binding.is_some()
     {
         return Err(source_error(
@@ -380,6 +381,7 @@ pub fn compile_graph_with_options(
         for shape in &program.types {
             linked_types.push(match shape {
                 TypeShape::List(t) => TypeShape::List(remap_type(*t, type_offset)),
+                TypeShape::Nullable(t) => TypeShape::Nullable(remap_type(*t, type_offset)),
                 TypeShape::Iterable(t) => TypeShape::Iterable(remap_type(*t, type_offset)),
                 TypeShape::Function { result, parameters } => TypeShape::Function {
                     result: remap_type(*result, type_offset),
@@ -650,7 +652,9 @@ impl<'a> Resolver<'a, '_> {
                 .get(id as usize)
                 .ok_or_else(|| self.error(span, "ID de tipo inválido"))?
             {
-                TypeShape::List(t) | TypeShape::Iterable(t) => self.ty(*t, span)?,
+                TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t) => {
+                    self.ty(*t, span)?
+                }
                 TypeShape::Function { result, parameters } => {
                     self.ty(*result, span)?;
                     for t in parameters {
@@ -666,6 +670,7 @@ impl<'a> Resolver<'a, '_> {
             Type::Int | Type::NullableInt => Some("int"),
             Type::String | Type::NullableString => Some("String"),
             Type::Bool | Type::NullableBool => Some("bool"),
+            Type::Object | Type::NullableObject => Some("Object"),
             _ => None,
         };
         if let Some(name) = name
@@ -738,6 +743,11 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Resolve assinatura fora do escopo de parâmetros e corpo em escopo aninhado.
     fn function(&mut self, function: &mut Function<'a>, top_level: bool) -> Result<(), GraphError> {
+        for parameter in &mut function.type_parameters {
+            self.ty(parameter.bound, parameter.span)?;
+            parameter.bound = remap_type(parameter.bound, self.type_offset);
+            self.span(&mut parameter.span);
+        }
         if let Some(binding) = &mut function.native_binding {
             self.span(&mut binding.span);
         }
@@ -942,6 +952,11 @@ impl<'a> Resolver<'a, '_> {
             }
         }
         match &mut expression.kind {
+            ExprKind::TypeTest { operand, ty, .. } | ExprKind::Cast { operand, ty } => {
+                self.ty(*ty, expression.span)?;
+                *ty = remap_type(*ty, self.type_offset);
+                self.expression(operand)?;
+            }
             ExprKind::Const(e) => self.expression(e)?,
             ExprKind::Switch { scrutinee, arms } => {
                 self.expression(scrutinee)?;

@@ -150,11 +150,13 @@ fn evaluate_inner(
 /// Const listas não podem depender de parâmetros de tipo, mesmo quando vazias.
 fn closed_type(ty: Type, resolution: &Resolution) -> bool {
     match ty {
-        Type::Parameter(_) | Type::Inferred | Type::Void => false,
+        Type::Parameter(_) | Type::NullableParameter(_) | Type::Inferred | Type::Void => false,
         Type::Applied(id) => match resolution.types.get(id as usize) {
-            Some(TypeShape::List(element) | TypeShape::Iterable(element)) => {
-                closed_type(*element, resolution)
-            }
+            Some(
+                TypeShape::List(element)
+                | TypeShape::Iterable(element)
+                | TypeShape::Nullable(element),
+            ) => closed_type(*element, resolution),
             Some(TypeShape::Function { result, parameters }) => {
                 (*result == Type::Void || closed_type(*result, resolution))
                     && parameters.iter().all(|ty| closed_type(*ty, resolution))
@@ -176,7 +178,8 @@ fn same_type(left: Type, right: Type, resolution: &Resolution) -> bool {
             resolution.types.get(b as usize),
         ) {
             (Some(TypeShape::List(a)), Some(TypeShape::List(b)))
-            | (Some(TypeShape::Iterable(a)), Some(TypeShape::Iterable(b))) => {
+            | (Some(TypeShape::Iterable(a)), Some(TypeShape::Iterable(b)))
+            | (Some(TypeShape::Nullable(a)), Some(TypeShape::Nullable(b))) => {
                 same_type(*a, *b, resolution)
             }
             (

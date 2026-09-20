@@ -26,6 +26,9 @@ impl<'a> Validator<'a> {
                     ty,
                     Type::Applied(_)
                         | Type::Parameter(_)
+                        | Type::NullableParameter(_)
+                        | Type::Object
+                        | Type::NullableObject
                         | Type::Inferred
                         | Type::Void
                         | Type::Null

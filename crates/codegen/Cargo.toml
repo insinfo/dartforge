@@ -12,6 +12,11 @@ serde_json = "1"
 dartforge-syntax = { path = "../syntax" }
 dartforge-diagnostics = { path = "../diagnostics" }
 
+[dev-dependencies]
+dartforge-lexer = { path = "../lexer" }
+dartforge-parser = { path = "../parser" }
+dartforge-semantic = { path = "../semantic" }
+
 [[bench]]
 name = "classes"
 harness = false

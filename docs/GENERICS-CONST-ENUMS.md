@@ -8,10 +8,11 @@ Constantes escalares locais continuam utilizáveis no subconjunto nativo.
 
 Funções top-level aceitam parâmetros de tipo, argumentos explícitos e inferência
 pelos argumentos da chamada, inclusive em List, Iterable e assinaturas funcionais.
-O corpo é verificado com parâmetros de tipo opacos; a emissão JavaScript apaga os
-tipos. Não há classes genéricas do usuário, bounds, métodos genéricos, tear-offs
-genéricos ou testes de tipo reificados. Esta é uma implementação parcial da
-inferência Dart, não uma implementação de todo o sistema de tipos.
+Desde o incremento 18, o corpo é verificado sob os limites dos parâmetros e a
+emissão JavaScript preserva descritores para testes/casts reificados. O limite
+padrão é Object?. Não há classes ou métodos genéricos do usuário nem tear-offs
+genéricos. A inferência permanece parcial; veja
+[bounds e reificação](GENERICS-REIFIED-REFERENCIAS.md).
 
 ## Constantes
 

@@ -64,7 +64,7 @@ impl<'a> Validator<'a> {
         for field in &class.fields {
             if field.initializer.is_none()
                 && !initialized.contains(field.name)
-                && (field.is_final || !is_nullable(field.ty))
+                && (field.is_final || !self.may_be_null(field.ty))
             {
                 return Err(Diagnostic::new(
                     "Instance field requires an initializer or an initializing formal",

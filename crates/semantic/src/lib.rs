@@ -13,6 +13,7 @@ mod constructors;
 mod generics;
 mod modifiers;
 mod native;
+mod reified;
 mod switches;
 use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, rc::Rc};
@@ -27,6 +28,7 @@ struct Binding {
 #[derive(Clone, PartialEq, Eq)]
 struct Signature {
     generic_count: usize,
+    bounds: Vec<Type>,
     is_getter: bool,
     parameters: Vec<Type>,
     result: Type,
@@ -64,7 +66,7 @@ struct ExtensionInfo<'a> {
 struct Validator<'a> {
     in_constructor: bool,
     exhaustive_switches: Rc<RefCell<HashSet<(usize, usize)>>>,
-    type_parameters: Vec<&'a str>,
+    type_parameters: Vec<dartforge_syntax::GenericParameter<'a>>,
     switch_depth: usize,
     captured_writes: Rc<HashSet<&'a str>>,
     inferred_returns: Option<Rc<RefCell<Vec<Type>>>>,
@@ -138,6 +140,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         "main",
         Signature {
             generic_count: 0,
+            bounds: vec![],
             is_getter: false,
             parameters: vec![],
             result: Type::Void,
@@ -157,7 +160,10 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         }
         if !class.is_mixin_application
             && (!class_names.insert(class.name)
-                || matches!(class.name, "main" | "print" | "int" | "String" | "bool"))
+                || matches!(
+                    class.name,
+                    "main" | "print" | "int" | "String" | "bool" | "Object" | "Null"
+                ))
         {
             return Err(Diagnostic::new(
                 "Duplicate or reserved class name",
@@ -230,6 +236,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                         method.name,
                         Signature {
                             generic_count: method.type_parameters.len(),
+                            bounds: method.type_parameters.iter().map(|p| p.bound).collect(),
                             is_getter: method.is_getter,
                             parameters: method.parameters.iter().map(|p| p.ty).collect(),
                             result: method.return_type,
@@ -264,6 +271,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 function.name,
                 Signature {
                     generic_count: function.type_parameters.len(),
+                    bounds: function.type_parameters.iter().map(|p| p.bound).collect(),
                     is_getter: function.is_getter,
                     parameters: function
                         .parameters
@@ -323,6 +331,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                         index,
                         Signature {
                             generic_count: method.type_parameters.len(),
+                            bounds: method.type_parameters.iter().map(|p| p.bound).collect(),
                             is_getter: method.is_getter,
                             parameters: method.parameters.iter().map(|p| p.ty).collect(),
                             result: method.return_type,
@@ -689,12 +698,14 @@ impl<'a> Validator<'a> {
         if function
             .type_parameters
             .iter()
+            .map(|p| p.name)
             .collect::<HashSet<_>>()
             .len()
             != function.type_parameters.len()
         {
             return Err(Diagnostic::new("Duplicate type parameter", function.span));
         }
+        self.validate_bounds()?;
         self.switch_depth = 0;
         self.inferred_returns = None;
         if function.is_getter && !function.parameters.is_empty() {
@@ -759,15 +770,11 @@ impl<'a> Validator<'a> {
         self.loop_depth = 0;
         self.block(&function.body)?;
         self.scopes.pop();
-        if !matches!(
-            function.return_type,
-            Type::Void
-                | Type::Null
-                | Type::NullableInt
-                | Type::NullableString
-                | Type::NullableBool
-                | Type::NullableClass(_)
-        ) && !self.returns(&function.body)
+        if function.return_type != Type::Void
+            && self
+                .require_type(Type::Null, function.return_type, function.span)
+                .is_err()
+            && !self.returns(&function.body)
         {
             return Err(Diagnostic::new(
                 format!(
@@ -820,6 +827,33 @@ impl<'a> Validator<'a> {
     }
     /// Compara tipos primitivos e relações nominais de subtipo entre classes.
     fn require_type(&self, actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
+        if actual == expected {
+            return Ok(());
+        }
+        if expected == Type::NullableObject && actual != Type::Void && actual != Type::Inferred {
+            return Ok(());
+        }
+        if expected == Type::Object
+            && actual != Type::Void
+            && actual != Type::Inferred
+            && !self.may_be_null(actual)
+        {
+            return Ok(());
+        }
+        if let Type::NullableParameter(id) = expected
+            && (actual == Type::Null || actual == Type::Parameter(id))
+        {
+            return Ok(());
+        }
+        if matches!(actual, Type::Parameter(_) | Type::NullableParameter(_)) {
+            return self.require_type(self.upper_bound(actual), expected, span);
+        }
+        if let Some(TypeShape::Nullable(inner)) = self.shape(expected) {
+            if actual == Type::Null {
+                return Ok(());
+            }
+            return self.require_type(self.without_null(actual), inner, span);
+        }
         if matches!(actual, Type::Applied(_)) || matches!(expected, Type::Applied(_)) {
             return self.require_structural(actual, expected, span);
         }
@@ -841,7 +875,7 @@ impl<'a> Validator<'a> {
     }
     /// Obtém a classe de um receptor comprovadamente não anulável.
     fn receiver_class(&self, receiver: &Expr<'a>) -> Result<u32, Diagnostic> {
-        match self.value(receiver)? {
+        match self.upper_bound(self.value(receiver)?) {
             Type::Class(id) => Ok(id),
             _ => Err(Diagnostic::new(
                 "Member access requires a non-null class instance",
@@ -946,6 +980,14 @@ impl<'a> Validator<'a> {
                 } else {
                     None
                 };
+                let promoted = if !self.captured_writes.contains(name)
+                    && !self.may_be_null(actual)
+                    && self.may_be_null(annotation.unwrap_or(actual))
+                {
+                    Some(self.without_null(annotation.unwrap_or(actual)))
+                } else {
+                    None
+                };
                 let binding = self
                     .scopes
                     .last_mut()
@@ -954,15 +996,7 @@ impl<'a> Validator<'a> {
                     .expect("predeclared local");
                 binding.constant = constant;
                 binding.ty = Some(annotation.unwrap_or(actual));
-                binding.promoted = if !self.captured_writes.contains(name)
-                    && actual != Type::Null
-                    && !is_nullable(actual)
-                    && is_nullable(annotation.unwrap_or(actual))
-                {
-                    Some(non_null(annotation.unwrap_or(actual)))
-                } else {
-                    None
-                };
+                binding.promoted = promoted;
                 Ok(())
             }
             StatementKind::FieldAssign {
@@ -1013,6 +1047,14 @@ impl<'a> Validator<'a> {
                 }
                 let actual = self.value_expected(value, binding.ty)?;
                 self.require_type(actual, binding.ty.expect("initialized binding"), value.span)?;
+                let promoted = if !self.captured_writes.contains(name)
+                    && !self.may_be_null(actual)
+                    && self.may_be_null(binding.ty.expect("initialized binding"))
+                {
+                    Some(self.without_null(binding.ty.expect("initialized binding")))
+                } else {
+                    None
+                };
                 // A escrita remove a promoção anterior; valores não nulos estabelecem uma nova.
                 let target = self
                     .scopes
@@ -1020,15 +1062,7 @@ impl<'a> Validator<'a> {
                     .rev()
                     .find_map(|scope| scope.get_mut(name))
                     .expect("resolved binding");
-                target.promoted = if !self.captured_writes.contains(name)
-                    && actual != Type::Null
-                    && !is_nullable(actual)
-                    && is_nullable(target.ty.expect("initialized binding"))
-                {
-                    Some(non_null(target.ty.expect("initialized binding")))
-                } else {
-                    None
-                };
+                target.promoted = promoted;
                 Ok(())
             }
             StatementKind::Print(expression) => {
@@ -1048,7 +1082,7 @@ impl<'a> Validator<'a> {
                 index,
                 value,
             } => {
-                let ty = self.value(receiver)?;
+                let ty = self.upper_bound(self.value(receiver)?);
                 let Some(TypeShape::List(element)) = self.shape(ty) else {
                     return Err(Diagnostic::new(
                         "Index assignment requires a List",
@@ -1272,6 +1306,21 @@ impl<'a> Validator<'a> {
     /// Promove nomes quando uma condição simples comprova ausência de null.
     fn promote(&mut self, condition: &Expr<'a>, truth: bool) {
         match &condition.kind {
+            ExprKind::TypeTest {
+                operand,
+                ty,
+                negated,
+            } if truth != *negated => {
+                if let ExprKind::Identifier(name) = operand.kind
+                    && !self.captured_writes.contains(name)
+                    && let Some(declared) = self.lookup(name).and_then(|b| b.ty)
+                    && self.require_type(*ty, declared, condition.span).is_ok()
+                    && let Some(binding) =
+                        self.scopes.iter_mut().rev().find_map(|s| s.get_mut(name))
+                {
+                    binding.promoted = Some(*ty);
+                }
+            }
             ExprKind::Unary {
                 op: UnaryOp::Not,
                 operand,
@@ -1292,15 +1341,14 @@ impl<'a> Validator<'a> {
                 };
                 if let Some(name) = name
                     && !self.captured_writes.contains(name)
-                    && let Some(binding) = self
-                        .scopes
-                        .iter_mut()
-                        .rev()
-                        .find_map(|scope| scope.get_mut(name))
-                    && let Some(ty) = binding.ty
-                    && is_nullable(ty)
+                    && let Some(ty) = self.lookup(name).and_then(|b| b.promoted.or(b.ty))
                 {
-                    binding.promoted = Some(non_null(ty));
+                    let promoted = self.without_null(ty);
+                    if let Some(binding) =
+                        self.scopes.iter_mut().rev().find_map(|s| s.get_mut(name))
+                    {
+                        binding.promoted = Some(promoted);
+                    }
                 }
             }
             _ => {}
@@ -1370,9 +1418,11 @@ impl<'a> Validator<'a> {
     /// Rejeita anotações cujo nome de tipo foi ocultado por uma declaração.
     fn check_type_name(&self, ty: Type, span: Span) -> Result<(), Diagnostic> {
         let name = match ty {
-            Type::Parameter(id) => {
+            Type::Parameter(id) | Type::NullableParameter(id) => {
                 return if (id as usize) < self.type_parameters.len()
-                    && self.lookup(self.type_parameters[id as usize]).is_none()
+                    && self
+                        .lookup(self.type_parameters[id as usize].name)
+                        .is_none()
                 {
                     Ok(())
                 } else {
@@ -1404,6 +1454,7 @@ impl<'a> Validator<'a> {
             Type::Int | Type::NullableInt => "int",
             Type::String | Type::NullableString => "String",
             Type::Bool | Type::NullableBool => "bool",
+            Type::Object | Type::NullableObject => "Object",
         };
         if self.lookup(name).is_some()
             || self.functions.contains_key(name)
@@ -1438,6 +1489,16 @@ impl<'a> Validator<'a> {
     /// Determina o tipo sem contexto adicional; o wrapper registra o resultado para os backends.
     fn expression_inner(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
         match &expression.kind {
+            ExprKind::TypeTest { operand, ty, .. } => {
+                self.value(operand)?;
+                self.runtime_type(*ty, expression.span)?;
+                Ok(Type::Bool)
+            }
+            ExprKind::Cast { operand, ty } => {
+                self.value(operand)?;
+                self.runtime_type(*ty, expression.span)?;
+                Ok(*ty)
+            }
             ExprKind::Const(inner) => {
                 let ty = self.expression(inner)?;
                 self.evaluate_constant(expression)?;
@@ -1455,7 +1516,7 @@ impl<'a> Validator<'a> {
                 unreachable!("expressões contextuais são tratadas no wrapper")
             }
             ExprKind::Index { receiver, index } => {
-                let ty = self.value(receiver)?;
+                let ty = self.upper_bound(self.value(receiver)?);
                 let Some(TypeShape::List(element)) = self.shape(ty) else {
                     return Err(Diagnostic::new(
                         "Index access requires a List",
@@ -1542,7 +1603,7 @@ impl<'a> Validator<'a> {
                 Ok(Type::Class(*class_id))
             }
             ExprKind::Member { receiver, name } => {
-                let receiver_type = self.value(receiver)?;
+                let receiver_type = self.upper_bound(self.value(receiver)?);
                 if let Some(element) = self.element(receiver_type) {
                     return match *name {
                         "length" => Ok(Type::Int),
@@ -1573,7 +1634,7 @@ impl<'a> Validator<'a> {
                 name,
                 arguments,
             } => {
-                let receiver_type = self.value(receiver)?;
+                let receiver_type = self.upper_bound(self.value(receiver)?);
                 if self.element(receiver_type).is_some() {
                     return self.collection_call(receiver_type, name, arguments, expression.span);
                 }
@@ -1815,7 +1876,7 @@ impl<'a> Validator<'a> {
                             expression.span,
                         ))
                     } else {
-                        Ok(non_null(ty))
+                        Ok(self.without_null(ty))
                     };
                 }
                 let expected = match op {
@@ -1846,7 +1907,7 @@ impl<'a> Validator<'a> {
                         if lhs == Type::Null {
                             return Ok(rhs);
                         }
-                        let base = non_null(lhs);
+                        let base = self.without_null(lhs);
                         if lhs == base {
                             return Ok(lhs);
                         }
@@ -1863,6 +1924,8 @@ impl<'a> Validator<'a> {
                     }
                     BinaryOp::Equal | BinaryOp::NotEqual => Ok(Type::Bool),
                     BinaryOp::Add => {
+                        let lhs = self.upper_bound(lhs);
+                        let rhs = self.upper_bound(rhs);
                         if matches!(lhs, Type::Int | Type::String) && lhs == rhs {
                             Ok(lhs)
                         } else {
@@ -1899,13 +1962,20 @@ impl<'a> Validator<'a> {
 fn is_nullable(ty: Type) -> bool {
     matches!(
         ty,
-        Type::NullableInt | Type::NullableString | Type::NullableBool | Type::NullableClass(_)
+        Type::NullableInt
+            | Type::NullableString
+            | Type::NullableBool
+            | Type::NullableClass(_)
+            | Type::NullableObject
+            | Type::NullableParameter(_)
     )
 }
 /// Remove a possibilidade de null de um tipo primitivo.
 fn non_null(ty: Type) -> Type {
     match ty {
         Type::NullableInt => Type::Int,
+        Type::NullableObject => Type::Object,
+        Type::NullableParameter(id) => Type::Parameter(id),
         Type::NullableString => Type::String,
         Type::NullableBool => Type::Bool,
         Type::NullableClass(id) => Type::Class(id),
@@ -3642,7 +3712,12 @@ mod tests {
         /// Constrói uma declaração com anotação e inicializador compatíveis.
         fn annotated(ty: Type) -> Statement<'static> {
             let initializer = match ty {
-                Type::Applied(_) | Type::Inferred | Type::Parameter(_) => unreachable!(),
+                Type::Applied(_)
+                | Type::Inferred
+                | Type::Parameter(_)
+                | Type::NullableParameter(_)
+                | Type::Object
+                | Type::NullableObject => unreachable!(),
                 Type::Void
                 | Type::Null
                 | Type::NullableInt

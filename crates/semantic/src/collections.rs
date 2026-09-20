@@ -4,6 +4,9 @@ impl<'a> Validator<'a> {
     /// Limita impressão recursiva aos valores cuja representação Dart está implementada.
     pub(super) fn printable_type(&self, ty: Type) -> bool {
         match ty {
+            Type::Parameter(_) | Type::NullableParameter(_) => {
+                self.printable_type(self.upper_bound(ty))
+            }
             Type::Int
             | Type::Bool
             | Type::String
@@ -12,9 +15,11 @@ impl<'a> Validator<'a> {
             | Type::NullableBool
             | Type::NullableString => true,
             Type::Applied(_) => match self.shape(ty) {
-                Some(TypeShape::List(element) | TypeShape::Iterable(element)) => {
-                    self.printable_type(element)
-                }
+                Some(
+                    TypeShape::List(element)
+                    | TypeShape::Iterable(element)
+                    | TypeShape::Nullable(element),
+                ) => self.printable_type(element),
                 _ => false,
             },
             _ => false,
@@ -65,7 +70,9 @@ impl<'a> Validator<'a> {
                 })?;
                 stack.push((id, true));
                 let children = match shape {
-                    TypeShape::List(t) | TypeShape::Iterable(t) => vec![*t],
+                    TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t) => {
+                        vec![*t]
+                    }
                     TypeShape::Function { result, parameters } => {
                         let mut v = parameters.clone();
                         v.push(*result);
@@ -81,7 +88,7 @@ impl<'a> Validator<'a> {
         }
         Ok(())
     }
-    /// Compara estruturas; List é invariante até existir checagem reificada nas escritas.
+    /// Compara estruturas; escritas em listas covariantes são checadas pelo descritor original.
     pub(super) fn require_structural(
         &self,
         actual: Type,
@@ -95,10 +102,7 @@ impl<'a> Validator<'a> {
             )
         };
         match (self.shape(actual), self.shape(expected)) {
-            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => {
-                self.require_type(a, b, span)?;
-                self.require_type(b, a, span)
-            }
+            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => self.require_type(a, b, span),
             (Some(TypeShape::List(a) | TypeShape::Iterable(a)), Some(TypeShape::Iterable(b))) => {
                 self.require_type(a, b, span)
             }
@@ -133,6 +137,15 @@ impl<'a> Validator<'a> {
             .shape(ty)
             .ok_or_else(|| Diagnostic::new("Unknown structural type", span))?;
         let (name, children) = match shape {
+            TypeShape::Nullable(inner) => {
+                if matches!(inner, Type::Void | Type::Inferred) {
+                    return Err(Diagnostic::new(
+                        "Unsupported nullable structural type",
+                        span,
+                    ));
+                }
+                return self.check_type_name(inner, span);
+            }
             TypeShape::List(t) => ("List", vec![t]),
             TypeShape::Iterable(t) => ("Iterable", vec![t]),
             TypeShape::Function { result, parameters } => {
@@ -165,37 +178,117 @@ impl<'a> Validator<'a> {
     }
     /// Obtém o elemento de uma lista ou iterable; funções não são coleções.
     pub(super) fn element(&self, ty: Type) -> Option<Type> {
-        match self.shape(ty) {
+        match self.shape(self.upper_bound(ty)) {
             Some(TypeShape::List(t) | TypeShape::Iterable(t)) => Some(t),
             _ => None,
         }
     }
-    /// Determina um supertipo comum representável sem introduzir dynamic ou Object.
+    /// Determina um supertipo comum, preservando anulabilidade e formas já representadas.
     pub(super) fn common(&self, a: Type, b: Type, span: Span) -> Result<Type, Diagnostic> {
         if a == b {
             return Ok(a);
         }
+        if matches!(a, Type::Void | Type::Inferred) || matches!(b, Type::Void | Type::Inferred) {
+            return Err(Diagnostic::new(
+                "No common value type for void or unresolved expressions",
+                span,
+            ));
+        }
         if a == Type::Null || b == Type::Null {
-            return match if a == Type::Null { b } else { a } {
-                Type::Int | Type::NullableInt => Ok(Type::NullableInt),
-                Type::Bool | Type::NullableBool => Ok(Type::NullableBool),
-                Type::String | Type::NullableString => Ok(Type::NullableString),
-                Type::Class(id) | Type::NullableClass(id) => Ok(Type::NullableClass(id)),
-                _ => Err(Diagnostic::new(
-                    "Nullable structural types or dynamic inference are unsupported",
-                    span,
-                )),
-            };
+            return Ok(self.nullable(if a == Type::Null { b } else { a }));
         }
         if self.require_type(a, b, span).is_ok() {
             Ok(b)
         } else if self.require_type(b, a, span).is_ok() {
             Ok(a)
         } else {
-            Err(Diagnostic::new(
-                "No common type representable in this subset",
-                span,
-            ))
+            if self.may_be_null(a) || self.may_be_null(b) {
+                let left = self.without_null(a);
+                let right = self.without_null(b);
+                if left != a || right != b {
+                    return Ok(self.nullable(self.common(left, right, span)?));
+                }
+            }
+            match (self.shape(a), self.shape(b)) {
+                (Some(TypeShape::List(x)), Some(TypeShape::List(y))) => {
+                    return Ok(self.intern(TypeShape::List(self.common(x, y, span)?)));
+                }
+                (
+                    Some(TypeShape::List(x) | TypeShape::Iterable(x)),
+                    Some(TypeShape::List(y) | TypeShape::Iterable(y)),
+                ) => return Ok(self.intern(TypeShape::Iterable(self.common(x, y, span)?))),
+                (
+                    Some(TypeShape::Function {
+                        result: x,
+                        parameters: xp,
+                    }),
+                    Some(TypeShape::Function {
+                        result: y,
+                        parameters: yp,
+                    }),
+                ) => {
+                    if xp.len() != yp.len() {
+                        return Err(Diagnostic::new(
+                            "Function LUB with different arity is unsupported",
+                            span,
+                        ));
+                    }
+                    let mut parameters = Vec::new();
+                    for (x, y) in xp.into_iter().zip(yp) {
+                        parameters.push(if self.require_type(x, y, span).is_ok() {
+                            x
+                        } else if self.require_type(y, x, span).is_ok() {
+                            y
+                        } else {
+                            return Err(Diagnostic::new(
+                                "Function parameter intersection is unsupported",
+                                span,
+                            ));
+                        });
+                    }
+                    return Ok(self.intern(TypeShape::Function {
+                        result: self.common(x, y, span)?,
+                        parameters,
+                    }));
+                }
+                _ => {}
+            }
+            if let (Type::Class(x), Type::Class(y)) = (a, b) {
+                let left = self.ancestors(x);
+                let right = self.ancestors(y);
+                let common = left.intersection(&right).copied().collect::<Vec<_>>();
+                let closest = common
+                    .iter()
+                    .copied()
+                    .filter(|id| {
+                        !common
+                            .iter()
+                            .any(|other| other != id && self.ancestors(*other).contains(id))
+                    })
+                    .collect::<Vec<_>>();
+                if closest.len() == 1 {
+                    return Ok(Type::Class(closest[0]));
+                }
+                if closest.len() > 1 {
+                    return Err(Diagnostic::new(
+                        "Ambiguous nominal least upper bound is unsupported",
+                        span,
+                    ));
+                }
+            }
+            if matches!(a, Type::Parameter(_) | Type::NullableParameter(_))
+                || matches!(b, Type::Parameter(_) | Type::NullableParameter(_))
+            {
+                return Err(Diagnostic::new(
+                    "Least upper bound of unrelated type parameters requires explicit type arguments",
+                    span,
+                ));
+            }
+            Ok(if self.may_be_null(a) || self.may_be_null(b) {
+                Type::NullableObject
+            } else {
+                Type::Object
+            })
         }
     }
     /// Registra tipos resolvidos inclusive para closures e referências a funções.
@@ -220,6 +313,7 @@ impl<'a> Validator<'a> {
             } => self.generic_call(name, type_arguments, arguments, e.span, expected)?,
             ExprKind::Call { name, arguments }
                 if self.lookup(name).is_none()
+                    && !self.has_implicit_member(name)
                     && self
                         .functions
                         .get(name)
@@ -403,7 +497,8 @@ impl<'a> Validator<'a> {
         args: &[Expr<'a>],
         span: Span,
     ) -> Result<Type, Diagnostic> {
-        let Some(TypeShape::Function { result, parameters }) = self.shape(ty) else {
+        let Some(TypeShape::Function { result, parameters }) = self.shape(self.upper_bound(ty))
+        else {
             return Err(Diagnostic::new(
                 "Calling a non-function value is unsupported",
                 span,
@@ -591,6 +686,9 @@ fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a s
 /// Visita closures aninhadas e coleta também efeitos em argumentos e receptores.
 fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
     match &e.kind {
+        ExprKind::TypeTest { operand, .. } | ExprKind::Cast { operand, .. } => {
+            scan_expr(operand, names)
+        }
         ExprKind::Const(inner) => scan_expr(inner, names),
         ExprKind::Switch { scrutinee, arms } => {
             scan_expr(scrutinee, names);

@@ -135,7 +135,9 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
 /// Simplifica filhos puros e substitui somente operadores com resultado comprovado.
 fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
     let replacement = match &mut expression.kind {
-        ExprKind::Const(e) => {
+        ExprKind::Const(e)
+        | ExprKind::TypeTest { operand: e, .. }
+        | ExprKind::Cast { operand: e, .. } => {
             fold_expression(e, stats);
             None
         }

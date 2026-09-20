@@ -3,16 +3,16 @@
 ## JavaScript
 
 O frontend representa tipos estruturais em uma arena: `List<T>`, `Iterable<T>` e
-`R Function(A, B)`. As formas podem ser aninhadas e atravessar imports. Não há
-suporte a declarações de funções/classes genéricas do usuário, bounds, typedef,
-`dynamic`, `Object` geral ou tipos estruturais anuláveis neste incremento.
+`R Function(A, B)`. As formas podem ser aninhadas e atravessar imports. O incremento
+18 acrescenta funções genéricas com bounds, Object/Object? e formas estruturais
+anuláveis. Classes genéricas, typedef e dynamic permanecem pendentes.
 
 Listas expansíveis aceitam literais `[1, 2]` ou `<int>[]`, indexação, substituição
 por índice, `add`, `length`, `isEmpty`, `isNotEmpty`, `first`, `last` e `toList`.
 Listas vazias precisam de tipo explícito ou contexto. `where`, `map`, `forEach`
-e `any` contextualizam os parâmetros omitidos dos callbacks. List é invariante
-neste subconjunto: conversões covariantes que exigiriam checks de escrita em
-runtime são rejeitadas. Iterable permite covariância apenas de leitura.
+e `any` contextualizam os parâmetros omitidos dos callbacks. Desde o incremento
+18, List permite covariância e preserva o tipo real do elemento para verificar
+escritas em execução. Iterable permite covariância apenas de leitura.
 
 Closures aceitam corpo de expressão ou bloco, podem ser armazenadas, passadas,
 retornadas e chamadas como expressões. JavaScript preserva o ambiente léxico,

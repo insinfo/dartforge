@@ -33,18 +33,16 @@ fn function_values_and_mutable_captures() {
         analyze(source).unwrap_or_else(|e| panic!("{source}\n{e}"));
     }
 }
-/// List é invariante; callbacks inválidos, ausência de contexto e índices errados falham.
+/// Callbacks inválidos, ausência de contexto e índices errados falham.
 #[test]
 fn rejects_unsafe_aliases_and_callback_types() {
     for source in [
-        "void main() { List<int> xs = [1]; List<int?> alias = xs; alias.add(null); }",
         "void main() { var xs = [1]; xs.add(false); }",
         "void main() { var xs = [1]; xs[true] = 2; }",
         "void main() { var xs = [1]; xs[0] = false; }",
         "void main() { var xs = [1]; xs.where((x) => x + 1); }",
         "void main() { var xs = [1]; xs.forEach((bool x) { print(x); }); }",
         "void main() { var xs = []; }",
-        "void main() { var xs = [1, false]; }",
         "void main() { var f = (x) => x + 1; }",
         "void main() { int Function(int) f = (x) => true; }",
         "void main() { var f = () => 1; print(f); }",

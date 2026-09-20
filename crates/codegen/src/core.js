@@ -30,23 +30,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 // Subconjunto próprio de dart:core; Iterable preguiçoso e List growable.
 class $dartforgeIterable {
-  constructor(iterator, length = null) { this.iterator = iterator; this.size = length; }
+  constructor(iterator, length = null, elementType = ['nullable',['object']]) { this.iterator = iterator; this.size = length; this.elementType = elementType; $dartforgeTyped(this, ['iterable',elementType]); }
   [Symbol.iterator]() { return this.iterator(); }
   get $df_length() { if (this.size) return this.size(); let n = 0; for (const x of this) n++; return n; }
   get $df_isEmpty() { return this[Symbol.iterator]().next().done; }
   get $df_isNotEmpty() { return !this.$df_isEmpty; }
   get $df_first() { const v = this[Symbol.iterator]().next(); if (v.done) throw new Error('Bad state: No element'); return v.value; }
   get $df_last() { let found = false, last; for (const x of this) { found = true; last = x; } if (!found) throw new Error('Bad state: No element'); return last; }
-  $df_where(test) { const source = this; return new $dartforgeIterable(function* () { for (const x of source) if (test(x)) yield x; }); }
-  $df_map(convert) { return new $dartforgeMapped(this, convert); }
+  $df_where(test) { const source = this; return new $dartforgeIterable(function* () { for (const x of source) if (test(x)) yield x; }, null, this.elementType); }
+  $df_map(convert, resultType) { return new $dartforgeMapped(this, convert, resultType); }
   $df_forEach(action) { for (const x of this) action(x); }
   $df_any(test) { for (const x of this) if (test(x)) return true; return false; }
-  $df_toList() { return new $dartforgeList([...this]); }
+  $df_toList() { return new $dartforgeList([...this], this.elementType); }
 }
 // Map não chama o conversor ao consultar length/isEmpty e transforma apenas last ao consultá-lo.
 class $dartforgeMapped extends $dartforgeIterable {
-  constructor(source, convert) {
-    super(function* () { for (const x of source) yield convert(x); }, () => source.$df_length);
+  constructor(source, convert, resultType) {
+    super(function* () { for (const x of source) yield convert(x); }, () => source.$df_length, resultType);
     this.source = source; this.convert = convert;
   }
   get $df_isEmpty() { return this.source.$df_isEmpty; }
@@ -54,7 +54,7 @@ class $dartforgeMapped extends $dartforgeIterable {
   get $df_last() { return this.convert(this.source.$df_last); }
 }
 class $dartforgeList extends $dartforgeIterable {
-  constructor(values) {
+  constructor(values, elementType = ['nullable',['object']]) {
     super(function* () {
       const length = values.length;
       for (let i = 0; i < length; i++) {
@@ -62,10 +62,11 @@ class $dartforgeList extends $dartforgeIterable {
         yield values[i];
       }
       if (values.length !== length) throw new Error('Concurrent modification during iteration');
-    }, () => values.length);
+    }, () => values.length, elementType);
     this.values = values;
+    $dartforgeTyped(this, ['list',elementType]);
   }
-  $df_add(value) { this.values.push(value); }
+  $df_add(value) { $dartforgeCast(value, this.elementType); this.values.push(value); }
   $df_forEach(action) {
     const n = this.values.length;
     for (let i = 0; i < n; i++) { action(this.values[i]); if (this.values.length !== n) throw new Error('Concurrent modification during iteration'); }
@@ -76,6 +77,7 @@ function $dartforgeIndex(list, index) {
   return list.values[index];
 }
 function $dartforgeIndexSet(list, index, value) {
+  $dartforgeCast(value, list.elementType);
   if (!Number.isInteger(index) || index < 0 || index >= list.values.length) throw new RangeError('Index out of range');
   list.values[index] = value;
 }
@@ -163,8 +165,8 @@ function $dartforgePrint(value) { console.log($dartforgeFormat(value)); }
 
 
 const $dartforgeConstLists = new Map();
-function $dartforgeConstList(key,values) {
+function $dartforgeConstList(key,values,elementType = ['nullable',['object']]) {
   let found=$dartforgeConstLists.get(key);
-  if(found===undefined){ found=Object.freeze(new $dartforgeList(Object.freeze(values))); $dartforgeConstLists.set(key,found); }
+  if(found===undefined){ found=Object.freeze(new $dartforgeList(Object.freeze(values),elementType)); $dartforgeConstLists.set(key,found); }
   return found;
 }

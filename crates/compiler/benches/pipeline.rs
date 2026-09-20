@@ -36,6 +36,25 @@ fn corpus(functions: usize) -> String {
     source
 }
 
+/// Exercita bounds, listas reificadas, testes/casts e captura do argumento de tipo.
+fn reified_corpus() -> &'static str {
+    r#"
+class LoginService { int login() => 7; }
+T identity<T extends Object>(T value) => value;
+int login<T extends LoginService>(T value) => value.login();
+bool Function(Object?) checker<T>() => (Object? value) => value is T;
+void main() {
+  List<int> values = <int>[1, 2, 3];
+  Object? candidate = identity<List<int>>(values);
+  print(candidate is List<Object>);
+  print((candidate as List<int>)[0]);
+  var accepts = checker<List<int>>();
+  print(accepts(candidate));
+  print(login(LoginService()));
+}
+"#
+}
+
 /// Lê um inteiro positivo da configuração ou aplica o padrão informado.
 fn setting(name: &str, default: usize) -> usize {
     std::env::var(name).map_or(default, |value| {
@@ -101,6 +120,10 @@ fn main() {
     let ast = dartforge_parser::parse(&tokens, source.len()).unwrap();
     dartforge_semantic::validate(&ast).unwrap();
     let module = dartforge_hir::lower(dartforge_parser::parse(&tokens, source.len()).unwrap());
+    let reified_source = reified_corpus();
+    let reified_output_bytes = dartforge_compiler::compile(reified_source)
+        .expect("corpus de genéricos reificados deve compilar")
+        .len();
     let mut phases = serde_json::Map::new();
     phases.insert(
         "lex".into(),
@@ -168,6 +191,13 @@ fn main() {
             samples,
         ),
     );
+    let reified_pipeline = measure(
+        || {
+            black_box(dartforge_compiler::compile(black_box(reified_source)).unwrap());
+        },
+        iterations,
+        samples,
+    );
     println!("{}", serde_json::to_string_pretty(&json!({
         "schema_version": 1, "kind": "warm_in_process_synthetic", "target_dart": "3.6.2",
         "os": std::env::consts::OS, "arch": std::env::consts::ARCH, "metadata": metadata,
@@ -176,6 +206,18 @@ fn main() {
         "statistic_unit": "batch_mean_ns_per_operation", "percentile_method": "nearest_rank",
         "corpus_reachable_functions": 1,
         "note": "Inclui descarte das alocações; fases isoladas não incluem fases anteriores; não mede processo, disco, SDK, DDC nem otimizações globais. Mediana/p95 são de médias por lote, não latências individuais. Corpus analisa todas as funções, mas main chama apenas f0.",
-        "phases": phases
+        "phases": phases,
+        "additional_corpora": {
+            "reified_generics": {
+                "source_bytes": reified_source.len(),
+                "javascript_bytes": reified_output_bytes,
+                "top_level_functions_including_main": 4,
+                "classes": 1,
+                "features": ["bounded_functions", "nominal_bound_member", "reified_list", "is", "as", "captured_type_argument"],
+                "iterations": iterations, "samples": samples, "warmup_iterations": iterations,
+                "phases": { "pipeline": reified_pipeline },
+                "note": "Corpus fixo separado do baseline escalável. Mede compilação completa em processo aquecido e descarte da saída; não executa JavaScript nem mede DDC/dart2js."
+            }
+        }
     })).unwrap());
 }

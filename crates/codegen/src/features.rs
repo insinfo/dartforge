@@ -8,6 +8,7 @@ fn type_key(ty: Type, resolution: &dartforge_syntax::Resolution) -> String {
         Type::Applied(id) => match &resolution.types[id as usize] {
             TypeShape::List(t) => format!("List<{}>", type_key(*t, resolution)),
             TypeShape::Iterable(t) => format!("Iterable<{}>", type_key(*t, resolution)),
+            TypeShape::Nullable(t) => format!("Nullable<{}>", type_key(*t, resolution)),
             TypeShape::Function { result, parameters } => format!(
                 "Fn({:?})->{}",
                 parameters
@@ -55,7 +56,10 @@ pub(super) fn constant(value: &ConstValue, output: &mut Output<'_>) {
             write!(output, "$dartforgeClass{class_id}.").unwrap();
             identifier(name, output);
         }
-        ConstValue::List { values, .. } => {
+        ConstValue::List {
+            values,
+            element_type,
+        } => {
             output.push_str("$dartforgeConstList(");
             let key = constant_key(value, output.resolution).to_string();
             string_literal(&key, output);
@@ -66,7 +70,9 @@ pub(super) fn constant(value: &ConstValue, output: &mut Output<'_>) {
                 }
                 constant(v, output);
             }
-            output.push_str("])");
+            output.push_str("],");
+            types::descriptor(*element_type, output);
+            output.push(')');
         }
     }
 }
@@ -191,7 +197,11 @@ fn pattern(pattern: &Pattern<'_>, temp: &str, output: &mut Output<'_>) {
                 }
                 write!(output, "typeof {temp}==='{}')", name).unwrap();
             }
-            _ => panic!("padrão fora do subconjunto validado"),
+            _ => {
+                write!(output, "$dartforgeIs({temp},").unwrap();
+                types::descriptor(*ty, output);
+                output.push(')');
+            }
         },
     }
 }
