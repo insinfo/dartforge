@@ -37,7 +37,7 @@ Não assumir que a branch HEAD do SDK equivale ao Dart exigido pelo ngdart escol
 - [x] Adicionar CI Windows/Linux, fmt, Clippy, testes, build release, lockfile e comparação Dart 3.6.2.
 - [x] Definir Dart 3.6.2 como versão alvo inicial, conforme o ambiente ngdart do proprietário.
 - [x] Definir licença MIT para o código original do projeto.
-- [ ] Definir política de contribuições.
+- [x] Definir política de contribuições em [CONTRIBUTING.md](CONTRIBUTING.md), incluindo documentação Rust em português.
 - [ ] Automatizar corpus de conformidade com revisões fixadas.
 
 Aceite: clone limpo compila com cargo build --locked; exemplo executa e entradas inválidas falham.
@@ -198,10 +198,22 @@ Aceite: relatório reproduzível demonstra o desempenho em programas semanticame
 - [x] Clonar e avaliar Rust Sitter sem adicionar dependência ao compilador.
 - [x] Preparar repositório público e workflow de CI; ignorar references/ integralmente.
 
+## Terceiro incremento — Laços, atualizações e strings
+
+- [x] Implementar `while`, `do/while`, `for` clássico e `break`/`continue` sem rótulos.
+- [x] Preservar escopos de cabeçalhos, atualização após `continue` e ordem de avaliação.
+- [x] Aceitar `++`, `--`, `+=`, `-=` e `*=` sobre identificadores como instruções e cláusulas de `for`.
+- [x] Decodificar escapes de strings, Unicode e pares UTF-16; aceitar strings raw.
+- [x] Rejeitar explicitamente surrogates isolados, interpolação e strings triplas.
+- [x] Documentar módulos e funções Rust em português, com exemplos executáveis e contratos.
+
+O alcance e as limitações estão em [docs/SUBCONJUNTO.md](docs/SUBCONJUNTO.md).
+Esses recursos não concluem o lexer/parser completo nem a semântica integral de Dart.
+
 ## Próximas tarefas
 
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.
-2. Ampliar o parser para strings com escapes/interpolação e controle de fluxo adicional.
+2. Ampliar o parser para interpolação, strings triplas, `for-in` e controle de fluxo ainda ausente; planejar representação que preserve surrogates isolados.
 3. Ampliar resolução para bibliotecas e introduzir IDs de símbolo na IR.
 4. Expandir o runner diferencial inicial com fixtures do SDK fixado e casos inválidos.
 5. Medir lexer/parser/emissão separadamente; só então escolher arena e paralelismo.

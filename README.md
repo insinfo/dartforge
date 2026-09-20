@@ -10,9 +10,10 @@ Objetivo: uma base compartilhada para compilação, análise, LSP, ngdart e ferr
 O protótipo suporta um subconjunto explícito:
 
 - Uma entrada `void main()`, funções tipadas e parâmetros posicionais obrigatórios.
-- Chamadas, recursão, `return`, `if/else` com blocos obrigatórios.
+- Chamadas, recursão, `return`, `if/else` e laços `while`, `do/while`, `for` com blocos obrigatórios.
+- `break`/`continue` sem rótulos; `++`, `--`, `+=`, `-=` e `*=` sobre identificadores, como instruções.
 - Variáveis locais `var`, `final`, `int`, `String`, `bool`, atribuições e escopos.
-- Expressões aritméticas, relacionais e booleanas, strings simples Unicode e `print`.
+- Expressões aritméticas, relacionais e booleanas; `print`; strings Unicode com escapes e strings raw.
 - Validação de nomes, tipos, argumentos, retornos e mutabilidade.
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
@@ -61,6 +62,14 @@ Na máquina de desenvolvimento original, Rust está em `D:\Rust` e o projeto em
 | codegen | Emissão JavaScript |
 | compiler / cli | Pipeline compartilhado e executável |
 | ngdart / lsp / web | Fronteiras iniciais para expansão |
+
+## Contribuição e documentação
+
+Siga [CONTRIBUTING.md](CONTRIBUTING.md). Comentários e documentação Rust são escritos
+em português: `//!` descreve módulos e `///` documenta funções, contratos e limitações.
+Exemplos de APIs públicas são verificados como doctests. Para gerar a documentação:
+
+    cargo doc --locked --workspace --no-deps --document-private-items
 
 ## Referências e licença
 

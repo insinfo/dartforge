@@ -1,5 +1,23 @@
-//! Shared synchronous pipeline for CLI and future editor/build tools.
+//! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript.
 use dartforge_diagnostics::Diagnostic;
+/// Compila o subconjunto suportado de Dart em um módulo JavaScript ESM.
+///
+/// Executa tokenização, parsing, validação semântica, lowering estrutural e emissão.
+/// O módulo exporta e executa `main`; use um arquivo `.mjs` ou carregamento de módulo.
+///
+/// # Erros
+///
+/// Retorna o primeiro diagnóstico léxico, sintático ou semântico. Recursos ainda não
+/// suportados são rejeitados; não existe fallback silencioso para outro compilador.
+///
+/// # Exemplos
+///
+/// ```
+/// let fonte = "int dobro(int n) { return n * 2; } void main() { print(dobro(21)); }";
+/// let javascript = dartforge_compiler::compile(fonte)?;
+/// assert!(javascript.contains("export function main"));
+/// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
+/// ```
 pub fn compile(source: &str) -> Result<String, Diagnostic> {
     let tokens = dartforge_lexer::lex(source)?;
     let ast = dartforge_parser::parse(&tokens, source.len())?;
@@ -21,7 +39,7 @@ mod tests {
             "class App {}",
             "void main() { print(1.5); }",
             "void main() { print('$name'); }",
-            "void main() { print('a\\nb'); }",
+            "void main() { print('\\uD800'); }",
             "void main() {} trailing",
             "void main() {",
             "void main() { print('unterminated); }",
@@ -103,6 +121,51 @@ mod function_tests {
             "void main() { print(print(1)); }",
         ] {
             assert!(compile(source).is_err(), "{source}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod loop_tests {
+    use super::compile;
+    #[test]
+    fn rejects_invalid_loop_control_scope_and_types() {
+        for source in [
+            "void main() { break; }",
+            "void main() { continue; }",
+            "void main() { while (1) {} }",
+            "void main() { do {} while (1); }",
+            "void main() { for (; 1; ) {} }",
+            "void main() { for (var i = 0; i < 2; i++) {} print(i); }",
+            "void main() { final n = 0; while (n < 2) { n++; } }",
+            "void main() { for (final i = 0; i < 2; i++) {} }",
+            "void main() { for (var i = i; i < 2; i++) {} }",
+            "void stop() { break; } void main() { while (true) { stop(); } }",
+            "void main() { var text = 'a'; text *= 2; }",
+        ] {
+            assert!(compile(source).is_err(), "{source}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod string_tests {
+    use super::compile;
+    #[test]
+    fn rejects_malformed_unicode_without_invalid_byte_spans() {
+        for source in [
+            r#"void main() { print('\xG0'); }"#,
+            r#"void main() { print('\u{}'); }"#,
+            r#"void main() { print('\u{110000}'); }"#,
+            r#"void main() { print('\u{1234567}'); }"#,
+            r#"void main() { print('\uD800'); }"#,
+            r#"void main() { print('\uDC00'); }"#,
+            r#"void main() { print('ação\u12'); }"#,
+        ] {
+            let error = compile(source).expect_err(source);
+            assert!(error.span.start <= error.span.end);
+            assert!(source.is_char_boundary(error.span.start));
+            assert!(source.is_char_boundary(error.span.end));
         }
     }
 }

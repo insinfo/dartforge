@@ -1,19 +1,24 @@
-//! Syntax for the explicitly supported Dart 3.6.2 subset.
+//! Tokens e árvore sintática do subconjunto suportado de Dart 3.6.2.
 use dartforge_diagnostics::Span;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Categoria de token que empresta lexemas do texto original.
 pub enum TokenKind<'a> {
     Word(&'a str),
     String(&'a str),
+    /// Conteúdo de uma string raw, sem interpretação de escapes.
+    RawString(&'a str),
     Number(&'a str),
     Symbol(char),
     Operator(&'a str),
 }
 #[derive(Debug, Clone, Copy)]
+/// Token com localização em bytes no arquivo de origem.
 pub struct Token<'a> {
     pub kind: TokenKind<'a>,
     pub span: Span,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Tipo primitivo ou ausência de valor reconhecido neste subconjunto.
 pub enum Type {
     Void,
     Int,
@@ -21,6 +26,7 @@ pub enum Type {
     Bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Operação binária preservada na árvore de expressões.
 pub enum BinaryOp {
     Add,
     Subtract,
@@ -35,19 +41,24 @@ pub enum BinaryOp {
     Or,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Operação prefixa com um único operando.
 pub enum UnaryOp {
     Negate,
     Not,
 }
 #[derive(Debug)]
+/// Expressão acompanhada do intervalo de origem.
 pub struct Expr<'a> {
     pub kind: ExprKind<'a>,
     pub span: Span,
 }
 #[derive(Debug)]
+/// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
     Int(i32),
     String(&'a str),
+    /// String que precisou de alocação para decodificar escapes Unicode.
+    OwnedString(String),
     Bool(bool),
     Identifier(&'a str),
     Call {
@@ -65,11 +76,13 @@ pub enum ExprKind<'a> {
     },
 }
 #[derive(Debug)]
+/// Instrução acompanhada do intervalo de origem.
 pub struct Statement<'a> {
     pub kind: StatementKind<'a>,
     pub span: Span,
 }
 #[derive(Debug)]
+/// Forma sintática de uma instrução.
 pub enum StatementKind<'a> {
     Variable {
         name: &'a str,
@@ -89,15 +102,38 @@ pub enum StatementKind<'a> {
         then_body: Vec<Statement<'a>>,
         else_body: Option<Vec<Statement<'a>>>,
     },
+    /// Repete o corpo enquanto a condição booleana for verdadeira.
+    While {
+        condition: Expr<'a>,
+        body: Vec<Statement<'a>>,
+    },
+    /// Executa o corpo antes de testar a condição booleana.
+    DoWhile {
+        body: Vec<Statement<'a>>,
+        condition: Expr<'a>,
+    },
+    /// Laço clássico com inicialização, condição e atualização opcionais.
+    For {
+        initializer: Option<Box<Statement<'a>>>,
+        condition: Option<Expr<'a>>,
+        update: Option<Box<Statement<'a>>>,
+        body: Vec<Statement<'a>>,
+    },
+    /// Encerra o laço mais próximo; rótulos ainda não são suportados.
+    Break,
+    /// Inicia a próxima iteração do laço mais próximo.
+    Continue,
     Block(Vec<Statement<'a>>),
 }
 #[derive(Debug)]
+/// Parâmetro posicional obrigatório com tipo explícito.
 pub struct Parameter<'a> {
     pub name: &'a str,
     pub ty: Type,
     pub span: Span,
 }
 #[derive(Debug)]
+/// Função top-level com assinatura e corpo.
 pub struct Function<'a> {
     pub name: &'a str,
     pub return_type: Type,
@@ -106,6 +142,7 @@ pub struct Function<'a> {
     pub span: Span,
 }
 #[derive(Debug)]
+/// Programa com funções auxiliares e o corpo da entrada main.
 pub struct Program<'a> {
     pub functions: Vec<Function<'a>>,
     pub statements: Vec<Statement<'a>>,
