@@ -161,3 +161,10 @@ Avisos de componentes: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 O [incremento 13](docs/IMPLEMENTACAO-13.md) acrescenta funções genéricas top-level,
 const locais/listas canônicas e enums avançadas com switch e guardas no JavaScript.
 Veja [contratos e limites](docs/GENERICS-CONST-ENUMS.md).
+
+## Modificadores de classe e mixins
+
+O [incremento 14](docs/IMPLEMENTACAO-14.md) acrescenta base/final/sealed, mixin e
+mixin class, aplicações ordenadas de with e padrões vazios de objeto no JavaScript.
+Mixins do subconjunto também executam no backend nativo.
+Veja [regras por biblioteca e limites](docs/CLASS-MODIFIERS.md).

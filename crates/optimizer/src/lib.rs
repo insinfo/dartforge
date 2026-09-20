@@ -499,6 +499,11 @@ mod tests {
             types: vec![],
             extensions: vec![],
             classes: vec![Class {
+                modifier: dartforge_syntax::ClassModifier::None,
+                kind: dartforge_syntax::ClassKind::Class,
+                mixins: vec![],
+                is_mixin_application: false,
+                mixin_origin: None,
                 enum_arguments: vec![],
                 enum_constructor_fields: vec![],
                 is_abstract: false,

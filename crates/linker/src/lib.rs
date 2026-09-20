@@ -15,7 +15,8 @@ struct Symbol {
 }
 /// Metadados imutáveis usados para verificar resolução antes da renomeação.
 struct ClassNames<'a> {
-    is_enum: bool,
+    supports_implicit_members: bool,
+    mixins: Vec<u32>,
     owner: usize,
     superclass: Option<u32>,
     interfaces: Vec<u32>,
@@ -212,7 +213,10 @@ pub fn compile_graph_with_options(
             classes.insert(
                 class.id,
                 ClassNames {
-                    is_enum: !class.enum_values.is_empty(),
+                    supports_implicit_members: !class.enum_values.is_empty()
+                        || class.kind != dartforge_syntax::ClassKind::Class
+                        || !class.mixins.is_empty(),
+                    mixins: class.mixins.clone(),
                     owner,
                     superclass: class.superclass,
                     interfaces: class.interfaces.clone(),
@@ -327,23 +331,25 @@ pub fn compile_graph_with_options(
         linked.classes.extend(program.classes);
         linked.functions.extend(program.functions);
     }
-    let resolution = dartforge_semantic::analyze(&linked).map_err(|error| {
-        let unit_id = offsets
-            .iter()
-            .rposition(|&start| start <= error.span.start)
-            .unwrap_or(graph.entry);
-        source_error(
-            graph,
-            unit_id,
-            Diagnostic::new(
-                error.message,
-                Span {
-                    start: error.span.start.saturating_sub(offsets[unit_id]),
-                    end: error.span.end.saturating_sub(offsets[unit_id]),
-                },
-            ),
-        )
-    })?;
+    let resolution = dartforge_hir::expand_mixins(&mut linked)
+        .and_then(|()| dartforge_semantic::analyze(&linked))
+        .map_err(|error| {
+            let unit_id = offsets
+                .iter()
+                .rposition(|&start| start <= error.span.start)
+                .unwrap_or(graph.entry);
+            source_error(
+                graph,
+                unit_id,
+                Diagnostic::new(
+                    error.message,
+                    Span {
+                        start: error.span.start.saturating_sub(offsets[unit_id]),
+                        end: error.span.end.saturating_sub(offsets[unit_id]),
+                    },
+                ),
+            )
+        })?;
     if optimize_constants {
         dartforge_optimizer::fold_constants(&mut linked);
     }
@@ -528,6 +534,7 @@ impl<'a> Resolver<'a, '_> {
             }
             pending.extend(class.superclass);
             pending.extend(class.interfaces.iter().copied());
+            pending.extend(class.mixins.iter().copied());
         }
         false
     }
@@ -666,6 +673,10 @@ impl<'a> Resolver<'a, '_> {
                 *ty = remap_type(*ty, self.type_offset);
                 self.scopes.last_mut().unwrap().insert(*name);
             }
+            dartforge_syntax::Pattern::Type(ty) => {
+                self.ty(*ty, span)?;
+                *ty = remap_type(*ty, self.type_offset);
+            }
             dartforge_syntax::Pattern::Wildcard => {}
         }
         Ok(())
@@ -699,9 +710,18 @@ impl<'a> Resolver<'a, '_> {
             }
             StatementKind::Assign { name, value } => {
                 if !self.local(name) {
-                    return Err(
-                        self.error(statement.span, "atribuição exige variável local declarada")
-                    );
+                    if self.implicit_member(name)
+                        && self
+                            .current_class
+                            .is_some_and(|id| self.classes[&id].supports_implicit_members)
+                    {
+                        *name = self.member_name(name);
+                    } else {
+                        return Err(self.error(
+                            statement.span,
+                            "atribuição exige variável local ou membro declarado",
+                        ));
+                    }
                 }
                 self.expression(value)?;
             }
@@ -813,7 +833,7 @@ impl<'a> Resolver<'a, '_> {
                     && self.implicit_member(name)
                     && self
                         .current_class
-                        .is_some_and(|id| self.classes[&id].is_enum) =>
+                        .is_some_and(|id| self.classes[&id].supports_implicit_members) =>
             {
                 *name = self.member_name(name);
             }
@@ -825,7 +845,7 @@ impl<'a> Resolver<'a, '_> {
                 if implicit
                     && !self
                         .current_class
-                        .is_some_and(|id| self.classes[&id].is_enum)
+                        .is_some_and(|id| self.classes[&id].supports_implicit_members)
                 {
                     return Err(self.error(
                         expression.span,

@@ -77,6 +77,7 @@ pub fn compile_with_options(source: &str, options: CompileOptions) -> Result<Str
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
+    dartforge_hir::expand_mixins(&mut ast)?;
     let resolution = dartforge_semantic::analyze(&ast)?;
     if options.optimization == Optimization::Constants {
         dartforge_optimizer::fold_constants(&mut ast);
@@ -166,6 +167,7 @@ pub fn compile_llvm_with_options(
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
+    dartforge_hir::expand_mixins(&mut ast)?;
     let resolution = dartforge_semantic::analyze(&ast)?;
     if options.merge_identical_functions {
         dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);

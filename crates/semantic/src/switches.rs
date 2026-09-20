@@ -11,6 +11,16 @@ impl<'a> Validator<'a> {
     ) -> Result<Option<ConstValue>, Diagnostic> {
         match pattern {
             Pattern::Wildcard => Ok(None),
+            Pattern::Type(ty) => {
+                if !matches!(ty, Type::Class(_)) {
+                    return Err(Diagnostic::new(
+                        "Empty object patterns require a non-null nominal type",
+                        span,
+                    ));
+                }
+                self.check_type_name(*ty, span)?;
+                Ok(None)
+            }
             Pattern::Binding { ty, name } => {
                 if matches!(
                     ty,
@@ -103,7 +113,10 @@ impl<'a> Validator<'a> {
             }
             match pattern {
                 Pattern::Wildcard => return true,
-                Pattern::Binding { ty: binding, .. } => {
+                Pattern::Binding { ty: binding, .. } | Pattern::Type(binding) => {
+                    if is_nullable(*binding) {
+                        values.push(ConstValue::Null);
+                    }
                     if *binding == Type::Inferred || self.require_type(ty, *binding, span).is_ok() {
                         return true;
                     }
@@ -120,8 +133,63 @@ impl<'a> Validator<'a> {
                 }
             }
         }
-        self.finite_values(ty)
+        if self
+            .finite_values(ty)
             .is_some_and(|needed| needed.iter().all(|v| values.contains(v)))
+        {
+            return true;
+        }
+        if let Type::Class(id) = non_null(ty)
+            && self.classes[&id].modifier == ClassModifier::Sealed
+        {
+            return (!is_nullable(ty) || values.contains(&ConstValue::Null))
+                && self.covers_cone(id, patterns, span, &mut HashSet::new());
+        }
+        false
+    }
+    /// Expande apenas cones fechados; um subtipo aberto exige padrão que cubra o próprio tipo.
+    fn covers_cone(
+        &self,
+        id: u32,
+        patterns: &[(&Pattern<'a>, bool, Option<ConstValue>)],
+        span: Span,
+        active: &mut HashSet<u32>,
+    ) -> bool {
+        if patterns.iter().any(|(pattern, guarded, _)| {
+            !guarded
+                && match pattern {
+                    Pattern::Wildcard => true,
+                    Pattern::Type(ty) | Pattern::Binding { ty, .. } => {
+                        self.require_type(Type::Class(id), *ty, span).is_ok()
+                    }
+                    _ => false,
+                }
+        }) {
+            return true;
+        }
+        let class = &self.classes[&id];
+        if !class.enum_values.is_empty() {
+            return self.finite_values(Type::Class(id)).is_some_and(|needed| {
+                needed.iter().all(|v| {
+                    patterns
+                        .iter()
+                        .any(|(_, guarded, value)| !guarded && value.as_ref() == Some(v))
+                })
+            });
+        }
+        if class.modifier != ClassModifier::Sealed && !class.is_mixin_application {
+            return false;
+        }
+        if !active.insert(id) {
+            return false;
+        }
+        let result = self
+            .classes
+            .iter()
+            .filter(|(_, child)| child.superclass == Some(id) || child.interfaces.contains(&id))
+            .all(|(&child, _)| self.covers_cone(child, patterns, span, active));
+        active.remove(&id);
+        result
     }
     /// Valida os braços com tipos contextuais e exige cobertura completa da expressão.
     pub(super) fn switch_expression(
@@ -187,9 +255,11 @@ impl<'a> Validator<'a> {
             self.exhaustive_switches
                 .borrow_mut()
                 .insert((span.start, span.end));
-        } else if self.finite_values(ty).is_some() {
+        } else if self.finite_values(ty).is_some()
+            || matches!(non_null(ty), Type::Class(id) if self.classes[&id].modifier == ClassModifier::Sealed)
+        {
             return Err(Diagnostic::new(
-                "Non-exhaustive switch statement over enum or bool",
+                "Non-exhaustive switch statement over enum, bool or sealed type",
                 span,
             ));
         }

@@ -3,6 +3,8 @@
 //! Classes conservam IDs nominais; extensions usam uma tabela de alvos por intervalo
 //! de expressão. Ainda não existe uma IR completa com IDs para todos os locais e tipos.
 use dartforge_syntax::{Class, Extension, Function, Program, Resolution, Statement};
+mod mixins;
+pub use mixins::expand_mixins;
 
 /// Módulo validado consumido pelos backends de emissão.
 #[derive(Debug)]

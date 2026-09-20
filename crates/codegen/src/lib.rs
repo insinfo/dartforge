@@ -1611,6 +1611,11 @@ mod tests {
         use dartforge_syntax::Field;
         let span = Span { start: 0, end: 0 };
         let base = Class {
+            modifier: dartforge_syntax::ClassModifier::None,
+            kind: dartforge_syntax::ClassKind::Class,
+            mixins: vec![],
+            is_mixin_application: false,
+            mixin_origin: None,
             enum_arguments: vec![],
             enum_constructor_fields: vec![],
             is_interface: false,
@@ -1641,6 +1646,11 @@ mod tests {
             )],
         };
         let child = Class {
+            modifier: dartforge_syntax::ClassModifier::None,
+            kind: dartforge_syntax::ClassKind::Class,
+            mixins: vec![],
+            is_mixin_application: false,
+            mixin_origin: None,
             enum_arguments: vec![],
             enum_constructor_fields: vec![],
             is_interface: false,
@@ -1720,6 +1730,11 @@ mod tests {
     /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
     fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
         Class {
+            modifier: dartforge_syntax::ClassModifier::None,
+            kind: dartforge_syntax::ClassKind::Class,
+            mixins: vec![],
+            is_mixin_application: false,
+            mixin_origin: None,
             enum_arguments: vec![],
             enum_constructor_fields: vec![],
             is_interface: false,

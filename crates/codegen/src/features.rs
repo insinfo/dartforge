@@ -146,7 +146,7 @@ fn pattern(pattern: &Pattern<'_>, temp: &str, output: &mut Output<'_>) {
             output.push_str("===");
             expression(e, output);
         }
-        Pattern::Binding { ty, .. } => match ty {
+        Pattern::Binding { ty, .. } | Pattern::Type(ty) => match ty {
             Type::Class(id) | Type::NullableClass(id) => {
                 output.push('(');
                 if matches!(ty, Type::NullableClass(_)) {

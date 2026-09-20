@@ -132,11 +132,12 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     {
         return Err(error(f.span, "funções genéricas"));
     }
-    if let Some(c) = module.classes.iter().find(|c| {
-        (!c.enum_values.is_empty() && (!c.fields.is_empty() || !c.methods.is_empty()))
-            || c.methods.iter().any(|m| m.is_getter)
-    }) {
-        return Err(error(c.span, "enums avançadas/getters"));
+    if let Some(c) = module
+        .classes
+        .iter()
+        .find(|c| !c.enum_values.is_empty() && (!c.fields.is_empty() || !c.methods.is_empty()))
+    {
+        return Err(error(c.span, "enums avançadas"));
     }
     let objects = Objects::new(module)?;
     if let Some(extension) = module.extensions.first() {
@@ -569,6 +570,17 @@ impl<'a> FunctionEmitter<'a> {
                 ));
             }
             StatementKind::Assign { name, value } => {
+                if self
+                    .objects
+                    .implicit_members
+                    .contains(&(statement.span.start, statement.span.end))
+                {
+                    let receiver = self.this_value(statement.span)?;
+                    let field = self.objects.field(receiver.ty, name, statement.span)?;
+                    let value = self.expression(value)?;
+                    self.store_field(&receiver, &field, value, statement.span)?;
+                    return Ok(());
+                }
                 let (ty, pointer) = self.lookup(name, statement.span)?;
                 let value = self.expression(value)?;
                 let value = self.coerce(value, ty, statement.span)?;
@@ -1050,8 +1062,7 @@ impl<'a> FunctionEmitter<'a> {
             }
             ExprKind::Member { receiver, name } => {
                 let receiver = self.expression(receiver)?;
-                let field = self.objects.field(receiver.ty, name, expression.span)?;
-                self.load_field(&receiver, &field)
+                self.read_member(receiver, name, expression.span)?
             }
             ExprKind::MethodCall {
                 receiver,
@@ -1074,12 +1085,32 @@ impl<'a> FunctionEmitter<'a> {
                 text: value.to_string(),
             },
             ExprKind::Identifier(name) => {
+                if self
+                    .objects
+                    .implicit_members
+                    .contains(&(expression.span.start, expression.span.end))
+                {
+                    let receiver = self.this_value(expression.span)?;
+                    let value = self.read_member(receiver, name, expression.span)?;
+                    self.root(&value);
+                    return Ok(value);
+                }
                 let (ty, pointer) = self.lookup(name, expression.span)?;
                 let register = self.register();
                 self.line(format!("{register} = load {}, ptr {pointer}", ty.ir()));
                 Value { ty, text: register }
             }
             ExprKind::Call { name, arguments } => {
+                if self
+                    .objects
+                    .implicit_members
+                    .contains(&(expression.span.start, expression.span.end))
+                {
+                    let receiver = self.this_value(expression.span)?;
+                    let value = self.method_call(receiver, name, arguments, expression.span)?;
+                    self.root(&value);
+                    return Ok(value);
+                }
                 let values = arguments
                     .iter()
                     .map(|argument| self.expression(argument))

@@ -143,3 +143,11 @@ métodos e getters, além de switches com guardas. Funções genéricas top-leve
 constantes locais/listas canônicas estão descritas em
 [GENERICS-CONST-ENUMS.md](GENERICS-CONST-ENUMS.md). As restrições anteriores sobre
 enums avançadas continuam aplicáveis ao backend LLVM, cujo lowering está pendente.
+
+## Modificadores e mixins
+
+Base/final/sealed e mixin/mixin class são descritos em
+[CLASS-MODIFIERS.md](CLASS-MODIFIERS.md). With em classes é expandido antes da análise
+para aplicações abstratas com despacho e armazenamento por instância. Os backends
+JS e LLVM compartilham essas aplicações; switches sealed e padrões C() permanecem
+no JavaScript. Part/part of, on, super e aplicações de mixins em enums continuam pendentes.

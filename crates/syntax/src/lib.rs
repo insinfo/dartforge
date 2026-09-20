@@ -72,13 +72,13 @@ pub enum UnaryOp {
     /// Asserção pós-fixa de valor não nulo.
     NullAssert,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Expressão acompanhada do intervalo de origem.
 pub struct Expr<'a> {
     pub kind: ExprKind<'a>,
     pub span: Span,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
     Const(Box<Expr<'a>>),
@@ -148,13 +148,13 @@ pub enum ExprKind<'a> {
         right: Box<Expr<'a>>,
     },
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Instrução acompanhada do intervalo de origem.
 pub struct Statement<'a> {
     pub kind: StatementKind<'a>,
     pub span: Span,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Forma sintática de uma instrução.
 pub enum StatementKind<'a> {
     Switch {
@@ -213,14 +213,14 @@ pub enum StatementKind<'a> {
     Continue,
     Block(Vec<Statement<'a>>),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Parâmetro posicional obrigatório com tipo explícito.
 pub struct Parameter<'a> {
     pub name: &'a str,
     pub ty: Type,
     pub span: Span,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Função top-level com assinatura e corpo.
 pub struct Function<'a> {
     pub type_parameters: Vec<&'a str>,
@@ -231,7 +231,7 @@ pub struct Function<'a> {
     pub body: Vec<Statement<'a>>,
     pub span: Span,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Programa com funções auxiliares e o corpo da entrada main.
 pub struct Program<'a> {
     pub types: Vec<TypeShape>,
@@ -242,14 +242,19 @@ pub struct Program<'a> {
 }
 
 /// Padrão simples de switch: constante, wildcard ou binding tipado.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Pattern<'a> {
     Constant(Expr<'a>),
     Wildcard,
-    Binding { ty: Type, name: &'a str },
+    /// Padrão de objeto vazio: testa o tipo sem extrair campos.
+    Type(Type),
+    Binding {
+        ty: Type,
+        name: &'a str,
+    },
 }
 /// Braço de switch expressão, com guarda opcional e intervalo de origem.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SwitchArm<'a> {
     pub pattern: Pattern<'a>,
     pub guard: Option<Expr<'a>>,
@@ -257,7 +262,7 @@ pub struct SwitchArm<'a> {
     pub span: Span,
 }
 /// Caso de switch instrução; o backend encerra o caso sem fallthrough implícito.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SwitchCase<'a> {
     pub pattern: Pattern<'a>,
     pub guard: Option<Expr<'a>>,
@@ -265,9 +270,32 @@ pub struct SwitchCase<'a> {
     pub span: Span,
 }
 
-/// Classe nominal com construtor implícito e herança simples.
-#[derive(Debug)]
+/// Restrição nominal declarada por base, final ou sealed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassModifier {
+    None,
+    Base,
+    Final,
+    Sealed,
+}
+/// Forma da declaração nominal; mixin isolado não possui construtor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassKind {
+    Class,
+    Mixin,
+    MixinClass,
+}
+/// Classe nominal com construtor implícito, herança e aplicações de mixins.
+#[derive(Debug, Clone)]
 pub struct Class<'a> {
+    /// Marca a classe sintética criada ao expandir uma aplicação de mixin.
+    pub is_mixin_application: bool,
+    /// Identidade da declaração de mixin que originou a classe sintética.
+    pub mixin_origin: Option<u32>,
+    pub modifier: ClassModifier,
+    pub kind: ClassKind,
+    /// Aplicações na ordem escrita; a última tem precedência de implementação.
+    pub mixins: Vec<u32>,
     /// Argumentos constantes de cada valor, na mesma ordem de enum_values.
     pub enum_arguments: Vec<Vec<Expr<'a>>>,
     /// Nomes dos campos associados aos parâmetros this.campo do construtor const.
@@ -289,7 +317,7 @@ pub struct Class<'a> {
     pub span: Span,
 }
 /// Campo tipado com inicialização obrigatória.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Field<'a> {
     pub name: &'a str,
     pub ty: Type,
@@ -299,7 +327,7 @@ pub struct Field<'a> {
 }
 
 /// Extension nomeada com métodos de instância resolvidos estaticamente.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Extension<'a> {
     pub id: u32,
     pub name: &'a str,

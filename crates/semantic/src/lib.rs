@@ -4,10 +4,13 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, Type, UnaryOp,
 };
-use dartforge_syntax::{ConstValue, ExtensionTarget, Resolution, TypeShape};
+use dartforge_syntax::{
+    ClassKind, ClassModifier, ConstValue, ExtensionTarget, Resolution, TypeShape,
+};
 mod collections;
 mod constants;
 mod generics;
+mod modifiers;
 mod switches;
 use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, rc::Rc};
@@ -34,6 +37,9 @@ struct FieldInfo {
 }
 #[derive(Clone)]
 struct ClassInfo<'a> {
+    modifier: ClassModifier,
+    kind: ClassKind,
+    is_mixin_application: bool,
     is_interface: bool,
     library_id: usize,
     is_abstract: bool,
@@ -71,6 +77,7 @@ struct Validator<'a> {
 }
 
 /// Valida nomes, tipos, chamadas, retornos e controle de laços antes da geração de código.
+/// Aplicações `with` devem ser normalizadas pelo lowering de mixins antes desta etapa.
 ///
 /// # Exemplos
 /// ```
@@ -88,6 +95,8 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
 }
 
 /// Valida o programa e registra destinos estáticos das chamadas de extensions.
+/// Recebe aplicações de mixins já expandidas em classes sintéticas pelo pipeline;
+/// uma AST com listas `Class::mixins` ainda preenchidas produz diagnóstico explícito.
 ///
 /// # Erros
 /// Retorna os mesmos diagnósticos de validate, incluindo extensions ambíguas,
@@ -131,8 +140,9 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     );
     let mut class_names = HashSet::new();
     for class in &program.classes {
-        if !class_names.insert(class.name)
-            || matches!(class.name, "main" | "print" | "int" | "String" | "bool")
+        if !class.is_mixin_application
+            && (!class_names.insert(class.name)
+                || matches!(class.name, "main" | "print" | "int" | "String" | "bool"))
         {
             return Err(Diagnostic::new(
                 "Duplicate or reserved class name",
@@ -140,9 +150,14 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             ));
         }
         let mut info = ClassInfo {
+            modifier: class.modifier,
+            kind: class.kind,
+            is_mixin_application: class.is_mixin_application,
             is_interface: class.is_interface,
             library_id: class.library_id,
-            is_abstract: class.is_abstract,
+            is_abstract: class.is_abstract
+                || class.kind == ClassKind::Mixin
+                || class.modifier == ClassModifier::Sealed,
             interfaces: class.interfaces.clone(),
             abstract_methods: class.abstract_methods.iter().map(|m| m.name).collect(),
             enum_values: class.enum_values.clone(),
@@ -333,6 +348,11 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 validator.current_class = None;
                 continue;
             }
+            if class.is_mixin_application {
+                validator.in_field_initializer = false;
+                validator.current_class = None;
+                continue;
+            }
             validator.require_type(
                 validator.value_expected(&field.initializer, Some(field.ty))?,
                 field.ty,
@@ -362,7 +382,9 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 }
             }
             validator.current_class = Some(class.id);
-            validator.function(method)?;
+            if !class.is_mixin_application {
+                validator.function(method)?;
+            }
             validator.current_class = None;
         }
     }
@@ -440,6 +462,7 @@ impl<'a> Validator<'a> {
                 }
             }
             let mut edges = HashSet::new();
+            self.validate_modifiers(class)?;
             if let Some(parent) = class.superclass {
                 let base = &self.classes[&parent];
                 if base.is_interface && base.library_id != class.library_id {
@@ -460,6 +483,7 @@ impl<'a> Validator<'a> {
                     .ancestors(id)
                     .iter()
                     .any(|id| !self.classes[id].fields.is_empty())
+                    && !(class.is_mixin_application && class.mixin_origin == Some(id))
                 {
                     return Err(Diagnostic::new(
                         "Interfaces with fields require unsupported getter/setter dispatch",
@@ -1428,7 +1452,11 @@ impl<'a> Validator<'a> {
                     .classes
                     .get(class_id)
                     .ok_or_else(|| Diagnostic::new("Unknown class", expression.span))?;
-                if class.is_abstract || !class.enum_values.is_empty() {
+                if class.is_abstract
+                    || class.kind == ClassKind::Mixin
+                    || class.is_mixin_application
+                    || !class.enum_values.is_empty()
+                {
                     return Err(Diagnostic::new(
                         "Cannot construct an abstract class or enum",
                         expression.span,
@@ -2113,6 +2141,11 @@ mod tests {
         superclass: Option<u32>,
     ) -> dartforge_syntax::Class<'static> {
         dartforge_syntax::Class {
+            modifier: ClassModifier::None,
+            kind: ClassKind::Class,
+            mixins: vec![],
+            is_mixin_application: false,
+            mixin_origin: None,
             enum_arguments: vec![],
             enum_constructor_fields: vec![],
             id,

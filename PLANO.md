@@ -332,3 +332,11 @@ padrões estruturais e lowering LLVM com preservação de identidade e raízes G
 A avaliação de desempenho deve comparar programas equivalentes, com a mesma
 semântica e modos de otimização; os microbenchmarks atuais não comprovam vantagem
 sobre DDC/dart2js.
+
+### Incremento 14 — modificadores, mixins e sealed
+
+Implementar as restrições nominais por biblioteca, propagação base/final,
+aplicações de mixins e exaustividade sealed conforme Dart 3.6.2. Contrato em
+[CLASS-MODIFIERS.md](docs/CLASS-MODIFIERS.md). Próximas etapas: partes da biblioteca,
+restrições on e super, contratos completos de propriedades, padrões de objeto
+com desestruturação e lowering LLVM de switch.

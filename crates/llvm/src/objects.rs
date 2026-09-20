@@ -62,6 +62,7 @@ struct Layout {
 /// Metadados nominais compartilhados e constantes de strings do módulo.
 pub(super) struct Objects {
     layouts: BTreeMap<u32, Layout>,
+    pub(super) implicit_members: std::collections::BTreeSet<(usize, usize)>,
     pub(super) globals: RefCell<Vec<String>>,
 }
 impl Objects {
@@ -175,6 +176,7 @@ impl Objects {
         }
         Ok(Self {
             layouts,
+            implicit_members: module.resolution.implicit_members.clone(),
             globals: RefCell::new(vec![]),
         })
     }
@@ -390,6 +392,29 @@ impl Objects {
 }
 
 impl FunctionEmitter<'_> {
+    /// Usa o dono físico do método clonado para localizar campos após o prefixo da base.
+    pub(super) fn this_value(&self, span: Span) -> Result<Value, Diagnostic> {
+        Ok(Value {
+            ty: Ty::Class(
+                self.this_class
+                    .ok_or_else(|| error(span, "membro implicito fora de metodo"))?,
+            ),
+            text: "%this".into(),
+        })
+    }
+    /// A análise distingue acesso a campo de getter; ambos recebem o mesmo receiver.
+    pub(super) fn read_member(
+        &mut self,
+        receiver: Value,
+        name: &str,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        if let Ok(field) = self.objects.field(receiver.ty, name, span) {
+            Ok(self.load_field(&receiver, &field))
+        } else {
+            self.method_call(receiver, name, &[], span)
+        }
+    }
     /// Materializa singleton canônico; o runtime mantém a raiz persistente do enum.
     pub(super) fn enum_value(
         &mut self,

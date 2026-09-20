@@ -1,8 +1,11 @@
 //! Análise sintática do subconjunto Dart 3.6.2, com limites explícitos de complexidade.
+//! Mixins aceitam implements e aplicações with, mas restrições on e padrões de
+//! objeto com extração de campos permanecem explicitamente fora do subconjunto.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
-    BinaryOp, Class, Expr, ExprKind, Extension, Field, Function, Parameter, Pattern, Program,
-    Statement, StatementKind, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape, UnaryOp,
+    BinaryOp, Class, ClassKind, ClassModifier, Expr, ExprKind, Extension, Field, Function,
+    Parameter, Pattern, Program, Statement, StatementKind, SwitchArm, SwitchCase, Token, TokenKind,
+    Type, TypeShape, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -93,7 +96,9 @@ pub fn parse_unit<'a>(
     while cursor.peek().is_some() {
         if matches!(
             cursor.peek(),
-            Some(TokenKind::Word("class" | "abstract" | "interface" | "enum"))
+            Some(TokenKind::Word(
+                "class" | "abstract" | "interface" | "enum" | "base" | "final" | "sealed" | "mixin"
+            ))
         ) {
             classes.push(cursor.class()?);
         } else if cursor.peek() == Some(TokenKind::Word("extension")) {
@@ -154,22 +159,13 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
         }
         let is_class = matches!(
             first.kind,
-            TokenKind::Word("class" | "abstract" | "interface" | "enum")
+            TokenKind::Word(
+                "class" | "abstract" | "interface" | "enum" | "base" | "final" | "sealed" | "mixin"
+            )
         );
         index += 1;
-        if matches!(first.kind, TokenKind::Word("abstract" | "interface")) {
-            if first.kind == TokenKind::Word("abstract")
-                && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("interface"))
-            {
-                index += 1;
-            }
-            if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Word("class")) {
-                return Err(Diagnostic::new(
-                    "expected class after supported modifiers",
-                    first.span,
-                ));
-            }
-            index += 1;
+        if is_class {
+            index = nominal_header(tokens, index - 1)?.name_index;
         }
         if !matches!(first.kind, TokenKind::Word(_)) {
             return Err(Diagnostic::new(
@@ -223,17 +219,25 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 }
                 index += 1;
             }
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("implements")) {
-                index += 1;
-                loop {
-                    if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
-                        return Err(Diagnostic::new("expected interface name", first.span));
-                    }
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("on")) {
+                return Err(Diagnostic::new(
+                    "mixin on constraints are not supported yet",
+                    tokens[index].span,
+                ));
+            }
+            for clause in ["with", "implements"] {
+                if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word(clause)) {
                     index += 1;
-                    if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
-                        break;
+                    loop {
+                        if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                            return Err(Diagnostic::new("expected interface name", first.span));
+                        }
+                        index += 1;
+                        if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
+                            break;
+                        }
+                        index += 1;
                     }
-                    index += 1;
                 }
             }
         } else {
@@ -481,12 +485,16 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê campos inicializados e métodos de uma classe nominal.
     fn class(&mut self) -> Result<Class<'a>, Diagnostic> {
         let start = self.position();
-        let is_abstract = self.take(TokenKind::Word("abstract"));
-        let is_interface = self.take(TokenKind::Word("interface"));
-        let is_enum = !is_abstract && !is_interface && self.take(TokenKind::Word("enum"));
-        if !is_enum {
-            self.expect(TokenKind::Word("class"))?;
-        }
+        let header = nominal_header(self.tokens, self.index)?;
+        self.index = header.name_index;
+        let NominalHeader {
+            is_abstract,
+            is_interface,
+            is_enum,
+            kind,
+            modifier,
+            ..
+        } = header;
         let name = self.name()?;
         let id = *self.class_ids.get(name).ok_or_else(|| {
             self.error("declared class is missing from the supplied class environment")
@@ -505,6 +513,15 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             None
         };
+        if self.peek() == Some(TokenKind::Word("on")) {
+            return Err(self.error("mixin on constraints are not supported yet"));
+        }
+        let mixins = self.nominal_list("with")?;
+        if kind != ClassKind::Class && (superclass.is_some() || !mixins.is_empty()) {
+            return Err(
+                self.error("mixin declarations cannot declare extends or with in this subset")
+            );
+        }
         let mut interfaces = Vec::new();
         if self.take(TokenKind::Word("implements")) {
             loop {
@@ -563,6 +580,11 @@ impl<'a> Cursor<'_, 'a> {
         }
         self.expect(TokenKind::Symbol('}'))?;
         Ok(Class {
+            is_mixin_application: false,
+            mixin_origin: None,
+            modifier,
+            kind,
+            mixins,
             is_interface,
             library_id: 0,
             is_abstract,
@@ -589,6 +611,7 @@ impl<'a> Cursor<'_, 'a> {
         name: &'a str,
         start: usize,
     ) -> Result<Class<'a>, Diagnostic> {
+        let mixins = self.nominal_list("with")?;
         let mut interfaces = Vec::new();
         if self.take(TokenKind::Word("implements")) {
             loop {
@@ -679,6 +702,11 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("enum arguments and fields require a const constructor"));
         }
         Ok(Class {
+            is_mixin_application: false,
+            mixin_origin: None,
+            modifier: ClassModifier::None,
+            kind: ClassKind::Class,
+            mixins,
             id,
             name,
             is_interface: false,
@@ -697,6 +725,25 @@ impl<'a> Cursor<'_, 'a> {
                 end: self.end(),
             },
         })
+    }
+    /// Resolve os nomes de uma cláusula nominal na ordem declarada.
+    fn nominal_list(&mut self, keyword: &'static str) -> Result<Vec<u32>, Diagnostic> {
+        let mut ids = Vec::new();
+        if self.take(TokenKind::Word(keyword)) {
+            loop {
+                let name = self.name()?;
+                ids.push(
+                    *self
+                        .class_ids
+                        .get(name)
+                        .ok_or_else(|| self.error("unknown nominal type"))?,
+                );
+                if !self.take(TokenKind::Symbol(',')) {
+                    break;
+                }
+            }
+        }
+        Ok(ids)
     }
     /// Lê uma extension nomeada sobre tipo não anulável, contendo somente métodos.
     fn extension(&mut self, id: u32) -> Result<Extension<'a>, Diagnostic> {
@@ -1474,6 +1521,17 @@ impl<'a> Cursor<'_, 'a> {
             let name = self.name()?;
             return Ok(Pattern::Binding { ty, name });
         }
+        let saved_index = self.index;
+        let saved_types = self.types.len();
+        if let Ok(ty) = self.ty(false)
+            && self.take(TokenKind::Symbol('('))
+        {
+            self.expect(TokenKind::Symbol(')'))
+                .map_err(|_| self.error("only empty object patterns are supported"))?;
+            return Ok(Pattern::Type(ty));
+        }
+        self.index = saved_index;
+        self.types.truncate(saved_types);
         let value = self.primary(depth + 1)?;
         let supported = match &value.kind {
             ExprKind::Int(_)
@@ -1666,6 +1724,90 @@ impl<'a> Cursor<'_, 'a> {
     }
 }
 
+/// Cabeçalho compartilhado pelo índice de bibliotecas e pela análise completa.
+struct NominalHeader {
+    name_index: usize,
+    is_abstract: bool,
+    is_interface: bool,
+    is_enum: bool,
+    kind: ClassKind,
+    modifier: ClassModifier,
+}
+/// Valida a ordem e as combinações dos modificadores nominais de Dart 3.6.2.
+fn nominal_header(tokens: &[Token<'_>], start: usize) -> Result<NominalHeader, Diagnostic> {
+    let span = tokens[start].span;
+    let mut index = start;
+    let abstract_written = tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("abstract"));
+    index += usize::from(abstract_written);
+    let mut is_interface = false;
+    let modifier = match tokens.get(index).map(|t| t.kind) {
+        Some(TokenKind::Word("base")) => {
+            index += 1;
+            ClassModifier::Base
+        }
+        Some(TokenKind::Word("final")) => {
+            index += 1;
+            ClassModifier::Final
+        }
+        Some(TokenKind::Word("sealed")) => {
+            index += 1;
+            ClassModifier::Sealed
+        }
+        Some(TokenKind::Word("interface")) => {
+            index += 1;
+            is_interface = true;
+            ClassModifier::None
+        }
+        _ => ClassModifier::None,
+    };
+    let (kind, is_enum) = match tokens.get(index).map(|t| t.kind) {
+        Some(TokenKind::Word("class")) => {
+            index += 1;
+            (ClassKind::Class, false)
+        }
+        Some(TokenKind::Word("enum"))
+            if !abstract_written && !is_interface && modifier == ClassModifier::None =>
+        {
+            index += 1;
+            (ClassKind::Class, true)
+        }
+        Some(TokenKind::Word("mixin")) => {
+            index += 1;
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("class")) {
+                index += 1;
+                (ClassKind::MixinClass, false)
+            } else {
+                (ClassKind::Mixin, false)
+            }
+        }
+        _ => {
+            return Err(Diagnostic::new(
+                "invalid nominal modifier order; expected class or mixin",
+                span,
+            ));
+        }
+    };
+    if (modifier == ClassModifier::Sealed && abstract_written)
+        || (kind != ClassKind::Class
+            && (is_interface || matches!(modifier, ClassModifier::Final | ClassModifier::Sealed)))
+        || (kind == ClassKind::Mixin && abstract_written)
+    {
+        return Err(Diagnostic::new(
+            "invalid combination of nominal modifiers",
+            span,
+        ));
+    }
+    Ok(NominalHeader {
+        name_index: index,
+        is_abstract: abstract_written
+            || modifier == ClassModifier::Sealed
+            || kind == ClassKind::Mixin,
+        is_interface,
+        is_enum,
+        kind,
+        modifier,
+    })
+}
 /// Pré-indexa somente classes de topo para permitir referências posteriores.
 fn index_classes<'a>(
     tokens: &[Token<'a>],
@@ -1676,7 +1818,10 @@ fn index_classes<'a>(
         match token.kind {
             TokenKind::Symbol('{') => depth += 1,
             TokenKind::Symbol('}') => depth = depth.saturating_sub(1),
-            TokenKind::Word("class" | "enum") if depth == 0 => {
+            TokenKind::Word("mixin")
+                if depth == 0
+                    && tokens.get(index + 1).map(|t| t.kind) == Some(TokenKind::Word("class")) => {}
+            TokenKind::Word("class" | "enum" | "mixin") if depth == 0 => {
                 let next = tokens
                     .get(index + 1)
                     .ok_or_else(|| Diagnostic::new("expected class name", token.span))?;
@@ -1901,6 +2046,72 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Preserva modificadores, aplicações ordenadas e padrões vazios de objeto.
+    #[test]
+    fn modifiers_mixins_and_empty_object_patterns() {
+        let source = "base class A{} abstract base class B{} final class C{} abstract final class D{} sealed class S{} mixin M{int f()=>1;} base mixin N{} mixin class P{} abstract base mixin class Q{} class R extends A with M,N implements B{} int f(S s)=>switch(s){C()=>1,_=>0}; void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().classes.len(), 10);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(program.classes[0].modifier, ClassModifier::Base);
+        assert_eq!(program.classes[2].modifier, ClassModifier::Final);
+        assert_eq!(program.classes[4].modifier, ClassModifier::Sealed);
+        assert!(program.classes[4].is_abstract);
+        assert_eq!(program.classes[5].kind, ClassKind::Mixin);
+        assert!(program.classes[5].is_abstract);
+        assert_eq!(program.classes[7].kind, ClassKind::MixinClass);
+        assert!(!program.classes[7].is_abstract);
+        assert!(program.classes[8].is_abstract);
+        assert_eq!(
+            program.classes[9].mixins,
+            [program.classes[5].id, program.classes[6].id]
+        );
+        let StatementKind::Return(Some(value)) = &program.functions[0].body[0].kind else {
+            panic!()
+        };
+        let ExprKind::Switch { arms, .. } = &value.kind else {
+            panic!()
+        };
+        assert!(matches!(arms[0].pattern, Pattern::Type(Type::Class(2))));
+        assert!(
+            program
+                .classes
+                .iter()
+                .all(|class| !class.is_mixin_application && class.mixin_origin.is_none())
+        );
+    }
+    /// Rejeita combinações ilegais, restrições on e extração de campos em padrões.
+    #[test]
+    fn rejects_invalid_modifiers_and_nonempty_object_patterns() {
+        for declaration in [
+            "abstract sealed class C{}",
+            "final mixin M{}",
+            "interface mixin class C{}",
+            "sealed mixin class C{}",
+            "abstract mixin M{}",
+            "base final class C{}",
+            "base abstract class C{}",
+            "mixin class abstract C{}",
+            "mixin M on C{} class C{}",
+            "class C{} mixin M extends C{}",
+            "mixin M{} mixin N with M{}",
+            "mixin M{} class C with M,{}",
+            "class C with Missing{}",
+        ] {
+            let source = format!("{declaration} void main(){{}}");
+            let tokens = dartforge_lexer::lex(&source).unwrap();
+            assert!(parse(&tokens, source.len()).is_err(), "{source}");
+        }
+        let source = "class C{int x=1;} void main(){print(switch(C()){C(x:1)=>1,_=>0});}";
+        assert!(parse(&dartforge_lexer::lex(source).unwrap(), source.len()).is_err());
+        let source = "mixin M on C{} class C{}";
+        assert!(
+            index_unit(&dartforge_lexer::lex(source).unwrap())
+                .unwrap_err()
+                .message
+                .contains("on constraints")
+        );
+    }
     /// Combinadores de importação são identificadores fora das diretivas.
     #[test]
     fn show_and_hide_are_contextual_identifiers() {
@@ -2069,12 +2280,12 @@ mod tests {
         assert!(program.classes[1].is_interface && program.classes[1].is_abstract);
         assert!(program.classes.iter().all(|class| class.library_id == 0));
     }
-    /// Modificadores de biblioteca e enums enriquecidos permanecem fora do subconjunto.
+    /// Combinações inválidas e formas ainda não implementadas produzem diagnósticos.
     #[test]
     fn rejects_unsupported_nominal_forms() {
         for source in [
             "interface abstract class I {}",
-            "abstract base class I {}",
+            "base abstract class I {}",
             "enum E {}",
             "enum E { a, a }",
             "enum E { a; static int f()=>1; }",

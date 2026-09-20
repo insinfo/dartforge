@@ -38,6 +38,11 @@ fn main() {
             classes: (0..count)
                 .rev()
                 .map(|id| Class {
+                    modifier: dartforge_syntax::ClassModifier::None,
+                    kind: dartforge_syntax::ClassKind::Class,
+                    mixins: vec![],
+                    is_mixin_application: false,
+                    mixin_origin: None,
                     enum_arguments: vec![],
                     enum_constructor_fields: vec![],
                     is_interface: false,
