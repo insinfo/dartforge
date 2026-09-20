@@ -1,0 +1,15 @@
+[package]
+name = "dartforge-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-lexer = { path = "../lexer" }
+dartforge-parser = { path = "../parser" }
+dartforge-semantic = { path = "../semantic" }
+dartforge-hir = { path = "../hir" }
+dartforge-codegen = { path = "../codegen" }

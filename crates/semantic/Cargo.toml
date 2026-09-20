@@ -1,0 +1,11 @@
+[package]
+name = "dartforge-semantic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-syntax = { path = "../syntax" }

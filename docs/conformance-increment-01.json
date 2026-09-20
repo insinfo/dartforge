@@ -1,0 +1,104 @@
+{
+  "target": "3.6.0",
+  "dartExecutable": "C:\\tools\\dartsdk-3.6.2\\bin\\dart.exe",
+  "dartVersion": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"windows_x64\"",
+  "targetVersionMatched": false,
+  "nodeVersion": "v24.14.1",
+  "backend": "dart2js -O1 vs DartForge release",
+  "generatedAt": "2026-09-20T02:40:35.5628048-03:00",
+  "results": [
+    {
+      "case": "arithmetic.dart",
+      "status": "pass",
+      "actual": [
+        "19",
+        "40",
+        "-4",
+        "4"
+      ],
+      "expected": [
+        "19",
+        "40",
+        "-4",
+        "4"
+      ],
+      "error": null
+    },
+    {
+      "case": "boolean.dart",
+      "status": "pass",
+      "actual": [
+        "true",
+        "true",
+        "true",
+        "false",
+        "false",
+        "true"
+      ],
+      "expected": [
+        "true",
+        "true",
+        "true",
+        "false",
+        "false",
+        "true"
+      ],
+      "error": null
+    },
+    {
+      "case": "numeric_edges.dart",
+      "status": "pass",
+      "actual": [
+        "0",
+        "0",
+        "0",
+        "4611686014132420600",
+        "9.903520300447984e+27"
+      ],
+      "expected": [
+        "0",
+        "0",
+        "0",
+        "4611686014132420600",
+        "9.903520300447984e+27"
+      ],
+      "error": null
+    },
+    {
+      "case": "scopes.dart",
+      "status": "pass",
+      "actual": [
+        "20",
+        "21",
+        "10",
+        "50"
+      ],
+      "expected": [
+        "20",
+        "21",
+        "10",
+        "50"
+      ],
+      "error": null
+    },
+    {
+      "case": "strings.dart",
+      "status": "pass",
+      "actual": [
+        "Olá, DartForge!",
+        "😀",
+        "quote: \"Rust\"",
+        "true",
+        "true"
+      ],
+      "expected": [
+        "Olá, DartForge!",
+        "😀",
+        "quote: \"Rust\"",
+        "true",
+        "true"
+      ],
+      "error": null
+    }
+  ]
+}

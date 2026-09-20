@@ -1,0 +1,9 @@
+/target/
+/dist/
+/references/
+/work/
+/.vscode/
+*.log
+.env
+.env.*
+!.env.example

@@ -1,0 +1,119 @@
+[
+  {
+    "name": "oxc",
+    "url": "https://github.com/oxc-project/oxc",
+    "commit": "724c773ad8967733b3d8aea1fb378f0f1bec73f1",
+    "downloaded": "2026-09-20T02:06:16.1877839-03:00"
+  },
+  {
+    "name": "swc",
+    "url": "https://github.com/swc-project/swc",
+    "commit": "3c381f4f3ba62185410c5e37f0d7f3d00372530d",
+    "downloaded": "2026-09-20T02:09:00.9134797-03:00"
+  },
+  {
+    "name": "biome",
+    "url": "https://github.com/biomejs/biome",
+    "commit": "17a2560fb5e5981fb5c568efca717882b68a8bb5",
+    "downloaded": "2026-09-20T02:10:51.4180186-03:00"
+  },
+  {
+    "name": "rolldown",
+    "url": "https://github.com/rolldown/rolldown",
+    "commit": "a799ae4b6b9c2faf2eeac94cfa6d053dd6aed211",
+    "downloaded": "2026-09-20T02:11:28.3009223-03:00"
+  },
+  {
+    "name": "rspack",
+    "url": "https://github.com/web-infra-dev/rspack",
+    "commit": "51ea276bf6c3a153fab3cafb0375537976f22cdb",
+    "downloaded": "2026-09-20T02:12:24.6696248-03:00"
+  },
+  {
+    "name": "dart-sdk",
+    "url": "https://github.com/dart-lang/sdk",
+    "commit": "6c4009687d2c881f880127fc12b9ad7c72111d33",
+    "downloaded": "2026-09-20T02:14:58.8527837-03:00"
+  },
+  {
+    "name": "dart-language",
+    "url": "https://github.com/dart-lang/language",
+    "commit": "9cdc5a5e8ecfbedca4e10d3ae880e82258dc346b",
+    "downloaded": "2026-09-20T02:15:02.4874168-03:00"
+  },
+  {
+    "name": "ngdart",
+    "url": "https://github.com/angulardart-community/angular",
+    "commit": "69426d37f8ae3c289bd1a8f85cb59d5914ade987",
+    "downloaded": "2026-09-20T02:15:07.4185791-03:00"
+  },
+  {
+    "name": "webdev",
+    "url": "https://github.com/dart-lang/webdev",
+    "commit": "be720d999bfc480f64e7285512a07a2a5c458473",
+    "downloaded": "2026-09-20T02:15:10.5229086-03:00"
+  },
+  {
+    "name": "dart-linter-archived",
+    "url": "https://github.com/dart-archive/linter",
+    "commit": "4b53999c3af99229fa7b47ca52cf40a2a8d62b3a",
+    "downloaded": "2026-09-20T02:10:57.2964555-03:00"
+  },
+  {
+    "name": "dart-lints-archived",
+    "url": "https://github.com/dart-archive/lints",
+    "commit": "deff4270a7800197c402eb1c76915ad3fac2d512",
+    "downloaded": "2026-09-20T02:11:00.8278299-03:00"
+  },
+  {
+    "name": "dart-core",
+    "url": "https://github.com/dart-lang/core",
+    "commit": "08e4022160c465780690c43ffdbce60812975d2c",
+    "downloaded": "2026-09-20T02:11:08.4804915-03:00"
+  },
+  {
+    "name": "ngdart-8.0.0-dev.4",
+    "url": "https://pub.dev/api/archives/ngdart-8.0.0-dev.4.tar.gz",
+    "sha256": "BCC2345187483ED1053585B8A9DCDCFEA845BB2997BC0D6CDFCC97A42E92BC94",
+    "downloaded": "2026-09-20T02:15:44.6233246-03:00"
+  },
+  {
+    "name": "typescript-go",
+    "url": "https://github.com/microsoft/typescript-go",
+    "commit": "89d5d5b2849a0db0957065889ca58536fa6d2e4a",
+    "downloaded": "2026-09-20T02:43:17.3885101-03:00",
+    "archived": true,
+    "license": "Apache-2.0"
+  },
+  {
+    "name": "angular",
+    "url": "https://github.com/angular/angular",
+    "commit": "7569a02d2961155cc32b9491918bde8ae4c47616",
+    "downloaded": "2026-09-20T02:44:14.6579663-03:00",
+    "archived": false,
+    "license": "MIT"
+  },
+  {
+    "name": "oxc-angular-compiler",
+    "url": "https://github.com/voidzero-dev/oxc-angular-compiler",
+    "commit": "80fe9a5072e138423e421ffd6fc3985c60688f25",
+    "downloaded": "2026-09-20T02:44:21.6393557-03:00",
+    "archived": false,
+    "license": "MIT"
+  },
+  {
+    "name": "typescript",
+    "url": "https://github.com/microsoft/TypeScript",
+    "commit": "f29aeb9f825d96feea27841f3f7342dbf0df68a8",
+    "downloaded": "2026-09-20T02:45:30.3883091-03:00",
+    "archived": false,
+    "license": "Apache-2.0"
+  },
+  {
+    "name": "rust-sitter",
+    "url": "https://github.com/hydro-project/rust-sitter",
+    "commit": "c262f29b816eb66b2a9777dca1c9f67f94de6bc9",
+    "downloaded": "2026-09-20T02:49:38.0933467-03:00",
+    "license": "MIT"
+  }
+]
