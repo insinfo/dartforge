@@ -1,8 +1,8 @@
 //! Análise sintática do subconjunto Dart 3.6.2, com limites explícitos de complexidade.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
-    BinaryOp, Class, Expr, ExprKind, Field, Function, Parameter, Program, Statement, StatementKind,
-    Token, TokenKind, Type, UnaryOp,
+    BinaryOp, Class, Expr, ExprKind, Extension, Field, Function, Parameter, Program, Statement,
+    StatementKind, Token, TokenKind, Type, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -23,22 +23,10 @@ const MAX_EXPR_NODES: usize = 128;
 /// Retorna diagnóstico para sintaxe não suportada, entrada inválida ou limites
 /// de aninhamento e complexidade excedidos.
 pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>, Diagnostic> {
-    let mut cursor = Cursor {
-        tokens,
-        index: 0,
-        source_len,
-        expr_nodes: 0,
-        class_ids: index_classes(tokens)?,
-    };
-    let mut classes = Vec::new();
-    let mut functions = Vec::new();
+    let mut program = parse_unit(tokens, source_len, index_classes(tokens)?)?;
     let mut main = None;
-    while cursor.peek().is_some() {
-        if cursor.peek() == Some(TokenKind::Word("class")) {
-            classes.push(cursor.class()?);
-            continue;
-        }
-        let function = cursor.function()?;
+    let mut functions = Vec::new();
+    for function in program.functions {
         if function.name == "main" {
             if main.is_some() {
                 return Err(Diagnostic::new("duplicate main function", function.span));
@@ -54,12 +42,180 @@ pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>,
             functions.push(function);
         }
     }
-    let statements = main.ok_or_else(|| cursor.error("expected void main() entrypoint"))?;
+    program.statements = main.ok_or_else(|| {
+        Diagnostic::new(
+            "expected void main() entrypoint",
+            Span {
+                start: source_len,
+                end: source_len,
+            },
+        )
+    })?;
+    program.functions = functions;
+    Ok(program)
+}
+
+/// Analisa uma biblioteca com IDs nominais fornecidos pelo resolvedor de imports.
+///
+/// Todas as funções, inclusive main, permanecem em functions; statements fica vazio.
+/// O chamador remove diretivas dos tokens, mantendo os spans do arquivo original.
+///
+/// # Exemplos
+///
+///     let fonte = "int valor() { return 1; }";
+///     let tokens = dartforge_lexer::lex(fonte).unwrap();
+///     let unidade = dartforge_parser::parse_unit(&tokens, fonte.len(), Default::default()).unwrap();
+///     assert_eq!(unidade.functions[0].name, "valor");
+///
+/// # Erros
+///
+/// Retorna diagnóstico para sintaxe inválida, limites excedidos ou classe própria
+/// ausente no ambiente nominal. A validação da entrada pertence ao chamador.
+pub fn parse_unit<'a>(
+    tokens: &[Token<'a>],
+    source_len: usize,
+    class_ids: std::collections::BTreeMap<&'a str, u32>,
+) -> Result<Program<'a>, Diagnostic> {
+    let mut cursor = Cursor {
+        tokens,
+        index: 0,
+        source_len,
+        expr_nodes: 0,
+        class_ids,
+    };
+    let mut classes = Vec::new();
+    let mut extensions = Vec::new();
+    let mut functions = Vec::new();
+    while cursor.peek().is_some() {
+        if cursor.peek() == Some(TokenKind::Word("class")) {
+            classes.push(cursor.class()?);
+        } else if cursor.peek() == Some(TokenKind::Word("extension")) {
+            let id =
+                u32::try_from(extensions.len()).map_err(|_| cursor.error("too many extensions"))?;
+            extensions.push(cursor.extension(id)?);
+        } else {
+            functions.push(cursor.function()?);
+        }
+    }
     Ok(Program {
+        extensions,
         classes,
         functions,
-        statements,
+        statements: Vec::new(),
     })
+}
+
+/// Nome declarado no topo de uma biblioteca, com intervalo do identificador.
+#[derive(Debug)]
+pub struct TopLevelName<'a> {
+    pub name: &'a str,
+    pub span: Span,
+}
+
+/// Nomes exportáveis de uma unidade antes da resolução de tipos importados.
+#[derive(Debug, Default)]
+pub struct UnitDeclarations<'a> {
+    pub classes: Vec<TopLevelName<'a>>,
+    pub functions: Vec<TopLevelName<'a>>,
+}
+
+/// Indexa declarações de topo sem interpretar tipos potencialmente importados.
+///
+/// Não remove imports nem valida corpos: o resolvedor fornece os tokens após as
+/// diretivas e usa parse_unit para a validação sintática completa.
+///
+/// # Exemplos
+///
+///     let tokens = dartforge_lexer::lex("FutureType? obter() { return null; }").unwrap();
+///     let nomes = dartforge_parser::index_unit(&tokens).unwrap();
+///     assert_eq!(nomes.functions[0].name, "obter");
+///
+/// # Erros
+///
+/// Retorna diagnóstico para cabeçalhos não suportados, delimitadores incompletos
+/// ou extensions, cuja visibilidade em grafos de bibliotecas ainda não é suportada.
+pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diagnostic> {
+    let mut declarations = UnitDeclarations::default();
+    let mut index = 0;
+    while let Some(first) = tokens.get(index) {
+        if first.kind == TokenKind::Word("extension") {
+            return Err(Diagnostic::new(
+                "extensions in library import graphs are not supported yet",
+                first.span,
+            ));
+        }
+        let is_class = first.kind == TokenKind::Word("class");
+        index += 1;
+        if !matches!(first.kind, TokenKind::Word(_)) {
+            return Err(Diagnostic::new(
+                "expected top-level declaration",
+                first.span,
+            ));
+        }
+        if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
+            index += 1;
+        }
+        let name_token = tokens
+            .get(index)
+            .ok_or_else(|| Diagnostic::new("expected declaration name", first.span))?;
+        let TokenKind::Word(name) = name_token.kind else {
+            return Err(Diagnostic::new(
+                "expected declaration name",
+                name_token.span,
+            ));
+        };
+        index += 1;
+        let item = TopLevelName {
+            name,
+            span: name_token.span,
+        };
+        if is_class {
+            declarations.classes.push(item);
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("extends")) {
+                index += 1;
+                if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                    return Err(Diagnostic::new("expected superclass name", first.span));
+                }
+                index += 1;
+            }
+        } else {
+            declarations.functions.push(item);
+            index = skip_delimited(tokens, index, '(', ')', first.span)?;
+        }
+        index = skip_delimited(tokens, index, '{', '}', first.span)?;
+    }
+    Ok(declarations)
+}
+
+/// Avança sobre delimitadores balanceados sem recorrer nem copiar tokens.
+fn skip_delimited(
+    tokens: &[Token<'_>],
+    start: usize,
+    open: char,
+    close: char,
+    fallback: Span,
+) -> Result<usize, Diagnostic> {
+    if tokens.get(start).map(|t| t.kind) != Some(TokenKind::Symbol(open)) {
+        return Err(Diagnostic::new(
+            "expected declaration delimiter",
+            tokens.get(start).map_or(fallback, |t| t.span),
+        ));
+    }
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate().skip(start) {
+        if token.kind == TokenKind::Symbol(open) {
+            depth += 1;
+        } else if token.kind == TokenKind::Symbol(close) {
+            depth -= 1;
+            if depth == 0 {
+                return Ok(index + 1);
+            }
+        }
+    }
+    Err(Diagnostic::new(
+        "unterminated declaration delimiter",
+        fallback,
+    ))
 }
 struct Cursor<'t, 'a> {
     tokens: &'t [Token<'a>],
@@ -165,7 +321,9 @@ impl<'a> Cursor<'_, 'a> {
         let start = self.position();
         self.expect(TokenKind::Word("class"))?;
         let name = self.name()?;
-        let id = self.class_ids[name];
+        let id = *self.class_ids.get(name).ok_or_else(|| {
+            self.error("declared class is missing from the supplied class environment")
+        })?;
         let superclass = if self.take(TokenKind::Word("extends")) {
             let parent = self.name()?;
             Some(
@@ -217,6 +375,36 @@ impl<'a> Cursor<'_, 'a> {
             name,
             superclass,
             fields,
+            methods,
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
+    }
+    /// Lê uma extension nomeada sobre tipo não anulável, contendo somente métodos.
+    fn extension(&mut self, id: u32) -> Result<Extension<'a>, Diagnostic> {
+        let start = self.position();
+        self.expect(TokenKind::Word("extension"))?;
+        let name = self.name()?;
+        self.expect(TokenKind::Word("on"))?;
+        let on_type = self.ty(false)?;
+        if !matches!(
+            on_type,
+            Type::Int | Type::String | Type::Bool | Type::Class(_)
+        ) {
+            return Err(self.error("extensions require a non-null primitive or class type"));
+        }
+        self.expect(TokenKind::Symbol('{'))?;
+        let mut methods = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol('}')) {
+            methods.push(self.function()?);
+        }
+        self.expect(TokenKind::Symbol('}'))?;
+        Ok(Extension {
+            id,
+            name,
+            on_type,
             methods,
             span: Span {
                 start,
@@ -982,6 +1170,115 @@ mod tests {
     }
     /// Confere tipos anuláveis, precedência, associatividade e intervalos pós-fixos.
     /// Valida referências nominais posteriores, herança e acesso explícito a membros.
+    /// Mantém main de biblioteca e resolve IDs globais sem concatenar fontes.
+    /// Analisa extensions em uma unidade e preserva seus tipos e IDs independentes.
+    #[test]
+    fn named_extensions_single_unit() {
+        let source = "extension Numbers on int { int twice() { return this*2; } } void main() { print(3.twice()); } extension Objects on Box { int read() { return this.value; } } class Box { int value=1; } extension Text on String { String same() { return this; } } extension Flags on bool { bool flip() { return !this; } }";
+        let p = parsed(source);
+        assert_eq!(p.extensions.len(), 4);
+        assert_eq!(p.extensions[0].on_type, Type::Int);
+        assert_eq!(p.extensions[1].on_type, Type::Class(0));
+        assert_eq!(p.extensions[2].on_type, Type::String);
+        assert_eq!(p.extensions[3].on_type, Type::Bool);
+        assert_eq!(p.extensions[3].id, 3);
+        assert_eq!(p.extensions[0].methods[0].name, "twice");
+        assert!(
+            source[p.extensions[0].span.start..p.extensions[0].span.end]
+                .starts_with("extension Numbers")
+        );
+        let StatementKind::Print(e) = &p.statements[0].kind else {
+            panic!()
+        };
+        assert!(matches!(e.kind, ExprKind::MethodCall { name: "twice", .. }));
+        let error = index_unit(&dartforge_lexer::lex(source).unwrap()).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("extensions in library import graphs")
+        );
+    }
+
+    /// Rejeita as formas de extension fora do subconjunto definido nesta etapa.
+    #[test]
+    fn unsupported_extension_declarations() {
+        for declaration in [
+            "extension on int {}",
+            "extension E<T> on int {}",
+            "extension E on int? {}",
+            "extension E on void {}",
+            "extension E on Missing {}",
+            "extension E on int { int field=1; }",
+            "extension E on int { static int f(){return 1;} }",
+            "extension E on int { int get value{return 1;} }",
+            "extension E on int { set value(int x){} }",
+            "extension E on int {",
+        ] {
+            let source = format!("{declaration} void main() {{}}");
+            let tokens = dartforge_lexer::lex(&source).unwrap();
+            assert!(parse(&tokens, source.len()).is_err(), "{declaration}");
+        }
+    }
+    #[test]
+    fn parse_library_with_imported_nominal_environment() {
+        let source = "import 'base.dart'; Remote? make(Remote? x) { return x; } class Local extends Remote { Remote? field=null; } int main() { return 1; }";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        let tokens = &tokens[3..];
+        let names = index_unit(tokens).unwrap();
+        assert_eq!(names.classes[0].name, "Local");
+        assert_eq!(
+            names.functions.iter().map(|n| n.name).collect::<Vec<_>>(),
+            ["make", "main"]
+        );
+        assert_eq!(
+            &source[names.classes[0].span.start..names.classes[0].span.end],
+            "Local"
+        );
+        let env = std::collections::BTreeMap::from([("Remote", 17), ("Local", 23)]);
+        let p = parse_unit(tokens, source.len(), env).unwrap();
+        assert!(p.statements.is_empty());
+        assert_eq!(p.classes[0].id, 23);
+        assert_eq!(p.classes[0].superclass, Some(17));
+        assert_eq!(p.functions[0].return_type, Type::NullableClass(17));
+        assert_eq!(p.functions[1].name, "main");
+        assert_eq!(p.functions[1].return_type, Type::Int);
+        assert!(parse_unit(tokens, source.len(), Default::default()).is_err());
+        let library = "int f() { return 1; }";
+        let tokens = dartforge_lexer::lex(library).unwrap();
+        assert!(parse_unit(&tokens, library.len(), Default::default()).is_ok());
+        assert!(parse(&tokens, library.len()).is_err());
+    }
+
+    /// Indexa nomes sem resolver tipos externos e sem incluir membros ou locais.
+    #[test]
+    fn unit_index_is_top_level_and_checks_delimiters() {
+        let source = "Unknown? make(Other x) { if(true) {} return null; } class Own extends Later { int method(){return 1;} } class Later {}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        let names = index_unit(&tokens).unwrap();
+        assert_eq!(names.functions.len(), 1);
+        assert_eq!(
+            names.classes.iter().map(|n| n.name).collect::<Vec<_>>(),
+            ["Own", "Later"]
+        );
+        for bad in [
+            "class",
+            "class A",
+            "class A extends",
+            "class A {",
+            "int f(",
+            "int f() {",
+            "int x=1;",
+            "}",
+        ] {
+            assert!(
+                index_unit(&dartforge_lexer::lex(bad).unwrap()).is_err(),
+                "{bad}"
+            );
+        }
+        let source = "class A {}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert!(parse_unit(&tokens, source.len(), Default::default()).is_err());
+    }
     #[test]
     fn classes_fields_methods_and_forward_types() {
         let source = "Child? make(Child? x) { return x; } void main() { Child c=Child(); c.value=4; print(c.read()); c.self()!.value=5; } class Child extends Base { final String label='x'; Child? self() { return this; } int read() { return this.value; } } class Base { int value=1; }";

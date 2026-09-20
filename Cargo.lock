@@ -29,7 +29,9 @@ dependencies = [
  "dartforge-diagnostics",
  "dartforge-hir",
  "dartforge-lexer",
+ "dartforge-linker",
  "dartforge-optimizer",
+ "dartforge-packages",
  "dartforge-parser",
  "dartforge-semantic",
  "serde_json",
@@ -51,6 +53,21 @@ name = "dartforge-lexer"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
+ "dartforge-syntax",
+]
+
+[[package]]
+name = "dartforge-linker"
+version = "0.1.0"
+dependencies = [
+ "dartforge-codegen",
+ "dartforge-diagnostics",
+ "dartforge-hir",
+ "dartforge-lexer",
+ "dartforge-optimizer",
+ "dartforge-packages",
+ "dartforge-parser",
+ "dartforge-semantic",
  "dartforge-syntax",
 ]
 

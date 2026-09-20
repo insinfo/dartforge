@@ -1,5 +1,5 @@
 [package]
-name = "dartforge-compiler"
+name = "dartforge-linker"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,23 +8,11 @@ publish = false
 workspace = true
 [dependencies]
 dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-syntax = { path = "../syntax" }
 dartforge-lexer = { path = "../lexer" }
 dartforge-parser = { path = "../parser" }
+dartforge-packages = { path = "../packages" }
 dartforge-semantic = { path = "../semantic" }
+dartforge-optimizer = { path = "../optimizer" }
 dartforge-hir = { path = "../hir" }
 dartforge-codegen = { path = "../codegen" }
-dartforge-optimizer = { path = "../optimizer" }
-dartforge-linker = { path = "../linker" }
-dartforge-packages = { path = "../packages" }
-
-[dev-dependencies]
-serde_json = "1"
-
-[[bench]]
-name = "pipeline"
-harness = false
-
-
-[[bench]]
-name = "libraries"
-harness = false

@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "classes": 100,
+      "iterations_per_sample": 100,
+      "median_ns": 9627.0,
+      "output_bytes": 8911,
+      "p95_ns": 14529.0,
+      "samples_ns_per_operation": [
+        14529.0,
+        11202.0,
+        10910.0,
+        10373.0,
+        9978.0,
+        9531.0,
+        9624.0,
+        9620.0,
+        9637.0,
+        9565.0,
+        9623.0,
+        9627.0,
+        9998.0,
+        9526.0,
+        9611.0
+      ],
+      "warmup_iterations": 100
+    },
+    {
+      "classes": 1000,
+      "iterations_per_sample": 10,
+      "median_ns": 194580.0,
+      "output_bytes": 90810,
+      "p95_ns": 327350.0,
+      "samples_ns_per_operation": [
+        327350.0,
+        275880.0,
+        190220.0,
+        187410.0,
+        188170.0,
+        234920.0,
+        299850.0,
+        258060.0,
+        187410.0,
+        174030.0,
+        172500.0,
+        177800.0,
+        194580.0,
+        200420.0,
+        282290.0
+      ],
+      "warmup_iterations": 10
+    }
+  ],
+  "kind": "isolated_codegen_reverse_inheritance",
+  "metadata": {
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+    "git_revision": "bce1ba382f547463d9d06365ac29dfb63f13a41a",
+    "git_status": "M Cargo.lock\n M crates/cli/src/main.rs\n M crates/codegen/Cargo.toml\n M crates/codegen/src/lib.rs\n M crates/compiler/Cargo.toml\n M crates/compiler/src/lib.rs\n M crates/parser/src/lib.rs\n M scripts/conformance.ps1\n?? crates/codegen/benches/\n?? crates/linker/\n?? tests/conformance/modules/",
+    "logical_processors": 8,
+    "os": "windows",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "rustflags": null,
+    "stage": "after",
+    "unix_seconds": 1789887157
+  },
+  "note": "Corpus sintético AST pronto. Inclui descarte da saída. Não mede compilação completa, runtime JS nem compara DartForge com Dart.",
+  "percentile": "nearest_rank_of_batch_means",
+  "profile": "bench"
+}

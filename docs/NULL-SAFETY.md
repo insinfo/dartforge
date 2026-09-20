@@ -18,3 +18,6 @@ sem return produzem null, e return vazio nesse contexto é rejeitado.
 Ainda não há dynamic, Never, late, definite assignment de locais sem inicializador,
 is/as ou promoção geral por subtipos. var x = null exige dynamic e é rejeitado; declare
 um tipo anulável explicitamente. A asserção sobre um literal null também é rejeitada.
+Atribuir `Child()` a uma variável declarada `Base` não altera seu tipo estático para
+`Child`. Em `Base?`, a atribuição não nula promove para `Base`; essa distinção também
+determina qual extension é selecionada. `var` mantém a inferência a partir do inicializador.

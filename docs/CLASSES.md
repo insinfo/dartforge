@@ -16,14 +16,12 @@ Testes de três níveis verificam a ordem dos efeitos. Inicializadores não pode
 
 Ainda não há construtores explícitos ou argumentos de construção, super explícito,
 interfaces/implements, mixins, generics, static, factory, getters/setters, tear-offs,
-classes abstratas ou extensions. Membros que dependem dos contratos de Object, como
+classes abstratas. Extensions têm um [subconjunto próprio](EXTENSIONS.md). Membros que dependem dos contratos de Object, como
 toString/hashCode/runtimeType/noSuchMethod, são rejeitados. print(objeto) também é rejeitado
 até haver semântica toString, e campos não são promovidos por testes de null.
 
-## Próxima etapa: extensions e bibliotecas
+## Bibliotecas e extensions
 
-Extensions exigem resolução estática pelo tipo do receptor, e não despacho virtual JS.
-Antes de emiti-las, a HIR deve carregar IDs dos membros resolvidos e o ambiente de imports.
-A ordem planejada é resolução de bibliotecas/privacidade/prefixos, membros resolvidos na HIR,
-depois extensions nomeadas sem generics sobre tipos explícitos, com testes de ambiguidade.
-Nenhuma sintaxe de extension é aceita parcialmente ou convertida silenciosamente em método.
+Classes agora podem vir de [bibliotecas relativas](MODULES.md). [Extensions](EXTENSIONS.md)
+usam despacho estático e uma tabela de alvos na HIR; seu alcance entre bibliotecas ainda
+não é suportado. Construtores explícitos, interfaces e generics continuam no roteiro.

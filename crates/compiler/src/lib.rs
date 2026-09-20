@@ -53,11 +53,47 @@ pub fn compile_with_optimization(
 ) -> Result<String, Diagnostic> {
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
-    dartforge_semantic::validate(&ast)?;
+    let resolution = dartforge_semantic::analyze(&ast)?;
     if optimization == Optimization::Constants {
         dartforge_optimizer::fold_constants(&mut ast);
     }
-    Ok(dartforge_codegen::emit(&dartforge_hir::lower(ast)))
+    Ok(dartforge_codegen::emit(&dartforge_hir::lower_resolved(
+        ast, resolution,
+    )))
+}
+/// Compila um arquivo de entrada e suas bibliotecas relativas em um módulo JavaScript.
+///
+/// Cada biblioteca mantém namespace e privacidade próprios; apenas imports diretos
+/// tornam declarações públicas visíveis. O modo de otimização é aplicado depois
+/// da resolução e da análise semântica do programa combinado.
+///
+/// # Erros
+/// Retorna caminho e intervalo local para falhas de leitura, diretivas não suportadas,
+/// nomes ambíguos, sintaxe inválida ou incompatibilidade semântica.
+///
+/// # Exemplos
+/// ```no_run
+/// use dartforge_compiler::{compile_path, Optimization};
+/// let javascript = compile_path(std::path::Path::new("lib/main.dart"), Optimization::None)?;
+/// assert!(javascript.contains("export function main"));
+/// # Ok::<(), dartforge_packages::GraphError>(())
+/// ```
+pub fn compile_path(
+    path: &std::path::Path,
+    optimization: Optimization,
+) -> Result<String, dartforge_packages::GraphError> {
+    let graph = dartforge_packages::load(path)?;
+    // A unidade isolada preserva o caminho direto e evita resolver um namespace sem imports.
+    if graph.units.len() == 1 && graph.units[0].imports.is_empty() {
+        return compile_with_optimization(&graph.units[0].source, optimization).map_err(|error| {
+            dartforge_packages::GraphError {
+                path: graph.units[0].path.clone(),
+                span: Some(error.span),
+                message: error.message,
+            }
+        });
+    }
+    dartforge_linker::compile_graph(&graph, optimization == Optimization::Constants)
 }
 #[cfg(test)]
 mod tests {

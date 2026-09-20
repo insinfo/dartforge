@@ -9,7 +9,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge bootstrap\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }
@@ -37,7 +37,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "entry": graph.entry, "units": units,
-                "note": "Grafo de arquivos; ainda não resolve símbolos nem compila bibliotecas importadas."
+                "note": "Grafo de arquivos; use compile para resolver e compilar as bibliotecas."
             }))?
         );
         return Ok(());
@@ -48,13 +48,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let input = PathBuf::from(&args[1]);
     let output = PathBuf::from(&args[2]);
-    let source = fs::read_to_string(&input)?;
+
     let mode = if optimized {
         dartforge_compiler::Optimization::Constants
     } else {
         dartforge_compiler::Optimization::None
     };
-    let js = dartforge_compiler::compile_with_optimization(&source, mode)?;
+    let js = dartforge_compiler::compile_path(&input, mode)?;
     if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }

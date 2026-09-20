@@ -47,3 +47,19 @@ runtime compartilhado, source maps e otimizações são diferentes.
 - Sessões DDC persistentes e recompilações após mudanças em corpo, assinatura e imports.
 - RSS máximo, alocações, CPU, tamanho com runtime incluído e execução do JavaScript.
 - Repetições independentes com mediana/p95 e orçamento de regressão após baseline estável.
+
+## Escalabilidade de classes e bibliotecas
+
+    cargo bench --locked -p dartforge-codegen --bench classes
+    cargo bench --locked -p dartforge-compiler --bench libraries
+
+O benchmark de classes usa ASTs com hierarquias reversas de 100/1.000 classes para
+isolar emissão e ordenação topológica. Não inclui lexer, parser, análise ou execução.
+O de bibliotecas cria arquivos temporários antes de medir: separa carregamento do grafo,
+compilação do grafo pré-carregado e pipeline com leitura, nos dois modos. Todas as funções
+públicas são alcançáveis; os símbolos privados homônimos exercitam os namespaces.
+Não há sessão incremental nem cache persistente, e a criação do corpus fica fora do tempo.
+
+DARTFORGE_BENCH_LIBRARIES controla o número de bibliotecas (100) e
+DARTFORGE_BENCH_SAMPLES controla amostras (21) no benchmark de bibliotecas. O relatório
+registra arquivos, bytes, amostras, toolchain e estado Git. O filesystem está aquecido.

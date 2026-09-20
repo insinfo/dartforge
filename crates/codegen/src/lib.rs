@@ -16,11 +16,33 @@ use dartforge_syntax::{
 };
 use std::fmt::Write;
 
+/// Estado local de emissão com a resolução estática fornecida pela análise.
+struct Output<'a> {
+    text: String,
+    resolution: &'a dartforge_syntax::Resolution,
+}
+impl std::ops::Deref for Output<'_> {
+    type Target = String;
+    /// Permite consultar o texto sem copiar o buffer.
+    fn deref(&self) -> &String {
+        &self.text
+    }
+}
+impl std::ops::DerefMut for Output<'_> {
+    /// Encaminha escrita ao buffer único do módulo.
+    fn deref_mut(&mut self) -> &mut String {
+        &mut self.text
+    }
+}
+
 /// Gera um módulo ES com funções, exportação de main e chamada inicial de main.
 ///
 /// O módulo deve ter passado pela análise semântica: nomes válidos, tipos
 /// compatíveis, break/continue dentro de laços e cabeçalhos de for válidos.
-/// Não inclui runtime Dart completo, mapas de origem ou otimizações globais.
+/// A resolução deve incluir cada chamada de extension selecionada semanticamente;
+/// chamadas sem entrada são tratadas como métodos de instância. O emissor não
+/// infere tipos nem escolhe extensions. Não inclui runtime Dart completo, mapas
+/// de origem ou otimizações globais.
 ///
 /// # Pânicos
 ///
@@ -32,14 +54,22 @@ use std::fmt::Write;
 /// ```
 /// use dartforge_hir::lower;
 /// use dartforge_syntax::Program;
-/// let module = lower(Program { classes: vec![], functions: vec![], statements: vec![] });
+/// let module = lower(Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] });
 /// let javascript = dartforge_codegen::emit(&module);
 /// assert!(javascript.contains("export function main()"));
 /// assert!(javascript.ends_with("main();\n"));
 /// ```
 pub fn emit(module: &Module<'_>) -> String {
-    let mut output = String::from("// Saída do subconjunto DartForge\n");
-    if statements_need_null_assert(&module.statements)
+    let mut output = Output {
+        text: String::from("// Saída do subconjunto DartForge\n"),
+        resolution: &module.resolution,
+    };
+    if module.extensions.iter().any(|extension| {
+        extension
+            .methods
+            .iter()
+            .any(|method| statements_need_null_assert(&method.body))
+    }) || statements_need_null_assert(&module.statements)
         || module
             .functions
             .iter()
@@ -57,6 +87,25 @@ pub fn emit(module: &Module<'_>) -> String {
     {
         // Nome fora do prefixo $df_ reservado aos identificadores do usuário.
         output.push_str("function $dartforgeNullAssert(value) {\n  if (value === null) { throw new TypeError(\"Null check operator used on a null value\"); }\n  return value;\n}\n");
+    }
+    for extension in &module.extensions {
+        for (index, method) in extension.methods.iter().enumerate() {
+            write!(
+                output,
+                "function $dartforgeExtension{}Method{}(",
+                extension.id, index
+            )
+            .expect("escrever em String não falha");
+            for (index, parameter) in method.parameters.iter().enumerate() {
+                if index != 0 {
+                    output.push_str(", ");
+                }
+                identifier(parameter.name, &mut output);
+            }
+            output.push_str(") ");
+            function_body(method, 0, &mut output);
+            output.push('\n');
+        }
     }
     emit_classes(&module.classes, &mut output);
     for function in &module.functions {
@@ -76,79 +125,95 @@ pub fn emit(module: &Module<'_>) -> String {
     output.push_str("export function main() {\n");
     statements(&module.statements, 1, &mut output);
     output.push_str("}\nmain();\n");
-    output
+    output.text
+}
+
+/// Ordena a herança em O(V+E) esperado, com IDs esparsos e sem recursão.
+///
+/// A fila e as listas de filhos seguem a ordem da fonte; não iteramos o HashMap.
+/// Inicializadores continuam dentro dos construtores e não são reordenados.
+fn class_order(classes: &[Class<'_>]) -> Vec<usize> {
+    use std::collections::{HashMap, VecDeque};
+    let mut indexes = HashMap::with_capacity(classes.len());
+    for (index, class) in classes.iter().enumerate() {
+        assert!(
+            indexes.insert(class.id, index).is_none(),
+            "AST inválida: ID de classe duplicado"
+        );
+    }
+    let mut children = vec![Vec::new(); classes.len()];
+    let mut ready = VecDeque::new();
+    for (index, class) in classes.iter().enumerate() {
+        if let Some(base) = class.superclass {
+            let parent = *indexes
+                .get(&base)
+                .expect("AST inválida: classe base ausente");
+            children[parent].push(index);
+        } else {
+            ready.push_back(index);
+        }
+    }
+    let mut order = Vec::with_capacity(classes.len());
+    while let Some(index) = ready.pop_front() {
+        order.push(index);
+        ready.extend(children[index].iter().copied());
+    }
+    assert_eq!(order.len(), classes.len(), "AST inválida: ciclo na herança");
+    order
 }
 
 /// Emite classes em ordem de herança, inclusive quando a base aparece depois.
-fn emit_classes(classes: &[Class<'_>], output: &mut String) {
-    let mut emitted = std::collections::HashSet::new();
-    while emitted.len() < classes.len() {
-        let before = emitted.len();
-        for class in classes {
-            if emitted.contains(&class.id)
-                || class
-                    .superclass
-                    .is_some_and(|base| !emitted.contains(&base))
-            {
-                continue;
-            }
-            write!(output, "class $dartforgeClass{}", class.id)
-                .expect("escrever em String não falha");
-            if let Some(base) = class.superclass {
-                write!(output, " extends $dartforgeClass{base}")
-                    .expect("escrever em String não falha");
-            }
-            output.push_str(" {\n");
-            indent(1, output);
-            output.push_str("constructor() {\n");
-            // Dart avalia os campos da classe derivada antes dos campos da base.
-            // Temporários não usam this antes de super, como exige o JavaScript.
-            for (index, field) in class.fields.iter().enumerate() {
-                indent(2, output);
-                write!(output, "const $dartforgeField{index} = ")
-                    .expect("escrever em String não falha");
-                expression(&field.initializer, output);
-                output.push_str(";\n");
-            }
-            if class.superclass.is_some() {
-                indent(2, output);
-                output.push_str("super();\n");
-            }
-            for (index, field) in class.fields.iter().enumerate() {
-                indent(2, output);
-                output.push_str("this.");
-                identifier(field.name, output);
-                writeln!(output, " = $dartforgeField{index};")
-                    .expect("escrever em String não falha");
-            }
-            indent(1, output);
-            output.push_str("}\n");
-            for method in &class.methods {
-                indent(1, output);
-                identifier(method.name, output);
-                output.push('(');
-                for (index, parameter) in method.parameters.iter().enumerate() {
-                    if index != 0 {
-                        output.push_str(", ");
-                    }
-                    identifier(parameter.name, output);
-                }
-                output.push_str(") ");
-                function_body(method, 1, output);
-                output.push('\n');
-            }
-            output.push_str("}\n");
-            emitted.insert(class.id);
+fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
+    for index in class_order(classes) {
+        let class = &classes[index];
+        write!(output, "class $dartforgeClass{}", class.id).expect("escrever em String não falha");
+        if let Some(base) = class.superclass {
+            write!(output, " extends $dartforgeClass{base}").expect("escrever em String não falha");
         }
-        assert!(
-            emitted.len() > before,
-            "AST inválida: ciclo, classe base ausente ou IDs duplicados"
-        );
+        output.push_str(" {\n");
+        indent(1, output);
+        output.push_str("constructor() {\n");
+        // Dart avalia os campos da classe derivada antes dos campos da base.
+        // Temporários não usam this antes de super, como exige o JavaScript.
+        for (index, field) in class.fields.iter().enumerate() {
+            indent(2, output);
+            write!(output, "const $dartforgeField{index} = ")
+                .expect("escrever em String não falha");
+            expression(&field.initializer, output);
+            output.push_str(";\n");
+        }
+        if class.superclass.is_some() {
+            indent(2, output);
+            output.push_str("super();\n");
+        }
+        for (index, field) in class.fields.iter().enumerate() {
+            indent(2, output);
+            output.push_str("this.");
+            identifier(field.name, output);
+            writeln!(output, " = $dartforgeField{index};").expect("escrever em String não falha");
+        }
+        indent(1, output);
+        output.push_str("}\n");
+        for method in &class.methods {
+            indent(1, output);
+            identifier(method.name, output);
+            output.push('(');
+            for (index, parameter) in method.parameters.iter().enumerate() {
+                if index != 0 {
+                    output.push_str(", ");
+                }
+                identifier(parameter.name, output);
+            }
+            output.push_str(") ");
+            function_body(method, 1, output);
+            output.push('\n');
+        }
+        output.push_str("}\n");
     }
 }
 
 /// Separa parâmetros dos locais e produz null no retorno nullable implícito.
-fn function_body(function: &Function<'_>, depth: usize, output: &mut String) {
+fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>) {
     output.push_str("{\n");
     // O bloco interno permite que um local Dart sombreie um parâmetro JavaScript.
     indent(depth + 1, output);
@@ -241,7 +306,7 @@ fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
 }
 
 /// Aplica o prefixo estável usado em declarações e referências.
-fn identifier(name: &str, output: &mut String) {
+fn identifier(name: &str, output: &mut Output<'_>) {
     // O prefixo injetivo evita palavras reservadas e globais do JavaScript.
     // Blocos léxicos preservam sombreamento; referências recebem o mesmo prefixo.
     output.push_str("$df_");
@@ -249,14 +314,14 @@ fn identifier(name: &str, output: &mut String) {
 }
 
 /// Acrescenta dois espaços por nível léxico.
-fn indent(depth: usize, output: &mut String) {
+fn indent(depth: usize, output: &mut Output<'_>) {
     for _ in 0..depth {
         output.push_str("  ");
     }
 }
 
 /// Emite instruções na ordem original e preserva os respectivos escopos.
-fn statements(body: &[Statement<'_>], depth: usize, output: &mut String) {
+fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
     for statement in body {
         indent(depth, output);
         match &statement.kind {
@@ -375,7 +440,7 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut String) {
 }
 
 /// Emite um bloco sem recuo inicial ou quebra de linha final.
-fn block(body: &[Statement<'_>], depth: usize, output: &mut String) {
+fn block(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
     output.push_str("{\n");
     statements(body, depth + 1, output);
     indent(depth, output);
@@ -383,7 +448,7 @@ fn block(body: &[Statement<'_>], depth: usize, output: &mut String) {
 }
 
 /// Emite uma cláusula de for validada, sem separadores ou quebras de linha.
-fn for_clause(statement: &Statement<'_>, allow_variable: bool, output: &mut String) {
+fn for_clause(statement: &Statement<'_>, allow_variable: bool, output: &mut Output<'_>) {
     match &statement.kind {
         StatementKind::Variable {
             name,
@@ -410,12 +475,12 @@ fn for_clause(statement: &Statement<'_>, allow_variable: bool, output: &mut Stri
 ///
 /// O escape JSON impede que conteúdo da string seja interpretado como código
 /// JavaScript. Strings emprestadas e alocadas seguem exatamente o mesmo caminho.
-fn string_literal(value: &str, output: &mut String) {
+fn string_literal(value: &str, output: &mut Output<'_>) {
     output.push_str(&serde_json::to_string(value).expect("serializar uma string não falha"));
 }
 
 /// Emite uma expressão sem duplicar a avaliação de operandos.
-fn expression(value: &Expr<'_>, output: &mut String) {
+fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
     match &value.kind {
         ExprKind::Null => output.push_str("null"),
         ExprKind::This => output.push_str("this"),
@@ -433,6 +498,22 @@ fn expression(value: &Expr<'_>, output: &mut String) {
             name,
             arguments,
         } => {
+            if let Some((extension, method)) = output
+                .resolution
+                .extension_calls
+                .get(&(value.span.start, value.span.end))
+                .map(|target| (target.extension_id, target.method_index))
+            {
+                write!(output, "$dartforgeExtension{extension}Method{method}.call(")
+                    .expect("escrever em String não falha");
+                expression(receiver, output);
+                for argument in arguments {
+                    output.push_str(", ");
+                    expression(argument, output);
+                }
+                output.push(')');
+                return;
+            }
             expression(receiver, output);
             output.push('.');
             identifier(name, output);
@@ -550,6 +631,7 @@ mod tests {
     }
     fn compile(statements: Vec<Statement<'_>>) -> String {
         emit(&dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![],
             statements,
@@ -819,6 +901,7 @@ mod tests {
             ))),
         ];
         emit(&dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions,
             statements,
@@ -960,6 +1043,7 @@ mod tests {
             }),
         ];
         emit(&dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions,
             statements,
@@ -1045,6 +1129,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn function_body_locals_can_shadow_parameters() {
         let module = dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![function(
                 "f",
@@ -1088,6 +1173,7 @@ mod tests {
         assert!(plain.contains("console.log((null ?? 4));"));
         assert!(!plain.contains("$dartforgeNullAssert"));
         let module = dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![function(
                 "checked",
@@ -1107,6 +1193,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn null_operators_preserve_lazy_evaluation_and_single_effects() {
         let module = dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![function(
                 "mark",
@@ -1160,6 +1247,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn null_assert_throws_after_evaluating_operand_once() {
         let module = dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![function(
                 "missing",
@@ -1192,6 +1280,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn nullable_function_fallthrough_returns_null() {
         let module = dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![
                 function("number", Type::NullableInt, &[], vec![]),
@@ -1280,6 +1369,7 @@ mod tests {
             )],
         };
         let module = dartforge_hir::lower(Program {
+            extensions: vec![],
             classes: vec![child, base],
             functions: vec![
                 function(
@@ -1328,5 +1418,122 @@ mod tests {
             String::from_utf8_lossy(&run.stderr)
         );
         assert_eq!(run.stdout, b"initialize\n12\nreceiver\n15\n");
+    }
+    /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
+    fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
+        Class {
+            id,
+            name: "Synthetic",
+            superclass,
+            fields: vec![],
+            methods: vec![],
+            span: Span { start: 0, end: 0 },
+        }
+    }
+
+    /// IDs esparsos e bases posteriores mantêm ordem determinística por fonte.
+    #[test]
+    fn class_order_handles_sparse_forward_ids_deterministically() {
+        let classes = vec![
+            empty_class(9000, Some(42)),
+            empty_class(7, None),
+            empty_class(42, None),
+            empty_class(18, Some(9000)),
+        ];
+        assert_eq!(class_order(&classes), [1, 2, 0, 3]);
+        assert_eq!(class_order(&classes), class_order(&classes));
+        let chain: Vec<_> = (0..10000)
+            .rev()
+            .map(|id| empty_class(id, id.checked_sub(1)))
+            .collect();
+        assert_eq!(class_order(&chain), (0..10000).rev().collect::<Vec<_>>());
+    }
+
+    /// Uma base ausente deve falhar antes da emissão de JavaScript inválido.
+    #[test]
+    #[should_panic(expected = "classe base ausente")]
+    fn class_order_rejects_unknown_base() {
+        class_order(&[empty_class(7, Some(99))]);
+    }
+
+    /// Ciclos não podem bloquear a fila nem provocar recursão sem limite.
+    #[test]
+    #[should_panic(expected = "ciclo na herança")]
+    fn class_order_rejects_cycle() {
+        class_order(&[empty_class(7, Some(99)), empty_class(99, Some(7))]);
+    }
+
+    /// IDs repetidos violam a identidade nominal, mesmo em classes sem base.
+    #[test]
+    #[should_panic(expected = "ID de classe duplicado")]
+    fn class_order_rejects_duplicate_ids() {
+        class_order(&[empty_class(7, None), empty_class(7, None)]);
+    }
+    /// Despacho resolvido mantém this primitivo, efeitos ordenados e auxiliar !.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn extensions_use_static_targets_and_preserve_primitive_this() {
+        use dartforge_syntax::{Extension, ExtensionTarget, Resolution};
+        let span = Span { start: 10, end: 20 };
+        let mut selected = expr(ExprKind::MethodCall {
+            receiver: Box::new(call("mark", vec![int(7)])),
+            name: "add",
+            arguments: vec![call("mark", vec![int(2)])],
+        });
+        selected.span = span;
+        let program = Program {
+            classes: vec![],
+            extensions: vec![Extension {
+                id: 42,
+                name: "Numbers",
+                on_type: Type::Int,
+                span,
+                methods: vec![function(
+                    "add",
+                    Type::Int,
+                    &[("n", Type::Int)],
+                    vec![
+                        print(binary(BinaryOp::Equal, expr(ExprKind::This), int(7))),
+                        statement(StatementKind::Return(Some(asserted(binary(
+                            BinaryOp::Add,
+                            expr(ExprKind::This),
+                            name("n"),
+                        ))))),
+                    ],
+                )],
+            }],
+            functions: vec![function(
+                "mark",
+                Type::Int,
+                &[("n", Type::Int)],
+                vec![
+                    print(name("n")),
+                    statement(StatementKind::Return(Some(name("n")))),
+                ],
+            )],
+            statements: vec![print(selected)],
+        };
+        let resolution = Resolution {
+            extension_calls: std::collections::BTreeMap::from([(
+                (10, 20),
+                ExtensionTarget {
+                    extension_id: 42,
+                    method_index: 0,
+                },
+            )]),
+        };
+        let output = emit(&dartforge_hir::lower_resolved(program, resolution));
+        assert!(output.contains("$dartforgeExtension42Method0.call($df_mark(7), $df_mark(2))"));
+        assert!(output.contains("function $dartforgeNullAssert("));
+        let run = std::process::Command::new("node")
+            .args(["--input-type=module", "--eval", &output])
+            .output()
+            .expect("Node.js necessário");
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(run.stdout, b"7\n2\ntrue\n9\n");
     }
 }

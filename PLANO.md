@@ -222,6 +222,18 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 - [ ] Persistir membros resolvidos na HIR e implementar extensions com despacho estático.
 - [ ] Ampliar construtores, super, interfaces, generics e análise de fluxo por subtipos.
 
+## Quinto incremento — Bibliotecas, extensions e escalabilidade
+
+- [x] Compilar grafos de imports relativos com namespaces e privacidade por biblioteca.
+- [x] Preservar escopos locais, classes globais, ciclos declarativos e diagnósticos por arquivo.
+- [x] Resolver chamadas de extensions nomeadas por tipo estático em uma unidade.
+- [x] Transportar alvos de extensions na HIR e preservá-los durante otimização.
+- [x] Substituir ordenação quadrática de classes por algoritmo topológico iterativo.
+- [x] Adicionar benchmarks de hierarquias e compilação de bibliotecas sintéticas.
+- [ ] Imports package:/dart:, prefixos, combinadores, exports e parts.
+- [ ] Visibilidade de extensions importadas, getters/setters e generics.
+- [ ] Cache incremental por unidade, dependências semânticas e invalidação conservadora.
+
 ## Próximas tarefas
 
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.

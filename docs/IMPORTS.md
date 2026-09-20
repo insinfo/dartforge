@@ -1,7 +1,9 @@
 # Grafo de imports relativos
 
 A crate `dartforge-packages` carrega arquivos UTF-8 e constrói um grafo de dependências.
-Ela prepara a resolução de bibliotecas; **não resolve nomes nem compila múltiplas unidades**.
+Esta crate cuida do carregamento; **não resolve nomes nem compila múltiplas unidades**.
+A compilação conjunta já é oferecida por `dartforge-linker` e pelo CLI `compile`,
+conforme [a documentação de bibliotecas](MODULES.md).
 
 A API `load(&Path) -> Result<SourceGraph, GraphError>` entrega `units` e `entry`. Cada
 unidade contém caminho canônico, fonte original e imports. Cada import registra URI,

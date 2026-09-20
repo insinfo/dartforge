@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "classes": 100,
+      "iterations_per_sample": 100,
+      "median_ns": 99043.0,
+      "output_bytes": 8911,
+      "p95_ns": 127966.0,
+      "samples_ns_per_operation": [
+        100357.0,
+        92920.0,
+        101456.0,
+        100567.0,
+        99043.0,
+        104298.0,
+        91959.0,
+        104311.0,
+        127966.0,
+        92743.0,
+        105917.0,
+        94711.0,
+        96802.0,
+        92884.0,
+        91995.0
+      ],
+      "warmup_iterations": 100
+    },
+    {
+      "classes": 1000,
+      "iterations_per_sample": 10,
+      "median_ns": 9001930.0,
+      "output_bytes": 90810,
+      "p95_ns": 9551290.0,
+      "samples_ns_per_operation": [
+        8845750.0,
+        8740880.0,
+        8967400.0,
+        8882450.0,
+        9378830.0,
+        8778470.0,
+        9012280.0,
+        9050820.0,
+        8681290.0,
+        9285730.0,
+        9551290.0,
+        9097950.0,
+        9236880.0,
+        9001930.0,
+        8911660.0
+      ],
+      "warmup_iterations": 10
+    }
+  ],
+  "kind": "isolated_codegen_reverse_inheritance",
+  "metadata": {
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+    "git_revision": "bce1ba382f547463d9d06365ac29dfb63f13a41a",
+    "git_status": "M crates/cli/src/main.rs\n M crates/codegen/Cargo.toml\n M crates/compiler/Cargo.toml\n M crates/compiler/src/lib.rs\n M crates/parser/src/lib.rs\n M scripts/conformance.ps1\n?? crates/codegen/benches/\n?? tests/conformance/modules/",
+    "logical_processors": 8,
+    "os": "windows",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "rustflags": null,
+    "stage": "before",
+    "unix_seconds": 1789886997
+  },
+  "note": "Corpus sintético AST pronto. Inclui descarte da saída. Não mede compilação completa, runtime JS nem compara DartForge com Dart.",
+  "percentile": "nearest_rank_of_batch_means",
+  "profile": "bench"
+}

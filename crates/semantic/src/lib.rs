@@ -4,7 +4,9 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, Type, UnaryOp,
 };
+use dartforge_syntax::{ExtensionTarget, Resolution};
 use std::collections::{HashMap, HashSet};
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Clone, Copy)]
 struct Binding {
@@ -31,6 +33,12 @@ struct ClassInfo<'a> {
     methods: HashMap<&'a str, Signature>,
 }
 #[derive(Clone)]
+struct ExtensionInfo<'a> {
+    id: u32,
+    on_type: Type,
+    methods: HashMap<&'a str, (usize, Signature)>,
+}
+#[derive(Clone)]
 struct Validator<'a> {
     scopes: Vec<HashMap<&'a str, Binding>>,
     functions: HashMap<&'a str, Signature>,
@@ -39,6 +47,9 @@ struct Validator<'a> {
     classes: HashMap<u32, ClassInfo<'a>>,
     current_class: Option<u32>,
     in_field_initializer: bool,
+    extensions: Vec<ExtensionInfo<'a>>,
+    current_extension: Option<usize>,
+    resolution: Rc<RefCell<Resolution>>,
 }
 
 /// Valida nomes, tipos, chamadas, retornos e controle de laços antes da geração de código.
@@ -46,7 +57,7 @@ struct Validator<'a> {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let programa = Program { classes: vec![], functions: vec![], statements: vec![] };
+/// let programa = Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert!(dartforge_semantic::validate(&programa).is_ok());
 /// ```
 ///
@@ -55,6 +66,21 @@ struct Validator<'a> {
 /// retorno ausente ou controle de fluxo inválido. A análise conservadora de retorno
 /// não considera laços, mesmo infinitos, como prova de retorno obrigatório.
 pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
+    analyze(program).map(|_| ())
+}
+
+/// Valida o programa e registra destinos estáticos das chamadas de extensions.
+///
+/// # Erros
+/// Retorna os mesmos diagnósticos de validate, incluindo extensions ambíguas,
+/// tipos on não suportados e métodos incompatíveis com o receptor estático.
+///
+/// # Exemplos
+/// ```
+/// let programa = dartforge_syntax::Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// assert!(dartforge_semantic::analyze(&programa).unwrap().extension_calls.is_empty());
+/// ```
+pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     let mut validator = Validator {
         scopes: Vec::new(),
         functions: HashMap::new(),
@@ -63,6 +89,9 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
         classes: HashMap::new(),
         current_class: None,
         in_field_initializer: false,
+        extensions: vec![],
+        current_extension: None,
+        resolution: Rc::new(RefCell::new(Resolution::default())),
     };
     validator.functions.insert(
         "main",
@@ -186,6 +215,63 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
             ));
         }
     }
+    let mut extension_ids = HashSet::new();
+    let mut extension_names = HashSet::new();
+    for extension in &program.extensions {
+        if !extension_ids.insert(extension.id)
+            || !extension_names.insert(extension.name)
+            || class_names.contains(extension.name)
+            || validator.functions.contains_key(extension.name)
+            || extension.name == "print"
+        {
+            return Err(Diagnostic::new(
+                "Duplicate extension name or ID",
+                extension.span,
+            ));
+        }
+        if !matches!(
+            extension.on_type,
+            Type::Int | Type::String | Type::Bool | Type::Class(_)
+        ) {
+            return Err(Diagnostic::new(
+                "Unsupported nullable or special extension on type",
+                extension.span,
+            ));
+        }
+        validator.check_type_name(extension.on_type, extension.span)?;
+        let mut methods = HashMap::new();
+        for (index, method) in extension.methods.iter().enumerate() {
+            if matches!(
+                method.name,
+                "toString" | "hashCode" | "runtimeType" | "noSuchMethod"
+            ) {
+                return Err(Diagnostic::new(
+                    "Extensions of Object members are unsupported",
+                    method.span,
+                ));
+            }
+            if methods
+                .insert(
+                    method.name,
+                    (
+                        index,
+                        Signature {
+                            parameters: method.parameters.iter().map(|p| p.ty).collect(),
+                            result: method.return_type,
+                        },
+                    ),
+                )
+                .is_some()
+            {
+                return Err(Diagnostic::new("Duplicate extension method", method.span));
+            }
+        }
+        validator.extensions.push(ExtensionInfo {
+            id: extension.id,
+            on_type: extension.on_type,
+            methods,
+        });
+    }
     for function in &program.functions {
         validator.function(function)?;
     }
@@ -233,15 +319,33 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
             validator.current_class = None;
         }
     }
+    for (index, extension) in program.extensions.iter().enumerate() {
+        validator.current_extension = Some(index);
+        validator.current_class = if let Type::Class(id) = extension.on_type {
+            Some(id)
+        } else {
+            None
+        };
+        for method in &extension.methods {
+            validator.function(method)?;
+        }
+        validator.current_class = None;
+        validator.current_extension = None;
+    }
     validator.return_type = Type::Void;
     validator.loop_depth = 0;
-    validator.block(&program.statements)
+    validator.block(&program.statements)?;
+    let resolution = std::mem::take(&mut *validator.resolution.borrow_mut());
+    Ok(resolution)
 }
 impl<'a> Validator<'a> {
     /// Detecta membros que ocultariam uma referência global sem receptor explícito.
     fn has_implicit_member(&self, name: &str) -> bool {
-        self.current_class
-            .is_some_and(|id| self.field(id, name).is_some() || self.method(id, name).is_some())
+        self.current_extension
+            .is_some_and(|index| self.extensions[index].methods.contains_key(name))
+            || self
+                .current_class
+                .is_some_and(|id| self.field(id, name).is_some() || self.method(id, name).is_some())
     }
     /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
     fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
@@ -439,9 +543,11 @@ impl<'a> Validator<'a> {
                     .get_mut(name)
                     .expect("predeclared local");
                 binding.ty = Some(annotation.unwrap_or(actual));
-                binding.promoted = if actual != Type::Null && actual != annotation.unwrap_or(actual)
+                binding.promoted = if actual != Type::Null
+                    && !is_nullable(actual)
+                    && is_nullable(annotation.unwrap_or(actual))
                 {
-                    Some(actual)
+                    Some(non_null(annotation.unwrap_or(actual)))
                 } else {
                     None
                 };
@@ -481,8 +587,11 @@ impl<'a> Validator<'a> {
                     .rev()
                     .find_map(|scope| scope.get_mut(name))
                     .expect("resolved binding");
-                target.promoted = if actual != Type::Null && Some(actual) != target.ty {
-                    Some(actual)
+                target.promoted = if actual != Type::Null
+                    && !is_nullable(actual)
+                    && is_nullable(target.ty.expect("initialized binding"))
+                {
+                    Some(non_null(target.ty.expect("initialized binding")))
                 } else {
                     None
                 };
@@ -814,16 +923,23 @@ impl<'a> Validator<'a> {
     /// Determina o tipo da expressão e valida operadores e chamadas.
     fn expression(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
         match &expression.kind {
-            ExprKind::This => self
-                .current_class
-                .filter(|_| !self.in_field_initializer)
-                .map(Type::Class)
-                .ok_or_else(|| {
-                    Diagnostic::new(
-                        "this is only supported inside instance methods",
+            ExprKind::This => {
+                if self.in_field_initializer {
+                    return Err(Diagnostic::new(
+                        "this is unavailable in field initializers",
                         expression.span,
-                    )
-                }),
+                    ));
+                }
+                self.current_extension
+                    .map(|index| self.extensions[index].on_type)
+                    .or_else(|| self.current_class.map(Type::Class))
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            "this is only supported inside instance or extension methods",
+                            expression.span,
+                        )
+                    })
+            }
             ExprKind::Construct { class_id } => {
                 let class = self
                     .classes
@@ -851,10 +967,83 @@ impl<'a> Validator<'a> {
                 name,
                 arguments,
             } => {
-                let id = self.receiver_class(receiver)?;
-                let signature = self
-                    .method(id, name)
-                    .ok_or_else(|| Diagnostic::new("Unknown instance method", expression.span))?;
+                let receiver_type = self.value(receiver)?;
+                if is_nullable(receiver_type) || matches!(receiver_type, Type::Null | Type::Void) {
+                    return Err(Diagnostic::new(
+                        "Method calls require a non-null receiver",
+                        receiver.span,
+                    ));
+                }
+                let instance = if let Type::Class(id) = receiver_type {
+                    if self.field(id, name).is_some() {
+                        return Err(Diagnostic::new(
+                            "Instance field is not callable",
+                            expression.span,
+                        ));
+                    }
+                    self.method(id, name)
+                } else {
+                    None
+                };
+                let signature = if let Some(signature) = instance {
+                    signature
+                } else {
+                    let candidates = self
+                        .extensions
+                        .iter()
+                        .filter(|extension| {
+                            extension.methods.contains_key(name)
+                                && self
+                                    .require_type(receiver_type, extension.on_type, expression.span)
+                                    .is_ok()
+                        })
+                        .collect::<Vec<_>>();
+                    if candidates.is_empty() {
+                        return Err(Diagnostic::new(
+                            "Unknown instance or extension method",
+                            expression.span,
+                        ));
+                    }
+                    let best = candidates
+                        .iter()
+                        .copied()
+                        .filter(|candidate| {
+                            candidates.iter().all(|other| {
+                                candidate.id == other.id
+                                    || (self
+                                        .require_type(
+                                            candidate.on_type,
+                                            other.on_type,
+                                            expression.span,
+                                        )
+                                        .is_ok()
+                                        && self
+                                            .require_type(
+                                                other.on_type,
+                                                candidate.on_type,
+                                                expression.span,
+                                            )
+                                            .is_err())
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if best.len() != 1 {
+                        return Err(Diagnostic::new(
+                            "Ambiguous extension method",
+                            expression.span,
+                        ));
+                    }
+                    let extension = best[0];
+                    let (method_index, signature) = &extension.methods[name];
+                    self.resolution.borrow_mut().extension_calls.insert(
+                        (expression.span.start, expression.span.end),
+                        ExtensionTarget {
+                            extension_id: extension.id,
+                            method_index: *method_index,
+                        },
+                    );
+                    signature
+                };
                 if signature.parameters.len() != arguments.len() {
                     return Err(Diagnostic::new(
                         "Incorrect method argument count",
@@ -1083,6 +1272,7 @@ mod tests {
     /// Valida um corpo de main sem funções auxiliares.
     fn check(statements: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![],
             statements,
@@ -1125,6 +1315,190 @@ mod tests {
     /// Constrói uma instrução de retorno com valor.
     fn ret(value: Expr<'static>) -> Statement<'static> {
         stmt(StatementKind::Return(Some(value)))
+    }
+    /// Constrói uma extension de teste com um método inteiro constante.
+    fn extension(
+        id: u32,
+        name: &'static str,
+        on_type: Type,
+    ) -> dartforge_syntax::Extension<'static> {
+        dartforge_syntax::Extension {
+            id,
+            name,
+            on_type,
+            methods: vec![function("value", Type::Int, vec![], vec![ret(int())])],
+            span: SPAN,
+        }
+    }
+    /// Constrói uma chamada de extension com posição conhecida para a tabela lateral.
+    fn extension_call(receiver: Expr<'static>) -> Expr<'static> {
+        expr(ExprKind::MethodCall {
+            receiver: Box::new(receiver),
+            name: "value",
+            arguments: vec![],
+        })
+    }
+    /// Verifica this primitivo, tipos de argumentos e gravação da resolução estática.
+    #[test]
+    fn primitive_extensions_record_resolved_calls() {
+        let mut ext = extension(7, "Numbers", Type::Int);
+        ext.methods[0].body = vec![ret(binary(BinaryOp::Add, expr(ExprKind::This), int()))];
+        let program = Program {
+            extensions: vec![ext],
+            classes: vec![],
+            functions: vec![],
+            statements: vec![print(extension_call(int()))],
+        };
+        let resolution = analyze(&program).unwrap();
+        assert_eq!(
+            resolution.extension_calls[&(SPAN.start, SPAN.end)].extension_id,
+            7
+        );
+        let program = Program {
+            extensions: vec![extension(7, "Numbers", Type::Int)],
+            classes: vec![],
+            functions: vec![],
+            statements: vec![print(extension_call(expr(ExprKind::Bool(true))))],
+        };
+        assert!(analyze(&program).is_err());
+    }
+    /// Rejeita ambiguidade e receptor anulável sem promoção comprovada.
+    #[test]
+    fn extensions_require_unique_applicable_nonnullable_receiver() {
+        assert!(
+            analyze(&Program {
+                extensions: vec![extension(0, "A", Type::Int), extension(1, "B", Type::Int)],
+                classes: vec![],
+                functions: vec![],
+                statements: vec![print(extension_call(int()))]
+            })
+            .is_err()
+        );
+        let nullable = function(
+            "f",
+            Type::Void,
+            vec![("x", Type::NullableInt)],
+            vec![print(extension_call(id("x")))],
+        );
+        assert!(
+            analyze(&Program {
+                extensions: vec![extension(0, "A", Type::Int)],
+                classes: vec![],
+                functions: vec![nullable],
+                statements: vec![]
+            })
+            .is_err()
+        );
+        let promoted = function(
+            "f",
+            Type::Void,
+            vec![("x", Type::NullableInt)],
+            vec![stmt(StatementKind::If {
+                condition: present("x"),
+                then_body: vec![print(extension_call(id("x")))],
+                else_body: None,
+            })],
+        );
+        assert_eq!(
+            analyze(&Program {
+                extensions: vec![extension(0, "A", Type::Int)],
+                classes: vec![],
+                functions: vec![promoted],
+                statements: vec![]
+            })
+            .unwrap()
+            .extension_calls
+            .len(),
+            1
+        );
+    }
+    /// Membros reais prevalecem sobre extensions, inclusive campos não invocáveis.
+    #[test]
+    fn instance_members_take_precedence_over_extensions() {
+        let mut c = class(0, "C", None);
+        c.methods
+            .push(function("value", Type::Int, vec![], vec![ret(int())]));
+        assert!(
+            analyze(&Program {
+                extensions: vec![extension(0, "E", Type::Class(0))],
+                classes: vec![c],
+                functions: vec![],
+                statements: vec![print(extension_call(expr(ExprKind::Construct {
+                    class_id: 0
+                })))]
+            })
+            .unwrap()
+            .extension_calls
+            .is_empty()
+        );
+        let mut c = class(0, "C", None);
+        c.fields.push(field("value", false));
+        assert!(
+            analyze(&Program {
+                extensions: vec![extension(0, "E", Type::Class(0))],
+                classes: vec![c],
+                functions: vec![],
+                statements: vec![print(extension_call(expr(ExprKind::Construct {
+                    class_id: 0
+                })))]
+            })
+            .is_err()
+        );
+    }
+    /// Seleciona o on mais específico sem trocar o tipo declarado pelo tipo construído.
+    #[test]
+    fn extension_specificity_uses_static_declared_type() {
+        for (annotation, expected) in [
+            (None, 1),
+            (Some(Type::Class(0)), 0),
+            (Some(Type::NullableClass(0)), 0),
+        ] {
+            let program = Program {
+                extensions: vec![
+                    extension(0, "EA", Type::Class(0)),
+                    extension(1, "EB", Type::Class(1)),
+                ],
+                classes: vec![class(0, "A", None), class(1, "B", Some(0))],
+                functions: vec![],
+                statements: vec![
+                    stmt(StatementKind::Variable {
+                        name: "x",
+                        annotation,
+                        is_final: false,
+                        initializer: expr(ExprKind::Construct { class_id: 1 }),
+                    }),
+                    print(extension_call(id("x"))),
+                ],
+            };
+            assert_eq!(
+                analyze(&program).unwrap().extension_calls[&(SPAN.start, SPAN.end)].extension_id,
+                expected
+            );
+        }
+        let mut b = class(1, "B", Some(0));
+        b.methods
+            .push(function("onlyChild", Type::Int, vec![], vec![ret(int())]));
+        assert!(
+            validate(&Program {
+                extensions: vec![],
+                classes: vec![class(0, "A", None), b],
+                functions: vec![],
+                statements: vec![
+                    stmt(StatementKind::Variable {
+                        name: "x",
+                        annotation: Some(Type::Class(0)),
+                        is_final: false,
+                        initializer: expr(ExprKind::Construct { class_id: 1 })
+                    }),
+                    print(expr(ExprKind::MethodCall {
+                        receiver: Box::new(id("x")),
+                        name: "onlyChild",
+                        arguments: vec![]
+                    }))
+                ]
+            })
+            .is_err()
+        );
     }
     /// Constrói uma classe de teste sem membros e com base opcional.
     fn class(
@@ -1175,6 +1549,7 @@ mod tests {
             .push(function("get", Type::Int, vec![], vec![ret(int())]));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
                 statements: vec![
@@ -1200,6 +1575,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![class(0, "Base", None), class(1, "Child", Some(0))],
                 functions: vec![],
                 statements: vec![stmt(StatementKind::Variable {
@@ -1222,6 +1598,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    extensions: vec![],
                     classes,
                     functions: vec![],
                     statements: vec![]
@@ -1241,6 +1618,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
                 statements: vec![]
@@ -1253,6 +1631,7 @@ mod tests {
         child.fields.push(field("x", false));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
                 statements: vec![]
@@ -1272,6 +1651,7 @@ mod tests {
             .push(function("f", Type::Void, vec![("x", Type::Int)], vec![]));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
                 statements: vec![]
@@ -1287,6 +1667,7 @@ mod tests {
         c.fields.push(field("x", true));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![c],
                 functions: vec![],
                 statements: vec![
@@ -1302,6 +1683,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![class(0, "A", None)],
                 functions: vec![],
                 statements: vec![print(expr(ExprKind::Construct { class_id: 0 }))]
@@ -1310,6 +1692,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![class(0, "A", None)],
                 functions: vec![],
                 statements: vec![
@@ -1329,6 +1712,7 @@ mod tests {
         });
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![c],
                 functions: vec![],
                 statements: vec![]
@@ -1350,6 +1734,7 @@ mod tests {
         });
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![c],
                 functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
                 statements: vec![]
@@ -1366,6 +1751,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![class(0, "C", None), a],
                 functions: vec![],
                 statements: vec![]
@@ -1383,6 +1769,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![c],
                 functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
                 statements: vec![]
@@ -1411,6 +1798,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![base, child, a, b],
                 functions: vec![],
                 statements: vec![]
@@ -1435,6 +1823,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![c],
                 functions: vec![f],
                 statements: vec![]
@@ -1469,6 +1858,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![c],
                 functions: vec![],
                 statements: vec![]
@@ -1483,6 +1873,7 @@ mod tests {
     /// Valida um corpo com um parâmetro inteiro anulável.
     fn nullable_body(body: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![function(
                 "f",
@@ -1673,6 +2064,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![
                     function(
@@ -1689,6 +2081,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "f",
@@ -1761,6 +2154,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![
                     function(
@@ -1932,6 +2326,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    extensions: vec![],
                     classes: vec![],
                     functions: vec![function("f", Type::Int, vec![], body)],
                     statements: vec![]
@@ -1941,6 +2336,7 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "f",
@@ -1963,6 +2359,7 @@ mod tests {
     /// Verifica referências antecipadas, recursão e parâmetros mutáveis.
     fn forward_calls_recursion_and_mutable_parameters() {
         let program = Program {
+            extensions: vec![],
             classes: vec![],
             functions: vec![
                 function(
@@ -1998,6 +2395,7 @@ mod tests {
         for arguments in [vec![], vec![int(), int()], vec![expr(ExprKind::Bool(true))]] {
             assert!(
                 validate(&Program {
+                    extensions: vec![],
                     classes: vec![],
                     functions: vec![function(
                         "f",
@@ -2035,6 +2433,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    extensions: vec![],
                     classes: vec![],
                     functions: vec![function("f", Type::Int, vec![], body)],
                     statements: vec![]
@@ -2044,6 +2443,7 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "f",
@@ -2099,6 +2499,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    extensions: vec![],
                     classes: vec![],
                     functions,
                     statements: vec![]
@@ -2112,6 +2513,7 @@ mod tests {
     fn parameters_shadow_body_types_but_not_signature_types() {
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "f",
@@ -2125,6 +2527,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "f",
@@ -2138,6 +2541,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "f",
@@ -2312,6 +2716,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![
                     function(
@@ -2348,6 +2753,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
                     "wrong",

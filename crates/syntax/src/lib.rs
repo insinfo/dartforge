@@ -175,6 +175,7 @@ pub struct Function<'a> {
 #[derive(Debug)]
 /// Programa com funções auxiliares e o corpo da entrada main.
 pub struct Program<'a> {
+    pub extensions: Vec<Extension<'a>>,
     pub classes: Vec<Class<'a>>,
     pub functions: Vec<Function<'a>>,
     pub statements: Vec<Statement<'a>>,
@@ -198,4 +199,30 @@ pub struct Field<'a> {
     pub is_final: bool,
     pub initializer: Expr<'a>,
     pub span: Span,
+}
+
+/// Extension nomeada com métodos de instância resolvidos estaticamente.
+#[derive(Debug)]
+pub struct Extension<'a> {
+    pub id: u32,
+    pub name: &'a str,
+    pub on_type: Type,
+    pub methods: Vec<Function<'a>>,
+    pub span: Span,
+}
+
+/// Destino estático de uma chamada de método de extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtensionTarget {
+    pub extension_id: u32,
+    pub method_index: usize,
+}
+
+/// Resoluções semânticas indexadas pelo intervalo completo de cada chamada.
+///
+/// As chaves são (início, fim) em bytes na unidade analisada. Um linker futuro
+/// deverá usar intervalos virtuais únicos ao combinar bibliotecas com extensions.
+#[derive(Debug, Default)]
+pub struct Resolution {
+    pub extension_calls: std::collections::BTreeMap<(usize, usize), ExtensionTarget>,
 }

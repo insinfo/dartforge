@@ -16,11 +16,13 @@ O protótipo suporta um subconjunto explícito:
 - Expressões aritméticas, relacionais e booleanas; `print`; strings Unicode com escapes e strings raw.
 - Tipos anuláveis, promoção de fluxo, operadores `??` e `!`.
 - Classes, campos, métodos e herança simples com despacho dinâmico.
+- Extensions nomeadas em uma unidade, com alvos de chamadas resolvidos estaticamente.
+- Compilação conjunta de imports relativos com namespaces e privacidade por biblioteca.
 - Validação de nomes, tipos, argumentos, retornos e mutabilidade.
 - Avaliação opcional de constantes puras com `--optimize`.
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
-Ainda não compila aplicações Dart/ngdart completas. Imports ainda não são compilados em conjunto; faltam bibliotecas
+Ainda não compila aplicações Dart/ngdart completas. Faltam imports de pacotes, bibliotecas
 padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
 vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
 
@@ -56,18 +58,18 @@ Na máquina de desenvolvimento original, Rust está em `D:\Rust` e o projeto em
 ## Análise, imports e desempenho
 
 Detalhes: [null safety](docs/NULL-SAFETY.md), [classes](docs/CLASSES.md),
-[grafo de imports](docs/IMPORTS.md) e [benchmarks](docs/BENCHMARKS.md).
+[bibliotecas/imports](docs/MODULES.md), [extensions](docs/EXTENSIONS.md) e [benchmarks](docs/BENCHMARKS.md).
 
     cargo run -p dartforge-cli -- graph caminho/main.dart
     cargo bench --locked -p dartforge-compiler --bench pipeline
 
-O grafo ainda não resolve namespaces nem substitui a compilação de bibliotecas.
+O comando `graph` mostra dependências; `compile` resolve e compila as bibliotecas relativas.
 
 ## Workspace
 
 | Crate | Responsabilidade |
 |---|---|
-| packages | Grafo de imports relativos por arquivo |
+| packages / linker | Grafo, namespaces, privacidade e ligação de bibliotecas |
 | diagnostics | Diagnósticos e spans |
 | syntax | Tokens e AST |
 | lexer / parser | Frontend do subconjunto |

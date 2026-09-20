@@ -22,7 +22,7 @@ pub struct FoldStats {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let mut programa = Program { classes: vec![], functions: vec![], statements: vec![] };
+/// let mut programa = Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert_eq!(dartforge_optimizer::fold_constants(&mut programa).folded_expressions, 0);
 /// ```
 pub fn fold_constants(program: &mut Program<'_>) -> FoldStats {
@@ -32,6 +32,11 @@ pub fn fold_constants(program: &mut Program<'_>) -> FoldStats {
             fold_expression(&mut field.initializer, &mut stats);
         }
         for method in &mut class.methods {
+            fold_statements(&mut method.body, &mut stats);
+        }
+    }
+    for extension in &mut program.extensions {
+        for method in &mut extension.methods {
             fold_statements(&mut method.body, &mut stats);
         }
     }
@@ -119,9 +124,12 @@ fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
             fold_expression(left, stats);
             if *op == BinaryOp::IfNull && matches!(left.kind, ExprKind::Null) {
                 fold_expression(right, stats);
+                // A chamada selecionada conserva sua identidade na tabela de resolução.
+                expression.span = right.span;
                 Some(std::mem::replace(&mut right.kind, ExprKind::Null))
             } else if *op == BinaryOp::IfNull && is_literal(&left.kind) {
                 // O ramo direito não executa; não visita nem contabiliza suas constantes.
+                expression.span = left.span;
                 Some(std::mem::replace(&mut left.kind, ExprKind::Null))
             } else {
                 fold_expression(right, stats);
@@ -434,6 +442,7 @@ mod tests {
     fn traverses_class_members_and_loop_positions() {
         let sum = || binary(BinaryOp::Add, int(1), int(2));
         let mut program = Program {
+            extensions: vec![],
             classes: vec![Class {
                 id: 0,
                 name: "C",

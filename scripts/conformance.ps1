@@ -30,6 +30,11 @@ try {
     New-Item -ItemType Directory -Force $runDir | Out-Null
     $results = @()
     $cases = @(Get-ChildItem 'tests/conformance/cases/*.dart' | Sort-Object Name)
+    if (Test-Path 'tests/conformance/modules') {
+        $cases += @(Get-ChildItem 'tests/conformance/modules/*/main.dart' | Sort-Object FullName | ForEach-Object {
+            [pscustomobject]@{ FullName=$_.FullName; BaseName=('module_' + $_.Directory.Name); Name=('modules/' + $_.Directory.Name + '/main.dart') }
+        })
+    }
     if (!$cases.Count) { throw 'No conformance cases found' }
     $levels = @($OptimizationLevels | Select-Object -Unique)
     if (!$levels.Count) { throw 'No optimization levels selected' }
