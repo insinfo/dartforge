@@ -39,6 +39,23 @@ struct ClassNames<'a> {
 /// # Ok::<(), dartforge_packages::GraphError>(())
 /// ```
 pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<String, GraphError> {
+    compile_graph_with(graph, optimize_constants, |module| {
+        Ok(dartforge_codegen::emit(module))
+    })
+}
+
+/// Resolve e valida bibliotecas antes de entregar a HIR a um backend selecionado.
+///
+/// A HIR empresta nomes das arenas locais e só pode ser consumida durante a chamada.
+/// Diagnósticos do backend são traduzidos de spans virtuais para arquivo e span original.
+///
+/// # Erros
+/// Retorna falhas de resolução, análise ou recursos rejeitados pelo backend.
+pub fn compile_graph_with(
+    graph: &SourceGraph,
+    optimize_constants: bool,
+    emit: impl FnOnce(&dartforge_hir::Module<'_>) -> Result<String, Diagnostic>,
+) -> Result<String, GraphError> {
     if graph.entry >= graph.units.len() {
         return Err(GraphError {
             path: std::path::PathBuf::new(),
@@ -292,7 +309,23 @@ pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<St
     if optimize_constants {
         dartforge_optimizer::fold_constants(&mut linked);
     }
-    Ok(dartforge_codegen::emit(&dartforge_hir::lower(linked)))
+    emit(&dartforge_hir::lower(linked)).map_err(|error| {
+        let unit_id = offsets
+            .iter()
+            .rposition(|&start| start <= error.span.start)
+            .unwrap_or(graph.entry);
+        source_error(
+            graph,
+            unit_id,
+            Diagnostic::new(
+                error.message,
+                Span {
+                    start: error.span.start.saturating_sub(offsets[unit_id]),
+                    end: error.span.end.saturating_sub(offsets[unit_id]),
+                },
+            ),
+        )
+    })
 }
 
 /// Aplica combinadores na ordem declarada sem tornar nomes privados públicos.

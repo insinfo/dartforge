@@ -7,6 +7,7 @@ name = "dartforge-cli"
 version = "0.1.0"
 dependencies = [
  "dartforge-compiler",
+ "dartforge-native",
  "dartforge-packages",
  "serde_json",
 ]
@@ -30,6 +31,8 @@ dependencies = [
  "dartforge-hir",
  "dartforge-lexer",
  "dartforge-linker",
+ "dartforge-llvm",
+ "dartforge-native",
  "dartforge-optimizer",
  "dartforge-packages",
  "dartforge-parser",
@@ -72,11 +75,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "dartforge-llvm"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-hir",
+ "dartforge-lexer",
+ "dartforge-parser",
+ "dartforge-semantic",
+ "dartforge-syntax",
+]
+
+[[package]]
 name = "dartforge-lsp"
 version = "0.1.0"
 dependencies = [
  "dartforge-compiler",
  "dartforge-diagnostics",
+]
+
+[[package]]
+name = "dartforge-native"
+version = "0.1.0"
+dependencies = [
+ "dartforge-runtime",
 ]
 
 [[package]]
@@ -113,6 +135,10 @@ dependencies = [
  "dartforge-lexer",
  "dartforge-syntax",
 ]
+
+[[package]]
+name = "dartforge-runtime"
+version = "0.1.0"
 
 [[package]]
 name = "dartforge-semantic"

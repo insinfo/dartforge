@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/insinfo/dartforge/actions/workflows/ci.yml/badge.svg)](https://github.com/insinfo/dartforge/actions/workflows/ci.yml)
 
-Compilador experimental **Dart 3.6.2 → JavaScript**, escrito em Rust, sob licença MIT.
+Compilador experimental **Dart 3.6.2 → JavaScript e executáveis nativos LLVM**, escrito em Rust, sob licença MIT.
 Objetivo: uma base compartilhada para compilação, análise, LSP, ngdart e ferramentas web.
 
 ## Estado atual
@@ -66,6 +66,26 @@ Detalhes: [null safety](docs/NULL-SAFETY.md), [classes](docs/CLASSES.md),
 
 O comando `graph` mostra dependências; `compile` resolve e compila bibliotecas relativas e pacotes configurados.
 
+## Backend AOT LLVM inicial
+
+    ./scripts/env.ps1
+    cargo run --release -p dartforge-cli -- emit-llvm examples/native/main.dart dist/native.ll
+    cargo run --release -p dartforge-cli -- aot examples/native/main.dart dist/native.exe --optimize
+
+O AOT suporta `int` de 64 bits com overflow modular, `bool`, funções/recursão,
+variáveis, condicionais, laços e imports/pacotes. Strings, null e objetos ainda
+recebem diagnóstico no backend nativo, mesmo quando aceitos no backend JS.
+
+Requer Clang/LLVM 17+ e rustc/linker nativo. Configure `DARTFORGE_CLANG` e
+`DARTFORGE_RUSTC` ou use as ferramentas no PATH. Na instalação original,
+`scripts/env.ps1` detecta LLVM 22.1.8 em `D:\LLVM\22.1.8`.
+Sem `--optimize`, usa LLVM O0; com a opção, LLVM O2. Isso é independente do
+passe de constantes do backend JS. O runtime é Rust; LLVM/Clang são dependências
+externas. O executável não requer o Dart SDK para rodar.
+
+Detalhes: [driver e ABI](docs/AOT-DRIVER.md), [referências Dartino](docs/AOT-REFERENCIAS.md)
+e [incremento AOT](docs/IMPLEMENTACAO-07.md).
+
 ## Workspace
 
 | Crate | Responsabilidade |
@@ -79,6 +99,7 @@ O comando `graph` mostra dependências; `compile` resolve e compila bibliotecas 
 | codegen | Emissão JavaScript |
 | optimizer | Simplificação opcional de constantes após validação |
 | compiler / cli | Pipeline compartilhado e executável |
+| llvm / native / runtime | LLVM IR, driver AOT e runtime Rust inicial |
 | ngdart / lsp / web | Fronteiras iniciais para expansão |
 
 ## Contribuição e documentação

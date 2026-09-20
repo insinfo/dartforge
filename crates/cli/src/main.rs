@@ -31,7 +31,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge emit-llvm <input.dart> <output.ll>\n       dartforge aot <input.dart> <output.exe> [--optimize]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }
@@ -55,6 +55,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
+    if (args.len() == 3 || (args.len() == 4 && args[3] == "--optimize")) && args[0] == "aot" {
+        let input = PathBuf::from(&args[1]);
+        let output = PathBuf::from(&args[2]);
+        let ir = dartforge_compiler::compile_path_llvm(&input)?;
+        let options = dartforge_native::NativeOptions {
+            optimize: args.len() == 4,
+            ..Default::default()
+        };
+        if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)?;
+        }
+        dartforge_native::build_executable(&ir, &output, &options)?;
+        println!(
+            "{} -> {} (AOT LLVM {})",
+            input.display(),
+            output.display(),
+            if options.optimize { "O2" } else { "O0" }
+        );
+        return Ok(());
+    }
+    if args.len() == 3 && args[0] == "emit-llvm" {
+        let ir = dartforge_compiler::compile_path_llvm(std::path::Path::new(&args[1]))?;
+        write_new(std::path::Path::new(&args[2]), &ir)?;
+        return Ok(());
+    }
     let optimized = args.len() == 4 && args[3] == "--optimize";
     if (args.len() != 3 && !optimized) || args[0] != "compile" {
         return Err("usage: dartforge compile <input.dart> <output.mjs> [--optimize]".into());
@@ -68,15 +93,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         dartforge_compiler::Optimization::None
     };
     let js = dartforge_compiler::compile_path(&input, mode)?;
-    if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
-    use std::io::Write;
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&output)?;
-    file.write_all(js.as_bytes())?;
+    write_new(&output, &js)?;
     println!(
         "{} -> {} ({} bytes)",
         input.display(),
@@ -84,6 +101,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         js.len()
     );
     Ok(())
+}
+/// Grava um artefato textual sem sobrescrever arquivos existentes.
+fn write_new(output: &std::path::Path, text: &str) -> std::io::Result<()> {
+    if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)?;
+    file.write_all(text.as_bytes())
 }
 /// Converte o resultado do comando em mensagem e código de saída do processo.
 fn main() -> ExitCode {

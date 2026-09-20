@@ -244,6 +244,19 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 - [ ] Recompilação incremental por unidade e invalidação por dependências semânticas.
 - [ ] Prefixos, runtime dart:, parts, extensions importadas e aplicações ngdart reais.
 
+## Sétimo incremento — AOT LLVM e runtime Rust inicial
+
+- [x] Clonar Dartino LLVM (dart-archive/sdk) e LLVM histórico, registrando revisão/licença.
+- [x] Reutilizar frontend, HIR e resolução de bibliotecas para múltiplos backends.
+- [x] Emitir LLVM IR textual com i64 modular, bool, funções, escopos e CFG explícito.
+- [x] Gerar objetos via Clang e executáveis com runtime Rust pelo linker do rustc.
+- [x] Oferecer `emit-llvm` e `aot`, com O0/O2 e diagnóstico de recursos não suportados.
+- [x] Corpus nativo com oráculos Dart VM/AOT 3.6.2 e testes em Windows/Linux na CI.
+- [ ] Instrumentar tempos por fase e cachear runtime/objetos com chaves de toolchain/ABI.
+- [ ] Definir IR tipada própria mais completa, ABI de valores/objetos e runtime de strings.
+- [ ] Planejar GC, raízes, barreiras e safepoints antes de objetos móveis.
+- [ ] Ampliar null safety nativa, despacho, closures, generics e exceções portáveis.
+
 ## Próximas tarefas
 
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.

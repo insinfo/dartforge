@@ -4,7 +4,7 @@
 //! de expressão. Ainda não existe uma IR completa com IDs para todos os locais e tipos.
 use dartforge_syntax::{Class, Extension, Function, Program, Resolution, Statement};
 
-/// Módulo validado consumido pelo gerador de JavaScript.
+/// Módulo validado consumido pelos backends de emissão.
 #[derive(Debug)]
 pub struct Module<'a> {
     /// Classes nominais e sua hierarquia validada.

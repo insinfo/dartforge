@@ -65,3 +65,14 @@ recompilação incremental por unidade. A criação do corpus fica fora do tempo
 DARTFORGE_BENCH_LIBRARIES controla o número de bibliotecas (100) e
 DARTFORGE_BENCH_SAMPLES controla amostras (21) no benchmark de bibliotecas. O relatório
 registra arquivos, bytes, amostras, toolchain e estado Git. O filesystem está aquecido.
+
+## AOT nativo inicial
+
+    ./scripts/conformance-native.ps1 -Samples 3
+
+Executa os casos de `tests/native/` na VM Dart 3.6.2, no AOT oficial e no DartForge
+LLVM O0/O2. Registra tempos de build completos, incluindo subprocessos Clang/rustc,
+runtime e link; não mede somente emissão de IR. O LLVM instalado deve ser informado
+com `-ClangExe`, `DARTFORGE_CLANG` ou PATH. `-DartExe` seleciona o SDK alvo.
+Os [resultados iniciais](IMPLEMENTACAO-07.md) usam corpus pequeno e três amostras;
+não comprovam superioridade geral nem comparam AOT com DDC/dart2js.

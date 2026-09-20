@@ -9,3 +9,8 @@ if ($env:CARGO_HOME) {
         $env:Path = $cargoBin + [IO.Path]::PathSeparator + $env:Path
     }
 }
+
+# Prefer user configuration or PATH; use the verified local LLVM only as fallback.
+if (!$env:DARTFORGE_CLANG -and !(Get-Command clang -ErrorAction SilentlyContinue) -and (Test-Path 'D:\LLVM\22.1.8\bin\clang.exe')) {
+    $env:DARTFORGE_CLANG = 'D:\LLVM\22.1.8\bin\clang.exe'
+}

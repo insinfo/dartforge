@@ -26,6 +26,8 @@ jobs:
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Native LLVM toolchain
+        run: clang --version
       - run: cargo test --locked --workspace -- --include-ignored
       - name: Documentação Rust em português
         env:
@@ -52,3 +54,6 @@ jobs:
       - name: Compare constant folding with dart2js O2
         shell: pwsh
         run: ./scripts/conformance.ps1 -DartForgeOptimize
+      - name: Compare LLVM O0/O2 with Dart VM and AOT
+        shell: pwsh
+        run: ./scripts/conformance-native.ps1

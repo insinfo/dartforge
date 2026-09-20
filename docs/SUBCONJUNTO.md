@@ -96,3 +96,12 @@ ngdart completo. Também não há benchmark válido de vantagem sobre DDC/dart2j
 português: `//!` para módulos, `///` para funções, contratos, limitações e exemplos
 executáveis nas APIs públicas. A aceitação de sintaxe deve vir acompanhada de testes
 que preservem efeitos, ordem de avaliação e escopos.
+
+## Alvo nativo LLVM
+
+O backend nativo tem um subconjunto separado: int64 modular, bool, void,
+funções/recursão, variáveis, controle de fluxo e bibliotecas/pacotes. Não suporta
+strings, null, classes, herança ou extensions. A validação da HIR rejeita esses
+recursos antes do driver, inclusive em código não executado. Os literais ainda são
+limitados a i32 pelo parser compartilhado; os resultados das operações usam i64.
+O alvo JS mantém sua representação Number. Ver [referências e plano AOT](AOT-REFERENCIAS.md).

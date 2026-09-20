@@ -1,4 +1,4 @@
-//! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript.
+//! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript e LLVM IR.
 use dartforge_diagnostics::Diagnostic;
 mod session;
 pub use session::{Compilation, CompilerSession, SessionStats};
@@ -108,6 +108,45 @@ pub(crate) fn compile_loaded_graph(
     }
     dartforge_linker::compile_graph(graph, optimization == Optimization::Constants)
 }
+/// Compila uma unidade validada para LLVM IR do subconjunto nativo.
+///
+/// Inteiros usam i64 com overflow modular, conforme o alvo nativo Dart. A otimização
+/// de máquina é responsabilidade do driver LLVM, sem reaproveitar hipóteses do JS.
+///
+/// # Erros
+/// Rejeita recursos ainda sem representação nativa, inclusive em código morto.
+pub fn compile_llvm(source: &str) -> Result<String, Diagnostic> {
+    dartforge_packages::validate_language_version(source)?;
+    let tokens = dartforge_lexer::lex(source)?;
+    let ast = dartforge_parser::parse(&tokens, source.len())?;
+    let resolution = dartforge_semantic::analyze(&ast)?;
+    dartforge_llvm::emit(&dartforge_hir::lower_resolved(ast, resolution))
+}
+
+/// Compila uma entrada e seu grafo de bibliotecas para LLVM IR.
+///
+/// Reutiliza resolução de pacotes, privacidade e reexports do backend JavaScript.
+/// Não aplica o passe de constantes JS; O0/O2 são selecionados no driver nativo.
+///
+/// # Erros
+/// Retorna diagnósticos localizados para carga, análise e restrições do backend.
+pub fn compile_path_llvm(path: &std::path::Path) -> Result<String, dartforge_packages::GraphError> {
+    let graph = dartforge_packages::load(path)?;
+    if graph.units.len() == 1
+        && graph.units[0].imports.is_empty()
+        && graph.units[0].exports.is_empty()
+    {
+        return compile_llvm(&graph.units[0].source).map_err(|error| {
+            dartforge_packages::GraphError {
+                path: graph.units[0].path.clone(),
+                span: Some(error.span),
+                message: error.message,
+            }
+        });
+    }
+    dartforge_linker::compile_graph_with(&graph, false, dartforge_llvm::emit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
