@@ -114,9 +114,26 @@ impl CompilerSession {
         path: &Path,
         options: CompileOptions,
     ) -> Result<Compilation, GraphError> {
+        self.compile_path_with_environment(
+            path,
+            options,
+            &crate::CompilationEnvironment::javascript(),
+        )
+    }
+    /// Inclui o perfil de plataforma na chave de cache do grafo selecionado.
+    ///
+    /// # Erros
+    /// Falhas de ambiente, carregamento ou compilação descartam a entrada anterior.
+    pub fn compile_path_with_environment(
+        &mut self,
+        path: &Path,
+        options: CompileOptions,
+        environment: &crate::CompilationEnvironment,
+    ) -> Result<Compilation, GraphError> {
         // Retira antes de carregar: inclusive erros de filesystem invalidam a entrada.
         let previous = self.cached.take();
-        let graph = dartforge_packages::load(path)?;
+        crate::validate_environment(path, environment, crate::CompilationTarget::JavaScript)?;
+        let graph = dartforge_packages::load_with_environment(path, environment)?;
         let count = graph.units.len();
         if let Some(cached) = previous.as_ref()
             && cached.options == options

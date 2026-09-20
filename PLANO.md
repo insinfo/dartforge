@@ -340,3 +340,11 @@ aplicações de mixins e exaustividade sealed conforme Dart 3.6.2. Contrato em
 [CLASS-MODIFIERS.md](docs/CLASS-MODIFIERS.md). Próximas etapas: partes da biblioteca,
 restrições on e super, contratos completos de propriedades, padrões de objeto
 com desestruturação e lowering LLVM de switch.
+
+### Incremento 15 — diretivas condicionais
+
+Seleção por primeira correspondência em imports/exports, perfis imutáveis Dart
+3.6.2, inspeção de grafo JS/Native/Wasm e cache sensível ao ambiente implementados.
+Veja [contrato e limites](docs/IMPLEMENTACAO-15.md). Próximos passos incluem
+implementação das bibliotecas padrão adicionais e backend Wasm; as flags atuais
+descrevem a seleção compatível com o SDK, sem habilitar essas APIs.

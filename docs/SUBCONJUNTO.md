@@ -151,3 +151,10 @@ Base/final/sealed e mixin/mixin class são descritos em
 para aplicações abstratas com despacho e armazenamento por instância. Os backends
 JS e LLVM compartilham essas aplicações; switches sealed e padrões C() permanecem
 no JavaScript. Part/part of, on, super e aplicações de mixins em enums continuam pendentes.
+
+## Imports e exports condicionais
+
+Diretivas com if e igualdade de strings selecionam a primeira alternativa verdadeira
+por perfil Dart 3.6.2. Veja [o incremento 15](IMPLEMENTACAO-15.md). JS e Native AOT
+usam seus próprios perfis; Wasm só permite inspeção do grafo. Bibliotecas SDK
+anunciadas pelas condições não estão automaticamente implementadas no DartForge.

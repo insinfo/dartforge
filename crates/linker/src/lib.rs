@@ -1080,6 +1080,7 @@ mod tests {
     /// Monta um grafo em memória com imports representados pelas arestas declaradas.
     fn graph(sources: &[(&str, &[usize])]) -> SourceGraph {
         SourceGraph {
+            environment: dartforge_packages::CompilationEnvironment::javascript(),
             entry: 0,
             units: sources
                 .iter()

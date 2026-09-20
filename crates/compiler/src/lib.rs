@@ -1,6 +1,7 @@
 //! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript e LLVM IR.
 use dartforge_diagnostics::Diagnostic;
 mod session;
+pub use dartforge_packages::{CompilationEnvironment, CompilationTarget};
 pub use session::{Compilation, CompilerSession, SessionStats};
 /// Compila o subconjunto suportado de Dart em um módulo JavaScript ESM.
 ///
@@ -119,14 +120,54 @@ pub fn compile_path_with_options(
     path: &std::path::Path,
     options: CompileOptions,
 ) -> Result<String, dartforge_packages::GraphError> {
-    let graph = dartforge_packages::load(path)?;
+    compile_path_with_environment(path, options, &CompilationEnvironment::javascript())
+}
+/// Compila JavaScript selecionando imports/exports no ambiente explícito.
+///
+/// # Erros
+/// Rejeita perfis nativo/Wasm e retorna diagnósticos das bibliotecas selecionadas.
+pub fn compile_path_with_environment(
+    path: &std::path::Path,
+    options: CompileOptions,
+    environment: &CompilationEnvironment,
+) -> Result<String, dartforge_packages::GraphError> {
+    validate_environment(path, environment, CompilationTarget::JavaScript)?;
+    let graph = dartforge_packages::load_with_environment(path, environment)?;
     compile_loaded_graph(&graph, options)
+}
+/// Impede que seleção de bibliotecas de um alvo seja emitida por outro backend.
+pub(crate) fn validate_environment(
+    path: &std::path::Path,
+    environment: &CompilationEnvironment,
+    expected: CompilationTarget,
+) -> Result<(), dartforge_packages::GraphError> {
+    if environment.target() != expected {
+        return Err(dartforge_packages::GraphError {
+            path: path.to_owned(),
+            span: None,
+            message: if environment.target() == CompilationTarget::Wasm {
+                "Wasm emission is not implemented; use graph --target wasm for graph inspection"
+                    .into()
+            } else {
+                format!(
+                    "Compilation environment {:?} must match backend {expected:?}",
+                    environment.target()
+                )
+            },
+        });
+    }
+    Ok(())
 }
 /// Compila um grafo recarregado pela rota compartilhada com a sessão.
 pub(crate) fn compile_loaded_graph(
     graph: &dartforge_packages::SourceGraph,
     options: CompileOptions,
 ) -> Result<String, dartforge_packages::GraphError> {
+    validate_environment(
+        &graph.units[graph.entry].path,
+        &graph.environment,
+        CompilationTarget::JavaScript,
+    )?;
     // A unidade isolada preserva o caminho direto e evita resolver um namespace sem imports.
     if graph.units.len() == 1
         && graph.units[0].imports.is_empty()
@@ -192,7 +233,19 @@ pub fn compile_path_llvm_with_options(
     path: &std::path::Path,
     options: CompileOptions,
 ) -> Result<String, dartforge_packages::GraphError> {
-    let graph = dartforge_packages::load(path)?;
+    compile_path_llvm_with_environment(path, options, &CompilationEnvironment::native())
+}
+/// Compila LLVM após selecionar diretivas pelo perfil nativo AOT do Dart 3.6.2.
+///
+/// # Erros
+/// Rejeita perfis JavaScript/Wasm e APIs de biblioteca sem implementação nativa.
+pub fn compile_path_llvm_with_environment(
+    path: &std::path::Path,
+    options: CompileOptions,
+    environment: &CompilationEnvironment,
+) -> Result<String, dartforge_packages::GraphError> {
+    validate_environment(path, environment, CompilationTarget::Native)?;
+    let graph = dartforge_packages::load_with_environment(path, environment)?;
     if graph.units.len() == 1
         && graph.units[0].imports.is_empty()
         && graph.units[0].exports.is_empty()

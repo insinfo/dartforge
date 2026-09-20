@@ -1,0 +1,6 @@
+native
+absent=false
+export native
+package native
+default
+3

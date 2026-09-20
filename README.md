@@ -168,3 +168,10 @@ O [incremento 14](docs/IMPLEMENTACAO-14.md) acrescenta base/final/sealed, mixin 
 mixin class, aplicações ordenadas de with e padrões vazios de objeto no JavaScript.
 Mixins do subconjunto também executam no backend nativo.
 Veja [regras por biblioteca e limites](docs/CLASS-MODIFIERS.md).
+
+## Imports e exports condicionais
+
+O [incremento 15](docs/IMPLEMENTACAO-15.md) seleciona a primeira condição verdadeira
+com perfis Dart 3.6.2 para JavaScript e Native AOT. `graph --target wasm` permite
+inspecionar a seleção Wasm; a emissão desse backend permanece pendente.
+Alternativas inativas não são carregadas. Veja a [matriz verificada no SDK](docs/ENVIRONMENT-REFERENCIAS.md).

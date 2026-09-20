@@ -2,15 +2,21 @@
 //!
 //! Não resolve símbolos, bibliotecas, privacidade ou namespaces, nem combina a
 //! saída de múltiplos arquivos. O lexer existente valida a tokenização inteira.
+//! Condicionais selecionam a primeira alternativa verdadeira; destinos inativos
+//! não são resolvidos nem lidos. A análise do prefixo independe do perfil alvo.
 mod config;
+mod environment;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{Token, TokenKind};
+pub use environment::{CompilationEnvironment, CompilationTarget};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Grafo com IDs determinísticos pela ordem de descoberta em largura.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SourceGraph {
+    /// Perfil e definições usados para selecionar as arestas condicionais.
+    pub environment: CompilationEnvironment,
     /// Arquivos únicos por caminho canônico, indexados pelos IDs dos imports.
     pub units: Vec<SourceUnit>,
     /// ID da entrada solicitada, sempre zero neste carregador.
@@ -106,6 +112,35 @@ pub fn load_with_config(
     entry: &Path,
     package_config: Option<&Path>,
 ) -> Result<SourceGraph, GraphError> {
+    load_with_config_and_environment(entry, package_config, &CompilationEnvironment::javascript())
+}
+
+/// Carrega apenas as alternativas selecionadas pelo ambiente de compilação.
+///
+/// # Erros
+/// Retorna erros de sintaxe de todas as diretivas ou de resolução dos destinos ativos.
+///
+/// ```no_run
+/// let ambiente = dartforge_packages::CompilationEnvironment::native();
+/// let grafo = dartforge_packages::load_with_environment(std::path::Path::new("main.dart"), &ambiente)?;
+/// # Ok::<(), dartforge_packages::GraphError>(())
+/// ```
+pub fn load_with_environment(
+    entry: &Path,
+    environment: &CompilationEnvironment,
+) -> Result<SourceGraph, GraphError> {
+    load_with_config_and_environment(entry, None, environment)
+}
+
+/// Combina configuração de pacotes explícita ou descoberta com seleção condicional.
+///
+/// # Erros
+/// Retorna diagnósticos localizados de configuração, diretiva ou arquivo ativo.
+pub fn load_with_config_and_environment(
+    entry: &Path,
+    package_config: Option<&Path>,
+    environment: &CompilationEnvironment,
+) -> Result<SourceGraph, GraphError> {
     let path =
         std::fs::canonicalize(entry).map_err(|error| error_at(entry, None, error.to_string()))?;
     let config = config::Config::load(&path, package_config)?;
@@ -124,12 +159,19 @@ pub fn load_with_config(
         let path = units[current].path.clone();
         let directives = extract(&units[current].source, &path)?;
         for Directive {
-            uri,
+            mut uri,
+            alternatives,
             span,
             combinators,
             export,
         } in directives
         {
+            if let Some(alternative) = alternatives.into_iter().find(|alternative| {
+                environment.condition(&alternative.name, alternative.expected.as_deref())
+            }) {
+                uri = alternative.uri;
+            }
+            config::validate_uri(&uri).map_err(|message| error_at(&path, Some(span), message))?;
             if uri == "dart:core" {
                 if export || !combinators.is_empty() {
                     return Err(error_at(
@@ -200,7 +242,11 @@ pub fn load_with_config(
         }
         current += 1;
     }
-    Ok(SourceGraph { units, entry: 0 })
+    Ok(SourceGraph {
+        units,
+        entry: 0,
+        environment: environment.clone(),
+    })
 }
 
 /// Constrói diagnóstico sem misturar spans de arquivos diferentes.
@@ -215,9 +261,77 @@ fn error_at(path: &Path, span: Option<Span>, message: String) -> GraphError {
 /// Diretiva sintática antes da resolução do destino.
 struct Directive {
     uri: String,
+    alternatives: Vec<ConditionalUri>,
     span: Span,
     combinators: Vec<Combinator>,
     export: bool,
+}
+/// Alternativa sintática, mantida sem resolver ou acessar seu destino.
+struct ConditionalUri {
+    name: String,
+    expected: Option<String>,
+    uri: String,
+}
+
+/// Consome pontuação da diretiva e conserva o intervalo do token inesperado.
+fn expect_directive(
+    tokens: &[Token<'_>],
+    index: &mut usize,
+    expected: TokenKind<'_>,
+    end: usize,
+    path: &Path,
+) -> Result<(), GraphError> {
+    if tokens.get(*index).map(|token| token.kind) != Some(expected) {
+        return Err(error_at(
+            path,
+            Some(token_span(tokens, *index, end)),
+            format!("diretiva exige {expected:?}"),
+        ));
+    }
+    *index += 1;
+    Ok(())
+}
+
+/// Decodifica uma string da diretiva; formas raw preservam barras literalmente.
+fn directive_string(
+    tokens: &[Token<'_>],
+    index: &mut usize,
+    end: usize,
+    path: &Path,
+) -> Result<String, GraphError> {
+    let span = token_span(tokens, *index, end);
+    let value = match tokens.get(*index).map(|token| token.kind) {
+        Some(TokenKind::RawString(value)) => value.to_owned(),
+        Some(TokenKind::String(value)) => decode_directive_string(value, span)
+            .map_err(|error| error_at(path, Some(error.span), error.message))?,
+        _ => {
+            return Err(error_at(
+                path,
+                Some(span),
+                "diretiva exige string literal".into(),
+            ));
+        }
+    };
+    *index += 1;
+    Ok(value)
+}
+
+/// Calcula o fim do prefixo de diretivas sem selecionar ou resolver bibliotecas.
+///
+/// # Erros
+/// Retorna diagnóstico léxico ou sintático da unidade, com spans da fonte original.
+///
+///     let fonte = "import 'a.dart' if (dart.library.io) 'b.dart';";
+///     assert_eq!(dartforge_packages::directive_prefix_end(fonte).unwrap(), fonte.len());
+pub fn directive_prefix_end(source: &str) -> Result<usize, Diagnostic> {
+    extract(source, Path::new("<source>"))
+        .map(|directives| directives.last().map_or(0, |directive| directive.span.end))
+        .map_err(|error| {
+            Diagnostic::new(
+                error.message,
+                error.span.unwrap_or(Span { start: 0, end: 0 }),
+            )
+        })
 }
 
 /// Extrai imports e exports do prefixo, preservando combinadores sequenciais.
@@ -235,26 +349,61 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
         let export = tokens[index].kind == TokenKind::Word("export");
         let start = tokens[index].span.start;
         index += 1;
-        let uri = match tokens.get(index).map(|t| t.kind) {
-            Some(TokenKind::String(uri) | TokenKind::RawString(uri)) => {
-                config::validate_uri(uri).map_err(|message| {
-                    error_at(
+        let uri = directive_string(&tokens, &mut index, source.len(), path)?;
+        let mut alternatives = Vec::new();
+        while tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("if")) {
+            index += 1;
+            expect_directive(
+                &tokens,
+                &mut index,
+                TokenKind::Symbol('('),
+                source.len(),
+                path,
+            )?;
+            let mut name = String::new();
+            loop {
+                let Some(TokenKind::Word(part)) = tokens.get(index).map(|t| t.kind) else {
+                    return Err(error_at(
                         path,
                         Some(token_span(&tokens, index, source.len())),
-                        message,
-                    )
-                })?;
-                uri.to_owned()
+                        "condição exige identificador pontuado".into(),
+                    ));
+                };
+                if reserved_combinator(part) {
+                    return Err(error_at(
+                        path,
+                        Some(tokens[index].span),
+                        "identificador inválido na condição".into(),
+                    ));
+                }
+                name.push_str(part);
+                index += 1;
+                if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol('.')) {
+                    break;
+                }
+                name.push('.');
+                index += 1;
             }
-            _ => {
-                return Err(error_at(
-                    path,
-                    Some(token_span(&tokens, index, source.len())),
-                    "diretiva exige URI string".into(),
-                ));
-            }
-        };
-        index += 1;
+            let expected = if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("==")) {
+                index += 1;
+                Some(directive_string(&tokens, &mut index, source.len(), path)?)
+            } else {
+                None
+            };
+            expect_directive(
+                &tokens,
+                &mut index,
+                TokenKind::Symbol(')'),
+                source.len(),
+                path,
+            )?;
+            let uri = directive_string(&tokens, &mut index, source.len(), path)?;
+            alternatives.push(ConditionalUri {
+                name,
+                expected,
+                uri,
+            });
+        }
         let mut combinators = Vec::new();
         while let Some(TokenKind::Word(kind @ ("show" | "hide"))) =
             tokens.get(index).map(|t| t.kind)
@@ -293,11 +442,12 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
             return Err(error_at(
                 path,
                 Some(token_span(&tokens, index, source.len())),
-                "diretiva exige ; (as/deferred/condicionais não suportados)".into(),
+                "diretiva exige ; (as/deferred não suportados)".into(),
             ));
         }
         directives.push(Directive {
             uri,
+            alternatives,
             combinators,
             export,
             span: Span {
@@ -323,6 +473,106 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
         }
     }
     Ok(directives)
+}
+/// Decodifica escapes Dart em unidades UTF-16 e rejeita surrogates isolados.
+fn decode_directive_string(text: &str, span: Span) -> Result<String, Diagnostic> {
+    let mut chars = text.chars();
+    let mut units = Vec::with_capacity(text.len());
+    while let Some(mut ch) = chars.next() {
+        if ch == '\\' {
+            ch = chars
+                .next()
+                .ok_or_else(|| Diagnostic::new("truncated string escape", span))?;
+            match ch {
+                'b' => ch = '\u{8}',
+                'f' => ch = '\u{c}',
+                'n' => ch = '\n',
+                'r' => ch = '\r',
+                't' => ch = '\t',
+                'v' => ch = '\u{b}',
+                'x' | 'u' => {
+                    let value = if ch == 'x' {
+                        hex_digits(&mut chars, 2, span)?
+                    } else if chars.clone().next() == Some('{') {
+                        chars.next();
+                        let mut value = 0u32;
+                        let mut count = 0;
+                        loop {
+                            let c = chars.next().ok_or_else(|| {
+                                Diagnostic::new("unterminated Unicode escape", span)
+                            })?;
+                            if c == '}' {
+                                if count == 0 {
+                                    return Err(Diagnostic::new(
+                                        "Unicode escape requires 1 to 6 hexadecimal digits",
+                                        span,
+                                    ));
+                                }
+                                break;
+                            }
+                            let digit =
+                                c.to_digit(16).filter(|_| c.is_ascii()).ok_or_else(|| {
+                                    Diagnostic::new(
+                                        "invalid hexadecimal digit in Unicode escape",
+                                        span,
+                                    )
+                                })?;
+                            count += 1;
+                            if count > 6 {
+                                return Err(Diagnostic::new(
+                                    "Unicode escape requires 1 to 6 hexadecimal digits",
+                                    span,
+                                ));
+                            }
+                            value = value * 16 + digit;
+                        }
+                        value
+                    } else {
+                        hex_digits(&mut chars, 4, span)?
+                    };
+                    if value > 0x10FFFF {
+                        return Err(Diagnostic::new("Unicode escape exceeds U+10FFFF", span));
+                    }
+                    if value <= 0xFFFF {
+                        units.push(value as u16);
+                    } else {
+                        let value = value - 0x10000;
+                        units.push(0xD800 + (value >> 10) as u16);
+                        units.push(0xDC00 + (value & 0x3FF) as u16);
+                    }
+                    continue;
+                }
+                // Dart remove a barra invertida de escapes desconhecidos.
+                _ => {}
+            }
+        }
+        let mut encoded = [0u16; 2];
+        units.extend_from_slice(ch.encode_utf16(&mut encoded));
+    }
+    String::from_utf16(&units)
+        .map_err(|_| Diagnostic::new("isolated UTF-16 surrogates are not supported", span))
+}
+
+/// Lê a quantidade exata de dígitos hexadecimais de um escape fixo.
+fn hex_digits(
+    chars: &mut std::str::Chars<'_>,
+    count: usize,
+    span: Span,
+) -> Result<u32, Diagnostic> {
+    let mut value = 0;
+    for _ in 0..count {
+        let digit = chars
+            .next()
+            .and_then(|c| if c.is_ascii() { c.to_digit(16) } else { None })
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "escape requires the exact number of hexadecimal digits",
+                    span,
+                )
+            })?;
+        value = value * 16 + digit;
+    }
+    Ok(value)
 }
 /// Respeita comentários aninhados e examina versões somente antes do primeiro token.
 ///
@@ -436,6 +686,67 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    /// A primeira condição verdadeira vence sem abrir alternativas inativas.
+    #[test]
+    fn conditional_first_match_and_inactive_destinations() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "import 'missing.dart' if (dart.library.core) 'first.dart' if (dart.library.core) 'dart:io'; export 'dart:unsupported' if (dart.library.core == r'true') 'first.dart' show value;");
+        fixture.write("first.dart", "int value()=>1;");
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units.len(), 2);
+        assert_eq!(graph.units[0].imports[0].uri, "first.dart");
+        assert_eq!(graph.units[0].exports[0].target, 1);
+        assert_eq!(
+            graph.units[0].exports[0].combinators,
+            [Combinator::Show(vec!["value".into()])]
+        );
+        assert_eq!(graph.environment, CompilationEnvironment::javascript());
+    }
+
+    /// Strings raw e escapes são decodificados sem depender da seleção do destino.
+    #[test]
+    fn conditional_strings_and_prefix_are_target_independent() {
+        let fixture = Fixture::new();
+        let directive = r"import 'missing.dart' if (dart.library.core == 'tr\u0075e') 'a\x2edart' if (absent) r'missing\raw.dart';";
+        let source = format!("{directive} void main(){{}}");
+        let entry = fixture.write("main.dart", &source);
+        fixture.write("a.dart", "");
+        assert_eq!(load(&entry).unwrap().units[0].imports[0].uri, "a.dart");
+        assert_eq!(directive_prefix_end(&source).unwrap(), directive.len());
+        let inactive = "import 'dart:unsupported' if (absent) 'missing.dart';";
+        assert_eq!(directive_prefix_end(inactive).unwrap(), inactive.len());
+        for source in [
+            "import 'a.dart' if (key == true) 'b.dart';",
+            "import 'a.dart' if (key.) 'b.dart';",
+            "import 'a.dart' if (key != 'true') 'b.dart';",
+            "import 'a.dart' if (key) ;",
+            r"import 'a.dart' if (key == '\xG0') 'b.dart';",
+            "import 'a.dart' show A if (key) 'b.dart';",
+            "import 'a.dart' if (class) 'b.dart';",
+        ] {
+            let error = directive_prefix_end(source).unwrap_err();
+            assert!(
+                error.span.start <= error.span.end && error.span.end <= source.len(),
+                "{source}"
+            );
+        }
+    }
+
+    /// Ambiente integra a identidade do grafo mesmo quando não muda as arestas.
+    #[test]
+    fn environment_identity_and_absent_conditions() {
+        let fixture = Fixture::new();
+        let entry = fixture.write(
+            "main.dart",
+            "import 'a.dart' if (missing.key) 'missing.dart';",
+        );
+        fixture.write("a.dart", "");
+        let js = load_with_environment(&entry, &CompilationEnvironment::javascript()).unwrap();
+        let native = load_with_environment(&entry, &CompilationEnvironment::native()).unwrap();
+        assert_eq!(js.units, native.units);
+        assert_ne!(js, native);
+    }
 
     /// Diretório exclusivo criado pelos testes e removido ao final.
     struct Fixture(PathBuf);

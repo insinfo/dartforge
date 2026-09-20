@@ -58,12 +58,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }
-    if args.len() == 2 && args[0] == "graph" {
-        let graph = dartforge_packages::load(std::path::Path::new(&args[1]))?;
+    if args[0] == "graph" {
+        if args.len() < 2 {
+            return Err("usage: dartforge graph <input.dart> [--target js|native|wasm]".into());
+        }
+        let environment = graph_environment(&args[2..])?;
+        let graph = dartforge_packages::load_with_environment(
+            std::path::Path::new(&args[1]),
+            &environment,
+        )?;
         let units: Vec<_> = graph
             .units
             .iter()
@@ -76,8 +83,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 2,
                 "entry": graph.entry, "units": units,
-                "note": "Grafo de arquivos; use compile para resolver e compilar as bibliotecas."
+                "target": format!("{:?}", environment.target()),
+                "dart_library_flags": environment.library_flags(),
+                "sdk_profile_version": "3.6.2",
+                "wasm_emission_implemented": false,
+                "note": "Grafo selecionado pelo perfil do SDK. As flags não implementam APIs dart:; o subconjunto atual oferece somente dart:core. Wasm permite inspeção do grafo, sem emissão."
             }))?
         );
         return Ok(());
@@ -202,6 +214,64 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// Seleciona um perfil de inspeção sem alterar o backend fixo dos comandos de emissão.
+fn graph_environment(
+    flags: &[std::ffi::OsString],
+) -> Result<dartforge_packages::CompilationEnvironment, Box<dyn std::error::Error>> {
+    use dartforge_packages::CompilationEnvironment;
+    let target = match flags {
+        [] => "js",
+        [flag, target] if flag == "--target" => target.to_str().ok_or("alvo deve ser UTF-8")?,
+        [flag] => flag
+            .to_str()
+            .and_then(|s| s.strip_prefix("--target="))
+            .ok_or("usage: graph <input.dart> [--target js|native|wasm]")?,
+        _ => return Err("usage: graph <input.dart> [--target js|native|wasm]".into()),
+    };
+    match target {
+        "js" => Ok(CompilationEnvironment::javascript()),
+        "native" => Ok(CompilationEnvironment::native()),
+        "wasm" => Ok(CompilationEnvironment::wasm()),
+        _ => Err(format!("perfil desconhecido: {target}; use js, native ou wasm").into()),
+    }
+}
+
+#[cfg(test)]
+mod environment_tests {
+    use super::*;
+    /// A inspeção Wasm não muda os comandos de emissão e rejeita opções ambíguas.
+    #[test]
+    fn graph_profile_arguments_are_explicit() {
+        use dartforge_packages::CompilationTarget;
+        assert_eq!(
+            graph_environment(&[]).unwrap().target(),
+            CompilationTarget::JavaScript
+        );
+        assert_eq!(
+            graph_environment(&["--target".into(), "native".into()])
+                .unwrap()
+                .target(),
+            CompilationTarget::Native
+        );
+        assert_eq!(
+            graph_environment(&["--target=wasm".into()])
+                .unwrap()
+                .target(),
+            CompilationTarget::Wasm
+        );
+        for flags in [
+            vec!["--target"],
+            vec!["--target", "unknown"],
+            vec!["--target=wasm", "--target=js"],
+            vec!["-Dfoo=true"],
+        ] {
+            assert!(
+                graph_environment(&flags.into_iter().map(Into::into).collect::<Vec<_>>()).is_err()
+            );
         }
     }
 }
