@@ -1,0 +1,441 @@
+{
+  "target": "3.6.2",
+  "dartExecutable": "C:\\tools\\dartsdk-3.6.2\\bin\\dart.exe",
+  "dartVersion": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"windows_x64\"",
+  "targetVersionMatched": true,
+  "nodeVersion": "v24.14.1",
+  "dartforgeOptimization": "none",
+  "backend": "dart2js vs DartForge release",
+  "optimizationLevels": [
+    "O2"
+  ],
+  "generatedAt": "2026-09-20T03:38:47.1546304-03:00",
+  "results": [
+    {
+      "case": "arithmetic.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "19",
+        "40",
+        "-4",
+        "4"
+      ],
+      "referenceOutput": [
+        "19",
+        "40",
+        "-4",
+        "4"
+      ],
+      "error": null
+    },
+    {
+      "case": "boolean.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "true",
+        "true",
+        "true",
+        "false",
+        "false",
+        "true"
+      ],
+      "referenceOutput": [
+        "true",
+        "true",
+        "true",
+        "false",
+        "false",
+        "true"
+      ],
+      "error": null
+    },
+    {
+      "case": "class_effects.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "2",
+        "1",
+        "3",
+        "3",
+        "2",
+        "1",
+        "4",
+        "true",
+        "2",
+        "1",
+        "2",
+        "1",
+        "false"
+      ],
+      "referenceOutput": [
+        "2",
+        "1",
+        "3",
+        "3",
+        "2",
+        "1",
+        "4",
+        "true",
+        "2",
+        "1",
+        "2",
+        "1",
+        "false"
+      ],
+      "error": null
+    },
+    {
+      "case": "classes.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "5",
+        "10",
+        "11",
+        "true",
+        "11",
+        "2"
+      ],
+      "referenceOutput": [
+        "5",
+        "10",
+        "11",
+        "true",
+        "11",
+        "2"
+      ],
+      "error": null
+    },
+    {
+      "case": "constants.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "15",
+        "2147483648",
+        "0",
+        "ação 😀",
+        "true",
+        "3",
+        "effect",
+        "6",
+        "false",
+        "true",
+        "26"
+      ],
+      "referenceOutput": [
+        "15",
+        "2147483648",
+        "0",
+        "ação 😀",
+        "true",
+        "3",
+        "effect",
+        "6",
+        "false",
+        "true",
+        "26"
+      ],
+      "error": null
+    },
+    {
+      "case": "evaluation_order.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "1",
+        "2",
+        "3",
+        "false",
+        "true",
+        "then"
+      ],
+      "referenceOutput": [
+        "1",
+        "2",
+        "3",
+        "false",
+        "true",
+        "then"
+      ],
+      "error": null
+    },
+    {
+      "case": "for_scope.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "0",
+        "50",
+        "1",
+        "50",
+        "2",
+        "50",
+        "100",
+        "42",
+        "42",
+        "3"
+      ],
+      "referenceOutput": [
+        "0",
+        "50",
+        "1",
+        "50",
+        "2",
+        "50",
+        "100",
+        "42",
+        "42",
+        "3"
+      ],
+      "error": null
+    },
+    {
+      "case": "functions.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "42",
+        "Olá, DartForge",
+        "10",
+        "4"
+      ],
+      "referenceOutput": [
+        "42",
+        "Olá, DartForge",
+        "10",
+        "4"
+      ],
+      "error": null
+    },
+    {
+      "case": "loop_evaluation.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "0",
+        "1",
+        "2",
+        "1",
+        "2",
+        "3",
+        "24"
+      ],
+      "referenceOutput": [
+        "0",
+        "1",
+        "2",
+        "1",
+        "2",
+        "3",
+        "24"
+      ],
+      "error": null
+    },
+    {
+      "case": "loops.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "8",
+        "4",
+        "2",
+        "1",
+        "16"
+      ],
+      "referenceOutput": [
+        "8",
+        "4",
+        "2",
+        "1",
+        "16"
+      ],
+      "error": null
+    },
+    {
+      "case": "null_flow.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "false",
+        "true",
+        "true",
+        "false",
+        "7",
+        "6",
+        "1"
+      ],
+      "referenceOutput": [
+        "false",
+        "true",
+        "true",
+        "false",
+        "7",
+        "6",
+        "1"
+      ],
+      "error": null
+    },
+    {
+      "case": "null_safety.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "null",
+        "fallback",
+        "9",
+        "3",
+        "5",
+        "0",
+        "6",
+        "empty",
+        "false"
+      ],
+      "referenceOutput": [
+        "null",
+        "fallback",
+        "9",
+        "3",
+        "5",
+        "0",
+        "6",
+        "empty",
+        "false"
+      ],
+      "error": null
+    },
+    {
+      "case": "numeric_edges.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "0",
+        "0",
+        "0",
+        "4611686014132420600",
+        "9.903520300447984e+27"
+      ],
+      "referenceOutput": [
+        "0",
+        "0",
+        "0",
+        "4611686014132420600",
+        "9.903520300447984e+27"
+      ],
+      "error": null
+    },
+    {
+      "case": "parameter_shadow.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "7",
+        "11",
+        "5"
+      ],
+      "referenceOutput": [
+        "7",
+        "11",
+        "5"
+      ],
+      "error": null
+    },
+    {
+      "case": "recursion.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "720",
+        "true",
+        "false"
+      ],
+      "referenceOutput": [
+        "720",
+        "true",
+        "false"
+      ],
+      "error": null
+    },
+    {
+      "case": "scopes.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "20",
+        "21",
+        "10",
+        "50"
+      ],
+      "referenceOutput": [
+        "20",
+        "21",
+        "10",
+        "50"
+      ],
+      "error": null
+    },
+    {
+      "case": "string_escapes.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "first",
+        "second",
+        "tab:\tend",
+        "quote: ' \" \\",
+        "ABC",
+        "😀",
+        "😀",
+        "q",
+        "0",
+        "cost: $5",
+        "C:\\new\\test\\$name",
+        "\\",
+        "é",
+        "[ação",
+        "Rust]"
+      ],
+      "referenceOutput": [
+        "first",
+        "second",
+        "tab:\tend",
+        "quote: ' \" \\",
+        "ABC",
+        "😀",
+        "😀",
+        "q",
+        "0",
+        "cost: $5",
+        "C:\\new\\test\\$name",
+        "\\",
+        "é",
+        "[ação",
+        "Rust]"
+      ],
+      "error": null
+    },
+    {
+      "case": "strings.dart",
+      "optimization": "O2",
+      "status": "pass",
+      "actual": [
+        "Olá, DartForge!",
+        "😀",
+        "quote: \"Rust\"",
+        "true",
+        "true"
+      ],
+      "referenceOutput": [
+        "Olá, DartForge!",
+        "😀",
+        "quote: \"Rust\"",
+        "true",
+        "true"
+      ],
+      "error": null
+    }
+  ]
+}

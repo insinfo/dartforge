@@ -69,13 +69,14 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
             TokenKind::Number(&source[start..i])
         } else if b == b'\'' || b == b'"' {
             scan_string(source, &mut i, false, start)?
-        } else if b"(){};,".contains(&b) {
+        } else if b"(){};,.".contains(&b) {
             i += 1;
             TokenKind::Symbol(b as char)
         } else if matches!(
             bytes.get(i..i + 2),
             Some(
-                b"=="
+                b"??"
+                    | b"=="
                     | b"!="
                     | b"<="
                     | b">="
@@ -90,7 +91,7 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
         ) {
             i += 2;
             TokenKind::Operator(&source[start..i])
-        } else if b"=+-*!<>".contains(&b) {
+        } else if b"=+-*!<>?".contains(&b) {
             i += 1;
             TokenKind::Operator(&source[start..i])
         } else {
@@ -238,7 +239,7 @@ mod tests {
         assert_eq!(tokens[1].span, Span { start: 7, end: 8 });
         let err = lex("é").unwrap_err();
         assert_eq!(err.span, Span { start: 0, end: 2 });
-        for source in ["1 / 2", "'$x'", "'a\nb'", "a & b", "a | b", "1.5"] {
+        for source in ["1 / 2", "'$x'", "'a\nb'", "a & b", "a | b"] {
             assert!(lex(source).is_err(), "{source}");
         }
     }

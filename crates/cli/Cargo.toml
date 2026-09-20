@@ -8,6 +8,8 @@ publish = false
 workspace = true
 [dependencies]
 dartforge-compiler = { path = "../compiler" }
+dartforge-packages = { path = "../packages" }
+serde_json = "1"
 
 [[bin]]
 name = "dartforge"

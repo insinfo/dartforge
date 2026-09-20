@@ -6,8 +6,14 @@
 //! normalizam zero inteiro para zero positivo. Não reproduzimos a variação de
 //! impressão de zero negativo observada no dart2js 3.6.2 conforme outros tipos
 //! impressos no mesmo programa. Laços nativos preservam break e continue.
+//! A asserção de não nulo avalia seu operando uma vez e lança TypeError do
+//! JavaScript para null; isso não implementa integralmente o TypeError Dart.
+//! Classes usam métodos nativos e construtor sem argumentos que preserva a ordem Dart, com
+//! herança única previamente validada. Não incluem reflexão ou runtimeType Dart.
 use dartforge_hir::Module;
-use dartforge_syntax::{BinaryOp, Expr, ExprKind, Statement, StatementKind, UnaryOp};
+use dartforge_syntax::{
+    BinaryOp, Class, Expr, ExprKind, Function, Statement, StatementKind, Type, UnaryOp,
+};
 use std::fmt::Write;
 
 /// Gera um módulo ES com funções, exportação de main e chamada inicial de main.
@@ -20,18 +26,39 @@ use std::fmt::Write;
 ///
 /// Falha se um cabeçalho de for contém uma instrução incompatível. A inicialização
 /// aceita variável, atribuição ou expressão; a atualização aceita somente as
-/// duas últimas. Esta falha indica uma violação do contrato interno da AST.
+/// duas últimas. Também falha em hierarquias cíclicas ou bases ausentes.
+/// Essas falhas indicam uma violação do contrato interno da AST.
 ///
 /// ```
 /// use dartforge_hir::lower;
 /// use dartforge_syntax::Program;
-/// let module = lower(Program { functions: vec![], statements: vec![] });
+/// let module = lower(Program { classes: vec![], functions: vec![], statements: vec![] });
 /// let javascript = dartforge_codegen::emit(&module);
 /// assert!(javascript.contains("export function main()"));
 /// assert!(javascript.ends_with("main();\n"));
 /// ```
 pub fn emit(module: &Module<'_>) -> String {
     let mut output = String::from("// Saída do subconjunto DartForge\n");
+    if statements_need_null_assert(&module.statements)
+        || module
+            .functions
+            .iter()
+            .any(|function| statements_need_null_assert(&function.body))
+        || module.classes.iter().any(|class| {
+            class
+                .fields
+                .iter()
+                .any(|field| expression_needs_null_assert(&field.initializer))
+                || class
+                    .methods
+                    .iter()
+                    .any(|method| statements_need_null_assert(&method.body))
+        })
+    {
+        // Nome fora do prefixo $df_ reservado aos identificadores do usuário.
+        output.push_str("function $dartforgeNullAssert(value) {\n  if (value === null) { throw new TypeError(\"Null check operator used on a null value\"); }\n  return value;\n}\n");
+    }
+    emit_classes(&module.classes, &mut output);
     for function in &module.functions {
         output.push_str("function ");
         identifier(function.name, &mut output);
@@ -42,18 +69,175 @@ pub fn emit(module: &Module<'_>) -> String {
             }
             identifier(parameter.name, &mut output);
         }
-        output.push_str(") {\n");
-        // Dart permite que um local do corpo sombreie um parâmetro. Em JS,
-        // parâmetros e let no mesmo bloco conflitam; o bloco interno mantém
-        // os dois escopos distintos sem mudar retornos ou referências externas.
-        indent(1, &mut output);
-        block(&function.body, 1, &mut output);
-        output.push_str("\n}\n");
+        output.push_str(") ");
+        function_body(function, 0, &mut output);
+        output.push('\n');
     }
     output.push_str("export function main() {\n");
     statements(&module.statements, 1, &mut output);
     output.push_str("}\nmain();\n");
     output
+}
+
+/// Emite classes em ordem de herança, inclusive quando a base aparece depois.
+fn emit_classes(classes: &[Class<'_>], output: &mut String) {
+    let mut emitted = std::collections::HashSet::new();
+    while emitted.len() < classes.len() {
+        let before = emitted.len();
+        for class in classes {
+            if emitted.contains(&class.id)
+                || class
+                    .superclass
+                    .is_some_and(|base| !emitted.contains(&base))
+            {
+                continue;
+            }
+            write!(output, "class $dartforgeClass{}", class.id)
+                .expect("escrever em String não falha");
+            if let Some(base) = class.superclass {
+                write!(output, " extends $dartforgeClass{base}")
+                    .expect("escrever em String não falha");
+            }
+            output.push_str(" {\n");
+            indent(1, output);
+            output.push_str("constructor() {\n");
+            // Dart avalia os campos da classe derivada antes dos campos da base.
+            // Temporários não usam this antes de super, como exige o JavaScript.
+            for (index, field) in class.fields.iter().enumerate() {
+                indent(2, output);
+                write!(output, "const $dartforgeField{index} = ")
+                    .expect("escrever em String não falha");
+                expression(&field.initializer, output);
+                output.push_str(";\n");
+            }
+            if class.superclass.is_some() {
+                indent(2, output);
+                output.push_str("super();\n");
+            }
+            for (index, field) in class.fields.iter().enumerate() {
+                indent(2, output);
+                output.push_str("this.");
+                identifier(field.name, output);
+                writeln!(output, " = $dartforgeField{index};")
+                    .expect("escrever em String não falha");
+            }
+            indent(1, output);
+            output.push_str("}\n");
+            for method in &class.methods {
+                indent(1, output);
+                identifier(method.name, output);
+                output.push('(');
+                for (index, parameter) in method.parameters.iter().enumerate() {
+                    if index != 0 {
+                        output.push_str(", ");
+                    }
+                    identifier(parameter.name, output);
+                }
+                output.push_str(") ");
+                function_body(method, 1, output);
+                output.push('\n');
+            }
+            output.push_str("}\n");
+            emitted.insert(class.id);
+        }
+        assert!(
+            emitted.len() > before,
+            "AST inválida: ciclo, classe base ausente ou IDs duplicados"
+        );
+    }
+}
+
+/// Separa parâmetros dos locais e produz null no retorno nullable implícito.
+fn function_body(function: &Function<'_>, depth: usize, output: &mut String) {
+    output.push_str("{\n");
+    // O bloco interno permite que um local Dart sombreie um parâmetro JavaScript.
+    indent(depth + 1, output);
+    block(&function.body, depth + 1, output);
+    output.push('\n');
+    if matches!(
+        function.return_type,
+        Type::Null
+            | Type::NullableInt
+            | Type::NullableString
+            | Type::NullableBool
+            | Type::NullableClass(_)
+    ) {
+        indent(depth + 1, output);
+        output.push_str("return null;\n");
+    }
+    indent(depth, output);
+    output.push('}');
+}
+
+/// Detecta asserções em qualquer expressão, inclusive argumentos e operandos.
+fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
+    match &value.kind {
+        ExprKind::Unary { op, operand } => {
+            *op == UnaryOp::NullAssert || expression_needs_null_assert(operand)
+        }
+        ExprKind::Binary { left, right, .. } => {
+            expression_needs_null_assert(left) || expression_needs_null_assert(right)
+        }
+        ExprKind::Call { arguments, .. } => arguments.iter().any(expression_needs_null_assert),
+        ExprKind::Member { receiver, .. } => expression_needs_null_assert(receiver),
+        ExprKind::MethodCall {
+            receiver,
+            arguments,
+            ..
+        } => {
+            expression_needs_null_assert(receiver)
+                || arguments.iter().any(expression_needs_null_assert)
+        }
+        _ => false,
+    }
+}
+
+/// Percorre todos os corpos e cabeçalhos para incluir o auxiliar somente se usado.
+fn statements_need_null_assert(body: &[Statement<'_>]) -> bool {
+    body.iter().any(statement_needs_null_assert)
+}
+
+/// Verifica uma instrução sem alterar ordem de avaliação ou alocar cópias da AST.
+fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
+    match &statement.kind {
+        StatementKind::Variable { initializer, .. } => expression_needs_null_assert(initializer),
+        StatementKind::FieldAssign {
+            receiver, value, ..
+        } => expression_needs_null_assert(receiver) || expression_needs_null_assert(value),
+        StatementKind::Assign { value, .. }
+        | StatementKind::Print(value)
+        | StatementKind::Expression(value) => expression_needs_null_assert(value),
+        StatementKind::Return(value) => value.as_ref().is_some_and(expression_needs_null_assert),
+        StatementKind::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            expression_needs_null_assert(condition)
+                || statements_need_null_assert(then_body)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| statements_need_null_assert(body))
+        }
+        StatementKind::While { condition, body } | StatementKind::DoWhile { condition, body } => {
+            expression_needs_null_assert(condition) || statements_need_null_assert(body)
+        }
+        StatementKind::For {
+            initializer,
+            condition,
+            update,
+            body,
+        } => {
+            initializer
+                .as_deref()
+                .is_some_and(statement_needs_null_assert)
+                || condition.as_ref().is_some_and(expression_needs_null_assert)
+                || update.as_deref().is_some_and(statement_needs_null_assert)
+                || statements_need_null_assert(body)
+        }
+        StatementKind::Block(body) => statements_need_null_assert(body),
+        StatementKind::Break | StatementKind::Continue => false,
+    }
 }
 
 /// Aplica o prefixo estável usado em declarações e referências.
@@ -89,6 +273,18 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut String) {
                 output.push_str(";\n");
             }
             StatementKind::Assign { name, value } => {
+                identifier(name, output);
+                output.push_str(" = ");
+                expression(value, output);
+                output.push_str(";\n");
+            }
+            StatementKind::FieldAssign {
+                receiver,
+                name,
+                value,
+            } => {
+                expression(receiver, output);
+                output.push('.');
                 identifier(name, output);
                 output.push_str(" = ");
                 expression(value, output);
@@ -221,6 +417,34 @@ fn string_literal(value: &str, output: &mut String) {
 /// Emite uma expressão sem duplicar a avaliação de operandos.
 fn expression(value: &Expr<'_>, output: &mut String) {
     match &value.kind {
+        ExprKind::Null => output.push_str("null"),
+        ExprKind::This => output.push_str("this"),
+        ExprKind::Construct { class_id } => {
+            write!(output, "new $dartforgeClass{class_id}()")
+                .expect("escrever em String não falha");
+        }
+        ExprKind::Member { receiver, name } => {
+            expression(receiver, output);
+            output.push('.');
+            identifier(name, output);
+        }
+        ExprKind::MethodCall {
+            receiver,
+            name,
+            arguments,
+        } => {
+            expression(receiver, output);
+            output.push('.');
+            identifier(name, output);
+            output.push('(');
+            for (index, argument) in arguments.iter().enumerate() {
+                if index != 0 {
+                    output.push_str(", ");
+                }
+                expression(argument, output);
+            }
+            output.push(')');
+        }
         ExprKind::Int(value) => write!(output, "{value}").expect("escrever em String não falha"),
         ExprKind::String(value) => string_literal(value, output),
         ExprKind::OwnedString(value) => string_literal(value, output),
@@ -241,12 +465,17 @@ fn expression(value: &Expr<'_>, output: &mut String) {
             }
             output.push(')');
         }
+        ExprKind::Unary {
+            op: UnaryOp::NullAssert,
+            operand,
+        } => {
+            output.push_str("$dartforgeNullAssert(");
+            expression(operand, output);
+            output.push(')');
+        }
         ExprKind::Unary { op, operand } => {
             output.push('(');
-            output.push_str(match op {
-                UnaryOp::Negate => "-",
-                UnaryOp::Not => "!",
-            });
+            output.push_str(if *op == UnaryOp::Negate { "-" } else { "!" });
             output.push(' ');
             expression(operand, output);
             if *op == UnaryOp::Negate {
@@ -271,6 +500,7 @@ fn expression(value: &Expr<'_>, output: &mut String) {
                 BinaryOp::GreaterEqual => " >= ",
                 BinaryOp::And => " && ",
                 BinaryOp::Or => " || ",
+                BinaryOp::IfNull => " ?? ",
             });
             expression(right, output);
             if *op == BinaryOp::Multiply {
@@ -320,6 +550,7 @@ mod tests {
     }
     fn compile(statements: Vec<Statement<'_>>) -> String {
         emit(&dartforge_hir::lower(Program {
+            classes: vec![],
             functions: vec![],
             statements,
         }))
@@ -588,6 +819,7 @@ mod tests {
             ))),
         ];
         emit(&dartforge_hir::lower(Program {
+            classes: vec![],
             functions,
             statements,
         }))
@@ -728,6 +960,7 @@ mod tests {
             }),
         ];
         emit(&dartforge_hir::lower(Program {
+            classes: vec![],
             functions,
             statements,
         }))
@@ -812,6 +1045,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn function_body_locals_can_shadow_parameters() {
         let module = dartforge_hir::lower(Program {
+            classes: vec![],
             functions: vec![function(
                 "f",
                 Type::Int,
@@ -834,5 +1068,265 @@ mod tests {
             String::from_utf8_lossy(&run.stderr)
         );
         assert_eq!(run.stdout, b"1\n");
+    }
+    /// Monta uma asserção pós-fixa preservando o operando e seu efeito.
+    fn asserted(value: Expr<'static>) -> Expr<'static> {
+        expr(ExprKind::Unary {
+            op: UnaryOp::NullAssert,
+            operand: Box::new(value),
+        })
+    }
+
+    /// Verifica inclusão sob demanda do auxiliar e agrupamento do operador ?? .
+    #[test]
+    fn null_helper_is_emitted_only_when_needed() {
+        let plain = compile(vec![print(binary(
+            BinaryOp::IfNull,
+            expr(ExprKind::Null),
+            int(4),
+        ))]);
+        assert!(plain.contains("console.log((null ?? 4));"));
+        assert!(!plain.contains("$dartforgeNullAssert"));
+        let module = dartforge_hir::lower(Program {
+            classes: vec![],
+            functions: vec![function(
+                "checked",
+                Type::Int,
+                &[("n", Type::NullableInt)],
+                vec![statement(StatementKind::Return(Some(asserted(name("n")))))],
+            )],
+            statements: vec![],
+        });
+        let checked = emit(&module);
+        assert_eq!(checked.matches("function $dartforgeNullAssert(").count(), 1);
+        assert!(checked.contains("return $dartforgeNullAssert($df_n);"));
+    }
+
+    /// Confere curto-circuito, valores falsy não nulos e avaliação única com efeitos.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn null_operators_preserve_lazy_evaluation_and_single_effects() {
+        let module = dartforge_hir::lower(Program {
+            classes: vec![],
+            functions: vec![function(
+                "mark",
+                Type::NullableInt,
+                &[("n", Type::NullableInt)],
+                vec![
+                    print(name("n")),
+                    statement(StatementKind::Return(Some(name("n")))),
+                ],
+            )],
+            statements: vec![
+                print(binary(
+                    BinaryOp::IfNull,
+                    call("mark", vec![int(0)]),
+                    call("mark", vec![int(9)]),
+                )),
+                print(binary(
+                    BinaryOp::IfNull,
+                    call("mark", vec![expr(ExprKind::Null)]),
+                    call("mark", vec![int(7)]),
+                )),
+                print(asserted(call("mark", vec![int(8)]))),
+                print(binary(
+                    BinaryOp::IfNull,
+                    expr(ExprKind::Bool(false)),
+                    expr(ExprKind::Bool(true)),
+                )),
+                print(binary(
+                    BinaryOp::IfNull,
+                    expr(ExprKind::String("")),
+                    expr(ExprKind::String("fallback")),
+                )),
+                print(expr(ExprKind::Null)),
+            ],
+        });
+        let output = emit(&module);
+        let run = std::process::Command::new("node")
+            .args(["--input-type=module", "--eval", &output])
+            .output()
+            .expect("Node.js necessário");
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(run.stdout, b"0\n0\nnull\n7\n7\n8\n8\nfalse\n\nnull\n");
+    }
+
+    /// A falha usa TypeError JavaScript do subconjunto, após um único efeito.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn null_assert_throws_after_evaluating_operand_once() {
+        let module = dartforge_hir::lower(Program {
+            classes: vec![],
+            functions: vec![function(
+                "missing",
+                Type::NullableInt,
+                &[],
+                vec![
+                    print(expr(ExprKind::String("evaluated"))),
+                    statement(StatementKind::Return(Some(expr(ExprKind::Null)))),
+                ],
+            )],
+            statements: vec![
+                print(asserted(call("missing", vec![]))),
+                print(expr(ExprKind::String("unreachable"))),
+            ],
+        });
+        let output = emit(&module);
+        let run = std::process::Command::new("node")
+            .args(["--input-type=module", "--eval", &output])
+            .output()
+            .expect("Node.js necessário");
+        assert!(!run.status.success());
+        assert_eq!(run.stdout, b"evaluated\n");
+        assert!(
+            String::from_utf8_lossy(&run.stderr)
+                .contains("TypeError: Null check operator used on a null value")
+        );
+    }
+    /// Retornos nullable implícitos não podem expor undefined do JavaScript.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn nullable_function_fallthrough_returns_null() {
+        let module = dartforge_hir::lower(Program {
+            classes: vec![],
+            functions: vec![
+                function("number", Type::NullableInt, &[], vec![]),
+                function("text", Type::NullableString, &[], vec![]),
+                function("flag", Type::NullableBool, &[], vec![]),
+                function("nothing", Type::Null, &[], vec![]),
+            ],
+            statements: vec![
+                print(call("number", vec![])),
+                print(call("text", vec![])),
+                print(call("flag", vec![])),
+                print(call("nothing", vec![])),
+            ],
+        });
+        let output = emit(&module);
+        let run = std::process::Command::new("node")
+            .args(["--input-type=module", "--eval", &output])
+            .output()
+            .expect("Node.js necessário");
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(run.stdout, b"null\nnull\nnull\nnull\n");
+    }
+    /// Cria um acesso explícito de membro, sem duplicar avaliação do receptor.
+    fn member(receiver: Expr<'static>, field: &'static str) -> Expr<'static> {
+        expr(ExprKind::Member {
+            receiver: Box::new(receiver),
+            name: field,
+        })
+    }
+    /// Cria chamada de método com ligação dinâmica pelo receptor.
+    fn method(receiver: Expr<'static>, method: &'static str) -> Expr<'static> {
+        expr(ExprKind::MethodCall {
+            receiver: Box::new(receiver),
+            name: method,
+            arguments: vec![],
+        })
+    }
+
+    /// Verifica herança antecipada, despacho, inicializadores e atribuição com efeito.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn classes_preserve_inheritance_dispatch_and_receiver_effects() {
+        use dartforge_syntax::Field;
+        let span = Span { start: 0, end: 0 };
+        let base = Class {
+            id: 0,
+            name: "Base",
+            superclass: None,
+            span,
+            fields: vec![Field {
+                name: "value",
+                ty: Type::Int,
+                is_final: false,
+                initializer: asserted(call("initialize", vec![])),
+                span,
+            }],
+            methods: vec![function(
+                "get",
+                Type::Int,
+                &[],
+                vec![statement(StatementKind::Return(Some(member(
+                    expr(ExprKind::This),
+                    "value",
+                ))))],
+            )],
+        };
+        let child = Class {
+            id: 1,
+            name: "Child",
+            superclass: Some(0),
+            fields: vec![],
+            span,
+            methods: vec![function(
+                "get",
+                Type::Int,
+                &[],
+                vec![statement(StatementKind::Return(Some(binary(
+                    BinaryOp::Add,
+                    member(expr(ExprKind::This), "value"),
+                    int(10),
+                ))))],
+            )],
+        };
+        let module = dartforge_hir::lower(Program {
+            classes: vec![child, base],
+            functions: vec![
+                function(
+                    "initialize",
+                    Type::NullableInt,
+                    &[],
+                    vec![
+                        print(expr(ExprKind::String("initialize"))),
+                        statement(StatementKind::Return(Some(int(2)))),
+                    ],
+                ),
+                function(
+                    "receiver",
+                    Type::Class(0),
+                    &[("item", Type::Class(0))],
+                    vec![
+                        print(expr(ExprKind::String("receiver"))),
+                        statement(StatementKind::Return(Some(name("item")))),
+                    ],
+                ),
+            ],
+            statements: vec![
+                variable("class_0", false, expr(ExprKind::Construct { class_id: 1 })),
+                print(method(name("class_0"), "get")),
+                statement(StatementKind::FieldAssign {
+                    receiver: call("receiver", vec![name("class_0")]),
+                    name: "value",
+                    value: int(5),
+                }),
+                print(method(name("class_0"), "get")),
+            ],
+        });
+        let output = emit(&module);
+        assert!(
+            output.find("class $dartforgeClass0").unwrap()
+                < output.find("class $dartforgeClass1").unwrap()
+        );
+        assert!(output.contains("function $dartforgeNullAssert("));
+        let run = std::process::Command::new("node")
+            .args(["--input-type=module", "--eval", &output])
+            .output()
+            .expect("Node.js necessário");
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(run.stdout, b"initialize\n12\nreceiver\n15\n");
     }
 }

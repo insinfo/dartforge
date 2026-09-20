@@ -1,33 +1,49 @@
-# Medição e comparação
+# Benchmarks reproduzíveis
 
-Ainda não existem benchmarks que demonstrem vantagem do DartForge.
-O tempo do exemplo print mede somente um subconjunto minúsculo e não serve para comparar
-um compilador completo com este bootstrap.
+Os objetivos são latência de desenvolvimento menor que DDC e compilação de produção
+menor que dart2js, preservando semântica e qualidade de saída. Eles não foram demonstrados.
+Uma comparação de um subconjunto sem runtime completo com compiladores completos não
+permite anunciar um fator geral de aceleração.
 
-## Matriz futura
+## Fases do compilador
 
-| Cenário | Baseline | Medidas |
-|---|---|---|
-| Build de desenvolvimento frio | DDC via toolchain webdev fixada | wall time, CPU, pico RSS |
-| Rebuild de corpo/assinatura/template | DDC + invalidação equivalente | mediana, p95, arquivos revisitados |
-| Build de produção | dart compile js com flags registradas | tempo, memória, tamanho |
-| Execução do JavaScript | mesmos browsers/Node e entradas | startup, throughput, latência |
-| Editor | analysis_server com mesmo corpus | tempo de diagnóstico, completion, RSS |
+    cargo bench --locked -p dartforge-compiler --bench pipeline
 
-## Protocolo
+O executável escreve JSON com mediana, p95 e todas as amostras de lexer, parser,
+análise semântica, emissão e pipelines completos sem/com avaliação de constantes. Usa black_box, aquecimento explícito e
+lotes para reduzir o custo do relógio. Inclui a destruição das estruturas alocadas.
+Mediana e p95 são calculados sobre médias de lotes, não sobre cada chamada individual.
+O corpus é sintético e criado antes da medição; não inclui disco, startup, SDK ou Node.
+No corpus de fases somente f0 é alcançável; o corpus por processos chama todas as funções.
+Metadados indisponíveis aparecem como null; git_status_porcelain não vazio identifica
+uma árvore diferente do commit registrado. Os tempos isolados não devem ser somados como se fossem um pipeline completo.
 
-1. Selecionar um SDK Dart 3.6.2 e confirmar dart --version antes das medições. O executável atualmente identificado no PATH informa 3.6.2 e corresponde ao alvo. O clone dos fontes NÃO fornece dart.exe.
-2. Manter Dart 3.6.2 como baseline inicial e fixar versão ngdart, commits, lockfiles, hardware e configuração de energia.
-3. Exigir equivalência dos testes antes de medir velocidade.
-4. Compilar DartForge em release e excluir compilação do Rust do tempo de uso.
-5. Separar cache do processo, cache do compilador e cache de disco. Documentar o que é “frio”.
-6. Fazer pelo menos 5 warmups e 30 amostras para medições curtas; ajustar para builds longos.
-7. Registrar amostras brutas, mediana, p95, dispersão, CPU e pico de memória.
-8. Medir subprocessos e servidor residente quando existirem. Working set não equivale em todos
-   os sistemas a RSS; registrar método de coleta.
-9. Usar as mesmas garantias de runtime, modo de compilação e cobertura da linguagem.
-10. Publicar regressões e limitações, sem extrapolar microbenchmarks para aplicações completas.
+Variáveis opcionais: DARTFORGE_BENCH_ITERATIONS (100), DARTFORGE_BENCH_SAMPLES (21),
+DARTFORGE_BENCH_FUNCTIONS (100). Todas devem ser inteiros positivos.
+Mantenha toolchain, hardware, corpus, configurações e revisão fixos ao comparar mudanças.
+Execute benchmarks sem agentes/Cargo concorrentes antes de publicar conclusões.
 
-Instrumentar fases: I/O, lex, parse, resolve, typecheck, lower, optimize, emit, bundle.
-Para comparação DDC, reproduzir o comando efetivamente usado pela versão fixada de webdev;
-não inventar uma interface estável de linha de comando do compilador interno.
+## Processos novos: DartForge, DDC e dart2js
+
+    ./scripts/benchmark-process.ps1 -Samples 7 -Functions 100
+
+Exige SDK Dart 3.6.2 e Node. Compila o CLI em release antes da medição e gera um corpus
+com todas as funções alcançáveis. Mede processos novos com arquivos aquecidos, alterna
+ordem dos compiladores e salva amostras, comandos implícitos no script, versões,
+hardware e hash da entrada em target/bench-process/<id>/results.json.
+
+DDC: snapshot oficial dartdevc, módulo common, null safety padrão. dart2js: compile js -O2.
+DartForge: pipeline padrão e pipeline com --optimize, registrados separadamente. A execução do JavaScript de DartForge e dart2js é comparada
+fora da janela medida. A saída DDC ainda não é executada: o relatório registra essa
+limitação, não presume equivalência observável e não calcula fatores de aceleração.
+
+O tempo inclui inicialização, compilação, disco e invocação PowerShell. Não mede uma
+sessão incremental persistente do DDC. Tamanho dos artefatos não é comparado, porque
+runtime compartilhado, source maps e otimizações são diferentes.
+
+## Próximos controles
+
+- Corpus real ngdart e imports resolvidos, com saída funcionalmente equivalente.
+- Sessões DDC persistentes e recompilações após mudanças em corpo, assinatura e imports.
+- RSS máximo, alocações, CPU, tamanho com runtime incluído e execução do JavaScript.
+- Repetições independentes com mediana/p95 e orçamento de regressão após baseline estável.

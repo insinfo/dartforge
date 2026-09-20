@@ -21,6 +21,14 @@ pub struct Token<'a> {
 /// Tipo primitivo ou ausência de valor reconhecido neste subconjunto.
 pub enum Type {
     Void,
+    /// Tipo nominal identificado pela posição da declaração de classe.
+    Class(u32),
+    /// Tipo nominal que também aceita null.
+    NullableClass(u32),
+    Null,
+    NullableInt,
+    NullableString,
+    NullableBool,
     Int,
     String,
     Bool,
@@ -39,12 +47,16 @@ pub enum BinaryOp {
     GreaterEqual,
     And,
     Or,
+    /// Seleciona o operando direito somente quando o esquerdo é null.
+    IfNull,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Operação prefixa com um único operando.
+/// Operação prefixa ou asserção pós-fixa com um único operando.
 pub enum UnaryOp {
     Negate,
     Not,
+    /// Asserção pós-fixa de valor não nulo.
+    NullAssert,
 }
 #[derive(Debug)]
 /// Expressão acompanhada do intervalo de origem.
@@ -55,6 +67,20 @@ pub struct Expr<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
+    This,
+    Construct {
+        class_id: u32,
+    },
+    Member {
+        receiver: Box<Expr<'a>>,
+        name: &'a str,
+    },
+    MethodCall {
+        receiver: Box<Expr<'a>>,
+        name: &'a str,
+        arguments: Vec<Expr<'a>>,
+    },
+    Null,
     Int(i32),
     String(&'a str),
     /// String que precisou de alocação para decodificar escapes Unicode.
@@ -84,6 +110,11 @@ pub struct Statement<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma instrução.
 pub enum StatementKind<'a> {
+    FieldAssign {
+        receiver: Expr<'a>,
+        name: &'a str,
+        value: Expr<'a>,
+    },
     Variable {
         name: &'a str,
         annotation: Option<Type>,
@@ -144,6 +175,27 @@ pub struct Function<'a> {
 #[derive(Debug)]
 /// Programa com funções auxiliares e o corpo da entrada main.
 pub struct Program<'a> {
+    pub classes: Vec<Class<'a>>,
     pub functions: Vec<Function<'a>>,
     pub statements: Vec<Statement<'a>>,
+}
+
+/// Classe nominal com construtor implícito e herança simples.
+#[derive(Debug)]
+pub struct Class<'a> {
+    pub id: u32,
+    pub name: &'a str,
+    pub superclass: Option<u32>,
+    pub fields: Vec<Field<'a>>,
+    pub methods: Vec<Function<'a>>,
+    pub span: Span,
+}
+/// Campo tipado com inicialização obrigatória.
+#[derive(Debug)]
+pub struct Field<'a> {
+    pub name: &'a str,
+    pub ty: Type,
+    pub is_final: bool,
+    pub initializer: Expr<'a>,
+    pub span: Span,
 }

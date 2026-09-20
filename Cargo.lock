@@ -7,6 +7,8 @@ name = "dartforge-cli"
 version = "0.1.0"
 dependencies = [
  "dartforge-compiler",
+ "dartforge-packages",
+ "serde_json",
 ]
 
 [[package]]
@@ -27,8 +29,10 @@ dependencies = [
  "dartforge-diagnostics",
  "dartforge-hir",
  "dartforge-lexer",
+ "dartforge-optimizer",
  "dartforge-parser",
  "dartforge-semantic",
+ "serde_json",
 ]
 
 [[package]]
@@ -63,6 +67,23 @@ name = "dartforge-ngdart"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
+]
+
+[[package]]
+name = "dartforge-optimizer"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-syntax",
+]
+
+[[package]]
+name = "dartforge-packages"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-lexer",
+ "dartforge-syntax",
 ]
 
 [[package]]

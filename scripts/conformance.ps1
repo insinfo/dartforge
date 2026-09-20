@@ -3,6 +3,7 @@ param(
     [string]$NodeExe = 'node',
     [ValidateSet('O0','O1','O2','O3')]
     [string[]]$OptimizationLevels = @('O2'),
+    [switch]$DartForgeOptimize,
     [switch]$AllowVersionMismatch
 )
 $ErrorActionPreference = 'Stop'
@@ -37,7 +38,9 @@ try {
         $actual = @()
         $actualError = $null
         try {
-            & $exe compile $case.FullName $actualJs
+            $compilerArguments = @('compile', $case.FullName, $actualJs)
+            if ($DartForgeOptimize) { $compilerArguments += '--optimize' }
+            & $exe @compilerArguments
             if ($LASTEXITCODE) { throw 'DartForge compilation failed' }
             $actual = @(& $nodeCommand $actualJs)
             if ($LASTEXITCODE) { throw 'DartForge JavaScript execution failed' }
@@ -64,6 +67,7 @@ try {
     $report = [ordered]@{
         target='3.6.2'; dartExecutable=$dartCommand; dartVersion=$dartVersion
         targetVersionMatched=$matchesTarget; nodeVersion=$nodeVersion
+        dartforgeOptimization=if ($DartForgeOptimize) {'constants'} else {'none'}
         backend='dart2js vs DartForge release'; optimizationLevels=$levels
         generatedAt=(Get-Date -Format o); results=$results
     }

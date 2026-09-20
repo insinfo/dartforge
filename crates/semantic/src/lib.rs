@@ -4,12 +4,13 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, Type, UnaryOp,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy)]
 struct Binding {
     ty: Option<Type>,
     is_final: bool,
+    promoted: Option<Type>,
 }
 #[derive(Clone)]
 struct Signature {
@@ -17,11 +18,27 @@ struct Signature {
     result: Type,
 }
 
+#[derive(Clone, Copy)]
+struct FieldInfo {
+    ty: Type,
+    is_final: bool,
+}
+#[derive(Clone)]
+struct ClassInfo<'a> {
+    name: &'a str,
+    superclass: Option<u32>,
+    fields: HashMap<&'a str, FieldInfo>,
+    methods: HashMap<&'a str, Signature>,
+}
+#[derive(Clone)]
 struct Validator<'a> {
     scopes: Vec<HashMap<&'a str, Binding>>,
     functions: HashMap<&'a str, Signature>,
     return_type: Type,
     loop_depth: usize,
+    classes: HashMap<u32, ClassInfo<'a>>,
+    current_class: Option<u32>,
+    in_field_initializer: bool,
 }
 
 /// Valida nomes, tipos, chamadas, retornos e controle de laços antes da geração de código.
@@ -29,7 +46,7 @@ struct Validator<'a> {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let programa = Program { functions: vec![], statements: vec![] };
+/// let programa = Program { classes: vec![], functions: vec![], statements: vec![] };
 /// assert!(dartforge_semantic::validate(&programa).is_ok());
 /// ```
 ///
@@ -43,6 +60,9 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
         functions: HashMap::new(),
         return_type: Type::Void,
         loop_depth: 0,
+        classes: HashMap::new(),
+        current_class: None,
+        in_field_initializer: false,
     };
     validator.functions.insert(
         "main",
@@ -51,8 +71,95 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
             result: Type::Void,
         },
     );
+    let mut class_names = HashSet::new();
+    for class in &program.classes {
+        if !class_names.insert(class.name)
+            || matches!(class.name, "main" | "print" | "int" | "String" | "bool")
+        {
+            return Err(Diagnostic::new(
+                "Duplicate or reserved class name",
+                class.span,
+            ));
+        }
+        let mut info = ClassInfo {
+            name: class.name,
+            superclass: class.superclass,
+            fields: HashMap::new(),
+            methods: HashMap::new(),
+        };
+        for field in &class.fields {
+            if field.name == class.name
+                || matches!(
+                    field.name,
+                    "toString" | "hashCode" | "runtimeType" | "noSuchMethod"
+                )
+            {
+                return Err(Diagnostic::new(
+                    "Member name requires unsupported Object or constructor semantics",
+                    field.span,
+                ));
+            }
+            if info
+                .fields
+                .insert(
+                    field.name,
+                    FieldInfo {
+                        ty: field.ty,
+                        is_final: field.is_final,
+                    },
+                )
+                .is_some()
+            {
+                return Err(Diagnostic::new("Duplicate field", field.span));
+            }
+        }
+        for method in &class.methods {
+            if method.name == class.name
+                || matches!(
+                    method.name,
+                    "toString" | "hashCode" | "runtimeType" | "noSuchMethod"
+                )
+            {
+                return Err(Diagnostic::new(
+                    "Member name requires unsupported Object or constructor semantics",
+                    method.span,
+                ));
+            }
+            if info.fields.contains_key(method.name)
+                || info
+                    .methods
+                    .insert(
+                        method.name,
+                        Signature {
+                            parameters: method.parameters.iter().map(|p| p.ty).collect(),
+                            result: method.return_type,
+                        },
+                    )
+                    .is_some()
+            {
+                return Err(Diagnostic::new("Duplicate class member", method.span));
+            }
+        }
+        if validator.classes.insert(class.id, info).is_some() {
+            return Err(Diagnostic::new("Duplicate class ID", class.span));
+        }
+    }
+    for class in &program.classes {
+        let mut visited = HashSet::new();
+        let mut cursor = Some(class.id);
+        while let Some(id) = cursor {
+            if !visited.insert(id) {
+                return Err(Diagnostic::new("Inheritance cycle", class.span));
+            }
+            cursor = validator
+                .classes
+                .get(&id)
+                .ok_or_else(|| Diagnostic::new("Unknown superclass", class.span))?
+                .superclass;
+        }
+    }
     for function in &program.functions {
-        if function.name == "print" {
+        if function.name == "print" || class_names.contains(function.name) {
             return Err(Diagnostic::new(
                 "Declaring a top-level function named 'print' is unsupported",
                 function.span,
@@ -80,10 +187,68 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
         }
     }
     for function in &program.functions {
-        validator.check_type_name(function.return_type, function.span)?;
+        validator.function(function)?;
+    }
+    for class in &program.classes {
+        for field in &class.fields {
+            validator.current_class = Some(class.id);
+            validator.in_field_initializer = true;
+            validator.check_type_name(field.ty, field.span)?;
+            if matches!(field.ty, Type::Void | Type::Null) {
+                return Err(Diagnostic::new("Unsupported field type", field.span));
+            }
+            if let Some(parent) = class.superclass
+                && (validator.field(parent, field.name).is_some()
+                    || validator.method(parent, field.name).is_some())
+            {
+                return Err(Diagnostic::new(
+                    "Redeclaring an inherited field or replacing a method with a field is unsupported",
+                    field.span,
+                ));
+            }
+            validator.require_type(validator.value(&field.initializer)?, field.ty, field.span)?;
+            validator.in_field_initializer = false;
+            validator.current_class = None;
+        }
+        for method in &class.methods {
+            if let Some(parent) = class.superclass {
+                if validator.field(parent, method.name).is_some() {
+                    return Err(Diagnostic::new(
+                        "Method conflicts with inherited field",
+                        method.span,
+                    ));
+                }
+                if let Some(base) = validator.method(parent, method.name) {
+                    if base.parameters.len() != method.parameters.len() {
+                        return Err(Diagnostic::new("Incompatible override arity", method.span));
+                    }
+                    for (expected, actual) in base.parameters.iter().zip(&method.parameters) {
+                        validator.require_type(*expected, actual.ty, actual.span)?;
+                    }
+                    validator.require_type(method.return_type, base.result, method.span)?;
+                }
+            }
+            validator.current_class = Some(class.id);
+            validator.function(method)?;
+            validator.current_class = None;
+        }
+    }
+    validator.return_type = Type::Void;
+    validator.loop_depth = 0;
+    validator.block(&program.statements)
+}
+impl<'a> Validator<'a> {
+    /// Detecta membros que ocultariam uma referência global sem receptor explícito.
+    fn has_implicit_member(&self, name: &str) -> bool {
+        self.current_class
+            .is_some_and(|id| self.field(id, name).is_some() || self.method(id, name).is_some())
+    }
+    /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
+    fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        self.check_type_name(function.return_type, function.span)?;
         let mut parameters = HashMap::new();
         for parameter in &function.parameters {
-            validator.check_type_name(parameter.ty, parameter.span)?;
+            self.check_type_name(parameter.ty, parameter.span)?;
             if parameter.ty == Type::Void {
                 return Err(Diagnostic::new(
                     "Void parameters are unsupported",
@@ -96,6 +261,7 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
                     Binding {
                         ty: Some(parameter.ty),
                         is_final: false,
+                        promoted: None,
                     },
                 )
                 .is_some()
@@ -106,12 +272,21 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
                 ));
             }
         }
-        validator.scopes.push(parameters);
-        validator.return_type = function.return_type;
-        validator.loop_depth = 0;
-        validator.block(&function.body)?;
-        validator.scopes.pop();
-        if function.return_type != Type::Void && !definitely_returns(&function.body) {
+        self.scopes.push(parameters);
+        self.return_type = function.return_type;
+        self.loop_depth = 0;
+        self.block(&function.body)?;
+        self.scopes.pop();
+        if !matches!(
+            function.return_type,
+            Type::Void
+                | Type::Null
+                | Type::NullableInt
+                | Type::NullableString
+                | Type::NullableBool
+                | Type::NullableClass(_)
+        ) && !definitely_returns(&function.body)
+        {
             return Err(Diagnostic::new(
                 format!(
                     "Function '{}' may complete without returning a value",
@@ -120,12 +295,71 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
                 function.span,
             ));
         }
+        Ok(())
     }
-    validator.return_type = Type::Void;
-    validator.loop_depth = 0;
-    validator.block(&program.statements)
-}
-impl<'a> Validator<'a> {
+    /// Procura um campo na classe nominal e em suas bases já verificadas.
+    fn field(&self, id: u32, name: &str) -> Option<FieldInfo> {
+        let class = self.classes.get(&id)?;
+        class
+            .fields
+            .get(name)
+            .copied()
+            .or_else(|| class.superclass.and_then(|base| self.field(base, name)))
+    }
+    /// Procura a assinatura de um método respeitando sobrescritas da classe derivada.
+    fn method(&self, id: u32, name: &str) -> Option<&Signature> {
+        let class = self.classes.get(&id)?;
+        class
+            .methods
+            .get(name)
+            .or_else(|| class.superclass.and_then(|base| self.method(base, name)))
+    }
+    /// Compara tipos primitivos e relações nominais de subtipo entre classes.
+    fn require_type(&self, actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
+        let source = match actual {
+            Type::Class(id) | Type::NullableClass(id) => Some(id),
+            _ => None,
+        };
+        let target = match expected {
+            Type::Class(id) | Type::NullableClass(id) => Some(id),
+            _ => None,
+        };
+        if let (Some(mut source), Some(target)) = (source, target)
+            && (!is_nullable(actual) || is_nullable(expected))
+        {
+            loop {
+                if source == target {
+                    return Ok(());
+                }
+                match self.classes.get(&source).and_then(|class| class.superclass) {
+                    Some(base) => source = base,
+                    None => break,
+                }
+            }
+        }
+        require_type(actual, expected, span)
+    }
+    /// Obtém a classe de um receptor comprovadamente não anulável.
+    fn receiver_class(&self, receiver: &Expr<'a>) -> Result<u32, Diagnostic> {
+        match self.value(receiver)? {
+            Type::Class(id) => Ok(id),
+            _ => Err(Diagnostic::new(
+                "Member access requires a non-null class instance",
+                receiver.span,
+            )),
+        }
+    }
+    /// Rejeita impressão de objetos até existir o protocolo Dart de toString.
+    fn printable(&self, expression: &Expr<'a>) -> Result<(), Diagnostic> {
+        match self.value(expression)? {
+            Type::Class(_) | Type::NullableClass(_) => Err(Diagnostic::new(
+                "Printing class instances requires unsupported toString semantics",
+                expression.span,
+            )),
+            _ => Ok(()),
+        }
+    }
+
     /// Procura o nome do escopo mais interno até o mais externo.
     fn lookup(&self, name: &str) -> Option<Binding> {
         self.scopes
@@ -154,7 +388,16 @@ impl<'a> Validator<'a> {
         // Locais ocultam nomes externos em todo o bloco, inclusive antes da declaração.
         for statement in statements {
             if let StatementKind::Variable { name, is_final, .. } = statement.kind
-                && scope.insert(name, Binding { ty: None, is_final }).is_some()
+                && scope
+                    .insert(
+                        name,
+                        Binding {
+                            ty: None,
+                            is_final,
+                            promoted: None,
+                        },
+                    )
+                    .is_some()
             {
                 return Err(Diagnostic::new(
                     format!("Duplicate local variable '{name}'"),
@@ -181,15 +424,45 @@ impl<'a> Validator<'a> {
                 let actual = self.value(initializer)?;
                 if let Some(expected) = annotation {
                     self.check_type_name(*expected, statement.span)?;
-                    require_type(actual, *expected, initializer.span)?;
+                    self.require_type(actual, *expected, initializer.span)?;
                 }
-                self.scopes
+                if annotation.is_none() && actual == Type::Null {
+                    return Err(Diagnostic::new(
+                        "Inference from null requires dynamic, which is unsupported; use an explicit nullable type",
+                        initializer.span,
+                    ));
+                }
+                let binding = self
+                    .scopes
                     .last_mut()
                     .expect("current block scope")
                     .get_mut(name)
-                    .expect("predeclared local")
-                    .ty = Some(actual);
+                    .expect("predeclared local");
+                binding.ty = Some(annotation.unwrap_or(actual));
+                binding.promoted = if actual != Type::Null && actual != annotation.unwrap_or(actual)
+                {
+                    Some(actual)
+                } else {
+                    None
+                };
                 Ok(())
+            }
+            StatementKind::FieldAssign {
+                receiver,
+                name,
+                value,
+            } => {
+                let id = self.receiver_class(receiver)?;
+                let field = self
+                    .field(id, name)
+                    .ok_or_else(|| Diagnostic::new("Unknown field", statement.span))?;
+                if field.is_final {
+                    return Err(Diagnostic::new(
+                        "Cannot assign to final field",
+                        statement.span,
+                    ));
+                }
+                self.require_type(self.value(value)?, field.ty, value.span)
             }
             StatementKind::Assign { name, value } => {
                 let binding = self.initialized(name, statement.span)?;
@@ -199,32 +472,42 @@ impl<'a> Validator<'a> {
                         statement.span,
                     ));
                 }
-                require_type(
-                    self.value(value)?,
-                    binding.ty.expect("initialized binding"),
-                    value.span,
-                )
+                let actual = self.value(value)?;
+                self.require_type(actual, binding.ty.expect("initialized binding"), value.span)?;
+                // A escrita remove a promoção anterior; valores não nulos estabelecem uma nova.
+                let target = self
+                    .scopes
+                    .iter_mut()
+                    .rev()
+                    .find_map(|scope| scope.get_mut(name))
+                    .expect("resolved binding");
+                target.promoted = if actual != Type::Null && Some(actual) != target.ty {
+                    Some(actual)
+                } else {
+                    None
+                };
+                Ok(())
             }
             StatementKind::Print(expression) => {
-                if self.lookup("print").is_some() {
+                if self.lookup("print").is_some() || self.has_implicit_member("print") {
                     return Err(Diagnostic::new(
                         "Invocation of local 'print' is unsupported; it shadows the built-in function",
                         statement.span,
                     ));
                 }
-                self.value(expression).map(|_| ())
+                self.printable(expression)
             }
             StatementKind::Return(value) => match (self.return_type, value) {
                 (Type::Void, None) => Ok(()),
                 (Type::Void, Some(expression)) => {
-                    require_type(self.expression(expression)?, Type::Void, expression.span)
+                    self.require_type(self.expression(expression)?, Type::Void, expression.span)
                 }
                 (_, None) => Err(Diagnostic::new(
                     "A value must be returned from this function",
                     statement.span,
                 )),
                 (expected, Some(expression)) => {
-                    require_type(self.value(expression)?, expected, expression.span)
+                    self.require_type(self.value(expression)?, expected, expression.span)
                 }
             },
             StatementKind::Expression(expression) => self.expression(expression).map(|_| ()),
@@ -233,20 +516,46 @@ impl<'a> Validator<'a> {
                 then_body,
                 else_body,
             } => {
-                require_type(self.value(condition)?, Type::Bool, condition.span)?;
+                self.require_type(self.value(condition)?, Type::Bool, condition.span)?;
+                let before = self.clone();
+                self.promote(condition, true);
                 self.block(then_body)?;
+                let then_state = self.clone();
+                *self = before.clone();
+                self.promote(condition, false);
                 if let Some(body) = else_body {
                     self.block(body)?;
+                }
+                let else_returns = else_body
+                    .as_ref()
+                    .is_some_and(|body| definitely_returns(body));
+                if definitely_returns(then_body) { /* Somente o outro ramo alcança a próxima instrução. */
+                } else if else_returns {
+                    *self = then_state;
+                } else {
+                    self.merge(&then_state);
                 }
                 Ok(())
             }
             StatementKind::While { condition, body } => {
-                require_type(self.value(condition)?, Type::Bool, condition.span)?;
-                self.loop_body(body)
+                self.invalidate_writes(body);
+                self.require_type(self.value(condition)?, Type::Bool, condition.span)?;
+                let before = self.clone();
+                self.promote(condition, true);
+                self.loop_body(body)?;
+                *self = before;
+                self.invalidate_writes(body);
+                Ok(())
             }
             StatementKind::DoWhile { body, condition } => {
+                self.invalidate_writes(body);
+                let before = self.clone();
                 self.loop_body(body)?;
-                require_type(self.value(condition)?, Type::Bool, condition.span)
+                self.invalidate_writes(body);
+                self.require_type(self.value(condition)?, Type::Bool, condition.span)?;
+                *self = before;
+                self.invalidate_writes(body);
+                Ok(())
             }
             StatementKind::For {
                 initializer,
@@ -322,6 +631,7 @@ impl<'a> Validator<'a> {
                 Binding {
                     ty: None,
                     is_final: *is_final,
+                    promoted: None,
                 },
             );
         }
@@ -330,26 +640,155 @@ impl<'a> Validator<'a> {
             if let Some(initializer) = initializer {
                 self.statement(initializer)?;
             }
-            if let Some(condition) = condition {
-                require_type(self.value(condition)?, Type::Bool, condition.span)?;
+            self.invalidate_writes(body);
+            if let Some(update) = update {
+                self.invalidate_writes(std::slice::from_ref(update));
             }
+            if let Some(condition) = condition {
+                self.require_type(self.value(condition)?, Type::Bool, condition.span)?;
+            }
+            let before = self.clone();
+            if let Some(condition) = condition {
+                self.promote(condition, true);
+            }
+            self.loop_body(body)?;
+            // Continue pode saltar qualquer promoção produzida no corpo.
+            *self = before.clone();
+            if let Some(condition) = condition {
+                self.promote(condition, true);
+            }
+            self.invalidate_writes(body);
             if let Some(update) = update {
                 self.statement(update)?;
             }
-            self.loop_body(body)
+            *self = before;
+            self.invalidate_writes(body);
+            if let Some(update) = update {
+                self.invalidate_writes(std::slice::from_ref(update));
+            }
+            Ok(())
         })();
         self.scopes.pop();
         result
     }
+    /// Promove nomes quando uma condição simples comprova ausência de null.
+    fn promote(&mut self, condition: &Expr<'a>, truth: bool) {
+        match &condition.kind {
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => self.promote(operand, !truth),
+            ExprKind::Binary { op, left, right }
+                if (*op == BinaryOp::And && truth) || (*op == BinaryOp::Or && !truth) =>
+            {
+                self.promote(left, truth);
+                self.promote(right, truth);
+            }
+            ExprKind::Binary { op, left, right }
+                if (*op == BinaryOp::NotEqual && truth) || (*op == BinaryOp::Equal && !truth) =>
+            {
+                let name = match (&left.kind, &right.kind) {
+                    (ExprKind::Identifier(name), ExprKind::Null)
+                    | (ExprKind::Null, ExprKind::Identifier(name)) => Some(name),
+                    _ => None,
+                };
+                if let Some(name) = name
+                    && let Some(binding) = self
+                        .scopes
+                        .iter_mut()
+                        .rev()
+                        .find_map(|scope| scope.get_mut(name))
+                    && let Some(ty) = binding.ty
+                    && is_nullable(ty)
+                {
+                    binding.promoted = Some(non_null(ty));
+                }
+            }
+            _ => {}
+        }
+    }
+    /// Mantém somente promoções idênticas nos dois caminhos alcançáveis.
+    fn merge(&mut self, other: &Self) {
+        for (scope, other_scope) in self.scopes.iter_mut().zip(&other.scopes) {
+            for (name, binding) in scope {
+                if other_scope
+                    .get(name)
+                    .is_none_or(|other| other.promoted != binding.promoted)
+                {
+                    binding.promoted = None;
+                }
+            }
+        }
+    }
+    /// Invalida conservadoramente nomes escritos em qualquer ramo de um laço.
+    fn invalidate_writes(&mut self, statements: &[Statement<'a>]) {
+        for statement in statements {
+            match &statement.kind {
+                StatementKind::Assign { name, .. } => {
+                    // A invalidação por nome pode descartar promoções externas mesmo com sombreamento.
+                    for scope in &mut self.scopes {
+                        if let Some(binding) = scope.get_mut(name) {
+                            binding.promoted = None;
+                        }
+                    }
+                }
+                StatementKind::Block(body)
+                | StatementKind::While { body, .. }
+                | StatementKind::DoWhile { body, .. } => self.invalidate_writes(body),
+                StatementKind::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    self.invalidate_writes(then_body);
+                    if let Some(body) = else_body {
+                        self.invalidate_writes(body);
+                    }
+                }
+                StatementKind::For {
+                    initializer,
+                    update,
+                    body,
+                    ..
+                } => {
+                    if let Some(init) = initializer {
+                        self.invalidate_writes(std::slice::from_ref(init));
+                    }
+                    if let Some(update) = update {
+                        self.invalidate_writes(std::slice::from_ref(update));
+                    }
+                    self.invalidate_writes(body);
+                }
+                _ => {}
+            }
+        }
+    }
     /// Rejeita anotações cujo nome de tipo foi ocultado por uma declaração.
     fn check_type_name(&self, ty: Type, span: Span) -> Result<(), Diagnostic> {
         let name = match ty {
-            Type::Void => return Ok(()),
-            Type::Int => "int",
-            Type::String => "String",
-            Type::Bool => "bool",
+            Type::Void | Type::Null => return Ok(()),
+            Type::Class(id) | Type::NullableClass(id) => {
+                let name = self
+                    .classes
+                    .get(&id)
+                    .ok_or_else(|| Diagnostic::new("Unknown class type", span))?
+                    .name;
+                if self.lookup(name).is_some() || self.has_implicit_member(name) {
+                    return Err(Diagnostic::new(
+                        "Local declaration shadows class type",
+                        span,
+                    ));
+                }
+                return Ok(());
+            }
+            Type::Int | Type::NullableInt => "int",
+            Type::String | Type::NullableString => "String",
+            Type::Bool | Type::NullableBool => "bool",
         };
-        if self.lookup(name).is_some() || self.functions.contains_key(name) {
+        if self.lookup(name).is_some()
+            || self.functions.contains_key(name)
+            || self.has_implicit_member(name)
+        {
             Err(Diagnostic::new(
                 format!(
                     "Declaration '{name}' shadows the type name; using it as a type is unsupported"
@@ -375,14 +814,76 @@ impl<'a> Validator<'a> {
     /// Determina o tipo da expressão e valida operadores e chamadas.
     fn expression(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
         match &expression.kind {
+            ExprKind::This => self
+                .current_class
+                .filter(|_| !self.in_field_initializer)
+                .map(Type::Class)
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "this is only supported inside instance methods",
+                        expression.span,
+                    )
+                }),
+            ExprKind::Construct { class_id } => {
+                let class = self
+                    .classes
+                    .get(class_id)
+                    .ok_or_else(|| Diagnostic::new("Unknown class", expression.span))?;
+                if self.lookup(class.name).is_some() || self.has_implicit_member(class.name) {
+                    return Err(Diagnostic::new(
+                        "Local declaration shadows constructor",
+                        expression.span,
+                    ));
+                }
+                Ok(Type::Class(*class_id))
+            }
+            ExprKind::Member { receiver, name } => {
+                let id = self.receiver_class(receiver)?;
+                self.field(id, name).map(|field| field.ty).ok_or_else(|| {
+                    Diagnostic::new(
+                        "Unknown field or unsupported method tear-off",
+                        expression.span,
+                    )
+                })
+            }
+            ExprKind::MethodCall {
+                receiver,
+                name,
+                arguments,
+            } => {
+                let id = self.receiver_class(receiver)?;
+                let signature = self
+                    .method(id, name)
+                    .ok_or_else(|| Diagnostic::new("Unknown instance method", expression.span))?;
+                if signature.parameters.len() != arguments.len() {
+                    return Err(Diagnostic::new(
+                        "Incorrect method argument count",
+                        expression.span,
+                    ));
+                }
+                for (argument, expected) in arguments.iter().zip(&signature.parameters) {
+                    self.require_type(self.value(argument)?, *expected, argument.span)?;
+                }
+                Ok(signature.result)
+            }
+            ExprKind::Null => Ok(Type::Null),
             ExprKind::Int(_) => Ok(Type::Int),
             ExprKind::String(_) | ExprKind::OwnedString(_) => Ok(Type::String),
             ExprKind::Bool(_) => Ok(Type::Bool),
-            ExprKind::Identifier(name) => Ok(self
-                .initialized(name, expression.span)?
-                .ty
-                .expect("initialized binding")),
+            ExprKind::Identifier(name) => {
+                let binding = self.initialized(name, expression.span)?;
+                Ok(binding
+                    .promoted
+                    .or(binding.ty)
+                    .expect("initialized binding"))
+            }
             ExprKind::Call { name, arguments } => {
+                if self.has_implicit_member(name) {
+                    return Err(Diagnostic::new(
+                        "Instance member calls require explicit this receiver",
+                        expression.span,
+                    ));
+                }
                 if self.lookup(name).is_some() {
                     return Err(Diagnostic::new(
                         format!(
@@ -398,7 +899,7 @@ impl<'a> Validator<'a> {
                             expression.span,
                         ));
                     }
-                    self.value(&arguments[0])?;
+                    self.printable(&arguments[0])?;
                     return Ok(Type::Void);
                 }
                 let signature = self.functions.get(name).ok_or_else(|| {
@@ -415,22 +916,59 @@ impl<'a> Validator<'a> {
                     ));
                 }
                 for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                    require_type(self.value(argument)?, *expected, argument.span)?;
+                    self.require_type(self.value(argument)?, *expected, argument.span)?;
                 }
                 Ok(signature.result)
             }
             ExprKind::Unary { op, operand } => {
+                if *op == UnaryOp::NullAssert {
+                    let ty = self.value(operand)?;
+                    return if ty == Type::Null {
+                        Err(Diagnostic::new(
+                            "Null assertion on a null-only value is unsupported",
+                            expression.span,
+                        ))
+                    } else {
+                        Ok(non_null(ty))
+                    };
+                }
                 let expected = match op {
                     UnaryOp::Negate => Type::Int,
                     UnaryOp::Not => Type::Bool,
+                    UnaryOp::NullAssert => unreachable!(),
                 };
-                require_type(self.value(operand)?, expected, operand.span)?;
+                self.require_type(self.value(operand)?, expected, operand.span)?;
                 Ok(expected)
             }
             ExprKind::Binary { op, left, right } => {
                 let lhs = self.value(left)?;
-                let rhs = self.value(right)?;
+                let rhs = if matches!(op, BinaryOp::And | BinaryOp::Or) {
+                    let mut rhs_state = self.clone();
+                    rhs_state.promote(left, *op == BinaryOp::And);
+                    rhs_state.value(right)?
+                } else {
+                    self.value(right)?
+                };
                 match op {
+                    BinaryOp::IfNull => {
+                        if lhs == Type::Null {
+                            return Ok(rhs);
+                        }
+                        let base = non_null(lhs);
+                        if lhs == base {
+                            return Ok(lhs);
+                        }
+                        if rhs == base {
+                            Ok(base)
+                        } else if rhs == lhs || rhs == Type::Null {
+                            Ok(lhs)
+                        } else {
+                            Err(Diagnostic::new(
+                                "The common type of ?? operands is unsupported",
+                                expression.span,
+                            ))
+                        }
+                    }
                     BinaryOp::Equal | BinaryOp::NotEqual => Ok(Type::Bool),
                     BinaryOp::Add => {
                         if matches!(lhs, Type::Int | Type::String) && lhs == rhs {
@@ -443,21 +981,21 @@ impl<'a> Validator<'a> {
                         }
                     }
                     BinaryOp::Subtract | BinaryOp::Multiply => {
-                        require_type(lhs, Type::Int, left.span)?;
-                        require_type(rhs, Type::Int, right.span)?;
+                        self.require_type(lhs, Type::Int, left.span)?;
+                        self.require_type(rhs, Type::Int, right.span)?;
                         Ok(Type::Int)
                     }
                     BinaryOp::Less
                     | BinaryOp::LessEqual
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual => {
-                        require_type(lhs, Type::Int, left.span)?;
-                        require_type(rhs, Type::Int, right.span)?;
+                        self.require_type(lhs, Type::Int, left.span)?;
+                        self.require_type(rhs, Type::Int, right.span)?;
                         Ok(Type::Bool)
                     }
                     BinaryOp::And | BinaryOp::Or => {
-                        require_type(lhs, Type::Bool, left.span)?;
-                        require_type(rhs, Type::Bool, right.span)?;
+                        self.require_type(lhs, Type::Bool, left.span)?;
+                        self.require_type(rhs, Type::Bool, right.span)?;
                         Ok(Type::Bool)
                     }
                 }
@@ -478,9 +1016,28 @@ fn definitely_returns(statements: &[Statement<'_>]) -> bool {
         _ => false,
     })
 }
+/// Identifica os tipos primitivos que admitem null.
+fn is_nullable(ty: Type) -> bool {
+    matches!(
+        ty,
+        Type::NullableInt | Type::NullableString | Type::NullableBool | Type::NullableClass(_)
+    )
+}
+/// Remove a possibilidade de null de um tipo primitivo.
+fn non_null(ty: Type) -> Type {
+    match ty {
+        Type::NullableInt => Type::Int,
+        Type::NullableString => Type::String,
+        Type::NullableBool => Type::Bool,
+        Type::NullableClass(id) => Type::Class(id),
+        other => other,
+    }
+}
 /// Compara tipos e associa a incompatibilidade ao trecho indicado.
 fn require_type(actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
-    if actual == expected {
+    if actual == expected
+        || (is_nullable(expected) && (actual == Type::Null || actual == non_null(expected)))
+    {
         Ok(())
     } else {
         Err(Diagnostic::new(
@@ -526,6 +1083,7 @@ mod tests {
     /// Valida um corpo de main sem funções auxiliares.
     fn check(statements: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            classes: vec![],
             functions: vec![],
             statements,
         })
@@ -567,6 +1125,597 @@ mod tests {
     /// Constrói uma instrução de retorno com valor.
     fn ret(value: Expr<'static>) -> Statement<'static> {
         stmt(StatementKind::Return(Some(value)))
+    }
+    /// Constrói uma classe de teste sem membros e com base opcional.
+    fn class(
+        id: u32,
+        name: &'static str,
+        superclass: Option<u32>,
+    ) -> dartforge_syntax::Class<'static> {
+        dartforge_syntax::Class {
+            id,
+            name,
+            superclass,
+            fields: vec![],
+            methods: vec![],
+            span: SPAN,
+        }
+    }
+    /// Constrói um campo inteiro para testar inicialização e mutabilidade.
+    fn field(name: &'static str, is_final: bool) -> dartforge_syntax::Field<'static> {
+        dartforge_syntax::Field {
+            name,
+            ty: Type::Int,
+            is_final,
+            initializer: int(),
+            span: SPAN,
+        }
+    }
+    /// Constrói a leitura de um campo de instância.
+    fn member(receiver: Expr<'static>, name: &'static str) -> Expr<'static> {
+        expr(ExprKind::Member {
+            receiver: Box::new(receiver),
+            name,
+        })
+    }
+    /// Verifica herança, chamada dinâmica tipada e atribuição nominal de subtipo.
+    #[test]
+    fn classes_inherit_fields_methods_and_nominal_types() {
+        let mut base = class(0, "Base", None);
+        base.fields.push(field("value", false));
+        base.methods.push(function(
+            "get",
+            Type::Int,
+            vec![],
+            vec![ret(member(expr(ExprKind::This), "value"))],
+        ));
+        let mut child = class(1, "Child", Some(0));
+        child
+            .methods
+            .push(function("get", Type::Int, vec![], vec![ret(int())]));
+        assert!(
+            validate(&Program {
+                classes: vec![base, child],
+                functions: vec![],
+                statements: vec![
+                    stmt(StatementKind::Variable {
+                        name: "b",
+                        annotation: Some(Type::Class(0)),
+                        is_final: false,
+                        initializer: expr(ExprKind::Construct { class_id: 1 })
+                    }),
+                    stmt(StatementKind::FieldAssign {
+                        receiver: id("b"),
+                        name: "value",
+                        value: int()
+                    }),
+                    print(expr(ExprKind::MethodCall {
+                        receiver: Box::new(id("b")),
+                        name: "get",
+                        arguments: vec![]
+                    })),
+                ]
+            })
+            .is_ok()
+        );
+        assert!(
+            validate(&Program {
+                classes: vec![class(0, "Base", None), class(1, "Child", Some(0))],
+                functions: vec![],
+                statements: vec![stmt(StatementKind::Variable {
+                    name: "c",
+                    annotation: Some(Type::Class(1)),
+                    is_final: false,
+                    initializer: expr(ExprKind::Construct { class_id: 0 })
+                })]
+            })
+            .is_err()
+        );
+    }
+    /// Rejeita ciclos, bases ausentes, colisões de membros e sobrescritas incompatíveis.
+    #[test]
+    fn invalid_class_hierarchies_and_overrides_are_rejected() {
+        for classes in [
+            vec![class(0, "A", Some(1)), class(1, "B", Some(0))],
+            vec![class(0, "A", Some(9))],
+            vec![class(0, "A", None), class(0, "B", None)],
+        ] {
+            assert!(
+                validate(&Program {
+                    classes,
+                    functions: vec![],
+                    statements: vec![]
+                })
+                .is_err()
+            );
+        }
+        let mut base = class(0, "A", None);
+        base.methods
+            .push(function("f", Type::Int, vec![], vec![ret(int())]));
+        let mut child = class(1, "B", Some(0));
+        child.methods.push(function(
+            "f",
+            Type::Bool,
+            vec![],
+            vec![ret(expr(ExprKind::Bool(true)))],
+        ));
+        assert!(
+            validate(&Program {
+                classes: vec![base, child],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_err()
+        );
+        let mut base = class(0, "A", None);
+        base.fields.push(field("x", false));
+        let mut child = class(1, "B", Some(0));
+        child.fields.push(field("x", false));
+        assert!(
+            validate(&Program {
+                classes: vec![base, child],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_err()
+        );
+        let mut base = class(0, "A", None);
+        base.methods.push(function(
+            "f",
+            Type::Void,
+            vec![("x", Type::NullableInt)],
+            vec![],
+        ));
+        let mut child = class(1, "B", Some(0));
+        child
+            .methods
+            .push(function("f", Type::Void, vec![("x", Type::Int)], vec![]));
+        assert!(
+            validate(&Program {
+                classes: vec![base, child],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_err()
+        );
+    }
+    /// Verifica this, campos final, impressão de objetos e construtores ocultados.
+    #[test]
+    fn class_access_respects_context_and_final_fields() {
+        assert!(check(vec![print(expr(ExprKind::This))]).is_err());
+        let mut c = class(0, "A", None);
+        c.fields.push(field("x", true));
+        assert!(
+            validate(&Program {
+                classes: vec![c],
+                functions: vec![],
+                statements: vec![
+                    local("a", expr(ExprKind::Construct { class_id: 0 })),
+                    stmt(StatementKind::FieldAssign {
+                        receiver: id("a"),
+                        name: "x",
+                        value: int()
+                    })
+                ]
+            })
+            .is_err()
+        );
+        assert!(
+            validate(&Program {
+                classes: vec![class(0, "A", None)],
+                functions: vec![],
+                statements: vec![print(expr(ExprKind::Construct { class_id: 0 }))]
+            })
+            .is_err()
+        );
+        assert!(
+            validate(&Program {
+                classes: vec![class(0, "A", None)],
+                functions: vec![],
+                statements: vec![
+                    local("A", int()),
+                    local("a", expr(ExprKind::Construct { class_id: 0 }))
+                ]
+            })
+            .is_err()
+        );
+        let mut c = class(0, "A", None);
+        c.fields.push(dartforge_syntax::Field {
+            name: "self",
+            ty: Type::Class(0),
+            is_final: true,
+            initializer: expr(ExprKind::This),
+            span: SPAN,
+        });
+        assert!(
+            validate(&Program {
+                classes: vec![c],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_err()
+        );
+    }
+    /// Rejeita resolução global quando membros ocultam funções, tipos ou construtores.
+    #[test]
+    fn implicit_member_shadowing_never_resolves_to_globals() {
+        let mut c = class(0, "C", None);
+        c.fields.push(field("f", false));
+        c.fields.push(dartforge_syntax::Field {
+            name: "x",
+            ty: Type::Int,
+            is_final: false,
+            initializer: call("f", vec![]),
+            span: SPAN,
+        });
+        assert!(
+            validate(&Program {
+                classes: vec![c],
+                functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
+                statements: vec![]
+            })
+            .is_err()
+        );
+        let mut a = class(1, "A", None);
+        a.fields.push(field("C", false));
+        a.methods.push(function(
+            "make",
+            Type::Class(0),
+            vec![],
+            vec![ret(expr(ExprKind::Construct { class_id: 0 }))],
+        ));
+        assert!(
+            validate(&Program {
+                classes: vec![class(0, "C", None), a],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_err()
+        );
+        let mut c = class(0, "C", None);
+        c.methods
+            .push(function("f", Type::Int, vec![], vec![ret(int())]));
+        c.methods.push(function(
+            "g",
+            Type::Int,
+            vec![],
+            vec![ret(call("f", vec![]))],
+        ));
+        assert!(
+            validate(&Program {
+                classes: vec![c],
+                functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
+                statements: vec![]
+            })
+            .is_err()
+        );
+    }
+    /// Aceita parâmetros contravariantes e retorno covariante em sobrescritas nominais.
+    #[test]
+    fn class_override_variance_is_checked_nominally() {
+        let base = class(0, "Base", None);
+        let child = class(1, "Child", Some(0));
+        let mut a = class(2, "A", None);
+        a.methods.push(function(
+            "f",
+            Type::Class(0),
+            vec![("x", Type::Class(1))],
+            vec![ret(id("x"))],
+        ));
+        let mut b = class(3, "B", Some(2));
+        b.methods.push(function(
+            "f",
+            Type::Class(1),
+            vec![("x", Type::Class(0))],
+            vec![ret(expr(ExprKind::Construct { class_id: 1 }))],
+        ));
+        assert!(
+            validate(&Program {
+                classes: vec![base, child, a, b],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_ok()
+        );
+    }
+    /// Promove variáveis de classe anuláveis, mas nunca a leitura de campos.
+    #[test]
+    fn nullable_class_promotion_does_not_promote_fields() {
+        let mut c = class(0, "A", None);
+        c.fields.push(field("x", false));
+        let f = function(
+            "f",
+            Type::Void,
+            vec![("a", Type::NullableClass(0))],
+            vec![stmt(StatementKind::If {
+                condition: present("a"),
+                then_body: vec![print(member(id("a"), "x"))],
+                else_body: None,
+            })],
+        );
+        assert!(
+            validate(&Program {
+                classes: vec![c],
+                functions: vec![f],
+                statements: vec![]
+            })
+            .is_ok()
+        );
+        let mut c = class(0, "A", None);
+        c.fields.push(dartforge_syntax::Field {
+            name: "x",
+            ty: Type::NullableInt,
+            is_final: false,
+            initializer: expr(ExprKind::Null),
+            span: SPAN,
+        });
+        c.methods.push(function(
+            "f",
+            Type::Void,
+            vec![],
+            vec![stmt(StatementKind::If {
+                condition: binary(
+                    BinaryOp::NotEqual,
+                    member(expr(ExprKind::This), "x"),
+                    expr(ExprKind::Null),
+                ),
+                then_body: vec![print(binary(
+                    BinaryOp::Add,
+                    member(expr(ExprKind::This), "x"),
+                    int(),
+                ))],
+                else_body: None,
+            })],
+        ));
+        assert!(
+            validate(&Program {
+                classes: vec![c],
+                functions: vec![],
+                statements: vec![]
+            })
+            .is_err()
+        );
+    }
+    /// Constrói uma comparação de presença de valor para testes de fluxo.
+    fn present(name: &'static str) -> Expr<'static> {
+        binary(BinaryOp::NotEqual, id(name), expr(ExprKind::Null))
+    }
+    /// Valida um corpo com um parâmetro inteiro anulável.
+    fn nullable_body(body: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
+        validate(&Program {
+            classes: vec![],
+            functions: vec![function(
+                "f",
+                Type::Void,
+                vec![("x", Type::NullableInt)],
+                body,
+            )],
+            statements: vec![],
+        })
+    }
+    /// Verifica atribuição anulável, inferência segura e incompatibilidades primitivas.
+    #[test]
+    fn nullable_assignments_preserve_declared_type() {
+        assert!(
+            check(vec![
+                stmt(StatementKind::Variable {
+                    name: "x",
+                    annotation: Some(Type::NullableInt),
+                    is_final: false,
+                    initializer: int()
+                }),
+                print(binary(BinaryOp::Add, id("x"), int())),
+                stmt(StatementKind::Assign {
+                    name: "x",
+                    value: expr(ExprKind::Null)
+                }),
+                print(binary(BinaryOp::IfNull, id("x"), int()))
+            ])
+            .is_ok()
+        );
+        assert!(
+            nullable_body(vec![stmt(StatementKind::Assign {
+                name: "x",
+                value: expr(ExprKind::String("bad"))
+            })])
+            .is_err()
+        );
+        assert!(check(vec![local("x", expr(ExprKind::Null))]).is_err());
+        assert!(
+            check(vec![
+                local("x", int()),
+                stmt(StatementKind::Assign {
+                    name: "x",
+                    value: expr(ExprKind::Null)
+                })
+            ])
+            .is_err()
+        );
+        assert!(nullable_body(vec![print(binary(BinaryOp::Add, id("x"), int()))]).is_err());
+    }
+    /// Verifica promoção em if, retorno antecipado e curto circuito booleano.
+    #[test]
+    fn null_checks_promote_only_reachable_branches() {
+        assert!(
+            nullable_body(vec![stmt(StatementKind::If {
+                condition: present("x"),
+                then_body: vec![print(binary(BinaryOp::Add, id("x"), int()))],
+                else_body: None
+            })])
+            .is_ok()
+        );
+        assert!(
+            nullable_body(vec![
+                stmt(StatementKind::If {
+                    condition: binary(BinaryOp::Equal, id("x"), expr(ExprKind::Null)),
+                    then_body: vec![stmt(StatementKind::Return(None))],
+                    else_body: None
+                }),
+                print(binary(BinaryOp::Add, id("x"), int()))
+            ])
+            .is_ok()
+        );
+        assert!(
+            nullable_body(vec![
+                print(binary(
+                    BinaryOp::And,
+                    present("x"),
+                    binary(BinaryOp::Greater, id("x"), int())
+                )),
+                print(binary(
+                    BinaryOp::Or,
+                    binary(BinaryOp::Equal, id("x"), expr(ExprKind::Null)),
+                    binary(BinaryOp::Greater, id("x"), int())
+                ))
+            ])
+            .is_ok()
+        );
+        assert!(
+            nullable_body(vec![print(binary(
+                BinaryOp::Or,
+                present("x"),
+                binary(BinaryOp::Greater, id("x"), int())
+            ))])
+            .is_err()
+        );
+        assert!(
+            nullable_body(vec![
+                stmt(StatementKind::If {
+                    condition: present("x"),
+                    then_body: vec![],
+                    else_body: None
+                }),
+                print(binary(BinaryOp::Add, id("x"), int()))
+            ])
+            .is_err()
+        );
+    }
+    /// Rejeita uso promovido após escrita null, mescla de ramo e repetição com escrita.
+    #[test]
+    fn null_writes_invalidate_branch_and_loop_promotions() {
+        let assign_null = || {
+            stmt(StatementKind::Assign {
+                name: "x",
+                value: expr(ExprKind::Null),
+            })
+        };
+        assert!(
+            nullable_body(vec![stmt(StatementKind::If {
+                condition: present("x"),
+                then_body: vec![assign_null(), print(binary(BinaryOp::Add, id("x"), int()))],
+                else_body: None
+            })])
+            .is_err()
+        );
+        assert!(
+            nullable_body(vec![stmt(StatementKind::If {
+                condition: present("x"),
+                then_body: vec![stmt(StatementKind::While {
+                    condition: expr(ExprKind::Bool(true)),
+                    body: vec![print(binary(BinaryOp::Add, id("x"), int())), assign_null()]
+                })],
+                else_body: None
+            })])
+            .is_err()
+        );
+        assert!(
+            nullable_body(vec![stmt(StatementKind::While {
+                condition: present("x"),
+                body: vec![
+                    print(binary(BinaryOp::Add, id("x"), int())),
+                    assign_null(),
+                    stmt(StatementKind::Continue)
+                ]
+            })])
+            .is_ok()
+        );
+        assert!(
+            nullable_body(vec![stmt(StatementKind::For {
+                initializer: None,
+                condition: Some(present("x")),
+                update: Some(Box::new(stmt(StatementKind::Assign {
+                    name: "x",
+                    value: binary(BinaryOp::Add, id("x"), int())
+                }))),
+                body: vec![assign_null(), stmt(StatementKind::Continue)]
+            })])
+            .is_err()
+        );
+    }
+    /// Verifica remoção explícita de null, coalescência e retornos anuláveis.
+    #[test]
+    fn null_assert_and_coalesce_have_nonnullable_results() {
+        assert!(
+            nullable_body(vec![
+                print(binary(
+                    BinaryOp::Add,
+                    expr(ExprKind::Unary {
+                        op: UnaryOp::NullAssert,
+                        operand: Box::new(id("x"))
+                    }),
+                    int()
+                )),
+                print(binary(
+                    BinaryOp::Add,
+                    binary(BinaryOp::IfNull, id("x"), int()),
+                    int()
+                ))
+            ])
+            .is_ok()
+        );
+        assert!(
+            nullable_body(vec![print(binary(
+                BinaryOp::IfNull,
+                id("x"),
+                expr(ExprKind::String("bad"))
+            ))])
+            .is_err()
+        );
+        assert!(
+            validate(&Program {
+                classes: vec![],
+                functions: vec![
+                    function(
+                        "f",
+                        Type::NullableInt,
+                        vec![],
+                        vec![ret(expr(ExprKind::Null))]
+                    ),
+                    function("g", Type::NullableString, vec![], vec![])
+                ],
+                statements: vec![]
+            })
+            .is_ok()
+        );
+        assert!(
+            validate(&Program {
+                classes: vec![],
+                functions: vec![function(
+                    "f",
+                    Type::Int,
+                    vec![],
+                    vec![ret(expr(ExprKind::Null))]
+                )],
+                statements: vec![]
+            })
+            .is_err()
+        );
+        assert!(
+            nullable_body(vec![stmt(StatementKind::If {
+                condition: present("x"),
+                then_body: vec![stmt(StatementKind::Block(vec![
+                    stmt(StatementKind::Variable {
+                        name: "x",
+                        annotation: Some(Type::NullableInt),
+                        is_final: false,
+                        initializer: expr(ExprKind::Null)
+                    }),
+                    print(binary(BinaryOp::Add, id("x"), int()))
+                ]))],
+                else_body: None
+            })])
+            .is_err()
+        );
     }
     /// Constrói um laço clássico com inicializador local e condição booleana.
     fn for_statement(
@@ -612,6 +1761,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![
                     function(
                         "f",
@@ -782,6 +1932,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    classes: vec![],
                     functions: vec![function("f", Type::Int, vec![], body)],
                     statements: vec![]
                 })
@@ -790,6 +1941,7 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![function(
                     "f",
                     Type::Int,
@@ -811,6 +1963,7 @@ mod tests {
     /// Verifica referências antecipadas, recursão e parâmetros mutáveis.
     fn forward_calls_recursion_and_mutable_parameters() {
         let program = Program {
+            classes: vec![],
             functions: vec![
                 function(
                     "first",
@@ -845,6 +1998,7 @@ mod tests {
         for arguments in [vec![], vec![int(), int()], vec![expr(ExprKind::Bool(true))]] {
             assert!(
                 validate(&Program {
+                    classes: vec![],
                     functions: vec![function(
                         "f",
                         Type::Int,
@@ -881,6 +2035,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    classes: vec![],
                     functions: vec![function("f", Type::Int, vec![], body)],
                     statements: vec![]
                 })
@@ -889,6 +2044,7 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![function(
                     "f",
                     Type::Int,
@@ -943,6 +2099,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    classes: vec![],
                     functions,
                     statements: vec![]
                 })
@@ -955,6 +2112,7 @@ mod tests {
     fn parameters_shadow_body_types_but_not_signature_types() {
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![function(
                     "f",
                     Type::Int,
@@ -967,6 +2125,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![function(
                     "f",
                     Type::Int,
@@ -979,6 +2138,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![function(
                     "f",
                     Type::Int,
@@ -1152,6 +2312,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![
                     function(
                         "identity",
@@ -1187,6 +2348,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                classes: vec![],
                 functions: vec![function(
                     "wrong",
                     Type::Int,
@@ -1275,7 +2437,13 @@ mod tests {
         /// Constrói uma declaração com anotação e inicializador compatíveis.
         fn annotated(ty: Type) -> Statement<'static> {
             let initializer = match ty {
-                Type::Void => unreachable!(),
+                Type::Void
+                | Type::Null
+                | Type::NullableInt
+                | Type::NullableString
+                | Type::NullableBool
+                | Type::Class(_)
+                | Type::NullableClass(_) => unreachable!(),
                 Type::Int => int(),
                 Type::String => expr(ExprKind::String("text")),
                 Type::Bool => expr(ExprKind::Bool(true)),

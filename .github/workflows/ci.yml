@@ -49,3 +49,6 @@ jobs:
       - name: Compare with dart2js O2
         shell: pwsh
         run: ./scripts/conformance.ps1
+      - name: Compare constant folding with dart2js O2
+        shell: pwsh
+        run: ./scripts/conformance.ps1 -DartForgeOptimize

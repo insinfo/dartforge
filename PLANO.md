@@ -210,6 +210,18 @@ Aceite: relatório reproduzível demonstra o desempenho em programas semanticame
 O alcance e as limitações estão em [docs/SUBCONJUNTO.md](docs/SUBCONJUNTO.md).
 Esses recursos não concluem o lexer/parser completo nem a semântica integral de Dart.
 
+## Quarto incremento — Null safety, objetos e medições
+
+- [x] Tipos primitivos e classes anuláveis, ??, ! e promoção local com merges conservadores.
+- [x] Classes nominais, campos, métodos, construtor implícito e herança simples.
+- [x] Validar hierarquia, sobrescritas, mutabilidade e despacho; preservar ordem de inicialização Dart.
+- [x] Carregar grafo de imports relativos com ciclos e diagnóstico por arquivo (sem namespace/linkagem ainda).
+- [x] Adicionar --optimize com avaliação de constantes puras após validação semântica.
+- [x] Benchmarks por fase e processos DDC/dart2js com limitações explícitas e saídas verificadas quando disponíveis.
+- [ ] Resolver símbolos por biblioteca, prefixos, privacidade, exports e package_config.
+- [ ] Persistir membros resolvidos na HIR e implementar extensions com despacho estático.
+- [ ] Ampliar construtores, super, interfaces, generics e análise de fluxo por subtipos.
+
 ## Próximas tarefas
 
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.

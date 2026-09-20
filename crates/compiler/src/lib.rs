@@ -19,9 +19,44 @@ use dartforge_diagnostics::Diagnostic;
 /// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
 /// ```
 pub fn compile(source: &str) -> Result<String, Diagnostic> {
+    compile_with_optimization(source, Optimization::None)
+}
+
+/// Seleciona passes opcionais após a validação semântica completa do subconjunto.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Optimization {
+    /// Emissão direta, voltada à baixa latência de desenvolvimento.
+    #[default]
+    None,
+    /// Avaliação de constantes puras com limites de tamanho e faixa numérica.
+    Constants,
+}
+
+/// Compila uma unidade e aplica somente a política de otimização solicitada.
+///
+/// A análise semântica precede qualquer otimização, inclusive em ramos constantes.
+/// Esta opção ainda não oferece otimização global, inlining ou tree shaking.
+///
+/// # Erros
+/// Retorna os mesmos diagnósticos de [`compile`]; otimização não oculta código inválido.
+///
+/// # Exemplos
+/// ```
+/// use dartforge_compiler::{compile_with_optimization, Optimization};
+/// let js = compile_with_optimization("void main() { print(2 + 3); }", Optimization::Constants)?;
+/// assert!(js.contains("console.log(5)"));
+/// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
+/// ```
+pub fn compile_with_optimization(
+    source: &str,
+    optimization: Optimization,
+) -> Result<String, Diagnostic> {
     let tokens = dartforge_lexer::lex(source)?;
-    let ast = dartforge_parser::parse(&tokens, source.len())?;
+    let mut ast = dartforge_parser::parse(&tokens, source.len())?;
     dartforge_semantic::validate(&ast)?;
+    if optimization == Optimization::Constants {
+        dartforge_optimizer::fold_constants(&mut ast);
+    }
     Ok(dartforge_codegen::emit(&dartforge_hir::lower(ast)))
 }
 #[cfg(test)]

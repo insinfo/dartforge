@@ -14,11 +14,14 @@ O protótipo suporta um subconjunto explícito:
 - `break`/`continue` sem rótulos; `++`, `--`, `+=`, `-=` e `*=` sobre identificadores, como instruções.
 - Variáveis locais `var`, `final`, `int`, `String`, `bool`, atribuições e escopos.
 - Expressões aritméticas, relacionais e booleanas; `print`; strings Unicode com escapes e strings raw.
+- Tipos anuláveis, promoção de fluxo, operadores `??` e `!`.
+- Classes, campos, métodos e herança simples com despacho dinâmico.
 - Validação de nomes, tipos, argumentos, retornos e mutabilidade.
+- Avaliação opcional de constantes puras com `--optimize`.
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
-Ainda não compila aplicações Dart/ngdart completas. Não há classes, imports, bibliotecas
-padrão completas, LSP ou servidor web implementados. Não há benchmarks que demonstrem
+Ainda não compila aplicações Dart/ngdart completas. Imports ainda não são compilados em conjunto; faltam bibliotecas
+padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
 vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
 
 ## Compilar e testar
@@ -50,16 +53,28 @@ Não tratamos um compilador específico como oráculo absoluto.
 Na máquina de desenvolvimento original, Rust está em `D:\Rust` e o projeto em
 `D:\Projects\dartforge`; `scripts/env.ps1` usa essa instalação quando presente.
 
+## Análise, imports e desempenho
+
+Detalhes: [null safety](docs/NULL-SAFETY.md), [classes](docs/CLASSES.md),
+[grafo de imports](docs/IMPORTS.md) e [benchmarks](docs/BENCHMARKS.md).
+
+    cargo run -p dartforge-cli -- graph caminho/main.dart
+    cargo bench --locked -p dartforge-compiler --bench pipeline
+
+O grafo ainda não resolve namespaces nem substitui a compilação de bibliotecas.
+
 ## Workspace
 
 | Crate | Responsabilidade |
 |---|---|
+| packages | Grafo de imports relativos por arquivo |
 | diagnostics | Diagnósticos e spans |
 | syntax | Tokens e AST |
 | lexer / parser | Frontend do subconjunto |
 | semantic | Resolução local, funções e tipos |
 | hir | Representação estrutural intermediária |
 | codegen | Emissão JavaScript |
+| optimizer | Simplificação opcional de constantes após validação |
 | compiler / cli | Pipeline compartilhado e executável |
 | ngdart / lsp / web | Fronteiras iniciais para expansão |
 

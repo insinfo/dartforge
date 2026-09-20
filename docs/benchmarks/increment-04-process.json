@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "kind": "exploratory_fresh_process_warm_filesystem",
+  "generated_at": "2026-09-20T03:41:22.4289180-03:00",
+  "dart_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"windows_x64\"",
+  "node_version": "v24.14.1",
+  "rust_version": "rustc 1.98.1 (48a229cea 2026-09-01)\r\nbinary: rustc\r\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\r\ncommit-date: 2026-09-01\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.98.1\r\nLLVM version: 22.1.8",
+  "git_revision": "e1a16e2db586d9461fd97cc24aef6604865999ba",
+  "git_status_porcelain": [
+    " M .github/workflows/ci.yml",
+    " M Cargo.lock",
+    " M PLANO.md",
+    " M README.md",
+    " M crates/cli/Cargo.toml",
+    " M crates/cli/src/main.rs",
+    " M crates/codegen/src/lib.rs",
+    " M crates/compiler/Cargo.toml",
+    " M crates/compiler/src/lib.rs",
+    " M crates/hir/src/lib.rs",
+    " M crates/lexer/src/lib.rs",
+    " M crates/parser/src/lib.rs",
+    " M crates/semantic/src/lib.rs",
+    " M crates/syntax/src/lib.rs",
+    " M docs/BENCHMARKS.md",
+    " M docs/SUBCONJUNTO.md",
+    " M scripts/conformance.ps1",
+    "?? crates/compiler/benches/",
+    "?? crates/compiler/tests/",
+    "?? crates/optimizer/",
+    "?? crates/packages/",
+    "?? docs/CLASSES.md",
+    "?? docs/IMPORTS.md",
+    "?? docs/NULL-SAFETY.md",
+    "?? docs/OTIMIZACAO.md",
+    "?? scripts/benchmark-process.ps1",
+    "?? tests/conformance/cases/class_effects.dart",
+    "?? tests/conformance/cases/classes.dart",
+    "?? tests/conformance/cases/constants.dart",
+    "?? tests/conformance/cases/null_flow.dart",
+    "?? tests/conformance/cases/null_safety.dart"
+  ],
+  "rustflags": null,
+  "tools": {
+    "dart": "C:\\tools\\dartsdk-3.6.2\\bin\\dart.exe",
+    "node": "C:\\nodejs\\node.exe",
+    "dartforge": "D:\\Projects\\dartforge\\target\\release\\dartforge.exe",
+    "ddc_snapshot": "C:\\tools\\dartsdk-3.6.2\\bin\\snapshots\\dartdevc.dart.snapshot"
+  },
+  "dartforge_sha256": "F7295D72D1225822173891580B460EF6F231ECBF54FEB47B6ED677942FAD5B99",
+  "percentile_method": "nearest_rank",
+  "order_policy": "cyclic_rotation",
+  "output_validation": "last_sample_both_dartforge_variants_and_dart2js_plus_known_expected_sum",
+  "commands": {
+    "dartforge": "dartforge compile INPUT OUTPUT",
+    "dartforge_constants": "dartforge compile INPUT OUTPUT --optimize",
+    "ddc": "dart dartdevc.dart.snapshot --modules common -o OUTPUT INPUT",
+    "dart2js_O2": "dart compile js -O2 -o OUTPUT INPUT"
+  },
+  "os": "Microsoft Windows 10.0.26200",
+  "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+  "logical_processors": 8,
+  "functions": 100,
+  "source_bytes": 9225,
+  "source_sha256": "09AC6629E48640308E4079B62B8DAADA43EC2152E563D7B3C6EE3AD4F337507C",
+  "warmup_rounds": 1,
+  "samples": 5,
+  "dartforge_vs_dart2js_output_equal": true,
+  "dartforge_constants_vs_dart2js_output_equal": true,
+  "ddc_output_executed": false,
+  "warning": "Não comprova superioridade: subconjunto sintético, DartForge sem otimização global/runtime completo; DDC sem worker incremental e saída não executada. Inclui inicialização, disco e invocação PowerShell; filesystem aquecido. Não mede RSS, recompilação incremental nem desempenho do JS.",
+  "results": [
+    {
+      "compiler": "dartforge",
+      "samples_ms": [
+        23.3602,
+        35.3634,
+        32.5996,
+        45.2744,
+        39.2406
+      ],
+      "median_ms": 35.3634,
+      "p95_ms": 45.2744
+    },
+    {
+      "compiler": "dartforge_constants",
+      "samples_ms": [
+        237.6308,
+        26.1133,
+        25.1934,
+        27.6703,
+        59.7626
+      ],
+      "median_ms": 27.6703,
+      "p95_ms": 237.6308
+    },
+    {
+      "compiler": "ddc",
+      "samples_ms": [
+        418.0814,
+        364.5866,
+        433.9279,
+        397.3062,
+        413.0815
+      ],
+      "median_ms": 413.0815,
+      "p95_ms": 433.9279
+    },
+    {
+      "compiler": "dart2js_O2",
+      "samples_ms": [
+        1501.737,
+        1482.6522,
+        1519.0683,
+        1514.4854,
+        1706.6311
+      ],
+      "median_ms": 1514.4854,
+      "p95_ms": 1706.6311
+    }
+  ]
+}

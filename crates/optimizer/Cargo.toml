@@ -1,0 +1,12 @@
+[package]
+name = "dartforge-optimizer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-syntax = { path = "../syntax" }
+[dev-dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }

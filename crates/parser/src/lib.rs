@@ -1,8 +1,8 @@
 //! Análise sintática do subconjunto Dart 3.6.2, com limites explícitos de complexidade.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
-    BinaryOp, Expr, ExprKind, Function, Parameter, Program, Statement, StatementKind, Token,
-    TokenKind, Type, UnaryOp,
+    BinaryOp, Class, Expr, ExprKind, Field, Function, Parameter, Program, Statement, StatementKind,
+    Token, TokenKind, Type, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -28,10 +28,16 @@ pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>,
         index: 0,
         source_len,
         expr_nodes: 0,
+        class_ids: index_classes(tokens)?,
     };
+    let mut classes = Vec::new();
     let mut functions = Vec::new();
     let mut main = None;
     while cursor.peek().is_some() {
+        if cursor.peek() == Some(TokenKind::Word("class")) {
+            classes.push(cursor.class()?);
+            continue;
+        }
         let function = cursor.function()?;
         if function.name == "main" {
             if main.is_some() {
@@ -50,6 +56,7 @@ pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>,
     }
     let statements = main.ok_or_else(|| cursor.error("expected void main() entrypoint"))?;
     Ok(Program {
+        classes,
         functions,
         statements,
     })
@@ -59,6 +66,7 @@ struct Cursor<'t, 'a> {
     index: usize,
     source_len: usize,
     expr_nodes: usize,
+    class_ids: std::collections::BTreeMap<&'a str, u32>,
 }
 impl<'a> Cursor<'_, 'a> {
     /// Consulta o próximo token sem avançar o cursor.
@@ -119,10 +127,102 @@ impl<'a> Cursor<'_, 'a> {
             Some(TokenKind::Word("String")) => Type::String,
             Some(TokenKind::Word("bool")) => Type::Bool,
             Some(TokenKind::Word("void")) if allow_void => Type::Void,
+            Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
+                Type::Class(self.class_ids[name])
+            }
             _ => return Err(self.error("expected an explicitly supported type")),
         };
         self.index += 1;
+        if self.take(TokenKind::Operator("?")) {
+            return match ty {
+                Type::Int => Ok(Type::NullableInt),
+                Type::String => Ok(Type::NullableString),
+                Type::Bool => Ok(Type::NullableBool),
+                Type::Class(id) => Ok(Type::NullableClass(id)),
+                _ => Err(self.error("void cannot be nullable in the supported subset")),
+            };
+        }
         Ok(ty)
+    }
+    /// Reconhece uma anotação local sem confundir chamadas de construtor com tipos.
+    fn starts_annotation(&self) -> bool {
+        let Some(TokenKind::Word(name)) = self.peek() else {
+            return false;
+        };
+        if !matches!(name, "int" | "String" | "bool") && !self.class_ids.contains_key(name) {
+            return false;
+        }
+        let next = self.tokens.get(self.index + 1).map(|t| t.kind);
+        matches!(next, Some(TokenKind::Word(_)))
+            || (next == Some(TokenKind::Operator("?"))
+                && matches!(
+                    self.tokens.get(self.index + 2).map(|t| t.kind),
+                    Some(TokenKind::Word(_))
+                ))
+    }
+    /// Lê campos inicializados e métodos de uma classe nominal.
+    fn class(&mut self) -> Result<Class<'a>, Diagnostic> {
+        let start = self.position();
+        self.expect(TokenKind::Word("class"))?;
+        let name = self.name()?;
+        let id = self.class_ids[name];
+        let superclass = if self.take(TokenKind::Word("extends")) {
+            let parent = self.name()?;
+            Some(
+                *self
+                    .class_ids
+                    .get(parent)
+                    .ok_or_else(|| self.error("unknown superclass"))?,
+            )
+        } else {
+            None
+        };
+        self.expect(TokenKind::Symbol('{'))?;
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol('}')) {
+            let index = self.index;
+            let field_start = self.position();
+            let is_final = self.take(TokenKind::Word("final"));
+            let ty = self.ty(!is_final)?;
+            let field_name = self.name()?;
+            if self.peek() == Some(TokenKind::Symbol('(')) {
+                if is_final {
+                    return Err(self.error("final methods are not supported"));
+                }
+                self.index = index;
+                methods.push(self.function()?);
+            } else {
+                if ty == Type::Void {
+                    return Err(self.error("fields cannot have void type"));
+                }
+                self.expect(TokenKind::Operator("="))?;
+                let initializer = self.expression()?;
+                self.expect(TokenKind::Symbol(';'))?;
+                fields.push(Field {
+                    name: field_name,
+                    ty,
+                    is_final,
+                    initializer,
+                    span: Span {
+                        start: field_start,
+                        end: self.end(),
+                    },
+                });
+            }
+        }
+        self.expect(TokenKind::Symbol('}'))?;
+        Ok(Class {
+            id,
+            name,
+            superclass,
+            fields,
+            methods,
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
     }
     /// Lê a assinatura tipada e o corpo de uma função de topo.
     fn function(&mut self) -> Result<Function<'a>, Diagnostic> {
@@ -287,10 +387,9 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê declaração, atribuição ou chamada sem consumir o ponto e vírgula.
     fn simple(&mut self, allow_declaration: bool) -> Result<Statement<'a>, Diagnostic> {
         let start = self.position();
-        let kind = if matches!(
-            self.peek(),
-            Some(TokenKind::Word("var" | "final" | "int" | "String" | "bool"))
-        ) {
+        let kind = if matches!(self.peek(), Some(TokenKind::Word("var" | "final")))
+            || self.starts_annotation()
+        {
             if !allow_declaration {
                 return Err(self.error("declarations are not supported in for updates"));
             }
@@ -299,11 +398,7 @@ impl<'a> Cursor<'_, 'a> {
             if is_final && inferred {
                 return Err(self.error("final var is not supported; use final name = expression"));
             }
-            let annotation = if !inferred
-                && matches!(
-                    self.peek(),
-                    Some(TokenKind::Word("int" | "String" | "bool"))
-                ) {
+            let annotation = if !inferred && self.starts_annotation() {
                 Some(self.ty(false)?)
             } else {
                 None
@@ -351,13 +446,29 @@ impl<'a> Cursor<'_, 'a> {
             }
         } else {
             let value = self.expression()?;
-            if !matches!(value.kind, ExprKind::Call { .. }) {
-                return Err(Diagnostic::new(
-                    "only function calls are supported as expression statements",
-                    value.span,
-                ));
+            if self.take(TokenKind::Operator("=")) {
+                let ExprKind::Member { receiver, name } = value.kind else {
+                    return Err(self.error("field assignment requires a member target"));
+                };
+                StatementKind::FieldAssign {
+                    receiver: *receiver,
+                    name,
+                    value: self.expression()?,
+                }
+            } else {
+                if !matches!(
+                    value.kind,
+                    ExprKind::Call { .. }
+                        | ExprKind::MethodCall { .. }
+                        | ExprKind::Construct { .. }
+                ) {
+                    return Err(Diagnostic::new(
+                        "only calls are supported as expression statements",
+                        value.span,
+                    ));
+                }
+                StatementKind::Expression(value)
             }
-            StatementKind::Expression(value)
         };
         Ok(Statement {
             kind,
@@ -447,7 +558,12 @@ impl<'a> Cursor<'_, 'a> {
             }
             self.charge(depth)?;
             self.index += 1;
-            let right = self.binary(precedence + 1, depth + 1)?;
+            let next_min = if op == BinaryOp::IfNull {
+                precedence
+            } else {
+                precedence + 1
+            };
+            let right = self.binary(next_min, depth + 1)?;
             let span = Span {
                 start: left.span.start,
                 end: right.span.end,
@@ -468,6 +584,14 @@ impl<'a> Cursor<'_, 'a> {
         self.charge(depth)?;
         let start = self.position();
         let kind = match self.peek() {
+            Some(TokenKind::Word("this")) => {
+                self.index += 1;
+                ExprKind::This
+            }
+            Some(TokenKind::Word("null")) => {
+                self.index += 1;
+                ExprKind::Null
+            }
             Some(TokenKind::Number(text)) => {
                 let value = text.parse::<i32>().map_err(|_| {
                     self.error("integer literal outside supported signed 32-bit range")
@@ -506,9 +630,16 @@ impl<'a> Cursor<'_, 'a> {
             Some(TokenKind::Word(name)) if !reserved(name) => {
                 self.index += 1;
                 if self.peek() == Some(TokenKind::Symbol('(')) {
-                    ExprKind::Call {
-                        name,
-                        arguments: self.arguments(depth)?,
+                    let arguments = self.arguments(depth)?;
+                    if let Some(&class_id) = self.class_ids.get(name) {
+                        if !arguments.is_empty() {
+                            return Err(self.error(
+                                "only implicit constructors without arguments are supported",
+                            ));
+                        }
+                        ExprKind::Construct { class_id }
+                    } else {
+                        ExprKind::Call { name, arguments }
                     }
                 } else {
                     ExprKind::Identifier(name)
@@ -541,7 +672,7 @@ impl<'a> Cursor<'_, 'a> {
                     start,
                     end: self.end(),
                 };
-                return Ok(value);
+                return self.postfix(value, depth);
             }
             Some(TokenKind::Operator("++" | "--")) => {
                 return Err(self
@@ -549,16 +680,93 @@ impl<'a> Cursor<'_, 'a> {
             }
             _ => return Err(self.error("expected a supported expression")),
         };
-        Ok(Expr {
-            kind,
-            span: Span {
-                start,
-                end: self.end(),
+        self.postfix(
+            Expr {
+                kind,
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
             },
-        })
+            depth,
+        )
+    }
+    /// Aplica asserções pós-fixas sem permitir que contornem o limite de nós.
+    fn postfix(&mut self, mut value: Expr<'a>, depth: usize) -> Result<Expr<'a>, Diagnostic> {
+        loop {
+            let kind = if self.take(TokenKind::Operator("!")) {
+                self.charge(depth)?;
+                ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    operand: Box::new(value),
+                }
+            } else if self.take(TokenKind::Symbol('.')) {
+                self.charge(depth)?;
+                let name = self.name()?;
+                if self.peek() == Some(TokenKind::Symbol('(')) {
+                    let arguments = self.arguments(depth)?;
+                    ExprKind::MethodCall {
+                        receiver: Box::new(value),
+                        name,
+                        arguments,
+                    }
+                } else {
+                    ExprKind::Member {
+                        receiver: Box::new(value),
+                        name,
+                    }
+                }
+            } else {
+                break;
+            };
+            let span = match &kind {
+                ExprKind::Unary { operand, .. } => Span {
+                    start: operand.span.start,
+                    end: self.end(),
+                },
+                ExprKind::Member { receiver, .. } | ExprKind::MethodCall { receiver, .. } => Span {
+                    start: receiver.span.start,
+                    end: self.end(),
+                },
+                _ => unreachable!(),
+            };
+            value = Expr { kind, span };
+        }
+        Ok(value)
     }
 }
 
+/// Pré-indexa somente classes de topo para permitir referências posteriores.
+fn index_classes<'a>(
+    tokens: &[Token<'a>],
+) -> Result<std::collections::BTreeMap<&'a str, u32>, Diagnostic> {
+    let mut result = std::collections::BTreeMap::new();
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate() {
+        match token.kind {
+            TokenKind::Symbol('{') => depth += 1,
+            TokenKind::Symbol('}') => depth = depth.saturating_sub(1),
+            TokenKind::Word("class") if depth == 0 => {
+                let next = tokens
+                    .get(index + 1)
+                    .ok_or_else(|| Diagnostic::new("expected class name", token.span))?;
+                let TokenKind::Word(name) = next.kind else {
+                    return Err(Diagnostic::new("expected class name", next.span));
+                };
+                if reserved(name) {
+                    return Err(Diagnostic::new("unsupported class name", next.span));
+                }
+                let id = u32::try_from(result.len())
+                    .map_err(|_| Diagnostic::new("too many classes", token.span))?;
+                if result.insert(name, id).is_some() {
+                    return Err(Diagnostic::new("duplicate class name", next.span));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(result)
+}
 /// Decodifica escapes Dart em unidades UTF-16 e rejeita surrogates isolados.
 fn decode_string(text: &str, span: Span) -> Result<String, Diagnostic> {
     let mut chars = text.chars();
@@ -662,6 +870,7 @@ fn hex_digits(
 /// Traduz um operador textual para sua precedência e operação sintática.
 fn binary_op(symbol: &str) -> Option<(u8, BinaryOp)> {
     Some(match symbol {
+        "??" => (0, BinaryOp::IfNull),
         "||" => (1, BinaryOp::Or),
         "&&" => (2, BinaryOp::And),
         "==" => (3, BinaryOp::Equal),
@@ -770,6 +979,178 @@ mod tests {
             parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err(),
             "{body}"
         );
+    }
+    /// Confere tipos anuláveis, precedência, associatividade e intervalos pós-fixos.
+    /// Valida referências nominais posteriores, herança e acesso explícito a membros.
+    #[test]
+    fn classes_fields_methods_and_forward_types() {
+        let source = "Child? make(Child? x) { return x; } void main() { Child c=Child(); c.value=4; print(c.read()); c.self()!.value=5; } class Child extends Base { final String label='x'; Child? self() { return this; } int read() { return this.value; } } class Base { int value=1; }";
+        let p = parsed(source);
+        assert_eq!(p.classes.len(), 2);
+        assert_eq!(p.classes[0].id, 0);
+        assert_eq!(p.classes[1].id, 1);
+        assert_eq!(p.classes[0].superclass, Some(1));
+        assert_eq!(p.functions[0].return_type, Type::NullableClass(0));
+        assert_eq!(p.classes[0].fields[0].ty, Type::String);
+        assert!(p.classes[0].fields[0].is_final);
+        assert_eq!(p.classes[0].methods.len(), 2);
+        let StatementKind::Variable {
+            annotation,
+            initializer,
+            ..
+        } = &p.statements[0].kind
+        else {
+            panic!()
+        };
+        assert_eq!(*annotation, Some(Type::Class(0)));
+        assert!(matches!(
+            initializer.kind,
+            ExprKind::Construct { class_id: 0 }
+        ));
+        assert!(matches!(
+            p.statements[1].kind,
+            StatementKind::FieldAssign { name: "value", .. }
+        ));
+        let StatementKind::Print(e) = &p.statements[2].kind else {
+            panic!()
+        };
+        assert!(matches!(e.kind, ExprKind::MethodCall { name: "read", .. }));
+        assert_eq!(&source[e.span.start..e.span.end], "c.read()");
+        let StatementKind::Return(Some(e)) = &p.classes[0].methods[1].body[0].kind else {
+            panic!()
+        };
+        assert!(matches!(e.kind, ExprKind::Member { name: "value", .. }));
+        let p = parsed("class C {} void main(){ final C c=C(); C(); var x=C(); }");
+        assert!(matches!(
+            p.statements[1].kind,
+            StatementKind::Expression(Expr {
+                kind: ExprKind::Construct { .. },
+                ..
+            })
+        ));
+    }
+    /// Rejeita construtores explícitos e demais formas fora do subconjunto nominal.
+    #[test]
+    fn invalid_class_forms_and_member_limits() {
+        for source in [
+            "class C { C() {} } void main(){}",
+            "class C { int x; } void main(){}",
+            "class C { static int x=1; } void main(){}",
+            "class C { void x=1; } void main(){}",
+            "class C extends Missing {} void main(){}",
+            "class C {} class C {} void main(){}",
+            "class int {} void main(){}",
+            "class C<T> {} void main(){}",
+            "class C {} void main(){ C(1); }",
+            "class C {} void main(){ new C(); }",
+            "class C {} void main(){ class Nested{} }",
+            "void main(){ print(1.5); }",
+            "void main(){ c.field+=1; }",
+            "void main(){ c.field++; }",
+            "void main(){ c.(); }",
+            "void main(){ super.f(); }",
+        ] {
+            let result = dartforge_lexer::lex(source).and_then(|t| parse(&t, source.len()));
+            assert!(result.is_err(), "{source}");
+        }
+        rejected(&format!("print(c{});", ".x".repeat(1000)));
+        rejected(&format!("print(c{});", ".x()".repeat(1000)));
+    }
+    #[test]
+    fn nullable_types_and_operators() {
+        let source = "int? f(String? s, bool? b) { int? x=null; final String? y=null; return x; } void main() { bool? b=null; print(null ?? true || false ?? false); print((f(null,null))!); print(!b!); }";
+        let p = parsed(source);
+        assert_eq!(p.functions[0].return_type, Type::NullableInt);
+        assert_eq!(p.functions[0].parameters[0].ty, Type::NullableString);
+        assert_eq!(p.functions[0].parameters[1].ty, Type::NullableBool);
+        assert!(matches!(
+            p.functions[0].body[0].kind,
+            StatementKind::Variable {
+                annotation: Some(Type::NullableInt),
+                ..
+            }
+        ));
+        assert!(matches!(
+            p.functions[0].body[1].kind,
+            StatementKind::Variable {
+                annotation: Some(Type::NullableString),
+                ..
+            }
+        ));
+        let StatementKind::Print(e) = &p.statements[1].kind else {
+            panic!()
+        };
+        let ExprKind::Binary {
+            op: BinaryOp::IfNull,
+            left,
+            right,
+        } = &e.kind
+        else {
+            panic!()
+        };
+        assert!(matches!(left.kind, ExprKind::Null));
+        let ExprKind::Binary {
+            op: BinaryOp::IfNull,
+            left,
+            ..
+        } = &right.kind
+        else {
+            panic!()
+        };
+        assert!(matches!(
+            left.kind,
+            ExprKind::Binary {
+                op: BinaryOp::Or,
+                ..
+            }
+        ));
+        let StatementKind::Print(e) = &p.statements[2].kind else {
+            panic!()
+        };
+        assert!(matches!(
+            e.kind,
+            ExprKind::Unary {
+                op: UnaryOp::NullAssert,
+                ..
+            }
+        ));
+        assert_eq!(&source[e.span.start..e.span.end], "(f(null,null))!");
+        let StatementKind::Print(e) = &p.statements[3].kind else {
+            panic!()
+        };
+        let ExprKind::Unary {
+            op: UnaryOp::Not,
+            operand,
+        } = &e.kind
+        else {
+            panic!()
+        };
+        assert!(matches!(
+            operand.kind,
+            ExprKind::Unary {
+                op: UnaryOp::NullAssert,
+                ..
+            }
+        ));
+    }
+    /// Rejeita tipos inválidos e impede cadeias nulas de contornarem os limites.
+    #[test]
+    fn nullable_syntax_rejections_and_limits() {
+        for source in [
+            "void? main() {}",
+            "void f(void? x) {} void main() {}",
+            "int?? f() {} void main() {}",
+            "void main() { int?? x=null; }",
+            "void main() { var x=1?2; }",
+            "void main() { print(null ??); }",
+        ] {
+            assert!(
+                parse(&dartforge_lexer::lex(source).unwrap(), source.len()).is_err(),
+                "{source}"
+            );
+        }
+        rejected(&format!("print(null{});", "!".repeat(1000)));
+        rejected(&format!("print({}null);", "null??".repeat(1000)));
     }
     /// Verifica truncamentos em limites UTF-8, inclusive após barras e aspas escapadas.
     #[test]
@@ -972,7 +1353,7 @@ mod tests {
             "print(1)",
             "foo(,);",
             "return 1 2;",
-            "var x = null;",
+            "var x = ;",
             "print(1 2);",
             "print(1 +);",
             "print(1 == 2 == false);",

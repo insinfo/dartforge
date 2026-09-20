@@ -1,0 +1,154 @@
+{
+  "arch": "x86_64",
+  "corpus_reachable_functions": 1,
+  "functions": 100,
+  "iterations": 40,
+  "kind": "warm_in_process_synthetic",
+  "metadata": {
+    "cpu_model": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+    "git_revision": "e1a16e2db586d9461fd97cc24aef6604865999ba",
+    "git_status_porcelain": "M .github/workflows/ci.yml\n M Cargo.lock\n M README.md\n M crates/cli/Cargo.toml\n M crates/cli/src/main.rs\n M crates/codegen/src/lib.rs\n M crates/compiler/Cargo.toml\n M crates/compiler/src/lib.rs\n M crates/hir/src/lib.rs\n M crates/lexer/src/lib.rs\n M crates/parser/src/lib.rs\n M crates/semantic/src/lib.rs\n M crates/syntax/src/lib.rs\n M docs/BENCHMARKS.md\n M docs/SUBCONJUNTO.md\n M scripts/conformance.ps1\n?? crates/compiler/benches/\n?? crates/compiler/tests/\n?? crates/optimizer/\n?? crates/packages/\n?? docs/CLASSES.md\n?? docs/IMPORTS.md\n?? docs/NULL-SAFETY.md\n?? scripts/benchmark-process.ps1\n?? tests/conformance/cases/class_effects.dart\n?? tests/conformance/cases/classes.dart\n?? tests/conformance/cases/constants.dart\n?? tests/conformance/cases/null_flow.dart\n?? tests/conformance/cases/null_safety.dart",
+    "logical_processors": 8,
+    "profile": "bench",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "rustflags": null,
+    "unix_timestamp_seconds": 1789886384
+  },
+  "note": "Inclui descarte das alocações; fases isoladas não incluem fases anteriores; não mede processo, disco, SDK, DDC nem otimizações globais. Mediana/p95 são de médias por lote, não latências individuais. Corpus analisa todas as funções, mas main chama apenas f0.",
+  "os": "windows",
+  "percentile_method": "nearest_rank",
+  "phases": {
+    "emit": {
+      "median_ns": 16645.0,
+      "p95_ns": 17662.5,
+      "samples_ns": [
+        16900.0,
+        16472.5,
+        16710.0,
+        16645.0,
+        16505.0,
+        17157.5,
+        16560.0,
+        16415.0,
+        16582.5,
+        16572.5,
+        16377.5,
+        17285.0,
+        16900.0,
+        17337.5,
+        17662.5
+      ]
+    },
+    "lex": {
+      "median_ns": 18370.0,
+      "p95_ns": 20262.5,
+      "samples_ns": [
+        18587.5,
+        18115.0,
+        18585.0,
+        18295.0,
+        18275.0,
+        18342.5,
+        18082.5,
+        18562.5,
+        18740.0,
+        19082.5,
+        18370.0,
+        20262.5,
+        18547.5,
+        18012.5,
+        18252.5
+      ]
+    },
+    "parse": {
+      "median_ns": 148382.5,
+      "p95_ns": 172497.5,
+      "samples_ns": [
+        161755.0,
+        156440.0,
+        145377.5,
+        147825.0,
+        148657.5,
+        142060.0,
+        140400.0,
+        144775.0,
+        145670.0,
+        142995.0,
+        156772.5,
+        151352.5,
+        153287.5,
+        172497.5,
+        148382.5
+      ]
+    },
+    "pipeline": {
+      "median_ns": 2095167.5,
+      "p95_ns": 2272677.5,
+      "samples_ns": [
+        2123862.5,
+        2127612.5,
+        2130332.5,
+        2105890.0,
+        2114047.5,
+        2101362.5,
+        2089687.5,
+        2272677.5,
+        2076132.5,
+        2083207.5,
+        2011132.5,
+        2095167.5,
+        2067830.0,
+        2012465.0,
+        2017290.0
+      ]
+    },
+    "pipeline_constants": {
+      "median_ns": 3881085.0,
+      "p95_ns": 4239547.5,
+      "samples_ns": [
+        2066682.5,
+        3195305.0,
+        4035082.5,
+        3203145.0,
+        4239547.5,
+        3000992.5,
+        3892082.5,
+        4046820.0,
+        3788655.0,
+        4041190.0,
+        3881085.0,
+        3867020.0,
+        3924565.0,
+        4007820.0,
+        3489625.0
+      ]
+    },
+    "semantic": {
+      "median_ns": 1818012.5,
+      "p95_ns": 1934347.5,
+      "samples_ns": [
+        1799972.5,
+        1740635.0,
+        1837642.5,
+        1871150.0,
+        1786075.0,
+        1871630.0,
+        1772757.5,
+        1816597.5,
+        1794972.5,
+        1818012.5,
+        1818377.5,
+        1934347.5,
+        1889942.5,
+        1808540.0,
+        1842760.0
+      ]
+    }
+  },
+  "samples": 15,
+  "schema_version": 1,
+  "source_bytes": 7921,
+  "statistic_unit": "batch_mean_ns_per_operation",
+  "target_dart": "3.6.2",
+  "warmup_iterations": 40
+}

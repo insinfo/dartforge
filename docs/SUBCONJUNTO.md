@@ -61,17 +61,23 @@ Strings raw `r'...'` e `r"..."` preservam barras invertidas e dólares literalme
 Não há interpolação, strings de aspas triplas ou strings multilinha. Um escape `\n`
 dentro de uma string de uma linha pode produzir uma quebra de linha no valor.
 
+## Tipos anuláveis e objetos
+
+Veja os contratos de [null safety e fluxo](NULL-SAFETY.md) e [classes/herança](CLASSES.md).
+A ferramenta também carrega um [grafo de imports](IMPORTS.md), ainda separado da compilação.
+
 ## Ainda não suportado
 
-Classes, imports, closures/funções locais, funções como valores, parâmetros nomeados ou
-opcionais, overloads, métodos, `double`, `null`, generics, async, `for-in`, `switch`,
+Imports compilados em conjunto, closures/funções locais, funções como valores, parâmetros nomeados ou
+opcionais, overloads, `double`, generics, extensions, async, `for-in`, `switch`,
 rótulos, interpolação, strings triplas, surrogates isolados, coleções, Dart `const`,
-source maps e bibliotecas padrão completas. Atualizações de campos/índices e atribuições
+source maps e bibliotecas padrão completas. Atualizações compostas de campos, acesso a índices e atribuições
 usadas como expressões também não são suportadas.
 Identificadores são ASCII; alguns nomes contextuais válidos em Dart ficam reservados
 neste parser. Os casos não implementados retornam erro explícito.
 
-A HIR ainda transporta a AST estrutural; não tem IDs de símbolo nem tipos resolvidos.
+A HIR ainda transporta a AST estrutural; classes possuem IDs locais, mas membros e
+símbolos ainda não têm resolução persistida na IR.
 Números usam JavaScript Number; limitar literais a i32 não limita a faixa dos resultados.
 Não há garantia de equivalência integral à VM nem implementação completa de `int` Dart.
 Casos numéricos de borda são testes de regressão, não prova geral de conformidade.

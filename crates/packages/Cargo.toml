@@ -1,0 +1,12 @@
+[package]
+name = "dartforge-packages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-lexer = { path = "../lexer" }
+dartforge-syntax = { path = "../syntax" }
