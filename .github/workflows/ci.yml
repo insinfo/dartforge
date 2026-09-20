@@ -56,7 +56,7 @@ jobs:
         run: ./scripts/conformance.ps1 -DartForgeOptimize
       - name: Compare LLVM O0/O2 with Dart VM and AOT
         shell: pwsh
-        run: ./scripts/conformance-native.ps1 -MergeIdenticalFunctions -GcStress
+        run: ./scripts/conformance-native.ps1 -MergeIdenticalFunctions -GcStress -GcStats
       - name: Compare merged functions with dart2js O2
         shell: pwsh
         run: ./scripts/conformance.ps1 -MergeIdenticalFunctions

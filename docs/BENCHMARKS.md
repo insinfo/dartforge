@@ -96,3 +96,8 @@ mede alocação/enraizamento/coleta; resultados e limitações constam no
 Os runners diferenciais aceitam `-MergeIdenticalFunctions`. O runner nativo também
 aceita `-GcStress`, que força coleta a cada alocação: é teste de correção, não
 configuração de desempenho. Cada relatório registra se essas opções foram usadas.
+
+`-GcStats` no runner nativo captura o JSON de `DARTFORGE_GC_STATS=1` em cada
+execução e rejeita frames de raízes deixados ativos após retorno. Registra picos
+e coleta sem forçar coleta final. Veja [o incremento 10](IMPLEMENTACAO-10.md)
+para os testes de slots reutilizáveis e limites das estimativas de memória.

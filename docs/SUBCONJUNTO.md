@@ -112,4 +112,5 @@ O alvo JS mantém sua representação Number. Ver [referências e plano AOT](AOT
 Funções e métodos tipados aceitam corpos `=> expressão;`, inclusive `void` com
 descarte do resultado. Strings nativas usam UTF-8 para concatenação, igualdade e
 impressão do subconjunto. Não oferecem toda a API String/UTF-16. Referências
-temporárias ficam enraizadas até retorno; laços longos ainda podem reter memória.
+temporárias usam slots estáticos reutilizados por iteração; podem ficar retidas
+até sobrescrita ou retorno, sem análise completa de vivacidade.

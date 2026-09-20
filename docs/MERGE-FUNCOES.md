@@ -2,7 +2,7 @@
 
 ```dart
 int soma(int n1, int n2) => n1 + n2;
-int soma2(int n1, int n2) => n1 + n2;
+int soma2(int left, int right) => left + right;
 void main() { print(soma(1, 2)); print(soma2(3, 4)); }
 ```
 
@@ -16,17 +16,20 @@ são preservados. A função `main` continua presente e exportada no JavaScript.
 
 O passe opera após resolução e análise semântica. Compara chaves estruturais
 completas, delimitadas por comprimento, sem confiar em igualdade de hash. Ignora
-localizações de fonte, mas considera assinatura, tipos nominais, nomes de
-parâmetros/locais, ordem de instruções, operadores, literais e destinos de chamadas,
+localizações de fonte e nomes locais, mas considera assinatura, tipos nominais,
+identidades lexicais de parâmetros/locais, ordem de instruções, operadores, literais e destinos de chamadas,
 incluindo a resolução de extensions. Nomes vindos de bibliotecas já estão ligados
 e preservam a identidade de seus namespaces.
 
 Escolhe deterministicamente a primeira representante segura. Uma função cujo
-nome aparece como variável ou parâmetro em qualquer parte do programa não pode
+nome aparece como variável, parâmetro ou membro de classe no programa não pode
 ser representante, evitando capturar chamadas redirecionadas em um escopo local.
 Reescreve chamadas diretas também dentro de métodos, campos e extensions, mas não
-funde os próprios métodos nem `main`. Não renomeia parâmetros para reconhecer
-equivalência, não faz prova algébrica, não resolve equivalência recursiva geral.
+funde os próprios métodos nem `main`. A chave atribui IDs a parâmetros por posição
+e a locais por declaração, reconhecendo equivalência alfa sem alterar a AST.
+Blocos, sombreamento e cabeçalhos de `for` mantêm escopos separados. Inicializadores
+não podem ler um binding ainda não inicializado; casos sem resolução segura são
+excluídos do passe. Não faz prova algébrica nem resolve equivalência recursiva geral.
 O subconjunto não suporta funções como valores/tear-offs; estender isso exigirá
 rever identidade observável antes de ampliar o passe.
 

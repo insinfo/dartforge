@@ -275,8 +275,10 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 - [x] Runtime Rust com handles, strings, campos tipados e coleta de ciclos por tracing.
 - [x] Classes/herança e despacho nativo, mantendo ordem de inicialização e null safety.
 - [x] Corpos de expressão tipados e fusão opt-in de funções estruturalmente idênticas.
-- [ ] Reduzir duração de raízes com análise de vida útil e slots estáticos reutilizáveis.
-- [ ] Gatilho de GC por bytes, gerações/barreiras e comparação de throughput/pausas.
+- [x] Slots estáticos reutilizáveis para locais e temporários, sem crescimento por iteração.
+- [x] Gatilho adicional de GC por bytes estimados de cabeçalhos/payloads vivos.
+- [ ] Reduzir duração de raízes com análise de vida útil e limpeza nos fins de escopo.
+- [ ] Gerações/barreiras e comparação de throughput/pausas em aplicações representativas.
 - [ ] Generalizar IR com IDs de símbolos; especializar genéricos após suporte semântico.
 - [ ] Cache de runtime/objetos para reduzir o custo medido de rustc/link por compilação.
 

@@ -5,8 +5,9 @@
 //! bool? usam {i1, payload}: presença e valor. Strings e objetos usam handles
 //! i64 rastreados pelo GC, reservando zero para null. Métodos têm despacho virtual
 //! e adaptadores de assinatura; campos herdados conservam seus slots de memória.
-//! Cada função mantém raízes de referências até retornar, inclusive temporários:
-//! chamadas longas e laços podem reter memória crescente nesta implementação.
+//! Cada ativação reserva slots de raízes por local e ponto estático de expressão.
+//! Laços reutilizam esses slots; referências antigas ainda podem permanecer até
+//! sobrescrita ou retorno. Não há análise completa de vivacidade.
 //! Promoções semânticas usam unwrap checado; essa ABI interna não imita o SDK.
 //! SDK 3.6.2 tests/language/if_null/behavior_test.dart fundamenta RHS condicional.
 //! Falhas ! chamam dartforge_null_assert_fail() noreturn; null usa print_null().
@@ -155,6 +156,13 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
                 text: format!("%a{index}"),
             });
             let pointer = emitter.local(parameter.name, parameter_ty);
+            emitter.root_local(
+                &pointer,
+                &Value {
+                    ty: parameter_ty,
+                    text: format!("%a{index}"),
+                },
+            );
             emitter.line(format!(
                 "store {} %a{index}, ptr {pointer}",
                 parameter_ty.ir()
@@ -333,6 +341,8 @@ struct FunctionEmitter<'a> {
     current: String,
     terminated: bool,
     has_roots: bool,
+    root_slots: usize,
+    local_roots: HashMap<String, usize>,
     frame_exits: Vec<usize>,
 }
 impl<'a> FunctionEmitter<'a> {
@@ -352,6 +362,8 @@ impl<'a> FunctionEmitter<'a> {
             current: "entry".into(),
             terminated: false,
             has_roots: false,
+            root_slots: 0,
+            local_roots: HashMap::new(),
             frame_exits: vec![],
         }
     }
@@ -390,6 +402,10 @@ impl<'a> FunctionEmitter<'a> {
     /// Reserva armazenamento no entry, embora a declaração esteja dentro de um laço.
     fn local(&mut self, name: &str, ty: Ty) -> String {
         let pointer = self.register();
+        if ty.reference() {
+            let slot = self.reserve_root();
+            self.local_roots.insert(pointer.clone(), slot);
+        }
         writeln!(self.allocas, "  {pointer} = alloca {}", ty.ir()).unwrap();
         self.scopes
             .last_mut()
@@ -435,8 +451,13 @@ impl<'a> FunctionEmitter<'a> {
                     "  call void @dartforge_gc_pop_frame(i64 %gcframe)\n",
                 );
             }
-            self.code
-                .insert_str(0, "  %gcframe = call i64 @dartforge_gc_push_frame()\n");
+            self.code.insert_str(
+                0,
+                &format!(
+                    "  %gcframe = call i64 @dartforge_gc_push_frame(i64 {})\n",
+                    self.root_slots
+                ),
+            );
         }
         format!(
             "define {} @{symbol}({parameters}) {{\nentry:\n{}{} }}\n\n",
@@ -480,6 +501,7 @@ impl<'a> FunctionEmitter<'a> {
                     .unwrap_or(value.ty);
                 let value = self.coerce(value, storage, statement.span)?;
                 let pointer = self.local(name, value.ty);
+                self.root_local(&pointer, &value);
                 self.line(format!(
                     "store {} {}, ptr {pointer}",
                     value.ty.ir(),
@@ -490,6 +512,7 @@ impl<'a> FunctionEmitter<'a> {
                 let (ty, pointer) = self.lookup(name, statement.span)?;
                 let value = self.expression(value)?;
                 let value = self.coerce(value, ty, statement.span)?;
+                self.root_local(&pointer, &value);
                 self.line(format!("store {} {}, ptr {pointer}", ty.ir(), value.text));
             }
             StatementKind::Print(value) => {
@@ -1323,7 +1346,7 @@ mod tests {
         ))
         .unwrap();
         assert!(ir.contains("switch i64 %class"));
-        assert!(ir.contains("@dartforge_gc_root(i64 %gcframe"));
+        assert!(ir.contains("@dartforge_gc_set_root(i64 %gcframe"));
         assert!(ir.contains("call i64 @dartforge_string_concat"));
         assert!(ir.contains("call i8 @dartforge_string_equal"));
         assert!(ir.contains("insertvalue { i1, i64 }"));
@@ -1344,7 +1367,7 @@ mod tests {
             managed.matches("call void @dartforge_gc_pop_frame").count(),
             1
         );
-        assert!(managed.contains("call void @dartforge_gc_root"));
+        assert!(managed.contains("call void @dartforge_gc_set_root"));
     }
 
     /// Retornos emitidos antes da primeira raiz também encerram o frame da função.
@@ -1356,5 +1379,42 @@ mod tests {
         .unwrap();
         assert_eq!(ir.matches("call i64 @dartforge_gc_push_frame").count(), 1);
         assert_eq!(ir.matches("call void @dartforge_gc_pop_frame").count(), 2);
+    }
+
+    /// O limite de iterações não altera slots, e referências locais têm raiz separada.
+    #[test]
+    fn loop_root_slots_are_static_and_locals_are_independent() {
+        let source = "void main(){String saved=''; for(var i=0;i<8;i++){String current='new'+'!';if(i==0){saved=current;}}print(saved);}";
+        let short = compile(source).unwrap();
+        let long = compile(&source.replace("i<8", "i<2000")).unwrap();
+        let frame = |ir: &str| {
+            ir.lines()
+                .find(|line| line.contains("call i64 @dartforge_gc_push_frame"))
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(frame(&short), frame(&long));
+        assert!(!short.contains("@dartforge_gc_root("));
+        // Atualizar um local reutiliza o mesmo slot emitido na sua inicialização.
+        let mut slots = HashMap::new();
+        for line in short
+            .lines()
+            .filter(|line| line.contains("call void @dartforge_gc_set_root"))
+        {
+            let slot = line
+                .split("i64 ")
+                .nth(2)
+                .unwrap()
+                .split(',')
+                .next()
+                .unwrap();
+            *slots.entry(slot).or_insert(0usize) += 1;
+        }
+        assert!(slots.values().any(|count| *count > 1));
+        compile(include_str!(
+            "../../../tests/native/cases/gc_root_slots.dart"
+        ))
+        .unwrap();
+        compile(include_str!("../../../tests/native/cases/root_slots.dart")).unwrap();
     }
 }

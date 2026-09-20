@@ -1,7 +1,11 @@
 //! Layout nominal, despacho e handles rastreados. Referências temporárias ficam
-//! enraizadas até a saída da função; esta política privilegia correção sobre retenção.
-//! Em laços, cada avaliação acrescenta uma raiz: a memória retida pode crescer
-//! durante toda a chamada. Ainda não há análise de vivacidade nem slots reutilizados.
+//! em slots por ponto estático de expressão e por local. Laços sobrescrevem os
+//! slots de expressões; raízes separadas de locais preservam valores de iterações
+//! anteriores. Cada ativação recursiva possui seu próprio frame. A quantidade de
+//! slots por ativação depende da IR, não da quantidade de iterações. Slots não
+//! são limpos na saída lexical: ainda pode haver retenção até sobrescrita/retorno.
+//! O SDK 3.6.2 runtime/vm/compiler/backend/flow_graph_compiler.cc usa stack maps;
+//! esta implementação conservadora não reproduz sua análise de vivacidade.
 //! Handles não expõem endereços, zero representa null e campos de referência são
 //! marcados precisamente. Int?/bool? ocupam presença e payload em slots separados.
 //! Strings usam UTF-8 interno somente no subconjunto de escalares Unicode aceito
@@ -13,8 +17,8 @@ use std::collections::BTreeMap;
 
 /// Contrato C do runtime: handles e índices i64, flags i8 e bytes UTF-8.
 pub(super) const DECLARATIONS: &str = "
-declare i64 @dartforge_gc_push_frame()
-declare void @dartforge_gc_root(i64, i64)
+declare i64 @dartforge_gc_push_frame(i64)
+declare void @dartforge_gc_set_root(i64, i64, i64)
 declare void @dartforge_gc_pop_frame(i64)
 declare i64 @dartforge_object_new(i64, i64)
 declare i64 @dartforge_object_get(i64, i64)
@@ -200,6 +204,13 @@ impl Objects {
                         text: format!("%a{i}"),
                     });
                     let ptr = emitter.local(p.name, t);
+                    emitter.root_local(
+                        &ptr,
+                        &Value {
+                            ty: t,
+                            text: format!("%a{i}"),
+                        },
+                    );
                     emitter.line(format!("store {} %a{i}, ptr {ptr}", t.ir()));
                 }
                 emitter.block(&method.body)?;
@@ -298,12 +309,28 @@ impl Objects {
 }
 
 impl FunctionEmitter<'_> {
-    /// Mantém temporários vivos inclusive durante chamadas que podem coletar.
+    /// Reserva um slot estático, compartilhado apenas por reexecuções deste ponto.
+    pub(super) fn reserve_root(&mut self) -> usize {
+        self.has_roots = true;
+        let slot = self.root_slots;
+        self.root_slots += 1;
+        slot
+    }
+    /// Atualiza o slot de um local independentemente do temporário que o originou.
+    pub(super) fn root_local(&mut self, pointer: &str, value: &Value) {
+        if let Some(slot) = self.local_roots.get(pointer).copied() {
+            self.line(format!(
+                "call void @dartforge_gc_set_root(i64 %gcframe, i64 {slot}, i64 {})",
+                value.text
+            ));
+        }
+    }
+    /// Mantém temporários vivos; cada ponto de emissão possui slot próprio reutilizável.
     pub(super) fn root(&mut self, value: &Value) {
         if value.ty.reference() {
-            self.has_roots = true;
+            let slot = self.reserve_root();
             self.line(format!(
-                "call void @dartforge_gc_root(i64 %gcframe, i64 {})",
+                "call void @dartforge_gc_set_root(i64 %gcframe, i64 {slot}, i64 {})",
                 value.text
             ));
         }

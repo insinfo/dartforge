@@ -70,6 +70,8 @@ fn executes_native_corpus_at_o0_and_o2() {
         "cases/expression_bodies.dart",
         "cases/managed_objects.dart",
         "cases/managed_lifetimes.dart",
+        "cases/root_slots.dart",
+        "cases/gc_root_slots.dart",
         "modules/packages/main.dart",
         "modules/managed/main.dart",
     ]
@@ -98,6 +100,63 @@ fn executes_native_corpus_at_o0_and_o2() {
                 expected.replace("\r\n", "\n"),
                 "{fixture}, optimize={optimize}"
             );
+        }
+    }
+}
+
+/// Confere que repetições reutilizam raízes sem perder o valor anterior de um local.
+#[test]
+#[ignore = "requer clang e rustc/linker nativo"]
+fn root_slots_remain_bounded_across_loop_iterations() {
+    let template = "void main() { String keep = 'start'; for (var i = 0; i < COUNT; i++) { String previous = keep; keep = 'left' + 'right'; if (i > 0 && previous != 'leftright') { print('lost'); return; } } print(keep); }";
+    let dir = OutputDir::new();
+    for optimize in [false, true] {
+        let mut first_peak = None;
+        for count in [300, 6000] {
+            let source = template.replace("COUNT", &count.to_string());
+            let ir = compile_llvm(&source).unwrap();
+            let path = dir.0.join(format!(
+                "roots-{optimize}-{count}{}",
+                std::env::consts::EXE_SUFFIX
+            ));
+            dartforge_native::build_executable(
+                &ir,
+                &path,
+                &dartforge_native::NativeOptions {
+                    optimize,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            for stress in [false, true] {
+                let mut command = std::process::Command::new(&path);
+                command.env("DARTFORGE_GC_STATS", "1");
+                if stress {
+                    command.env("DARTFORGE_GC_STRESS", "1");
+                } else {
+                    command.env_remove("DARTFORGE_GC_STRESS");
+                }
+                let output = command.output().unwrap();
+                assert!(output.status.success(), "{output:?}");
+                assert_eq!(
+                    String::from_utf8(output.stdout).unwrap().replace('\r', ""),
+                    "leftright\n"
+                );
+                let report: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+                let stats = &report["dartforge_gc"];
+                let peak = stats["peak_root_slots"].as_u64().unwrap();
+                assert!(peak > 0 && peak < 128, "{stats}");
+                assert_eq!(
+                    *first_peak.get_or_insert(peak),
+                    peak,
+                    "roots grew with iterations or mode: {stats}"
+                );
+                assert_eq!(stats["root_slots"].as_u64(), Some(0));
+                assert_eq!(stats["live_roots"].as_u64(), Some(0));
+                assert!(stats["allocations"].as_u64().unwrap() >= count as u64);
+                assert!(stats["reclaimed"].as_u64().unwrap() > 0, "{stats}");
+                assert!(stats["reserved_slots"].as_u64().unwrap() < 1024, "{stats}");
+            }
         }
     }
 }

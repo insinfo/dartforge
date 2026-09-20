@@ -10,6 +10,13 @@ pub struct HeapStats {
     pub slots_scanned: u64,
     pub live_objects: usize,
     pub reserved_slots: usize,
+    pub live_roots: usize,
+    pub peak_roots: usize,
+    pub root_slots: usize,
+    pub peak_root_slots: usize,
+    /// Cabeçalhos vivos e capacidades dos payloads, sem metadados auxiliares/RSS.
+    pub estimated_bytes: usize,
+    pub peak_estimated_bytes: usize,
 }
 
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
@@ -20,6 +27,21 @@ pub enum Value {
         class_id: i64,
         fields: Vec<(i64, bool)>,
     },
+}
+impl Value {
+    /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
+    fn estimated_bytes(&self) -> usize {
+        let payload = match self {
+            Self::String(text) => text.capacity(),
+            Self::Object { fields, .. } => fields
+                .capacity()
+                .checked_mul(std::mem::size_of::<(i64, bool)>())
+                .expect("payload excede usize"),
+        };
+        std::mem::size_of::<Self>()
+            .checked_add(payload)
+            .expect("payload excede usize")
+    }
 }
 
 /// Heap preciso sem compactação; handles positivos indexam slots reutilizáveis.
@@ -35,6 +57,7 @@ pub struct Heap {
     stats: HeapStats,
     marks: Vec<bool>,
     pending: Vec<i64>,
+    byte_threshold: usize,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -50,14 +73,43 @@ impl Heap {
             stats: HeapStats::default(),
             marks: Vec::new(),
             pending: Vec::new(),
+            byte_threshold: 1024 * 1024,
         }
     }
     /// Abre frame de raízes com identificador monotônico.
     pub fn push_frame(&mut self) -> i64 {
+        self.push_frame_with_slots(0)
+    }
+    /// Reserva slots fixos inicialmente null, reutilizados por todas as iterações.
+    pub fn push_frame_with_slots(&mut self, slots: usize) -> i64 {
         let id = self.next_frame;
         self.next_frame = id.checked_add(1).expect("frames esgotados");
-        self.frames.push((id, Vec::new()));
+        self.stats.root_slots = self
+            .stats
+            .root_slots
+            .checked_add(slots)
+            .expect("slots excedem usize");
+        self.stats.peak_root_slots = self.stats.peak_root_slots.max(self.stats.root_slots);
+        self.frames.push((id, vec![0; slots]));
         id
+    }
+    /// Substitui a raiz do slot; zero libera a referência anteriormente retida.
+    pub fn set_root(&mut self, frame: i64, slot: usize, handle: i64) {
+        if handle != 0 {
+            self.get(handle);
+        }
+        let roots = &mut self
+            .frames
+            .iter_mut()
+            .rev()
+            .find(|(id, _)| *id == frame)
+            .expect("frame inexistente")
+            .1;
+        let previous = roots.get_mut(slot).expect("slot de raiz inválido");
+        self.stats.live_roots -= usize::from(*previous != 0);
+        self.stats.live_roots += usize::from(handle != 0);
+        *previous = handle;
+        self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
     }
     /// Protege handle até o retorno da função; null não ocupa uma raiz.
     pub fn root(&mut self, frame: i64, handle: i64) {
@@ -72,17 +124,36 @@ impl Heap {
             .expect("frame inexistente")
             .1
             .push(handle);
+        self.stats.live_roots += 1;
+        self.stats.root_slots += 1;
+        self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
+        self.stats.peak_root_slots = self.stats.peak_root_slots.max(self.stats.root_slots);
     }
     /// Fecha exatamente o frame do topo, sem coletar entre retorno e raiz do chamador.
     pub fn pop_frame(&mut self, frame: i64) {
         assert_eq!(self.frames.last().map(|(id, _)| *id), Some(frame));
-        self.frames.pop();
+        let (_, roots) = self.frames.pop().unwrap();
+        self.stats.root_slots -= roots.len();
+        self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
     }
     /// Aloca após coleta; o chamador deve proteger o resultado antes de outra alocação.
     pub fn allocate(&mut self, value: Value) -> i64 {
-        if self.stress || self.allocations >= self.threshold {
+        let bytes = value.estimated_bytes();
+        if self.stress
+            || self.allocations >= self.threshold
+            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+        {
             self.collect();
         }
+        self.stats.estimated_bytes = self
+            .stats
+            .estimated_bytes
+            .checked_add(bytes)
+            .expect("heap excede usize");
+        self.stats.peak_estimated_bytes = self
+            .stats
+            .peak_estimated_bytes
+            .max(self.stats.estimated_bytes);
         self.allocations += 1;
         self.stats.allocations += 1;
         let index = if let Some(index) = self.free.pop() {
@@ -159,6 +230,7 @@ impl Heap {
         }
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot.is_some() && !self.marks[index] {
+                self.stats.estimated_bytes -= slot.as_ref().unwrap().estimated_bytes();
                 *slot = None;
                 self.free.push(index);
                 self.stats.reclaimed += 1;
@@ -166,6 +238,11 @@ impl Heap {
         }
         self.allocations = 0;
         self.threshold = live.saturating_mul(2).max(256);
+        self.byte_threshold = self
+            .stats
+            .estimated_bytes
+            .saturating_mul(2)
+            .max(1024 * 1024);
     }
 
     /// Obtém contadores sem percorrer os objetos ou suas raízes.
@@ -394,6 +471,83 @@ mod review_tests {
             );
             assert_eq!(stats.live_objects, 0);
             assert_eq!(stats.reclaimed, count as u64);
+        }
+    }
+}
+
+#[cfg(test)]
+mod fixed_root_tests {
+    use super::*;
+    /// Slots substituídos não crescem com iterações; cópias locais têm raízes independentes.
+    #[test]
+    fn fixed_slots_preserve_copies_and_nested_returns() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(2);
+        let kept = heap.allocate(Value::String("keep".into()));
+        heap.set_root(frame, 0, kept);
+        heap.set_root(frame, 1, kept);
+        for _ in 0..1000 {
+            let inner = heap.push_frame_with_slots(1);
+            let temporary = heap.allocate(Value::String("next".into()));
+            heap.set_root(inner, 0, temporary);
+            heap.pop_frame(inner);
+            heap.set_root(frame, 0, temporary);
+            heap.collect();
+            assert!(matches!(heap.get(kept), Value::String(s) if s == "keep"));
+        }
+        assert_eq!(heap.stats().peak_root_slots, 3);
+        assert_eq!(heap.stats().live_roots, 2);
+        heap.set_root(frame, 0, 0);
+        heap.set_root(frame, 1, 0);
+        heap.collect();
+        assert_eq!(heap.stats().live_roots, 0);
+        assert_eq!(heap.stats().estimated_bytes, 0);
+        assert_eq!(heap.stats().live_objects, 0);
+        assert!(heap.stats().reserved_slots <= 3);
+        heap.pop_frame(frame);
+        assert_eq!(heap.stats().root_slots, 0);
+    }
+    /// Payload grande dispara coleta antes do limiar por quantidade de objetos.
+    #[test]
+    fn byte_trigger_collects_large_payloads() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame_with_slots(1);
+        for _ in 0..8 {
+            let handle = heap.allocate(Value::String(String::with_capacity(2 * 1024 * 1024)));
+            heap.set_root(frame, 0, handle);
+        }
+        let stats = heap.stats();
+        assert!(stats.collections >= 3);
+        assert!(stats.reclaimed >= 5);
+        assert!(stats.peak_estimated_bytes < 7 * 1024 * 1024);
+        heap.pop_frame(frame);
+        heap.collect();
+        assert_eq!(heap.stats().estimated_bytes, 0);
+    }
+    /// Mede alocações transientes com uma única raiz sobrescrita, sem alegar superioridade.
+    #[test]
+    #[ignore = "microbenchmark de slots fixos; execute release --ignored --nocapture"]
+    fn fixed_slot_microbenchmark() {
+        for stress in [false, true] {
+            let mut heap = Heap::new(stress);
+            let frame = heap.push_frame_with_slots(1);
+            let start = std::time::Instant::now();
+            for _ in 0..100_000 {
+                let handle = heap.allocate(Value::String("temporary string".into()));
+                heap.set_root(frame, 0, handle);
+            }
+            let allocation_ns = start.elapsed().as_nanos();
+            let start = std::time::Instant::now();
+            heap.collect();
+            let collection_ns = start.elapsed().as_nanos();
+            let stats = heap.stats();
+            println!(
+                "fixed count=100000 stress={stress} alloc_root_auto_gc_ns={allocation_ns} collect_ns={collection_ns} stats={stats:?}"
+            );
+            assert_eq!(stats.peak_root_slots, 1);
+            assert_eq!(stats.live_objects, 1);
+            assert_eq!(stats.reclaimed, 99_999);
+            assert!(stats.reserved_slots <= 257);
         }
     }
 }

@@ -3,14 +3,17 @@ param(
     [string]$ClangExe = '',
     [ValidateRange(1,100)][int]$Samples = 1,
     [switch]$MergeIdenticalFunctions,
-    [switch]$GcStress
+    [switch]$GcStress,
+    [switch]$GcStats
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/env.ps1"
 $root = Split-Path $PSScriptRoot
 $previousClang = $env:DARTFORGE_CLANG
 $previousGcStress = $env:DARTFORGE_GC_STRESS
+$previousGcStats = $env:DARTFORGE_GC_STATS
 if ($GcStress) { $env:DARTFORGE_GC_STRESS = '1' }
+if ($GcStats) { $env:DARTFORGE_GC_STATS = '1' }
 Push-Location $root
 try {
     $dartCommand = (Get-Command $DartExe -ErrorAction Stop).Source
@@ -50,6 +53,7 @@ try {
         foreach ($optimized in @($false, $true)) {
             $times = @()
             $phaseTimings = @()
+            $gcMeasurements = @()
             for ($sample = 0; $sample -lt $Samples; $sample++) {
                 $nativeExe = Join-Path $runDir ($case.BaseName + '.forge.' + $optimized + '.' + $sample + $suffix)
                 $arguments = @('aot', $case.FullName, $nativeExe, '--timings')
@@ -65,21 +69,33 @@ try {
                     throw 'Invalid AOT phase timing report'
                 }
                 $phaseTimings += $phase
-                $actual = @(& $nativeExe)
+                if ($GcStats) {
+                    $statsPath = $nativeExe + '.gc.json'
+                    $actual = @(& $nativeExe 2> $statsPath)
+                } else {
+                    $actual = @(& $nativeExe)
+                }
                 if ($LASTEXITCODE -or ($actual -join "`n") -cne ($vmOutput -join "`n")) { throw "Native divergence: $($case.Name), O2=$optimized" }
+                if ($GcStats) {
+                    $gc = (Get-Content -LiteralPath $statsPath -Raw | ConvertFrom-Json).dartforge_gc
+                    if ($null -eq $gc -or $null -eq $gc.peak_root_slots -or $gc.root_slots -ne 0 -or $gc.live_roots -ne 0) { throw 'Invalid GC report or leaked root frame' }
+                    $gcMeasurements += $gc
+                }
             }
-            $results += [pscustomobject]@{ case=$case.Name; llvmOptimization=if ($optimized) {'O2'} else {'O0'}; status='pass'; actual=$actual; referenceOutput=$vmOutput; compileMs=$times; phaseTimings=$phaseTimings; officialCompileMs=$officialTimes }
+            $results += [pscustomobject]@{ case=$case.Name; llvmOptimization=if ($optimized) {'O2'} else {'O0'}; status='pass'; actual=$actual; referenceOutput=$vmOutput; compileMs=$times; phaseTimings=$phaseTimings; officialCompileMs=$officialTimes; gcStats=$gcMeasurements }
         }
     }
     $report = [ordered]@{ gitRevision=(& git rev-parse HEAD | Out-String).Trim(); gitStatusPorcelain=(& git status --porcelain | Out-String).Trim(); target='3.6.2'; dartVersion=$version; clangVersion=$clangVersion; rustc=$rustVersion; samples=$Samples; generatedAt=(Get-Date -Format o); backend='LLVM object + Rust runtime/link'; note='Process timings include compiler startup, LLVM, runtime compilation and linking. Warm filesystem; no DDC/JS comparison; small subset, not production-performance evidence.'; results=$results }
     $reportPath = Join-Path $runDir 'results.json'
     $report.mergeIdenticalFunctions = [bool]$MergeIdenticalFunctions
     $report.gcStress = $null -ne $env:DARTFORGE_GC_STRESS
+    $report.gcStats = [bool]$GcStats
     $report | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 $reportPath
     $results | Format-Table case,llvmOptimization,status -AutoSize
     Write-Host "Report: $reportPath"
 } finally {
     $env:DARTFORGE_CLANG = $previousClang
     $env:DARTFORGE_GC_STRESS = $previousGcStress
+    $env:DARTFORGE_GC_STATS = $previousGcStats
     Pop-Location
 }

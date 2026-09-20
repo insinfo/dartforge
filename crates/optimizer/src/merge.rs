@@ -1,6 +1,7 @@
 //! Fusão opcional e conservadora de funções top-level estruturalmente idênticas.
 //! Uma passagem escolhe a primeira definição elegível em ordem de fonte; não há
-//! renomeação alfa, fusão de métodos, equivalência algébrica ou ponto fixo.
+//! fusão de métodos, equivalência algébrica ou ponto fixo. Bindings lexicais recebem
+//! IDs canônicos, permitindo equivalência alfa sem alterar seus escopos.
 //! A chave canônica completa inclui tipos, bindings e destinos de chamadas.
 //! Construí-la exige alocações; este passe privilegia redução de código, não latência.
 //! Nomes/spans vistos em stack traces podem mudar quando uma chamada é redirecionada.
@@ -14,7 +15,8 @@ pub struct MergeStats {
 }
 
 /// Funde definições validadas usando uma chave estrutural completa, sem hashes truncados.
-/// Nomes de bindings, assinaturas e destinos resolvidos são significativos. Spans não são.
+/// Identidades lexicais de bindings, tipos e destinos resolvidos são significativos.
+/// Nomes locais e spans não são; nomes globais e membros permanecem exatos.
 /// Representantes que poderiam ser capturados por locais/parâmetros são excluídos.
 /// O subconjunto não admite tear-offs; somente main é exportado pelo backend JS.
 pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolution) -> MergeStats {
@@ -52,15 +54,9 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
         if f.name == "main" {
             continue;
         }
-        let key = format!(
-            "{:?}|{:?}|{}",
-            f.return_type,
-            f.parameters
-                .iter()
-                .map(|p| (p.name, p.ty))
-                .collect::<Vec<_>>(),
-            statements_key(&f.body, resolution)
-        );
+        let Some(key) = function_key(f, resolution) else {
+            continue;
+        };
         if let Some(&name) = representatives.get(&key) {
             replacements.insert(f.name, name);
         } else if !forbidden.contains(f.name) && f.name != "main" {
@@ -91,153 +87,263 @@ fn pack(tag: &str, parts: &[String]) -> String {
     }
     result
 }
-/// Serializa sequência com fronteiras inequívocas entre instruções.
-fn statements_key(body: &[Statement<'_>], r: &Resolution) -> String {
-    pack(
-        "body",
-        &body.iter().map(|s| statement_key(s, r)).collect::<Vec<_>>(),
-    )
+/// Escopos da chave canônica; bool indica declaração já inicializada.
+struct Canonical<'a, 'r> {
+    scopes: Vec<BTreeMap<&'a str, (usize, bool)>>,
+    next_id: usize,
+    valid: bool,
+    resolution: &'r Resolution,
 }
-/// Serializa instrução sem localização, mantendo ordem, bindings e alternativas.
-fn statement_key(s: &Statement<'_>, r: &Resolution) -> String {
-    use StatementKind::*;
-    match &s.kind {
-        Variable {
-            name,
-            annotation,
-            is_final,
-            initializer,
-        } => pack(
-            "var",
-            &[
-                format!("{name:?}:{annotation:?}:{is_final}"),
-                expression_key(initializer, r),
-            ],
-        ),
-        Assign { name, value } => pack("assign", &[(*name).into(), expression_key(value, r)]),
-        FieldAssign {
-            receiver,
-            name,
-            value,
-        } => pack(
-            "field",
-            &[
-                expression_key(receiver, r),
-                (*name).into(),
-                expression_key(value, r),
-            ],
-        ),
-        Print(e) => pack("print", &[expression_key(e, r)]),
-        Expression(e) => pack("expr", &[expression_key(e, r)]),
-        Return(e) => pack(
-            "return",
-            &e.iter().map(|e| expression_key(e, r)).collect::<Vec<_>>(),
-        ),
-        If {
-            condition,
-            then_body,
-            else_body,
-        } => pack(
-            "if",
-            &[
-                expression_key(condition, r),
-                statements_key(then_body, r),
-                else_body
-                    .as_ref()
-                    .map(|b| statements_key(b, r))
-                    .unwrap_or_default(),
-            ],
-        ),
-        While { condition, body } => pack(
-            "while",
-            &[expression_key(condition, r), statements_key(body, r)],
-        ),
-        DoWhile { body, condition } => pack(
-            "do",
-            &[statements_key(body, r), expression_key(condition, r)],
-        ),
-        For {
-            initializer,
-            condition,
-            update,
-            body,
-        } => pack(
-            "for",
-            &[
-                initializer
-                    .as_ref()
-                    .map(|s| statement_key(s, r))
-                    .unwrap_or_default(),
-                condition
-                    .as_ref()
-                    .map(|e| expression_key(e, r))
-                    .unwrap_or_default(),
-                update
-                    .as_ref()
-                    .map(|s| statement_key(s, r))
-                    .unwrap_or_default(),
-                statements_key(body, r),
-            ],
-        ),
-        Block(body) => pack("block", &[statements_key(body, r)]),
-        Break => "break".into(),
-        Continue => "continue".into(),
+/// Canonicaliza parâmetros por posição e locais por ordem de declaração.
+/// Retorna None se o AST não permitir resolver um binding com segurança.
+fn function_key(f: &Function<'_>, resolution: &Resolution) -> Option<String> {
+    let mut c = Canonical {
+        scopes: vec![BTreeMap::new()],
+        next_id: 0,
+        valid: true,
+        resolution,
+    };
+    for p in &f.parameters {
+        c.declare(p.name, true);
     }
+    let body = c.body(&f.body);
+    c.valid.then(|| {
+        pack(
+            "function",
+            &[
+                format!("{:?}", f.return_type),
+                format!(
+                    "{:?}",
+                    f.parameters.iter().map(|p| p.ty).collect::<Vec<_>>()
+                ),
+                body,
+            ],
+        )
+    })
 }
-/// Serializa expressão incluindo o destino estático de chamadas de extension.
-fn expression_key(e: &Expr<'_>, r: &Resolution) -> String {
-    use ExprKind::*;
-    match &e.kind {
-        Null => "null".into(),
-        This => "this".into(),
-        Int(n) => format!("int{n}"),
-        Bool(b) => format!("bool{b}"),
-        String(s) => pack("str", &[(*s).into()]),
-        OwnedString(s) => pack("str", std::slice::from_ref(s)),
-        Identifier(n) => pack("id", &[(*n).into()]),
-        Construct { class_id } => format!("new{class_id}"),
-        Call { name, arguments } => pack(
-            "call",
-            &[
-                (*name).into(),
+impl<'a> Canonical<'a, '_> {
+    /// Reserva um ID estável; declarações duplicadas tornam a comparação inelegível.
+    fn declare(&mut self, name: &'a str, ready: bool) {
+        let id = self.next_id;
+        self.next_id += 1;
+        if self
+            .scopes
+            .last_mut()
+            .expect("escopo ativo")
+            .insert(name, (id, ready))
+            .is_some()
+        {
+            self.valid = false;
+        }
+    }
+    /// Resolve sempre o binding lexical mais próximo, nunca um homônimo externo.
+    fn binding(&mut self, name: &str) -> String {
+        for scope in self.scopes.iter().rev() {
+            if let Some(&(id, ready)) = scope.get(name) {
+                self.valid &= ready;
+                return format!("local{id}");
+            }
+        }
+        // O subconjunto não admite valores globais nem tear-offs de funções.
+        self.valid = false;
+        "unresolved".into()
+    }
+    /// Predeclara locais em todo o bloco, como a análise semântica Dart.
+    fn body(&mut self, body: &[Statement<'a>]) -> String {
+        self.scopes.push(BTreeMap::new());
+        for s in body {
+            if let StatementKind::Variable { name, .. } = &s.kind {
+                self.declare(name, false);
+            }
+        }
+        let result = pack(
+            "body",
+            &body.iter().map(|s| self.statement(s)).collect::<Vec<_>>(),
+        );
+        self.scopes.pop();
+        result
+    }
+    /// Preserva escopos, inicializadores, atribuições e ordem de efeitos.
+    fn statement(&mut self, s: &Statement<'a>) -> String {
+        use StatementKind::*;
+        match &s.kind {
+            Variable {
+                name,
+                annotation,
+                is_final,
+                initializer,
+            } => {
+                // A declaração oculta a externa inclusive no seu inicializador.
+                let value = self.expression(initializer);
+                if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name))
+                {
+                    binding.1 = true;
+                } else {
+                    self.valid = false;
+                }
                 pack(
-                    "args",
-                    &arguments
-                        .iter()
-                        .map(|e| expression_key(e, r))
-                        .collect::<Vec<_>>(),
-                ),
-            ],
-        ),
-        Member { receiver, name } => pack("member", &[expression_key(receiver, r), (*name).into()]),
-        MethodCall {
-            receiver,
-            name,
-            arguments,
-        } => pack(
-            "method",
-            &[
-                expression_key(receiver, r),
-                (*name).into(),
+                    "var",
+                    &[
+                        self.binding(name),
+                        format!("{annotation:?}:{is_final}"),
+                        value,
+                    ],
+                )
+            }
+            Assign { name, value } => pack("assign", &[self.binding(name), self.expression(value)]),
+            FieldAssign {
+                receiver,
+                name,
+                value,
+            } => pack(
+                "field",
+                &[
+                    self.expression(receiver),
+                    (*name).into(),
+                    self.expression(value),
+                ],
+            ),
+            Print(e) => pack("print", &[self.expression(e)]),
+            Expression(e) => pack("expr", &[self.expression(e)]),
+            Return(e) => pack(
+                "return",
+                &e.iter().map(|e| self.expression(e)).collect::<Vec<_>>(),
+            ),
+            If {
+                condition,
+                then_body,
+                else_body,
+            } => pack(
+                "if",
+                &[
+                    self.expression(condition),
+                    self.body(then_body),
+                    else_body.as_ref().map(|b| self.body(b)).unwrap_or_default(),
+                ],
+            ),
+            While { condition, body } => {
+                pack("while", &[self.expression(condition), self.body(body)])
+            }
+            DoWhile { body, condition } => {
+                pack("do", &[self.body(body), self.expression(condition)])
+            }
+            For {
+                initializer,
+                condition,
+                update,
+                body,
+            } => {
+                // Cabeçalho tem escopo próprio; corpo possui um escopo filho.
+                self.scopes.push(BTreeMap::new());
+                if let Some(Statement {
+                    kind: Variable { name, .. },
+                    ..
+                }) = initializer.as_deref()
+                {
+                    self.declare(name, false);
+                }
+                let result = pack(
+                    "for",
+                    &[
+                        initializer
+                            .as_ref()
+                            .map(|s| self.statement(s))
+                            .unwrap_or_default(),
+                        condition
+                            .as_ref()
+                            .map(|e| self.expression(e))
+                            .unwrap_or_default(),
+                        update
+                            .as_ref()
+                            .map(|s| self.statement(s))
+                            .unwrap_or_default(),
+                        self.body(body),
+                    ],
+                );
+                self.scopes.pop();
+                result
+            }
+            Block(body) => pack("block", &[self.body(body)]),
+            Break => "break".into(),
+            Continue => "continue".into(),
+        }
+    }
+    /// Canonicaliza apenas identificadores locais; destinos globais e tipos não mudam.
+    fn expression(&mut self, e: &Expr<'a>) -> String {
+        use ExprKind::*;
+        match &e.kind {
+            Null => "null".into(),
+            This => {
+                self.valid = false;
+                "this".into()
+            }
+            Int(n) => format!("int{n}"),
+            Bool(b) => format!("bool{b}"),
+            String(s) => pack("str", &[(*s).into()]),
+            OwnedString(s) => pack("str", std::slice::from_ref(s)),
+            Identifier(n) => self.binding(n),
+            Construct { class_id } => format!("new{class_id}"),
+            Call { name, arguments } => {
+                // Chamadas a locais não têm representação no subconjunto validado.
+                if self
+                    .scopes
+                    .iter()
+                    .rev()
+                    .any(|scope| scope.contains_key(name))
+                {
+                    self.valid = false;
+                }
                 pack(
-                    "args",
-                    &arguments
-                        .iter()
-                        .map(|e| expression_key(e, r))
-                        .collect::<Vec<_>>(),
-                ),
-                format!("{:?}", r.extension_calls.get(&(e.span.start, e.span.end))),
-            ],
-        ),
-        Unary { op, operand } => pack("unary", &[format!("{op:?}"), expression_key(operand, r)]),
-        Binary { op, left, right } => pack(
-            "binary",
-            &[
-                format!("{op:?}"),
-                expression_key(left, r),
-                expression_key(right, r),
-            ],
-        ),
+                    "call",
+                    &[
+                        (*name).into(),
+                        pack(
+                            "args",
+                            &arguments
+                                .iter()
+                                .map(|e| self.expression(e))
+                                .collect::<Vec<_>>(),
+                        ),
+                    ],
+                )
+            }
+            Member { receiver, name } => {
+                pack("member", &[self.expression(receiver), (*name).into()])
+            }
+            MethodCall {
+                receiver,
+                name,
+                arguments,
+            } => pack(
+                "method",
+                &[
+                    self.expression(receiver),
+                    (*name).into(),
+                    pack(
+                        "args",
+                        &arguments
+                            .iter()
+                            .map(|e| self.expression(e))
+                            .collect::<Vec<_>>(),
+                    ),
+                    format!(
+                        "{:?}",
+                        self.resolution
+                            .extension_calls
+                            .get(&(e.span.start, e.span.end))
+                    ),
+                ],
+            ),
+            Unary { op, operand } => pack("unary", &[format!("{op:?}"), self.expression(operand)]),
+            Binary { op, left, right } => pack(
+                "binary",
+                &[
+                    format!("{op:?}"),
+                    self.expression(left),
+                    self.expression(right),
+                ],
+            ),
+        }
     }
 }
 /// Visita todas as instruções e expressões, inclusive inicializadores de campos.
@@ -391,12 +497,12 @@ mod tests {
             1,
         );
     }
-    /// Tipos, nomes locais e destinos diferentes nunca são ignorados pela chave.
+    /// Tipos e destinos diferentes permanecem significativos; nomes locais são alfa-equivalentes.
     #[test]
     fn distinct_semantics_stay_distinct() {
         check(
             "int a(int x) { return x + 1; } int b(int x) { return x + 2; } int c(int y) { return y + 1; } void main() {}",
-            0,
+            1,
         );
         check(
             "int a() { return 1; } int? b() { return 1; } void main() {}",
@@ -430,5 +536,105 @@ mod tests {
             "String a() { return 'a:b'; } String b() { return 'a'; } String c() { return 'a:b'; } void main() {}",
             1,
         );
+    }
+
+    /// Parâmetros seguem posição, não grafia; ordem dos operandos permanece significativa.
+    #[test]
+    fn alpha_parameters_preserve_operand_order_and_types() {
+        check(
+            "int soma(int a, int b) => a + b; int outra(int x, int y) => x + y; int reversa(int x, int y) => y + x; void main() {}",
+            1,
+        );
+        check("int a(int x) => 1; int b(bool x) => 1; void main() {}", 0);
+    }
+
+    /// IDs lexicais distinguem variáveis internas de referências ao escopo externo.
+    #[test]
+    fn alpha_nested_shadowing_and_initializers() {
+        check(
+            "int f(int n) { var result = n; { var n = 2; result = n; } return result; } int g(int input) { var output = input; { var inner = 2; output = inner; } return output; } void main() {}",
+            1,
+        );
+        check(
+            "int f(int n) { var result = n; { var n = 2; result = n; } return result; } int g(int input) { var output = input; { var inner = 2; output = input; } return output; } void main() {}",
+            0,
+        );
+        check(
+            "int f(int n) { var n = 2; return n; } int g(int m) { var other = 2; return other; } void main() {}",
+            1,
+        );
+        check(
+            "int f(int n) { var local = n; return local; } int g(int m) { var local = 1; return local; } void main() {}",
+            0,
+        );
+    }
+
+    /// Cabeçalho de for e corpo têm escopos distintos; o update resolve o cabeçalho.
+    #[test]
+    fn alpha_for_scope_and_restored_outer_binding() {
+        check(
+            "int f(int n) { var i = 10; for (var i = 0; i < n; i++) { var i = 2; print(i); } return i; } int g(int m) { var outer = 10; for (var j = 0; j < m; j++) { var inner = 2; print(inner); } return outer; } void main() {}",
+            1,
+        );
+        check(
+            "int f(int n) { var i = 10; for (var i = 0; i < n; i++) { print(i); } return i; } int g(int m) { var outer = 10; for (var j = 0; j < m; j++) { print(outer); } return outer; } void main() {}",
+            0,
+        );
+    }
+
+    /// Recursão e outros destinos globais não são normalizados como parâmetros locais.
+    #[test]
+    fn recursion_and_global_effect_targets_remain_exact() {
+        check(
+            "int f(int n) { if (n == 0) { return 1; } return f(n - 1); } int g(int m) { if (m == 0) { return 1; } return g(m - 1); } void main() {}",
+            0,
+        );
+        check(
+            "int left(int x) { print(1); return x; } int right(int x) { print(2); return x; } int f(int n) => left(n); int g(int m) => right(m); void main() {}",
+            0,
+        );
+        check(
+            "int f(int n) { print(n); return n; } int g(int m) { print(m); return m; } int h(int v) { print(1); return v; } void main() {}",
+            1,
+        );
+    }
+
+    /// Construtores e assinaturas nominais continuam distinguindo classes diferentes.
+    #[test]
+    fn alpha_keeps_nominal_classes_and_members() {
+        check(
+            "class A { int x = 1; } class B { int x = 1; } int f(A a) => a.x; int g(B b) => b.x; void main() {}",
+            0,
+        );
+        check(
+            "class C { int x = 1; int y = 2; } int f(C a) => a.x; int g(C b) => b.y; void main() {}",
+            0,
+        );
+        check(
+            "class C { int x = 1; } int f(C a) => a.x; int g(C b) => b.x; void main() {}",
+            1,
+        );
+    }
+
+    /// Uma chamada de extension conserva sua resolução ao remover a outra definição.
+    #[test]
+    fn alpha_preserves_extension_resolution() {
+        check(
+            "extension E on int { int twice() => this + this; } int f(int x) => x.twice(); int g(int y) => y.twice(); void main() { print(g(2)); }",
+            1,
+        );
+    }
+
+    /// Árvores não validadas com auto-referência ou uso anterior são inelegíveis.
+    #[test]
+    fn uncertain_bindings_are_not_merged() {
+        for source in [
+            "int f(int x) { var x = x; return x; } void main() {}",
+            "int f(int x) { { print(x); var x = 1; } return x; } void main() {}",
+        ] {
+            let tokens = dartforge_lexer::lex(source).unwrap();
+            let program = dartforge_parser::parse(&tokens, source.len()).unwrap();
+            assert!(function_key(&program.functions[0], &Resolution::default()).is_none());
+        }
     }
 }

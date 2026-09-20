@@ -77,7 +77,8 @@ O AOT suporta `int` de 64 bits com overflow modular, `bool`, funções/recursão
 variáveis, condicionais, laços, imports/pacotes e null safety (`int?`, `bool?`, `String?`, classes anuláveis, `??`, `!`).
 Strings, classes com construtor implícito, herança e despacho virtual usam um runtime
 Rust com GC preciso que coleta ciclos. Extensions ainda recebem diagnóstico nativo.
-As raízes temporárias duram até o retorno da função: laços longos podem reter memória.
+Raízes usam slots reutilizáveis por ativação, sem acumular entradas a cada iteração.
+Valores antigos ainda podem ficar retidos até sobrescrita do slot ou retorno.
 Veja o [contrato do runtime](crates/runtime/README.md) e as [referências Swift](docs/SWIFT-REFERENCIAS.md).
 
 Funções e métodos aceitam corpos tipados `=>`, por exemplo `int soma(int a, int b) => a + b;`.
@@ -99,7 +100,7 @@ A falha de `!` sobre null encerra o processo com diagnóstico; ainda não há ex
 Dart capturáveis no alvo nativo. Veja [null safety AOT](docs/AOT-NULL-SAFETY.md).
 
 Detalhes: [driver e ABI](docs/AOT-DRIVER.md), [referências Dartino](docs/AOT-REFERENCIAS.md)
-e [incremento atual de objetos/GC e fusão](docs/IMPLEMENTACAO-09.md).
+e [incremento atual de raízes reutilizáveis e fusão](docs/IMPLEMENTACAO-10.md).
 
 ## Workspace
 

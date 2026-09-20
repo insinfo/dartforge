@@ -44,6 +44,15 @@ unsafe extern "C" {
 fn main() {
     // SAFETY: o objeto foi emitido para esta ABI e ligado pelo mesmo driver nativo.
     unsafe { dartforge_entry() };
+    if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
+        HEAP.with(|heap| {
+            let s = heap.borrow().stats();
+            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{}}}}}",
+                s.allocations, s.collections, s.reclaimed, s.live_objects, s.reserved_slots,
+                s.root_slots, s.peak_root_slots, s.live_roots, s.peak_roots,
+                s.estimated_bytes, s.peak_estimated_bytes);
+        });
+    }
 }
 
 use heap::{Heap, Value};
@@ -54,8 +63,20 @@ thread_local! {
 
 /// Abre frame para raízes precisas dos valores SSA da função.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_push_frame() -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().push_frame())
+pub extern "C" fn dartforge_gc_push_frame(slot_count: i64) -> i64 {
+    HEAP.with(|heap| {
+        heap.borrow_mut().push_frame_with_slots(
+            usize::try_from(slot_count).expect("quantidade de slots inválida"),
+        )
+    })
+}
+/// Substitui uma raiz estática; zero limpa o slot sem alterar o tamanho do frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_gc_set_root(frame: i64, slot: i64, handle: i64) {
+    HEAP.with(|heap| {
+        heap.borrow_mut()
+            .set_root(frame, usize::try_from(slot).expect("slot inválido"), handle)
+    });
 }
 /// Protege handle positivo; zero representa null.
 #[unsafe(no_mangle)]
