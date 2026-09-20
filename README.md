@@ -73,7 +73,7 @@ O comando `graph` mostra dependências; `compile` resolve e compila bibliotecas 
     cargo run --release -p dartforge-cli -- aot examples/native/main.dart dist/native.exe --optimize
 
 O AOT suporta `int` de 64 bits com overflow modular, `bool`, funções/recursão,
-variáveis, condicionais, laços e imports/pacotes. Strings, null e objetos ainda
+variáveis, condicionais, laços, imports/pacotes e null safety escalar (`int?`, `bool?`, `??`, `!`). Strings e objetos ainda
 recebem diagnóstico no backend nativo, mesmo quando aceitos no backend JS.
 
 Requer Clang/LLVM 17+ e rustc/linker nativo. Configure `DARTFORGE_CLANG` e
@@ -82,6 +82,11 @@ Requer Clang/LLVM 17+ e rustc/linker nativo. Configure `DARTFORGE_CLANG` e
 Sem `--optimize`, usa LLVM O0; com a opção, LLVM O2. Isso é independente do
 passe de constantes do backend JS. O runtime é Rust; LLVM/Clang são dependências
 externas. O executável não requer o Dart SDK para rodar.
+
+`--timings` em `aot` emite JSON com tempos do frontend, preparação, Clang,
+compilação/link do runtime Rust, publicação e total, além do tamanho do executável.
+A falha de `!` sobre null encerra o processo com diagnóstico; ainda não há exceções
+Dart capturáveis no alvo nativo. Veja [null safety AOT](docs/AOT-NULL-SAFETY.md).
 
 Detalhes: [driver e ABI](docs/AOT-DRIVER.md), [referências Dartino](docs/AOT-REFERENCIAS.md)
 e [incremento AOT](docs/IMPLEMENTACAO-07.md).

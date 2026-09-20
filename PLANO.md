@@ -257,6 +257,16 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 - [ ] Planejar GC, raízes, barreiras e safepoints antes de objetos móveis.
 - [ ] Ampliar null safety nativa, despacho, closures, generics e exceções portáveis.
 
+## Oitavo incremento — Null safety escalar AOT e tempos por fase
+
+- [x] Representar int?/bool? em agregados sem heap, com tag explícita de presença.
+- [x] Emitir `??` preguiçoso, `!` checado, igualdade nullable e retornos implícitos null.
+- [x] Reutilizar validação de fluxo; não aceitar operações nulas inválidas por inserir checks.
+- [x] Medir frontend, gravação, LLVM, runtime/link e publicação via `aot --timings`.
+- [x] Cobrir O0/O2, loops com reatribuição, efeitos e falha de ! em subprocessos.
+- [ ] Exceções capturáveis, objetos, strings e GC; a ABI escalar não implementa esses recursos.
+- [ ] Cache de runtime/objetos por ABI/toolchain, orientado pelas medições registradas.
+
 ## Próximas tarefas
 
 1. Estabelecer matriz Dart 3.6.2/ngdart e inventário de testes da revisão correspondente do SDK.

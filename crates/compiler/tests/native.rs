@@ -32,7 +32,7 @@ fn rejects_unsupported_native_features_even_when_unused() {
     for source in [
         "class Box { int x = 1; } void main() {}",
         "void main() { if (false) { print('unreachable'); } }",
-        "void main() { int? n = null; print(n); }",
+        "void main() { String? s = null; print(s); }",
         "String unused() { return 'unused'; } void main() {}",
     ] {
         let error = compile_llvm(source).unwrap_err();
@@ -70,6 +70,9 @@ fn executes_native_corpus_at_o0_and_o2() {
         "cases/calls.dart",
         "cases/control_flow.dart",
         "cases/edge_cfg.dart",
+        "cases/null_safety.dart",
+        "cases/null_flow_loops.dart",
+        "cases/coalesce_promotion.dart",
         "modules/packages/main.dart",
     ]
     .iter()
@@ -98,5 +101,53 @@ fn executes_native_corpus_at_o0_and_o2() {
                 "{fixture}, optimize={optimize}"
             );
         }
+    }
+}
+
+/// Uma asserção nula termina antes do próximo efeito, sem UB em O0 ou O2.
+#[test]
+#[ignore = "requer clang e rustc/linker nativo"]
+fn null_assert_failure_stops_execution() {
+    let source =
+        "int? absent() { print(7); return null; } void main() { print(absent()!); print(99); }";
+    let ir = compile_llvm(source).unwrap();
+    let dir = OutputDir::new();
+    for optimize in [false, true] {
+        let output = dir.0.join(format!(
+            "null-failure-{optimize}{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let options = dartforge_native::NativeOptions {
+            optimize,
+            ..Default::default()
+        };
+        dartforge_native::build_executable(&ir, &output, &options).unwrap();
+        let actual = std::process::Command::new(&output).output().unwrap();
+        assert_eq!(actual.status.code(), Some(101));
+        assert_eq!(
+            String::from_utf8(actual.stdout)
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "7\n"
+        );
+        assert!(
+            String::from_utf8(actual.stderr)
+                .unwrap()
+                .contains("Null check operator used on a null value")
+        );
+    }
+}
+
+/// As coerções do backend não podem aceitar acessos nullable rejeitados pela linguagem.
+#[test]
+fn nullable_semantic_errors_are_not_hidden_by_runtime_checks() {
+    for source in [
+        "int f(int? n) { return n + 1; } void main() {}",
+        "void f(bool? b) { if (b) { print(1); } } void main() {}",
+        "int f() { return null; } void main() {}",
+        "void f(int? n) { if (n != null) { n = null; print(n + 1); } } void main() {}",
+        "void main() { int? n = true; print(n); }",
+    ] {
+        assert!(compile_llvm(source).is_err(), "{source}");
     }
 }

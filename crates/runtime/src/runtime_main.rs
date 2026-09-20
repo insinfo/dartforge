@@ -14,6 +14,24 @@ pub extern "C" fn dartforge_print_bool(value: u8) {
     println!("{}", value != 0);
 }
 
+/// Imprime o valor null sem expor uma representação de objeto pela ABI.
+// SAFETY: símbolo reservado, definido exatamente uma vez no runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_print_null() {
+    println!("null");
+}
+
+/// Encerra o processo quando uma asserção de não nulidade falha.
+///
+/// Ainda não há exceções Dart capturáveis; a falha é explícita e não retorna.
+// SAFETY: símbolo reservado e contrato C sem retorno, conforme a declaração LLVM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_null_assert_fail() -> ! {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr().lock(), "Null check operator used on a null value");
+    std::process::exit(101)
+}
+
 // SAFETY: o emissor define esta entrada com assinatura C void(void).
 unsafe extern "C" {
     fn dartforge_entry();

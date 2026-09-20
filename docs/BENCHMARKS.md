@@ -76,3 +76,10 @@ runtime e link; não mede somente emissão de IR. O LLVM instalado deve ser info
 com `-ClangExe`, `DARTFORGE_CLANG` ou PATH. `-DartExe` seleciona o SDK alvo.
 Os [resultados iniciais](IMPLEMENTACAO-07.md) usam corpus pequeno e três amostras;
 não comprovam superioridade geral nem comparam AOT com DDC/dart2js.
+
+A partir do incremento 08, cada amostra nativa registra também `phaseTimings`,
+obtido de `aot --timings`. `frontend_ns` inclui carga, lexer/parser, análise,
+link de bibliotecas e emissão da IR; `clang_ns` inclui o subprocesso LLVM e
+`rustc_link_ns` inclui compilação do harness e link. O total do CLI exclui seu
+próprio startup e serialização JSON; `compileMs` do runner inclui o processo.
+As fases não incluem cache; não devem ser interpretadas como recompilação incremental.

@@ -31,7 +31,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge emit-llvm <input.dart> <output.ll>\n       dartforge aot <input.dart> <output.exe> [--optimize]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize]\n       dartforge emit-llvm <input.dart> <output.ll>\n       dartforge aot <input.dart> <output.exe> [--optimize] [--timings]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }
@@ -55,24 +55,61 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    if (args.len() == 3 || (args.len() == 4 && args[3] == "--optimize")) && args[0] == "aot" {
+    if args[0] == "aot" {
+        if args.len() < 3 {
+            return Err(
+                "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--timings]".into(),
+            );
+        }
+        let mut optimize = false;
+        let mut timings = false;
+        for flag in &args[3..] {
+            if flag == "--optimize" && !optimize {
+                optimize = true;
+            } else if flag == "--timings" && !timings {
+                timings = true;
+            } else {
+                return Err(format!(
+                    "opção AOT desconhecida ou repetida: {}",
+                    flag.to_string_lossy()
+                )
+                .into());
+            }
+        }
+        let total_start = std::time::Instant::now();
         let input = PathBuf::from(&args[1]);
         let output = PathBuf::from(&args[2]);
+        let frontend_start = std::time::Instant::now();
         let ir = dartforge_compiler::compile_path_llvm(&input)?;
+        let frontend = frontend_start.elapsed();
         let options = dartforge_native::NativeOptions {
-            optimize: args.len() == 4,
+            optimize,
             ..Default::default()
         };
         if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent)?;
         }
-        dartforge_native::build_executable(&ir, &output, &options)?;
-        println!(
-            "{} -> {} (AOT LLVM {})",
-            input.display(),
-            output.display(),
-            if options.optimize { "O2" } else { "O0" }
-        );
+        let report = dartforge_native::build_executable_with_report(&ir, &output, &options)?;
+        let total = total_start.elapsed();
+        if timings {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schema_version": 1, "backend": "llvm", "optimization": if optimize { "O2" } else { "O0" },
+                    "frontend_ns": frontend.as_nanos(), "prepare_ns": report.write_ir_runtime.as_nanos(),
+                    "clang_ns": report.clang.as_nanos(), "rustc_link_ns": report.rustc_link.as_nanos(),
+                    "publish_ns": report.publish.as_nanos(), "driver_total_ns": report.total.as_nanos(),
+                    "total_ns": total.as_nanos(), "executable_bytes": report.executable_bytes,
+                }))?
+            );
+        } else {
+            println!(
+                "{} -> {} (AOT LLVM {})",
+                input.display(),
+                output.display(),
+                if optimize { "O2" } else { "O0" }
+            );
+        }
         return Ok(());
     }
     if args.len() == 3 && args[0] == "emit-llvm" {

@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -24,6 +25,23 @@ impl Default for NativeOptions {
             optimize: false,
         }
     }
+}
+
+/// Tempos de parede de uma compilação completa, sem cache entre chamadas.
+#[derive(Debug, Clone)]
+pub struct BuildReport {
+    /// Gravação do IR e do harness Rust no staging.
+    pub write_ir_runtime: Duration,
+    /// Execução do Clang, incluindo inicialização e coleta de saída do processo.
+    pub clang: Duration,
+    /// Compilação do harness e ligação, incluindo inicialização do rustc.
+    pub rustc_link: Duration,
+    /// Cópia exclusiva, permissões e sincronização da saída.
+    pub publish: Duration,
+    /// Chamada completa, incluindo preparação, validações e limpeza do staging.
+    pub total: Duration,
+    /// Bytes efetivamente copiados para o executável publicado.
+    pub executable_bytes: u64,
 }
 
 /// Diagnóstico completo de uma etapa do driver ou ferramenta externa.
@@ -75,6 +93,33 @@ pub fn build_executable(
     output: &Path,
     options: &NativeOptions,
 ) -> Result<(), NativeError> {
+    build_executable_with_report(ir, output, options).map(|_| ())
+}
+
+/// Compila e mede fases disjuntas com relógio monotônico.
+///
+/// Inclui inicialização e espera das ferramentas; não inclui análise Dart ou
+/// emissão do IR. O total também inclui preparação e limpeza do staging.
+///
+/// # Erros
+///
+/// Retorna os mesmos diagnósticos de [`build_executable`], sem relatório parcial.
+///
+///     # if false {
+///     let report = dartforge_native::build_executable_with_report(
+///         "define void @dartforge_entry() { ret void }",
+///         std::path::Path::new("program.exe"),
+///         &dartforge_native::NativeOptions::default(),
+///     )?;
+///     assert!(report.total >= report.clang);
+///     # }
+///     # Ok::<(), dartforge_native::NativeError>(())
+pub fn build_executable_with_report(
+    ir: &str,
+    output: &Path,
+    options: &NativeOptions,
+) -> Result<BuildReport, NativeError> {
+    let started = Instant::now();
     if ir.lines().any(|line| {
         let mut words = line.split_whitespace();
         words.next() == Some("target") && matches!(words.next(), Some("triple" | "datalayout"))
@@ -112,9 +157,12 @@ pub fn build_executable(
     } else {
         "program"
     });
+    let phase = Instant::now();
     std::fs::write(&input, ir).map_err(|e| failure("write-ir", e.to_string()))?;
     std::fs::write(&runtime, dartforge_runtime::RUNTIME_MAIN)
         .map_err(|e| failure("write-runtime", e.to_string()))?;
+    let write_ir_runtime = phase.elapsed();
+    let phase = Instant::now();
     run(
         "clang",
         Command::new(&options.clang)
@@ -126,6 +174,8 @@ pub fn build_executable(
             .arg("-o")
             .arg(&object),
     )?;
+    let clang = phase.elapsed();
+    let phase = Instant::now();
     let mut link_argument = std::ffi::OsString::from("link-arg=");
     link_argument.push(&object);
     run(
@@ -146,6 +196,8 @@ pub fn build_executable(
             .arg("-o")
             .arg(&executable),
     )?;
+    let rustc_link = phase.elapsed();
+    let phase = Instant::now();
     let mut source =
         std::fs::File::open(&executable).map_err(|e| failure("publish", e.to_string()))?;
     let permissions = source
@@ -158,14 +210,24 @@ pub fn build_executable(
         .open(&output)
         .map_err(|e| failure("publish", format!("{}: {e}", output.display())))?;
     let publication = std::io::copy(&mut source, &mut destination)
-        .and_then(|_| destination.set_permissions(permissions))
-        .and_then(|_| destination.sync_all());
+        .and_then(|bytes| destination.set_permissions(permissions).map(|()| bytes))
+        .and_then(|bytes| destination.sync_all().map(|()| bytes));
     drop(destination);
-    if let Err(error) = publication {
+    let executable_bytes = publication.map_err(|error| {
         let _ = std::fs::remove_file(&output);
-        return Err(failure("publish", error.to_string()));
-    }
-    Ok(())
+        failure("publish", error.to_string())
+    })?;
+    let publish = phase.elapsed();
+    drop(source);
+    drop(work);
+    Ok(BuildReport {
+        write_ir_runtime,
+        clang,
+        rustc_link,
+        publish,
+        total: started.elapsed(),
+        executable_bytes,
+    })
 }
 
 /// Constrói erro local sem inventar stdout/stderr de uma ferramenta.
@@ -252,7 +314,16 @@ mod tests {
                 optimize,
                 ..Default::default()
             };
-            build_executable(ir, &output, &options).unwrap();
+            let report = build_executable_with_report(ir, &output, &options).unwrap();
+            assert_eq!(
+                report.executable_bytes,
+                std::fs::metadata(&output).unwrap().len()
+            );
+            assert!(report.executable_bytes > 0);
+            assert!(
+                report.total
+                    >= report.write_ir_runtime + report.clang + report.rustc_link + report.publish
+            );
             let result = Command::new(&output).output().unwrap();
             assert!(
                 result.status.success(),

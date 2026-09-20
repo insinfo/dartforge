@@ -4,5 +4,5 @@
 /// Programa standalone Rust 2024 ligado ao objeto produzido pelo LLVM.
 ///
 /// Os símbolos usam ABI C: entrada sem argumentos, impressão i64 e impressão u8.
-/// O código não implementa strings, null, classes ou coleta de lixo.
+/// Inclui impressão de null e falha de asserção. Não implementa strings, classes ou GC.
 pub const RUNTIME_MAIN: &str = include_str!("runtime_main.rs");

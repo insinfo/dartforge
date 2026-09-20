@@ -12,3 +12,6 @@ Não mede DDC, dart2js nem prova conformidade da linguagem completa.
 
 Casos: i64/overflow, chamadas/recursão, ordem de argumentos, controle de fluxo,
 curto-circuito, escopos, package_config, privacidade e exports.
+
+O corpus também verifica int?/bool?, retorno implícito null, ??/!, promoções e
+reatribuições em laços. Falhas de ! rodam em subprocessos nos testes Rust.

@@ -1,7 +1,11 @@
 //! Emissão textual de LLVM IR 17+ com ponteiros opacos, sem bindings ou unsafe.
 //!
 //! O subconjunto nativo usa int de 64 bits com transbordamento modular, bool e
-//! void. Difere deliberadamente do backend JavaScript Number. Não fixa target
+//! void, int?, bool? e Null. Nullables usam {i1, payload}: presença e valor.
+//! Promoções semânticas usam unwrap checado; essa ABI interna não imita o SDK.
+//! SDK 3.6.2 tests/language/if_null/behavior_test.dart fundamenta RHS condicional.
+//! Falhas ! chamam dartforge_null_assert_fail() noreturn; null usa print_null().
+//! Difere deliberadamente do backend JavaScript Number. Não fixa target
 //! triple/data layout: a ferramenta nativa escolhe o alvo. A ABI externa contém
 //! dartforge_print_i64(i64), dartforge_print_bool(i8) e dartforge_entry().
 //! Consulte LLVM 17 LangRef (alloca, phi, br, add) e SDK Dart 3.6.2 sdk/lib/core/int.dart.
@@ -17,6 +21,9 @@ enum Ty {
     Int,
     Bool,
     Void,
+    Null,
+    NullableInt,
+    NullableBool,
 }
 impl Ty {
     /// Nome do tipo na IR; bool usa i1 internamente e i8 na impressão externa.
@@ -25,7 +32,21 @@ impl Ty {
             Self::Int => "i64",
             Self::Bool => "i1",
             Self::Void => "void",
+            Self::Null | Self::NullableInt => "{ i1, i64 }",
+            Self::NullableBool => "{ i1, i1 }",
         }
+    }
+    /// Payload escalar; Null não possui payload observável.
+    fn base(self) -> Self {
+        match self {
+            Self::NullableInt => Self::Int,
+            Self::NullableBool => Self::Bool,
+            _ => self,
+        }
+    }
+    /// Tipos com representação agregada e possibilidade de ausência.
+    fn nullable(self) -> bool {
+        matches!(self, Self::Null | Self::NullableInt | Self::NullableBool)
     }
 }
 
@@ -36,7 +57,7 @@ impl Ty {
 /// permitindo promoção por mem2reg. Não fornece runtime, linker ou objeto nativo.
 ///
 /// # Erros
-/// Rejeita classes, extensions, strings, null, tipos nullable e outras expressões
+/// Rejeita classes, extensions, strings e outras expressões
 /// fora do contrato. Diagnósticos conservam o span da AST. Nomes/tipos incorretos de
 /// AST construída manualmente também podem produzir diagnóstico.
 ///
@@ -90,7 +111,7 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     }
     validate_statements(&module.statements)?;
     let mut output = String::from(
-        "; DartForge LLVM: inteiros i64 modulares, sem target fixo\ndeclare void @dartforge_print_i64(i64)\ndeclare void @dartforge_print_bool(i8)\n\n",
+        "; DartForge LLVM: inteiros i64 modulares, sem target fixo\ndeclare void @dartforge_print_i64(i64)\ndeclare void @dartforge_print_bool(i8)\ndeclare void @dartforge_print_null()\ndeclare void @dartforge_null_assert_fail() noreturn\n\n",
     );
     for function in &module.functions {
         let signature = &signatures[function.name];
@@ -124,6 +145,9 @@ fn ty(value: Type, span: Span) -> Result<Ty, Diagnostic> {
         Type::Int => Ok(Ty::Int),
         Type::Bool => Ok(Ty::Bool),
         Type::Void => Ok(Ty::Void),
+        Type::Null => Ok(Ty::Null),
+        Type::NullableInt => Ok(Ty::NullableInt),
+        Type::NullableBool => Ok(Ty::NullableBool),
         _ => Err(error(span, "este tipo")),
     }
 }
@@ -205,30 +229,21 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
 /// Rejeita expressões incompatíveis antes de qualquer simplificação ou emissão.
 fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
     match &value.kind {
-        ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) => {}
+        ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) | ExprKind::Null => {}
         ExprKind::Call { arguments, .. } => {
             for argument in arguments {
                 validate_expression(argument)?;
             }
         }
-        ExprKind::Unary { op, operand } => {
-            if *op == UnaryOp::NullAssert {
-                return Err(error(value.span, "asserção nullable"));
-            }
+        ExprKind::Unary { operand, .. } => {
             validate_expression(operand)?;
         }
-        ExprKind::Binary { op, left, right } => {
-            if *op == BinaryOp::IfNull {
-                return Err(error(value.span, "operador ??"));
-            }
+        ExprKind::Binary { left, right, .. } => {
             validate_expression(left)?;
             validate_expression(right)?;
         }
         _ => {
-            return Err(error(
-                value.span,
-                "strings, null ou objetos nesta expressão",
-            ));
+            return Err(error(value.span, "strings ou objetos nesta expressão"));
         }
     }
     Ok(())
@@ -338,6 +353,8 @@ impl<'a> FunctionEmitter<'a> {
         if !self.terminated {
             self.line(if self.result == Ty::Void {
                 "ret void".into()
+            } else if self.result.nullable() {
+                format!("ret {} zeroinitializer", self.result.ir())
             } else {
                 "unreachable".into()
             });
@@ -365,12 +382,20 @@ impl<'a> FunctionEmitter<'a> {
     fn statement(&mut self, statement: &Statement<'_>) -> Result<(), Diagnostic> {
         match &statement.kind {
             StatementKind::Variable {
-                name, initializer, ..
+                name,
+                annotation,
+                initializer,
+                ..
             } => {
                 let value = self.expression(initializer)?;
                 if value.ty == Ty::Void {
                     return Err(error(statement.span, "variável void"));
                 }
+                let storage = annotation
+                    .map(|t| value_ty(t, statement.span))
+                    .transpose()?
+                    .unwrap_or(value.ty);
+                let value = self.coerce(value, storage, statement.span)?;
                 let pointer = self.local(name, value.ty);
                 self.line(format!(
                     "store {} {}, ptr {pointer}",
@@ -381,7 +406,7 @@ impl<'a> FunctionEmitter<'a> {
             StatementKind::Assign { name, value } => {
                 let (ty, pointer) = self.lookup(name, statement.span)?;
                 let value = self.expression(value)?;
-                Self::require(&value, ty, statement.span)?;
+                let value = self.coerce(value, ty, statement.span)?;
                 self.line(format!("store {} {}, ptr {pointer}", ty.ir(), value.text));
             }
             StatementKind::Print(value) => {
@@ -394,7 +419,7 @@ impl<'a> FunctionEmitter<'a> {
             StatementKind::Return(value) => {
                 if let Some(value) = value {
                     let value = self.expression(value)?;
-                    Self::require(&value, self.result, statement.span)?;
+                    let value = self.coerce(value, self.result, statement.span)?;
                     self.line(if value.ty == Ty::Void {
                         "ret void".into()
                     } else {
@@ -418,7 +443,7 @@ impl<'a> FunctionEmitter<'a> {
                 else_body,
             } => {
                 let condition = self.expression(condition)?;
-                Self::require(&condition, Ty::Bool, statement.span)?;
+                let condition = self.coerce(condition, Ty::Bool, statement.span)?;
                 let yes = self.label();
                 let no = self.label();
                 let end = self.label();
@@ -499,8 +524,8 @@ impl<'a> FunctionEmitter<'a> {
                 text: "true".into(),
             }
         };
-        Self::require(
-            &value,
+        let value = self.coerce(
+            value,
             Ty::Bool,
             condition.map_or(Span { start: 0, end: 0 }, |value| value.span),
         )?;
@@ -535,13 +560,235 @@ impl<'a> FunctionEmitter<'a> {
                 self.line(format!("{register} = zext i1 {} to i8", value.text));
                 self.line(format!("call void @dartforge_print_bool(i8 {register})"));
             }
+            Ty::Null => self.line("call void @dartforge_print_null()".into()),
+            Ty::NullableInt | Ty::NullableBool => {
+                let present = self.present(&value);
+                let yes = self.label();
+                let no = self.label();
+                let end = self.label();
+                self.branch(&present, &yes, &no);
+                self.start(&yes);
+                let payload = self.payload(&value);
+                self.print(payload, span)?;
+                self.jump(&end);
+                self.start(&no);
+                self.line("call void @dartforge_print_null()".into());
+                self.jump(&end);
+                self.start(&end);
+            }
             Ty::Void => return Err(error(span, "impressão de void")),
         }
         Ok(())
     }
+    /// Extrai a presença; payloads ausentes são inicializados, nunca poison.
+    fn present(&mut self, value: &Value) -> String {
+        if value.ty == Ty::Null {
+            return "false".into();
+        }
+        if !value.ty.nullable() {
+            return "true".into();
+        }
+        let register = self.register();
+        self.line(format!(
+            "{register} = extractvalue {} {}, 0",
+            value.ty.ir(),
+            value.text
+        ));
+        register
+    }
+    /// Extrai payload sem teste em bloco cuja presença já foi verificada.
+    fn payload(&mut self, value: &Value) -> Value {
+        if !value.ty.nullable() || value.ty == Ty::Null {
+            return Value {
+                ty: value.ty,
+                text: value.text.clone(),
+            };
+        }
+        let register = self.register();
+        self.line(format!(
+            "{register} = extractvalue {} {}, 1",
+            value.ty.ir(),
+            value.text
+        ));
+        Value {
+            ty: value.ty.base(),
+            text: register,
+        }
+    }
+    /// Implementa ! com avaliação única e falha explícita, sem comportamento indefinido.
+    fn assert_present(&mut self, value: Value) -> Result<Value, Diagnostic> {
+        if !value.ty.nullable() {
+            return Ok(value);
+        }
+        let present = self.present(&value);
+        let yes = self.label();
+        let no = self.label();
+        self.branch(&present, &yes, &no);
+        self.start(&no);
+        self.line("call void @dartforge_null_assert_fail()".into());
+        self.line("unreachable".into());
+        self.terminated = true;
+        self.start(&yes);
+        Ok(self.payload(&value))
+    }
+    /// Adapta armazenamento, argumentos e promoções já validadas pelo frontend.
+    fn coerce(&mut self, value: Value, expected: Ty, span: Span) -> Result<Value, Diagnostic> {
+        if value.ty == expected {
+            return Ok(value);
+        }
+        if value.ty == Ty::Null && expected.nullable() {
+            return Ok(Value {
+                ty: expected,
+                text: "zeroinitializer".into(),
+            });
+        }
+        if expected.nullable() && expected != Ty::Null && value.ty == expected.base() {
+            let tag = self.register();
+            let payload = self.register();
+            self.line(format!(
+                "{tag} = insertvalue {} zeroinitializer, i1 true, 0",
+                expected.ir()
+            ));
+            self.line(format!(
+                "{payload} = insertvalue {} {tag}, {} {}, 1",
+                expected.ir(),
+                value.ty.ir(),
+                value.text
+            ));
+            return Ok(Value {
+                ty: expected,
+                text: payload,
+            });
+        }
+        if value.ty.nullable() && value.ty.base() == expected {
+            return self.assert_present(value);
+        }
+        Err(Diagnostic::new("tipo incompatível na HIR LLVM", span))
+    }
+    /// Compara tags e payloads sem confundir int zero com bool false ou null.
+    fn equality(
+        &mut self,
+        op: BinaryOp,
+        left: Value,
+        right: Value,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        if left.ty == Ty::Void || right.ty == Ty::Void {
+            return Err(error(span, "comparação void"));
+        }
+        let lp = self.present(&left);
+        let rp = self.present(&right);
+        let any = self.register();
+        let absent = self.register();
+        self.line(format!("{any} = or i1 {lp}, {rp}"));
+        self.line(format!("{absent} = xor i1 {any}, true"));
+        let mut equal = absent;
+        if left.ty.base() == right.ty.base() && left.ty != Ty::Null {
+            let l = self.payload(&left);
+            let r = self.payload(&right);
+            let payload = self.register();
+            let both = self.register();
+            let same = self.register();
+            let total = self.register();
+            self.line(format!(
+                "{payload} = icmp eq {} {}, {}",
+                l.ty.ir(),
+                l.text,
+                r.text
+            ));
+            self.line(format!("{both} = and i1 {lp}, {rp}"));
+            self.line(format!("{same} = and i1 {both}, {payload}"));
+            self.line(format!("{total} = or i1 {equal}, {same}"));
+            equal = total;
+        }
+        if op == BinaryOp::NotEqual {
+            let inverse = self.register();
+            self.line(format!("{inverse} = xor i1 {equal}, true"));
+            equal = inverse;
+        }
+        Ok(Value {
+            ty: Ty::Bool,
+            text: equal,
+        })
+    }
+    /// RHS de ?? fica em bloco exclusivo; phi usa valores e predecessores reais.
+    fn coalesce(&mut self, left: Value, right: &Expr<'_>, span: Span) -> Result<Value, Diagnostic> {
+        if !left.ty.nullable() {
+            return Ok(left);
+        }
+        let present = self.present(&left);
+        let yes = self.label();
+        let no = self.label();
+        let end = self.label();
+        self.branch(&present, &yes, &no);
+        self.start(&no);
+        let right = self.expression(right)?;
+        let base = left.ty.base();
+        // A análise permite RHS de outro tipo quando lhs está promovido e não
+        // pode ser null. A HIR conserva o slot nullable: esse ramo é morto para
+        // programas válidos. Falha explícita evita UB em HIR que viole o contrato.
+        if left.ty != Ty::Null && right.ty != Ty::Null && right.ty.base() != base {
+            self.line("call void @dartforge_null_assert_fail()".into());
+            self.line("unreachable".into());
+            self.terminated = true;
+            self.start(&yes);
+            let value = self.payload(&left);
+            self.jump(&end);
+            self.start(&end);
+            return Ok(value);
+        }
+        let result = if left.ty == Ty::Null {
+            right.ty
+        } else if right.ty == Ty::Null || right.ty.nullable() {
+            match base {
+                Ty::Int => Ty::NullableInt,
+                Ty::Bool => Ty::NullableBool,
+                _ => return Err(error(span, "tipo de ??")),
+            }
+        } else {
+            base
+        };
+        let right = self.coerce(right, result, span)?;
+        let no_predecessor = self.current.clone();
+        self.jump(&end);
+        self.start(&yes);
+        let left = if left.ty == Ty::Null {
+            Value {
+                ty: result,
+                text: if result.nullable() {
+                    "zeroinitializer".into()
+                } else if result == Ty::Bool {
+                    "false".into()
+                } else {
+                    "0".into()
+                },
+            }
+        } else {
+            self.payload(&left)
+        };
+        let left = self.coerce(left, result, span)?;
+        let yes_predecessor = self.current.clone();
+        self.jump(&end);
+        self.start(&end);
+        let register = self.register();
+        self.line(format!(
+            "{register} = phi {} [ {}, %{yes_predecessor} ], [ {}, %{no_predecessor} ]",
+            result.ir(),
+            left.text,
+            right.text
+        ));
+        Ok(Value {
+            ty: result,
+            text: register,
+        })
+    }
     /// Emite expressão em ordem; && e || produzem CFG e phi, nunca avaliação ávida.
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
+            ExprKind::Null => Value {
+                ty: Ty::Null,
+                text: "zeroinitializer".into(),
+            },
             ExprKind::Int(value) => Value {
                 ty: Ty::Int,
                 text: value.to_string(),
@@ -580,9 +827,11 @@ impl<'a> FunctionEmitter<'a> {
                             expression.span,
                         ));
                     }
-                    for (value, expected) in values.iter().zip(&signature.parameters) {
-                        Self::require(value, *expected, expression.span)?;
-                    }
+                    let values = values
+                        .into_iter()
+                        .zip(&signature.parameters)
+                        .map(|(value, expected)| self.coerce(value, *expected, expression.span))
+                        .collect::<Result<Vec<_>, _>>()?;
                     let parameters = values
                         .iter()
                         .map(|value| format!("{} {}", value.ty.ir(), value.text))
@@ -610,6 +859,15 @@ impl<'a> FunctionEmitter<'a> {
             }
             ExprKind::Unary { op, operand } => {
                 let value = self.expression(operand)?;
+                if *op == UnaryOp::NullAssert {
+                    return self.assert_present(value);
+                }
+                let expected = if *op == UnaryOp::Negate {
+                    Ty::Int
+                } else {
+                    Ty::Bool
+                };
+                let value = self.coerce(value, expected, expression.span)?;
                 let register = self.register();
                 match op {
                     UnaryOp::Negate => {
@@ -632,7 +890,23 @@ impl<'a> FunctionEmitter<'a> {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
                     return self.lazy(*op, left, right, expression.span);
                 }
+                if *op == BinaryOp::IfNull {
+                    return self.coalesce(left, right, expression.span);
+                }
                 let right = self.expression(right)?;
+                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                    && (left.ty.nullable() || right.ty.nullable())
+                {
+                    return self.equality(*op, left, right, expression.span);
+                }
+                let (left, right) = if !matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                    (
+                        self.coerce(left, Ty::Int, expression.span)?,
+                        self.coerce(right, Ty::Int, expression.span)?,
+                    )
+                } else {
+                    (left, right)
+                };
                 if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) && left.ty != right.ty {
                     if left.ty == Ty::Void || right.ty == Ty::Void {
                         return Err(error(expression.span, "comparação void"));
@@ -685,7 +959,7 @@ impl<'a> FunctionEmitter<'a> {
         right: &Expr<'_>,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        Self::require(&left, Ty::Bool, span)?;
+        let left = self.coerce(left, Ty::Bool, span)?;
         let origin = self.current.clone();
         let rhs = self.label();
         let end = self.label();
@@ -697,7 +971,7 @@ impl<'a> FunctionEmitter<'a> {
         }
         self.start(&rhs);
         let right = self.expression(right)?;
-        Self::require(&right, Ty::Bool, span)?;
+        let right = self.coerce(right, Ty::Bool, span)?;
         let predecessor = self.current.clone();
         self.jump(&end);
         self.start(&end);
@@ -775,7 +1049,7 @@ mod tests {
         for source in [
             "void main(){return;print('dead');}",
             "void unused(){print('dead');} void main(){}",
-            "void main(){if(false){int? n=null;}}",
+            "void main(){if(false){String? n=null;}}",
             "class C{} void main(){}",
             "extension E on int{int x(){return this;}} void main(){}",
         ] {
@@ -793,5 +1067,53 @@ mod tests {
         assert!(ir.contains("call i64 @df_fn_0()"));
         assert!(ir.contains("zext i1 false to i8"));
         assert!(!ir.contains("icmp eq"));
+    }
+
+    /// Coerções atravessam argumentos, retornos, slots e promoção após guarda.
+    #[test]
+    fn nullable_storage_calls_and_promotions() {
+        let ir = compile("int? id(int? x){return x;} bool? absent(){} int inc(int? x){if(x==null){return 0;}return x+1;} void main(){int? n=id(3); n=null; print(n); n=5; print(inc(n)); print(absent());}").unwrap();
+        assert!(ir.contains("define { i1, i64 } @df_fn_0({ i1, i64 } %a0)"));
+        assert!(ir.contains("ret { i1, i1 } zeroinitializer"));
+        assert!(ir.contains("insertvalue { i1, i64 }"));
+        assert!(ir.contains("call void @dartforge_print_null()"));
+    }
+
+    /// ?? aninhado mantém phi agregado e ! verifica exatamente o resultado da chamada.
+    #[test]
+    fn nullable_lazy_and_checked_assertion() {
+        let ir = compile("int? effect(){print(7);return null;} void main(){print(null ?? (effect() ?? effect())); print(effect()!);}").unwrap();
+        assert_eq!(ir.matches("call { i1, i64 } @df_fn_0()").count(), 3);
+        assert_eq!(ir.matches("phi { i1, i64 }").count(), 2);
+        assert!(ir.contains("call void @dartforge_null_assert_fail()\n  unreachable"));
+    }
+
+    /// Int? e bool? têm representação distinta e igualdade comum somente em null.
+    #[test]
+    fn nullable_heterogeneous_equality() {
+        let ir=compile("void compare(int? a,bool? b){print(a==b);print(a!=b);print(a==null);print(a==2);} void main(){compare(null,null);compare(0,false);}").unwrap();
+        assert!(ir.contains("icmp eq i64"));
+        assert!(!ir.contains("icmp eq {"));
+        assert!(ir.contains(" = or i1"));
+    }
+
+    /// Corpus compartilhado exerce laços, reatribuições e fallthrough nullable.
+    #[test]
+    fn native_nullable_corpus_emits() {
+        compile(include_str!("../../../tests/native/cases/null_safety.dart")).unwrap();
+        compile(include_str!(
+            "../../../tests/native/cases/null_flow_loops.dart"
+        ))
+        .unwrap();
+    }
+    /// RHS heterogeneo exige prova semantica de presenca do operando esquerdo.
+    #[test]
+    fn promoted_coalesce_keeps_dead_rhs_types_out_of_phi() {
+        let ir = compile("void main(){int? n=1; print(n ?? false); print(2 ?? true);}").unwrap();
+        assert!(!ir.contains("phi i64 [ false"));
+        assert!(ir.contains("@dartforge_print_i64(i64 2)"));
+        assert!(
+            compile("int? maybe(){return null;} void main(){print(maybe() ?? true);}").is_err()
+        );
     }
 }

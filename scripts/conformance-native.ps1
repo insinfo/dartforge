@@ -45,18 +45,25 @@ try {
         }
         foreach ($optimized in @($false, $true)) {
             $times = @()
+            $phaseTimings = @()
             for ($sample = 0; $sample -lt $Samples; $sample++) {
                 $nativeExe = Join-Path $runDir ($case.BaseName + '.forge.' + $optimized + '.' + $sample + $suffix)
-                $arguments = @('aot', $case.FullName, $nativeExe)
+                $arguments = @('aot', $case.FullName, $nativeExe, '--timings')
                 if ($optimized) { $arguments += '--optimize' }
                 $timer = [Diagnostics.Stopwatch]::StartNew()
-                & $compiler @arguments
+                $timingJson = & $compiler @arguments
                 if ($LASTEXITCODE) { throw "DartForge AOT failed: $($case.Name)" }
                 $times += $timer.Elapsed.TotalMilliseconds
+                $phase = $timingJson -join "`n" | ConvertFrom-Json
+                $driverPhases = $phase.prepare_ns + $phase.clang_ns + $phase.rustc_link_ns + $phase.publish_ns
+                if ($phase.schema_version -ne 1 -or $phase.backend -ne 'llvm' -or $phase.executable_bytes -ne (Get-Item -LiteralPath $nativeExe).Length -or $phase.driver_total_ns -lt $driverPhases -or $phase.total_ns -lt ($phase.frontend_ns + $phase.driver_total_ns)) {
+                    throw 'Invalid AOT phase timing report'
+                }
+                $phaseTimings += $phase
                 $actual = @(& $nativeExe)
                 if ($LASTEXITCODE -or ($actual -join "`n") -cne ($vmOutput -join "`n")) { throw "Native divergence: $($case.Name), O2=$optimized" }
             }
-            $results += [pscustomobject]@{ case=$case.Name; llvmOptimization=if ($optimized) {'O2'} else {'O0'}; status='pass'; actual=$actual; referenceOutput=$vmOutput; compileMs=$times; officialCompileMs=$officialTimes }
+            $results += [pscustomobject]@{ case=$case.Name; llvmOptimization=if ($optimized) {'O2'} else {'O0'}; status='pass'; actual=$actual; referenceOutput=$vmOutput; compileMs=$times; phaseTimings=$phaseTimings; officialCompileMs=$officialTimes }
         }
     }
     $report = [ordered]@{ gitRevision=(& git rev-parse HEAD | Out-String).Trim(); gitStatusPorcelain=(& git status --porcelain | Out-String).Trim(); target='3.6.2'; dartVersion=$version; clangVersion=$clangVersion; rustc=$rustVersion; samples=$Samples; generatedAt=(Get-Date -Format o); backend='LLVM object + Rust runtime/link'; note='Process timings include compiler startup, LLVM, runtime compilation and linking. Warm filesystem; no DDC/JS comparison; small subset, not production-performance evidence.'; results=$results }

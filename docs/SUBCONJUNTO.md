@@ -101,7 +101,8 @@ que preservem efeitos, ordem de avaliação e escopos.
 
 O backend nativo tem um subconjunto separado: int64 modular, bool, void,
 funções/recursão, variáveis, controle de fluxo e bibliotecas/pacotes. Não suporta
-strings, null, classes, herança ou extensions. A validação da HIR rejeita esses
+strings, classes, herança ou extensions. Aceita int?/bool?, null, ?? e !, com
+falha imediata da asserção em vez de exceção capturável. A validação da HIR rejeita os demais
 recursos antes do driver, inclusive em código não executado. Os literais ainda são
 limitados a i32 pelo parser compartilhado; os resultados das operações usam i64.
 O alvo JS mantém sua representação Number. Ver [referências e plano AOT](AOT-REFERENCIAS.md).
