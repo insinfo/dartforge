@@ -17,6 +17,7 @@ struct Symbol {
 struct ClassNames<'a> {
     owner: usize,
     superclass: Option<u32>,
+    interfaces: Vec<u32>,
     members: HashSet<&'a str>,
 }
 
@@ -204,18 +205,22 @@ pub fn compile_graph_with_options(
         );
     }
     let mut classes = HashMap::new();
-    for (owner, program) in programs.iter().enumerate() {
-        for class in &program.classes {
+    for (owner, program) in programs.iter_mut().enumerate() {
+        for class in &mut program.classes {
+            class.library_id = owner;
             classes.insert(
                 class.id,
                 ClassNames {
                     owner,
                     superclass: class.superclass,
+                    interfaces: class.interfaces.clone(),
                     members: class
                         .fields
                         .iter()
                         .map(|field| field.name)
                         .chain(class.methods.iter().map(|method| method.name))
+                        .chain(class.abstract_methods.iter().map(|method| method.name))
+                        .chain(class.enum_values.iter().copied())
                         .collect(),
                 },
             );
@@ -476,20 +481,21 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Consulta membros visíveis sem confundir privados de bibliotecas distintas.
     fn implicit_member(&self, name: &str) -> bool {
-        let mut cursor = self.current_class;
+        let mut pending: Vec<u32> = self.current_class.into_iter().collect();
         let mut visited = HashSet::new();
-        while let Some(id) = cursor {
+        while let Some(id) = pending.pop() {
             if !visited.insert(id) {
-                break;
+                continue;
             }
             let Some(class) = self.classes.get(&id) else {
-                break;
+                continue;
             };
             if class.members.contains(name) && (!name.starts_with('_') || class.owner == self.unit)
             {
                 return true;
             }
-            cursor = class.superclass;
+            pending.extend(class.superclass);
+            pending.extend(class.interfaces.iter().copied());
         }
         false
     }
@@ -531,7 +537,10 @@ impl<'a> Resolver<'a, '_> {
             field.name = self.member_name(field.name);
             self.span(&mut field.span);
         }
-        for method in &mut class.methods {
+        for interface in &class.interfaces {
+            self.ty(Type::Class(*interface), class.span)?;
+        }
+        for method in class.methods.iter_mut().chain(&mut class.abstract_methods) {
             if method.name == class.name {
                 return Err(self.error(method.span, "método não pode ter o nome da classe"));
             }
@@ -720,6 +729,18 @@ impl<'a> Resolver<'a, '_> {
                     ));
                 }
             }
+            ExprKind::EnumValue { class_id, name } => {
+                self.ty(Type::Class(*class_id), expression.span)?;
+                let (owner, _) = self
+                    .class_origins
+                    .get(class_id)
+                    .ok_or_else(|| self.error(expression.span, "enum desconhecido"))?;
+                if name.starts_with('_') && *owner != self.unit {
+                    return Err(
+                        self.error(expression.span, "valor de enum privado em outra biblioteca")
+                    );
+                }
+            }
             ExprKind::Member { receiver, name } => {
                 self.expression(receiver)?;
                 *name = self.member_name(name);
@@ -751,6 +772,54 @@ impl<'a> Resolver<'a, '_> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    /// Preserva nomes de enum e contratos públicos através de bibliotecas distintas.
+    #[test]
+    fn imports_abstract_interfaces_and_enum_names() {
+        let sources = graph(&[
+            (
+                "class A implements I { E value()=>E.name; } void main(){I a=A(); print(a.value().name);}",
+                &[1],
+            ),
+            (
+                "abstract class I { E value(); } enum E { name, _private }",
+                &[],
+            ),
+        ]);
+        let js = compile_graph(&sources, false).unwrap();
+        assert!(js.contains("$df_name:\"name\""));
+        let sources = graph(&[
+            ("void main(){print(E._private.index);}", &[1]),
+            ("enum E {_private}", &[]),
+        ]);
+        assert!(
+            compile_graph(&sources, false)
+                .unwrap_err()
+                .message
+                .contains("privado")
+        );
+    }
+    /// Interface permite extends local, mas exige implements na outra biblioteca.
+    #[test]
+    fn interface_extends_respects_library_identity() {
+        let local = graph(&[(
+            "interface class I { int f()=>1; } class C extends I {} void main(){print(C().f());}",
+            &[],
+        )]);
+        assert!(compile_graph(&local, false).is_ok());
+        let external = graph(&[
+            ("class C extends I {} void main(){}", &[1]),
+            ("interface class I { int f()=>1; }", &[]),
+        ]);
+        assert!(compile_graph(&external, false).is_err());
+        let implemented = graph(&[
+            (
+                "class C implements I { int f()=>2; } void main(){I c=C();print(c.f());}",
+                &[1],
+            ),
+            ("abstract interface class I { int f(); }", &[]),
+        ]);
+        assert!(compile_graph(&implemented, false).is_ok());
+    }
     /// Monta um grafo em memória com imports representados pelas arestas declaradas.
     fn graph(sources: &[(&str, &[usize])]) -> SourceGraph {
         SourceGraph {
@@ -1095,6 +1164,41 @@ mod tests {
                 "{source}"
             );
         }
+    }
+    /// Interfaces transitivas ocultam globais antes da renomeação, inclusive em diamantes.
+    #[test]
+    fn interface_members_never_rebind_to_global_functions() {
+        let graph = graph(&[
+            (
+                "int f()=>1; abstract class B implements Left,Right {int run()=>f();} class C extends B {int f()=>2;} void main(){print(C().run());}",
+                &[1],
+            ),
+            (
+                "abstract class I{int f();} abstract class Left implements I{} abstract class Right implements I{}",
+                &[],
+            ),
+        ]);
+        for optimize in [false, true] {
+            let error = compile_graph(&graph, optimize).unwrap_err();
+            assert!(
+                error.message.contains("this explícito"),
+                "{}",
+                error.message
+            );
+            assert_eq!(error.path, PathBuf::from("library_0.dart"));
+        }
+    }
+    /// Um membro privado de interface estrangeira não oculta o global privado local.
+    #[test]
+    fn foreign_private_interface_members_do_not_shadow_globals() {
+        let graph = graph(&[
+            (
+                "int _f()=>1; abstract class B implements I {int run()=>_f();} void main(){}",
+                &[1],
+            ),
+            ("abstract class I {int _f();}", &[]),
+        ]);
+        assert!(compile_graph(&graph, false).is_ok());
     }
     /// Executa a saída ligada para conferir campos privados e despacho entre bibliotecas.
     #[test]

@@ -166,6 +166,25 @@ fn class_order(classes: &[Class<'_>]) -> Vec<usize> {
 fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
     for index in class_order(classes) {
         let class = &classes[index];
+        if !class.enum_values.is_empty() {
+            write!(
+                output,
+                "const $dartforgeClass{} = Object.freeze({{",
+                class.id
+            )
+            .unwrap();
+            for (index, name) in class.enum_values.iter().enumerate() {
+                if index != 0 {
+                    output.push(',');
+                }
+                identifier(name, output);
+                output.push_str(":Object.freeze({$df_name:");
+                string_literal(name, output);
+                write!(output, ",$df_index:{index}}})").unwrap();
+            }
+            output.push_str("});\n");
+            continue;
+        }
         write!(output, "class $dartforgeClass{}", class.id).expect("escrever em String não falha");
         if let Some(base) = class.superclass {
             write!(output, " extends $dartforgeClass{base}").expect("escrever em String não falha");
@@ -482,6 +501,10 @@ fn string_literal(value: &str, output: &mut Output<'_>) {
 /// Emite uma expressão sem duplicar a avaliação de operandos.
 fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
     match &value.kind {
+        ExprKind::EnumValue { class_id, name } => {
+            write!(output, "$dartforgeClass{class_id}.").unwrap();
+            identifier(name, output);
+        }
         ExprKind::Null => output.push_str("null"),
         ExprKind::This => output.push_str("this"),
         ExprKind::Construct { class_id } => {
@@ -595,6 +618,35 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
 
 #[cfg(test)]
 mod tests {
+    /// Enums usam singletons congelados e nomes originais mesmo quando não são identificadores JS.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn enum_singletons_are_frozen_and_have_metadata() {
+        let mut enumeration = empty_class(12, None);
+        enumeration.enum_values = vec!["name", "other"];
+        let program = Program {
+            classes: vec![enumeration],
+            extensions: vec![],
+            functions: vec![],
+            statements: vec![],
+        };
+        let module = dartforge_hir::lower(program);
+        let mut js = emit(&module);
+        js.push_str("console.log($dartforgeClass12.$df_name === $dartforgeClass12.$df_name); console.log($dartforgeClass12.$df_name === $dartforgeClass12.$df_other); console.log($dartforgeClass12.$df_name.$df_name); console.log($dartforgeClass12.$df_other.$df_index); console.log(Object.isFrozen($dartforgeClass12.$df_name));");
+        let run = std::process::Command::new("node")
+            .args(["--eval", &js])
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n"),
+            "true\nfalse\nname\n1\ntrue\n"
+        );
+    }
     use super::*;
     use dartforge_diagnostics::Span;
     use dartforge_syntax::{Function, Parameter, Program, Type};
@@ -1330,6 +1382,12 @@ mod tests {
         use dartforge_syntax::Field;
         let span = Span { start: 0, end: 0 };
         let base = Class {
+            is_interface: false,
+            library_id: 0,
+            is_abstract: false,
+            interfaces: vec![],
+            abstract_methods: vec![],
+            enum_values: vec![],
             id: 0,
             name: "Base",
             superclass: None,
@@ -1352,6 +1410,12 @@ mod tests {
             )],
         };
         let child = Class {
+            is_interface: false,
+            library_id: 0,
+            is_abstract: false,
+            interfaces: vec![],
+            abstract_methods: vec![],
+            enum_values: vec![],
             id: 1,
             name: "Child",
             superclass: Some(0),
@@ -1422,6 +1486,12 @@ mod tests {
     /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
     fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
         Class {
+            is_interface: false,
+            library_id: 0,
+            is_abstract: false,
+            interfaces: vec![],
+            abstract_methods: vec![],
+            enum_values: vec![],
             id,
             name: "Synthetic",
             superclass,

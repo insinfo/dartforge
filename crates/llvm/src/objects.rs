@@ -11,6 +11,10 @@
 //! Strings usam UTF-8 interno somente no subconjunto de escalares Unicode aceito
 //! pelo frontend; isso não implementa indexação UTF-16 de Dart. Referência consultada:
 //! SDK 3.6.2 sdk/lib/core/string.dart. Nenhum código do SDK foi copiado.
+//! Interfaces participam da relação nominal e do despacho, sem herdar corpos.
+//! Declarações abstratas conservam separadamente assinatura e implementação herdada.
+//! Enums usam singletons do runtime; slots 0/1 guardam index/name. Consulte SDK
+//! 3.6.2 sdk/lib/core/enum.dart para identidade nominal e ordinal de declaração.
 use super::*;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -21,6 +25,7 @@ declare i64 @dartforge_gc_push_frame(i64)
 declare void @dartforge_gc_set_root(i64, i64, i64)
 declare void @dartforge_gc_pop_frame(i64)
 declare i64 @dartforge_object_new(i64, i64)
+declare i64 @dartforge_enum_get(i64, i64, ptr, i64)
 declare i64 @dartforge_object_get(i64, i64)
 declare void @dartforge_object_set(i64, i64, i64, i8)
 declare i64 @dartforge_object_class(i64)
@@ -42,10 +47,14 @@ struct Method {
     signature: Signature,
     owner: u32,
     index: usize,
+    implementation: Option<Signature>,
 }
 /// Layout completo de uma classe após incorporar a cadeia de bases.
 struct Layout {
     parent: Option<u32>,
+    interfaces: Vec<u32>,
+    is_abstract: bool,
+    enum_values: Vec<String>,
     fields: BTreeMap<String, Field>,
     methods: BTreeMap<String, Method>,
     slots: usize,
@@ -66,6 +75,7 @@ impl Objects {
                     || class
                         .superclass
                         .is_some_and(|id| !layouts.contains_key(&id))
+                    || class.interfaces.iter().any(|id| !layouts.contains_key(id))
                 {
                     continue;
                 }
@@ -73,6 +83,32 @@ impl Objects {
                 let mut fields = parent.map(|p| p.fields.clone()).unwrap_or_default();
                 let mut methods = parent.map(|p| p.methods.clone()).unwrap_or_default();
                 let mut slots = parent.map_or(0, |p| p.slots);
+                for interface in &class.interfaces {
+                    for (name, method) in &layouts[interface].methods {
+                        methods.entry(name.clone()).or_insert_with(|| {
+                            let mut method = method.clone();
+                            method.implementation = None;
+                            method
+                        });
+                    }
+                }
+                if !class.enum_values.is_empty() {
+                    fields.insert(
+                        "index".into(),
+                        Field {
+                            ty: Ty::Int,
+                            offset: 0,
+                        },
+                    );
+                    fields.insert(
+                        "name".into(),
+                        Field {
+                            ty: Ty::String,
+                            offset: 1,
+                        },
+                    );
+                    slots = 2;
+                }
                 for field in &class.fields {
                     validate_expression(&field.initializer)?;
                     let ty = value_ty(field.ty, field.span)?;
@@ -83,29 +119,47 @@ impl Objects {
                         1
                     };
                 }
-                for (index, method) in class.methods.iter().enumerate() {
+                for (index, method) in class
+                    .methods
+                    .iter()
+                    .chain(&class.abstract_methods)
+                    .enumerate()
+                {
                     validate_statements(&method.body)?;
+                    let signature = Signature {
+                        symbol: format!("df_method_{}_{}", class.id, index),
+                        result: ty(method.return_type, method.span)?,
+                        parameters: method
+                            .parameters
+                            .iter()
+                            .map(|p| value_ty(p.ty, p.span))
+                            .collect::<Result<_, _>>()?,
+                    };
+                    let implementation = if index < class.methods.len() {
+                        Some(signature.clone())
+                    } else {
+                        methods
+                            .get(method.name)
+                            .and_then(|m| m.implementation.clone())
+                    };
                     methods.insert(
                         method.name.into(),
                         Method {
                             owner: class.id,
                             index,
-                            signature: Signature {
-                                symbol: format!("df_method_{}_{}", class.id, index),
-                                result: ty(method.return_type, method.span)?,
-                                parameters: method
-                                    .parameters
-                                    .iter()
-                                    .map(|p| value_ty(p.ty, p.span))
-                                    .collect::<Result<_, _>>()?,
-                            },
+                            signature,
+                            implementation,
                         },
                     );
                 }
+
                 layouts.insert(
                     class.id,
                     Layout {
                         parent: class.superclass,
+                        interfaces: class.interfaces.clone(),
+                        is_abstract: class.is_abstract,
+                        enum_values: class.enum_values.iter().map(|s| (*s).to_owned()).collect(),
                         fields,
                         methods,
                         slots,
@@ -129,12 +183,20 @@ impl Objects {
         if actual == expected {
             return true;
         }
-        if let (Ty::Class(mut actual), Ty::Class(expected)) = (actual, expected) {
-            while let Some(parent) = self.layouts.get(&actual).and_then(|l| l.parent) {
-                if parent == expected {
+        if let (Ty::Class(actual), Ty::Class(expected)) = (actual, expected) {
+            let mut pending = vec![actual];
+            let mut seen = std::collections::BTreeSet::new();
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id) {
+                    continue;
+                }
+                if id == expected {
                     return true;
                 }
-                actual = parent;
+                if let Some(layout) = self.layouts.get(&id) {
+                    pending.extend(layout.parent);
+                    pending.extend(&layout.interfaces);
+                }
             }
         }
         false
@@ -158,35 +220,37 @@ impl Objects {
     ) -> Result<String, Diagnostic> {
         let mut output = String::new();
         for class in &module.classes {
-            let mut emitter = FunctionEmitter::new(signatures, self, Ty::Class(class.id));
-            let object = emitter.register();
-            emitter.line(format!(
-                "{object} = call i64 @dartforge_object_new(i64 {}, i64 {})",
-                class.id, self.layouts[&class.id].slots
-            ));
-            let receiver = Value {
-                ty: Ty::Class(class.id),
-                text: object,
-            };
-            emitter.root(&receiver);
-            let mut current = Some(class.id);
-            while let Some(id) = current {
-                let declaration = module.classes.iter().find(|c| c.id == id).unwrap();
-                for field in &declaration.fields {
-                    let value = emitter.expression(&field.initializer)?;
-                    emitter.store_field(
-                        &receiver,
-                        &self.layouts[&class.id].fields[field.name],
-                        value,
-                        field.span,
-                    )?;
+            if !class.is_abstract && class.enum_values.is_empty() {
+                let mut emitter = FunctionEmitter::new(signatures, self, Ty::Class(class.id));
+                let object = emitter.register();
+                emitter.line(format!(
+                    "{object} = call i64 @dartforge_object_new(i64 {}, i64 {})",
+                    class.id, self.layouts[&class.id].slots
+                ));
+                let receiver = Value {
+                    ty: Ty::Class(class.id),
+                    text: object,
+                };
+                emitter.root(&receiver);
+                let mut current = Some(class.id);
+                while let Some(id) = current {
+                    let declaration = module.classes.iter().find(|c| c.id == id).unwrap();
+                    for field in &declaration.fields {
+                        let value = emitter.expression(&field.initializer)?;
+                        emitter.store_field(
+                            &receiver,
+                            &self.layouts[&class.id].fields[field.name],
+                            value,
+                            field.span,
+                        )?;
+                    }
+                    current = declaration.superclass;
                 }
-                current = declaration.superclass;
+                emitter.end_frame();
+                emitter.line(format!("ret i64 {}", receiver.text));
+                emitter.terminated = true;
+                output.push_str(&emitter.finish(&format!("df_new_{}", class.id), ""));
             }
-            emitter.end_frame();
-            emitter.line(format!("ret i64 {}", receiver.text));
-            emitter.terminated = true;
-            output.push_str(&emitter.finish(&format!("df_new_{}", class.id), ""));
             for (index, method) in class.methods.iter().enumerate() {
                 let info = &self.layouts[&class.id].methods[method.name];
                 let mut emitter = FunctionEmitter::new(signatures, self, info.signature.result);
@@ -242,7 +306,9 @@ impl Objects {
                 let descendants = self
                     .layouts
                     .iter()
-                    .filter(|(child, _)| self.assignable(Ty::Class(**child), Ty::Class(id)))
+                    .filter(|(child, layout)| {
+                        !layout.is_abstract && self.assignable(Ty::Class(**child), Ty::Class(id))
+                    })
                     .collect::<Vec<_>>();
                 for (child, _) in &descendants {
                     emitter.line(format!("  i64 {child}, label %case{child}"));
@@ -255,7 +321,13 @@ impl Objects {
                 emitter.terminated = true;
                 for (child, descendant) in descendants {
                     emitter.start(&format!("case{child}"));
-                    let target = &descendant.methods[name].signature;
+                    let concrete = &descendant.methods[name];
+                    let target = concrete.implementation.as_ref().ok_or_else(|| {
+                        error(
+                            Span { start: 0, end: 0 },
+                            "metodo abstrato sem implementacao concreta",
+                        )
+                    })?;
                     let mut args = vec!["i64 %this".into()];
                     for (i, (actual, expected)) in
                         sig.parameters.iter().zip(&target.parameters).enumerate()
@@ -289,7 +361,16 @@ impl Objects {
                             text: r,
                         }
                     };
-                    let value = emitter.coerce(value, sig.result, Span { start: 0, end: 0 })?;
+                    // Um contrato void permite implementação que retorna valor;
+                    // a chamada mantém seus efeitos e o adaptador descarta o resultado.
+                    let value = if sig.result == Ty::Void {
+                        Value {
+                            ty: Ty::Void,
+                            text: String::new(),
+                        }
+                    } else {
+                        emitter.coerce(value, sig.result, Span { start: 0, end: 0 })?
+                    };
                     emitter.end_frame();
                     emitter.line(if sig.result == Ty::Void {
                         "ret void".into()
@@ -309,6 +390,36 @@ impl Objects {
 }
 
 impl FunctionEmitter<'_> {
+    /// Materializa singleton canônico; o runtime mantém a raiz persistente do enum.
+    pub(super) fn enum_value(
+        &mut self,
+        class_id: u32,
+        name: &str,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let index = self
+            .objects
+            .layouts
+            .get(&class_id)
+            .and_then(|layout| layout.enum_values.iter().position(|value| value == name))
+            .ok_or_else(|| error(span, "valor de enum inexistente"))?;
+        let id = self.objects.globals.borrow().len();
+        let bytes = name
+            .as_bytes()
+            .iter()
+            .map(|b| format!("\\{b:02X}"))
+            .collect::<String>();
+        self.objects.globals.borrow_mut().push(format!(
+            "@df_string_{id} = private constant [{} x i8] c\"{bytes}\"",
+            name.len()
+        ));
+        let register = self.register();
+        self.line(format!("{register} = call i64 @dartforge_enum_get(i64 {class_id}, i64 {index}, ptr @df_string_{id}, i64 {})",name.len()));
+        Ok(Value {
+            ty: Ty::Class(class_id),
+            text: register,
+        })
+    }
     /// Reserva um slot estático, compartilhado apenas por reexecuções deste ponto.
     pub(super) fn reserve_root(&mut self) -> usize {
         self.has_roots = true;

@@ -14,7 +14,7 @@ struct Binding {
     is_final: bool,
     promoted: Option<Type>,
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct Signature {
     parameters: Vec<Type>,
     result: Type,
@@ -27,6 +27,12 @@ struct FieldInfo {
 }
 #[derive(Clone)]
 struct ClassInfo<'a> {
+    is_interface: bool,
+    library_id: usize,
+    is_abstract: bool,
+    interfaces: Vec<u32>,
+    abstract_methods: HashSet<&'a str>,
+    enum_values: Vec<&'a str>,
     name: &'a str,
     superclass: Option<u32>,
     fields: HashMap<&'a str, FieldInfo>,
@@ -111,6 +117,12 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             ));
         }
         let mut info = ClassInfo {
+            is_interface: class.is_interface,
+            library_id: class.library_id,
+            is_abstract: class.is_abstract,
+            interfaces: class.interfaces.clone(),
+            abstract_methods: class.abstract_methods.iter().map(|m| m.name).collect(),
+            enum_values: class.enum_values.clone(),
             name: class.name,
             superclass: class.superclass,
             fields: HashMap::new(),
@@ -142,7 +154,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 return Err(Diagnostic::new("Duplicate field", field.span));
             }
         }
-        for method in &class.methods {
+        for method in class.methods.iter().chain(&class.abstract_methods) {
             if method.name == class.name
                 || matches!(
                     method.name,
@@ -173,20 +185,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             return Err(Diagnostic::new("Duplicate class ID", class.span));
         }
     }
-    for class in &program.classes {
-        let mut visited = HashSet::new();
-        let mut cursor = Some(class.id);
-        while let Some(id) = cursor {
-            if !visited.insert(id) {
-                return Err(Diagnostic::new("Inheritance cycle", class.span));
-            }
-            cursor = validator
-                .classes
-                .get(&id)
-                .ok_or_else(|| Diagnostic::new("Unknown superclass", class.span))?
-                .superclass;
-        }
-    }
+    validator.validate_class_graph(program)?;
     for function in &program.functions {
         if function.name == "print" || class_names.contains(function.name) {
             return Err(Diagnostic::new(
@@ -311,13 +310,38 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                     for (expected, actual) in base.parameters.iter().zip(&method.parameters) {
                         validator.require_type(*expected, actual.ty, actual.span)?;
                     }
-                    validator.require_type(method.return_type, base.result, method.span)?;
+                    if base.result != Type::Void {
+                        validator.require_type(method.return_type, base.result, method.span)?;
+                    }
                 }
             }
             validator.current_class = Some(class.id);
             validator.function(method)?;
             validator.current_class = None;
         }
+    }
+    for class in &program.classes {
+        validator.current_class = Some(class.id);
+        for method in &class.abstract_methods {
+            if class
+                .superclass
+                .is_some_and(|parent| validator.field(parent, method.name).is_some())
+            {
+                return Err(Diagnostic::new(
+                    "Abstract method conflicts with inherited field",
+                    method.span,
+                ));
+            }
+            validator.signature_only(method)?;
+            if !method.body.is_empty() {
+                return Err(Diagnostic::new(
+                    "Abstract method must not have a body",
+                    method.span,
+                ));
+            }
+        }
+        validator.validate_contracts(class.id, class.span)?;
+        validator.current_class = None;
     }
     for (index, extension) in program.extensions.iter().enumerate() {
         validator.current_extension = Some(index);
@@ -339,6 +363,200 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     Ok(resolution)
 }
 impl<'a> Validator<'a> {
+    /// Valida arestas nominais antes de qualquer busca recursiva de membros.
+    fn validate_class_graph(&self, program: &Program<'a>) -> Result<(), Diagnostic> {
+        for class in &program.classes {
+            let mut active = HashSet::new();
+            let mut finished = HashSet::new();
+            let mut stack = vec![(class.id, false)];
+            while let Some((id, exit)) = stack.pop() {
+                if exit {
+                    active.remove(&id);
+                    finished.insert(id);
+                    continue;
+                }
+                if finished.contains(&id) {
+                    continue;
+                }
+                if !active.insert(id) {
+                    return Err(Diagnostic::new(
+                        "Inheritance cycle (extends/implements)",
+                        class.span,
+                    ));
+                }
+                let info = self.classes.get(&id).ok_or_else(|| {
+                    Diagnostic::new("Unknown superclass or interface", class.span)
+                })?;
+                stack.push((id, true));
+                for parent in info.superclass.iter().chain(&info.interfaces) {
+                    stack.push((*parent, false));
+                }
+            }
+            let mut edges = HashSet::new();
+            if let Some(parent) = class.superclass {
+                let base = &self.classes[&parent];
+                if base.is_interface && base.library_id != class.library_id {
+                    return Err(Diagnostic::new(
+                        "Cannot extend an interface class from another library",
+                        class.span,
+                    ));
+                }
+            }
+            for &id in &class.interfaces {
+                if !edges.insert(id) {
+                    return Err(Diagnostic::new(
+                        "Duplicate implemented interface",
+                        class.span,
+                    ));
+                }
+                if self
+                    .ancestors(id)
+                    .iter()
+                    .any(|id| !self.classes[id].fields.is_empty())
+                {
+                    return Err(Diagnostic::new(
+                        "Interfaces with fields require unsupported getter/setter dispatch",
+                        class.span,
+                    ));
+                }
+            }
+            for parent in class.superclass.iter().chain(&class.interfaces) {
+                if !self.classes[parent].enum_values.is_empty() {
+                    return Err(Diagnostic::new(
+                        "Enums cannot be extended or implemented",
+                        class.span,
+                    ));
+                }
+            }
+            if !class.enum_values.is_empty() {
+                if class.is_abstract
+                    || class.superclass.is_some()
+                    || !class.interfaces.is_empty()
+                    || !class.fields.is_empty()
+                    || !class.methods.is_empty()
+                    || !class.abstract_methods.is_empty()
+                {
+                    return Err(Diagnostic::new(
+                        "Enhanced enums are unsupported",
+                        class.span,
+                    ));
+                }
+                let mut values = HashSet::new();
+                for &name in &class.enum_values {
+                    if !values.insert(name)
+                        || matches!(
+                            name,
+                            "index"
+                                | "values"
+                                | "toString"
+                                | "hashCode"
+                                | "runtimeType"
+                                | "noSuchMethod"
+                        )
+                    {
+                        return Err(Diagnostic::new(
+                            "Duplicate or reserved enum value",
+                            class.span,
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Reúne o fecho nominal transitivo; implements produz subtipo, não implementação.
+    fn ancestors(&self, id: u32) -> HashSet<u32> {
+        let mut seen = HashSet::new();
+        let mut stack = vec![id];
+        while let Some(id) = stack.pop() {
+            if seen.insert(id)
+                && let Some(info) = self.classes.get(&id)
+            {
+                stack.extend(info.superclass);
+                stack.extend(info.interfaces.iter().copied());
+            }
+        }
+        seen
+    }
+    /// Procura apenas corpos concretos herdados via extends, ignorando redeclarações abstratas.
+    fn implementation(&self, id: u32, name: &str) -> Option<&Signature> {
+        let class = self.classes.get(&id)?;
+        if !class.abstract_methods.contains(name)
+            && let Some(method) = class.methods.get(name)
+        {
+            return Some(method);
+        }
+        class
+            .superclass
+            .and_then(|parent| self.implementation(parent, name))
+    }
+    /// Exige parâmetros contravariantes e retorno covariante; void aceita resultado descartado.
+    fn compatible_signature(
+        &self,
+        actual: &Signature,
+        expected: &Signature,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if actual.parameters.len() != expected.parameters.len() {
+            return Err(Diagnostic::new("Incompatible method contract arity", span));
+        }
+        for (&actual, &expected) in actual.parameters.iter().zip(&expected.parameters) {
+            self.require_type(expected, actual, span)?;
+        }
+        if expected.result != Type::Void {
+            self.require_type(actual.result, expected.result, span)?;
+        }
+        Ok(())
+    }
+    /// Confere todos os contratos, inclusive requisitos transitivos de interfaces.
+    fn validate_contracts(&self, id: u32, span: Span) -> Result<(), Diagnostic> {
+        let class = &self.classes[&id];
+        let mut required = std::collections::BTreeMap::<&str, Vec<&Signature>>::new();
+        let mut ids = self.ancestors(id).into_iter().collect::<Vec<_>>();
+        ids.sort_unstable();
+        for ancestor in ids {
+            for (&name, signature) in &self.classes[&ancestor].methods {
+                required.entry(name).or_default().push(signature);
+            }
+        }
+        for (name, contracts) in required {
+            // A assinatura estática escolhida deve atender todos os contratos.
+            // Combinações sem uma assinatura herdada utilizável exigem declaração explícita.
+            let selected = self.method(id, name).expect("contrato possui assinatura");
+            for contract in &contracts {
+                self.compatible_signature(selected, contract, span)?;
+            }
+            if class.is_abstract {
+                continue;
+            }
+            if let Some(implementation) = self.implementation(id, name) {
+                for contract in &contracts {
+                    self.compatible_signature(implementation, contract, span)?;
+                }
+            } else if !class.is_abstract {
+                return Err(Diagnostic::new(
+                    format!("Missing concrete implementation of '{name}'"),
+                    span,
+                ));
+            }
+        }
+        Ok(())
+    }
+    /// Valida assinatura abstrata sem exigir corpo ou retorno executável.
+    fn signature_only(&self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        self.check_type_name(function.return_type, function.span)?;
+        let mut names = HashSet::new();
+        for p in &function.parameters {
+            self.check_type_name(p.ty, p.span)?;
+            if p.ty == Type::Void || !names.insert(p.name) {
+                return Err(Diagnostic::new(
+                    "Invalid or duplicate abstract parameter",
+                    p.span,
+                ));
+            }
+        }
+        Ok(())
+    }
     /// Detecta membros que ocultariam uma referência global sem receptor explícito.
     fn has_implicit_member(&self, name: &str) -> bool {
         self.current_extension
@@ -404,19 +622,41 @@ impl<'a> Validator<'a> {
     /// Procura um campo na classe nominal e em suas bases já verificadas.
     fn field(&self, id: u32, name: &str) -> Option<FieldInfo> {
         let class = self.classes.get(&id)?;
+        if !class.enum_values.is_empty() {
+            return match name {
+                "name" => Some(FieldInfo {
+                    ty: Type::String,
+                    is_final: true,
+                }),
+                "index" => Some(FieldInfo {
+                    ty: Type::Int,
+                    is_final: true,
+                }),
+                _ => None,
+            };
+        }
         class
             .fields
             .get(name)
             .copied()
             .or_else(|| class.superclass.and_then(|base| self.field(base, name)))
     }
-    /// Procura a assinatura de um método respeitando sobrescritas da classe derivada.
+    /// Procura assinatura nominal sem revisitar caminhos compartilhados de interfaces.
     fn method(&self, id: u32, name: &str) -> Option<&Signature> {
-        let class = self.classes.get(&id)?;
-        class
-            .methods
-            .get(name)
-            .or_else(|| class.superclass.and_then(|base| self.method(base, name)))
+        let mut stack = vec![id];
+        let mut visited = HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            let class = self.classes.get(&id)?;
+            if let Some(method) = class.methods.get(name) {
+                return Some(method);
+            }
+            stack.extend(class.interfaces.iter().rev().copied());
+            stack.extend(class.superclass);
+        }
+        None
     }
     /// Compara tipos primitivos e relações nominais de subtipo entre classes.
     fn require_type(&self, actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
@@ -428,18 +668,11 @@ impl<'a> Validator<'a> {
             Type::Class(id) | Type::NullableClass(id) => Some(id),
             _ => None,
         };
-        if let (Some(mut source), Some(target)) = (source, target)
+        if let (Some(source), Some(target)) = (source, target)
             && (!is_nullable(actual) || is_nullable(expected))
+            && self.ancestors(source).contains(&target)
         {
-            loop {
-                if source == target {
-                    return Ok(());
-                }
-                match self.classes.get(&source).and_then(|class| class.superclass) {
-                    Some(base) => source = base,
-                    None => break,
-                }
-            }
+            return Ok(());
         }
         require_type(actual, expected, span)
     }
@@ -940,11 +1173,33 @@ impl<'a> Validator<'a> {
                         )
                     })
             }
+            ExprKind::EnumValue { class_id, name } => {
+                let class = self
+                    .classes
+                    .get(class_id)
+                    .ok_or_else(|| Diagnostic::new("Unknown enum", expression.span))?;
+                if self.lookup(class.name).is_some() || self.has_implicit_member(class.name) {
+                    return Err(Diagnostic::new(
+                        "Local declaration shadows enum",
+                        expression.span,
+                    ));
+                }
+                if !class.enum_values.contains(name) {
+                    return Err(Diagnostic::new("Unknown enum value", expression.span));
+                }
+                Ok(Type::Class(*class_id))
+            }
             ExprKind::Construct { class_id } => {
                 let class = self
                     .classes
                     .get(class_id)
                     .ok_or_else(|| Diagnostic::new("Unknown class", expression.span))?;
+                if class.is_abstract || !class.enum_values.is_empty() {
+                    return Err(Diagnostic::new(
+                        "Cannot construct an abstract class or enum",
+                        expression.span,
+                    ));
+                }
                 if self.lookup(class.name).is_some() || self.has_implicit_member(class.name) {
                     return Err(Diagnostic::new(
                         "Local declaration shadows constructor",
@@ -1510,6 +1765,12 @@ mod tests {
             id,
             name,
             superclass,
+            is_abstract: false,
+            is_interface: false,
+            library_id: 0,
+            interfaces: vec![],
+            abstract_methods: vec![],
+            enum_values: vec![],
             fields: vec![],
             methods: vec![],
             span: SPAN,

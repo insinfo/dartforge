@@ -67,6 +67,11 @@ pub struct Expr<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
+    /// Valor canônico de enum, identificado nominalmente e pelo nome declarado.
+    EnumValue {
+        class_id: u32,
+        name: &'a str,
+    },
     This,
     Construct {
         class_id: u32,
@@ -184,6 +189,15 @@ pub struct Program<'a> {
 /// Classe nominal com construtor implícito e herança simples.
 #[derive(Debug)]
 pub struct Class<'a> {
+    /// Modificador interface restringe extends fora da biblioteca declaradora.
+    pub is_interface: bool,
+    /// Identidade da biblioteca atribuída pelo linker; unidade isolada usa zero.
+    pub library_id: usize,
+    pub is_abstract: bool,
+    pub interfaces: Vec<u32>,
+    pub abstract_methods: Vec<Function<'a>>,
+    /// Ordem ordinal; lista não vazia identifica um enum simples.
+    pub enum_values: Vec<&'a str>,
     pub id: u32,
     pub name: &'a str,
     pub superclass: Option<u32>,

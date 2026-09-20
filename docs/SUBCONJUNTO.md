@@ -114,3 +114,17 @@ descarte do resultado. Strings nativas usam UTF-8 para concatenação, igualdade
 impressão do subconjunto. Não oferecem toda a API String/UTF-16. Referências
 temporárias usam slots estáticos reutilizados por iteração; podem ficar retidas
 até sobrescrita ou retorno, sem análise completa de vivacidade.
+
+## Interfaces, classes abstratas e enums
+
+JS e LLVM aceitam `abstract class`, `interface class`, `abstract interface class`,
+`implements` múltiplo e herança simples. Classes concretas precisam satisfazer os
+contratos transitivos de métodos; parâmetros são contravariantes e resultados
+covariantes. Um contrato `void` permite descartar o resultado concreto.
+`implements` não herda implementação. `interface class` só permite `extends` na
+própria biblioteca. Contratos de campos/getters/setters em interfaces ainda são rejeitados.
+Conflitos entre assinaturas herdadas exigem uma declaração explícita compatível.
+
+Enums simples têm identidade nominal, valores canônicos, `.name`, `.index` e
+nullabilidade. Ainda não há enums aprimorados, `values`, impressão direta do enum,
+construtores personalizados ou membros próprios. Valores privados respeitam bibliotecas.

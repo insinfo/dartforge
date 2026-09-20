@@ -10,6 +10,8 @@ pub struct HeapStats {
     pub slots_scanned: u64,
     pub live_objects: usize,
     pub reserved_slots: usize,
+    /// Valores enum canônicos mantidos vivos até encerrar o runtime.
+    pub permanent_roots: usize,
     pub live_roots: usize,
     pub peak_roots: usize,
     pub root_slots: usize,
@@ -58,6 +60,7 @@ pub struct Heap {
     marks: Vec<bool>,
     pending: Vec<i64>,
     byte_threshold: usize,
+    enum_values: std::collections::HashMap<(i64, i64), i64>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -74,7 +77,25 @@ impl Heap {
             marks: Vec::new(),
             pending: Vec::new(),
             byte_threshold: 1024 * 1024,
+            enum_values: std::collections::HashMap::new(),
         }
+    }
+    /// Obtém o singleton de um valor enum, protegendo as alocações internas.
+    pub fn enum_value(&mut self, class_id: i64, index: i64, name: &str) -> i64 {
+        assert!(class_id >= 0 && index >= 0, "identidade enum inválida");
+        if let Some(&handle) = self.enum_values.get(&(class_id, index)) {
+            return handle;
+        }
+        let frame = self.push_frame_with_slots(1);
+        let text = self.allocate(Value::String(name.to_owned()));
+        self.set_root(frame, 0, text);
+        let object = self.allocate(Value::Object {
+            class_id,
+            fields: vec![(index, false), (text, true)],
+        });
+        self.enum_values.insert((class_id, index), object);
+        self.pop_frame(frame);
+        object
     }
     /// Abre frame de raízes com identificador monotônico.
     pub fn push_frame(&mut self) -> i64 {
@@ -193,6 +214,7 @@ impl Heap {
     /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
     pub fn collect(&mut self) {
         self.stats.collections += 1;
+        self.stats.roots_scanned += self.enum_values.len() as u64;
         self.stats.roots_scanned += self
             .frames
             .iter()
@@ -202,6 +224,7 @@ impl Heap {
         self.marks.resize(self.slots.len(), false);
         self.marks.fill(false);
         self.pending.clear();
+        self.pending.extend(self.enum_values.values().copied());
         self.pending.extend(
             self.frames
                 .iter()
@@ -250,6 +273,7 @@ impl Heap {
         HeapStats {
             live_objects: self.slots.len() - self.free.len(),
             reserved_slots: self.slots.len(),
+            permanent_roots: self.enum_values.len(),
             ..self.stats
         }
     }
@@ -284,6 +308,27 @@ impl Heap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Enums preservam identidade e nomes sem frames externos, mesmo em stress.
+    #[test]
+    fn enum_singletons_survive_collection_and_keep_nominal_identity() {
+        let mut heap = Heap::new(true);
+        let first = heap.enum_value(1, 0, "red");
+        let second = heap.enum_value(1, 1, "blue");
+        let other_class = heap.enum_value(2, 0, "red");
+        heap.collect();
+        assert_eq!(heap.enum_value(1, 0, "red"), first);
+        assert_ne!(first, second);
+        assert_ne!(first, other_class);
+        let Value::Object { class_id, fields } = heap.get(first) else {
+            panic!("enum deve ser objeto")
+        };
+        assert_eq!(*class_id, 1);
+        assert_eq!(fields[0], (0, false));
+        assert!(matches!(heap.get(fields[1].0), Value::String(name) if name == "red"));
+        assert_eq!(heap.stats().permanent_roots, 3);
+        assert_eq!(heap.stats().live_objects, 6);
+        assert_eq!(heap.stats().root_slots, 0);
+    }
     /// Um único objeto raiz mantém transitivamente ciclos e strings de seus campos.
     #[test]
     fn tagged_edges_keep_unrooted_children_alive() {

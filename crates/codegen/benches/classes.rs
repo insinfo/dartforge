@@ -37,6 +37,12 @@ fn main() {
             classes: (0..count)
                 .rev()
                 .map(|id| Class {
+                    is_interface: false,
+                    library_id: 0,
+                    is_abstract: false,
+                    interfaces: vec![],
+                    abstract_methods: vec![],
+                    enum_values: vec![],
                     id,
                     name: "Synthetic",
                     superclass: id.checked_sub(1),

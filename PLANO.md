@@ -264,7 +264,8 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 - [x] Reutilizar validação de fluxo; não aceitar operações nulas inválidas por inserir checks.
 - [x] Medir frontend, gravação, LLVM, runtime/link e publicação via `aot --timings`.
 - [x] Cobrir O0/O2, loops com reatribuição, efeitos e falha de ! em subprocessos.
-- [ ] Exceções capturáveis, objetos, strings e GC; a ABI escalar não implementa esses recursos.
+- [x] Objetos, strings e GC adicionados no incremento 9.
+- [ ] Exceções capturáveis no backend nativo.
 - [ ] Cache de runtime/objetos por ABI/toolchain, orientado pelas medições registradas.
 
 ## Próximas tarefas
@@ -294,3 +295,16 @@ Esses recursos não concluem o lexer/parser completo nem a semântica integral d
 Consulte docs/REFERENCIAS.md para os caminhos e docs/references-manifest.json para os commits dos clones locais ignorados pelo Git.
 Cada teste importado deve registrar origem, revisão e licença; alterações locais devem ser
 explícitas. Os clones de referência não são membros do workspace nem dependências de build.
+
+## Décimo primeiro incremento — contratos e alvos
+
+- [x] Classes abstratas, interfaces, implements e despacho polimórfico JS/LLVM.
+- [x] Enums simples canônicos com identidade e raízes permanentes no runtime.
+- [x] Perfis explícitos Windows x64, Linux x64 e wasm32; validação escalar de ABI C.
+- [x] Prova de chamada LLVM para C e emissão de objeto wasm32 em teste.
+- [ ] Frontend dart:ffi: tipos Pointer/NativeFunction, lookup/asFunction e bibliotecas.
+- [ ] Lifetime de ponteiros, memória externa, callbacks, structs e convenções de chamada.
+- [ ] Runtime wasm32, imports, ligação e testes de execução Dart em WebAssembly.
+- [ ] Closures, generics, construtores explícitos e interfaces com propriedades.
+
+Contrato e limites: [ABI/FFI/Wasm](docs/ABI-FFI-WASM.md).

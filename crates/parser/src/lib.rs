@@ -87,7 +87,10 @@ pub fn parse_unit<'a>(
     let mut extensions = Vec::new();
     let mut functions = Vec::new();
     while cursor.peek().is_some() {
-        if cursor.peek() == Some(TokenKind::Word("class")) {
+        if matches!(
+            cursor.peek(),
+            Some(TokenKind::Word("class" | "abstract" | "interface" | "enum"))
+        ) {
             classes.push(cursor.class()?);
         } else if cursor.peek() == Some(TokenKind::Word("extension")) {
             let id =
@@ -144,8 +147,25 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 first.span,
             ));
         }
-        let is_class = first.kind == TokenKind::Word("class");
+        let is_class = matches!(
+            first.kind,
+            TokenKind::Word("class" | "abstract" | "interface" | "enum")
+        );
         index += 1;
+        if matches!(first.kind, TokenKind::Word("abstract" | "interface")) {
+            if first.kind == TokenKind::Word("abstract")
+                && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("interface"))
+            {
+                index += 1;
+            }
+            if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Word("class")) {
+                return Err(Diagnostic::new(
+                    "expected class after supported modifiers",
+                    first.span,
+                ));
+            }
+            index += 1;
+        }
         if !matches!(first.kind, TokenKind::Word(_)) {
             return Err(Diagnostic::new(
                 "expected top-level declaration",
@@ -177,6 +197,19 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                     return Err(Diagnostic::new("expected superclass name", first.span));
                 }
                 index += 1;
+            }
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("implements")) {
+                index += 1;
+                loop {
+                    if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                        return Err(Diagnostic::new("expected interface name", first.span));
+                    }
+                    index += 1;
+                    if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                    index += 1;
+                }
             }
         } else {
             declarations.functions.push(item);
@@ -337,11 +370,49 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê campos inicializados e métodos de uma classe nominal.
     fn class(&mut self) -> Result<Class<'a>, Diagnostic> {
         let start = self.position();
-        self.expect(TokenKind::Word("class"))?;
+        let is_abstract = self.take(TokenKind::Word("abstract"));
+        let is_interface = self.take(TokenKind::Word("interface"));
+        let is_enum = !is_abstract && !is_interface && self.take(TokenKind::Word("enum"));
+        if !is_enum {
+            self.expect(TokenKind::Word("class"))?;
+        }
         let name = self.name()?;
         let id = *self.class_ids.get(name).ok_or_else(|| {
             self.error("declared class is missing from the supplied class environment")
         })?;
+        if is_enum {
+            self.expect(TokenKind::Symbol('{'))?;
+            let mut enum_values = Vec::new();
+            loop {
+                let value = self.name()?;
+                if enum_values.contains(&value) {
+                    return Err(self.error("duplicate enum value"));
+                }
+                enum_values.push(value);
+                if !self.take(TokenKind::Symbol(',')) || self.peek() == Some(TokenKind::Symbol('}'))
+                {
+                    break;
+                }
+            }
+            self.expect(TokenKind::Symbol('}'))?;
+            return Ok(Class {
+                is_interface: false,
+                library_id: 0,
+                id,
+                name,
+                is_abstract: false,
+                interfaces: vec![],
+                abstract_methods: vec![],
+                enum_values,
+                superclass: None,
+                fields: vec![],
+                methods: vec![],
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+        }
         let superclass = if self.take(TokenKind::Word("extends")) {
             let parent = self.name()?;
             Some(
@@ -353,9 +424,25 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             None
         };
+        let mut interfaces = Vec::new();
+        if self.take(TokenKind::Word("implements")) {
+            loop {
+                let name = self.name()?;
+                interfaces.push(
+                    *self
+                        .class_ids
+                        .get(name)
+                        .ok_or_else(|| self.error("unknown interface"))?,
+                );
+                if !self.take(TokenKind::Symbol(',')) {
+                    break;
+                }
+            }
+        }
         self.expect(TokenKind::Symbol('{'))?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+        let mut abstract_methods = Vec::new();
         while self.peek() != Some(TokenKind::Symbol('}')) {
             let index = self.index;
             let field_start = self.position();
@@ -367,7 +454,12 @@ impl<'a> Cursor<'_, 'a> {
                     return Err(self.error("final methods are not supported"));
                 }
                 self.index = index;
-                methods.push(self.function()?);
+                let (method, abstract_body) = self.function_with_abstract(true)?;
+                if abstract_body {
+                    abstract_methods.push(method);
+                } else {
+                    methods.push(method);
+                }
             } else {
                 if ty == Type::Void {
                     return Err(self.error("fields cannot have void type"));
@@ -389,6 +481,12 @@ impl<'a> Cursor<'_, 'a> {
         }
         self.expect(TokenKind::Symbol('}'))?;
         Ok(Class {
+            is_interface,
+            library_id: 0,
+            is_abstract,
+            interfaces,
+            abstract_methods,
+            enum_values: vec![],
             id,
             name,
             superclass,
@@ -432,6 +530,14 @@ impl<'a> Cursor<'_, 'a> {
     }
     /// Lê a assinatura tipada e o corpo em bloco ou expressão de uma função/método.
     fn function(&mut self) -> Result<Function<'a>, Diagnostic> {
+        self.function_with_abstract(false)
+            .map(|(function, _)| function)
+    }
+    /// Distingue assinatura abstrata terminada por ponto e vírgula de corpo concreto.
+    fn function_with_abstract(
+        &mut self,
+        allow_abstract: bool,
+    ) -> Result<(Function<'a>, bool), Diagnostic> {
         let start = self.position();
         let return_type = self.ty(true)?;
         let name = self.name()?;
@@ -457,7 +563,10 @@ impl<'a> Cursor<'_, 'a> {
             }
         }
         self.expect(TokenKind::Symbol(')'))?;
-        let body = if self.take(TokenKind::Operator("=>")) {
+        let abstract_body = allow_abstract && self.take(TokenKind::Symbol(';'));
+        let body = if abstract_body {
+            Vec::new()
+        } else if self.take(TokenKind::Operator("=>")) {
             let start = self.position();
             let value = self.expression()?;
             self.expect(TokenKind::Symbol(';'))?;
@@ -486,16 +595,19 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             self.block(0)?
         };
-        Ok(Function {
-            name,
-            return_type,
-            parameters,
-            body,
-            span: Span {
-                start,
-                end: self.end(),
+        Ok((
+            Function {
+                name,
+                return_type,
+                parameters,
+                body,
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
             },
-        })
+            abstract_body,
+        ))
     }
     /// Lê argumentos posicionais mantendo o limite compartilhado da expressão.
     fn arguments(&mut self, depth: usize) -> Result<Vec<Expr<'a>>, Diagnostic> {
@@ -863,7 +975,12 @@ impl<'a> Cursor<'_, 'a> {
             }
             Some(TokenKind::Word(name)) if !reserved(name) => {
                 self.index += 1;
-                if self.peek() == Some(TokenKind::Symbol('(')) {
+                if self.class_ids.contains_key(name) && self.take(TokenKind::Symbol('.')) {
+                    ExprKind::EnumValue {
+                        class_id: self.class_ids[name],
+                        name: self.name()?,
+                    }
+                } else if self.peek() == Some(TokenKind::Symbol('(')) {
                     let arguments = self.arguments(depth)?;
                     if let Some(&class_id) = self.class_ids.get(name) {
                         if !arguments.is_empty() {
@@ -980,7 +1097,7 @@ fn index_classes<'a>(
         match token.kind {
             TokenKind::Symbol('{') => depth += 1,
             TokenKind::Symbol('}') => depth = depth.saturating_sub(1),
-            TokenKind::Word("class") if depth == 0 => {
+            TokenKind::Word("class" | "enum") if depth == 0 => {
                 let next = tokens
                     .get(index + 1)
                     .ok_or_else(|| Diagnostic::new("expected class name", token.span))?;
@@ -1204,6 +1321,75 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Indexa contratos abstratos e enums antes de resolver implementações posteriores.
+    #[test]
+    fn abstract_interfaces_enums_and_import_index() {
+        let source = "abstract class I { int f(); } class A implements I,J { int f()=>1; } abstract class J {} enum E { a, name, } void main(){print(E.name.index);}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        let index = index_unit(&tokens).unwrap();
+        assert_eq!(
+            index
+                .classes
+                .iter()
+                .map(|item| item.name)
+                .collect::<Vec<_>>(),
+            ["I", "A", "J", "E"]
+        );
+        let program = parse(&tokens, source.len()).unwrap();
+        assert!(program.classes[0].is_abstract);
+        assert_eq!(program.classes[0].abstract_methods.len(), 1);
+        assert_eq!(program.classes[1].interfaces, [0, 2]);
+        assert_eq!(program.classes[3].enum_values, ["a", "name"]);
+        let StatementKind::Print(expression) = &program.statements[0].kind else {
+            panic!()
+        };
+        let ExprKind::Member {
+            receiver,
+            name: "index",
+        } = &expression.kind
+        else {
+            panic!()
+        };
+        assert!(matches!(
+            receiver.kind,
+            ExprKind::EnumValue {
+                class_id: 3,
+                name: "name"
+            }
+        ));
+    }
+    /// Aceita apenas a ordem Dart abstract interface class e interface class.
+    #[test]
+    fn interface_class_modifiers_and_index() {
+        let source = "interface class I { int f()=>1; } abstract interface class J { int f(); } class C extends I implements J {} void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().classes.len(), 3);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert!(program.classes[0].is_interface);
+        assert!(!program.classes[0].is_abstract);
+        assert!(program.classes[1].is_interface && program.classes[1].is_abstract);
+        assert!(program.classes.iter().all(|class| class.library_id == 0));
+    }
+    /// Modificadores de biblioteca e enums enriquecidos permanecem fora do subconjunto.
+    #[test]
+    fn rejects_unsupported_nominal_forms() {
+        for source in [
+            "interface abstract class I {}",
+            "abstract base class I {}",
+            "enum E {}",
+            "enum E { a, a }",
+            "enum E { a; int f()=>1; }",
+            "enum E implements I { a }",
+            "class A implements {}",
+            "int f();",
+        ] {
+            let source = format!("{source} void main(){{}}");
+            assert!(
+                parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err(),
+                "{source}"
+            );
+        }
+    }
     fn parsed(source: &str) -> Program<'_> {
         parse(&dartforge_lexer::lex(source).unwrap(), source.len()).unwrap()
     }

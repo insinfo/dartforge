@@ -47,10 +47,10 @@ fn main() {
     if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
         HEAP.with(|heap| {
             let s = heap.borrow().stats();
-            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{}}}}}",
+            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{},\"permanent_roots\":{}}}}}",
                 s.allocations, s.collections, s.reclaimed, s.live_objects, s.reserved_slots,
                 s.root_slots, s.peak_root_slots, s.live_roots, s.peak_roots,
-                s.estimated_bytes, s.peak_estimated_bytes);
+                s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots);
         });
     }
 }
@@ -146,6 +146,21 @@ pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
         .to_owned();
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(text)))
 }
+/// Obtém um valor enum canônico usando nome UTF-8 emitido como constante LLVM.
+///
+/// # Safety
+/// O ponteiro deve identificar `len` bytes legíveis; class_id/index são IDs válidos.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_enum_get(class_id: i64, index: i64, ptr: *const u8, len: i64) -> i64 {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let bytes = if len == 0 { &[] } else {
+        // SAFETY: a constante LLVM permanece legível pelo comprimento informado.
+        unsafe { std::slice::from_raw_parts(ptr, len) }
+    };
+    let name = std::str::from_utf8(bytes).expect("UTF-8 inválido");
+    HEAP.with(|heap| heap.borrow_mut().enum_value(class_id, index, name))
+}
+
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_concat(a: i64, b: i64) -> i64 {

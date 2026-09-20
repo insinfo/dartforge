@@ -29,9 +29,36 @@ fn edges_json(edges: &[dartforge_packages::Import]) -> Vec<serde_json::Value> {
 /// Propaga argumentos inválidos, erros de leitura/escrita e diagnósticos do compilador.
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "abi-info") {
+        use dartforge_abi::{NativeType, Target};
+        if args.len() != 2 {
+            return Err("usage: dartforge abi-info <windows-x64|linux-x64|wasm32>".into());
+        }
+        let target = match args[1].to_str() {
+            Some("windows-x64") => Target::WindowsX64,
+            Some("linux-x64") => Target::LinuxX64,
+            Some("wasm32") => Target::Wasm32,
+            _ => return Err("perfil ABI desconhecido".into()),
+        };
+        let layouts: Vec<_> = [NativeType::Int32, NativeType::Int64, NativeType::Double, NativeType::Pointer]
+            .iter().map(|ty| {
+                let (size, alignment) = ty.layout(target).expect("tipo escalar");
+                serde_json::json!({"native_type":format!("{ty:?}"),"llvm":ty.llvm(),"size":size,"alignment":alignment})
+            }).collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version":1,"triple":target.triple(),"pointer_bits":target.pointer_bits(),
+                "native_type_layouts":layouts,"profile_supports_dynamic_libraries":target.supports_dynamic_libraries(),
+                "ffi_execution_implemented":false,"wasm_emission_implemented":false,
+                "note":"Contrato de tipos/ABI; o driver AOT atual compila somente para o host. Não carrega bibliotecas nem compila dart:ffi."
+            }))?
+        );
+        return Ok(());
+    }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge graph <input.dart>\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
         );
         return Ok(());
     }

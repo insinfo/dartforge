@@ -7,6 +7,7 @@ publish = false
 [lints]
 workspace = true
 [dependencies]
+dartforge-abi = { path = "../abi" }
 dartforge-native = { path = "../native" }
 dartforge-compiler = { path = "../compiler" }
 dartforge-packages = { path = "../packages" }

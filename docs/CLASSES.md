@@ -15,8 +15,7 @@ de super(), e só atribui a this depois; não usa ingenuamente campos nativos Ja
 Testes de três níveis verificam a ordem dos efeitos. Inicializadores não podem usar this.
 
 Ainda não há construtores explícitos ou argumentos de construção, super explícito,
-interfaces/implements, mixins, generics, static, factory, getters/setters, tear-offs,
-classes abstratas. Extensions têm um [subconjunto próprio](EXTENSIONS.md). Membros que dependem dos contratos de Object, como
+mixins, generics, static, factory, getters/setters ou tear-offs. Extensions têm um [subconjunto próprio](EXTENSIONS.md). Membros que dependem dos contratos de Object, como
 toString/hashCode/runtimeType/noSuchMethod, são rejeitados. print(objeto) também é rejeitado
 até haver semântica toString, e campos não são promovidos por testes de null.
 
@@ -24,4 +23,22 @@ até haver semântica toString, e campos não são promovidos por testes de null
 
 Classes agora podem vir de [bibliotecas relativas](MODULES.md). [Extensions](EXTENSIONS.md)
 usam despacho estático e uma tabela de alvos na HIR; seu alcance entre bibliotecas ainda
-não é suportado. Construtores explícitos, interfaces e generics continuam no roteiro.
+não é suportado. Construtores explícitos e generics continuam no roteiro.
+
+## Contratos abstratos e interfaces
+
+`abstract class`, `interface class` e `abstract interface class` preservam origem
+de biblioteca. `implements` admite múltiplos contratos e não herda corpos. Métodos
+abstratos podem terminar em ponto e vírgula; classes concretas precisam fornecer
+implementação compatível, própria ou herdada por `extends`. Classes abstratas não
+podem ser instanciadas. Uma interface só pode ser estendida na sua biblioteca,
+mas pode ser implementada fora dela.
+
+Subtipagem percorre extends e implements. Assinaturas usam contravariância nos
+parâmetros e covariância no resultado; um retorno concreto pode ser descartado
+pelo contrato void. LLVM emite adaptadores conforme a assinatura estática do
+receptor e despacha para a implementação da classe concreta. Propriedades de
+interfaces ainda são rejeitadas explicitamente.
+
+Enums simples têm identidade nominal e valores canônicos com name/index. Veja
+[limites do subconjunto](SUBCONJUNTO.md) e [validação](IMPLEMENTACAO-11.md).

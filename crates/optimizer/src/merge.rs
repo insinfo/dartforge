@@ -25,7 +25,7 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
         for field in &class.fields {
             forbidden.insert(field.name);
         }
-        for method in &class.methods {
+        for method in class.methods.iter().chain(&class.abstract_methods) {
             forbidden.insert(method.name);
         }
     }
@@ -283,6 +283,7 @@ impl<'a> Canonical<'a, '_> {
             OwnedString(s) => pack("str", std::slice::from_ref(s)),
             Identifier(n) => self.binding(n),
             Construct { class_id } => format!("new{class_id}"),
+            EnumValue { class_id, name } => pack("enum", &[class_id.to_string(), (*name).into()]),
             Call { name, arguments } => {
                 // Chamadas a locais não têm representação no subconjunto validado.
                 if self
@@ -471,7 +472,8 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
         | String(_)
         | OwnedString(_)
         | Identifier(_)
-        | Construct { .. } => {}
+        | Construct { .. }
+        | EnumValue { .. } => {}
     }
 }
 #[cfg(test)]
@@ -636,5 +638,27 @@ mod tests {
             let program = dartforge_parser::parse(&tokens, source.len()).unwrap();
             assert!(function_key(&program.functions[0], &Resolution::default()).is_none());
         }
+    }
+
+    /// Valores de enum conservam tipo e identidade, mesmo sem alocação explícita.
+    #[test]
+    fn enum_values_keep_nominal_identity() {
+        check(
+            "enum E { a, b } E f() => E.a; E g() => E.a; E h() => E.b; void main() { print(g() == h()); }",
+            1,
+        );
+        check(
+            "enum E { a } enum F { a } E f() => E.a; F g() => F.a; void main() {}",
+            0,
+        );
+    }
+
+    /// Contratos abstratos também podem ocultar nomes globais no contexto de métodos.
+    #[test]
+    fn abstract_member_names_cannot_capture_representative() {
+        check(
+            "int a() => 1; int b() => 1; abstract class I { int a(); } abstract class C implements I { int run() => b(); } void main() {}",
+            0,
+        );
     }
 }

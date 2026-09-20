@@ -3,9 +3,14 @@
 version = 4
 
 [[package]]
+name = "dartforge-abi"
+version = "0.1.0"
+
+[[package]]
 name = "dartforge-cli"
 version = "0.1.0"
 dependencies = [
+ "dartforge-abi",
  "dartforge-compiler",
  "dartforge-native",
  "dartforge-packages",
@@ -148,6 +153,8 @@ name = "dartforge-semantic"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
+ "dartforge-lexer",
+ "dartforge-parser",
  "dartforge-syntax",
 ]
 

@@ -72,8 +72,10 @@ fn executes_native_corpus_at_o0_and_o2() {
         "cases/managed_lifetimes.dart",
         "cases/root_slots.dart",
         "cases/gc_root_slots.dart",
+        "cases/interfaces_enums.dart",
         "modules/packages/main.dart",
         "modules/managed/main.dart",
+        "modules/interfaces/main.dart",
     ]
     .iter()
     .enumerate()

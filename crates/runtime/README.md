@@ -59,3 +59,12 @@ Reprodução: cargo test -p dartforge-runtime --release fixed_slot_microbenchmar
 Zero ns é a resolução observada do relógio para intervalo curto, não ausência de trabalho. A diferença entre modos não sustenta comparação de desempenho: amostra curta e sem repetição estatística. Evidência principal: pico de raízes constante e coleta de 99.999 objetos; slots de objetos reservados ficam em 257 (normal) ou 2 (stress), em vez de crescer com 100.000 iterações.
 
 As referências Dart3.6.2 e Swift listadas acima motivam separar raízes, identidade e ownership; slots estáticos são protocolo próprio entre emissor LLVM e tracing runtime, não adoção de ARC Swift.
+
+## Valores canônicos de enum
+
+`dartforge_enum_get` usa chave (ID nominal da classe, ordinal). O cache mantém
+cada singleton alcançável até o encerramento do processo e protege a string do
+nome durante sua criação. `permanent_roots` contabiliza essas raízes separadamente
+dos slots dos frames; `roots_scanned` inclui ambos. Frames podem terminar com zero
+raízes enquanto enums continuam vivos. A estimativa de bytes inclui os payloads
+gerenciados, mas não o overhead do HashMap de canonização.

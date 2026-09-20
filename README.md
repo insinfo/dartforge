@@ -15,7 +15,8 @@ O protótipo suporta um subconjunto explícito:
 - Variáveis locais `var`, `final`, `int`, `String`, `bool`, atribuições e escopos.
 - Expressões aritméticas, relacionais e booleanas; `print`; strings Unicode com escapes e strings raw.
 - Tipos anuláveis, promoção de fluxo, operadores `??` e `!`.
-- Classes, campos, métodos e herança simples com despacho dinâmico.
+- Classes, campos, métodos, herança simples e polimorfismo por interfaces.
+- Classes abstratas, `interface class`, `implements` e enums simples (`name`/`index`).
 - Extensions nomeadas em uma unidade, com alvos de chamadas resolvidos estaticamente.
 - Imports relativos e `package:`, filtros `show`/`hide` e reexports cíclicos com privacidade.
 - Sessão com cache da última saída validado pelo conteúdo integral do grafo.
@@ -135,3 +136,10 @@ Avaliação do Rust Sitter: [docs/RUST-SITTER.md](docs/RUST-SITTER.md).
 A pasta `references/` inteira é ignorada pelo Git. Nenhum clone de terceiro é publicado
 neste repositório nem usado automaticamente como dependência do build.
 O código original está sob [MIT](LICENSE); projetos de referência mantêm suas licenças.
+
+## Interfaces, enums e contratos de ABI
+
+O [incremento 11](docs/IMPLEMENTACAO-11.md) amplia os backends JS e LLVM.
+`cargo run -p dartforge-cli -- abi-info wasm32` descreve um perfil de ABI e suas limitações.
+A nova crate `dartforge-abi` valida assinaturas escalares C; ainda não há execução de
+`dart:ffi` nem compilação de programas Dart para WebAssembly. Veja [o contrato](docs/ABI-FFI-WASM.md).

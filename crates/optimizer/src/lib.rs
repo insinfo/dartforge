@@ -444,6 +444,12 @@ mod tests {
         let mut program = Program {
             extensions: vec![],
             classes: vec![Class {
+                is_abstract: false,
+                is_interface: false,
+                library_id: 0,
+                interfaces: vec![],
+                abstract_methods: vec![],
+                enum_values: vec![],
                 id: 0,
                 name: "C",
                 superclass: None,

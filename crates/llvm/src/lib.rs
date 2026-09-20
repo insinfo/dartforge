@@ -15,6 +15,8 @@
 //! triple/data layout: a ferramenta nativa escolhe o alvo. O runtime fornece
 //! impressão, falhas de null, frames de raízes, objetos e strings; o módulo define
 //! dartforge_entry(). Strings internas UTF-8 ainda não oferecem indexação UTF-16.
+//! Interfaces de métodos e classes abstratas participam do despacho; enums simples
+//! oferecem identidade, index, name e nullabilidade por singletons gerenciados.
 //! Consulte LLVM 17 LangRef (alloca, phi, br, add) e SDK Dart 3.6.2 sdk/lib/core/int.dart.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_hir::Module;
@@ -285,6 +287,7 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) | ExprKind::Null => {}
         ExprKind::This
         | ExprKind::Construct { .. }
+        | ExprKind::EnumValue { .. }
         | ExprKind::String(_)
         | ExprKind::OwnedString(_) => {}
         ExprKind::Member { receiver, .. } => validate_expression(receiver)?,
@@ -977,6 +980,9 @@ impl<'a> FunctionEmitter<'a> {
                     text: r,
                 }
             }
+            ExprKind::EnumValue { class_id, name } => {
+                self.enum_value(*class_id, name, expression.span)?
+            }
             ExprKind::Member { receiver, name } => {
                 let receiver = self.expression(receiver)?;
                 let field = self.objects.field(receiver.ty, name, expression.span)?;
@@ -1416,5 +1422,37 @@ mod tests {
         ))
         .unwrap();
         compile(include_str!("../../../tests/native/cases/root_slots.dart")).unwrap();
+    }
+
+    /// Interfaces despacham para implementadores e enum_get preserva singletons.
+    #[test]
+    fn interfaces_abstract_redeclarations_and_enums() {
+        let ir = compile(include_str!(
+            "../../../tests/native/cases/interfaces_enums.dart"
+        ))
+        .unwrap();
+        assert!(ir.contains("call i64 @dartforge_enum_get"));
+        assert!(ir.contains("@df_dispatch_"));
+        // As classes Named e NamedAgain são abstratas: nenhum construtor é emitido.
+        assert!(!ir.contains("define i64 @df_new_2()"));
+        assert!(!ir.contains("define i64 @df_new_3()"));
+        // Enums são obtidos do runtime, nunca construídos como objetos comuns.
+        assert!(!ir.contains("define i64 @df_new_0()"));
+        assert!(!ir.contains("define i64 @df_new_1()"));
+    }
+
+    /// Adaptador void executa a implementação escalar e descarta somente o resultado.
+    #[test]
+    fn interface_void_discards_concrete_result() {
+        let ir=compile("abstract class I{void run();} class C implements I{int run(){print(7);return 9;}} void main(){I item=C();item.run();}").unwrap();
+        let adapter = ir
+            .split("define void @df_dispatch_0_")
+            .nth(1)
+            .unwrap()
+            .split("}\n")
+            .next()
+            .unwrap();
+        assert!(adapter.contains("call i64 @df_method_1_0(i64 %this)"));
+        assert!(adapter.contains("ret void"));
     }
 }
