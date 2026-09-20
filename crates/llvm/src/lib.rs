@@ -125,6 +125,19 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
             "coleções e funções como valores (lowering nativo pendente)",
         ));
     }
+    if let Some(f) = module
+        .functions
+        .iter()
+        .find(|f| !f.type_parameters.is_empty())
+    {
+        return Err(error(f.span, "funções genéricas"));
+    }
+    if let Some(c) = module.classes.iter().find(|c| {
+        (!c.enum_values.is_empty() && (!c.fields.is_empty() || !c.methods.is_empty()))
+            || c.methods.iter().any(|m| m.is_getter)
+    }) {
+        return Err(error(c.span, "enums avançadas/getters"));
+    }
     let objects = Objects::new(module)?;
     if let Some(extension) = module.extensions.first() {
         return Err(error(extension.span, "extensions"));
@@ -210,7 +223,9 @@ fn error(span: Span, feature: &str) -> Diagnostic {
 /// Converte somente os tipos públicos do subconjunto nativo.
 fn ty(value: Type, _span: Span) -> Result<Ty, Diagnostic> {
     match value {
-        Type::Applied(_) | Type::Inferred => Err(error(_span, "coleções e funções como valores")),
+        Type::Parameter(_) | Type::Applied(_) | Type::Inferred => {
+            Err(error(_span, "coleções e funções como valores"))
+        }
         Type::Int => Ok(Ty::Int),
         Type::Bool => Ok(Ty::Bool),
         Type::Void => Ok(Ty::Void),
@@ -242,6 +257,7 @@ fn validate_statements(body: &[Statement<'_>]) -> Result<(), Diagnostic> {
 /// Valida recursos em cada posição, incluindo cabeçalhos e blocos não executados.
 fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
     match &statement.kind {
+        StatementKind::Switch { .. } => return Err(error(statement.span, "switch/patterns")),
         StatementKind::IndexAssign { .. } => {
             return Err(error(statement.span, "atribuição por índice"));
         }
@@ -309,6 +325,10 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
 /// Rejeita expressões incompatíveis antes de qualquer simplificação ou emissão.
 fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
     match &value.kind {
+        ExprKind::Const(e) => validate_expression(e)?,
+        ExprKind::Switch { .. } | ExprKind::GenericCall { .. } => {
+            return Err(error(value.span, "switch/genéricos"));
+        }
         ExprKind::Closure { .. }
         | ExprKind::List { .. }
         | ExprKind::Index { .. }
@@ -521,6 +541,7 @@ impl<'a> FunctionEmitter<'a> {
     /// Emite uma instrução e liga os blocos de controle correspondentes.
     fn statement(&mut self, statement: &Statement<'_>) -> Result<(), Diagnostic> {
         match &statement.kind {
+            StatementKind::Switch { .. } => return Err(error(statement.span, "switch/patterns")),
             StatementKind::IndexAssign { .. } => {
                 return Err(error(statement.span, "atribuição por índice"));
             }
@@ -999,6 +1020,10 @@ impl<'a> FunctionEmitter<'a> {
     /// Emite expressão em ordem; && e || produzem CFG e phi, nunca avaliação ávida.
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
+            ExprKind::Const(e) => self.expression(e)?,
+            ExprKind::Switch { .. } | ExprKind::GenericCall { .. } => {
+                return Err(error(expression.span, "switch/genéricos"));
+            }
             ExprKind::Closure { .. }
             | ExprKind::List { .. }
             | ExprKind::Index { .. }

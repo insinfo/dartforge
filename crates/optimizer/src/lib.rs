@@ -57,6 +57,15 @@ fn fold_statements(statements: &mut [Statement<'_>], stats: &mut FoldStats) {
 /// Percorre todas as posições de expressão de uma instrução.
 fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
     match &mut statement.kind {
+        StatementKind::Switch { scrutinee, cases } => {
+            fold_expression(scrutinee, stats);
+            for c in cases {
+                if let Some(g) = &mut c.guard {
+                    fold_expression(g, stats);
+                }
+                fold_statements(&mut c.body, stats);
+            }
+        }
         StatementKind::IndexAssign {
             receiver,
             index,
@@ -121,6 +130,20 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
 /// Simplifica filhos puros e substitui somente operadores com resultado comprovado.
 fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
     let replacement = match &mut expression.kind {
+        ExprKind::Const(e) => {
+            fold_expression(e, stats);
+            None
+        }
+        ExprKind::Switch { scrutinee, arms } => {
+            fold_expression(scrutinee, stats);
+            for a in arms {
+                if let Some(g) = &mut a.guard {
+                    fold_expression(g, stats);
+                }
+                fold_expression(&mut a.value, stats);
+            }
+            None
+        }
         ExprKind::Closure { body, .. } => {
             fold_statements(body, stats);
             None
@@ -167,7 +190,7 @@ fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
                 fold_binary(*op, &left.kind, &right.kind)
             }
         }
-        ExprKind::Call { arguments, .. } => {
+        ExprKind::Call { arguments, .. } | ExprKind::GenericCall { arguments, .. } => {
             for argument in arguments {
                 fold_expression(argument, stats);
             }
@@ -476,6 +499,8 @@ mod tests {
             types: vec![],
             extensions: vec![],
             classes: vec![Class {
+                enum_arguments: vec![],
+                enum_constructor_fields: vec![],
                 is_abstract: false,
                 is_interface: false,
                 library_id: 0,
@@ -493,6 +518,8 @@ mod tests {
                     span: SPAN,
                 }],
                 methods: vec![Function {
+                    is_getter: false,
+                    type_parameters: vec![],
                     name: "f",
                     return_type: Type::Int,
                     parameters: vec![],
@@ -502,6 +529,8 @@ mod tests {
                 span: SPAN,
             }],
             functions: vec![Function {
+                is_getter: false,
+                type_parameters: vec![],
                 name: "g",
                 return_type: Type::Void,
                 parameters: vec![],
@@ -510,6 +539,7 @@ mod tests {
             }],
             statements: vec![stmt(StatementKind::For {
                 initializer: Some(Box::new(stmt(StatementKind::Variable {
+                    is_const: false,
                     name: "i",
                     annotation: None,
                     is_final: false,

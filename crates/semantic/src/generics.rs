@@ -1,0 +1,289 @@
+//! Substituição de parâmetros de tipo e inferência limitada de funções genéricas.
+use super::*;
+impl<'a> Validator<'a> {
+    /// Restringe enums aprimorados a campos escalares finais ligados ao construtor const.
+    pub(super) fn validate_enum(
+        &self,
+        class: &dartforge_syntax::Class<'a>,
+    ) -> Result<(), Diagnostic> {
+        if class.enum_values.is_empty() {
+            return Ok(());
+        }
+        if class.enum_arguments.len() != class.enum_values.len()
+            && !(class.enum_arguments.is_empty() && class.fields.is_empty())
+        {
+            return Err(Diagnostic::new(
+                "Enum argument lists must match enum values",
+                class.span,
+            ));
+        }
+        let mut names = HashSet::new();
+        for field in &class.fields {
+            if !field.is_final
+                || !matches!(
+                    field.ty,
+                    Type::Int
+                        | Type::String
+                        | Type::Bool
+                        | Type::NullableInt
+                        | Type::NullableString
+                        | Type::NullableBool
+                )
+                || matches!(field.name, "name" | "index")
+            {
+                return Err(Diagnostic::new(
+                    "Enhanced enum fields must be final scalar values with supported names",
+                    field.span,
+                ));
+            }
+            if !class.enum_constructor_fields.contains(&field.name) {
+                return Err(Diagnostic::new(
+                    "Enum field is not initialized by its const constructor",
+                    field.span,
+                ));
+            }
+        }
+        for &name in &class.enum_constructor_fields {
+            if !names.insert(name) || !class.fields.iter().any(|f| f.name == name) {
+                return Err(Diagnostic::new(
+                    "Invalid enum constructor field",
+                    class.span,
+                ));
+            }
+        }
+        for arguments in &class.enum_arguments {
+            if arguments.len() != class.enum_constructor_fields.len() {
+                return Err(Diagnostic::new(
+                    "Incorrect enum constructor argument count",
+                    class.span,
+                ));
+            }
+            for (arg, name) in arguments.iter().zip(&class.enum_constructor_fields) {
+                let ty = class
+                    .fields
+                    .iter()
+                    .find(|f| f.name == *name)
+                    .expect("campo validado")
+                    .ty;
+                self.require_type(self.value_expected(arg, Some(ty))?, ty, arg.span)?;
+                if !matches!(
+                    self.evaluate_constant(arg)?,
+                    ConstValue::Int(_)
+                        | ConstValue::Bool(_)
+                        | ConstValue::String(_)
+                        | ConstValue::Null
+                ) {
+                    return Err(Diagnostic::new(
+                        "Only scalar enum constructor constants are supported",
+                        arg.span,
+                    ));
+                }
+            }
+        }
+        for method in &class.methods {
+            if method.name == "index" || (method.name == "name" && !method.is_getter) {
+                return Err(Diagnostic::new(
+                    "Overriding enum metadata properties is unsupported",
+                    method.span,
+                ));
+            }
+        }
+        Ok(())
+    }
+    /// Avalia e registra constante somente após sua tipagem normal.
+    pub(super) fn evaluate_constant(
+        &self,
+        expression: &Expr<'a>,
+    ) -> Result<ConstValue, Diagnostic> {
+        let value = constants::evaluate(expression, &self.resolution.borrow(), &|name| {
+            self.lookup(name)
+                .and_then(|b| b.constant.map(|v| (*v).clone()))
+        })?;
+        self.resolution
+            .borrow_mut()
+            .constant_values
+            .insert((expression.span.start, expression.span.end), value.clone());
+        Ok(value)
+    }
+    /// Substitui parâmetros dentro de funções e coleções, mantendo IDs originais intactos.
+    pub(super) fn substitute(&self, ty: Type, bindings: &[Option<Type>], unknown: Type) -> Type {
+        match ty {
+            Type::Parameter(id) => bindings
+                .get(id as usize)
+                .copied()
+                .flatten()
+                .unwrap_or(unknown),
+            Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::List(t)) => {
+                    self.intern(TypeShape::List(self.substitute(t, bindings, unknown)))
+                }
+                Some(TypeShape::Iterable(t)) => {
+                    self.intern(TypeShape::Iterable(self.substitute(t, bindings, unknown)))
+                }
+                Some(TypeShape::Function { result, parameters }) => {
+                    self.intern(TypeShape::Function {
+                        result: self.substitute(result, bindings, unknown),
+                        parameters: parameters
+                            .into_iter()
+                            .map(|t| self.substitute(t, bindings, unknown))
+                            .collect(),
+                    })
+                }
+                None => ty,
+            },
+            _ => ty,
+        }
+    }
+    /// Detecta tipos ainda sem informação suficiente para um contexto de expressão.
+    fn has_inferred(&self, ty: Type) -> bool {
+        match ty {
+            Type::Inferred => true,
+            Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::List(t) | TypeShape::Iterable(t)) => self.has_inferred(t),
+                Some(TypeShape::Function { result, parameters }) => {
+                    self.has_inferred(result)
+                        || parameters.into_iter().any(|t| self.has_inferred(t))
+                }
+                None => true,
+            },
+            _ => false,
+        }
+    }
+    /// Recolhe restrições de argumentos concretos sem inventar dynamic ou bounds.
+    fn infer(
+        &self,
+        formal: Type,
+        actual: Type,
+        bindings: &mut [Option<Type>],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match formal {
+            Type::Parameter(id) => {
+                let slot = bindings
+                    .get_mut(id as usize)
+                    .ok_or_else(|| Diagnostic::new("Unknown generic parameter", span))?;
+                *slot = Some(if let Some(old) = *slot {
+                    self.common(old, actual, span)?
+                } else {
+                    actual
+                });
+            }
+            Type::Applied(_) => match (self.shape(formal), self.shape(actual)) {
+                (
+                    Some(TypeShape::List(f) | TypeShape::Iterable(f)),
+                    Some(TypeShape::List(a) | TypeShape::Iterable(a)),
+                ) => self.infer(f, a, bindings, span)?,
+                (
+                    Some(TypeShape::Function {
+                        result: f,
+                        parameters: fp,
+                    }),
+                    Some(TypeShape::Function {
+                        result: a,
+                        parameters: ap,
+                    }),
+                ) if fp.len() == ap.len() => {
+                    for (f, a) in fp.into_iter().zip(ap) {
+                        self.infer(f, a, bindings, span)?;
+                    }
+                    self.infer(f, a, bindings, span)?;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+    /// Resolve chamada genérica top-level; argumentos explícitos fixam cada parâmetro.
+    pub(super) fn generic_call(
+        &self,
+        name: &str,
+        type_arguments: &[Type],
+        arguments: &[Expr<'a>],
+        span: Span,
+        context: Option<Type>,
+    ) -> Result<Type, Diagnostic> {
+        if self.lookup(name).is_some() || self.has_implicit_member(name) {
+            return Err(Diagnostic::new("Generic call target is shadowed", span));
+        }
+        let signature = self
+            .functions
+            .get(name)
+            .ok_or_else(|| Diagnostic::new("Unknown generic function", span))?;
+        if signature.generic_count == 0 || arguments.len() != signature.parameters.len() {
+            return Err(Diagnostic::new("Incorrect generic call arity", span));
+        }
+        if !type_arguments.is_empty() && type_arguments.len() != signature.generic_count {
+            return Err(Diagnostic::new("Incorrect type argument count", span));
+        }
+        let explicit = !type_arguments.is_empty();
+        let mut bindings = vec![None; signature.generic_count];
+        for (i, &ty) in type_arguments.iter().enumerate() {
+            self.check_type_name(ty, span)?;
+            if matches!(ty, Type::Void | Type::Inferred) {
+                return Err(Diagnostic::new("Unsupported generic type argument", span));
+            }
+            bindings[i] = Some(ty);
+        }
+        if !explicit && let Some(context) = context {
+            self.infer(signature.result, context, &mut bindings, span)?;
+        }
+        // Primeiro argumentos que não dependem do contexto de callbacks.
+        for (arg, &formal) in arguments.iter().zip(&signature.parameters) {
+            if matches!(arg.kind, ExprKind::Closure { .. }) {
+                continue;
+            }
+            let expected = self.substitute(formal, &bindings, Type::Inferred);
+            let actual = self.value_expected(
+                arg,
+                if self.has_inferred(expected) {
+                    None
+                } else {
+                    Some(expected)
+                },
+            )?;
+            if !explicit {
+                self.infer(formal, actual, &mut bindings, arg.span)?;
+            }
+        }
+        for (arg, &formal) in arguments.iter().zip(&signature.parameters) {
+            if !matches!(arg.kind, ExprKind::Closure { .. }) {
+                continue;
+            }
+            let expected = self.substitute(formal, &bindings, Type::Inferred);
+            let actual = self.value_expected(arg, Some(expected))?;
+            if !explicit {
+                self.infer(formal, actual, &mut bindings, arg.span)?;
+            }
+        }
+        if bindings.iter().any(Option::is_none) {
+            return Err(Diagnostic::new(
+                "Generic inference needs explicit type arguments in this subset",
+                span,
+            ));
+        }
+        for (arg, &formal) in arguments.iter().zip(&signature.parameters) {
+            let expected = self.substitute(formal, &bindings, Type::Inferred);
+            self.require_type(
+                self.value_expected(arg, Some(expected))?,
+                expected,
+                arg.span,
+            )?;
+        }
+        Ok(self.substitute(signature.result, &bindings, Type::Inferred))
+    }
+    /// Registra nomes resolvidos sobre this sem modificar a AST emprestada.
+    pub(super) fn implicit(&self, span: Span) {
+        self.resolution
+            .borrow_mut()
+            .implicit_members
+            .insert((span.start, span.end));
+    }
+    /// Registra acesso de propriedade com getter, distinto de tear-off de método.
+    pub(super) fn getter(&self, span: Span) {
+        self.resolution
+            .borrow_mut()
+            .getter_accesses
+            .insert((span.start, span.end));
+    }
+}

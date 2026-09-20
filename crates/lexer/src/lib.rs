@@ -69,7 +69,7 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
             TokenKind::Number(&source[start..i])
         } else if b == b'\'' || b == b'"' {
             scan_string(source, &mut i, false, start)?
-        } else if b"(){};,.[]".contains(&b) {
+        } else if b"(){};,.[]:".contains(&b) {
             i += 1;
             TokenKind::Symbol(b as char)
         } else if matches!(

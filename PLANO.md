@@ -322,3 +322,13 @@ Contrato e limites: [ABI/FFI/Wasm](docs/ABI-FFI-WASM.md).
 - [ ] Set/Map, API core completa e bibliotecas padrão adicionais.
 
 Veja [contratos e limites](docs/COLECOES-CLOSURES.md).
+
+### Incremento 13 — funções genéricas, constantes e enums avançadas
+
+Implementar e validar o subconjunto JavaScript descrito em
+[GENERICS-CONST-ENUMS.md](docs/GENERICS-CONST-ENUMS.md). Os próximos passos incluem
+classes genéricas/bounds, constantes top-level e construtores const gerais,
+padrões estruturais e lowering LLVM com preservação de identidade e raízes GC.
+A avaliação de desempenho deve comparar programas equivalentes, com a mesma
+semântica e modos de otimização; os microbenchmarks atuais não comprovam vantagem
+sobre DDC/dart2js.

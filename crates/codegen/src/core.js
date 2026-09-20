@@ -161,3 +161,10 @@ function $dartforgeIterableParts(value, active, parts) {
 }
 function $dartforgePrint(value) { console.log($dartforgeFormat(value)); }
 
+
+const $dartforgeConstLists = new Map();
+function $dartforgeConstList(key,values) {
+  let found=$dartforgeConstLists.get(key);
+  if(found===undefined){ found=Object.freeze(new $dartforgeList(Object.freeze(values))); $dartforgeConstLists.set(key,found); }
+  return found;
+}

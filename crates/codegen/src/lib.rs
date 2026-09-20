@@ -15,6 +15,7 @@ use dartforge_syntax::{
     BinaryOp, Class, Expr, ExprKind, Function, Statement, StatementKind, Type, UnaryOp,
 };
 use std::fmt::Write;
+mod features;
 
 /// Estado local de emissão com a resolução estática fornecida pela análise.
 struct Output<'a> {
@@ -22,6 +23,10 @@ struct Output<'a> {
     resolution: &'a dartforge_syntax::Resolution,
     collections: bool,
     modulo_used: bool,
+    enum_ids: std::collections::HashSet<u32>,
+    nominal_members: std::collections::HashMap<u32, Vec<u32>>,
+    next_switch: usize,
+    break_targets: Vec<Option<String>>,
 }
 impl std::ops::Deref for Output<'_> {
     type Target = String;
@@ -66,6 +71,15 @@ pub fn emit(module: &Module<'_>) -> String {
         text: String::from("// Saída do subconjunto DartForge\n"),
         resolution: &module.resolution,
         modulo_used: false,
+        enum_ids: module
+            .classes
+            .iter()
+            .filter(|c| !c.enum_values.is_empty())
+            .map(|c| c.id)
+            .collect(),
+        nominal_members: features::nominal_members(&module.classes),
+        next_switch: 0,
+        break_targets: vec![],
         collections: module.resolution.types.iter().any(|t| {
             matches!(
                 t,
@@ -183,6 +197,11 @@ fn class_order(classes: &[Class<'_>]) -> Vec<usize> {
 fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
     for index in class_order(classes) {
         let class = &classes[index];
+        if !class.enum_values.is_empty() && (!class.fields.is_empty() || !class.methods.is_empty())
+        {
+            features::enhanced_enum(class, output);
+            continue;
+        }
         if !class.enum_values.is_empty() {
             write!(
                 output,
@@ -195,7 +214,12 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
                     output.push(',');
                 }
                 identifier(name, output);
-                output.push_str(":Object.freeze({$df_name:");
+                write!(
+                    output,
+                    ":Object.freeze({{$dartforgeEnumTag:{},$df_name:",
+                    class.id
+                )
+                .unwrap();
                 string_literal(name, output);
                 write!(output, ",$df_index:{index}}})").unwrap();
             }
@@ -232,6 +256,9 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
         output.push_str("}\n");
         for method in &class.methods {
             indent(1, output);
+            if method.is_getter {
+                output.push_str("get ");
+            }
             identifier(method.name, output);
             output.push('(');
             for (index, parameter) in method.parameters.iter().enumerate() {
@@ -273,6 +300,14 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
 /// Detecta asserções em qualquer expressão, inclusive argumentos e operandos.
 fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
     match &value.kind {
+        ExprKind::Const(e) => expression_needs_null_assert(e),
+        ExprKind::Switch { scrutinee, arms } => {
+            expression_needs_null_assert(scrutinee)
+                || arms.iter().any(|a| {
+                    a.guard.as_ref().is_some_and(expression_needs_null_assert)
+                        || expression_needs_null_assert(&a.value)
+                })
+        }
         ExprKind::Closure { body, .. } => statements_need_null_assert(body),
         ExprKind::List { elements, .. } => elements.iter().any(expression_needs_null_assert),
         ExprKind::Index { receiver, index } => {
@@ -288,7 +323,9 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
         ExprKind::Binary { left, right, .. } => {
             expression_needs_null_assert(left) || expression_needs_null_assert(right)
         }
-        ExprKind::Call { arguments, .. } => arguments.iter().any(expression_needs_null_assert),
+        ExprKind::Call { arguments, .. } | ExprKind::GenericCall { arguments, .. } => {
+            arguments.iter().any(expression_needs_null_assert)
+        }
         ExprKind::Member { receiver, .. } => expression_needs_null_assert(receiver),
         ExprKind::MethodCall {
             receiver,
@@ -310,6 +347,13 @@ fn statements_need_null_assert(body: &[Statement<'_>]) -> bool {
 /// Verifica uma instrução sem alterar ordem de avaliação ou alocar cópias da AST.
 fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
     match &statement.kind {
+        StatementKind::Switch { scrutinee, cases } => {
+            expression_needs_null_assert(scrutinee)
+                || cases.iter().any(|c| {
+                    c.guard.as_ref().is_some_and(expression_needs_null_assert)
+                        || statements_need_null_assert(&c.body)
+                })
+        }
         StatementKind::IndexAssign {
             receiver,
             index,
@@ -379,6 +423,9 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
     for statement in body {
         indent(depth, output);
         match &statement.kind {
+            StatementKind::Switch { scrutinee, cases } => {
+                features::switch_statement(scrutinee, cases, depth, output)
+            }
             StatementKind::Variable {
                 name,
                 is_final,
@@ -392,6 +439,13 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 output.push_str(";\n");
             }
             StatementKind::Assign { name, value } => {
+                if output
+                    .resolution
+                    .implicit_members
+                    .contains(&(statement.span.start, statement.span.end))
+                {
+                    output.push_str("this.");
+                }
                 identifier(name, output);
                 output.push_str(" = ");
                 expression(value, output);
@@ -465,18 +519,22 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 output.push('\n');
             }
             StatementKind::While { condition, body } => {
+                output.break_targets.push(None);
                 output.push_str("while (");
                 expression(condition, output);
                 output.push_str(") ");
                 block(body, depth, output);
+                output.break_targets.pop();
                 output.push('\n');
             }
             StatementKind::DoWhile { body, condition } => {
+                output.break_targets.push(None);
                 output.push_str("do ");
                 block(body, depth, output);
                 output.push_str(" while (");
                 expression(condition, output);
                 output.push_str(");\n");
+                output.break_targets.pop();
             }
             StatementKind::For {
                 initializer,
@@ -484,6 +542,7 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 update,
                 body,
             } => {
+                output.break_targets.push(None);
                 output.push_str("for (");
                 if let Some(initializer) = initializer {
                     for_clause(initializer, true, output);
@@ -498,9 +557,16 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 }
                 output.push_str(") ");
                 block(body, depth, output);
+                output.break_targets.pop();
                 output.push('\n');
             }
-            StatementKind::Break => output.push_str("break;\n"),
+            StatementKind::Break => {
+                if let Some(Some(label)) = output.break_targets.last().cloned() {
+                    writeln!(output, "break {label};").unwrap();
+                } else {
+                    output.push_str("break;\n");
+                }
+            }
             StatementKind::Continue => output.push_str("continue;\n"),
             StatementKind::Block(body) => {
                 output.push_str("{\n");
@@ -554,7 +620,20 @@ fn string_literal(value: &str, output: &mut Output<'_>) {
 
 /// Emite uma expressão sem duplicar a avaliação de operandos.
 fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
+    if let Some(constant) = output
+        .resolution
+        .constant_values
+        .get(&(value.span.start, value.span.end))
+        .cloned()
+    {
+        features::constant(&constant, output);
+        return;
+    }
     match &value.kind {
+        ExprKind::Const(e) => expression(e, output),
+        ExprKind::Switch { scrutinee, arms } => {
+            features::switch_expression(scrutinee, arms, output)
+        }
         ExprKind::Closure {
             parameters, body, ..
         } => {
@@ -650,19 +729,40 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         ExprKind::String(value) => string_literal(value, output),
         ExprKind::OwnedString(value) => string_literal(value, output),
         ExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
-        ExprKind::Identifier(name) => identifier(name, output),
-        ExprKind::Call { name, arguments } => {
-            match *name {
-                "main" => output.push_str("$df_main"),
-                "print" => {
-                    let collections = output.collections;
-                    output.push_str(if collections {
-                        "$dartforgePrint"
-                    } else {
-                        "console.log"
-                    });
+        ExprKind::Identifier(name) => {
+            if output
+                .resolution
+                .implicit_members
+                .contains(&(value.span.start, value.span.end))
+            {
+                output.push_str("this.");
+            }
+            identifier(name, output);
+        }
+        ExprKind::Call { name, arguments }
+        | ExprKind::GenericCall {
+            name, arguments, ..
+        } => {
+            if output
+                .resolution
+                .implicit_members
+                .contains(&(value.span.start, value.span.end))
+            {
+                output.push_str("this.");
+                identifier(name, output);
+            } else {
+                match *name {
+                    "main" => output.push_str("$df_main"),
+                    "print" => {
+                        let collections = output.collections;
+                        output.push_str(if collections {
+                            "$dartforgePrint"
+                        } else {
+                            "console.log"
+                        });
+                    }
+                    _ => identifier(name, output),
                 }
-                _ => identifier(name, output),
             }
             output.push('(');
             for (index, argument) in arguments.iter().enumerate() {
@@ -793,6 +893,7 @@ mod tests {
     }
     fn variable<'a>(name: &'a str, is_final: bool, initializer: Expr<'a>) -> Statement<'a> {
         statement(StatementKind::Variable {
+            is_const: false,
             name,
             annotation: None,
             is_final,
@@ -957,6 +1058,8 @@ mod tests {
         body: Vec<Statement<'static>>,
     ) -> Function<'static> {
         Function {
+            is_getter: false,
+            type_parameters: vec![],
             name,
             return_type,
             parameters: parameters
@@ -1508,6 +1611,8 @@ mod tests {
         use dartforge_syntax::Field;
         let span = Span { start: 0, end: 0 };
         let base = Class {
+            enum_arguments: vec![],
+            enum_constructor_fields: vec![],
             is_interface: false,
             library_id: 0,
             is_abstract: false,
@@ -1536,6 +1641,8 @@ mod tests {
             )],
         };
         let child = Class {
+            enum_arguments: vec![],
+            enum_constructor_fields: vec![],
             is_interface: false,
             library_id: 0,
             is_abstract: false,
@@ -1613,6 +1720,8 @@ mod tests {
     /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
     fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
         Class {
+            enum_arguments: vec![],
+            enum_constructor_fields: vec![],
             is_interface: false,
             library_id: 0,
             is_abstract: false,
@@ -1712,6 +1821,9 @@ mod tests {
             statements: vec![print(selected)],
         };
         let resolution = Resolution {
+            constant_values: Default::default(),
+            implicit_members: Default::default(),
+            getter_accesses: Default::default(),
             types: vec![],
             expr_types: Default::default(),
             extension_calls: std::collections::BTreeMap::from([(

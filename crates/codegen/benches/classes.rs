@@ -38,6 +38,8 @@ fn main() {
             classes: (0..count)
                 .rev()
                 .map(|id| Class {
+                    enum_arguments: vec![],
+                    enum_constructor_fields: vec![],
                     is_interface: false,
                     library_id: 0,
                     is_abstract: false,

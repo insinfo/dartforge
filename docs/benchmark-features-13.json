@@ -1,0 +1,110 @@
+{
+  "arch": "x86_64",
+  "iterations_per_sample": 100,
+  "note": "Compilação em processo; inclui frontend, passes e emissão. Exclui startup e execução JS. Não compara com DDC/dart2js.",
+  "os": "windows",
+  "results": [
+    {
+      "fixture": "generics_constants",
+      "median_ns": 53481.0,
+      "optimization": "None",
+      "output_bytes": 9414,
+      "p95_ns": 84490.0,
+      "samples_ns": [
+        60065.0,
+        84490.0,
+        59215.0,
+        57151.0,
+        60957.0,
+        42563.0,
+        44730.0,
+        52609.0,
+        47449.0,
+        48206.0,
+        51875.0,
+        66556.0,
+        63564.0,
+        53481.0,
+        49498.0
+      ],
+      "source_bytes": 785
+    },
+    {
+      "fixture": "generics_constants",
+      "median_ns": 41168.0,
+      "optimization": "Constants",
+      "output_bytes": 9400,
+      "p95_ns": 54324.0,
+      "samples_ns": [
+        42818.0,
+        50441.0,
+        39677.0,
+        38631.0,
+        40268.0,
+        51918.0,
+        40706.0,
+        39985.0,
+        42001.0,
+        54324.0,
+        38488.0,
+        40504.0,
+        53296.0,
+        41168.0,
+        41467.0
+      ],
+      "source_bytes": 785
+    },
+    {
+      "fixture": "enhanced_enums_switch",
+      "median_ns": 73461.0,
+      "optimization": "None",
+      "output_bytes": 3771,
+      "p95_ns": 102996.0,
+      "samples_ns": [
+        83222.0,
+        70007.0,
+        83086.0,
+        75310.0,
+        102996.0,
+        71892.0,
+        87076.0,
+        71525.0,
+        83072.0,
+        66327.0,
+        68519.0,
+        87263.0,
+        66167.0,
+        73461.0,
+        67135.0
+      ],
+      "source_bytes": 1612
+    },
+    {
+      "fixture": "enhanced_enums_switch",
+      "median_ns": 73079.0,
+      "optimization": "Constants",
+      "output_bytes": 3771,
+      "p95_ns": 108306.0,
+      "samples_ns": [
+        69691.0,
+        67063.0,
+        80238.0,
+        67404.0,
+        83654.0,
+        75935.0,
+        80284.0,
+        108306.0,
+        88008.0,
+        68203.0,
+        73079.0,
+        66932.0,
+        69209.0,
+        79216.0,
+        68337.0
+      ],
+      "source_bytes": 1612
+    }
+  ],
+  "samples": 15,
+  "warmup_iterations": 50
+}

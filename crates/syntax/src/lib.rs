@@ -20,6 +20,8 @@ pub struct Token<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Tipo primitivo ou ausência de valor reconhecido neste subconjunto.
 pub enum Type {
+    /// Parâmetro posicional do ambiente genérico da função corrente.
+    Parameter(u32),
     /// Índice de uma forma estrutural em Program.types.
     Applied(u32),
     /// Anotação omitida que a análise contextual precisa resolver.
@@ -79,6 +81,16 @@ pub struct Expr<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
+    Const(Box<Expr<'a>>),
+    GenericCall {
+        name: &'a str,
+        type_arguments: Vec<Type>,
+        arguments: Vec<Expr<'a>>,
+    },
+    Switch {
+        scrutinee: Box<Expr<'a>>,
+        arms: Vec<SwitchArm<'a>>,
+    },
     Closure {
         parameters: Vec<Parameter<'a>>,
         return_type: Type,
@@ -145,6 +157,10 @@ pub struct Statement<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma instrução.
 pub enum StatementKind<'a> {
+    Switch {
+        scrutinee: Expr<'a>,
+        cases: Vec<SwitchCase<'a>>,
+    },
     IndexAssign {
         receiver: Expr<'a>,
         index: Expr<'a>,
@@ -156,6 +172,7 @@ pub enum StatementKind<'a> {
         value: Expr<'a>,
     },
     Variable {
+        is_const: bool,
         name: &'a str,
         annotation: Option<Type>,
         is_final: bool,
@@ -206,6 +223,8 @@ pub struct Parameter<'a> {
 #[derive(Debug)]
 /// Função top-level com assinatura e corpo.
 pub struct Function<'a> {
+    pub type_parameters: Vec<&'a str>,
+    pub is_getter: bool,
     pub name: &'a str,
     pub return_type: Type,
     pub parameters: Vec<Parameter<'a>>,
@@ -222,9 +241,37 @@ pub struct Program<'a> {
     pub statements: Vec<Statement<'a>>,
 }
 
+/// Padrão simples de switch: constante, wildcard ou binding tipado.
+#[derive(Debug)]
+pub enum Pattern<'a> {
+    Constant(Expr<'a>),
+    Wildcard,
+    Binding { ty: Type, name: &'a str },
+}
+/// Braço de switch expressão, com guarda opcional e intervalo de origem.
+#[derive(Debug)]
+pub struct SwitchArm<'a> {
+    pub pattern: Pattern<'a>,
+    pub guard: Option<Expr<'a>>,
+    pub value: Expr<'a>,
+    pub span: Span,
+}
+/// Caso de switch instrução; o backend encerra o caso sem fallthrough implícito.
+#[derive(Debug)]
+pub struct SwitchCase<'a> {
+    pub pattern: Pattern<'a>,
+    pub guard: Option<Expr<'a>>,
+    pub body: Vec<Statement<'a>>,
+    pub span: Span,
+}
+
 /// Classe nominal com construtor implícito e herança simples.
 #[derive(Debug)]
 pub struct Class<'a> {
+    /// Argumentos constantes de cada valor, na mesma ordem de enum_values.
+    pub enum_arguments: Vec<Vec<Expr<'a>>>,
+    /// Nomes dos campos associados aos parâmetros this.campo do construtor const.
+    pub enum_constructor_fields: Vec<&'a str>,
     /// Modificador interface restringe extends fora da biblioteca declaradora.
     pub is_interface: bool,
     /// Identidade da biblioteca atribuída pelo linker; unidade isolada usa zero.
@@ -274,9 +321,32 @@ pub struct ExtensionTarget {
 /// deverá usar intervalos virtuais únicos ao combinar bibliotecas com extensions.
 #[derive(Debug, Default)]
 pub struct Resolution {
+    /// Valores constantes validados, incluindo listas canônicas e argumentos de enum.
+    pub constant_values: std::collections::BTreeMap<(usize, usize), ConstValue>,
+    /// Identificadores, chamadas e atribuições que usam receptor this implícito.
+    pub implicit_members: std::collections::BTreeSet<(usize, usize)>,
+    /// Leituras de getters resolvidas estaticamente.
+    pub getter_accesses: std::collections::BTreeSet<(usize, usize)>,
     /// Formas originais seguidas das formas inferidas durante a análise.
     pub types: Vec<TypeShape>,
     /// Tipo resolvido de cada expressão, inclusive closures e tear-offs.
     pub expr_types: std::collections::BTreeMap<(usize, usize), Type>,
     pub extension_calls: std::collections::BTreeMap<(usize, usize), ExtensionTarget>,
+}
+
+/// Valor constante portável do subconjunto; a identidade nominal de enum é preservada.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstValue {
+    Int(i32),
+    Bool(bool),
+    String(String),
+    Null,
+    Enum {
+        class_id: u32,
+        name: String,
+    },
+    List {
+        element_type: Type,
+        values: Vec<ConstValue>,
+    },
 }

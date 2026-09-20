@@ -15,6 +15,7 @@ struct Symbol {
 }
 /// Metadados imutáveis usados para verificar resolução antes da renomeação.
 struct ClassNames<'a> {
+    is_enum: bool,
     owner: usize,
     superclass: Option<u32>,
     interfaces: Vec<u32>,
@@ -211,6 +212,7 @@ pub fn compile_graph_with_options(
             classes.insert(
                 class.id,
                 ClassNames {
+                    is_enum: !class.enum_values.is_empty(),
                     owner,
                     superclass: class.superclass,
                     interfaces: class.interfaces.clone(),
@@ -573,6 +575,14 @@ impl<'a> Resolver<'a, '_> {
     /// Resolve uma classe sem permitir que renomeação esconda colisões originais.
     fn class(&mut self, class: &mut Class<'a>) -> Result<(), GraphError> {
         self.current_class = Some(class.id);
+        for name in &mut class.enum_constructor_fields {
+            *name = self.member_name(name);
+        }
+        for args in &mut class.enum_arguments {
+            for arg in args {
+                self.expression(arg)?;
+            }
+        }
         for field in &mut class.fields {
             if field.name == class.name {
                 return Err(self.error(field.span, "membro não pode ter o nome da classe"));
@@ -643,8 +653,39 @@ impl<'a> Resolver<'a, '_> {
         Ok(())
     }
     /// Resolve instruções preservando os escopos próprios de corpo e cabeçalho de for.
+    /// Resolve binding de padrão no escopo exclusivo do braço.
+    fn pattern(
+        &mut self,
+        pattern: &mut dartforge_syntax::Pattern<'a>,
+        span: Span,
+    ) -> Result<(), GraphError> {
+        match pattern {
+            dartforge_syntax::Pattern::Constant(e) => self.expression(e)?,
+            dartforge_syntax::Pattern::Binding { ty, name } => {
+                self.ty(*ty, span)?;
+                *ty = remap_type(*ty, self.type_offset);
+                self.scopes.last_mut().unwrap().insert(*name);
+            }
+            dartforge_syntax::Pattern::Wildcard => {}
+        }
+        Ok(())
+    }
+    /// Resolve instrução e seus intervalos virtuais.
     fn statement(&mut self, statement: &mut Statement<'a>) -> Result<(), GraphError> {
         match &mut statement.kind {
+            StatementKind::Switch { scrutinee, cases } => {
+                self.expression(scrutinee)?;
+                for case in cases {
+                    self.scopes.push(HashSet::new());
+                    self.pattern(&mut case.pattern, case.span)?;
+                    if let Some(g) = &mut case.guard {
+                        self.expression(g)?;
+                    }
+                    self.block(&mut case.body)?;
+                    self.scopes.pop();
+                    self.span(&mut case.span);
+                }
+            }
             StatementKind::Variable {
                 annotation,
                 initializer,
@@ -746,15 +787,54 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Resolve chamadas e construtores sem reescrever texto nem capturar globais indevidos.
     fn expression(&mut self, expression: &mut Expr<'a>) -> Result<(), GraphError> {
+        if let ExprKind::GenericCall { type_arguments, .. } = &mut expression.kind {
+            for t in type_arguments {
+                self.ty(*t, expression.span)?;
+                *t = remap_type(*t, self.type_offset);
+            }
+        }
         match &mut expression.kind {
-            ExprKind::Call { name, arguments } => {
-                if !self.local(name) && self.implicit_member(name) {
+            ExprKind::Const(e) => self.expression(e)?,
+            ExprKind::Switch { scrutinee, arms } => {
+                self.expression(scrutinee)?;
+                for arm in arms {
+                    self.scopes.push(HashSet::new());
+                    self.pattern(&mut arm.pattern, arm.span)?;
+                    if let Some(g) = &mut arm.guard {
+                        self.expression(g)?;
+                    }
+                    self.expression(&mut arm.value)?;
+                    self.scopes.pop();
+                    self.span(&mut arm.span);
+                }
+            }
+            ExprKind::Identifier(name)
+                if !self.local(name)
+                    && self.implicit_member(name)
+                    && self
+                        .current_class
+                        .is_some_and(|id| self.classes[&id].is_enum) =>
+            {
+                *name = self.member_name(name);
+            }
+            ExprKind::Call { name, arguments }
+            | ExprKind::GenericCall {
+                name, arguments, ..
+            } => {
+                let implicit = !self.local(name) && self.implicit_member(name);
+                if implicit
+                    && !self
+                        .current_class
+                        .is_some_and(|id| self.classes[&id].is_enum)
+                {
                     return Err(self.error(
                         expression.span,
                         "chamada de membro exige receptor this explícito",
                     ));
                 }
-                if *name != "print" && !self.local(name) {
+                if implicit {
+                    *name = self.member_name(name);
+                } else if *name != "print" && !self.local(name) {
                     let symbol = self.visible[self.unit].get(name).ok_or_else(|| {
                         self.error(
                             expression.span,

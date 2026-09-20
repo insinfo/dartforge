@@ -126,11 +126,20 @@ própria biblioteca. Contratos de campos/getters/setters em interfaces ainda sã
 Conflitos entre assinaturas herdadas exigem uma declaração explícita compatível.
 
 Enums simples têm identidade nominal, valores canônicos, `.name`, `.index` e
-nullabilidade. Ainda não há enums aprimorados, `values`, impressão direta do enum,
-construtores personalizados ou membros próprios. Valores privados respeitam bibliotecas.
+nullabilidade. O JavaScript também aceita o subconjunto de enums avançadas descrito
+abaixo; LLVM continua restrito a enums simples. `values` e impressão direta do enum
+ainda não são suportados. Valores privados respeitam bibliotecas.
 
 ## Coleções e closures no JavaScript
 
 List<T>, Iterable<T>, tipos de função, closures e um subconjunto de dart:core
 estão descritos em [COLECOES-CLOSURES.md](COLECOES-CLOSURES.md).
 As representações do runtime Rust existem, mas o lowering LLVM ainda rejeita essas construções.
+
+## Incremento 13: genéricos e constantes
+
+O backend JavaScript amplia enums com campos escalares finais, construtor const,
+métodos e getters, além de switches com guardas. Funções genéricas top-level e
+constantes locais/listas canônicas estão descritas em
+[GENERICS-CONST-ENUMS.md](GENERICS-CONST-ENUMS.md). As restrições anteriores sobre
+enums avançadas continuam aplicáveis ao backend LLVM, cujo lowering está pendente.

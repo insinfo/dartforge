@@ -205,6 +205,28 @@ impl<'a> Validator<'a> {
         expected: Option<Type>,
     ) -> Result<Type, Diagnostic> {
         let ty = match &e.kind {
+            ExprKind::Const(inner) => {
+                let ty = self.expression_expected(inner, expected)?;
+                self.evaluate_constant(e)?;
+                ty
+            }
+            ExprKind::Switch { scrutinee, arms } => {
+                self.switch_expression(scrutinee, arms, e.span, expected)?
+            }
+            ExprKind::GenericCall {
+                name,
+                type_arguments,
+                arguments,
+            } => self.generic_call(name, type_arguments, arguments, e.span, expected)?,
+            ExprKind::Call { name, arguments }
+                if self.lookup(name).is_none()
+                    && self
+                        .functions
+                        .get(name)
+                        .is_some_and(|s| s.generic_count > 0) =>
+            {
+                self.generic_call(name, &[], arguments, e.span, expected)?
+            }
             ExprKind::Closure {
                 parameters,
                 return_type,
@@ -318,6 +340,7 @@ impl<'a> Validator<'a> {
                 .insert(
                     p.name,
                     Binding {
+                        constant: None,
                         ty: Some(ty),
                         is_final: false,
                         promoted: None,
@@ -331,6 +354,7 @@ impl<'a> Validator<'a> {
         }
         nested.scopes.push(scope);
         nested.loop_depth = 0;
+        nested.switch_depth = 0;
         nested.return_type = if annotation != Type::Inferred {
             annotation
         } else {
@@ -351,7 +375,7 @@ impl<'a> Validator<'a> {
         }
         if values.is_empty() {
             values.push(Type::Void);
-        } else if !definitely_returns(body) && values.iter().any(|t| *t != Type::Void) {
+        } else if !nested.returns(body) && values.iter().any(|t| *t != Type::Void) {
             values.push(Type::Null);
         }
         let mut result = values[0];
@@ -486,6 +510,15 @@ pub(super) fn captured_writes<'a>(program: &Program<'a>) -> HashSet<&'a str> {
 fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a str>) {
     for s in body {
         match &s.kind {
+            StatementKind::Switch { scrutinee, cases } => {
+                scan_expr(scrutinee, names);
+                for case in cases {
+                    if let Some(guard) = &case.guard {
+                        scan_expr(guard, names);
+                    }
+                    scan_body(&case.body, inside, names);
+                }
+            }
             StatementKind::Assign { name, value } => {
                 if inside {
                     names.insert(name);
@@ -552,6 +585,21 @@ fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a s
 /// Visita closures aninhadas e coleta também efeitos em argumentos e receptores.
 fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
     match &e.kind {
+        ExprKind::Const(inner) => scan_expr(inner, names),
+        ExprKind::Switch { scrutinee, arms } => {
+            scan_expr(scrutinee, names);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    scan_expr(guard, names);
+                }
+                scan_expr(&arm.value, names);
+            }
+        }
+        ExprKind::GenericCall { arguments, .. } => {
+            for arg in arguments {
+                scan_expr(arg, names);
+            }
+        }
         ExprKind::Closure { body, .. } => scan_body(body, true, names),
         ExprKind::List { elements, .. }
         | ExprKind::Call {

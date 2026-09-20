@@ -39,3 +39,7 @@ harness = false
 [[bench]]
 name = "closures"
 harness = false
+
+[[bench]]
+name = "features13"
+harness = false

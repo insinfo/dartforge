@@ -4,19 +4,25 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, Type, UnaryOp,
 };
-use dartforge_syntax::{ExtensionTarget, Resolution, TypeShape};
+use dartforge_syntax::{ConstValue, ExtensionTarget, Resolution, TypeShape};
 mod collections;
+mod constants;
+mod generics;
+mod switches;
 use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, rc::Rc};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Binding {
+    constant: Option<Rc<ConstValue>>,
     ty: Option<Type>,
     is_final: bool,
     promoted: Option<Type>,
 }
 #[derive(Clone, PartialEq, Eq)]
 struct Signature {
+    generic_count: usize,
+    is_getter: bool,
     parameters: Vec<Type>,
     result: Type,
 }
@@ -47,6 +53,9 @@ struct ExtensionInfo<'a> {
 }
 #[derive(Clone)]
 struct Validator<'a> {
+    exhaustive_switches: Rc<RefCell<HashSet<(usize, usize)>>>,
+    type_parameters: Vec<&'a str>,
+    switch_depth: usize,
     captured_writes: Rc<HashSet<&'a str>>,
     inferred_returns: Option<Rc<RefCell<Vec<Type>>>>,
     scopes: Vec<HashMap<&'a str, Binding>>,
@@ -91,6 +100,9 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
 /// ```
 pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     let mut validator = Validator {
+        exhaustive_switches: Rc::new(RefCell::new(HashSet::new())),
+        type_parameters: vec![],
+        switch_depth: 0,
         captured_writes: Rc::new(collections::captured_writes(program)),
         inferred_returns: None,
         scopes: Vec::new(),
@@ -111,6 +123,8 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     validator.functions.insert(
         "main",
         Signature {
+            generic_count: 0,
+            is_getter: false,
             parameters: vec![],
             result: Type::Void,
         },
@@ -181,6 +195,8 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                     .insert(
                         method.name,
                         Signature {
+                            generic_count: method.type_parameters.len(),
+                            is_getter: method.is_getter,
                             parameters: method.parameters.iter().map(|p| p.ty).collect(),
                             result: method.return_type,
                         },
@@ -196,6 +212,12 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     }
     validator.validate_class_graph(program)?;
     for function in &program.functions {
+        if function.is_getter {
+            return Err(Diagnostic::new(
+                "Top-level getters are unsupported",
+                function.span,
+            ));
+        }
         if function.name == "print" || class_names.contains(function.name) {
             return Err(Diagnostic::new(
                 "Declaring a top-level function named 'print' is unsupported",
@@ -207,6 +229,8 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             .insert(
                 function.name,
                 Signature {
+                    generic_count: function.type_parameters.len(),
+                    is_getter: function.is_getter,
                     parameters: function
                         .parameters
                         .iter()
@@ -264,6 +288,8 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                     (
                         index,
                         Signature {
+                            generic_count: method.type_parameters.len(),
+                            is_getter: method.is_getter,
                             parameters: method.parameters.iter().map(|p| p.ty).collect(),
                             result: method.return_type,
                         },
@@ -283,7 +309,9 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     for function in &program.functions {
         validator.function(function)?;
     }
+    validator.type_parameters.clear();
     for class in &program.classes {
+        validator.validate_enum(class)?;
         for field in &class.fields {
             validator.current_class = Some(class.id);
             validator.in_field_initializer = true;
@@ -299,6 +327,11 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                     "Redeclaring an inherited field or replacing a method with a field is unsupported",
                     field.span,
                 ));
+            }
+            if !class.enum_values.is_empty() {
+                validator.in_field_initializer = false;
+                validator.current_class = None;
+                continue;
             }
             validator.require_type(
                 validator.value_expected(&field.initializer, Some(field.ty))?,
@@ -369,6 +402,7 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         validator.current_class = None;
         validator.current_extension = None;
     }
+    validator.type_parameters.clear();
     validator.return_type = Type::Void;
     validator.loop_depth = 0;
     validator.block(&program.statements)?;
@@ -444,9 +478,6 @@ impl<'a> Validator<'a> {
             if !class.enum_values.is_empty() {
                 if class.is_abstract
                     || class.superclass.is_some()
-                    || !class.interfaces.is_empty()
-                    || !class.fields.is_empty()
-                    || !class.methods.is_empty()
                     || !class.abstract_methods.is_empty()
                 {
                     return Err(Diagnostic::new(
@@ -510,6 +541,12 @@ impl<'a> Validator<'a> {
         expected: &Signature,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if actual.is_getter != expected.is_getter {
+            return Err(Diagnostic::new(
+                "Getter and method contracts are incompatible",
+                span,
+            ));
+        }
         if actual.parameters.len() != expected.parameters.len() {
             return Err(Diagnostic::new("Incompatible method contract arity", span));
         }
@@ -557,6 +594,14 @@ impl<'a> Validator<'a> {
     }
     /// Valida assinatura abstrata sem exigir corpo ou retorno executável.
     fn signature_only(&self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        if function.is_getter && !function.parameters.is_empty()
+            || !function.type_parameters.is_empty()
+        {
+            return Err(Diagnostic::new(
+                "Unsupported abstract getter or generic method signature",
+                function.span,
+            ));
+        }
         self.check_type_name(function.return_type, function.span)?;
         let mut names = HashSet::new();
         for p in &function.parameters {
@@ -580,7 +625,32 @@ impl<'a> Validator<'a> {
     }
     /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
     fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        self.type_parameters = function.type_parameters.clone();
+        if function
+            .type_parameters
+            .iter()
+            .collect::<HashSet<_>>()
+            .len()
+            != function.type_parameters.len()
+        {
+            return Err(Diagnostic::new("Duplicate type parameter", function.span));
+        }
+        self.switch_depth = 0;
         self.inferred_returns = None;
+        if function.is_getter && !function.parameters.is_empty() {
+            return Err(Diagnostic::new(
+                "Getters cannot have parameters",
+                function.span,
+            ));
+        }
+        if (self.current_class.is_some() || self.current_extension.is_some())
+            && !function.type_parameters.is_empty()
+        {
+            return Err(Diagnostic::new(
+                "Generic methods are unsupported",
+                function.span,
+            ));
+        }
         self.check_type_name(function.return_type, function.span)?;
         let mut parameters = HashMap::new();
         for parameter in &function.parameters {
@@ -595,6 +665,7 @@ impl<'a> Validator<'a> {
                 .insert(
                     parameter.name,
                     Binding {
+                        constant: None,
                         ty: Some(parameter.ty),
                         is_final: false,
                         promoted: None,
@@ -621,7 +692,7 @@ impl<'a> Validator<'a> {
                 | Type::NullableString
                 | Type::NullableBool
                 | Type::NullableClass(_)
-        ) && !definitely_returns(&function.body)
+        ) && !self.returns(&function.body)
         {
             return Err(Diagnostic::new(
                 format!(
@@ -638,7 +709,7 @@ impl<'a> Validator<'a> {
         let class = self.classes.get(&id)?;
         if !class.enum_values.is_empty() {
             return match name {
-                "name" => Some(FieldInfo {
+                "name" if !class.methods.contains_key("name") => Some(FieldInfo {
                     ty: Type::String,
                     is_final: true,
                 }),
@@ -646,7 +717,7 @@ impl<'a> Validator<'a> {
                     ty: Type::Int,
                     is_final: true,
                 }),
-                _ => None,
+                _ => class.fields.get(name).copied(),
             };
         }
         class
@@ -721,7 +792,7 @@ impl<'a> Validator<'a> {
         self.scopes
             .iter()
             .rev()
-            .find_map(|scope| scope.get(name).copied())
+            .find_map(|scope| scope.get(name).cloned())
     }
     /// Exige que o nome exista e tenha concluído sua inicialização.
     fn initialized(&self, name: &str, span: Span) -> Result<Binding, Diagnostic> {
@@ -743,13 +814,19 @@ impl<'a> Validator<'a> {
         let mut scope = HashMap::new();
         // Locais ocultam nomes externos em todo o bloco, inclusive antes da declaração.
         for statement in statements {
-            if let StatementKind::Variable { name, is_final, .. } = statement.kind
+            if let StatementKind::Variable {
+                name,
+                is_final,
+                is_const,
+                ..
+            } = statement.kind
                 && scope
                     .insert(
                         name,
                         Binding {
+                            constant: None,
                             ty: None,
-                            is_final,
+                            is_final: is_final || is_const,
                             promoted: None,
                         },
                     )
@@ -772,6 +849,7 @@ impl<'a> Validator<'a> {
     fn statement(&mut self, statement: &Statement<'a>) -> Result<(), Diagnostic> {
         match &statement.kind {
             StatementKind::Variable {
+                is_const,
                 name,
                 annotation,
                 initializer,
@@ -788,12 +866,18 @@ impl<'a> Validator<'a> {
                         initializer.span,
                     ));
                 }
+                let constant = if *is_const {
+                    Some(Rc::new(self.evaluate_constant(initializer)?))
+                } else {
+                    None
+                };
                 let binding = self
                     .scopes
                     .last_mut()
                     .expect("current block scope")
                     .get_mut(name)
                     .expect("predeclared local");
+                binding.constant = constant;
                 binding.ty = Some(annotation.unwrap_or(actual));
                 binding.promoted = if !self.captured_writes.contains(name)
                     && actual != Type::Null
@@ -828,6 +912,23 @@ impl<'a> Validator<'a> {
                 )
             }
             StatementKind::Assign { name, value } => {
+                if self.lookup(name).is_none()
+                    && let Some(id) = self.current_class
+                    && let Some(field) = self.field(id, name)
+                {
+                    if field.is_final {
+                        return Err(Diagnostic::new(
+                            "Cannot assign to final field",
+                            statement.span,
+                        ));
+                    }
+                    self.implicit(statement.span);
+                    return self.require_type(
+                        self.value_expected(value, Some(field.ty))?,
+                        field.ty,
+                        value.span,
+                    );
+                }
                 let binding = self.initialized(name, statement.span)?;
                 if binding.is_final {
                     return Err(Diagnostic::new(
@@ -863,6 +964,9 @@ impl<'a> Validator<'a> {
                     ));
                 }
                 self.printable(expression)
+            }
+            StatementKind::Switch { scrutinee, cases } => {
+                self.switch_statement(scrutinee, cases, statement.span)
             }
             StatementKind::IndexAssign {
                 receiver,
@@ -934,10 +1038,8 @@ impl<'a> Validator<'a> {
                 if let Some(body) = else_body {
                     self.block(body)?;
                 }
-                let else_returns = else_body
-                    .as_ref()
-                    .is_some_and(|body| definitely_returns(body));
-                if definitely_returns(then_body) { /* Somente o outro ramo alcança a próxima instrução. */
+                let else_returns = else_body.as_ref().is_some_and(|body| self.returns(body));
+                if self.returns(then_body) { /* Somente o outro ramo alcança a próxima instrução. */
                 } else if else_returns {
                     *self = then_state;
                 } else {
@@ -977,7 +1079,9 @@ impl<'a> Validator<'a> {
                 body,
             ),
             StatementKind::Break | StatementKind::Continue => {
-                if self.loop_depth == 0 {
+                if self.loop_depth == 0
+                    && !(matches!(statement.kind, StatementKind::Break) && self.switch_depth > 0)
+                {
                     Err(Diagnostic::new(
                         "break and continue require an enclosing loop",
                         statement.span,
@@ -1030,15 +1134,22 @@ impl<'a> Validator<'a> {
         }
         let mut scope = HashMap::new();
         if let Some(Statement {
-            kind: StatementKind::Variable { name, is_final, .. },
+            kind:
+                StatementKind::Variable {
+                    name,
+                    is_final,
+                    is_const,
+                    ..
+                },
             ..
         }) = initializer
         {
             scope.insert(
                 *name,
                 Binding {
+                    constant: None,
                     ty: None,
-                    is_final: *is_final,
+                    is_final: *is_final || *is_const,
                     promoted: None,
                 },
             );
@@ -1133,6 +1244,11 @@ impl<'a> Validator<'a> {
     fn invalidate_writes(&mut self, statements: &[Statement<'a>]) {
         for statement in statements {
             match &statement.kind {
+                StatementKind::Switch { cases, .. } => {
+                    for case in cases {
+                        self.invalidate_writes(&case.body);
+                    }
+                }
                 StatementKind::Assign { name, .. } => {
                     // A invalidação por nome pode descartar promoções externas mesmo com sombreamento.
                     for scope in &mut self.scopes {
@@ -1175,6 +1291,15 @@ impl<'a> Validator<'a> {
     /// Rejeita anotações cujo nome de tipo foi ocultado por uma declaração.
     fn check_type_name(&self, ty: Type, span: Span) -> Result<(), Diagnostic> {
         let name = match ty {
+            Type::Parameter(id) => {
+                return if (id as usize) < self.type_parameters.len()
+                    && self.lookup(self.type_parameters[id as usize]).is_none()
+                {
+                    Ok(())
+                } else {
+                    Err(Diagnostic::new("Unknown type parameter", span))
+                };
+            }
             Type::Inferred => {
                 return Err(Diagnostic::new(
                     "Type requires unsupported dynamic inference",
@@ -1234,6 +1359,19 @@ impl<'a> Validator<'a> {
     /// Determina o tipo sem contexto adicional; o wrapper registra o resultado para os backends.
     fn expression_inner(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
         match &expression.kind {
+            ExprKind::Const(inner) => {
+                let ty = self.expression(inner)?;
+                self.evaluate_constant(expression)?;
+                Ok(ty)
+            }
+            ExprKind::Switch { scrutinee, arms } => {
+                self.switch_expression(scrutinee, arms, expression.span, None)
+            }
+            ExprKind::GenericCall {
+                name,
+                type_arguments,
+                arguments,
+            } => self.generic_call(name, type_arguments, arguments, expression.span, None),
             ExprKind::Closure { .. } | ExprKind::List { .. } => {
                 unreachable!("expressões contextuais são tratadas no wrapper")
             }
@@ -1318,6 +1456,12 @@ impl<'a> Validator<'a> {
                     };
                 }
                 let id = self.receiver_class(receiver)?;
+                if let Some(method) = self.method(id, name)
+                    && method.is_getter
+                {
+                    self.getter(expression.span);
+                    return Ok(method.result);
+                }
                 self.field(id, name).map(|field| field.ty).ok_or_else(|| {
                     Diagnostic::new(
                         "Unknown field or unsupported method tear-off",
@@ -1407,6 +1551,10 @@ impl<'a> Validator<'a> {
                     );
                     signature
                 };
+                if signature.is_getter {
+                    self.getter(expression.span);
+                    return self.invoke(signature.result, arguments, expression.span);
+                }
                 if signature.parameters.len() != arguments.len() {
                     return Err(Diagnostic::new(
                         "Incorrect method argument count",
@@ -1428,9 +1576,42 @@ impl<'a> Validator<'a> {
             ExprKind::Bool(_) => Ok(Type::Bool),
             ExprKind::Identifier(name) => {
                 if self.lookup(name).is_none()
+                    && let Some(id) = self.current_class
+                {
+                    if let Some(field) = self.field(id, name) {
+                        if self.in_field_initializer {
+                            return Err(Diagnostic::new(
+                                "Implicit this unavailable in field initializer",
+                                expression.span,
+                            ));
+                        }
+                        self.implicit(expression.span);
+                        return Ok(field.ty);
+                    }
+                    if let Some(method) = self.method(id, name)
+                        && method.is_getter
+                    {
+                        if self.in_field_initializer {
+                            return Err(Diagnostic::new(
+                                "Implicit this unavailable in field initializer",
+                                expression.span,
+                            ));
+                        }
+                        self.implicit(expression.span);
+                        self.getter(expression.span);
+                        return Ok(method.result);
+                    }
+                }
+                if self.lookup(name).is_none()
                     && !self.has_implicit_member(name)
                     && let Some(signature) = self.functions.get(name)
                 {
+                    if signature.generic_count > 0 {
+                        return Err(Diagnostic::new(
+                            "Generic function tear-offs are unsupported; call with arguments",
+                            expression.span,
+                        ));
+                    }
                     return Ok(self.intern(TypeShape::Function {
                         result: signature.result,
                         parameters: signature.parameters.clone(),
@@ -1451,17 +1632,42 @@ impl<'a> Validator<'a> {
                     return self.invoke(ty, arguments, expression.span);
                 }
                 if self.has_implicit_member(name) {
+                    if self.in_field_initializer {
+                        return Err(Diagnostic::new(
+                            "Implicit this unavailable in field initializer",
+                            expression.span,
+                        ));
+                    }
+                    if let Some(id) = self.current_class {
+                        self.implicit(expression.span);
+                        if let Some(field) = self.field(id, name) {
+                            return self.invoke(field.ty, arguments, expression.span);
+                        }
+                        if let Some(signature) = self.method(id, name) {
+                            if signature.is_getter {
+                                self.getter(expression.span);
+                                return self.invoke(signature.result, arguments, expression.span);
+                            }
+                            if signature.parameters.len() != arguments.len() {
+                                return Err(Diagnostic::new(
+                                    "Incorrect implicit method argument count",
+                                    expression.span,
+                                ));
+                            }
+                            for (arg, expected) in arguments.iter().zip(&signature.parameters) {
+                                self.require_type(
+                                    self.value_expected(arg, Some(*expected))?,
+                                    *expected,
+                                    arg.span,
+                                )?;
+                            }
+                            return Ok(signature.result);
+                        }
+                    }
                     return Err(Diagnostic::new(
-                        "Instance member calls require explicit this receiver",
+                        "Implicit extension methods remain unsupported",
                         expression.span,
                     ));
-                }
-                if self.lookup(name).is_some() {
-                    let ty = self
-                        .initialized(name, expression.span)?
-                        .ty
-                        .expect("initialized binding");
-                    return self.invoke(ty, arguments, expression.span);
                 }
                 if *name == "print" {
                     if arguments.len() != 1 {
@@ -1498,6 +1704,12 @@ impl<'a> Validator<'a> {
             ExprKind::Unary { op, operand } => {
                 if *op == UnaryOp::NullAssert {
                     let ty = self.value(operand)?;
+                    if matches!(ty, Type::Parameter(_)) {
+                        return Err(Diagnostic::new(
+                            "Null assertion of an unconstrained type parameter is unsupported",
+                            expression.span,
+                        ));
+                    }
                     return if ty == Type::Null {
                         Err(Diagnostic::new(
                             "Null assertion on a null-only value is unsupported",
@@ -1526,6 +1738,12 @@ impl<'a> Validator<'a> {
                 };
                 match op {
                     BinaryOp::IfNull => {
+                        if matches!(lhs, Type::Parameter(_)) {
+                            return Err(Diagnostic::new(
+                                "Null coalescing of an unconstrained type parameter is unsupported",
+                                expression.span,
+                            ));
+                        }
                         if lhs == Type::Null {
                             return Ok(rhs);
                         }
@@ -1577,19 +1795,6 @@ impl<'a> Validator<'a> {
             }
         }
     }
-}
-/// Prova retorno apenas por return, bloco ou ambas as alternativas de if; laços não provam retorno.
-fn definitely_returns(statements: &[Statement<'_>]) -> bool {
-    statements.iter().any(|statement| match &statement.kind {
-        StatementKind::Return(_) => true,
-        StatementKind::Block(body) => definitely_returns(body),
-        StatementKind::If {
-            then_body,
-            else_body: Some(else_body),
-            ..
-        } => definitely_returns(then_body) && definitely_returns(else_body),
-        _ => false,
-    })
 }
 /// Identifica os tipos primitivos que admitem null.
 fn is_nullable(ty: Type) -> bool {
@@ -1645,6 +1850,7 @@ mod tests {
     /// Constrói uma declaração local mutável sem anotação.
     fn local(name: &'static str, initializer: Expr<'static>) -> Statement<'static> {
         stmt(StatementKind::Variable {
+            is_const: false,
             name,
             annotation: None,
             is_final: false,
@@ -1685,6 +1891,8 @@ mod tests {
         body: Vec<Statement<'static>>,
     ) -> dartforge_syntax::Function<'static> {
         dartforge_syntax::Function {
+            type_parameters: vec![],
+            is_getter: false,
             name,
             return_type: result,
             parameters: parameters
@@ -1857,6 +2065,7 @@ mod tests {
                 functions: vec![],
                 statements: vec![
                     stmt(StatementKind::Variable {
+                        is_const: false,
                         name: "x",
                         annotation,
                         is_final: false,
@@ -1881,6 +2090,7 @@ mod tests {
                 functions: vec![],
                 statements: vec![
                     stmt(StatementKind::Variable {
+                        is_const: false,
                         name: "x",
                         annotation: Some(Type::Class(0)),
                         is_final: false,
@@ -1903,6 +2113,8 @@ mod tests {
         superclass: Option<u32>,
     ) -> dartforge_syntax::Class<'static> {
         dartforge_syntax::Class {
+            enum_arguments: vec![],
+            enum_constructor_fields: vec![],
             id,
             name,
             superclass,
@@ -1957,6 +2169,7 @@ mod tests {
                 functions: vec![],
                 statements: vec![
                     stmt(StatementKind::Variable {
+                        is_const: false,
                         name: "b",
                         annotation: Some(Type::Class(0)),
                         is_final: false,
@@ -1983,6 +2196,7 @@ mod tests {
                 classes: vec![class(0, "Base", None), class(1, "Child", Some(0))],
                 functions: vec![],
                 statements: vec![stmt(StatementKind::Variable {
+                    is_const: false,
                     name: "c",
                     annotation: Some(Type::Class(1)),
                     is_final: false,
@@ -2182,14 +2396,16 @@ mod tests {
             vec![ret(call("f", vec![]))],
         ));
         assert!(
-            validate(&Program {
+            analyze(&Program {
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
                 statements: vec![]
             })
-            .is_err()
+            .unwrap()
+            .implicit_members
+            .contains(&(SPAN.start, SPAN.end))
         );
     }
     /// Aceita parâmetros contravariantes e retorno covariante em sobrescritas nominais.
@@ -2309,6 +2525,7 @@ mod tests {
         assert!(
             check(vec![
                 stmt(StatementKind::Variable {
+                    is_const: false,
                     name: "x",
                     annotation: Some(Type::NullableInt),
                     is_final: false,
@@ -2519,6 +2736,7 @@ mod tests {
                 condition: present("x"),
                 then_body: vec![stmt(StatementKind::Block(vec![
                     stmt(StatementKind::Variable {
+                        is_const: false,
                         name: "x",
                         annotation: Some(Type::NullableInt),
                         is_final: false,
@@ -2679,6 +2897,7 @@ mod tests {
         assert!(
             check(vec![for_statement(
                 stmt(StatementKind::Variable {
+                    is_const: false,
                     name: "x",
                     annotation: None,
                     is_final: true,
@@ -2981,6 +3200,7 @@ mod tests {
                     vec![("int", Type::Int)],
                     vec![
                         stmt(StatementKind::Variable {
+                            is_const: false,
                             name: "x",
                             annotation: Some(Type::Int),
                             is_final: false,
@@ -3087,6 +3307,7 @@ mod tests {
         assert!(
             check(vec![
                 stmt(StatementKind::Variable {
+                    is_const: false,
                     name: "x",
                     annotation: None,
                     is_final: true,
@@ -3115,6 +3336,7 @@ mod tests {
         );
         assert!(
             check(vec![stmt(StatementKind::Variable {
+                is_const: false,
                 name: "x",
                 annotation: Some(Type::Bool),
                 is_final: false,
@@ -3277,7 +3499,7 @@ mod tests {
         /// Constrói uma declaração com anotação e inicializador compatíveis.
         fn annotated(ty: Type) -> Statement<'static> {
             let initializer = match ty {
-                Type::Applied(_) | Type::Inferred => unreachable!(),
+                Type::Applied(_) | Type::Inferred | Type::Parameter(_) => unreachable!(),
                 Type::Void
                 | Type::Null
                 | Type::NullableInt
@@ -3290,6 +3512,7 @@ mod tests {
                 Type::Bool => expr(ExprKind::Bool(true)),
             };
             stmt(StatementKind::Variable {
+                is_const: false,
                 name: "value",
                 annotation: Some(ty),
                 is_final: false,

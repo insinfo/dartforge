@@ -20,11 +20,21 @@ pub struct MergeStats {
 /// Representantes que poderiam ser capturados por locais/parâmetros são excluídos.
 /// Closures ou referências a funções desativam a fusão neste módulo: identidade é observável.
 pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolution) -> MergeStats {
+    if program
+        .functions
+        .iter()
+        .any(|f| !f.type_parameters.is_empty())
+        || !resolution.constant_values.is_empty()
+    {
+        return MergeStats::default();
+    }
     let function_names: BTreeSet<_> = program.functions.iter().map(|f| f.name).collect();
     let mut identity_observable = false;
     visit_program(program, &mut |_| {}, &mut |e| {
-        if matches!(&e.kind, ExprKind::Closure { .. })
-            || matches!(&e.kind, ExprKind::Identifier(n) if function_names.contains(n))
+        if matches!(
+            &e.kind,
+            ExprKind::Closure { .. } | ExprKind::Switch { .. } | ExprKind::GenericCall { .. }
+        ) || matches!(&e.kind, ExprKind::Identifier(n) if function_names.contains(n))
         {
             identity_observable = true;
         }
@@ -179,6 +189,10 @@ impl<'a> Canonical<'a, '_> {
     fn statement(&mut self, s: &Statement<'a>) -> String {
         use StatementKind::*;
         match &s.kind {
+            Switch { .. } => {
+                self.valid = false;
+                "switch".into()
+            }
             IndexAssign { .. } => {
                 self.valid = false;
                 "index-assignment".into()
@@ -188,6 +202,7 @@ impl<'a> Canonical<'a, '_> {
                 annotation,
                 is_final,
                 initializer,
+                ..
             } => {
                 // A declaração oculta a externa inclusive no seu inicializador.
                 let value = self.expression(initializer);
@@ -288,6 +303,10 @@ impl<'a> Canonical<'a, '_> {
     fn expression(&mut self, e: &Expr<'a>) -> String {
         use ExprKind::*;
         match &e.kind {
+            Const(_) | Switch { .. } | GenericCall { .. } => {
+                self.valid = false;
+                "new-expression".into()
+            }
             Closure { .. } | List { .. } | Index { .. } | Invoke { .. } => {
                 self.valid = false;
                 "allocation-or-indirect".into()
@@ -410,6 +429,18 @@ fn visit_stmt<'a>(
     s(x);
     use StatementKind::*;
     match &mut x.kind {
+        Switch { scrutinee, cases } => {
+            visit_expr(scrutinee, e);
+            for c in cases {
+                if let dartforge_syntax::Pattern::Constant(v) = &mut c.pattern {
+                    visit_expr(v, e);
+                }
+                if let Some(g) = &mut c.guard {
+                    visit_expr(g, e);
+                }
+                visit_body(&mut c.body, s, e);
+            }
+        }
         IndexAssign {
             receiver,
             index,
@@ -473,6 +504,24 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
     e(x);
     use ExprKind::*;
     match &mut x.kind {
+        Const(v) => visit_expr(v, e),
+        Switch { scrutinee, arms } => {
+            visit_expr(scrutinee, e);
+            for a in arms {
+                if let dartforge_syntax::Pattern::Constant(v) = &mut a.pattern {
+                    visit_expr(v, e);
+                }
+                if let Some(g) = &mut a.guard {
+                    visit_expr(g, e);
+                }
+                visit_expr(&mut a.value, e);
+            }
+        }
+        GenericCall { arguments, .. } => {
+            for a in arguments {
+                visit_expr(a, e);
+            }
+        }
         Closure { body, .. } => visit_body(body, &mut |_| {}, e),
         List { elements, .. } => {
             for x in elements {

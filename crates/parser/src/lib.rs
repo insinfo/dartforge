@@ -1,8 +1,8 @@
 //! Análise sintática do subconjunto Dart 3.6.2, com limites explícitos de complexidade.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
-    BinaryOp, Class, Expr, ExprKind, Extension, Field, Function, Parameter, Program, Statement,
-    StatementKind, Token, TokenKind, Type, TypeShape, UnaryOp,
+    BinaryOp, Class, Expr, ExprKind, Extension, Field, Function, Parameter, Pattern, Program,
+    Statement, StatementKind, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -84,6 +84,8 @@ pub fn parse_unit<'a>(
         class_ids,
         types: Vec::new(),
         closure_depth: 0,
+        type_parameters: Vec::new(),
+        guard_start: None,
     };
     let mut classes = Vec::new();
     let mut extensions = Vec::new();
@@ -236,6 +238,19 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
             }
         } else {
             declarations.functions.push(item);
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("<")) {
+                index += 1;
+                while tokens
+                    .get(index)
+                    .is_some_and(|t| t.kind != TokenKind::Operator(">"))
+                {
+                    index += 1;
+                }
+                if tokens.get(index).is_none() {
+                    return Err(Diagnostic::new("unterminated type parameters", first.span));
+                }
+                index += 1;
+            }
             index = skip_delimited(tokens, index, '(', ')', first.span)?;
         }
         if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
@@ -312,6 +327,8 @@ struct Cursor<'t, 'a> {
     class_ids: std::collections::BTreeMap<&'a str, u32>,
     types: Vec<TypeShape>,
     closure_depth: usize,
+    type_parameters: Vec<&'a str>,
+    guard_start: Option<usize>,
 }
 impl<'a> Cursor<'_, 'a> {
     /// Consulta o próximo token sem avançar o cursor.
@@ -400,6 +417,12 @@ impl<'a> Cursor<'_, 'a> {
                     TypeShape::Iterable(element)
                 })
             }
+            Some(TokenKind::Word(name)) if self.type_parameters.contains(&name) => Type::Parameter(
+                self.type_parameters
+                    .iter()
+                    .position(|p| *p == name)
+                    .unwrap() as u32,
+            ),
             Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
                 Type::Class(self.class_ids[name])
             }
@@ -469,37 +492,7 @@ impl<'a> Cursor<'_, 'a> {
             self.error("declared class is missing from the supplied class environment")
         })?;
         if is_enum {
-            self.expect(TokenKind::Symbol('{'))?;
-            let mut enum_values = Vec::new();
-            loop {
-                let value = self.name()?;
-                if enum_values.contains(&value) {
-                    return Err(self.error("duplicate enum value"));
-                }
-                enum_values.push(value);
-                if !self.take(TokenKind::Symbol(',')) || self.peek() == Some(TokenKind::Symbol('}'))
-                {
-                    break;
-                }
-            }
-            self.expect(TokenKind::Symbol('}'))?;
-            return Ok(Class {
-                is_interface: false,
-                library_id: 0,
-                id,
-                name,
-                is_abstract: false,
-                interfaces: vec![],
-                abstract_methods: vec![],
-                enum_values,
-                superclass: None,
-                fields: vec![],
-                methods: vec![],
-                span: Span {
-                    start,
-                    end: self.end(),
-                },
-            });
+            return self.enumeration(id, name, start);
         }
         let superclass = if self.take(TokenKind::Word("extends")) {
             let parent = self.name()?;
@@ -536,13 +529,14 @@ impl<'a> Cursor<'_, 'a> {
             let field_start = self.position();
             let is_final = self.take(TokenKind::Word("final"));
             let ty = self.ty(!is_final)?;
+            let getter = self.take(TokenKind::Word("get"));
             let field_name = self.name()?;
-            if self.peek() == Some(TokenKind::Symbol('(')) {
+            if getter || self.peek() == Some(TokenKind::Symbol('(')) {
                 if is_final {
                     return Err(self.error("final methods are not supported"));
                 }
                 self.index = index;
-                let (method, abstract_body) = self.function_with_abstract(true)?;
+                let (method, abstract_body) = self.function_with_abstract(true, false)?;
                 if abstract_body {
                     abstract_methods.push(method);
                 } else {
@@ -575,9 +569,127 @@ impl<'a> Cursor<'_, 'a> {
             interfaces,
             abstract_methods,
             enum_values: vec![],
+            enum_arguments: vec![],
+            enum_constructor_fields: vec![],
             id,
             name,
             superclass,
+            fields,
+            methods,
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
+    }
+    /// Lê enum avançado limitado a campos finais, construtor this.campo e métodos.
+    fn enumeration(
+        &mut self,
+        id: u32,
+        name: &'a str,
+        start: usize,
+    ) -> Result<Class<'a>, Diagnostic> {
+        let mut interfaces = Vec::new();
+        if self.take(TokenKind::Word("implements")) {
+            loop {
+                let name = self.name()?;
+                interfaces.push(
+                    *self
+                        .class_ids
+                        .get(name)
+                        .ok_or_else(|| self.error("unknown interface"))?,
+                );
+                if !self.take(TokenKind::Symbol(',')) {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::Symbol('{'))?;
+        let mut enum_values = Vec::new();
+        let mut enum_arguments = Vec::new();
+        loop {
+            let value = self.name()?;
+            if enum_values.contains(&value) {
+                return Err(self.error("duplicate enum value"));
+            }
+            enum_values.push(value);
+            self.expr_nodes = 0;
+            enum_arguments.push(if self.peek() == Some(TokenKind::Symbol('(')) {
+                self.arguments(0)?
+            } else {
+                Vec::new()
+            });
+            if !self.take(TokenKind::Symbol(','))
+                || matches!(self.peek(), Some(TokenKind::Symbol('}' | ';')))
+            {
+                break;
+            }
+        }
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        let mut enum_constructor_fields = Vec::new();
+        let mut constructor = false;
+        if self.take(TokenKind::Symbol(';')) {
+            while self.peek() != Some(TokenKind::Symbol('}')) {
+                if self.take(TokenKind::Word("const")) {
+                    if constructor {
+                        return Err(self.error("only one enum constructor is supported"));
+                    }
+                    constructor = true;
+                    self.expect(TokenKind::Word(name))?;
+                    self.expect(TokenKind::Symbol('('))?;
+                    while self.peek() != Some(TokenKind::Symbol(')')) {
+                        self.expect(TokenKind::Word("this"))?;
+                        self.expect(TokenKind::Symbol('.'))?;
+                        enum_constructor_fields.push(self.name()?);
+                        if !self.take(TokenKind::Symbol(',')) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::Symbol(')'))?;
+                    self.expect(TokenKind::Symbol(';'))?;
+                } else if self.take(TokenKind::Word("final")) {
+                    let start = self.position();
+                    let ty = self.ty(false)?;
+                    let name = self.name()?;
+                    self.expect(TokenKind::Symbol(';'))?;
+                    let span = Span {
+                        start,
+                        end: self.end(),
+                    };
+                    fields.push(Field {
+                        name,
+                        ty,
+                        is_final: true,
+                        initializer: Expr {
+                            kind: ExprKind::Null,
+                            span,
+                        },
+                        span,
+                    });
+                } else {
+                    methods.push(self.function_with_abstract(false, false)?.0);
+                }
+            }
+        }
+        self.expect(TokenKind::Symbol('}'))?;
+        if !constructor
+            && (!fields.is_empty() || enum_arguments.iter().any(|args| !args.is_empty()))
+        {
+            return Err(self.error("enum arguments and fields require a const constructor"));
+        }
+        Ok(Class {
+            id,
+            name,
+            is_interface: false,
+            library_id: 0,
+            is_abstract: false,
+            interfaces,
+            abstract_methods: vec![],
+            enum_values,
+            enum_arguments,
+            enum_constructor_fields,
+            superclass: None,
             fields,
             methods,
             span: Span {
@@ -618,20 +730,51 @@ impl<'a> Cursor<'_, 'a> {
     }
     /// Lê a assinatura tipada e o corpo em bloco ou expressão de uma função/método.
     fn function(&mut self) -> Result<Function<'a>, Diagnostic> {
-        self.function_with_abstract(false)
+        self.function_with_abstract(false, true)
             .map(|(function, _)| function)
     }
     /// Distingue assinatura abstrata terminada por ponto e vírgula de corpo concreto.
     fn function_with_abstract(
         &mut self,
         allow_abstract: bool,
+        allow_generic: bool,
     ) -> Result<(Function<'a>, bool), Diagnostic> {
         let start = self.position();
+        let previous_parameters = std::mem::take(&mut self.type_parameters);
+        self.type_parameters = if allow_generic {
+            self.scan_type_parameters()?
+        } else {
+            Vec::new()
+        };
         let return_type = self.ty(true)?;
+        let is_getter = self.take(TokenKind::Word("get"));
+        if is_getter && allow_generic {
+            return Err(self.error("top-level getters are not supported yet"));
+        }
         let name = self.name()?;
-        self.expect(TokenKind::Symbol('('))?;
+        if self.take(TokenKind::Operator("<")) {
+            if !allow_generic {
+                return Err(self.error("generic methods are not supported yet"));
+            }
+            if self.type_parameters.is_empty() {
+                return Err(self.error("generic declarations require named type parameters"));
+            }
+            for index in 0..self.type_parameters.len() {
+                let name = self.name()?;
+                if name != self.type_parameters[index] {
+                    return Err(self.error("unsupported type parameter declaration"));
+                }
+                if index + 1 < self.type_parameters.len() {
+                    self.expect(TokenKind::Symbol(','))?;
+                }
+            }
+            self.expect(TokenKind::Operator(">"))?;
+        }
+        if !is_getter {
+            self.expect(TokenKind::Symbol('('))?;
+        }
         let mut parameters = Vec::new();
-        if self.peek() != Some(TokenKind::Symbol(')')) {
+        if !is_getter && self.peek() != Some(TokenKind::Symbol(')')) {
             loop {
                 let start = self.position();
                 let ty = self.ty(false)?;
@@ -650,7 +793,9 @@ impl<'a> Cursor<'_, 'a> {
                 }
             }
         }
-        self.expect(TokenKind::Symbol(')'))?;
+        if !is_getter {
+            self.expect(TokenKind::Symbol(')'))?;
+        }
         let abstract_body = allow_abstract && self.take(TokenKind::Symbol(';'));
         let body = if abstract_body {
             Vec::new()
@@ -683,8 +828,11 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             self.block(0)?
         };
+        let type_parameters = std::mem::replace(&mut self.type_parameters, previous_parameters);
         Ok((
             Function {
+                type_parameters,
+                is_getter,
                 name,
                 return_type,
                 parameters,
@@ -696,6 +844,44 @@ impl<'a> Cursor<'_, 'a> {
             },
             abstract_body,
         ))
+    }
+    /// Pré-indexa parâmetros genéricos simples para resolver também o tipo de retorno.
+    fn scan_type_parameters(&self) -> Result<Vec<&'a str>, Diagnostic> {
+        for index in self.index..self.tokens.len() {
+            if matches!(
+                self.tokens[index].kind,
+                TokenKind::Symbol('{' | ';') | TokenKind::Operator("=>")
+            ) {
+                break;
+            }
+            if self.tokens[index].kind != TokenKind::Operator("<") {
+                continue;
+            }
+            let mut cursor = index + 1;
+            let mut names = Vec::new();
+            while let Some(TokenKind::Word(name)) = self.tokens.get(cursor).map(|t| t.kind) {
+                if reserved(name) {
+                    break;
+                }
+                names.push(name);
+                cursor += 1;
+                if self.tokens.get(cursor).map(|t| t.kind) == Some(TokenKind::Symbol(',')) {
+                    cursor += 1;
+                    continue;
+                }
+                if self.tokens.get(cursor).map(|t| t.kind) == Some(TokenKind::Operator(">"))
+                    && self.tokens.get(cursor + 1).map(|t| t.kind) == Some(TokenKind::Symbol('('))
+                {
+                    let unique: std::collections::BTreeSet<_> = names.iter().collect();
+                    if unique.len() != names.len() {
+                        return Err(self.error("duplicate type parameter"));
+                    }
+                    return Ok(names);
+                }
+                break;
+            }
+        }
+        Ok(Vec::new())
     }
     /// Lê argumentos posicionais mantendo o limite compartilhado da expressão.
     fn arguments(&mut self, depth: usize) -> Result<Vec<Expr<'a>>, Diagnostic> {
@@ -729,8 +915,55 @@ impl<'a> Cursor<'_, 'a> {
     }
     /// Lê uma instrução e preserva seu intervalo completo no código-fonte.
     fn statement(&mut self, depth: usize) -> Result<Statement<'a>, Diagnostic> {
+        if depth >= MAX_DEPTH {
+            return Err(self.error("statement nesting limit exceeded"));
+        }
         let start = self.position();
-        let kind = if self.peek() == Some(TokenKind::Symbol('{')) {
+        let kind = if self.take(TokenKind::Word("switch")) {
+            let scrutinee = self.condition()?;
+            self.expect(TokenKind::Symbol('{'))?;
+            let mut cases = Vec::new();
+            while self.peek() != Some(TokenKind::Symbol('}')) {
+                let start = self.position();
+                let is_default = self.take(TokenKind::Word("default"));
+                let pattern = if is_default {
+                    Pattern::Wildcard
+                } else {
+                    self.expect(TokenKind::Word("case"))?;
+                    self.pattern(depth + 1)?
+                };
+                let guard = if self.take(TokenKind::Word("when")) {
+                    if is_default {
+                        return Err(self.error("default cannot have a guard"));
+                    }
+                    Some(self.guard(0)?)
+                } else {
+                    None
+                };
+                self.expect(TokenKind::Symbol(':'))?;
+                let mut body = Vec::new();
+                while !matches!(
+                    self.peek(),
+                    Some(TokenKind::Word("case" | "default") | TokenKind::Symbol('}'))
+                ) {
+                    body.push(self.statement(depth + 1)?);
+                }
+                if body.is_empty() {
+                    return Err(self.error("shared switch labels are not supported yet"));
+                }
+                cases.push(SwitchCase {
+                    pattern,
+                    guard,
+                    body,
+                    span: Span {
+                        start,
+                        end: self.end(),
+                    },
+                });
+            }
+            self.expect(TokenKind::Symbol('}'))?;
+            StatementKind::Switch { scrutinee, cases }
+        } else if self.peek() == Some(TokenKind::Symbol('{')) {
             StatementKind::Block(self.block(depth)?)
         } else if self.take(TokenKind::Word("if")) {
             let condition = self.condition()?;
@@ -821,13 +1054,16 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê declaração, atribuição ou chamada sem consumir o ponto e vírgula.
     fn simple(&mut self, allow_declaration: bool) -> Result<Statement<'a>, Diagnostic> {
         let start = self.position();
-        let kind = if matches!(self.peek(), Some(TokenKind::Word("var" | "final")))
-            || self.starts_annotation()
+        let kind = if matches!(
+            self.peek(),
+            Some(TokenKind::Word("var" | "final" | "const"))
+        ) || self.starts_annotation()
         {
             if !allow_declaration {
                 return Err(self.error("declarations are not supported in for updates"));
             }
-            let is_final = self.take(TokenKind::Word("final"));
+            let is_const = self.take(TokenKind::Word("const"));
+            let is_final = is_const || self.take(TokenKind::Word("final"));
             let inferred = self.take(TokenKind::Word("var"));
             if is_final && inferred {
                 return Err(self.error("final var is not supported; use final name = expression"));
@@ -841,6 +1077,7 @@ impl<'a> Cursor<'_, 'a> {
             self.expect(TokenKind::Operator("="))?;
             let initializer = self.expression()?;
             StatementKind::Variable {
+                is_const,
                 name,
                 annotation,
                 is_final,
@@ -898,6 +1135,7 @@ impl<'a> Cursor<'_, 'a> {
                 if !matches!(
                     value.kind,
                     ExprKind::Call { .. }
+                        | ExprKind::GenericCall { .. }
                         | ExprKind::MethodCall { .. }
                         | ExprKind::Construct { .. }
                         | ExprKind::Invoke { .. }
@@ -1024,6 +1262,54 @@ impl<'a> Cursor<'_, 'a> {
         self.charge(depth)?;
         let start = self.position();
         let kind = match self.peek() {
+            Some(TokenKind::Word("const")) => {
+                self.index += 1;
+                let start = self.position();
+                let kind = self.list_literal(depth + 1)?;
+                ExprKind::Const(Box::new(Expr {
+                    kind,
+                    span: Span {
+                        start,
+                        end: self.end(),
+                    },
+                }))
+            }
+            Some(TokenKind::Word("switch")) => {
+                self.index += 1;
+                self.expect(TokenKind::Symbol('('))?;
+                let scrutinee = self.binary(0, depth + 1)?;
+                self.expect(TokenKind::Symbol(')'))?;
+                self.expect(TokenKind::Symbol('{'))?;
+                let mut arms = Vec::new();
+                while self.peek() != Some(TokenKind::Symbol('}')) {
+                    let start = self.position();
+                    let pattern = self.pattern(depth + 1)?;
+                    let guard = if self.take(TokenKind::Word("when")) {
+                        Some(self.guard(depth + 1)?)
+                    } else {
+                        None
+                    };
+                    self.expect(TokenKind::Operator("=>"))?;
+                    let value = self.binary(0, depth + 1)?;
+                    arms.push(SwitchArm {
+                        pattern,
+                        guard,
+                        value,
+                        span: Span {
+                            start,
+                            end: self.end(),
+                        },
+                    });
+                    if !self.take(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::Symbol('}'))?;
+                ExprKind::Switch {
+                    scrutinee: Box::new(scrutinee),
+                    arms,
+                }
+            }
             Some(TokenKind::Word("this")) => {
                 self.index += 1;
                 ExprKind::This
@@ -1069,7 +1355,15 @@ impl<'a> Cursor<'_, 'a> {
             }
             Some(TokenKind::Word(name)) if !reserved(name) => {
                 self.index += 1;
-                if self.class_ids.contains_key(name) && self.take(TokenKind::Symbol('.')) {
+                if self.generic_call_ahead() {
+                    let type_arguments = self.type_arguments()?;
+                    let arguments = self.arguments(depth)?;
+                    ExprKind::GenericCall {
+                        name,
+                        type_arguments,
+                        arguments,
+                    }
+                } else if self.class_ids.contains_key(name) && self.take(TokenKind::Symbol('.')) {
                     ExprKind::EnumValue {
                         class_id: self.class_ids[name],
                         name: self.name()?,
@@ -1110,26 +1404,7 @@ impl<'a> Cursor<'_, 'a> {
                 }
             }
             Some(TokenKind::Symbol('[')) | Some(TokenKind::Operator("<")) => {
-                let element_type = if self.take(TokenKind::Operator("<")) {
-                    let ty = self.ty(false)?;
-                    self.expect(TokenKind::Operator(">"))?;
-                    Some(ty)
-                } else {
-                    None
-                };
-                self.expect(TokenKind::Symbol('['))?;
-                let mut elements = Vec::new();
-                while self.peek() != Some(TokenKind::Symbol(']')) {
-                    elements.push(self.binary(0, depth + 1)?);
-                    if !self.take(TokenKind::Symbol(',')) {
-                        break;
-                    }
-                }
-                self.expect(TokenKind::Symbol(']'))?;
-                ExprKind::List {
-                    element_type,
-                    elements,
-                }
+                self.list_literal(depth)?
             }
             Some(TokenKind::Symbol('(')) if self.starts_closure() => self.closure(depth)?,
             Some(TokenKind::Symbol('(')) => {
@@ -1159,8 +1434,108 @@ impl<'a> Cursor<'_, 'a> {
             depth,
         )
     }
+    /// Mantém o separador de braço fora de closures parentetizadas no nível da guarda.
+    fn guard(&mut self, depth: usize) -> Result<Expr<'a>, Diagnostic> {
+        let previous = self.guard_start.replace(self.index);
+        let result = self.binary(0, depth);
+        self.guard_start = previous;
+        result
+    }
+    /// Lê uma lista tipada ou inferida sem absorver acessos pós-fixos no contexto const.
+    fn list_literal(&mut self, depth: usize) -> Result<ExprKind<'a>, Diagnostic> {
+        let element_type = if self.take(TokenKind::Operator("<")) {
+            let ty = self.ty(false)?;
+            self.expect(TokenKind::Operator(">"))?;
+            Some(ty)
+        } else {
+            None
+        };
+        self.expect(TokenKind::Symbol('['))?;
+        let mut elements = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol(']')) {
+            elements.push(self.binary(0, depth + 1)?);
+            if !self.take(TokenKind::Symbol(',')) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(']'))?;
+        Ok(ExprKind::List {
+            element_type,
+            elements,
+        })
+    }
+    /// Analisa wildcard, binding tipado ou expressão constante do padrão simples.
+    fn pattern(&mut self, depth: usize) -> Result<Pattern<'a>, Diagnostic> {
+        if self.take(TokenKind::Word("_")) {
+            return Ok(Pattern::Wildcard);
+        }
+        if self.starts_annotation() {
+            let ty = self.ty(false)?;
+            let name = self.name()?;
+            return Ok(Pattern::Binding { ty, name });
+        }
+        let value = self.primary(depth + 1)?;
+        let supported = match &value.kind {
+            ExprKind::Int(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::String(_)
+            | ExprKind::OwnedString(_)
+            | ExprKind::Identifier(_)
+            | ExprKind::EnumValue { .. } => true,
+            ExprKind::Unary {
+                op: UnaryOp::Negate,
+                operand,
+            } => matches!(operand.kind, ExprKind::Int(_)),
+            _ => false,
+        };
+        if !supported {
+            return Err(self.error(
+                "only literal, named constant, enum and typed binding patterns are supported",
+            ));
+        }
+        Ok(Pattern::Constant(value))
+    }
+    /// Consome argumentos de tipo explícitos de uma chamada genérica top-level.
+    fn type_arguments(&mut self) -> Result<Vec<Type>, Diagnostic> {
+        self.expect(TokenKind::Operator("<"))?;
+        let mut types = Vec::new();
+        loop {
+            types.push(self.ty(false)?);
+            if !self.take(TokenKind::Symbol(',')) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Operator(">"))?;
+        Ok(types)
+    }
+    /// Distingue argumentos genéricos de operadores relacionais e restaura a arena.
+    fn generic_call_ahead(&mut self) -> bool {
+        if self.peek() != Some(TokenKind::Operator("<")) {
+            return false;
+        }
+        let index = self.index;
+        let count = self.types.len();
+        let result = self.type_arguments().is_ok() && self.peek() == Some(TokenKind::Symbol('('));
+        self.index = index;
+        self.types.truncate(count);
+        result
+    }
     /// Reconhece parâmetros de closure sem confundir agrupamento de expressões.
     fn starts_closure(&self) -> bool {
+        if let Some(start) = self.guard_start {
+            let mut nesting = 0usize;
+            for token in &self.tokens[start..self.index] {
+                match token.kind {
+                    TokenKind::Symbol('(' | '[' | '{') => nesting += 1,
+                    TokenKind::Symbol(')' | ']' | '}') => nesting = nesting.saturating_sub(1),
+                    _ => {}
+                }
+            }
+            if nesting == 0 {
+                return false;
+            }
+        }
         let mut balance = 0usize;
         for (offset, token) in self.tokens[self.index..].iter().enumerate() {
             match token.kind {
@@ -1480,7 +1855,6 @@ fn reserved(name: &str) -> bool {
             | "for"
             | "Function"
             | "get"
-            | "hide"
             | "if"
             | "implements"
             | "import"
@@ -1502,7 +1876,6 @@ fn reserved(name: &str) -> bool {
             | "return"
             | "sealed"
             | "set"
-            | "show"
             | "static"
             | "super"
             | "switch"
@@ -1528,6 +1901,83 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Combinadores de importação são identificadores fora das diretivas.
+    #[test]
+    fn show_and_hide_are_contextual_identifiers() {
+        let source = "int show(int hide)=>hide; void main(){var hide=1;print(show(hide));}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(program.functions[0].name, "show");
+        assert_eq!(program.functions[0].parameters[0].name, "hide");
+    }
+    /// Enums resolvem interfaces múltiplas declaradas antes ou depois deles.
+    #[test]
+    fn enhanced_enum_implements_interfaces() {
+        let source = "abstract class I{int value();} enum E implements I,J{a(1);final int n;const E(this.n);int value()=>this.n;int get doubled=>this.n*2;} abstract class J{int get doubled;} void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().classes.len(), 3);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(
+            program.classes[1].interfaces,
+            [program.classes[0].id, program.classes[2].id]
+        );
+        assert_eq!(program.classes[1].enum_constructor_fields, ["n"]);
+        for declaration in [
+            "enum E implements Missing{a}",
+            "class I{} enum E implements I,{a}",
+            "class I{} enum E extends I{a}",
+        ] {
+            let source = format!("{declaration} void main(){{}}");
+            assert!(parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err());
+        }
+    }
+    /// Contratos genéricos, enum avançado, getters e switches preservam metadados.
+    #[test]
+    fn generic_enum_getter_const_and_switch_shapes() {
+        let source = "T identity<T>(T value)=>value; enum E {a(1),b(2); final int code; const E(this.code); int get doubled=>code*2; int value()=>this.code;} void main(){const values=<int>[1,2];var x=identity<int>(1);print(switch(E.a){E.a=>1,E.b=>2});switch(x){case int n when (n>0): print(n);break;default:print(0);}}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().functions.len(), 2);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert_eq!(program.functions[0].type_parameters, ["T"]);
+        assert_eq!(program.functions[0].return_type, Type::Parameter(0));
+        assert_eq!(program.classes[0].enum_constructor_fields, ["code"]);
+        assert_eq!(program.classes[0].enum_arguments.len(), 2);
+        assert!(program.classes[0].methods[0].is_getter);
+        assert!(matches!(
+            program.statements[0].kind,
+            StatementKind::Variable { is_const: true, .. }
+        ));
+        assert!(matches!(
+            program.statements[3].kind,
+            StatementKind::Switch { .. }
+        ));
+        parsed(
+            "void main(){var n=1;print(switch(n){int value when (true) && (value>0)=>value,_=>0});print(const <int>[1][0]);}",
+        );
+    }
+    /// Limita as novas formas aos contratos anunciados, sem construtores ou padrões gerais.
+    #[test]
+    fn increment_thirteen_rejects_unsupported_forms() {
+        for source in [
+            "T f<T extends int>(T x)=>x;",
+            "T f<T,T>(T x)=>x;",
+            "enum E{a(1);final int n; E(this.n);}",
+            "enum E{a(1);final int n=1;const E(this.n);}",
+            "const x=1;",
+            "class C{int get x()=>1;}",
+        ] {
+            let source = format!("{source} void main(){{}}");
+            assert!(
+                parse(&dartforge_lexer::lex(&source).unwrap(), source.len()).is_err(),
+                "{source}"
+            );
+        }
+        rejected("var x=switch(1){[var a]=>a,_=>0};");
+        rejected("switch(1){case 1:case 2:print(2);}");
+        rejected("print(switch(3){1+2=>1,_=>0});");
+        rejected("print(switch(3){(1+2)=>1,_=>0});");
+        rejected("switch(1){default when true:print(1);}");
+    }
     /// Formas genéricas, closures e chamadas pós-fixas mantêm estrutura e tipos locais.
     #[test]
     fn closures_lists_function_types_and_indices() {
@@ -1627,7 +2077,7 @@ mod tests {
             "abstract base class I {}",
             "enum E {}",
             "enum E { a, a }",
-            "enum E { a; int f()=>1; }",
+            "enum E { a; static int f()=>1; }",
             "enum E implements I { a }",
             "class A implements {}",
             "int f();",
