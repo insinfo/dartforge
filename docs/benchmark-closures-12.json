@@ -1,0 +1,111 @@
+{
+  "arch": "x86_64",
+  "iterations_per_sample": 100,
+  "note": "Warm in-process compilation; excludes CLI startup and execution. No comparison with DDC/dart2js.",
+  "os": "windows",
+  "results": [
+    {
+      "median_ns": 83517.0,
+      "merge": false,
+      "optimization": "None",
+      "output_bytes": 11334,
+      "p95_ns": 127328.0,
+      "samples_ns": [
+        94996.0,
+        83517.0,
+        89278.0,
+        79509.0,
+        87734.0,
+        127328.0,
+        105895.0,
+        83648.0,
+        90728.0,
+        74019.0,
+        62592.0,
+        59441.0,
+        74997.0,
+        65959.0,
+        64190.0
+      ]
+    },
+    {
+      "median_ns": 67583.0,
+      "merge": true,
+      "optimization": "None",
+      "output_bytes": 11334,
+      "p95_ns": 77678.0,
+      "samples_ns": [
+        63957.0,
+        68483.0,
+        74270.0,
+        64377.0,
+        72802.0,
+        77678.0,
+        71010.0,
+        63959.0,
+        75173.0,
+        63177.0,
+        65427.0,
+        71263.0,
+        63266.0,
+        67583.0,
+        66668.0
+      ]
+    },
+    {
+      "median_ns": 67223.0,
+      "merge": false,
+      "optimization": "Constants",
+      "output_bytes": 11334,
+      "p95_ns": 71824.0,
+      "samples_ns": [
+        67326.0,
+        62747.0,
+        62658.0,
+        68164.0,
+        67715.0,
+        71824.0,
+        68331.0,
+        68211.0,
+        70977.0,
+        67223.0,
+        65178.0,
+        61500.0,
+        66934.0,
+        64889.0,
+        64779.0
+      ]
+    },
+    {
+      "median_ns": 69372.0,
+      "merge": true,
+      "optimization": "Constants",
+      "output_bytes": 11334,
+      "p95_ns": 79795.0,
+      "samples_ns": [
+        69443.0,
+        65173.0,
+        67435.0,
+        64946.0,
+        64208.0,
+        79795.0,
+        69804.0,
+        69372.0,
+        68074.0,
+        64276.0,
+        72674.0,
+        66723.0,
+        71452.0,
+        70951.0,
+        73733.0
+      ]
+    }
+  ],
+  "samples": 15,
+  "source_bytes": 2074,
+  "target": "Dart 3.6.2 JS subset",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "base_commit": "75a9e54137695b61378538f3c3876d35b8176a27",
+  "working_tree": "incremento 12 não commitado durante medição",
+  "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel"
+}

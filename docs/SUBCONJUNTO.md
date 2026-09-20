@@ -68,9 +68,9 @@ A ferramenta compila [bibliotecas, reexports e filtros show/hide](MODULES.md), r
 
 ## Ainda não suportado
 
-Prefixos de import, partes, closures/funções locais, funções como valores, parâmetros nomeados ou
-opcionais, overloads, `double`, generics, extensions importadas, async, `for-in`, `switch`,
-rótulos, interpolação, strings triplas, surrogates isolados, coleções, Dart `const`,
+Prefixos de import, partes, funções locais nomeadas, parâmetros nomeados ou
+opcionais, overloads, `double`, genéricos definidos pelo usuário, extensions importadas, async, `for-in`, `switch`,
+rótulos, interpolação, strings triplas, surrogates isolados, Set/Map, Dart `const`,
 source maps e bibliotecas padrão completas. Atualizações compostas de campos, acesso a índices e atribuições
 usadas como expressões também não são suportadas.
 Identificadores são ASCII; alguns nomes contextuais válidos em Dart ficam reservados
@@ -128,3 +128,9 @@ Conflitos entre assinaturas herdadas exigem uma declaração explícita compatí
 Enums simples têm identidade nominal, valores canônicos, `.name`, `.index` e
 nullabilidade. Ainda não há enums aprimorados, `values`, impressão direta do enum,
 construtores personalizados ou membros próprios. Valores privados respeitam bibliotecas.
+
+## Coleções e closures no JavaScript
+
+List<T>, Iterable<T>, tipos de função, closures e um subconjunto de dart:core
+estão descritos em [COLECOES-CLOSURES.md](COLECOES-CLOSURES.md).
+As representações do runtime Rust existem, mas o lowering LLVM ainda rejeita essas construções.

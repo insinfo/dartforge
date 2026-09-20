@@ -10,6 +10,8 @@ Objetivo: uma base compartilhada para compilação, análise, LSP, ngdart e ferr
 O protótipo suporta um subconjunto explícito:
 
 - Uma entrada `void main()`, funções tipadas e parâmetros posicionais obrigatórios.
+- No JS: closures com capturas mutáveis, funções como valores e tipos de função.
+- No JS: List<T>/Iterable<T>, indexação e operações preguiçosas where/map.
 - Chamadas, recursão, `return`, `if/else` e laços `while`, `do/while`, `for` com blocos obrigatórios.
 - `break`/`continue` sem rótulos; `++`, `--`, `+=`, `-=` e `*=` sobre identificadores, como instruções.
 - Variáveis locais `var`, `final`, `int`, `String`, `bool`, atribuições e escopos.
@@ -25,7 +27,7 @@ O protótipo suporta um subconjunto explícito:
 - Fusão conservadora de funções idênticas com `--merge-identical-functions` (opt-in).
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
-Ainda não compila aplicações Dart/ngdart completas. Faltam generics, construtores explícitos, bibliotecas
+Ainda não compila aplicações Dart/ngdart completas. Faltam genéricos definidos pelo usuário, construtores explícitos, bibliotecas
 padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
 vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
 
@@ -143,3 +145,13 @@ O [incremento 11](docs/IMPLEMENTACAO-11.md) amplia os backends JS e LLVM.
 `cargo run -p dartforge-cli -- abi-info wasm32` descreve um perfil de ABI e suas limitações.
 A nova crate `dartforge-abi` valida assinaturas escalares C; ainda não há execução de
 `dart:ffi` nem compilação de programas Dart para WebAssembly. Veja [o contrato](docs/ABI-FFI-WASM.md).
+
+## Coleções e closures
+
+Veja [o contrato e os limites](docs/COLECOES-CLOSURES.md). O backend JavaScript
+executa este novo subconjunto; o runtime Rust já tem células, ambientes e listas
+rastreados pelo GC, mas o lowering correspondente para LLVM permanece pendente.
+
+Exemplo: `cargo run -p dartforge-cli -- compile examples/collections/main.dart dist/collections.mjs`.
+Execute a saída com `node dist/collections.mjs`.
+Avisos de componentes: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

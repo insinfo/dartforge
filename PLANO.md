@@ -308,3 +308,17 @@ explícitas. Os clones de referência não são membros do workspace nem depend�
 - [ ] Closures, generics, construtores explícitos e interfaces com propriedades.
 
 Contrato e limites: [ABI/FFI/Wasm](docs/ABI-FFI-WASM.md).
+
+## Décimo segundo incremento — coleções e closures
+
+- [x] Arena de tipos estruturais para List<T>, Iterable<T> e assinaturas de funções.
+- [x] Closures arrow/bloco, funções como valores e capturas léxicas no JS.
+- [x] Listas expansíveis, indexação e callbacks com inferência contextual no JS.
+- [x] Iterable lazy e import dart:core sem filtros.
+- [x] Células, ambientes, closures e listas rastreados no runtime Rust.
+- [x] Preservar identidade desativando fusão quando funções são valores observáveis.
+- [ ] Closure conversion, chamadas indiretas e coleções no emissor LLVM.
+- [ ] Genéricos do usuário, bounds, especialização e tipos reificados.
+- [ ] Set/Map, API core completa e bibliotecas padrão adicionais.
+
+Veja [contratos e limites](docs/COLECOES-CLOSURES.md).

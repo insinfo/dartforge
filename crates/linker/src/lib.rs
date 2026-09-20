@@ -3,7 +3,7 @@
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_packages::{Combinator, GraphError, SourceGraph};
 use dartforge_syntax::{
-    Class, Expr, ExprKind, Function, Program, Statement, StatementKind, TokenKind, Type,
+    Class, Expr, ExprKind, Function, Program, Statement, StatementKind, TokenKind, Type, TypeShape,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -260,8 +260,14 @@ pub fn compile_graph_with_options(
             )
         })?;
     }
+    let mut linked_types = Vec::new();
     for (unit_id, program) in programs.iter_mut().enumerate() {
+        let type_offset = u32::try_from(linked_types.len()).map_err(|_| {
+            source_error(graph, unit_id, Diagnostic::new("tipos demais", entry_span))
+        })?;
         let mut resolver = Resolver {
+            types: &program.types,
+            type_offset,
             unit: unit_id,
             graph,
             visible: &visible,
@@ -278,9 +284,23 @@ pub fn compile_graph_with_options(
         for function in &mut program.functions {
             resolver.function(function, true)?;
         }
+        for shape in &program.types {
+            linked_types.push(match shape {
+                TypeShape::List(t) => TypeShape::List(remap_type(*t, type_offset)),
+                TypeShape::Iterable(t) => TypeShape::Iterable(remap_type(*t, type_offset)),
+                TypeShape::Function { result, parameters } => TypeShape::Function {
+                    result: remap_type(*result, type_offset),
+                    parameters: parameters
+                        .iter()
+                        .map(|t| remap_type(*t, type_offset))
+                        .collect(),
+                },
+            });
+        }
     }
     let entry_name = names[&(graph.entry, "main")].as_str();
     let mut linked = Program {
+        types: linked_types,
         extensions: vec![],
         classes: vec![],
         functions: vec![],
@@ -305,7 +325,7 @@ pub fn compile_graph_with_options(
         linked.classes.extend(program.classes);
         linked.functions.extend(program.functions);
     }
-    dartforge_semantic::validate(&linked).map_err(|error| {
+    let resolution = dartforge_semantic::analyze(&linked).map_err(|error| {
         let unit_id = offsets
             .iter()
             .rposition(|&start| start <= error.span.start)
@@ -326,9 +346,9 @@ pub fn compile_graph_with_options(
         dartforge_optimizer::fold_constants(&mut linked);
     }
     if merge_identical {
-        dartforge_optimizer::merge_identical_functions(&mut linked, &Default::default());
+        dartforge_optimizer::merge_identical_functions(&mut linked, &resolution);
     }
-    emit(&dartforge_hir::lower(linked)).map_err(|error| {
+    emit(&dartforge_hir::lower_resolved(linked, resolution)).map_err(|error| {
         let unit_id = offsets
             .iter()
             .rposition(|&start| start <= error.span.start)
@@ -454,7 +474,17 @@ fn source_error(graph: &SourceGraph, unit: usize, error: Diagnostic) -> GraphErr
 }
 
 /// Resolve nomes originais antes de substituir símbolos e membros privados na AST.
+fn remap_type(ty: Type, offset: u32) -> Type {
+    match ty {
+        Type::Applied(id) => Type::Applied(id.checked_add(offset).expect("IDs de tipos excedidos")),
+        _ => ty,
+    }
+}
+
+/// Resolve símbolos preservando o ambiente local de formas estruturais.
 struct Resolver<'a, 'g> {
+    types: &'g [TypeShape],
+    type_offset: u32,
     unit: usize,
     graph: &'g SourceGraph,
     visible: &'g [HashMap<&'a str, Symbol>],
@@ -509,6 +539,21 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Verifica o nome lexical de tipos antes de esconder a biblioteca no nome gerado.
     fn ty(&self, ty: Type, span: Span) -> Result<(), GraphError> {
+        if let Type::Applied(id) = ty {
+            match self
+                .types
+                .get(id as usize)
+                .ok_or_else(|| self.error(span, "ID de tipo inválido"))?
+            {
+                TypeShape::List(t) | TypeShape::Iterable(t) => self.ty(*t, span)?,
+                TypeShape::Function { result, parameters } => {
+                    self.ty(*result, span)?;
+                    for t in parameters {
+                        self.ty(*t, span)?;
+                    }
+                }
+            }
+        }
         let name = match ty {
             Type::Class(id) | Type::NullableClass(id) => {
                 self.class_origins.get(&id).map(|(_, name)| *name)
@@ -533,6 +578,7 @@ impl<'a> Resolver<'a, '_> {
                 return Err(self.error(field.span, "membro não pode ter o nome da classe"));
             }
             self.ty(field.ty, field.span)?;
+            field.ty = remap_type(field.ty, self.type_offset);
             self.expression(&mut field.initializer)?;
             field.name = self.member_name(field.name);
             self.span(&mut field.span);
@@ -554,8 +600,10 @@ impl<'a> Resolver<'a, '_> {
     /// Resolve assinatura fora do escopo de parâmetros e corpo em escopo aninhado.
     fn function(&mut self, function: &mut Function<'a>, top_level: bool) -> Result<(), GraphError> {
         self.ty(function.return_type, function.span)?;
+        function.return_type = remap_type(function.return_type, self.type_offset);
         for parameter in &mut function.parameters {
             self.ty(parameter.ty, parameter.span)?;
+            parameter.ty = remap_type(parameter.ty, self.type_offset);
             self.span(&mut parameter.span);
         }
         self.scopes.push(
@@ -604,6 +652,7 @@ impl<'a> Resolver<'a, '_> {
             } => {
                 if let Some(ty) = annotation {
                     self.ty(*ty, statement.span)?;
+                    *ty = remap_type(*ty, self.type_offset);
                 }
                 self.expression(initializer)?;
             }
@@ -613,6 +662,15 @@ impl<'a> Resolver<'a, '_> {
                         self.error(statement.span, "atribuição exige variável local declarada")
                     );
                 }
+                self.expression(value)?;
+            }
+            StatementKind::IndexAssign {
+                receiver,
+                index,
+                value,
+            } => {
+                self.expression(receiver)?;
+                self.expression(index)?;
                 self.expression(value)?;
             }
             StatementKind::FieldAssign {
@@ -690,18 +748,13 @@ impl<'a> Resolver<'a, '_> {
     fn expression(&mut self, expression: &mut Expr<'a>) -> Result<(), GraphError> {
         match &mut expression.kind {
             ExprKind::Call { name, arguments } => {
-                if self.local(name) {
-                    return Err(
-                        self.error(expression.span, "chamada de variável local não suportada")
-                    );
-                }
-                if self.implicit_member(name) {
+                if !self.local(name) && self.implicit_member(name) {
                     return Err(self.error(
                         expression.span,
                         "chamada de membro exige receptor this explícito",
                     ));
                 }
-                if *name != "print" {
+                if *name != "print" && !self.local(name) {
                     let symbol = self.visible[self.unit].get(name).ok_or_else(|| {
                         self.error(
                             expression.span,
@@ -715,6 +768,53 @@ impl<'a> Resolver<'a, '_> {
                 }
                 for argument in arguments {
                     self.expression(argument)?;
+                }
+            }
+            ExprKind::Closure {
+                parameters,
+                return_type,
+                body,
+                ..
+            } => {
+                self.ty(*return_type, expression.span)?;
+                *return_type = remap_type(*return_type, self.type_offset);
+                for p in parameters.iter_mut() {
+                    self.ty(p.ty, p.span)?;
+                    p.ty = remap_type(p.ty, self.type_offset);
+                    self.span(&mut p.span);
+                }
+                self.scopes
+                    .push(parameters.iter().map(|p| p.name).collect());
+                self.block(body)?;
+                self.scopes.pop();
+            }
+            ExprKind::List {
+                element_type,
+                elements,
+            } => {
+                if let Some(t) = element_type {
+                    self.ty(*t, expression.span)?;
+                    *t = remap_type(*t, self.type_offset);
+                }
+                for element in elements {
+                    self.expression(element)?;
+                }
+            }
+            ExprKind::Index { receiver, index } => {
+                self.expression(receiver)?;
+                self.expression(index)?;
+            }
+            ExprKind::Invoke { callee, arguments } => {
+                self.expression(callee)?;
+                for argument in arguments {
+                    self.expression(argument)?;
+                }
+            }
+            ExprKind::Identifier(name) if !self.local(name) && !self.implicit_member(name) => {
+                if let Some(symbol) = self.visible[self.unit].get(name)
+                    && symbol.class_id.is_none()
+                {
+                    *name = self.names[&(symbol.owner, *name)].as_str();
                 }
             }
             ExprKind::Construct { class_id } => {
@@ -772,6 +872,63 @@ impl<'a> Resolver<'a, '_> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    /// Arenas de tipos de bibliotecas distintas não confundem List<String> e List<int>.
+    #[test]
+    fn structural_types_and_closure_scopes_across_libraries() {
+        let graph = graph(&[
+            (
+                "List<String> words()=>['x']; void main(){List<int> xs=numbers(); int Function(int) f=adder(2); xs[0]=f(xs[0]); print(xs[0]);}",
+                &[1],
+            ),
+            (
+                "List<int> numbers()=>[3]; int Function(int) adder(int step)=>(int x)=>x+step;",
+                &[],
+            ),
+        ]);
+        for optimize in [false, true] {
+            assert!(compile_graph(&graph, optimize).is_ok());
+        }
+    }
+    /// Executa captura mutável e chamada de local após remapear tipos de bibliotecas.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn linked_closure_capture_and_list_index_execute() {
+        let graph = graph(&[
+            (
+                "List<String> words()=>['x']; void main(){List<int> xs=numbers(); int Function(int) f=adder(2); xs[0]=f(xs[0]); print(xs[0]);}",
+                &[1],
+            ),
+            (
+                "List<int> numbers()=>[3]; int Function(int) adder(int step){return (int x){step=step+1;return x+step;};}",
+                &[],
+            ),
+        ]);
+        for optimize in [false, true] {
+            let js = compile_graph(&graph, optimize).unwrap();
+            let run = std::process::Command::new("node")
+                .args(["--eval", &js])
+                .output()
+                .unwrap();
+            assert!(
+                run.status.success(),
+                "{}",
+                String::from_utf8_lossy(&run.stderr)
+            );
+            assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "6");
+        }
+        let inferred = self::graph(&[("void main(){var xs=[3];print(xs[0]);}", &[])]);
+        let js = compile_graph(&inferred, false).unwrap();
+        let run = std::process::Command::new("node")
+            .args(["--eval", &js])
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "3");
+    }
     /// Preserva nomes de enum e contratos públicos através de bibliotecas distintas.
     #[test]
     fn imports_abstract_interfaces_and_enum_names() {

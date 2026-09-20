@@ -80,7 +80,7 @@ impl std::error::Error for GraphError {}
 ///
 /// Retorna erro para arquivos inacessíveis ou não UTF-8, falhas do lexer e
 /// diretivas fora do subconjunto. Aceita show/hide sequenciais e package_config v2.
-/// Não aceita dart:, escapes Dart em URI, part, library, as ou deferred.
+/// Aceita dart:core sem filtros; outras bibliotecas dart:, part, library e aliases são rejeitados.
 ///
 /// ```no_run
 /// use std::path::Path;
@@ -118,6 +118,7 @@ pub fn load_with_config(
         imports: vec![],
         exports: vec![],
     }];
+    let mut core_unit = None;
     let mut current = 0;
     while current < units.len() {
         let path = units[current].path.clone();
@@ -129,6 +130,32 @@ pub fn load_with_config(
             export,
         } in directives
         {
+            if uri == "dart:core" {
+                if export || !combinators.is_empty() {
+                    return Err(error_at(
+                        &path,
+                        Some(span),
+                        "dart:core com export/show/hide ainda não suportado".into(),
+                    ));
+                }
+                let target = *core_unit.get_or_insert_with(|| {
+                    let id = units.len();
+                    units.push(SourceUnit {
+                        path: PathBuf::from("dart:core"),
+                        source: String::new(),
+                        imports: vec![],
+                        exports: vec![],
+                    });
+                    id
+                });
+                units[current].imports.push(Import {
+                    uri,
+                    target,
+                    span,
+                    combinators,
+                });
+                continue;
+            }
             let candidate = config
                 .resolve(&path, &uri)
                 .map_err(|message| error_at(&path, Some(span), message))?;
@@ -653,7 +680,7 @@ mod tests {
         let fixture = Fixture::new();
         for source in [
             "import 'package:a/a.dart';",
-            "import 'dart:core';",
+            "import 'dart:io';",
             "import '/a.dart';",
             "import 'C:/a.dart';",
             "import '../a%20b.dart';",

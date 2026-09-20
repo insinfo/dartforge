@@ -2,7 +2,7 @@
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     BinaryOp, Class, Expr, ExprKind, Extension, Field, Function, Parameter, Program, Statement,
-    StatementKind, Token, TokenKind, Type, UnaryOp,
+    StatementKind, Token, TokenKind, Type, TypeShape, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -82,6 +82,8 @@ pub fn parse_unit<'a>(
         source_len,
         expr_nodes: 0,
         class_ids,
+        types: Vec::new(),
+        closure_depth: 0,
     };
     let mut classes = Vec::new();
     let mut extensions = Vec::new();
@@ -101,6 +103,7 @@ pub fn parse_unit<'a>(
         }
     }
     Ok(Program {
+        types: cursor.types,
         extensions,
         classes,
         functions,
@@ -172,8 +175,28 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 first.span,
             ));
         }
-        if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
-            index += 1;
+        if !is_class {
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("<")) {
+                let mut depth = 1usize;
+                index += 1;
+                while depth > 0 {
+                    let token = tokens.get(index).ok_or_else(|| {
+                        Diagnostic::new("unterminated type arguments", first.span)
+                    })?;
+                    match token.kind {
+                        TokenKind::Operator("<") => depth += 1,
+                        TokenKind::Operator(">") => depth -= 1,
+                        _ => {}
+                    }
+                    index += 1;
+                }
+            }
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
+                index += 1;
+            }
+            while tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("Function")) {
+                index = skip_delimited(tokens, index + 1, '(', ')', first.span)?;
+            }
         }
         let name_token = tokens
             .get(index)
@@ -218,10 +241,23 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
         if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
             // O parser completo validará a expressão; aqui apenas indexamos nomes.
             index += 1;
-            while tokens
-                .get(index)
-                .is_some_and(|t| t.kind != TokenKind::Symbol(';'))
-            {
+            let mut delimiters = Vec::new();
+            while let Some(token) = tokens.get(index) {
+                match token.kind {
+                    TokenKind::Symbol(';') if delimiters.is_empty() => break,
+                    TokenKind::Symbol(open @ ('(' | '[' | '{')) => delimiters.push(open),
+                    TokenKind::Symbol(close @ (')' | ']' | '}')) => {
+                        let expected = match close {
+                            ')' => '(',
+                            ']' => '[',
+                            _ => '{',
+                        };
+                        if delimiters.pop() != Some(expected) {
+                            return Err(Diagnostic::new("unbalanced expression body", token.span));
+                        }
+                    }
+                    _ => {}
+                }
                 index += 1;
             }
             if tokens.get(index).is_none() {
@@ -274,6 +310,8 @@ struct Cursor<'t, 'a> {
     source_len: usize,
     expr_nodes: usize,
     class_ids: std::collections::BTreeMap<&'a str, u32>,
+    types: Vec<TypeShape>,
+    closure_depth: usize,
 }
 impl<'a> Cursor<'_, 'a> {
     /// Consulta o próximo token sem avançar o cursor.
@@ -327,45 +365,95 @@ impl<'a> Cursor<'_, 'a> {
             _ => Err(self.error("expected a non-reserved identifier")),
         }
     }
-    /// Lê um tipo explícito, aceitando void somente quando autorizado.
+    /// Interna uma forma estrutural e preserva IDs locais estáveis.
+    fn intern(&mut self, shape: TypeShape) -> Type {
+        if let Some(id) = self.types.iter().position(|item| *item == shape) {
+            return Type::Applied(id as u32);
+        }
+        let id = u32::try_from(self.types.len()).expect("limite de tipos");
+        self.types.push(shape);
+        Type::Applied(id)
+    }
+    /// Lê anotação completa e limita recursão de formas estruturais.
     fn ty(&mut self, allow_void: bool) -> Result<Type, Diagnostic> {
-        let ty = match self.peek() {
+        self.type_at(allow_void, 0)
+    }
+    /// Analisa List/Iterable e tipos de função sem generics definidos pelo usuário.
+    fn type_at(&mut self, allow_void: bool, depth: usize) -> Result<Type, Diagnostic> {
+        if depth >= MAX_DEPTH {
+            return Err(self.error("type nesting limit exceeded"));
+        }
+        let word = self.peek();
+        let mut ty = match word {
             Some(TokenKind::Word("int")) => Type::Int,
             Some(TokenKind::Word("String")) => Type::String,
             Some(TokenKind::Word("bool")) => Type::Bool,
-            Some(TokenKind::Word("void")) if allow_void => Type::Void,
+            Some(TokenKind::Word("void")) => Type::Void,
+            Some(TokenKind::Word("List" | "Iterable")) => {
+                self.index += 1;
+                self.expect(TokenKind::Operator("<"))?;
+                let element = self.type_at(false, depth + 1)?;
+                self.expect(TokenKind::Operator(">"))?;
+                self.intern(if word == Some(TokenKind::Word("List")) {
+                    TypeShape::List(element)
+                } else {
+                    TypeShape::Iterable(element)
+                })
+            }
             Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
                 Type::Class(self.class_ids[name])
             }
             _ => return Err(self.error("expected an explicitly supported type")),
         };
-        self.index += 1;
+        if !matches!(word, Some(TokenKind::Word("List" | "Iterable"))) {
+            self.index += 1;
+        }
         if self.take(TokenKind::Operator("?")) {
-            return match ty {
-                Type::Int => Ok(Type::NullableInt),
-                Type::String => Ok(Type::NullableString),
-                Type::Bool => Ok(Type::NullableBool),
-                Type::Class(id) => Ok(Type::NullableClass(id)),
-                _ => Err(self.error("void cannot be nullable in the supported subset")),
+            ty = match ty {
+                Type::Int => Type::NullableInt,
+                Type::Bool => Type::NullableBool,
+                Type::String => Type::NullableString,
+                Type::Class(id) => Type::NullableClass(id),
+                _ => return Err(self.error("nullable structural types are not supported yet")),
             };
+        }
+        let mut function_depth = depth;
+        while self.take(TokenKind::Word("Function")) {
+            function_depth += 1;
+            if function_depth >= MAX_DEPTH {
+                return Err(self.error("type nesting limit exceeded"));
+            }
+            self.expect(TokenKind::Symbol('('))?;
+            let mut parameters = Vec::new();
+            while self.peek() != Some(TokenKind::Symbol(')')) {
+                parameters.push(self.type_at(false, depth + 1)?);
+                if matches!(self.peek(),Some(TokenKind::Word(name)) if !reserved(name)) {
+                    self.name()?;
+                }
+                if !self.take(TokenKind::Symbol(',')) {
+                    break;
+                }
+            }
+            self.expect(TokenKind::Symbol(')'))?;
+            ty = self.intern(TypeShape::Function {
+                result: ty,
+                parameters,
+            });
+        }
+        if ty == Type::Void && !allow_void {
+            return Err(self.error("void value type is unsupported"));
         }
         Ok(ty)
     }
-    /// Reconhece uma anotação local sem confundir chamadas de construtor com tipos.
-    fn starts_annotation(&self) -> bool {
-        let Some(TokenKind::Word(name)) = self.peek() else {
-            return false;
-        };
-        if !matches!(name, "int" | "String" | "bool") && !self.class_ids.contains_key(name) {
-            return false;
-        }
-        let next = self.tokens.get(self.index + 1).map(|t| t.kind);
-        matches!(next, Some(TokenKind::Word(_)))
-            || (next == Some(TokenKind::Operator("?"))
-                && matches!(
-                    self.tokens.get(self.index + 2).map(|t| t.kind),
-                    Some(TokenKind::Word(_))
-                ))
+    /// Testa uma anotação local e restaura cursor e arena após a sondagem.
+    fn starts_annotation(&mut self) -> bool {
+        let index = self.index;
+        let count = self.types.len();
+        let result = self.ty(false).is_ok()
+            && matches!(self.peek(),Some(TokenKind::Word(name)) if !reserved(name));
+        self.index = index;
+        self.types.truncate(count);
+        result
     }
     /// Lê campos inicializados e métodos de uma classe nominal.
     fn class(&mut self) -> Result<Class<'a>, Diagnostic> {
@@ -793,13 +881,18 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             let value = self.expression()?;
             if self.take(TokenKind::Operator("=")) {
-                let ExprKind::Member { receiver, name } = value.kind else {
-                    return Err(self.error("field assignment requires a member target"));
-                };
-                StatementKind::FieldAssign {
-                    receiver: *receiver,
-                    name,
-                    value: self.expression()?,
+                match value.kind {
+                    ExprKind::Member { receiver, name } => StatementKind::FieldAssign {
+                        receiver: *receiver,
+                        name,
+                        value: self.expression()?,
+                    },
+                    ExprKind::Index { receiver, index } => StatementKind::IndexAssign {
+                        receiver: *receiver,
+                        index: *index,
+                        value: self.expression()?,
+                    },
+                    _ => return Err(self.error("assignment requires a member or index target")),
                 }
             } else {
                 if !matches!(
@@ -807,6 +900,7 @@ impl<'a> Cursor<'_, 'a> {
                     ExprKind::Call { .. }
                         | ExprKind::MethodCall { .. }
                         | ExprKind::Construct { .. }
+                        | ExprKind::Invoke { .. }
                 ) {
                     return Err(Diagnostic::new(
                         "only calls are supported as expression statements",
@@ -1015,6 +1109,29 @@ impl<'a> Cursor<'_, 'a> {
                     }
                 }
             }
+            Some(TokenKind::Symbol('[')) | Some(TokenKind::Operator("<")) => {
+                let element_type = if self.take(TokenKind::Operator("<")) {
+                    let ty = self.ty(false)?;
+                    self.expect(TokenKind::Operator(">"))?;
+                    Some(ty)
+                } else {
+                    None
+                };
+                self.expect(TokenKind::Symbol('['))?;
+                let mut elements = Vec::new();
+                while self.peek() != Some(TokenKind::Symbol(']')) {
+                    elements.push(self.binary(0, depth + 1)?);
+                    if !self.take(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::Symbol(']'))?;
+                ExprKind::List {
+                    element_type,
+                    elements,
+                }
+            }
+            Some(TokenKind::Symbol('(')) if self.starts_closure() => self.closure(depth)?,
             Some(TokenKind::Symbol('(')) => {
                 self.index += 1;
                 let mut value = self.binary(0, depth + 1)?;
@@ -1042,10 +1159,92 @@ impl<'a> Cursor<'_, 'a> {
             depth,
         )
     }
+    /// Reconhece parâmetros de closure sem confundir agrupamento de expressões.
+    fn starts_closure(&self) -> bool {
+        let mut balance = 0usize;
+        for (offset, token) in self.tokens[self.index..].iter().enumerate() {
+            match token.kind {
+                TokenKind::Symbol('(') => balance += 1,
+                TokenKind::Symbol(')') => {
+                    balance = balance.saturating_sub(1);
+                    if balance == 0 {
+                        return matches!(
+                            self.tokens.get(self.index + offset + 1).map(|t| t.kind),
+                            Some(TokenKind::Operator("=>") | TokenKind::Symbol('{'))
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+    /// Lê closure com parâmetros tipados ou inferidos e limita corpos recursivos.
+    fn closure(&mut self, depth: usize) -> Result<ExprKind<'a>, Diagnostic> {
+        self.closure_depth += 1;
+        if self.closure_depth > MAX_DEPTH {
+            return Err(self.error("closure nesting limit exceeded"));
+        }
+        self.expect(TokenKind::Symbol('('))?;
+        let mut parameters = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol(')')) {
+            let start = self.position();
+            let ty = if self.starts_annotation() {
+                self.ty(false)?
+            } else {
+                Type::Inferred
+            };
+            let name = self.name()?;
+            parameters.push(Parameter {
+                name,
+                ty,
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+            if !self.take(TokenKind::Symbol(',')) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(')'))?;
+        let is_arrow = self.take(TokenKind::Operator("=>"));
+        let body = if is_arrow {
+            let value = self.binary(0, depth + 1)?;
+            let span = value.span;
+            vec![Statement {
+                kind: StatementKind::Return(Some(value)),
+                span,
+            }]
+        } else {
+            self.block(depth + 1)?
+        };
+        self.closure_depth -= 1;
+        Ok(ExprKind::Closure {
+            is_arrow,
+            parameters,
+            return_type: Type::Inferred,
+            body,
+        })
+    }
     /// Aplica asserções pós-fixas sem permitir que contornem o limite de nós.
     fn postfix(&mut self, mut value: Expr<'a>, depth: usize) -> Result<Expr<'a>, Diagnostic> {
         loop {
-            let kind = if self.take(TokenKind::Operator("!")) {
+            let kind = if self.peek() == Some(TokenKind::Symbol('(')) {
+                self.charge(depth)?;
+                ExprKind::Invoke {
+                    callee: Box::new(value),
+                    arguments: self.arguments(depth)?,
+                }
+            } else if self.take(TokenKind::Symbol('[')) {
+                self.charge(depth)?;
+                let index = self.binary(0, depth + 1)?;
+                self.expect(TokenKind::Symbol(']'))?;
+                ExprKind::Index {
+                    receiver: Box::new(value),
+                    index: Box::new(index),
+                }
+            } else if self.take(TokenKind::Operator("!")) {
                 self.charge(depth)?;
                 ExprKind::Unary {
                     op: UnaryOp::NullAssert,
@@ -1075,7 +1274,12 @@ impl<'a> Cursor<'_, 'a> {
                     start: operand.span.start,
                     end: self.end(),
                 },
-                ExprKind::Member { receiver, .. } | ExprKind::MethodCall { receiver, .. } => Span {
+                ExprKind::Member { receiver, .. }
+                | ExprKind::MethodCall { receiver, .. }
+                | ExprKind::Index { receiver, .. }
+                | ExprKind::Invoke {
+                    callee: receiver, ..
+                } => Span {
                     start: receiver.span.start,
                     end: self.end(),
                 },
@@ -1233,6 +1437,7 @@ fn binary_op(symbol: &str) -> Option<(u8, BinaryOp)> {
         "+" => (5, BinaryOp::Add),
         "-" => (5, BinaryOp::Subtract),
         "*" => (6, BinaryOp::Multiply),
+        "%" => (6, BinaryOp::Remainder),
         _ => return None,
     })
 }
@@ -1243,6 +1448,8 @@ fn reserved(name: &str) -> bool {
     matches!(
         name,
         "abstract"
+            | "List"
+            | "Iterable"
             | "as"
             | "assert"
             | "async"
@@ -1321,6 +1528,48 @@ fn reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Formas genéricas, closures e chamadas pós-fixas mantêm estrutura e tipos locais.
+    #[test]
+    fn closures_lists_function_types_and_indices() {
+        let source = "int Function(int) maker(){return (int x)=>x%2;} List<List<int>> nested(){return <List<int>>[<int>[1]];} void main(){List<int> xs=<int>[1,2,3]; Iterable<int> ys=xs.where((x)=>x%2==0); int Function(int) f=(x){return x+1;}; xs[0]=f(2); print(((int x)=>x+1)(xs[0]));}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().functions.len(), 3);
+        let program = parse(&tokens, source.len()).unwrap();
+        assert!(program.types.iter().any(|shape|matches!(shape,TypeShape::Function{result:Type::Int,parameters} if parameters==&vec![Type::Int])));
+        assert!(matches!(
+            program.statements[3].kind,
+            StatementKind::IndexAssign { .. }
+        ));
+        let StatementKind::Print(value) = &program.statements[4].kind else {
+            panic!()
+        };
+        assert!(matches!(value.kind, ExprKind::Invoke { .. }));
+        let source = "int Function(int) make() => (int x) { return x; }; void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert_eq!(index_unit(&tokens).unwrap().functions.len(), 2);
+        assert!(parse(&tokens, source.len()).is_ok());
+    }
+    /// Closures e formas recursivas não contornam limites nem aceitam parâmetros nomeados.
+    #[test]
+    fn structural_subset_rejections_and_depth() {
+        for body in [
+            "var f=({int x})=>x;",
+            "var f=([int x])=>x;",
+            "List<int>? xs=null;",
+            "var xs=<int,String>[];",
+            "var xs=[1,2;",
+            "var f=(x=1)=>x;",
+        ] {
+            rejected(body);
+        }
+        let mut body = "return 1;".to_owned();
+        for _ in 0..70 {
+            body = format!("return (){{{body}}};");
+        }
+        rejected(&format!("var f=(){{{body}}};"));
+        let ty = format!("int{}", " Function()".repeat(80));
+        rejected(&format!("{ty} f=()=>1;"));
+    }
     /// Indexa contratos abstratos e enums antes de resolver implementações posteriores.
     #[test]
     fn abstract_interfaces_enums_and_import_index() {

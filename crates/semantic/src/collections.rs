@@ -1,0 +1,591 @@
+//! Tipos estruturais, inferência contextual e capturas conservadoras de closures.
+use super::*;
+impl<'a> Validator<'a> {
+    /// Limita impressão recursiva aos valores cuja representação Dart está implementada.
+    pub(super) fn printable_type(&self, ty: Type) -> bool {
+        match ty {
+            Type::Int
+            | Type::Bool
+            | Type::String
+            | Type::Null
+            | Type::NullableInt
+            | Type::NullableBool
+            | Type::NullableString => true,
+            Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::List(element) | TypeShape::Iterable(element)) => {
+                    self.printable_type(element)
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    /// Recupera uma forma sem manter empréstimo da arena durante análise recursiva.
+    pub(super) fn shape(&self, ty: Type) -> Option<TypeShape> {
+        if let Type::Applied(id) = ty {
+            self.resolution.borrow().types.get(id as usize).cloned()
+        } else {
+            None
+        }
+    }
+    /// Acrescenta formas inferidas sem alterar IDs originalmente fornecidos pelo parser.
+    pub(super) fn intern(&self, shape: TypeShape) -> Type {
+        let mut resolution = self.resolution.borrow_mut();
+        if let Some(id) = resolution.types.iter().position(|s| *s == shape) {
+            return Type::Applied(id as u32);
+        }
+        let id = resolution.types.len() as u32;
+        resolution.types.push(shape);
+        Type::Applied(id)
+    }
+    /// Valida a arena original e impede ciclos ou IDs fora de seus limites.
+    pub(super) fn validate_shapes(&self) -> Result<(), Diagnostic> {
+        let types = self.resolution.borrow().types.clone();
+        for start in 0..types.len() {
+            let mut active = HashSet::new();
+            let mut done = HashSet::new();
+            let mut stack = vec![(start, false)];
+            while let Some((id, exit)) = stack.pop() {
+                if exit {
+                    active.remove(&id);
+                    done.insert(id);
+                    continue;
+                }
+                if done.contains(&id) {
+                    continue;
+                }
+                if !active.insert(id) {
+                    return Err(Diagnostic::new(
+                        "Recursive structural types are unsupported",
+                        Span { start: 0, end: 0 },
+                    ));
+                }
+                let shape = types.get(id).ok_or_else(|| {
+                    Diagnostic::new("Unknown structural type ID", Span { start: 0, end: 0 })
+                })?;
+                stack.push((id, true));
+                let children = match shape {
+                    TypeShape::List(t) | TypeShape::Iterable(t) => vec![*t],
+                    TypeShape::Function { result, parameters } => {
+                        let mut v = parameters.clone();
+                        v.push(*result);
+                        v
+                    }
+                };
+                for ty in children {
+                    if let Type::Applied(child) = ty {
+                        stack.push((child as usize, false));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Compara estruturas; List é invariante até existir checagem reificada nas escritas.
+    pub(super) fn require_structural(
+        &self,
+        actual: Type,
+        expected: Type,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let fail = || {
+            Diagnostic::new(
+                "Incompatible structural type; List element types are invariant in this subset",
+                span,
+            )
+        };
+        match (self.shape(actual), self.shape(expected)) {
+            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => {
+                self.require_type(a, b, span)?;
+                self.require_type(b, a, span)
+            }
+            (Some(TypeShape::List(a) | TypeShape::Iterable(a)), Some(TypeShape::Iterable(b))) => {
+                self.require_type(a, b, span)
+            }
+            (
+                Some(TypeShape::Function {
+                    result: a,
+                    parameters: ap,
+                }),
+                Some(TypeShape::Function {
+                    result: b,
+                    parameters: bp,
+                }),
+            ) => {
+                if ap.len() != bp.len() {
+                    return Err(fail());
+                }
+                for (a, b) in ap.into_iter().zip(bp) {
+                    self.require_type(b, a, span)?;
+                }
+                if b == Type::Void || b == Type::Inferred {
+                    Ok(())
+                } else {
+                    self.require_type(a, b, span)
+                }
+            }
+            _ => Err(fail()),
+        }
+    }
+    /// Confere recursivamente nomes de tipos e proíbe inferência dinâmica em anotações.
+    pub(super) fn check_shape_name(&self, ty: Type, span: Span) -> Result<(), Diagnostic> {
+        let shape = self
+            .shape(ty)
+            .ok_or_else(|| Diagnostic::new("Unknown structural type", span))?;
+        let (name, children) = match shape {
+            TypeShape::List(t) => ("List", vec![t]),
+            TypeShape::Iterable(t) => ("Iterable", vec![t]),
+            TypeShape::Function { result, parameters } => {
+                for p in parameters {
+                    if p == Type::Void {
+                        return Err(Diagnostic::new("Void function parameter", span));
+                    }
+                    self.check_type_name(p, span)?;
+                }
+                return self.check_type_name(result, span);
+            }
+        };
+        if self.lookup(name).is_some()
+            || self.has_implicit_member(name)
+            || self.functions.contains_key(name)
+            || self.classes.values().any(|c| c.name == name)
+        {
+            return Err(Diagnostic::new("Declaration shadows collection type", span));
+        }
+        for t in children {
+            if t == Type::Void {
+                return Err(Diagnostic::new(
+                    "Void collection elements are unsupported",
+                    span,
+                ));
+            }
+            self.check_type_name(t, span)?;
+        }
+        Ok(())
+    }
+    /// Obtém o elemento de uma lista ou iterable; funções não são coleções.
+    pub(super) fn element(&self, ty: Type) -> Option<Type> {
+        match self.shape(ty) {
+            Some(TypeShape::List(t) | TypeShape::Iterable(t)) => Some(t),
+            _ => None,
+        }
+    }
+    /// Determina um supertipo comum representável sem introduzir dynamic ou Object.
+    pub(super) fn common(&self, a: Type, b: Type, span: Span) -> Result<Type, Diagnostic> {
+        if a == b {
+            return Ok(a);
+        }
+        if a == Type::Null || b == Type::Null {
+            return match if a == Type::Null { b } else { a } {
+                Type::Int | Type::NullableInt => Ok(Type::NullableInt),
+                Type::Bool | Type::NullableBool => Ok(Type::NullableBool),
+                Type::String | Type::NullableString => Ok(Type::NullableString),
+                Type::Class(id) | Type::NullableClass(id) => Ok(Type::NullableClass(id)),
+                _ => Err(Diagnostic::new(
+                    "Nullable structural types or dynamic inference are unsupported",
+                    span,
+                )),
+            };
+        }
+        if self.require_type(a, b, span).is_ok() {
+            Ok(b)
+        } else if self.require_type(b, a, span).is_ok() {
+            Ok(a)
+        } else {
+            Err(Diagnostic::new(
+                "No common type representable in this subset",
+                span,
+            ))
+        }
+    }
+    /// Registra tipos resolvidos inclusive para closures e referências a funções.
+    pub(super) fn expression_expected(
+        &self,
+        e: &Expr<'a>,
+        expected: Option<Type>,
+    ) -> Result<Type, Diagnostic> {
+        let ty = match &e.kind {
+            ExprKind::Closure {
+                parameters,
+                return_type,
+                body,
+                is_arrow,
+            } => self.closure(parameters, *return_type, body, *is_arrow, expected, e.span)?,
+            ExprKind::List {
+                element_type,
+                elements,
+            } => {
+                let context = element_type.or_else(|| expected.and_then(|t| self.element(t)));
+                if let Some(t) = element_type {
+                    self.check_type_name(*t, e.span)?;
+                }
+                let mut inferred = context;
+                for value in elements {
+                    let actual = self.value_expected(value, context)?;
+                    if let Some(target) = context {
+                        self.require_type(actual, target, value.span)?;
+                    }
+                    inferred = Some(match inferred {
+                        Some(previous) if context.is_none() => {
+                            self.common(previous, actual, value.span)?
+                        }
+                        Some(t) => t,
+                        None => actual,
+                    });
+                }
+                let element = inferred.ok_or_else(|| {
+                    Diagnostic::new(
+                        "Empty List requires explicit element type or context",
+                        e.span,
+                    )
+                })?;
+                if element == Type::Void || element == Type::Inferred {
+                    return Err(Diagnostic::new("Unsupported list element type", e.span));
+                }
+                self.intern(TypeShape::List(element))
+            }
+            _ => self.expression_inner(e)?,
+        };
+        self.resolution
+            .borrow_mut()
+            .expr_types
+            .insert((e.span.start, e.span.end), ty);
+        Ok(ty)
+    }
+    /// Analisa valor com contexto e rejeita ausência de resultado.
+    pub(super) fn value_expected(
+        &self,
+        e: &Expr<'a>,
+        expected: Option<Type>,
+    ) -> Result<Type, Diagnostic> {
+        let ty = self.expression_expected(e, expected)?;
+        if ty == Type::Void {
+            Err(Diagnostic::new(
+                "A void expression cannot be used as a value",
+                e.span,
+            ))
+        } else {
+            Ok(ty)
+        }
+    }
+    /// Analisa parâmetros inferidos e um corpo independente de retorno e laços externos.
+    pub(super) fn closure(
+        &self,
+        parameters: &[dartforge_syntax::Parameter<'a>],
+        annotation: Type,
+        body: &[Statement<'a>],
+        is_arrow: bool,
+        expected: Option<Type>,
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let contextual = expected.and_then(|t| self.shape(t));
+        let (context_result, context_params) = match contextual {
+            Some(TypeShape::Function { result, parameters }) => (Some(result), parameters),
+            _ => (None, vec![]),
+        };
+        if !context_params.is_empty() && context_params.len() != parameters.len() {
+            return Err(Diagnostic::new("Incorrect closure parameter count", span));
+        }
+        let mut nested = self.clone();
+        for scope in &mut nested.scopes {
+            for binding in scope.values_mut() {
+                if !binding.is_final {
+                    binding.promoted = None;
+                }
+            }
+        }
+        let mut scope = HashMap::new();
+        let mut types = Vec::new();
+        for (index, p) in parameters.iter().enumerate() {
+            let ty = if p.ty == Type::Inferred {
+                context_params.get(index).copied().ok_or_else(|| {
+                    Diagnostic::new(
+                        "Untyped closure parameter requires function context",
+                        p.span,
+                    )
+                })?
+            } else {
+                self.check_type_name(p.ty, p.span)?;
+                p.ty
+            };
+            if ty == Type::Void || ty == Type::Inferred {
+                return Err(Diagnostic::new(
+                    "Unsupported closure parameter type",
+                    p.span,
+                ));
+            }
+            if scope
+                .insert(
+                    p.name,
+                    Binding {
+                        ty: Some(ty),
+                        is_final: false,
+                        promoted: None,
+                    },
+                )
+                .is_some()
+            {
+                return Err(Diagnostic::new("Duplicate closure parameter", p.span));
+            }
+            types.push(ty);
+        }
+        nested.scopes.push(scope);
+        nested.loop_depth = 0;
+        nested.return_type = if annotation != Type::Inferred {
+            annotation
+        } else {
+            context_result.unwrap_or(Type::Inferred)
+        };
+        let returns = Rc::new(RefCell::new(Vec::new()));
+        nested.inferred_returns = Some(returns.clone());
+        nested.block(body)?;
+        let mut values = returns.borrow().clone();
+        if context_result == Some(Type::Void) && annotation == Type::Inferred {
+            if !is_arrow && values.iter().any(|ty| *ty != Type::Void) {
+                return Err(Diagnostic::new(
+                    "A block closure in void context cannot return a value",
+                    span,
+                ));
+            }
+            values = vec![Type::Void];
+        }
+        if values.is_empty() {
+            values.push(Type::Void);
+        } else if !definitely_returns(body) && values.iter().any(|t| *t != Type::Void) {
+            values.push(Type::Null);
+        }
+        let mut result = values[0];
+        for value in &values[1..] {
+            result = self.common(result, *value, span)?;
+        }
+        if annotation != Type::Inferred {
+            self.require_type(result, annotation, span)?;
+            result = annotation;
+        }
+        let ty = self.intern(TypeShape::Function {
+            result,
+            parameters: types,
+        });
+        if let Some(expected) = expected {
+            self.require_type(ty, expected, span)?;
+        }
+        Ok(ty)
+    }
+    /// Invoca valor funcional aplicando contexto aos argumentos e checando aridade.
+    pub(super) fn invoke(
+        &self,
+        ty: Type,
+        args: &[Expr<'a>],
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let Some(TypeShape::Function { result, parameters }) = self.shape(ty) else {
+            return Err(Diagnostic::new(
+                "Calling a non-function value is unsupported",
+                span,
+            ));
+        };
+        if args.len() != parameters.len() {
+            return Err(Diagnostic::new("Incorrect function argument count", span));
+        }
+        for (argument, expected) in args.iter().zip(parameters) {
+            self.require_type(
+                self.value_expected(argument, Some(expected))?,
+                expected,
+                argument.span,
+            )?;
+        }
+        Ok(result)
+    }
+    /// Tipagem dos membros de coleção incluídos neste marco, com callbacks contextuais.
+    pub(super) fn collection_call(
+        &self,
+        receiver: Type,
+        name: &str,
+        args: &[Expr<'a>],
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let element = self.element(receiver).expect("coleção conhecida");
+        if name == "toList" {
+            if !args.is_empty() {
+                return Err(Diagnostic::new(
+                    "toList accepts no arguments in this subset",
+                    span,
+                ));
+            }
+            return Ok(self.intern(TypeShape::List(element)));
+        }
+        if name == "add" && matches!(self.shape(receiver), Some(TypeShape::List(_))) {
+            if args.len() != 1 {
+                return Err(Diagnostic::new("add expects one element", span));
+            }
+            self.require_type(
+                self.value_expected(&args[0], Some(element))?,
+                element,
+                args[0].span,
+            )?;
+            return Ok(Type::Void);
+        }
+        let result = match name {
+            "where" | "any" => Type::Bool,
+            "forEach" => Type::Void,
+            "map" => Type::Inferred,
+            _ => return Err(Diagnostic::new("Unsupported collection method", span)),
+        };
+        if args.len() != 1 {
+            return Err(Diagnostic::new(
+                "Collection callback requires one argument",
+                span,
+            ));
+        }
+        let callback = self.intern(TypeShape::Function {
+            result,
+            parameters: vec![element],
+        });
+        let actual = self.value_expected(&args[0], Some(callback))?;
+        self.require_type(actual, callback, args[0].span)?;
+        match name {
+            "where" => Ok(self.intern(TypeShape::Iterable(element))),
+            "any" => Ok(Type::Bool),
+            "forEach" => Ok(Type::Void),
+            "map" => {
+                let Some(TypeShape::Function { result, .. }) = self.shape(actual) else {
+                    unreachable!()
+                };
+                if result == Type::Void {
+                    return Err(Diagnostic::new("Mapping to void is unsupported", span));
+                }
+                Ok(self.intern(TypeShape::Iterable(result)))
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+/// Coleta escritas dentro de closures; nomes homônimos são invalidados conservadoramente.
+pub(super) fn captured_writes<'a>(program: &Program<'a>) -> HashSet<&'a str> {
+    let mut names = HashSet::new();
+    for f in &program.functions {
+        scan_body(&f.body, false, &mut names);
+    }
+    for c in &program.classes {
+        for f in &c.fields {
+            scan_expr(&f.initializer, &mut names);
+        }
+        for m in &c.methods {
+            scan_body(&m.body, false, &mut names);
+        }
+    }
+    for e in &program.extensions {
+        for m in &e.methods {
+            scan_body(&m.body, false, &mut names);
+        }
+    }
+    scan_body(&program.statements, false, &mut names);
+    names
+}
+/// Percorre instruções e posições de expressão sem interpretar fluxo executável.
+fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a str>) {
+    for s in body {
+        match &s.kind {
+            StatementKind::Assign { name, value } => {
+                if inside {
+                    names.insert(name);
+                }
+                scan_expr(value, names);
+            }
+            StatementKind::Variable { initializer, .. }
+            | StatementKind::Print(initializer)
+            | StatementKind::Expression(initializer) => scan_expr(initializer, names),
+            StatementKind::FieldAssign {
+                receiver, value, ..
+            } => {
+                scan_expr(receiver, names);
+                scan_expr(value, names);
+            }
+            StatementKind::IndexAssign {
+                receiver,
+                index,
+                value,
+            } => {
+                scan_expr(receiver, names);
+                scan_expr(index, names);
+                scan_expr(value, names);
+            }
+            StatementKind::Return(Some(e)) => scan_expr(e, names),
+            StatementKind::Block(b) => scan_body(b, inside, names),
+            StatementKind::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                scan_expr(condition, names);
+                scan_body(then_body, inside, names);
+                if let Some(b) = else_body {
+                    scan_body(b, inside, names);
+                }
+            }
+            StatementKind::While { condition, body }
+            | StatementKind::DoWhile { condition, body } => {
+                scan_expr(condition, names);
+                scan_body(body, inside, names);
+            }
+            StatementKind::For {
+                initializer,
+                condition,
+                update,
+                body,
+            } => {
+                if let Some(s) = initializer {
+                    scan_body(std::slice::from_ref(s.as_ref()), inside, names);
+                }
+                if let Some(e) = condition {
+                    scan_expr(e, names);
+                }
+                if let Some(s) = update {
+                    scan_body(std::slice::from_ref(s.as_ref()), inside, names);
+                }
+                scan_body(body, inside, names);
+            }
+            _ => {}
+        }
+    }
+}
+/// Visita closures aninhadas e coleta também efeitos em argumentos e receptores.
+fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
+    match &e.kind {
+        ExprKind::Closure { body, .. } => scan_body(body, true, names),
+        ExprKind::List { elements, .. }
+        | ExprKind::Call {
+            arguments: elements,
+            ..
+        } => {
+            for e in elements {
+                scan_expr(e, names);
+            }
+        }
+        ExprKind::Invoke { callee, arguments }
+        | ExprKind::MethodCall {
+            receiver: callee,
+            arguments,
+            ..
+        } => {
+            scan_expr(callee, names);
+            for e in arguments {
+                scan_expr(e, names);
+            }
+        }
+        ExprKind::Index { receiver, index }
+        | ExprKind::Binary {
+            left: receiver,
+            right: index,
+            ..
+        } => {
+            scan_expr(receiver, names);
+            scan_expr(index, names);
+        }
+        ExprKind::Unary { operand, .. }
+        | ExprKind::Member {
+            receiver: operand, ..
+        } => scan_expr(operand, names),
+        _ => {}
+    }
+}

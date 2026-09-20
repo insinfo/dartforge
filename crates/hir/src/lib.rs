@@ -28,11 +28,15 @@ pub struct Module<'a> {
 /// ```
 /// use dartforge_hir::lower;
 /// use dartforge_syntax::Program;
-/// let module = lower(Program { classes: vec![], extensions: vec![], functions: vec![], statements: vec![] });
+/// let module = lower(Program { types: vec![], classes: vec![], extensions: vec![], functions: vec![], statements: vec![] });
 /// assert!(module.functions.is_empty());
 /// ```
 pub fn lower(program: Program<'_>) -> Module<'_> {
-    lower_resolved(program, Resolution::default())
+    let resolution = Resolution {
+        types: program.types.clone(),
+        ..Resolution::default()
+    };
+    lower_resolved(program, resolution)
 }
 
 /// Preserva a AST e os alvos estáticos já validados, sem copiar os corpos.

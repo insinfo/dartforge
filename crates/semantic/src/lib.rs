@@ -4,7 +4,8 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, Type, UnaryOp,
 };
-use dartforge_syntax::{ExtensionTarget, Resolution};
+use dartforge_syntax::{ExtensionTarget, Resolution, TypeShape};
+mod collections;
 use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, rc::Rc};
 
@@ -46,6 +47,8 @@ struct ExtensionInfo<'a> {
 }
 #[derive(Clone)]
 struct Validator<'a> {
+    captured_writes: Rc<HashSet<&'a str>>,
+    inferred_returns: Option<Rc<RefCell<Vec<Type>>>>,
     scopes: Vec<HashMap<&'a str, Binding>>,
     functions: HashMap<&'a str, Signature>,
     return_type: Type,
@@ -63,7 +66,7 @@ struct Validator<'a> {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let programa = Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// let programa = Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert!(dartforge_semantic::validate(&programa).is_ok());
 /// ```
 ///
@@ -83,11 +86,13 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
 ///
 /// # Exemplos
 /// ```
-/// let programa = dartforge_syntax::Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// let programa = dartforge_syntax::Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert!(dartforge_semantic::analyze(&programa).unwrap().extension_calls.is_empty());
 /// ```
 pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
     let mut validator = Validator {
+        captured_writes: Rc::new(collections::captured_writes(program)),
+        inferred_returns: None,
         scopes: Vec::new(),
         functions: HashMap::new(),
         return_type: Type::Void,
@@ -97,8 +102,12 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         in_field_initializer: false,
         extensions: vec![],
         current_extension: None,
-        resolution: Rc::new(RefCell::new(Resolution::default())),
+        resolution: Rc::new(RefCell::new(Resolution {
+            types: program.types.clone(),
+            ..Default::default()
+        })),
     };
+    validator.validate_shapes()?;
     validator.functions.insert(
         "main",
         Signature {
@@ -291,7 +300,11 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                     field.span,
                 ));
             }
-            validator.require_type(validator.value(&field.initializer)?, field.ty, field.span)?;
+            validator.require_type(
+                validator.value_expected(&field.initializer, Some(field.ty))?,
+                field.ty,
+                field.span,
+            )?;
             validator.in_field_initializer = false;
             validator.current_class = None;
         }
@@ -567,6 +580,7 @@ impl<'a> Validator<'a> {
     }
     /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
     fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        self.inferred_returns = None;
         self.check_type_name(function.return_type, function.span)?;
         let mut parameters = HashMap::new();
         for parameter in &function.parameters {
@@ -660,6 +674,9 @@ impl<'a> Validator<'a> {
     }
     /// Compara tipos primitivos e relações nominais de subtipo entre classes.
     fn require_type(&self, actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
+        if matches!(actual, Type::Applied(_)) || matches!(expected, Type::Applied(_)) {
+            return self.require_structural(actual, expected, span);
+        }
         let source = match actual {
             Type::Class(id) | Type::NullableClass(id) => Some(id),
             _ => None,
@@ -688,12 +705,14 @@ impl<'a> Validator<'a> {
     }
     /// Rejeita impressão de objetos até existir o protocolo Dart de toString.
     fn printable(&self, expression: &Expr<'a>) -> Result<(), Diagnostic> {
-        match self.value(expression)? {
-            Type::Class(_) | Type::NullableClass(_) => Err(Diagnostic::new(
-                "Printing class instances requires unsupported toString semantics",
+        let ty = self.value(expression)?;
+        if self.printable_type(ty) {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
+                "Printing objects or function values requires unsupported toString semantics",
                 expression.span,
-            )),
-            _ => Ok(()),
+            ))
         }
     }
 
@@ -758,7 +777,7 @@ impl<'a> Validator<'a> {
                 initializer,
                 ..
             } => {
-                let actual = self.value(initializer)?;
+                let actual = self.value_expected(initializer, *annotation)?;
                 if let Some(expected) = annotation {
                     self.check_type_name(*expected, statement.span)?;
                     self.require_type(actual, *expected, initializer.span)?;
@@ -776,7 +795,8 @@ impl<'a> Validator<'a> {
                     .get_mut(name)
                     .expect("predeclared local");
                 binding.ty = Some(annotation.unwrap_or(actual));
-                binding.promoted = if actual != Type::Null
+                binding.promoted = if !self.captured_writes.contains(name)
+                    && actual != Type::Null
                     && !is_nullable(actual)
                     && is_nullable(annotation.unwrap_or(actual))
                 {
@@ -801,7 +821,11 @@ impl<'a> Validator<'a> {
                         statement.span,
                     ));
                 }
-                self.require_type(self.value(value)?, field.ty, value.span)
+                self.require_type(
+                    self.value_expected(value, Some(field.ty))?,
+                    field.ty,
+                    value.span,
+                )
             }
             StatementKind::Assign { name, value } => {
                 let binding = self.initialized(name, statement.span)?;
@@ -811,7 +835,7 @@ impl<'a> Validator<'a> {
                         statement.span,
                     ));
                 }
-                let actual = self.value(value)?;
+                let actual = self.value_expected(value, binding.ty)?;
                 self.require_type(actual, binding.ty.expect("initialized binding"), value.span)?;
                 // A escrita remove a promoção anterior; valores não nulos estabelecem uma nova.
                 let target = self
@@ -820,7 +844,8 @@ impl<'a> Validator<'a> {
                     .rev()
                     .find_map(|scope| scope.get_mut(name))
                     .expect("resolved binding");
-                target.promoted = if actual != Type::Null
+                target.promoted = if !self.captured_writes.contains(name)
+                    && actual != Type::Null
                     && !is_nullable(actual)
                     && is_nullable(target.ty.expect("initialized binding"))
                 {
@@ -839,6 +864,45 @@ impl<'a> Validator<'a> {
                 }
                 self.printable(expression)
             }
+            StatementKind::IndexAssign {
+                receiver,
+                index,
+                value,
+            } => {
+                let ty = self.value(receiver)?;
+                let Some(TypeShape::List(element)) = self.shape(ty) else {
+                    return Err(Diagnostic::new(
+                        "Index assignment requires a List",
+                        receiver.span,
+                    ));
+                };
+                self.require_type(self.value(index)?, Type::Int, index.span)?;
+                self.require_type(
+                    self.value_expected(value, Some(element))?,
+                    element,
+                    value.span,
+                )
+            }
+            StatementKind::Return(value) if self.inferred_returns.is_some() => {
+                let ty = if let Some(value) = value {
+                    self.expression_expected(
+                        value,
+                        if self.return_type == Type::Inferred || self.return_type == Type::Void {
+                            None
+                        } else {
+                            Some(self.return_type)
+                        },
+                    )?
+                } else {
+                    Type::Void
+                };
+                self.inferred_returns
+                    .as_ref()
+                    .expect("inferência ativa")
+                    .borrow_mut()
+                    .push(ty);
+                Ok(())
+            }
             StatementKind::Return(value) => match (self.return_type, value) {
                 (Type::Void, None) => Ok(()),
                 (Type::Void, Some(expression)) => {
@@ -848,9 +912,11 @@ impl<'a> Validator<'a> {
                     "A value must be returned from this function",
                     statement.span,
                 )),
-                (expected, Some(expression)) => {
-                    self.require_type(self.value(expression)?, expected, expression.span)
-                }
+                (expected, Some(expression)) => self.require_type(
+                    self.value_expected(expression, Some(expected))?,
+                    expected,
+                    expression.span,
+                ),
             },
             StatementKind::Expression(expression) => self.expression(expression).map(|_| ()),
             StatementKind::If {
@@ -1035,6 +1101,7 @@ impl<'a> Validator<'a> {
                     _ => None,
                 };
                 if let Some(name) = name
+                    && !self.captured_writes.contains(name)
                     && let Some(binding) = self
                         .scopes
                         .iter_mut()
@@ -1108,6 +1175,13 @@ impl<'a> Validator<'a> {
     /// Rejeita anotações cujo nome de tipo foi ocultado por uma declaração.
     fn check_type_name(&self, ty: Type, span: Span) -> Result<(), Diagnostic> {
         let name = match ty {
+            Type::Inferred => {
+                return Err(Diagnostic::new(
+                    "Type requires unsupported dynamic inference",
+                    span,
+                ));
+            }
+            Type::Applied(_) => return self.check_shape_name(ty, span),
             Type::Void | Type::Null => return Ok(()),
             Type::Class(id) | Type::NullableClass(id) => {
                 let name = self
@@ -1155,7 +1229,29 @@ impl<'a> Validator<'a> {
     }
     /// Determina o tipo da expressão e valida operadores e chamadas.
     fn expression(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
+        self.expression_expected(expression, None)
+    }
+    /// Determina o tipo sem contexto adicional; o wrapper registra o resultado para os backends.
+    fn expression_inner(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
         match &expression.kind {
+            ExprKind::Closure { .. } | ExprKind::List { .. } => {
+                unreachable!("expressões contextuais são tratadas no wrapper")
+            }
+            ExprKind::Index { receiver, index } => {
+                let ty = self.value(receiver)?;
+                let Some(TypeShape::List(element)) = self.shape(ty) else {
+                    return Err(Diagnostic::new(
+                        "Index access requires a List",
+                        receiver.span,
+                    ));
+                };
+                self.require_type(self.value(index)?, Type::Int, index.span)?;
+                Ok(element)
+            }
+            ExprKind::Invoke { callee, arguments } => {
+                let ty = self.value(callee)?;
+                self.invoke(ty, arguments, expression.span)
+            }
             ExprKind::This => {
                 if self.in_field_initializer {
                     return Err(Diagnostic::new(
@@ -1209,6 +1305,18 @@ impl<'a> Validator<'a> {
                 Ok(Type::Class(*class_id))
             }
             ExprKind::Member { receiver, name } => {
+                let receiver_type = self.value(receiver)?;
+                if let Some(element) = self.element(receiver_type) {
+                    return match *name {
+                        "length" => Ok(Type::Int),
+                        "isEmpty" | "isNotEmpty" => Ok(Type::Bool),
+                        "first" | "last" => Ok(element),
+                        _ => Err(Diagnostic::new(
+                            "Unsupported collection property",
+                            expression.span,
+                        )),
+                    };
+                }
                 let id = self.receiver_class(receiver)?;
                 self.field(id, name).map(|field| field.ty).ok_or_else(|| {
                     Diagnostic::new(
@@ -1223,6 +1331,9 @@ impl<'a> Validator<'a> {
                 arguments,
             } => {
                 let receiver_type = self.value(receiver)?;
+                if self.element(receiver_type).is_some() {
+                    return self.collection_call(receiver_type, name, arguments, expression.span);
+                }
                 if is_nullable(receiver_type) || matches!(receiver_type, Type::Null | Type::Void) {
                     return Err(Diagnostic::new(
                         "Method calls require a non-null receiver",
@@ -1230,11 +1341,8 @@ impl<'a> Validator<'a> {
                     ));
                 }
                 let instance = if let Type::Class(id) = receiver_type {
-                    if self.field(id, name).is_some() {
-                        return Err(Diagnostic::new(
-                            "Instance field is not callable",
-                            expression.span,
-                        ));
+                    if let Some(field) = self.field(id, name) {
+                        return self.invoke(field.ty, arguments, expression.span);
                     }
                     self.method(id, name)
                 } else {
@@ -1306,7 +1414,11 @@ impl<'a> Validator<'a> {
                     ));
                 }
                 for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                    self.require_type(self.value(argument)?, *expected, argument.span)?;
+                    self.require_type(
+                        self.value_expected(argument, Some(*expected))?,
+                        *expected,
+                        argument.span,
+                    )?;
                 }
                 Ok(signature.result)
             }
@@ -1315,6 +1427,15 @@ impl<'a> Validator<'a> {
             ExprKind::String(_) | ExprKind::OwnedString(_) => Ok(Type::String),
             ExprKind::Bool(_) => Ok(Type::Bool),
             ExprKind::Identifier(name) => {
+                if self.lookup(name).is_none()
+                    && !self.has_implicit_member(name)
+                    && let Some(signature) = self.functions.get(name)
+                {
+                    return Ok(self.intern(TypeShape::Function {
+                        result: signature.result,
+                        parameters: signature.parameters.clone(),
+                    }));
+                }
                 let binding = self.initialized(name, expression.span)?;
                 Ok(binding
                     .promoted
@@ -1322,6 +1443,13 @@ impl<'a> Validator<'a> {
                     .expect("initialized binding"))
             }
             ExprKind::Call { name, arguments } => {
+                if self.lookup(name).is_some() {
+                    let ty = self
+                        .initialized(name, expression.span)?
+                        .ty
+                        .expect("initialized binding");
+                    return self.invoke(ty, arguments, expression.span);
+                }
                 if self.has_implicit_member(name) {
                     return Err(Diagnostic::new(
                         "Instance member calls require explicit this receiver",
@@ -1329,12 +1457,11 @@ impl<'a> Validator<'a> {
                     ));
                 }
                 if self.lookup(name).is_some() {
-                    return Err(Diagnostic::new(
-                        format!(
-                            "Calling local '{name}' is unsupported; it shadows a function name"
-                        ),
-                        expression.span,
-                    ));
+                    let ty = self
+                        .initialized(name, expression.span)?
+                        .ty
+                        .expect("initialized binding");
+                    return self.invoke(ty, arguments, expression.span);
                 }
                 if *name == "print" {
                     if arguments.len() != 1 {
@@ -1360,7 +1487,11 @@ impl<'a> Validator<'a> {
                     ));
                 }
                 for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                    self.require_type(self.value(argument)?, *expected, argument.span)?;
+                    self.require_type(
+                        self.value_expected(argument, Some(*expected))?,
+                        *expected,
+                        argument.span,
+                    )?;
                 }
                 Ok(signature.result)
             }
@@ -1424,7 +1555,7 @@ impl<'a> Validator<'a> {
                             ))
                         }
                     }
-                    BinaryOp::Subtract | BinaryOp::Multiply => {
+                    BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Remainder => {
                         self.require_type(lhs, Type::Int, left.span)?;
                         self.require_type(rhs, Type::Int, right.span)?;
                         Ok(Type::Int)
@@ -1527,6 +1658,7 @@ mod tests {
     /// Valida um corpo de main sem funções auxiliares.
     fn check(statements: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![],
@@ -1599,6 +1731,7 @@ mod tests {
         let mut ext = extension(7, "Numbers", Type::Int);
         ext.methods[0].body = vec![ret(binary(BinaryOp::Add, expr(ExprKind::This), int()))];
         let program = Program {
+            types: vec![],
             extensions: vec![ext],
             classes: vec![],
             functions: vec![],
@@ -1610,6 +1743,7 @@ mod tests {
             7
         );
         let program = Program {
+            types: vec![],
             extensions: vec![extension(7, "Numbers", Type::Int)],
             classes: vec![],
             functions: vec![],
@@ -1622,6 +1756,7 @@ mod tests {
     fn extensions_require_unique_applicable_nonnullable_receiver() {
         assert!(
             analyze(&Program {
+                types: vec![],
                 extensions: vec![extension(0, "A", Type::Int), extension(1, "B", Type::Int)],
                 classes: vec![],
                 functions: vec![],
@@ -1637,6 +1772,7 @@ mod tests {
         );
         assert!(
             analyze(&Program {
+                types: vec![],
                 extensions: vec![extension(0, "A", Type::Int)],
                 classes: vec![],
                 functions: vec![nullable],
@@ -1656,6 +1792,7 @@ mod tests {
         );
         assert_eq!(
             analyze(&Program {
+                types: vec![],
                 extensions: vec![extension(0, "A", Type::Int)],
                 classes: vec![],
                 functions: vec![promoted],
@@ -1675,6 +1812,7 @@ mod tests {
             .push(function("value", Type::Int, vec![], vec![ret(int())]));
         assert!(
             analyze(&Program {
+                types: vec![],
                 extensions: vec![extension(0, "E", Type::Class(0))],
                 classes: vec![c],
                 functions: vec![],
@@ -1690,6 +1828,7 @@ mod tests {
         c.fields.push(field("value", false));
         assert!(
             analyze(&Program {
+                types: vec![],
                 extensions: vec![extension(0, "E", Type::Class(0))],
                 classes: vec![c],
                 functions: vec![],
@@ -1709,6 +1848,7 @@ mod tests {
             (Some(Type::NullableClass(0)), 0),
         ] {
             let program = Program {
+                types: vec![],
                 extensions: vec![
                     extension(0, "EA", Type::Class(0)),
                     extension(1, "EB", Type::Class(1)),
@@ -1735,6 +1875,7 @@ mod tests {
             .push(function("onlyChild", Type::Int, vec![], vec![ret(int())]));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "A", None), b],
                 functions: vec![],
@@ -1810,6 +1951,7 @@ mod tests {
             .push(function("get", Type::Int, vec![], vec![ret(int())]));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
@@ -1836,6 +1978,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "Base", None), class(1, "Child", Some(0))],
                 functions: vec![],
@@ -1859,6 +2002,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    types: vec![],
                     extensions: vec![],
                     classes,
                     functions: vec![],
@@ -1879,6 +2023,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
@@ -1892,6 +2037,7 @@ mod tests {
         child.fields.push(field("x", false));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
@@ -1912,6 +2058,7 @@ mod tests {
             .push(function("f", Type::Void, vec![("x", Type::Int)], vec![]));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
                 functions: vec![],
@@ -1928,6 +2075,7 @@ mod tests {
         c.fields.push(field("x", true));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![],
@@ -1944,6 +2092,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "A", None)],
                 functions: vec![],
@@ -1953,6 +2102,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "A", None)],
                 functions: vec![],
@@ -1973,6 +2123,7 @@ mod tests {
         });
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![],
@@ -1995,6 +2146,7 @@ mod tests {
         });
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
@@ -2012,6 +2164,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "C", None), a],
                 functions: vec![],
@@ -2030,6 +2183,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![function("f", Type::Int, vec![], vec![ret(int())])],
@@ -2059,6 +2213,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![base, child, a, b],
                 functions: vec![],
@@ -2084,6 +2239,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![f],
@@ -2119,6 +2275,7 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![c],
                 functions: vec![],
@@ -2134,6 +2291,7 @@ mod tests {
     /// Valida um corpo com um parâmetro inteiro anulável.
     fn nullable_body(body: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![function(
@@ -2325,6 +2483,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![
@@ -2342,6 +2501,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -2415,6 +2575,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![
@@ -2587,6 +2748,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    types: vec![],
                     extensions: vec![],
                     classes: vec![],
                     functions: vec![function("f", Type::Int, vec![], body)],
@@ -2597,6 +2759,7 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -2620,6 +2783,7 @@ mod tests {
     /// Verifica referências antecipadas, recursão e parâmetros mutáveis.
     fn forward_calls_recursion_and_mutable_parameters() {
         let program = Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![
@@ -2656,6 +2820,7 @@ mod tests {
         for arguments in [vec![], vec![int(), int()], vec![expr(ExprKind::Bool(true))]] {
             assert!(
                 validate(&Program {
+                    types: vec![],
                     extensions: vec![],
                     classes: vec![],
                     functions: vec![function(
@@ -2694,6 +2859,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    types: vec![],
                     extensions: vec![],
                     classes: vec![],
                     functions: vec![function("f", Type::Int, vec![], body)],
@@ -2704,6 +2870,7 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -2760,6 +2927,7 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    types: vec![],
                     extensions: vec![],
                     classes: vec![],
                     functions,
@@ -2774,6 +2942,7 @@ mod tests {
     fn parameters_shadow_body_types_but_not_signature_types() {
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -2788,6 +2957,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -2802,6 +2972,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -2977,6 +3148,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![
@@ -3014,6 +3186,7 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                types: vec![],
                 extensions: vec![],
                 classes: vec![],
                 functions: vec![function(
@@ -3104,6 +3277,7 @@ mod tests {
         /// Constrói uma declaração com anotação e inicializador compatíveis.
         fn annotated(ty: Type) -> Statement<'static> {
             let initializer = match ty {
+                Type::Applied(_) | Type::Inferred => unreachable!(),
                 Type::Void
                 | Type::Null
                 | Type::NullableInt

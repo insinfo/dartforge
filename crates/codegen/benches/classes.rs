@@ -33,6 +33,7 @@ fn main() {
     let mut cases = vec![];
     for count in [100u32, 1000] {
         let module = lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: (0..count)
                 .rev()

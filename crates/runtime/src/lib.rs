@@ -1,4 +1,6 @@
-//! Runtime nativo com heap preciso, strings e objetos gerenciados.
+//! Runtime nativo com heap preciso, strings, objetos, células, ambientes e listas.
+//! Closures gerenciadas têm identidade e capturas; ainda não há lowering LLVM
+//! ou execução de closures por esta API. Consulte CONTRACT.md na raiz da crate.
 //! O harness FFI é compilado separadamente; o heap seguro participa dos testes.
 pub mod heap;
 

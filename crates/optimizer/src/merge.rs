@@ -18,8 +18,20 @@ pub struct MergeStats {
 /// Identidades lexicais de bindings, tipos e destinos resolvidos são significativos.
 /// Nomes locais e spans não são; nomes globais e membros permanecem exatos.
 /// Representantes que poderiam ser capturados por locais/parâmetros são excluídos.
-/// O subconjunto não admite tear-offs; somente main é exportado pelo backend JS.
+/// Closures ou referências a funções desativam a fusão neste módulo: identidade é observável.
 pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolution) -> MergeStats {
+    let function_names: BTreeSet<_> = program.functions.iter().map(|f| f.name).collect();
+    let mut identity_observable = false;
+    visit_program(program, &mut |_| {}, &mut |e| {
+        if matches!(&e.kind, ExprKind::Closure { .. })
+            || matches!(&e.kind, ExprKind::Identifier(n) if function_names.contains(n))
+        {
+            identity_observable = true;
+        }
+    });
+    if identity_observable {
+        return MergeStats::default();
+    }
     let mut forbidden = BTreeSet::new();
     for class in &program.classes {
         for field in &class.fields {
@@ -167,6 +179,10 @@ impl<'a> Canonical<'a, '_> {
     fn statement(&mut self, s: &Statement<'a>) -> String {
         use StatementKind::*;
         match &s.kind {
+            IndexAssign { .. } => {
+                self.valid = false;
+                "index-assignment".into()
+            }
             Variable {
                 name,
                 annotation,
@@ -272,6 +288,10 @@ impl<'a> Canonical<'a, '_> {
     fn expression(&mut self, e: &Expr<'a>) -> String {
         use ExprKind::*;
         match &e.kind {
+            Closure { .. } | List { .. } | Index { .. } | Invoke { .. } => {
+                self.valid = false;
+                "allocation-or-indirect".into()
+            }
             Null => "null".into(),
             This => {
                 self.valid = false;
@@ -390,6 +410,15 @@ fn visit_stmt<'a>(
     s(x);
     use StatementKind::*;
     match &mut x.kind {
+        IndexAssign {
+            receiver,
+            index,
+            value,
+        } => {
+            visit_expr(receiver, e);
+            visit_expr(index, e);
+            visit_expr(value, e);
+        }
         Variable { initializer, .. } => visit_expr(initializer, e),
         Assign { value, .. } | Print(value) | Expression(value) => visit_expr(value, e),
         FieldAssign {
@@ -444,6 +473,22 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
     e(x);
     use ExprKind::*;
     match &mut x.kind {
+        Closure { body, .. } => visit_body(body, &mut |_| {}, e),
+        List { elements, .. } => {
+            for x in elements {
+                visit_expr(x, e);
+            }
+        }
+        Index { receiver, index } => {
+            visit_expr(receiver, e);
+            visit_expr(index, e);
+        }
+        Invoke { callee, arguments } => {
+            visit_expr(callee, e);
+            for x in arguments {
+                visit_expr(x, e);
+            }
+        }
         Call { arguments, .. } => {
             for x in arguments {
                 visit_expr(x, e);

@@ -20,6 +20,10 @@ pub struct Token<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Tipo primitivo ou ausência de valor reconhecido neste subconjunto.
 pub enum Type {
+    /// Índice de uma forma estrutural em Program.types.
+    Applied(u32),
+    /// Anotação omitida que a análise contextual precisa resolver.
+    Inferred,
     Void,
     /// Tipo nominal identificado pela posição da declaração de classe.
     Class(u32),
@@ -33,12 +37,20 @@ pub enum Type {
     String,
     Bool,
 }
+/// Forma estrutural compartilhada sem retirar Copy dos tipos da AST.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeShape {
+    List(Type),
+    Iterable(Type),
+    Function { result: Type, parameters: Vec<Type> },
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Operação binária preservada na árvore de expressões.
 pub enum BinaryOp {
     Add,
     Subtract,
     Multiply,
+    Remainder,
     Equal,
     NotEqual,
     Less,
@@ -67,6 +79,24 @@ pub struct Expr<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma expressão.
 pub enum ExprKind<'a> {
+    Closure {
+        parameters: Vec<Parameter<'a>>,
+        return_type: Type,
+        body: Vec<Statement<'a>>,
+        is_arrow: bool,
+    },
+    List {
+        element_type: Option<Type>,
+        elements: Vec<Expr<'a>>,
+    },
+    Index {
+        receiver: Box<Expr<'a>>,
+        index: Box<Expr<'a>>,
+    },
+    Invoke {
+        callee: Box<Expr<'a>>,
+        arguments: Vec<Expr<'a>>,
+    },
     /// Valor canônico de enum, identificado nominalmente e pelo nome declarado.
     EnumValue {
         class_id: u32,
@@ -115,6 +145,11 @@ pub struct Statement<'a> {
 #[derive(Debug)]
 /// Forma sintática de uma instrução.
 pub enum StatementKind<'a> {
+    IndexAssign {
+        receiver: Expr<'a>,
+        index: Expr<'a>,
+        value: Expr<'a>,
+    },
     FieldAssign {
         receiver: Expr<'a>,
         name: &'a str,
@@ -180,6 +215,7 @@ pub struct Function<'a> {
 #[derive(Debug)]
 /// Programa com funções auxiliares e o corpo da entrada main.
 pub struct Program<'a> {
+    pub types: Vec<TypeShape>,
     pub extensions: Vec<Extension<'a>>,
     pub classes: Vec<Class<'a>>,
     pub functions: Vec<Function<'a>>,
@@ -238,5 +274,9 @@ pub struct ExtensionTarget {
 /// deverá usar intervalos virtuais únicos ao combinar bibliotecas com extensions.
 #[derive(Debug, Default)]
 pub struct Resolution {
+    /// Formas originais seguidas das formas inferidas durante a análise.
+    pub types: Vec<TypeShape>,
+    /// Tipo resolvido de cada expressão, inclusive closures e tear-offs.
+    pub expr_types: std::collections::BTreeMap<(usize, usize), Type>,
     pub extension_calls: std::collections::BTreeMap<(usize, usize), ExtensionTarget>,
 }

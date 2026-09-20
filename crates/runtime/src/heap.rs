@@ -1,4 +1,6 @@
 //! Heap preciso com tracing iterativo, raízes explícitas e contadores observáveis.
+//! Células, ambientes, closures e listas são infraestrutura: ainda não implicam
+//! lowering Dart para LLVM. O contrato detalhado está em CONTRACT.md nesta crate.
 
 /// Contadores cumulativos de trabalho; não representam bytes físicos do alocador.
 #[derive(Debug, Clone, Copy, Default)]
@@ -21,6 +23,29 @@ pub struct HeapStats {
     pub peak_estimated_bytes: usize,
 }
 
+/// Payload com tag precisa; bits escalares jamais são interpretados como handles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaggedValue {
+    pub bits: i64,
+    pub is_ref: bool,
+}
+impl TaggedValue {
+    /// Representa inteiro, booleano ou outro escalar definido pelo futuro lowering.
+    pub fn scalar(bits: i64) -> Self {
+        Self {
+            bits,
+            is_ref: false,
+        }
+    }
+    /// Representa handle gerenciado; zero representa referência null.
+    pub fn reference(handle: i64) -> Self {
+        Self {
+            bits: handle,
+            is_ref: true,
+        }
+    }
+}
+
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
 #[derive(Debug)]
 pub enum Value {
@@ -29,6 +54,17 @@ pub enum Value {
         class_id: i64,
         fields: Vec<(i64, bool)>,
     },
+    /// Local capturado mutável compartilhado por ambientes distintos.
+    Cell(TaggedValue),
+    /// Capturas ordenadas imutáveis; mutabilidade compartilhada usa Cell.
+    Environment(Vec<TaggedValue>),
+    /// Identidade própria, código simbólico e ambiente; não executa código Rust/Dart.
+    Closure {
+        code_id: i64,
+        environment: i64,
+    },
+    /// Lista expansível de payloads tipados para tracing, sem generics Dart ainda.
+    List(Vec<TaggedValue>),
 }
 impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
@@ -39,10 +75,37 @@ impl Value {
                 .capacity()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
+            Self::Cell(_) | Self::Closure { .. } => 0,
+            Self::Environment(values) | Self::List(values) => values
+                .capacity()
+                .checked_mul(std::mem::size_of::<TaggedValue>())
+                .expect("payload excede usize"),
         };
         std::mem::size_of::<Self>()
             .checked_add(payload)
             .expect("payload excede usize")
+    }
+    /// Acrescenta somente arestas gerenciadas, inclusive ciclos de captura e listas.
+    fn trace(&self, pending: &mut Vec<i64>) {
+        match self {
+            Self::String(_) => {}
+            Self::Object { fields, .. } => pending.extend(
+                fields
+                    .iter()
+                    .filter_map(|(bits, is_ref)| is_ref.then_some(*bits)),
+            ),
+            Self::Cell(value) => {
+                if value.is_ref {
+                    pending.push(value.bits);
+                }
+            }
+            Self::Environment(values) | Self::List(values) => pending.extend(
+                values
+                    .iter()
+                    .filter_map(|value| value.is_ref.then_some(value.bits)),
+            ),
+            Self::Closure { environment, .. } => pending.push(*environment),
+        }
     }
 }
 
@@ -211,6 +274,143 @@ impl Heap {
         };
         fields[usize::try_from(index).expect("índice inválido")] = (bits, is_ref);
     }
+    /// Aloca protegendo as referências do payload contra a coleta anterior à alocação.
+    fn allocate_linked(&mut self, value: Value) -> i64 {
+        let mut references = Vec::new();
+        value.trace(&mut references);
+        for &handle in &references {
+            if handle != 0 {
+                self.get(handle);
+            }
+        }
+        let frame = self.push_frame_with_slots(references.len());
+        for (slot, handle) in references.into_iter().enumerate() {
+            self.set_root(frame, slot, handle);
+        }
+        let handle = self.allocate(value);
+        self.pop_frame(frame);
+        handle
+    }
+    /// Cria célula compartilhável; proteja o resultado antes da próxima alocação.
+    pub fn create_cell(&mut self, value: TaggedValue) -> i64 {
+        self.allocate_linked(Value::Cell(value))
+    }
+    /// Lê captura mutável sem copiar o objeto apontado por uma referência.
+    pub fn cell_get(&self, handle: i64) -> TaggedValue {
+        match self.get(handle) {
+            Value::Cell(value) => *value,
+            _ => panic!("célula esperada"),
+        }
+    }
+    /// Muda a captura observada por todos os ambientes que compartilham esta célula.
+    pub fn cell_set(&mut self, handle: i64, value: TaggedValue) {
+        self.validate_tag(value);
+        let Value::Cell(current) = self.get_mut(handle) else {
+            panic!("célula esperada")
+        };
+        *current = value;
+    }
+    /// Cria ambiente imutável; cada captura mutável deve apontar para uma célula.
+    pub fn create_environment(&mut self, captures: Vec<TaggedValue>) -> i64 {
+        self.allocate_linked(Value::Environment(captures))
+    }
+    /// Obtém captura por índice; índice inválido provoca panic, sem acesso inseguro.
+    pub fn environment_get(&self, handle: i64, index: usize) -> TaggedValue {
+        match self.get(handle) {
+            Value::Environment(captures) => captures[index],
+            _ => panic!("ambiente esperado"),
+        }
+    }
+    /// Cria nova identidade de closure mesmo para o mesmo código e ambiente.
+    /// O ID de código é simbólico: esta API não realiza despacho nem execução Dart.
+    pub fn create_closure(&mut self, code_id: i64, environment: i64) -> i64 {
+        assert!(code_id >= 0, "ID de código inválido");
+        assert!(
+            matches!(self.get(environment), Value::Environment(_)),
+            "ambiente esperado"
+        );
+        self.allocate_linked(Value::Closure {
+            code_id,
+            environment,
+        })
+    }
+    /// Retorna código simbólico e ambiente, preservando a identidade do handle.
+    pub fn closure_parts(&self, handle: i64) -> (i64, i64) {
+        match self.get(handle) {
+            Value::Closure {
+                code_id,
+                environment,
+            } => (*code_id, *environment),
+            _ => panic!("closure esperada"),
+        }
+    }
+    /// Cria lista expansível com tracing preciso de seus elementos gerenciados.
+    pub fn create_list(&mut self, values: Vec<TaggedValue>) -> i64 {
+        self.allocate_linked(Value::List(values))
+    }
+    /// Quantidade de elementos inicializados; capacidade interna não é comprimento.
+    pub fn list_len(&self, handle: i64) -> usize {
+        match self.get(handle) {
+            Value::List(values) => values.len(),
+            _ => panic!("lista esperada"),
+        }
+    }
+    /// Lê o elemento sem alterar sua tag ou identidade.
+    pub fn list_get(&self, handle: i64, index: usize) -> TaggedValue {
+        match self.get(handle) {
+            Value::List(values) => values[index],
+            _ => panic!("lista esperada"),
+        }
+    }
+    /// Substitui elemento existente; referências removidas deixam de ser rastreadas.
+    pub fn list_set(&mut self, handle: i64, index: usize, value: TaggedValue) {
+        self.validate_tag(value);
+        let Value::List(values) = self.get_mut(handle) else {
+            panic!("lista esperada")
+        };
+        values[index] = value;
+    }
+    /// Acrescenta elemento e contabiliza capacidade real do buffer na política de GC.
+    /// A lista permanece protegida durante eventual coleta causada pelo crescimento.
+    pub fn list_push(&mut self, handle: i64, value: TaggedValue) {
+        self.validate_tag(value);
+        let previous = self.get(handle).estimated_bytes();
+        let Value::List(values) = self.get_mut(handle) else {
+            panic!("lista esperada")
+        };
+        values.push(value);
+        let added = self.get(handle).estimated_bytes() - previous;
+        self.stats.estimated_bytes = self
+            .stats
+            .estimated_bytes
+            .checked_add(added)
+            .expect("heap excede usize");
+        self.stats.peak_estimated_bytes = self
+            .stats
+            .peak_estimated_bytes
+            .max(self.stats.estimated_bytes);
+        if self.stress || self.stats.estimated_bytes > self.byte_threshold {
+            let frame = self.push_frame_with_slots(1);
+            self.set_root(frame, 0, handle);
+            self.collect();
+            self.pop_frame(frame);
+        }
+    }
+    /// Valida referência antes de modificar o grafo; null não exige objeto vivo.
+    fn validate_tag(&self, value: TaggedValue) {
+        if value.is_ref && value.bits != 0 {
+            self.get(value.bits);
+        }
+    }
+    /// Obtém armazenamento mutável; não oferece acesso a slots já coletados.
+    fn get_mut(&mut self, handle: i64) -> &mut Value {
+        let slot = usize::try_from(handle.checked_sub(1).expect("handle inválido"))
+            .expect("handle inválido");
+        self.slots
+            .get_mut(slot)
+            .and_then(Option::as_mut)
+            .expect("handle não vivo")
+    }
     /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
     pub fn collect(&mut self) {
         self.stats.collections += 1;
@@ -241,15 +441,10 @@ impl Heap {
             }
             self.marks[index] = true;
             live += 1;
-            if let Value::Object { fields, .. } =
-                self.slots[index].as_ref().expect("handle não vivo")
-            {
-                self.pending.extend(
-                    fields
-                        .iter()
-                        .filter_map(|(bits, is_ref)| is_ref.then_some(*bits)),
-                );
-            }
+            self.slots[index]
+                .as_ref()
+                .expect("handle não vivo")
+                .trace(&mut self.pending);
         }
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot.is_some() && !self.marks[index] {
@@ -594,5 +789,130 @@ mod fixed_root_tests {
             assert_eq!(stats.reclaimed, 99_999);
             assert!(stats.reserved_slots <= 257);
         }
+    }
+}
+#[cfg(test)]
+mod captures_and_lists {
+    use super::*;
+
+    /// A closure escapada conserva ambiente e celula depois de fechar o frame criador.
+    #[test]
+    fn escaping_closure_preserves_mutable_capture() {
+        let mut heap = Heap::new(true);
+        let outer = heap.push_frame_with_slots(1);
+        let creator = heap.push_frame_with_slots(2);
+        let cell = heap.create_cell(TaggedValue::scalar(10));
+        heap.set_root(creator, 0, cell);
+        let env = heap.create_environment(vec![TaggedValue::reference(cell)]);
+        heap.set_root(creator, 1, env);
+        let closure = heap.create_closure(7, env);
+        heap.set_root(outer, 0, closure);
+        heap.pop_frame(creator);
+        heap.allocate(Value::String("coleta forcada".into()));
+        heap.collect();
+        let (code, escaped) = heap.closure_parts(closure);
+        assert_eq!(code, 7);
+        let captured = heap.environment_get(escaped, 0).bits;
+        assert_eq!(heap.cell_get(captured), TaggedValue::scalar(10));
+        heap.cell_set(captured, TaggedValue::scalar(11));
+        assert_eq!(heap.cell_get(cell), TaggedValue::scalar(11));
+        heap.pop_frame(outer);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    /// Ambientes diferentes compartilham celulas, mas closures conservam identidade propria.
+    #[test]
+    fn aliases_share_cells_and_closure_identity_is_not_code_identity() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(3);
+        let cell = heap.create_cell(TaggedValue::scalar(1));
+        heap.set_root(frame, 0, cell);
+        let first_env = heap.create_environment(vec![TaggedValue::reference(cell)]);
+        let first = heap.create_closure(42, first_env);
+        heap.set_root(frame, 1, first);
+        let second_env = heap.create_environment(vec![TaggedValue::reference(cell)]);
+        let second = heap.create_closure(42, second_env);
+        heap.set_root(frame, 2, second);
+        assert_ne!(first, second);
+        let (_, first_env) = heap.closure_parts(first);
+        let (_, second_env) = heap.closure_parts(second);
+        let alias = heap.environment_get(second_env, 0).bits;
+        heap.cell_set(alias, TaggedValue::scalar(8));
+        assert_eq!(
+            heap.cell_get(heap.environment_get(first_env, 0).bits).bits,
+            8
+        );
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 5);
+    }
+
+    /// Tracing iterativo recupera o ciclo closure -> ambiente -> celula -> closure.
+    #[test]
+    fn closure_capture_cycle_is_collected() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(2);
+        let cell = heap.create_cell(TaggedValue::reference(0));
+        heap.set_root(frame, 0, cell);
+        let env = heap.create_environment(vec![TaggedValue::reference(cell)]);
+        heap.set_root(frame, 1, env);
+        let closure = heap.create_closure(0, env);
+        heap.cell_set(cell, TaggedValue::reference(closure));
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 3);
+        heap.pop_frame(frame);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+        assert_eq!(heap.stats().reclaimed, 3);
+    }
+
+    /// Lista distingue handles reais de inteiros coincidentes e libera referencias removidas.
+    #[test]
+    fn lists_trace_references_not_scalar_bits() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(3);
+        let kept = heap.allocate(Value::String("mantido".into()));
+        heap.set_root(frame, 0, kept);
+        let scalar_bits = heap.allocate(Value::String("descartado".into()));
+        heap.set_root(frame, 1, scalar_bits);
+        let list = heap.create_list(vec![
+            TaggedValue::reference(kept),
+            TaggedValue::scalar(scalar_bits),
+        ]);
+        heap.set_root(frame, 2, list);
+        heap.set_root(frame, 0, 0);
+        heap.set_root(frame, 1, 0);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 2);
+        assert_eq!(heap.list_get(list, 0), TaggedValue::reference(kept));
+        heap.list_set(list, 0, TaggedValue::reference(0));
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 1);
+        heap.list_push(list, TaggedValue::reference(list));
+        assert_eq!(heap.list_len(list), 3);
+        heap.pop_frame(frame);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    /// Crescimento de capacidade entra nos contadores e nos limites de coleta.
+    #[test]
+    fn growable_list_accounts_capacity_and_keeps_new_reference() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(1);
+        let list = heap.create_list(vec![]);
+        heap.set_root(frame, 0, list);
+        let before = heap.stats().estimated_bytes;
+        for n in 0..128 {
+            heap.list_push(list, TaggedValue::scalar(n));
+        }
+        let text = heap.allocate(Value::String("novo".into()));
+        heap.list_push(list, TaggedValue::reference(text));
+        assert!(matches!(heap.get(text),Value::String(s) if s=="novo"));
+        assert_eq!(heap.list_len(list), 129);
+        assert!(heap.stats().estimated_bytes >= before + 129 * std::mem::size_of::<TaggedValue>());
+        heap.pop_frame(frame);
+        heap.collect();
+        assert_eq!(heap.stats().estimated_bytes, 0);
     }
 }

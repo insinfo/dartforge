@@ -20,6 +20,8 @@ use std::fmt::Write;
 struct Output<'a> {
     text: String,
     resolution: &'a dartforge_syntax::Resolution,
+    collections: bool,
+    modulo_used: bool,
 }
 impl std::ops::Deref for Output<'_> {
     type Target = String;
@@ -54,7 +56,7 @@ impl std::ops::DerefMut for Output<'_> {
 /// ```
 /// use dartforge_hir::lower;
 /// use dartforge_syntax::Program;
-/// let module = lower(Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] });
+/// let module = lower(Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] });
 /// let javascript = dartforge_codegen::emit(&module);
 /// assert!(javascript.contains("export function main()"));
 /// assert!(javascript.ends_with("main();\n"));
@@ -63,7 +65,18 @@ pub fn emit(module: &Module<'_>) -> String {
     let mut output = Output {
         text: String::from("// Saída do subconjunto DartForge\n"),
         resolution: &module.resolution,
+        modulo_used: false,
+        collections: module.resolution.types.iter().any(|t| {
+            matches!(
+                t,
+                dartforge_syntax::TypeShape::List(_) | dartforge_syntax::TypeShape::Iterable(_)
+            )
+        }),
     };
+    if output.collections {
+        output.push_str(include_str!("core.js"));
+    }
+
     if module.extensions.iter().any(|extension| {
         extension
             .methods
@@ -124,7 +137,11 @@ pub fn emit(module: &Module<'_>) -> String {
     }
     output.push_str("export function main() {\n");
     statements(&module.statements, 1, &mut output);
-    output.push_str("}\nmain();\n");
+    output.push_str("}\n");
+    if output.modulo_used {
+        output.push_str("function $dartforgeModulo(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n");
+    }
+    output.push_str("const $df_main = main;\nmain();\n");
     output.text
 }
 
@@ -256,6 +273,15 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
 /// Detecta asserções em qualquer expressão, inclusive argumentos e operandos.
 fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
     match &value.kind {
+        ExprKind::Closure { body, .. } => statements_need_null_assert(body),
+        ExprKind::List { elements, .. } => elements.iter().any(expression_needs_null_assert),
+        ExprKind::Index { receiver, index } => {
+            expression_needs_null_assert(receiver) || expression_needs_null_assert(index)
+        }
+        ExprKind::Invoke { callee, arguments } => {
+            expression_needs_null_assert(callee)
+                || arguments.iter().any(expression_needs_null_assert)
+        }
         ExprKind::Unary { op, operand } => {
             *op == UnaryOp::NullAssert || expression_needs_null_assert(operand)
         }
@@ -284,6 +310,15 @@ fn statements_need_null_assert(body: &[Statement<'_>]) -> bool {
 /// Verifica uma instrução sem alterar ordem de avaliação ou alocar cópias da AST.
 fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
     match &statement.kind {
+        StatementKind::IndexAssign {
+            receiver,
+            index,
+            value,
+        } => {
+            expression_needs_null_assert(receiver)
+                || expression_needs_null_assert(index)
+                || expression_needs_null_assert(value)
+        }
         StatementKind::Variable { initializer, .. } => expression_needs_null_assert(initializer),
         StatementKind::FieldAssign {
             receiver, value, ..
@@ -374,10 +409,29 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 expression(value, output);
                 output.push_str(";\n");
             }
-            StatementKind::Print(value) => {
-                output.push_str("console.log(");
+            StatementKind::IndexAssign {
+                receiver,
+                index,
+                value,
+            } => {
+                output.push_str("$dartforgeIndexSet(");
+                expression(receiver, output);
+                output.push(',');
+                expression(index, output);
+                output.push(',');
                 expression(value, output);
                 output.push_str(");\n");
+            }
+            StatementKind::Print(value) => {
+                let collections = output.collections;
+                output.push_str(if collections {
+                    "console.log($dartforgeFormat("
+                } else {
+                    "console.log("
+                });
+                expression(value, output);
+                let collections = output.collections;
+                output.push_str(if collections { "));\n" } else { ");\n" });
             }
             StatementKind::Return(value) => {
                 output.push_str("return");
@@ -501,6 +555,49 @@ fn string_literal(value: &str, output: &mut Output<'_>) {
 /// Emite uma expressão sem duplicar a avaliação de operandos.
 fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
     match &value.kind {
+        ExprKind::Closure {
+            parameters, body, ..
+        } => {
+            output.push_str("((");
+            for (i, p) in parameters.iter().enumerate() {
+                if i > 0 {
+                    output.push(',');
+                }
+                identifier(p.name, output);
+            }
+            output.push_str(") => {\n");
+            block(body, 1, output);
+            output.push_str("\nreturn null;\n})");
+        }
+        ExprKind::List { elements, .. } => {
+            output.push_str("new $dartforgeList([");
+            for (i, e) in elements.iter().enumerate() {
+                if i > 0 {
+                    output.push(',');
+                }
+                expression(e, output);
+            }
+            output.push_str("])");
+        }
+        ExprKind::Index { receiver, index } => {
+            output.push_str("$dartforgeIndex(");
+            expression(receiver, output);
+            output.push(',');
+            expression(index, output);
+            output.push(')');
+        }
+        ExprKind::Invoke { callee, arguments } => {
+            output.push('(');
+            expression(callee, output);
+            output.push_str(")(");
+            for (i, e) in arguments.iter().enumerate() {
+                if i > 0 {
+                    output.push(',');
+                }
+                expression(e, output);
+            }
+            output.push(')');
+        }
         ExprKind::EnumValue { class_id, name } => {
             write!(output, "$dartforgeClass{class_id}.").unwrap();
             identifier(name, output);
@@ -556,8 +653,15 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         ExprKind::Identifier(name) => identifier(name, output),
         ExprKind::Call { name, arguments } => {
             match *name {
-                "main" => output.push_str("main"),
-                "print" => output.push_str("console.log"),
+                "main" => output.push_str("$df_main"),
+                "print" => {
+                    let collections = output.collections;
+                    output.push_str(if collections {
+                        "$dartforgePrint"
+                    } else {
+                        "console.log"
+                    });
+                }
                 _ => identifier(name, output),
             }
             output.push('(');
@@ -589,6 +693,18 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             }
             output.push(')');
         }
+        ExprKind::Binary {
+            op: BinaryOp::Remainder,
+            left,
+            right,
+        } => {
+            output.modulo_used = true;
+            output.push_str("$dartforgeModulo(");
+            expression(left, output);
+            output.push(',');
+            expression(right, output);
+            output.push(')');
+        }
         ExprKind::Binary { op, left, right } => {
             output.push('(');
             expression(left, output);
@@ -596,6 +712,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 BinaryOp::Add => " + ",
                 BinaryOp::Subtract => " - ",
                 BinaryOp::Multiply => " * ",
+                BinaryOp::Remainder => unreachable!("emissão dedicada"),
                 BinaryOp::Equal => " === ",
                 BinaryOp::NotEqual => " !== ",
                 BinaryOp::Less => " < ",
@@ -625,6 +742,7 @@ mod tests {
         let mut enumeration = empty_class(12, None);
         enumeration.enum_values = vec!["name", "other"];
         let program = Program {
+            types: vec![],
             classes: vec![enumeration],
             extensions: vec![],
             functions: vec![],
@@ -683,6 +801,7 @@ mod tests {
     }
     fn compile(statements: Vec<Statement<'_>>) -> String {
         emit(&dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![],
@@ -729,7 +848,7 @@ mod tests {
         assert!(output.contains("let $df_function = true;"));
         assert!(output.contains("const $df_$df_console = 3;"));
         assert!(output.contains("  {\n    let $df_console = 4;\n    $df_console = 5;\n    console.log($df_console);\n  }\n  console.log($df_console);"));
-        assert!(output.ends_with("}\nmain();\n"));
+        assert!(output.ends_with("}\nconst $df_main = main;\nmain();\n"));
     }
 
     #[test]
@@ -953,6 +1072,7 @@ mod tests {
             ))),
         ];
         emit(&dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions,
@@ -974,8 +1094,8 @@ mod tests {
             "main",
             vec![],
         )))]);
-        assert!(main_call.contains("  main();\n"));
-        assert!(!main_call.contains("$df_main("));
+        assert!(main_call.contains("  $df_main();\n"));
+        assert!(main_call.contains("const $df_main = main;"));
     }
 
     #[test]
@@ -1095,6 +1215,7 @@ mod tests {
             }),
         ];
         emit(&dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions,
@@ -1181,6 +1302,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn function_body_locals_can_shadow_parameters() {
         let module = dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![function(
@@ -1225,6 +1347,7 @@ mod tests {
         assert!(plain.contains("console.log((null ?? 4));"));
         assert!(!plain.contains("$dartforgeNullAssert"));
         let module = dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![function(
@@ -1245,6 +1368,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn null_operators_preserve_lazy_evaluation_and_single_effects() {
         let module = dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![function(
@@ -1299,6 +1423,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn null_assert_throws_after_evaluating_operand_once() {
         let module = dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![function(
@@ -1332,6 +1457,7 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn nullable_function_fallthrough_returns_null() {
         let module = dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![],
             functions: vec![
@@ -1433,6 +1559,7 @@ mod tests {
             )],
         };
         let module = dartforge_hir::lower(Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![child, base],
             functions: vec![
@@ -1552,6 +1679,7 @@ mod tests {
         });
         selected.span = span;
         let program = Program {
+            types: vec![],
             classes: vec![],
             extensions: vec![Extension {
                 id: 42,
@@ -1584,6 +1712,8 @@ mod tests {
             statements: vec![print(selected)],
         };
         let resolution = Resolution {
+            types: vec![],
+            expr_types: Default::default(),
             extension_calls: std::collections::BTreeMap::from([(
                 (10, 20),
                 ExtensionTarget {

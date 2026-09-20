@@ -22,7 +22,7 @@ pub struct FoldStats {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let mut programa = Program { extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// let mut programa = Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert_eq!(dartforge_optimizer::fold_constants(&mut programa).folded_expressions, 0);
 /// ```
 pub fn fold_constants(program: &mut Program<'_>) -> FoldStats {
@@ -57,6 +57,15 @@ fn fold_statements(statements: &mut [Statement<'_>], stats: &mut FoldStats) {
 /// Percorre todas as posições de expressão de uma instrução.
 fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
     match &mut statement.kind {
+        StatementKind::IndexAssign {
+            receiver,
+            index,
+            value,
+        } => {
+            fold_expression(receiver, stats);
+            fold_expression(index, stats);
+            fold_expression(value, stats);
+        }
         StatementKind::Variable { initializer, .. } => fold_expression(initializer, stats),
         StatementKind::Assign { value, .. }
         | StatementKind::Print(value)
@@ -112,6 +121,28 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
 /// Simplifica filhos puros e substitui somente operadores com resultado comprovado.
 fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
     let replacement = match &mut expression.kind {
+        ExprKind::Closure { body, .. } => {
+            fold_statements(body, stats);
+            None
+        }
+        ExprKind::List { elements, .. } => {
+            for e in elements {
+                fold_expression(e, stats);
+            }
+            None
+        }
+        ExprKind::Index { receiver, index } => {
+            fold_expression(receiver, stats);
+            fold_expression(index, stats);
+            None
+        }
+        ExprKind::Invoke { callee, arguments } => {
+            fold_expression(callee, stats);
+            for e in arguments {
+                fold_expression(e, stats);
+            }
+            None
+        }
         ExprKind::Unary { op, operand } => {
             fold_expression(operand, stats);
             match (op, &operand.kind) {
@@ -442,6 +473,7 @@ mod tests {
     fn traverses_class_members_and_loop_positions() {
         let sum = || binary(BinaryOp::Add, int(1), int(2));
         let mut program = Program {
+            types: vec![],
             extensions: vec![],
             classes: vec![Class {
                 is_abstract: false,
