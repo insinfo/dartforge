@@ -828,3 +828,44 @@ Nota de execução: `cargo bench -p dartforge-compiler --bench incremental`
 terminou com código 101 e sem saída nesta tentativa. O número de memória do
 DartForge **ainda não foi medido**; o benchmark precisa ser consertado antes de
 qualquer comparação ser afirmada.
+
+### Por que retenção é o problema difícil, e o que Rust de fato resolve
+
+Os dois problemas coexistem e se multiplicam: modelo grande em memória **e**
+retenção. O modelo grande fixa o piso; a retenção faz o piso subir a cada edição.
+
+A vantagem de Rust aqui não é principalmente "libera mais cedo". É que **Rust
+torna a retenção uma decisão visível e tipada, em vez de um acidente invisível**.
+Para segurar um snapshot de análise em Rust foi preciso guardar um `Arc` em algum
+lugar — está escrito no tipo, e aparece na revisão. Em Dart, qualquer campo de
+qualquer objeto vivo pode manter um grafo de gigabytes alcançável, e nada no tipo
+mostra isso. É por isso que essa classe de defeito é difícil de *achar*, não só de
+consertar.
+
+Soltar a última referência em Dart torna a memória *elegível* para coleta em
+algum GC futuro, e só se não houver mesmo nenhuma outra referência. Descobrir que
+havia é trabalho de heap dump, não de compilador.
+
+#### O contra-exemplo que nos impede de simplificar
+
+"GC é a causa" não sobrevive inteiro à evidência. O `tsserver` do TypeScript é
+escrito em TypeScript e sofre do mesmo mal; o `gopls` é Go e teve problemas de
+memória notórios. E a equipe do TypeScript escolheu **Go** para a reescrita
+(`references/typescript-go`) — que também tem coletor.
+
+Ou seja: a maior parte do ganho vem de linguagem compilada com tipos de valor
+baratos e de um modelo de dados compacto. O que Rust acrescenta sobre Go é a
+visibilidade da retenção, e é exatamente o eixo em que o Dart falha pior.
+
+#### E onde Rust não ajuda, que precisamos planejar
+
+Um LSP precisa de modelo compartilhado, mutável e de vida longa. Ownership torna a
+retenção visível, mas torna o compartilhamento incômodo — por isso o
+rust-analyzer usa salsa (interning, memoização de consultas, snapshots em `Arc`)
+em vez de ownership ingênuo. E o cache de consultas do salsa **cresce**, e precisa
+de despejo por LRU.
+
+Conclusão para o plano: escrever em Rust não previne o modo de falha que trava a
+máquina do usuário. Só o torna detectável. Portanto o teste de platô — N edições
+sucessivas e `live_bytes` estabilizando — não é refinamento posterior, é a
+verificação que substitui a garantia que a linguagem não dá.
