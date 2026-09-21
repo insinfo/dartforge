@@ -627,3 +627,49 @@ de recarga por etapa vem antes da escolha do backend.
 gerar código C a partir da HIR — transpilação, não backend. Rápido e simples,
 ao custo de perder controle sobre ABI, integração com o GC e depuração, e de
 exigir uma toolchain C em execução.
+
+## Decisão de foco — um backend pronto antes de muitos pela metade
+
+Decidido pelo proprietário: **o backend JavaScript é o que precisa chegar a
+100%**, com dois perfis sobre o mesmo front-end — compilação ultrarrápida para
+desenvolvimento e compilação lenta e otimizada para produção.
+
+### Por que esta decisão
+
+A aferição contra código real deu o veredito: o backend JavaScript, o mais
+completo dos quatro, aceitava 5 de 179 arquivos de um pacote do pub.dev. Os três
+backends de JIT em construção — ORCv2, Cranelift e dynasm — compilam funções
+com inteiros, laços e chamadas; nenhum compila uma classe. A distância entre
+isso e código Dart de produção não é de polimento, é de ordem de grandeza.
+
+Construir os quatro em paralelo, antes de qualquer um compilar Dart real, é
+otimizar o gargalo errado. É a mesma armadilha que já apareceu neste projeto
+quando quase se trocou o backend de geração de código para resolver contenção da
+trava do Cargo.
+
+### O que muda
+
+- **A métrica de sucesso passa a ser uma só**: quantos dos 179 arquivos do
+  pacote `pdf` compilam, e depois o mesmo contra pacotes de outros domínios.
+  Sondagens sintéticas de construções isoladas continuam úteis para regressão,
+  mas não definem prioridade.
+- **Os experimentos de JIT já entregaram o que se precisava deles agora**: a
+  comparação medida entre os três backends, que responde qual escolher quando o
+  front-end estiver pronto. Eles são pausados, não descartados, e voltam com a
+  decisão de backend já tomada por medição.
+- **O LLVM/AOT acompanha, não lidera.** A regra de que os dois backends
+  concordam no comportamento observável do mesmo programa é o que impede o
+  JavaScript de virar um dialeto próprio. Acompanhar é diferente de liderar.
+
+### Os dois perfis do backend JavaScript
+
+| | Desenvolvimento | Produção |
+| --- | --- | --- |
+| Objetivo | menor latência entre editar e executar | menor JavaScript e maior velocidade no navegador |
+| Emissão | modular, um módulo por biblioteca Dart, nomes estáveis | agrupada, com nomes minificados |
+| Otimizações | nenhuma que atravesse fronteira recarregável | alcance, constantes, fusão, tree shaking |
+| Cache | sessão em memória, revalidação de grafo, cache em disco | irrelevante; o custo é aceitável uma vez |
+
+As duas granularidades continuam sendo requisitos distintos e ambos necessários:
+**granularidade do trabalho**, não reanalisar bibliotecas não afetadas, e
+**granularidade da saída**, um arquivo por biblioteca Dart.
