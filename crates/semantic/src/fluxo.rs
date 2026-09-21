@@ -99,9 +99,9 @@ impl<'a> Validator<'a> {
     ) -> Result<(), Diagnostic> {
         self.invalidate_writes(body);
         let source = self.value(iterable)?;
-        let element = self.element(source).ok_or_else(|| {
-            Diagnostic::new("for-in requires a List or Iterable", iterable.span)
-        })?;
+        let element = self
+            .element(source)
+            .ok_or_else(|| Diagnostic::new("for-in requires a List or Iterable", iterable.span))?;
         let declared = match annotation {
             Some(expected) => {
                 self.check_type_name(expected, span)?;

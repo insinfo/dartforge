@@ -198,17 +198,16 @@ fn check_object_protocol(method: &dartforge_syntax::Function<'_>) -> Result<(), 
                 ));
             }
         }
-        dartforge_syntax::EQUALS_OPERATOR => {
+        dartforge_syntax::EQUALS_OPERATOR
             if method.return_type != Type::Bool
                 || method.parameters.len() != 1
                 || method.parameters[0].kind != ParameterKind::RequiredPositional
-                || method.parameters[0].ty != Type::Object
-            {
-                return Err(Diagnostic::new(
-                    "operator == must be declared as 'bool operator ==(Object other)'",
-                    method.span,
-                ));
-            }
+                || method.parameters[0].ty != Type::Object =>
+        {
+            return Err(Diagnostic::new(
+                "operator == must be declared as 'bool operator ==(Object other)'",
+                method.span,
+            ));
         }
         _ => {}
     }
@@ -571,10 +570,7 @@ pub fn analyze_with_async_library(
             .windows(2)
             .any(|pair| pair[0].name == pair[1].name)
         {
-            return Err(Diagnostic::new(
-                "Duplicate named constructor",
-                class.span,
-            ));
+            return Err(Diagnostic::new("Duplicate named constructor", class.span));
         }
         let mut info = ClassInfo {
             // Declarar qualquer construtor remove o construtor implícito sem
@@ -633,9 +629,7 @@ pub fn analyze_with_async_library(
             }
         }
         for method in class.methods.iter().chain(&class.abstract_methods) {
-            if method.name == class.name
-                || matches!(method.name, "runtimeType" | "noSuchMethod")
-            {
+            if method.name == class.name || matches!(method.name, "runtimeType" | "noSuchMethod") {
                 return Err(Diagnostic::new(
                     "Member name requires unsupported Object or constructor semantics",
                     method.span,
@@ -781,7 +775,8 @@ pub fn analyze_with_async_library(
                     method.span,
                 ));
             }
-            info.static_methods.push((method.name, signature_of(method)));
+            info.static_methods
+                .push((method.name, signature_of(method)));
         }
         info.static_fields
             .sort_unstable_by_key(|member| member.name);
@@ -1904,12 +1899,14 @@ impl<'a> Validator<'a> {
         if self.printable_type(ty) {
             return Ok(());
         }
-        Err(self.missing_to_string(ty, expression.span).unwrap_or_else(|| {
-            Diagnostic::new(
-                "String interpolation requires unsupported toString semantics for this value",
-                expression.span,
-            )
-        }))
+        Err(self
+            .missing_to_string(ty, expression.span)
+            .unwrap_or_else(|| {
+                Diagnostic::new(
+                    "String interpolation requires unsupported toString semantics for this value",
+                    expression.span,
+                )
+            }))
     }
     /// Marca as comparações `==`/`!=` que precisam despachar `operator ==`.
     ///
@@ -2004,12 +2001,14 @@ impl<'a> Validator<'a> {
         if self.printable_type(ty) {
             return Ok(());
         }
-        Err(self.missing_to_string(ty, expression.span).unwrap_or_else(|| {
-            Diagnostic::new(
-                "Printing objects or function values requires unsupported toString semantics",
-                expression.span,
-            )
-        }))
+        Err(self
+            .missing_to_string(ty, expression.span)
+            .unwrap_or_else(|| {
+                Diagnostic::new(
+                    "Printing objects or function values requires unsupported toString semantics",
+                    expression.span,
+                )
+            }))
     }
 
     /// Recusa ler `this` antes de a superclasse concluir sua inicialização.
@@ -2129,13 +2128,16 @@ impl<'a> Validator<'a> {
                 is_const,
                 name,
                 annotation,
+                is_late,
                 initializer,
                 ..
             } => {
                 let actual = self.value_expected(initializer, *annotation)?;
                 if let Some(expected) = annotation {
                     self.check_type_name(*expected, statement.span)?;
-                    self.require_type(actual, *expected, initializer.span)?;
+                    if !(*is_late && matches!(initializer.kind, ExprKind::Null)) {
+                        self.require_type(actual, *expected, initializer.span)?;
+                    }
                 }
                 if annotation.is_none() && actual == Type::Null {
                     return Err(Diagnostic::new(
@@ -2428,7 +2430,7 @@ impl<'a> Validator<'a> {
                     .iter()
                     .rposition(|candidate| *candidate == *label)
                 {
-                    Some(position) if boundary.map_or(true, |index| position > index) => Ok(()),
+                    Some(position) if boundary.is_none_or(|index| position > index) => Ok(()),
                     Some(_) => Err(Diagnostic::new(
                         format!("Can't reference label '{label}' declared in an outer method."),
                         statement.span,
@@ -2485,14 +2487,7 @@ impl<'a> Validator<'a> {
                 annotation,
                 iterable,
                 body,
-            } => self.for_in(
-                name,
-                *annotation,
-                *is_final,
-                iterable,
-                body,
-                statement.span,
-            ),
+            } => self.for_in(name, *annotation, *is_final, iterable, body, statement.span),
             StatementKind::Block(statements) => self.block(statements),
         }
     }
@@ -2837,7 +2832,8 @@ impl<'a> Validator<'a> {
                 if matches!(
                     ty,
                     Type::Double | Type::Num | Type::NullableDouble | Type::NullableNum
-                ) && self.require_subtype(actual, *ty, expression.span).is_err() {
+                ) && self.require_subtype(actual, *ty, expression.span).is_err()
+                {
                     return Err(Diagnostic::new(
                         "Casts to double or num require a statically known numeric operand",
                         expression.span,
@@ -3730,6 +3726,7 @@ mod tests {
             name,
             annotation: None,
             is_final: false,
+            is_late: false,
             initializer,
         })
     }
@@ -3965,6 +3962,7 @@ mod tests {
                         name: "x",
                         annotation,
                         is_final: false,
+                        is_late: false,
                         initializer: expr(ExprKind::Construct {
                             class_id: 1,
                             arguments: vec![],
@@ -3995,6 +3993,7 @@ mod tests {
                         name: "x",
                         annotation: Some(Type::Class(0)),
                         is_final: false,
+                        is_late: false,
                         initializer: expr(ExprKind::Construct {
                             class_id: 1,
                             arguments: vec![]
@@ -4018,6 +4017,11 @@ mod tests {
     ) -> dartforge_syntax::Class<'static> {
         dartforge_syntax::Class {
             constructor: None,
+            constructor_extras: None,
+            named_constructors: vec![],
+            static_fields: vec![],
+            static_methods: vec![],
+            is_library_globals: false,
             factories: vec![],
             annotations: vec![],
             modifier: ClassModifier::None,
@@ -4038,6 +4042,7 @@ mod tests {
             enum_values: vec![],
             fields: vec![],
             methods: vec![],
+            type_parameters: vec![],
             span: SPAN,
         }
     }
@@ -4047,6 +4052,7 @@ mod tests {
             name,
             ty: Type::Int,
             is_final,
+            is_late: false,
             initializer: Some(int()),
             span: SPAN,
         }
@@ -4087,6 +4093,7 @@ mod tests {
                         name: "b",
                         annotation: Some(Type::Class(0)),
                         is_final: false,
+                        is_late: false,
                         initializer: expr(ExprKind::Construct {
                             class_id: 1,
                             arguments: vec![]
@@ -4119,6 +4126,7 @@ mod tests {
                     name: "c",
                     annotation: Some(Type::Class(1)),
                     is_final: false,
+                    is_late: false,
                     initializer: expr(ExprKind::Construct {
                         class_id: 0,
                         arguments: vec![]
@@ -4283,6 +4291,7 @@ mod tests {
             name: "self",
             ty: Type::Class(0),
             is_final: true,
+            is_late: false,
             initializer: Some(expr(ExprKind::This)),
             span: SPAN,
         });
@@ -4308,6 +4317,7 @@ mod tests {
             name: "x",
             ty: Type::Int,
             is_final: false,
+            is_late: false,
             initializer: Some(call("f", vec![])),
             span: SPAN,
         });
@@ -4437,6 +4447,7 @@ mod tests {
             name: "x",
             ty: Type::NullableInt,
             is_final: false,
+            is_late: false,
             initializer: Some(expr(ExprKind::Null)),
             span: SPAN,
         });
@@ -4502,6 +4513,7 @@ mod tests {
                     name: "x",
                     annotation: Some(Type::NullableInt),
                     is_final: false,
+                    is_late: false,
                     initializer: int()
                 }),
                 print(binary(BinaryOp::Add, id("x"), int())),
@@ -4717,6 +4729,7 @@ mod tests {
                         name: "x",
                         annotation: Some(Type::NullableInt),
                         is_final: false,
+                        is_late: false,
                         initializer: expr(ExprKind::Null)
                     }),
                     print(binary(BinaryOp::Add, id("x"), int()))
@@ -4880,6 +4893,7 @@ mod tests {
                     name: "x",
                     annotation: None,
                     is_final: true,
+                    is_late: false,
                     initializer: int()
                 }),
                 Some(stmt(StatementKind::Assign {
@@ -5203,6 +5217,7 @@ mod tests {
                             name: "x",
                             annotation: Some(Type::Int),
                             is_final: false,
+                            is_late: false,
                             initializer: int()
                         }),
                         ret(int())
@@ -5310,6 +5325,7 @@ mod tests {
                     name: "x",
                     annotation: None,
                     is_final: true,
+                    is_late: false,
                     initializer: int()
                 }),
                 stmt(StatementKind::Assign {
@@ -5339,6 +5355,7 @@ mod tests {
                 name: "x",
                 annotation: Some(Type::Bool),
                 is_final: false,
+                is_late: false,
                 initializer: int()
             })])
             .is_err()
@@ -5529,6 +5546,7 @@ mod tests {
                 name: "value",
                 annotation: Some(ty),
                 is_final: false,
+                is_late: false,
                 initializer,
             })
         }

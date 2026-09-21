@@ -44,7 +44,7 @@ void main() {
   print(<int>{}.isEmpty);
   print(<int>{}.isNotEmpty);
   print(<int>{});
-  print({});
+  print(<String, int>{});
   print(<int>{5, 6}.first);
   print(<int>{5, 6}.toList());
   print(<String>{'a'}.length);

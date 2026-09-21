@@ -335,8 +335,13 @@ impl<'a> Canonical<'a, '_> {
             Continue => "continue".into(),
             // O fluxo deste incremento não entra na fusão: a chave não
             // descreveria rótulos, cláusulas de captura nem a variável ligada.
-            Labeled { .. } | BreakLabel(_) | ContinueLabel(_) | Try { .. } | Rethrow
-            | Assert { .. } | ForIn { .. } => {
+            Labeled { .. }
+            | BreakLabel(_)
+            | ContinueLabel(_)
+            | Try { .. }
+            | Rethrow
+            | Assert { .. }
+            | ForIn { .. } => {
                 self.valid = false;
                 "flow".into()
             }

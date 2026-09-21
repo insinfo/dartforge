@@ -155,10 +155,8 @@ fn modulo_no_llvm_e_rejeitado() {
 #[test]
 #[ignore = "requer Node.js no PATH"]
 fn modulo_reproduz_o_oraculo() {
-    let js = compile(
-        "void main() { print(7 % 3); print(-7 % 3); print(7 % -3); print(8 % 4); }",
-    )
-    .unwrap();
+    let js = compile("void main() { print(7 % 3); print(-7 % 3); print(7 % -3); print(8 % 4); }")
+        .unwrap();
     assert_eq!(executar(&js), ESPERADO_MODULO);
 }
 
@@ -244,19 +242,13 @@ fn mapa_const_ainda_cai_na_recusa_generica() {
 // no backend LLVM, sempre com o span do trecho culpado.
 // ---------------------------------------------------------------------------
 
-
-
-
-
 /// Item 5a: `~/` trunca para zero e erra em divisor zero (oráculo Dart).
 #[test]
 #[ignore = "requer TruncDivide ponta a ponta (braços do agente de double pendentes)"]
 fn divisao_inteira_reproduz_o_oraculo() {
-    let js = compile("void main() { print(7 ~/ 2); print(-7 ~/ 2); print(7 ~/ -2); }")
-        .unwrap();
+    let js = compile("void main() { print(7 ~/ 2); print(-7 ~/ 2); print(7 ~/ -2); }").unwrap();
     assert_eq!(executar(&js), "3\n-3\n-3\n");
 }
-
 
 /// Item 6: `Enum.values` é a lista canônica congelada dos valores, em ordem.
 #[test]
@@ -286,15 +278,13 @@ fn mapa_const_tem_mensagem_propria() {
 #[test]
 #[ignore = "requer Enum.values no frontend antes da rejeição nativa"]
 fn enum_values_no_llvm_e_rejeitado() {
-    let error =
-        compile_llvm("enum Cor { vermelho, verde } void main() { print(Cor.values); }")
-            .unwrap_err();
+    let error = compile_llvm("enum Cor { vermelho, verde } void main() { print(Cor.values); }")
+        .unwrap_err();
     assert_eq!(
         error.message,
         "LLVM AOT ainda não suporta Enum.values no backend nativo"
     );
 }
-
 
 /// Fixture integral executada em Node contra a saída dos dois SDKs.
 ///

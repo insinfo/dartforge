@@ -132,6 +132,7 @@ impl<'a> Validator<'a> {
         })?;
         for field in &class.fields {
             if field.initializer.is_none()
+                && !field.is_late
                 && !initialized.contains(&field.name)
                 && (field.is_final || !self.may_be_null(field.ty))
             {
@@ -265,7 +266,12 @@ impl<'a> Validator<'a> {
         {
             plans.push((
                 "",
-                Rc::new(self.const_plan(class, &constructor.parameters, extras, constructor.span)?),
+                Rc::new(self.const_plan(
+                    class,
+                    &constructor.parameters,
+                    extras,
+                    constructor.span,
+                )?),
             ));
         }
         for declared in &class.named_constructors {

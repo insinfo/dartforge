@@ -150,12 +150,7 @@ fn entry_pair(key: &Expr<'_>, value: &Expr<'_>, output: &mut Output<'_>) {
 /// O acumulador é um array local de uma função seta invocada na hora, então o
 /// literal continua sendo uma expressão e o temporário não escapa. Cada
 /// elemento entra em ordem, e um `for` percorre o iterável uma única vez.
-pub(super) fn builder(
-    elements: &[Expr<'_>],
-    map: bool,
-    depth: usize,
-    output: &mut Output<'_>,
-) {
+pub(super) fn builder(elements: &[Expr<'_>], map: bool, depth: usize, output: &mut Output<'_>) {
     let id = output.next_build;
     output.next_build += 1;
     let accumulator = format!("$dartforgeBuild{id}");
@@ -177,7 +172,7 @@ fn append(
     element: &Expr<'_>,
     accumulator: &str,
     map: bool,
-    depth: usize,
+    _depth: usize,
     output: &mut Output<'_>,
 ) {
     match &element.kind {
@@ -189,11 +184,11 @@ fn append(
             output.push_str("if (");
             expression(condition, output);
             output.push_str(") { ");
-            append(then_element, accumulator, map, depth, output);
+            append(then_element, accumulator, map, _depth, output);
             output.push('}');
             if let Some(other) = else_element {
                 output.push_str(" else { ");
-                append(other, accumulator, map, depth, output);
+                append(other, accumulator, map, _depth, output);
                 output.push('}');
             }
             output.push('\n');
@@ -206,7 +201,11 @@ fn append(
                     iterable,
                     ..
                 } => {
-                    output.push_str(if *is_final { "for (const " } else { "for (let " });
+                    output.push_str(if *is_final {
+                        "for (const "
+                    } else {
+                        "for (let "
+                    });
                     declaration(name, output);
                     output.push_str(" of ");
                     expression(iterable, output);
@@ -234,7 +233,7 @@ fn append(
                 }
                 _ => panic!("AST inválida: cabeçalho de for de literal fora das duas formas"),
             }
-            append(element, accumulator, map, depth, output);
+            append(element, accumulator, map, _depth, output);
             output.push_str("}\n");
         }
         ExprKind::Spread {

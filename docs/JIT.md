@@ -41,10 +41,11 @@ e `Timer`. Isso é limite de `crates/llvm`, não deste crate.
   harness AOT. `JitSession` contém ponteiros crus e por isso não é `Send` nem
   `Sync`: o compilador impede o engano em vez de deixá-lo virar heap vazio em
   tempo de execução.
-* **Hot reload.** Esta etapa entrega apenas a execução. Recarregar código sem
-  reiniciar exige stubs indiretos
-  (`LLVMOrcCreateLocalIndirectStubsManager`/`LazyCallThroughManager`) e um
-  protocolo de gerações; nada disso está aqui.
+* **Hot reload.** Disponível via [`JitSession::hot_reload`]: substitui funções e
+  pontos de entrada em tempo de execução descarregando o `ResourceTracker` do módulo
+  anterior e registrando a nova versão sob um novo rastreador, com segurança
+  transacional (IR inválido falha em `parse-ir` sem corromper a sessão) e preservando
+  o estado do heap gerenciado da thread.
 
 ### Falhas que derrubam o processo hospedeiro
 

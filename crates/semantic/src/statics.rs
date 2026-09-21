@@ -17,7 +17,9 @@ impl<'a> Validator<'a> {
         member: &dartforge_syntax::StaticField<'a>,
     ) -> Result<(), Diagnostic> {
         let Some(initializer) = &member.initializer else {
-            if member.is_final || member.is_const || !self.may_be_null(member.ty) {
+            if !member.is_late
+                && (member.is_final || member.is_const || !self.may_be_null(member.ty))
+            {
                 return Err(Diagnostic::new(
                     "Static and top-level variables require an initializer unless the type is nullable",
                     member.span,

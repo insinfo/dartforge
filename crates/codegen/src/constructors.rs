@@ -299,9 +299,9 @@ fn super_arguments(
                 _ => None,
             })
         } else {
-            let found = arguments.get(positional).filter(|argument| {
-                !matches!(argument.kind, ExprKind::NamedArgument { .. })
-            });
+            let found = arguments
+                .get(positional)
+                .filter(|argument| !matches!(argument.kind, ExprKind::NamedArgument { .. }));
             positional += 1;
             found
         };

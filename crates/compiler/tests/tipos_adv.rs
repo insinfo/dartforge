@@ -21,7 +21,8 @@ const TYPEDEF: &str = "typedef F = int Function(int);\ntypedef int G(int x);\nin
 const EXTENSION_TYPE: &str = "extension type Id(int v) {\n  int answer() {\n    return 42;\n  }\n}\nvoid main() {\n  var id = Id(21);\n  print(id);\n  print(id.answer());\n  print(id is Id);\n}\n";
 
 /// `late` com inicializador (erasure ansioso; sem célula de verificação ainda).
-const LATE_EAGER: &str = "void main() {\n  late int x = 40 + 2;\n  late final int y = 7;\n  print(x + y);\n}\n";
+const LATE_EAGER: &str =
+    "void main() {\n  late int x = 40 + 2;\n  late final int y = 7;\n  print(x + y);\n}\n";
 
 /// Erasure de classe genérica compila para JavaScript com a representação única.
 #[test]
@@ -169,7 +170,9 @@ fn advanced_types_match_dart_stdout() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(
-            String::from_utf8(output.stdout).unwrap().replace("\r\n", "\n"),
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .replace("\r\n", "\n"),
             expected,
             "{source}"
         );

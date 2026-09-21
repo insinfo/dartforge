@@ -440,10 +440,7 @@ impl<'a> Validator<'a> {
         for (argument, bound) in arguments.iter().zip(bounds) {
             self.check_type_name(*argument, span)?;
             if matches!(argument, Type::Void | Type::Inferred) {
-                return Err(Diagnostic::new(
-                    "Unsupported class type argument",
-                    span,
-                ));
+                return Err(Diagnostic::new("Unsupported class type argument", span));
             }
             self.require_type(
                 *argument,
@@ -472,10 +469,7 @@ impl<'a> Validator<'a> {
         if bindings[0].is_none() {
             let candidate = self.substitute(bound, &bindings, Type::Inferred);
             if self.has_inferred(candidate) {
-                return Err(Diagnostic::new(
-                    "Cannot infer class type argument",
-                    span,
-                ));
+                return Err(Diagnostic::new("Cannot infer class type argument", span));
             }
             bindings[0] = Some(candidate);
         }

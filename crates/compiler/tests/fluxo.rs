@@ -33,7 +33,11 @@ fn rejeita(source: &str, message: &str, span: Span) {
 /// Calcula o intervalo de um trecho único da fonte, em bytes.
 fn trecho(source: &str, needle: &str) -> Span {
     let start = source.find(needle).expect(needle);
-    assert_eq!(source.rfind(needle), Some(start), "trecho ambíguo: {needle}");
+    assert_eq!(
+        source.rfind(needle),
+        Some(start),
+        "trecho ambíguo: {needle}"
+    );
     Span {
         start,
         end: start + needle.len(),
@@ -143,9 +147,7 @@ fn catch_binds_the_value_and_an_opaque_stack_trace() {
 /// `rethrow` relança o valor da cláusula mais interna, e não a de fora.
 #[test]
 fn rethrow_uses_the_innermost_catch_variable() {
-    let js = javascript(
-        "void main(){try{try{throw 'a';}catch(e){rethrow;}}catch(e){print('f');}}",
-    );
+    let js = javascript("void main(){try{try{throw 'a';}catch(e){rethrow;}}catch(e){print('f');}}");
     // A cláusula interna recebe `$dartforgeCaught0`; o `rethrow` relança o
     // valor da cláusula mais interna, não o da de fora.
     assert!(js.contains("throw $dartforgeCaught0;"), "{js}");
@@ -205,14 +207,12 @@ fn try_without_any_clause_is_rejected() {
 #[test]
 fn throw_proves_the_required_return() {
     assert!(compile("int f(){throw 'x';}void main(){print(f());}").is_ok());
-    assert!(
-        compile("int f(){try{return 1;}catch(e){throw 'x';}}void main(){print(f());}").is_ok()
-    );
-    assert!(
-        compile("int f(){try{return 1;}catch(e){rethrow;}}void main(){print(f());}").is_ok()
-    );
+    assert!(compile("int f(){try{return 1;}catch(e){throw 'x';}}void main(){print(f());}").is_ok());
+    assert!(compile("int f(){try{return 1;}catch(e){rethrow;}}void main(){print(f());}").is_ok());
     // Uma cláusula que não sai deixa um caminho sem retorno.
-    assert!(compile("int f(){try{return 1;}catch(e){print('x');}}void main(){print(f());}").is_err());
+    assert!(
+        compile("int f(){try{return 1;}catch(e){print('x');}}void main(){print(f());}").is_err()
+    );
     // O finally que retorna encerra a função por qualquer caminho.
     assert!(compile("int f(){try{print('a');}finally{return 2;}}void main(){print(f());}").is_ok());
 }
@@ -229,7 +229,10 @@ fn throw_accepts_a_possibly_null_value() {
 fn if_null_with_a_throw_keeps_the_left_type() {
     let js = javascript("int? n()=>null;void main(){int x=n() ?? (throw 'f');print(x);}");
     assert!(js.contains("$dartforgeThrow("), "{js}");
-    assert!(js.contains("function $dartforgeThrow(value) { throw value; }"), "{js}");
+    assert!(
+        js.contains("function $dartforgeThrow(value) { throw value; }"),
+        "{js}"
+    );
 }
 
 /// Dart 3.6.2 e 3.13.4 exigem parênteses em `a ?? throw e`; o parser também.
@@ -301,9 +304,7 @@ fn for_in_over_an_existing_variable_is_rejected() {
 /// Rótulos alcançam laços externos em `for`, `while` e `do/while`.
 #[test]
 fn labels_reach_the_outer_loop_in_every_loop_form() {
-    let js = javascript(
-        "void main(){a:for(var i=0;i<2;i++){b:while(true){continue a;}}}",
-    );
+    let js = javascript("void main(){a:for(var i=0;i<2;i++){b:while(true){continue a;}}}");
     assert!(js.contains("$df_a: for ("), "{js}");
     assert!(js.contains("$df_b: while ("), "{js}");
     assert!(js.contains("continue $df_a;"), "{js}");
@@ -395,7 +396,9 @@ fn both_conditional_branches_get_the_null_safety_promotion() {
     // A promoção não escapa para o outro ramo.
     assert!(compile("int? n()=>null;void main(){int? v=n();print(v==null?v+1:0);}").is_err());
     // Nem para a junção depois da expressão.
-    assert!(compile("int? n()=>null;void main(){int? v=n();print(v==null?0:1);print(v+1);}").is_err());
+    assert!(
+        compile("int? n()=>null;void main(){int? v=n();print(v==null?0:1);print(v+1);}").is_err()
+    );
 }
 
 /// Um ramo `throw` empresta o tipo do outro ramo.
@@ -419,7 +422,11 @@ fn assertions_are_always_emitted() {
             let js = compile_path_with_options_source(source, optimization, tree_shaking);
             // A definição `function $dartforgeAssertionError(` também contém
             // o prefixo; só os lançamentos contam como asserções emitidas.
-            assert_eq!(js.matches("throw $dartforgeAssertionError(").count(), 2, "{js}");
+            assert_eq!(
+                js.matches("throw $dartforgeAssertionError(").count(),
+                2,
+                "{js}"
+            );
             assert!(js.contains("function $dartforgeAssertionError("), "{js}");
         }
     }
@@ -491,16 +498,17 @@ fn a_bare_catch_variable_is_object_and_needs_narrowing() {
     );
     // `on T` e a promoção por `is` resolvem o caso.
     assert!(compile("void main(){try{throw 'a';}on String catch(e){print(e);}}").is_ok());
-    assert!(
-        compile("void main(){try{throw 'a';}catch(e){if(e is String){print(e);}}}").is_ok()
-    );
+    assert!(compile("void main(){try{throw 'a';}catch(e){if(e is String){print(e);}}}").is_ok());
 }
 
 /// O backend nativo rejeita o fluxo novo com mensagem própria.
 #[test]
 fn the_native_backend_rejects_the_new_flow() {
     for (source, feature) in [
-        ("void main(){try{print('a');}finally{print('b');}}", "try, catch, finally e rethrow"),
+        (
+            "void main(){try{print('a');}finally{print('b');}}",
+            "try, catch, finally e rethrow",
+        ),
         ("void main(){assert(true);}", "assert"),
         // O literal `<int>[1]` é um valor `Applied`, então a barreira de
         // coleções do backend dispara antes do braço de `for-in`.
@@ -508,8 +516,14 @@ fn the_native_backend_rejects_the_new_flow() {
             "void main(){for(final x in <int>[1]){print(x);}}",
             "coleções e funções como valores (lowering nativo pendente)",
         ),
-        ("void main(){a:for(var i=0;i<1;i++){break a;}}", "rótulos de laço"),
-        ("void main(){print(true ? 1 : 2);}", "o operador condicional"),
+        (
+            "void main(){a:for(var i=0;i<1;i++){break a;}}",
+            "rótulos de laço",
+        ),
+        (
+            "void main(){print(true ? 1 : 2);}",
+            "o operador condicional",
+        ),
         ("void main(){throw 'a';}", "throw"),
     ] {
         let error = dartforge_compiler::compile_llvm(source).expect_err(source);

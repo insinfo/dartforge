@@ -61,7 +61,11 @@ fn locais_da_instrucao(instrucao: &Statement<'_>) -> usize {
 
 /// Profundidade máxima da pilha de avaliação exigida pelo corpo.
 pub(crate) fn profundidade(corpo: &[Statement<'_>]) -> usize {
-    corpo.iter().map(profundidade_da_instrucao).max().unwrap_or(0)
+    corpo
+        .iter()
+        .map(profundidade_da_instrucao)
+        .max()
+        .unwrap_or(0)
 }
 
 /// Profundidade máxima exigida por uma instrução e por tudo que ela contém.
@@ -118,7 +122,10 @@ fn necessidade(expressao: &Expr<'_>) -> usize {
         ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) => 0,
         ExprKind::Unary { operand, .. } => necessidade(operand),
         ExprKind::Binary { op, left, right } => {
-            if matches!(op, dartforge_syntax::BinaryOp::And | dartforge_syntax::BinaryOp::Or) {
+            if matches!(
+                op,
+                dartforge_syntax::BinaryOp::And | dartforge_syntax::BinaryOp::Or
+            ) {
                 necessidade(left).max(necessidade(right))
             } else {
                 necessidade(left).max(1 + necessidade(right))

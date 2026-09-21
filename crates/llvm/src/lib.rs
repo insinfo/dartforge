@@ -158,7 +158,11 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
                 "listas de inicialização, super explícito e const (lowering nativo pendente)",
             ));
         }
-        if class.named_constructors.iter().any(|declared| !declared.extras.is_plain()) {
+        if class
+            .named_constructors
+            .iter()
+            .any(|declared| !declared.extras.is_plain())
+        {
             return Err(error(
                 class.span,
                 "listas de inicialização, super explícito e const (lowering nativo pendente)",
@@ -223,23 +227,18 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     // parser apaga `T` para o bound (erasure), então este braço é defensivo
     // para HIR construída manualmente ou evoluções da sintaxe.
     if let Some(c) = module.classes.iter().find(|c| {
-        c.fields.iter().any(|f| {
-            matches!(
-                f.ty,
-                Type::Parameter(_) | Type::NullableParameter(_)
-            )
-        }) || c.static_fields.iter().any(|f| {
-            matches!(
-                f.ty,
-                Type::Parameter(_) | Type::NullableParameter(_)
-            )
-        }) || c
-            .methods
+        c.fields
             .iter()
-            .chain(&c.static_methods)
-            .chain(&c.factories)
-            .flat_map(|m| m.parameters.iter().map(|p| p.ty).chain([m.return_type]))
-            .any(|ty| matches!(ty, Type::Parameter(_) | Type::NullableParameter(_)))
+            .any(|f| matches!(f.ty, Type::Parameter(_) | Type::NullableParameter(_)))
+            || c.static_fields
+                .iter()
+                .any(|f| matches!(f.ty, Type::Parameter(_) | Type::NullableParameter(_)))
+            || c.methods
+                .iter()
+                .chain(&c.static_methods)
+                .chain(&c.factories)
+                .flat_map(|m| m.parameters.iter().map(|p| p.ty).chain([m.return_type]))
+                .any(|ty| matches!(ty, Type::Parameter(_) | Type::NullableParameter(_)))
     }) {
         return Err(error(
             c.span,
@@ -544,8 +543,14 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         }
 
         ExprKind::Record { .. } => return Err(error(value.span, "records")),
-        ExprKind::Conditional { .. } => {
-            return Err(error(value.span, "o operador condicional"));
+        ExprKind::Conditional {
+            condition,
+            then_value,
+            else_value,
+        } => {
+            validate_expression(condition)?;
+            validate_expression(then_value)?;
+            validate_expression(else_value)?;
         }
         ExprKind::Throw(_) => return Err(error(value.span, "throw")),
         ExprKind::Const(e) => validate_expression(e)?,
@@ -1326,6 +1331,150 @@ impl<'a> FunctionEmitter<'a> {
             text: register,
         })
     }
+    /// Baixa o operador condicional `condition ? then_value : else_value`.
+    fn conditional(
+        &mut self,
+        condition: &Expr<'_>,
+        then_value: &Expr<'_>,
+        else_value: &Expr<'_>,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let cond = self.expression(condition)?;
+        let cond = self.coerce(cond, Ty::Bool, span)?;
+
+        let then_label = self.label();
+        let else_label = self.label();
+        let end_label = self.label();
+
+        self.branch(&cond.text, &then_label, &else_label);
+
+        self.start(&then_label);
+        let then_val = self.expression(then_value)?;
+        let then_pred = self.current.clone();
+        let then_jump_pos = self.code.len();
+        self.jump(&end_label);
+
+        self.start(&else_label);
+        let else_val = self.expression(else_value)?;
+        let else_pred = self.current.clone();
+        let else_jump_pos = self.code.len();
+        self.jump(&end_label);
+
+        self.start(&end_label);
+
+        let ty = self.unify_conditional_types(then_val.ty, else_val.ty, span)?;
+        if ty == Ty::Void {
+            return Ok(Value {
+                ty: Ty::Void,
+                text: String::new(),
+            });
+        }
+
+        let (then_wrap, then_text) = self.wrap_nullable(&then_val, ty);
+        let (else_wrap, else_text) = self.wrap_nullable(&else_val, ty);
+
+        let mut shift = 0;
+        if let Some(code) = then_wrap {
+            self.code.insert_str(then_jump_pos, &code);
+            shift += code.len();
+        }
+        if let Some(code) = else_wrap {
+            self.code.insert_str(else_jump_pos + shift, &code);
+        }
+
+        let reg = self.register();
+        self.line(format!(
+            "{reg} = phi {} [ {}, %{then_pred} ], [ {}, %{else_pred} ]",
+            ty.ir(),
+            then_text,
+            else_text
+        ));
+        Ok(Value { ty, text: reg })
+    }
+
+    /// Unifica os tipos dos dois ramos da condicional em um tipo comum aceitável na ABI LLVM.
+    fn unify_conditional_types(&self, left: Ty, right: Ty, span: Span) -> Result<Ty, Diagnostic> {
+        if left == right {
+            return Ok(left);
+        }
+        if left == Ty::Null {
+            return match right {
+                Ty::Int | Ty::NullableInt => Ok(Ty::NullableInt),
+                Ty::Bool | Ty::NullableBool => Ok(Ty::NullableBool),
+                Ty::String | Ty::NullableString => Ok(Ty::NullableString),
+                Ty::Class(id) | Ty::NullableClass(id) => Ok(Ty::NullableClass(id)),
+                Ty::Null => Ok(Ty::Null),
+                _ => Err(error(span, "tipos incompatíveis no operador condicional")),
+            };
+        }
+        if right == Ty::Null {
+            return match left {
+                Ty::Int | Ty::NullableInt => Ok(Ty::NullableInt),
+                Ty::Bool | Ty::NullableBool => Ok(Ty::NullableBool),
+                Ty::String | Ty::NullableString => Ok(Ty::NullableString),
+                Ty::Class(id) | Ty::NullableClass(id) => Ok(Ty::NullableClass(id)),
+                Ty::Null => Ok(Ty::Null),
+                _ => Err(error(span, "tipos incompatíveis no operador condicional")),
+            };
+        }
+        if left.base() == right.base() {
+            let base = left.base();
+            return match base {
+                Ty::Int => Ok(Ty::NullableInt),
+                Ty::Bool => Ok(Ty::NullableBool),
+                Ty::String => Ok(Ty::NullableString),
+                Ty::Class(id) => Ok(Ty::NullableClass(id)),
+                _ => Err(error(span, "tipos incompatíveis no operador condicional")),
+            };
+        }
+        if let (Ty::Class(a) | Ty::NullableClass(a), Ty::Class(b) | Ty::NullableClass(b)) =
+            (left, right)
+        {
+            let nullable = left.nullable() || right.nullable();
+            if self.objects.assignable(Ty::Class(a), Ty::Class(b)) {
+                return Ok(if nullable {
+                    Ty::NullableClass(b)
+                } else {
+                    Ty::Class(b)
+                });
+            }
+            if self.objects.assignable(Ty::Class(b), Ty::Class(a)) {
+                return Ok(if nullable {
+                    Ty::NullableClass(a)
+                } else {
+                    Ty::Class(a)
+                });
+            }
+        }
+        Err(error(span, "tipos incompatíveis no operador condicional"))
+    }
+
+    /// Envolve valor não-nulo escalar em agregado nullable `{ i1, ty }`, se necessário.
+    fn wrap_nullable(&mut self, value: &Value, expected: Ty) -> (Option<String>, String) {
+        if value.ty == expected {
+            return (None, value.text.clone());
+        }
+        if value.ty == Ty::Null {
+            return (None, "zeroinitializer".into());
+        }
+        if value.ty.reference() && expected.reference() {
+            return (None, value.text.clone());
+        }
+        if expected.nullable() && value.ty == expected.base() {
+            let tag = self.register();
+            let payload = self.register();
+            let code = format!(
+                "  {tag} = insertvalue {} zeroinitializer, i1 true, 0\n  {payload} = insertvalue {} {tag}, {} {}, 1\n",
+                expected.ir(),
+                expected.ir(),
+                value.ty.ir(),
+                value.text
+            );
+            return (Some(code), payload);
+        }
+        (None, value.text.clone())
+    }
+
     /// Emite expressão em ordem; && e || produzem CFG e phi, nunca avaliação ávida.
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
@@ -1351,9 +1500,11 @@ impl<'a> FunctionEmitter<'a> {
                     "cascatas (lowering nativo pendente)",
                 ));
             }
-            ExprKind::Conditional { .. } => {
-                return Err(error(expression.span, "o operador condicional"));
-            }
+            ExprKind::Conditional {
+                condition,
+                then_value,
+                else_value,
+            } => self.conditional(condition, then_value, else_value, expression.span)?,
             ExprKind::Throw(_) => return Err(error(expression.span, "throw")),
             ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
                 return Err(error(expression.span, "mapas e fábricas nomeadas"));
@@ -2319,5 +2470,46 @@ mod tests {
             );
             assert_eq!(&source[error.span.start..error.span.end], fragment);
         }
+    }
+
+    /// O operador condicional emite blocos then/else/end e phi com os valores dos dois ramos.
+    #[test]
+    fn conditional_expression_lowers_ints_and_creates_phi() {
+        let ir =
+            compile("int f(bool c) => c ? 10 : 20; void main(){print(f(true));print(f(false));}")
+                .unwrap();
+        assert!(ir.contains("br i1 %a0, label %b0, label %b1"));
+        assert!(ir.contains("b0:\n  br label %b2\n"));
+        assert!(ir.contains("b1:\n  br label %b2\n"));
+        assert!(ir.contains("b2:\n  %v0 = phi i64 [ 10, %b0 ], [ 20, %b1 ]"));
+        assert!(ir.contains("ret i64 %v0"));
+    }
+
+    /// O operador condicional suporta strings, booleanos e tipos de referência.
+    #[test]
+    fn conditional_expression_lowers_strings_and_booleans() {
+        let ir = compile("String choose(bool c) => c ? 'sim' : 'nao'; bool toggle(bool c) => c ? false : true; void main(){print(choose(true));print(toggle(false));}").unwrap();
+        assert!(ir.contains("phi i64"));
+        assert!(ir.contains("phi i1 [ false, %b0 ], [ true, %b1 ]"));
+    }
+
+    /// Unificação com null promove valor não-nulo escalar para agregado { i1, ty } com insertvalue.
+    #[test]
+    fn conditional_expression_unifies_with_null_and_wraps_aggregate() {
+        let ir = compile("int? pick(bool c) => c ? 1 : null; int? pick_rev(bool c) => c ? null : 2; bool? pick_b(bool c) => c ? true : null; String? pick_str(bool c) => c ? 'hello' : null; void main(){print(pick(true));print(pick_rev(false));print(pick_b(true));print(pick_str(true));}").unwrap();
+        assert!(ir.contains("insertvalue { i1, i64 } zeroinitializer, i1 true, 0"));
+        assert!(ir.contains("insertvalue { i1, i64 }"));
+        assert!(ir.contains("insertvalue { i1, i1 } zeroinitializer, i1 true, 0"));
+        assert!(ir.contains("phi { i1, i64 }"));
+        assert!(ir.contains("phi { i1, i1 }"));
+        assert!(ir.contains("zeroinitializer"));
+    }
+
+    /// Condicionais aninhadas registram os blocos predecessores reais, não o rótulo inicial do ramo.
+    #[test]
+    fn conditional_expression_handles_nested_ternaries_and_tracks_predecessors() {
+        let ir = compile("int nested(bool c1, bool c2) => c1 ? (c2 ? 1 : 2) : 3; int nested_else(bool c1, bool c2) => c1 ? 1 : (c2 ? 2 : 3); void main(){print(nested(true, false));print(nested_else(false, true));}").unwrap();
+        assert!(ir.contains("phi i64 [ 1, %b2 ], [ 2, %b3 ]"));
+        assert!(ir.contains("phi i64 [ %v0, %b4 ], [ 3, %b1 ]"));
     }
 }

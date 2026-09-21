@@ -33,6 +33,7 @@
 //!
 //! Tudo o que está fora da fatia é rejeitado com um [`Diagnostic`] que conserva
 //! o span da AST, no mesmo estilo de `LLVM AOT ainda não suporta ...`.
+#![allow(clippy::useless_conversion)]
 use crate::abi::{ARGUMENTOS, MAXIMO_DE_PARAMETROS, tamanho_do_quadro};
 use crate::quadro;
 use crate::runtime;
@@ -237,7 +238,10 @@ fn rejeitar_declaracoes_fora_da_fatia(modulo: &Module<'_>) -> Result<(), Diagnos
     }
     for funcao in &modulo.functions {
         if let Some(vinculo) = &funcao.native_binding {
-            return Err(erro(vinculo.span, "@Native e ligação estática a símbolos C"));
+            return Err(erro(
+                vinculo.span,
+                "@Native e ligação estática a símbolos C",
+            ));
         }
         if !funcao.type_parameters.is_empty() {
             return Err(erro(funcao.span, "funções genéricas"));

@@ -372,7 +372,10 @@ fn main() {
         corpus.write("lib0.dart", &source);
     });
     let body = edit_scenario(&corpus, &mut session, samples, |corpus, revision| {
-        corpus.write("lib0.dart", &corpus.library(0, functions, revision as i32 % 7 + 1));
+        corpus.write(
+            "lib0.dart",
+            &corpus.library(0, functions, revision as i32 % 7 + 1),
+        );
     });
     let signature = edit_scenario(&corpus, &mut session, samples, |corpus, revision| {
         let mut source = corpus.library(0, functions, 1);
@@ -420,7 +423,10 @@ fn main() {
                 .with_disk_cache(DiskCache::new(&cache_dir))
                 .compile_path(&entry, Optimization::None)
                 .expect("leitura do registro em disco");
-            assert!(compilation.report.cache_hit, "registro deveria ter acertado");
+            assert!(
+                compilation.report.cache_hit,
+                "registro deveria ter acertado"
+            );
         },
         samples,
     );

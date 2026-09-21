@@ -299,7 +299,7 @@ pub fn emit(module: &Module<'_>) -> String {
         asynchronous::end(Type::Void, &mut output);
     }
     output.push_str("}\n");
-    let flow = fluxo::runtime(&mut output);
+    let flow = fluxo::runtime(&output);
     output.push_str(&flow);
     // `late` com inicializador tem erasure ansioso no parse; a célula com
     // leitura-antes-escrita usará este auxiliar com a mensagem exata do SDK.
@@ -576,7 +576,7 @@ fn emit_globals(classes: &[Class<'_>], output: &mut Output<'_>) {
             continue;
         }
         for field in &class.static_fields {
-            output.push_str(if field.is_final || field.is_const {
+            output.push_str(if (field.is_final || field.is_const) && !field.is_late {
                 "const "
             } else {
                 "let "
@@ -667,9 +667,9 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
         ExprKind::CollectionFor { header, element } => {
             statement_needs_null_assert(header) || expression_needs_null_assert(element)
         }
-        ExprKind::NullShort { receiver, chain, .. } => {
-            expression_needs_null_assert(receiver) || expression_needs_null_assert(chain)
-        }
+        ExprKind::NullShort {
+            receiver, chain, ..
+        } => expression_needs_null_assert(receiver) || expression_needs_null_assert(chain),
         ExprKind::NullShortTarget => false,
         ExprKind::Record { fields } => fields
             .iter()
@@ -941,7 +941,7 @@ fn literal_default(default: &Expr<'_>, output: &mut Output<'_>) {
                 write!(output, "{}", -i64::from(value)).expect("escrever em String não falha");
             }
             // `-0.0 == 0.0`: negar zera o sinal, então o padrão é sempre `0.0`.
-            ExprKind::Double(value) if value == 0.0 => output.push_str("0.0"),
+            ExprKind::Double(0.0) => output.push_str("0.0"),
             ExprKind::Double(value) => {
                 output.push('-');
                 double_literal(value, output);
@@ -1066,10 +1066,15 @@ fn statement_at(statement: &Statement<'_>, depth: usize, output: &mut Output<'_>
             StatementKind::Variable {
                 name,
                 is_final,
+                is_late,
                 initializer,
                 ..
             } => {
-                output.push_str(if *is_final { "const " } else { "let " });
+                output.push_str(if *is_final && !*is_late {
+                    "const "
+                } else {
+                    "let "
+                });
                 declaration(name, output);
                 output.push_str(" = ");
                 expression(initializer, output);
@@ -1281,10 +1286,15 @@ fn for_clause(statement: &Statement<'_>, allow_variable: bool, output: &mut Outp
         StatementKind::Variable {
             name,
             is_final,
+            is_late,
             initializer,
             ..
         } if allow_variable => {
-            output.push_str(if *is_final { "const " } else { "let " });
+            output.push_str(if *is_final && !*is_late {
+                "const "
+            } else {
+                "let "
+            });
             declaration(name, output);
             output.push_str(" = ");
             expression(initializer, output);
@@ -1408,11 +1418,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             // `C.nome(...)` designa, nesta ordem, fábrica, construtor nomeado
             // ou método estático, como na resolução semântica.
             let class = class_by_id(output.classes, *class_id);
-            if class
-                .factories
-                .iter()
-                .any(|factory| factory.name == *name)
-            {
+            if class.factories.iter().any(|factory| factory.name == *name) {
                 write!(output, "$dartforgeFactory{class_id}").unwrap();
                 identifier(name, output);
                 output.push('(');
@@ -1568,9 +1574,9 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             types::descriptor(types::element_type(value, output), output);
             output.push(')');
         }
-        ExprKind::NullShort { receiver, chain, .. } => {
-            colecoes::null_short(receiver, chain, output)
-        }
+        ExprKind::NullShort {
+            receiver, chain, ..
+        } => colecoes::null_short(receiver, chain, output),
         ExprKind::NullShortTarget => {
             let target = output
                 .null_short_targets
@@ -1631,11 +1637,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 }
                 Some(arguments) => {
                     let class = class_by_id(output.classes, *class_id);
-                    if class
-                        .factories
-                        .iter()
-                        .any(|factory| factory.name == *name)
-                    {
+                    if class.factories.iter().any(|factory| factory.name == *name) {
                         write!(output, "$dartforgeFactory{class_id}").unwrap();
                         identifier(name, output);
                         output.push('(');
@@ -1994,10 +1996,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             });
             expression(right, output);
             if *op == BinaryOp::Multiply
-                && !matches!(
-                    static_type(value, output),
-                    Some(Type::Double | Type::Num)
-                )
+                && !matches!(static_type(value, output), Some(Type::Double | Type::Num))
             {
                 // Um inteiro negativo multiplicado por zero continua sendo zero inteiro.
                 // Doubles preservam `-0.0`, como no oráculo Dart.
@@ -2074,6 +2073,7 @@ mod tests {
             name,
             annotation: None,
             is_final,
+            is_late: false,
             initializer,
         })
     }
@@ -2804,6 +2804,12 @@ mod tests {
         use dartforge_syntax::Field;
         let span = Span { start: 0, end: 0 };
         let base = Class {
+            constructor_extras: None,
+            named_constructors: vec![],
+            static_fields: vec![],
+            static_methods: vec![],
+            is_library_globals: false,
+            type_parameters: vec![],
             factories: vec![],
             constructor: None,
             annotations: vec![],
@@ -2828,6 +2834,7 @@ mod tests {
                 name: "value",
                 ty: Type::Int,
                 is_final: false,
+                is_late: false,
                 initializer: Some(asserted(call("initialize", vec![]))),
                 span,
             }],
@@ -2842,6 +2849,12 @@ mod tests {
             )],
         };
         let child = Class {
+            constructor_extras: None,
+            named_constructors: vec![],
+            static_fields: vec![],
+            static_methods: vec![],
+            is_library_globals: false,
+            type_parameters: vec![],
             factories: vec![],
             constructor: None,
             annotations: vec![],
@@ -2938,6 +2951,12 @@ mod tests {
     /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
     fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
         Class {
+            constructor_extras: None,
+            named_constructors: vec![],
+            static_fields: vec![],
+            static_methods: vec![],
+            is_library_globals: false,
+            type_parameters: vec![],
             factories: vec![],
             constructor: None,
             annotations: vec![],
@@ -3054,6 +3073,7 @@ mod tests {
             constant_values: Default::default(),
             implicit_members: Default::default(),
             getter_accesses: Default::default(),
+            global_accesses: Default::default(),
             equality_operators: Default::default(),
             types: vec![],
             expr_types: Default::default(),

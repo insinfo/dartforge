@@ -194,10 +194,7 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
             // Espalhamento null-aware: precisa vir antes de `...` e de `..`.
             i += 4;
             TokenKind::Operator(&source[start..i])
-        } else if bytes.get(i..i + 3) == Some(b"...") {
-            i += 3;
-            TokenKind::Operator(&source[start..i])
-        } else if bytes.get(i..i + 3) == Some(b"?..") {
+        } else if matches!(bytes.get(i..i + 3), Some(b"..." | b"?..")) {
             i += 3;
             TokenKind::Operator(&source[start..i])
         } else if bytes.get(i..i + 2) == Some(b"..") {
@@ -650,8 +647,7 @@ mod tests {
         for source in ["var x = 1.;", "var x = 1. ;", "print(1.)"] {
             let err = lex(source).expect_err(source);
             assert_eq!(
-                err.message,
-                "invalid double literal: '.' must be followed by a digit",
+                err.message, "invalid double literal: '.' must be followed by a digit",
                 "{source}"
             );
         }

@@ -97,6 +97,7 @@ pub fn expand_mixins(program: &mut Program<'_>) -> Result<(), Diagnostic> {
                 enum_values: vec![],
                 enum_arguments: vec![],
                 enum_constructor_fields: vec![],
+                type_parameters: vec![],
             });
             parent = Some(next);
         }

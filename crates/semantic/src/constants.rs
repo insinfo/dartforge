@@ -282,7 +282,12 @@ fn double(value: f64) -> ConstValue {
 /// `const x = 7.5 % 0` vale NaN); `%` segue o módulo euclidiano não negativo
 /// do runtime. `~/` trunca em direção a zero, exige divisor não nulo e
 /// resultado na faixa i32 do subconjunto.
-fn double_binary(op: BinaryOp, left: f64, right: f64, span: Span) -> Result<ConstValue, Diagnostic> {
+fn double_binary(
+    op: BinaryOp,
+    left: f64,
+    right: f64,
+    span: Span,
+) -> Result<ConstValue, Diagnostic> {
     match op {
         BinaryOp::Add => Ok(double(left + right)),
         BinaryOp::Subtract => Ok(double(left - right)),
@@ -429,12 +434,9 @@ fn binary(
         (ConstValue::Double(a), ConstValue::Int(b)) => {
             double_binary(op, f64::from_bits(a), f64::from(b), span)
         }
-        (ConstValue::Double(a), ConstValue::Double(b)) => double_binary(
-            op,
-            f64::from_bits(a),
-            f64::from_bits(b),
-            span,
-        ),
+        (ConstValue::Double(a), ConstValue::Double(b)) => {
+            double_binary(op, f64::from_bits(a), f64::from_bits(b), span)
+        }
         (ConstValue::String(mut a), ConstValue::String(b)) if op == BinaryOp::Add => {
             a.push_str(&b);
             Ok(ConstValue::String(a))

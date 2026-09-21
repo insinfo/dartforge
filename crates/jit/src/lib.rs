@@ -256,6 +256,117 @@ impl JitSession {
         })
     }
 
+    /// Substitui um módulo residente por uma nova versão de IR em tempo de execução,
+    /// preservando o estado do heap gerenciado.
+    ///
+    /// # Semântica transacional
+    ///
+    /// 1. O novo IR é analisado e verificado primeiro via [`ffi::parse_ir`]. Se a análise
+    ///    falhar, o erro é retornado imediatamente na etapa `"parse-ir"` e a sessão
+    ///    permanece intacta com o módulo anterior ativo.
+    /// 2. O módulo residente correspondente (com o mesmo `name`, ou o módulo ativo único
+    ///    da sessão) tem seus símbolos descarregados da `JITDylib` pelo seu [`ResourceTracker`].
+    /// 3. O novo módulo é incorporado à `LLJIT` sob um novo rastreador de recursos.
+    /// 4. Se o módulo contiver [`ENTRY_SYMBOL`], ele é resolvido via [`JitSession::lookup`]
+    ///    para assegurar que todas as referências foram satisfeitas e disparar a
+    ///    materialização do código gerado.
+    ///
+    /// Os objetos previamente alocados no heap gerenciado da thread continuam válidos
+    /// e acessíveis após o recarregamento.
+    ///
+    /// # Exemplo
+    ///
+    /// ```no_run
+    /// let mut sessao = dartforge_jit::JitSession::new()?;
+    /// sessao.add_ir_module("app", "define void @dartforge_entry() { ret void }\n")?;
+    /// sessao.hot_reload("app", "define void @dartforge_entry() { ret void }\n")?;
+    /// # Ok::<(), dartforge_jit::JitError>(())
+    /// ```
+    ///
+    /// # Erros
+    /// Falha na análise (`parse-ir`), no descarregamento do módulo anterior (`resource`),
+    /// na adição do novo módulo (`add-module`) ou na resolução dos símbolos (`lookup`).
+    pub fn hot_reload(&mut self, name: &str, novo_ir: &str) -> Result<ModuleReport, JitError> {
+        let started = Instant::now();
+        let phase = Instant::now();
+        let module = ffi::parse_ir(name, novo_ir)
+            .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
+        let parse_ir = phase.elapsed();
+
+        let target_idx = self
+            .modules
+            .iter()
+            .rposition(|m| !m.removed && m.name == name)
+            .or_else(|| {
+                let active: Vec<usize> = self
+                    .modules
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| !m.removed)
+                    .map(|(i, _)| i)
+                    .collect();
+                if active.len() == 1 {
+                    Some(active[0])
+                } else {
+                    None
+                }
+            });
+
+        if target_idx.is_none() {
+            let active_count = self.modules.iter().filter(|m| !m.removed).count();
+            if active_count > 1 {
+                return Err(JitError::new(
+                    "resource",
+                    &format!("não há módulo ativo chamado '{name}' nesta sessão"),
+                    String::new(),
+                ));
+            }
+        }
+
+        if let Some(idx) = target_idx {
+            self.modules[idx].tracker.remove().map_err(|detail| {
+                JitError::new(
+                    "resource",
+                    "não foi possível descarregar o módulo anterior",
+                    detail,
+                )
+            })?;
+            self.modules[idx].removed = true;
+        }
+
+        let tracker = self.lljit.create_tracker();
+        let phase = Instant::now();
+        self.lljit.add_module(&tracker, module).map_err(|detail| {
+            JitError::new("add-module", "a LLJIT recusou o novo módulo", detail)
+        })?;
+        let add_module = phase.elapsed();
+
+        if let Some(idx) = target_idx {
+            self.modules[idx] = Module {
+                name: name.to_owned(),
+                tracker,
+                removed: false,
+            };
+        } else {
+            self.modules.push(Module {
+                name: name.to_owned(),
+                tracker,
+                removed: false,
+            });
+        }
+
+        if novo_ir.contains(ENTRY_SYMBOL) {
+            self.lookup(ENTRY_SYMBOL)?;
+        }
+
+        Ok(ModuleReport {
+            parse_ir,
+            add_module,
+            total: started.elapsed(),
+            ir_bytes: novo_ir.len(),
+        })
+    }
+
     /// Resolve um símbolo e devolve seu endereço no processo.
     ///
     /// Resolver materializa o módulo que define o símbolo, ou seja, dispara a

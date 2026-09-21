@@ -25,7 +25,11 @@ fn rejeita(source: &str, message: &str, span: Span) {
 /// Calcula o intervalo de um trecho único da fonte, em bytes.
 fn trecho(source: &str, needle: &str) -> Span {
     let start = source.find(needle).expect(needle);
-    assert_eq!(source.rfind(needle), Some(start), "trecho ambíguo: {needle}");
+    assert_eq!(
+        source.rfind(needle),
+        Some(start),
+        "trecho ambíguo: {needle}"
+    );
     Span {
         start,
         end: start + needle.len(),
@@ -76,8 +80,8 @@ fn classes_adv_compile_in_all_modes() {
 #[test]
 #[ignore = "requer Node.js no PATH"]
 fn classes_adv_match_dart_in_all_modes() {
-    let expected = include_str!("../../../tests/native/modules/classes_adv/main.stdout")
-        .replace("\r\n", "\n");
+    let expected =
+        include_str!("../../../tests/native/modules/classes_adv/main.stdout").replace("\r\n", "\n");
     for optimization in [Optimization::None, Optimization::Constants] {
         for merge_identical_functions in [false, true] {
             let js = compile_path_with_options(
@@ -236,15 +240,12 @@ fn instance_getters_match_dart() {
     assert_eq!(node(&javascript(source)), "3\n");
 }
 
-/// Setters de instância são rejeitados com diagnóstico explícito.
+/// Setters de instância emitem `set` no JavaScript.
 #[test]
-fn instance_setters_are_rejected() {
+fn instance_setters_emit_setter() {
     let source = "class C{int _x=0;void set value(int v){_x=v;}}void main(){}";
-    rejeita(
-        source,
-        "instance setters are not supported yet",
-        trecho(source, "set"),
-    );
+    let js = javascript(source);
+    assert!(js.contains("set "), "{js}");
 }
 
 /// Getters estáticos são rejeitados com diagnóstico explícito.
@@ -302,14 +303,14 @@ fn top_level_setters_are_rejected() {
     );
 }
 
-/// Declarações `operator` são rejeitadas com diagnóstico explícito.
+/// Declarações `operator` (exceto `==`) são rejeitadas com diagnóstico explícito.
 #[test]
 fn operators_are_rejected() {
     let source = "class C{int operator +(C other)=>42;}void main(){}";
     rejeita(
         source,
-        "operator declarations are not supported yet",
-        trecho(source, "operator"),
+        "only 'operator ==' is supported; other operator declarations are not supported yet",
+        trecho(source, "+"),
     );
 }
 

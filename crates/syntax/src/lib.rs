@@ -432,6 +432,7 @@ pub enum StatementKind<'a> {
         value: Expr<'a>,
     },
     Variable {
+        is_late: bool,
         is_const: bool,
         name: &'a str,
         annotation: Option<Type>,
@@ -830,6 +831,7 @@ pub struct Class<'a> {
     pub superclass: Option<u32>,
     pub fields: Vec<Field<'a>>,
     pub methods: Vec<Function<'a>>,
+    pub type_parameters: Vec<GenericParameter<'a>>,
     pub span: Span,
 }
 /// Campo tipado; ausência de inicializador exige validação do construtor ou valor padrão.
@@ -838,6 +840,7 @@ pub struct Field<'a> {
     pub name: &'a str,
     pub ty: Type,
     pub is_final: bool,
+    pub is_late: bool,
     pub initializer: Option<Expr<'a>>,
     pub span: Span,
 }
@@ -905,6 +908,7 @@ pub struct StaticField<'a> {
     pub ty: Type,
     pub is_final: bool,
     pub is_const: bool,
+    pub is_late: bool,
     pub initializer: Option<Expr<'a>>,
     pub span: Span,
 }

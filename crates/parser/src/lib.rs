@@ -9,11 +9,11 @@
 //! funções external de topo; campos, parâmetros e anotações customizadas são rejeitados.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
-    Annotation, AnnotationKind, BinaryOp, CatchClause, Class, ClassKind, ClassModifier, Constructor,
-    ConstructorExtras, ConstructorParameter, DurationUnit, Expr, ExprKind, Extension, Field,
-    FieldInitializer, Function, GenericParameter, NamedConstructor, NativeBinding, NativeType,
-    Parameter, ParameterKind, Pattern, Program, StaticField, Statement, StatementKind, StringPart,
-    SuperCall, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape, UnaryOp,
+    Annotation, AnnotationKind, BinaryOp, CatchClause, Class, ClassKind, ClassModifier,
+    Constructor, ConstructorExtras, ConstructorParameter, DurationUnit, Expr, ExprKind, Extension,
+    Field, FieldInitializer, Function, GenericParameter, NamedConstructor, NativeBinding,
+    NativeType, Parameter, ParameterKind, Pattern, Program, Statement, StatementKind, StaticField,
+    StringPart, SuperCall, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape, UnaryOp,
 };
 
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
@@ -369,16 +369,25 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 first.span,
             ));
         }
-        let is_class = matches!(
-            first.kind,
-            TokenKind::Word(
-                "class" | "abstract" | "interface" | "enum" | "base" | "final" | "sealed" | "mixin"
-            )
-        );
-        index += 1;
-        if is_class {
-            index = nominal_header(tokens, index - 1)?.name_index;
+
+        if first.kind == TokenKind::Word("typedef")
+            || starts_global_variable(tokens, index)
+            || (matches!(
+                first.kind,
+                TokenKind::Word("const" | "final" | "var" | "late")
+            ) && !starts_nominal(tokens, index))
+        {
+            index = skip_until_semicolon(tokens, index, first.span)?;
+            continue;
         }
+
+        let is_class = starts_nominal(tokens, index);
+        if is_class {
+            index = nominal_header(tokens, index)?.name_index;
+        } else {
+            index += 1;
+        }
+
         if !matches!(first.kind, TokenKind::Word(_) | TokenKind::Symbol('(')) {
             return Err(Diagnostic::new(
                 "expected top-level declaration",
@@ -389,26 +398,18 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
             if first.kind == TokenKind::Symbol('(') {
                 index = skip_delimited(tokens, index - 1, '(', ')', first.span)?;
             }
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("<")) {
-                let mut depth = 1usize;
-                index += 1;
-                while depth > 0 {
-                    let token = tokens.get(index).ok_or_else(|| {
-                        Diagnostic::new("unterminated type arguments", first.span)
-                    })?;
-                    match token.kind {
-                        TokenKind::Operator("<") => depth += 1,
-                        TokenKind::Operator(">") => depth -= 1,
-                        _ => {}
-                    }
-                    index += 1;
-                }
-            }
+            index = skip_type_arguments(tokens, index, first.span)?;
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
                 index += 1;
             }
             while tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("Function")) {
                 index = skip_delimited(tokens, index + 1, '(', ')', first.span)?;
+            }
+            if matches!(
+                tokens.get(index).map(|t| t.kind),
+                Some(TokenKind::Word("get" | "set"))
+            ) {
+                index += 1;
             }
         }
         let name_token = tokens
@@ -427,12 +428,24 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
         };
         if is_class {
             declarations.classes.push(item);
+            index = skip_type_arguments(tokens, index, first.span)?;
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("extends")) {
                 index += 1;
                 if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
                     return Err(Diagnostic::new("expected superclass name", first.span));
                 }
                 index += 1;
+                if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
+                    index += 1;
+                    if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                        return Err(Diagnostic::new(
+                            "expected qualified superclass name",
+                            first.span,
+                        ));
+                    }
+                    index += 1;
+                }
+                index = skip_type_arguments(tokens, index, first.span)?;
             }
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("on")) {
                 return Err(Diagnostic::new(
@@ -448,6 +461,20 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                             return Err(Diagnostic::new("expected interface name", first.span));
                         }
                         index += 1;
+                        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
+                            index += 1;
+                            if !matches!(
+                                tokens.get(index).map(|t| t.kind),
+                                Some(TokenKind::Word(_))
+                            ) {
+                                return Err(Diagnostic::new(
+                                    "expected qualified interface name",
+                                    first.span,
+                                ));
+                            }
+                            index += 1;
+                        }
+                        index = skip_type_arguments(tokens, index, first.span)?;
                         if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
                             break;
                         }
@@ -455,26 +482,22 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                     }
                 }
             }
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=")) {
+                index = skip_until_semicolon(tokens, index, first.span)?;
+                continue;
+            }
         } else {
             declarations.functions.push(item);
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("<")) {
+            index = skip_type_arguments(tokens, index, first.span)?;
+            index = skip_delimited(tokens, index, '(', ')', first.span)?;
+            if matches!(
+                tokens.get(index).map(|token| token.kind),
+                Some(TokenKind::Word("async" | "sync"))
+            ) {
                 index += 1;
-                let mut depth = 1usize;
-                while depth > 0 {
-                    let token = tokens.get(index).ok_or_else(|| {
-                        Diagnostic::new("unterminated type parameters", first.span)
-                    })?;
-                    match token.kind {
-                        TokenKind::Operator("<") => depth += 1,
-                        TokenKind::Operator(">") => depth -= 1,
-                        _ => {}
-                    }
+                if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Operator("*")) {
                     index += 1;
                 }
-            }
-            index = skip_delimited(tokens, index, '(', ')', first.span)?;
-            if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("async")) {
-                index += 1;
             }
             if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol(';')) {
                 index += 1;
@@ -482,34 +505,7 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
             }
         }
         if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
-            // O parser completo validará a expressão; aqui apenas indexamos nomes.
-            index += 1;
-            let mut delimiters = Vec::new();
-            while let Some(token) = tokens.get(index) {
-                match token.kind {
-                    TokenKind::Symbol(';') if delimiters.is_empty() => break,
-                    TokenKind::Symbol(open @ ('(' | '[' | '{')) => delimiters.push(open),
-                    TokenKind::Symbol(close @ (')' | ']' | '}')) => {
-                        let expected = match close {
-                            ')' => '(',
-                            ']' => '[',
-                            _ => '{',
-                        };
-                        if delimiters.pop() != Some(expected) {
-                            return Err(Diagnostic::new("unbalanced expression body", token.span));
-                        }
-                    }
-                    _ => {}
-                }
-                index += 1;
-            }
-            if tokens.get(index).is_none() {
-                return Err(Diagnostic::new(
-                    "expected semicolon after expression body",
-                    first.span,
-                ));
-            }
-            index += 1;
+            index = skip_until_semicolon(tokens, index, first.span)?;
         } else {
             index = skip_delimited(tokens, index, '{', '}', first.span)?;
         }
@@ -546,6 +542,59 @@ fn skip_delimited(
         "unterminated declaration delimiter",
         fallback,
     ))
+}
+
+/// Avança sobre delimitadores balanceados até o ponto e vírgula delimitador.
+fn skip_until_semicolon(
+    tokens: &[Token<'_>],
+    mut index: usize,
+    fallback: Span,
+) -> Result<usize, Diagnostic> {
+    let mut delimiters = Vec::new();
+    while let Some(token) = tokens.get(index) {
+        match token.kind {
+            TokenKind::Symbol(';') if delimiters.is_empty() => return Ok(index + 1),
+            TokenKind::Symbol(open @ ('(' | '[' | '{')) => delimiters.push(open),
+            TokenKind::Symbol(close @ (')' | ']' | '}')) => {
+                let expected = match close {
+                    ')' => '(',
+                    ']' => '[',
+                    _ => '{',
+                };
+                if delimiters.pop() != Some(expected) {
+                    return Err(Diagnostic::new("unbalanced delimiters", token.span));
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    Err(Diagnostic::new("expected semicolon", fallback))
+}
+
+/// Avança sobre argumentos ou parâmetros de tipo balanceados `<...>`.
+fn skip_type_arguments(
+    tokens: &[Token<'_>],
+    mut index: usize,
+    fallback: Span,
+) -> Result<usize, Diagnostic> {
+    if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Operator("<")) {
+        return Ok(index);
+    }
+    let mut depth = 1usize;
+    index += 1;
+    while depth > 0 {
+        let token = tokens
+            .get(index)
+            .ok_or_else(|| Diagnostic::new("unterminated type arguments", fallback))?;
+        match token.kind {
+            TokenKind::Operator("<") => depth += 1,
+            TokenKind::Operator(">") => depth -= 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    Ok(index)
 }
 struct Cursor<'t, 'a> {
     tokens: &'t [Token<'a>],
@@ -741,9 +790,7 @@ impl<'a> Cursor<'_, 'a> {
             }
             // Apelido `typedef`/representation de extension type: já resolvido
             // no parse; `is`/`as` enxergam diretamente o tipo subjacente.
-            Some(TokenKind::Word(name)) if self.typedefs.contains_key(name) => {
-                self.typedefs[name]
-            }
+            Some(TokenKind::Word(name)) if self.typedefs.contains_key(name) => self.typedefs[name],
             Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
                 Type::Class(self.class_ids[name])
             }
@@ -760,7 +807,9 @@ impl<'a> Cursor<'_, 'a> {
         }
         // Argumentos de classe genérica têm erasure: `C<int>` valida e descarta,
         // antes do `?` para que `C<int>?` forme o anulável da classe crua.
-        if matches!(ty, Type::Class(_) | Type::NullableClass(_)) {
+        if matches!(ty, Type::Class(_) | Type::NullableClass(_))
+            || matches!(word, Some(TokenKind::Word(name)) if self.typedefs.contains_key(name))
+        {
             self.discard_type_arguments();
         }
         if self.nullable_marker(depth) {
@@ -915,11 +964,12 @@ impl<'a> Cursor<'_, 'a> {
         }
         // Parâmetros de classe genérica com erasure: `T` resolve para o bound
         // durante todo o corpo; a representação em runtime é única por classe.
-        let previous_class_params =
-            std::mem::take(&mut self.class_type_parameters);
+        let previous_class_params = std::mem::take(&mut self.class_type_parameters);
         let previous_class_bounds = std::mem::take(&mut self.class_type_bounds);
+        let mut type_parameters = Vec::new();
         if self.take(TokenKind::Operator("<")) {
             loop {
+                let param_start = self.position();
                 let param_name = self.name()?;
                 if self.class_type_parameters.contains(&param_name) {
                     return Err(self.error("duplicate class type parameter"));
@@ -938,6 +988,14 @@ impl<'a> Cursor<'_, 'a> {
                     .class_type_bounds
                     .last_mut()
                     .expect("bound recém-empilhado") = bound;
+                type_parameters.push(GenericParameter {
+                    name: param_name,
+                    bound,
+                    span: Span {
+                        start: param_start,
+                        end: self.end(),
+                    },
+                });
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
                 }
@@ -1020,9 +1078,7 @@ impl<'a> Cursor<'_, 'a> {
             // `static` não participa de herança: o membro pertence à declaração.
             if self.peek() == Some(TokenKind::Word("static")) {
                 if kind != ClassKind::Class {
-                    return Err(
-                        self.error("static members require an ordinary class declaration")
-                    );
+                    return Err(self.error("static members require an ordinary class declaration"));
                 }
                 if !metadata.is_empty() || native.is_some() {
                     return Err(self.error("annotations on static members are not supported yet"));
@@ -1087,18 +1143,19 @@ impl<'a> Cursor<'_, 'a> {
                 methods.push(self.instance_setter(field_start, Type::Void, metadata, native)?);
                 continue;
             }
+            let is_late = self.take(TokenKind::Word("late"));
             let is_final = self.take(TokenKind::Word("final"));
             let ty = self.ty(!is_final)?;
             if self.peek() == Some(TokenKind::Word("operator")) {
-                if is_final {
-                    return Err(self.error("final methods are not supported"));
+                if is_final || is_late {
+                    return Err(self.error("operator methods cannot be late or final"));
                 }
                 methods.push(self.equality_operator(field_start, ty, metadata, native)?);
                 continue;
             }
             if self.peek() == Some(TokenKind::Word("set")) {
-                if is_final {
-                    return Err(self.error("final methods are not supported"));
+                if is_final || is_late {
+                    return Err(self.error("setters cannot be late or final"));
                 }
                 if ty != Type::Void {
                     return Err(self.error("a setter declares no return type or 'void'"));
@@ -1109,8 +1166,8 @@ impl<'a> Cursor<'_, 'a> {
             let getter = self.take(TokenKind::Word("get"));
             let field_name = self.name()?;
             if getter || self.peek() == Some(TokenKind::Symbol('(')) {
-                if is_final {
-                    return Err(self.error("final methods are not supported"));
+                if is_final || is_late {
+                    return Err(self.error("methods and getters cannot be late or final"));
                 }
                 self.index = index;
                 let (method, abstract_body) = self.function_with_abstract(true, false)?;
@@ -1136,6 +1193,7 @@ impl<'a> Cursor<'_, 'a> {
                     name: field_name,
                     ty,
                     is_final,
+                    is_late,
                     initializer,
                     span: Span {
                         start: field_start,
@@ -1196,6 +1254,7 @@ impl<'a> Cursor<'_, 'a> {
             superclass,
             fields,
             methods,
+            type_parameters,
             span: Span {
                 start,
                 end: self.end(),
@@ -1282,6 +1341,7 @@ impl<'a> Cursor<'_, 'a> {
                         name: parameter.name,
                         ty,
                         is_final: parameter.is_final,
+                        is_late: false,
                         initializer: None,
                         span: parameter.span,
                     });
@@ -1401,6 +1461,7 @@ impl<'a> Cursor<'_, 'a> {
                         name,
                         ty,
                         is_final: true,
+                        is_late: false,
                         initializer: None,
                         span,
                     });
@@ -1442,6 +1503,7 @@ impl<'a> Cursor<'_, 'a> {
             superclass: None,
             fields,
             methods,
+            type_parameters: Vec::new(),
             span: Span {
                 start,
                 end: self.end(),
@@ -1506,7 +1568,9 @@ impl<'a> Cursor<'_, 'a> {
                     None
                 };
                 if self.peek() != Some(TokenKind::Symbol('(')) {
-                    return Err(self.error("super in an initializer list requires an argument list"));
+                    return Err(
+                        self.error("super in an initializer list requires an argument list")
+                    );
                 }
                 let arguments = self.arguments(0)?;
                 extras.super_call = Some(SuperCall {
@@ -1558,8 +1622,12 @@ impl<'a> Cursor<'_, 'a> {
         is_top_level: bool,
     ) -> Result<(), Diagnostic> {
         let start = self.position();
+        let is_late = self.take(TokenKind::Word("late"));
         let is_const = self.take(TokenKind::Word("const"));
         let is_final = !is_const && self.take(TokenKind::Word("final"));
+        if is_late && is_const {
+            return Err(self.error("late const is not supported"));
+        }
         let signature = self.index;
         let ty = self.ty(!is_const && !is_final)?;
         if self.peek() == Some(TokenKind::Word("set")) {
@@ -1581,8 +1649,8 @@ impl<'a> Cursor<'_, 'a> {
             self.peek(),
             Some(TokenKind::Symbol('(') | TokenKind::Operator("<"))
         ) {
-            if is_const || is_final {
-                return Err(self.error("a static method cannot be const or final"));
+            if is_const || is_final || is_late {
+                return Err(self.error("a static method cannot be const, final, or late"));
             }
             self.index = signature;
             let (method, _) = self.function_with_abstract(false, false)?;
@@ -1603,6 +1671,7 @@ impl<'a> Cursor<'_, 'a> {
             ty,
             is_final,
             is_const,
+            is_late,
             initializer,
             span: Span {
                 start,
@@ -1615,9 +1684,6 @@ impl<'a> Cursor<'_, 'a> {
     fn global_variable(&mut self) -> Result<StaticField<'a>, Diagnostic> {
         if self.peek() == Some(TokenKind::Symbol('@')) {
             return Err(self.error("annotations on top-level variables are not supported yet"));
-        }
-        if self.peek() == Some(TokenKind::Word("late")) {
-            return Err(self.error("late variables are not supported yet"));
         }
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -1661,18 +1727,44 @@ impl<'a> Cursor<'_, 'a> {
                 start: alias_start,
                 end: self.end(),
             };
-            if matches!(
-                self.peek(),
-                Some(TokenKind::Operator("=" | "<"))
-            ) {
-                if self.peek() == Some(TokenKind::Operator("<")) {
-                    return Err(self.error("generic typedefs are not supported yet"));
+            if matches!(self.peek(), Some(TokenKind::Operator("=" | "<"))) {
+                let previous_class_params = std::mem::take(&mut self.class_type_parameters);
+                let previous_class_bounds = std::mem::take(&mut self.class_type_bounds);
+                if self.take(TokenKind::Operator("<")) {
+                    loop {
+                        let param_name = self.name()?;
+                        if self.class_type_parameters.contains(&param_name) {
+                            self.class_type_parameters = previous_class_params;
+                            self.class_type_bounds = previous_class_bounds;
+                            return Err(self.error("duplicate typedef type parameter"));
+                        }
+                        self.class_type_parameters.push(param_name);
+                        self.class_type_bounds.push(Type::NullableObject);
+                        let bound = if self.take(TokenKind::Word("extends")) {
+                            self.ty(false)?
+                        } else {
+                            Type::NullableObject
+                        };
+                        *self
+                            .class_type_bounds
+                            .last_mut()
+                            .expect("bound recém-empilhado") = bound;
+                        if !self.take(TokenKind::Symbol(',')) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::Operator(">"))?;
                 }
                 if self.class_ids.contains_key(alias) || self.typedefs.contains_key(alias) {
+                    self.class_type_parameters = previous_class_params;
+                    self.class_type_bounds = previous_class_bounds;
                     return Err(Diagnostic::new("duplicate typedef name", alias_span));
                 }
                 self.expect(TokenKind::Operator("="))?;
-                let target = self.ty(true)?;
+                let target = self.ty(true);
+                self.class_type_parameters = previous_class_params;
+                self.class_type_bounds = previous_class_bounds;
+                let target = target?;
                 self.expect(TokenKind::Symbol(';'))?;
                 self.typedefs.insert(alias, target);
                 return Ok(());
@@ -1686,10 +1778,36 @@ impl<'a> Cursor<'_, 'a> {
             start: alias_start,
             end: self.end(),
         };
-        if self.peek() == Some(TokenKind::Operator("<")) {
-            return Err(self.error("generic typedefs are not supported yet"));
+        let previous_class_params = std::mem::take(&mut self.class_type_parameters);
+        let previous_class_bounds = std::mem::take(&mut self.class_type_bounds);
+        if self.take(TokenKind::Operator("<")) {
+            loop {
+                let param_name = self.name()?;
+                if self.class_type_parameters.contains(&param_name) {
+                    self.class_type_parameters = previous_class_params;
+                    self.class_type_bounds = previous_class_bounds;
+                    return Err(self.error("duplicate typedef type parameter"));
+                }
+                self.class_type_parameters.push(param_name);
+                self.class_type_bounds.push(Type::NullableObject);
+                let bound = if self.take(TokenKind::Word("extends")) {
+                    self.ty(false)?
+                } else {
+                    Type::NullableObject
+                };
+                *self
+                    .class_type_bounds
+                    .last_mut()
+                    .expect("bound recém-empilhado") = bound;
+                if !self.take(TokenKind::Symbol(',')) {
+                    break;
+                }
+            }
+            self.expect(TokenKind::Operator(">"))?;
         }
         if self.class_ids.contains_key(alias) || self.typedefs.contains_key(alias) {
+            self.class_type_parameters = previous_class_params;
+            self.class_type_bounds = previous_class_bounds;
             return Err(Diagnostic::new("duplicate typedef name", alias_span));
         }
         self.expect(TokenKind::Symbol('('))?;
@@ -1705,10 +1823,9 @@ impl<'a> Cursor<'_, 'a> {
         }
         self.expect(TokenKind::Symbol(')'))?;
         self.expect(TokenKind::Symbol(';'))?;
-        let target = self.intern(TypeShape::Function {
-            result,
-            parameters,
-        });
+        self.class_type_parameters = previous_class_params;
+        self.class_type_bounds = previous_class_bounds;
+        let target = self.intern(TypeShape::Function { result, parameters });
         self.typedefs.insert(alias, target);
         Ok(())
     }
@@ -1737,9 +1854,7 @@ impl<'a> Cursor<'_, 'a> {
         let field = self.name()?;
         self.expect(TokenKind::Symbol(')'))?;
         if self.take(TokenKind::Word("implements")) {
-            return Err(self.error(
-                "extension type implements clauses are not supported yet",
-            ));
+            return Err(self.error("extension type implements clauses are not supported yet"));
         }
         self.expect(TokenKind::Symbol('{'))?;
         let mut methods = Vec::new();
@@ -1770,8 +1885,7 @@ impl<'a> Cursor<'_, 'a> {
         let end = self.end();
         let span = Span { start, end };
         self.typedefs.insert(name, representation);
-        let id =
-            u32::try_from(extensions.len()).map_err(|_| self.error("too many extensions"))?;
+        let id = u32::try_from(extensions.len()).map_err(|_| self.error("too many extensions"))?;
         extensions.push(Extension {
             id,
             name,
@@ -1917,15 +2031,16 @@ impl<'a> Cursor<'_, 'a> {
                 });
                 continue;
             }
-            if prefix.is_some() {
+            if prefix.is_some() && !ignorable_metadata(name) {
                 return Err(self.error("prefixed metadata other than Native is not supported"));
             }
             if ignorable_metadata(name) {
                 // Metadado sem efeito em geração de código: consome e descarta.
                 // Aferido em código de produção, 65% dos arquivos do pacote `pdf`
                 // param aqui, e nenhuma dessas anotações muda o programa emitido.
-                if self.take(TokenKind::Symbol('(')) {
-                    self.expect(TokenKind::Symbol(')'))?;
+                if self.peek() == Some(TokenKind::Symbol('(')) {
+                    let fallback = self.tokens[self.index].span;
+                    self.index = skip_delimited(self.tokens, self.index, '(', ')', fallback)?;
                 }
                 continue;
             }
@@ -2015,9 +2130,10 @@ impl<'a> Cursor<'_, 'a> {
         // dispensa sub-tipagem na análise semântica.
         if self.take(TokenKind::Operator("=")) {
             let target = self.name()?;
-            let target_id = *self.class_ids.get(target).ok_or_else(|| {
-                self.error("unknown factory redirect target")
-            })?;
+            let target_id = *self
+                .class_ids
+                .get(target)
+                .ok_or_else(|| self.error("unknown factory redirect target"))?;
             let member = if self.take(TokenKind::Symbol('.')) {
                 Some(self.name()?)
             } else {
@@ -2130,7 +2246,9 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("setters and operator == cannot be async in this subset"));
         }
         if self.peek() == Some(TokenKind::Symbol(';')) {
-            return Err(self.error("abstract setters and operator declarations are not supported yet"));
+            return Err(
+                self.error("abstract setters and operator declarations are not supported yet")
+            );
         }
         if !self.take(TokenKind::Operator("=>")) {
             return Ok((false, self.block(0)?));
@@ -3010,47 +3128,12 @@ impl<'a> Cursor<'_, 'a> {
         self.expect(TokenKind::Symbol(')'))?;
         Ok(condition)
     }
-    /// Sonda `late` com inicializador sem consumir tokens nem internar tipos.
-    ///
-    /// Só essa forma tem erasure ansioso implementado; sem inicializador a
-    /// leitura-antes-escrita exigiria a célula com `LateInitializationError`.
-    fn late_has_initializer(&mut self) -> bool {
-        let index = self.index;
-        let count = self.types.len();
-        self.index += 1;
-        let _ = self.take(TokenKind::Word("final"));
-        let result = if self.take(TokenKind::Word("var")) {
-            self.name().is_ok() && self.peek() == Some(TokenKind::Operator("="))
-        } else {
-            self.ty(false).is_ok()
-                && self.name().is_ok()
-                && self.peek() == Some(TokenKind::Operator("="))
-        };
-        self.index = index;
-        self.types.truncate(count);
-        result
-    }
     /// Lê declaração, atribuição ou chamada sem consumir o ponto e vírgula.
     fn simple(&mut self, allow_declaration: bool) -> Result<Statement<'a>, Diagnostic> {
         let start = self.position();
-        if self.peek() == Some(TokenKind::Word("late")) {
-            // `late` com inicializador vira variável ansiosa; sem inicializador
-            // a célula de verificação ainda não existe (ver gaps documentados).
-            if self.tokens.get(self.index + 1).map(|token| token.kind)
-                == Some(TokenKind::Word("const"))
-            {
-                self.index += 1;
-                return Err(self.error("late const is not supported"));
-            }
-            if !self.late_has_initializer() {
-                return Err(self.error(
-                    "late variables without an initializer are not supported: the read-before-write check is not implemented",
-                ));
-            }
-            self.index += 1;
-            if self.peek() == Some(TokenKind::Word("const")) {
-                return Err(self.error("late const is not supported"));
-            }
+        let is_late = self.take(TokenKind::Word("late"));
+        if is_late && self.peek() == Some(TokenKind::Word("const")) {
+            return Err(self.error("late const is not supported"));
         }
         let kind = if matches!(
             self.peek(),
@@ -3105,7 +3188,7 @@ impl<'a> Cursor<'_, 'a> {
             };
             let initializer = if self.take(TokenKind::Operator("=")) {
                 self.expression()?
-            } else if !is_final && nullable {
+            } else if (!is_final && nullable) || is_late {
                 let end = self.end();
                 Expr {
                     kind: ExprKind::Null,
@@ -3116,6 +3199,7 @@ impl<'a> Cursor<'_, 'a> {
                 unreachable!("o `=` foi testado acima");
             };
             StatementKind::Variable {
+                is_late,
                 is_const,
                 name,
                 annotation,
@@ -3695,9 +3779,7 @@ impl<'a> Cursor<'_, 'a> {
                 // construção envolto em `Const`; a canonicalização é decidida
                 // pela receita const da análise semântica.
                 let invoked = match self.peek() {
-                    Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
-                        Some(name)
-                    }
+                    Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => Some(name),
                     _ => None,
                 };
                 if let Some(name) = invoked {
@@ -4466,7 +4548,7 @@ impl<'a> Cursor<'_, 'a> {
         }
         Ok(Pattern::Constant(value))
     }
-        /// Descarta `<A, B>` após um tipo classe (erasure); devolve se consumiu.
+    /// Descarta `<A, B>` após um tipo classe (erasure); devolve se consumiu.
     ///
     /// A tentativa é restaurada quando `<` não abre argumentos válidos, para
     /// não confundir outros usos do operador. Tipos internos são validados.
@@ -4492,7 +4574,8 @@ impl<'a> Cursor<'_, 'a> {
         true
     }
     /// Consome argumentos de tipo explícitos de uma chamada genérica top-level.
-    fn type_arguments(&mut self) -> Result<Vec<Type>, Diagnostic> {        self.expect(TokenKind::Operator("<"))?;
+    fn type_arguments(&mut self) -> Result<Vec<Type>, Diagnostic> {
+        self.expect(TokenKind::Operator("<"))?;
         let mut types = Vec::new();
         loop {
             types.push(self.ty(false)?);
@@ -4766,8 +4849,7 @@ fn decides_map(element: &Expr<'_>) -> Option<bool> {
             then_element,
             else_element,
             ..
-        } => decides_map(then_element)
-            .or_else(|| else_element.as_deref().and_then(decides_map)),
+        } => decides_map(then_element).or_else(|| else_element.as_deref().and_then(decides_map)),
         ExprKind::CollectionFor { element, .. } => decides_map(element),
         _ => Some(false),
     }
@@ -4862,6 +4944,16 @@ fn ignorable_metadata(name: &str) -> bool {
             | "redeclare"
             | "reopen"
             | "widgetFactory"
+            | "pragma"
+            | "factory"
+            | "sealed"
+            | "required"
+            | "isTest"
+            | "isTestGroup"
+            | "GenerateMocks"
+            | "RecordUse"
+            | "Target"
+            | "Category"
     )
 }
 
@@ -5026,6 +5118,7 @@ fn globals_class<'a>(id: u32, static_fields: Vec<StaticField<'a>>, span: Span) -
         superclass: None,
         fields: vec![],
         methods: vec![],
+        type_parameters: vec![],
         span,
     }
 }
@@ -5296,7 +5389,6 @@ fn reserved(name: &str) -> bool {
             | "async"
             | "await"
             | "augment"
-            | "base"
             | "break"
             | "case"
             | "catch"
@@ -5516,17 +5608,10 @@ mod tests {
     /// A infraestrutura não aceita sets, fábricas redirecionadas ou macros em outros alvos.
     #[test]
     fn unsupported_map_factory_and_macro_forms() {
-        for body in [
-            "var x=<String>{'a'};",
-            "var x=<String,int>[];",
-            "var x={'a'};",
-            "var x=Map<String,int,bool>();",
-        ] {
+        for body in ["var x=<String,int>[];", "var x=Map<String,int,bool>();"] {
             rejected(body);
         }
         for source in [
-            "class C{factory C.a()=C;}void main(){}",
-            "class C{C.a();}void main(){}",
             "@JsonCodable() enum E{a}void main(){}",
             "@JsonCodable() mixin M{}void main(){}",
             "class C{@JsonCodable() void f(){}}void main(){}",
@@ -5776,7 +5861,6 @@ mod tests {
     #[test]
     fn generic_bounds_and_type_operator_rejections() {
         for declaration in [
-            "class C<T>{}",
             "class C{T f<T>(T value)=>value;}",
             "T f<T extends>(T value)=>value;",
             "T f<T extends Object,T>(T value)=>value;",
@@ -6366,7 +6450,6 @@ mod tests {
             "class A {",
             "int f(",
             "int f() {",
-            "int x=1;",
             "}",
         ] {
             assert!(
@@ -6429,15 +6512,12 @@ mod tests {
     #[test]
     fn invalid_class_forms_and_member_limits() {
         for source in [
-            "class C { late int x; } void main(){}",
             "class C { void x=1; } void main(){}",
             "class C extends Missing {} void main(){}",
             "class C {} class C {} void main(){}",
             "class int {} void main(){}",
-            "class C<T> {} void main(){}",
             "class C {} void main(){ new C(); }",
             "class C {} void main(){ class Nested{} }",
-            "void main(){ print(1.5); }",
             "void main(){ c.field+=1; }",
             "void main(){ c.field++; }",
             "void main(){ c.(); }",
@@ -6922,8 +7002,6 @@ mod tests {
             "for(var i=0;true;var x=1) {}",
             "for(i=0;true;i++,j++) {}",
             "for(break;true;i++) {}",
-            "break label;",
-            "continue label;",
             "var x = i++;",
             "print(++i);",
             "i++ + 1;",

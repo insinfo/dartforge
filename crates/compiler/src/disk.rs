@@ -325,7 +325,7 @@ mod tests {
     /// Opções diferentes produzem chaves diferentes.
     #[test]
     fn every_option_changes_the_key() {
-        let base = CompileOptions::default();
+        let _base = CompileOptions::default();
         let mut seen = std::collections::HashSet::new();
         for optimization in [Optimization::None, Optimization::Constants] {
             for merge in [false, true] {
@@ -334,7 +334,7 @@ mod tests {
                         optimization,
                         merge_identical_functions: merge,
                         tree_shaking: shake,
-                        ..base
+                        .._base
                     })));
                 }
             }

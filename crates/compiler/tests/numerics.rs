@@ -157,7 +157,9 @@ fn promotion_and_num_annotations_compile() {
     javascript("void main(){double d = 1 + 1.5; print(d);}");
     javascript("void main(){num n = 1 + 1.5; print(n);}");
     javascript("void main(){bool b = 2 < 2.5; print(b);}");
-    javascript("void main(){double d = -1.5; int i = -1; num n = -i; print(d); print(i); print(n);}");
+    javascript(
+        "void main(){double d = -1.5; int i = -1; num n = -i; print(d); print(i); print(n);}",
+    );
     javascript("void main(){double? x = 1.5; double? z = null; print(x); print(z);}");
     javascript("void main(){List<double> ds = [1, 2.5]; print(ds);}");
     // `is int` distingue via `Number.isInteger`; `is double`/`is num` usam
@@ -202,8 +204,7 @@ fn const_doubles_evaluate() {
     let source = "void main(){const e = 7.5 ~/ 0; print(e);}";
     let error = compile(source).expect_err(source);
     assert_eq!(
-        error.message,
-        "Const expression: integer division by zero",
+        error.message, "Const expression: integer division by zero",
         "{source}"
     );
     assert_eq!(error.span, trecho(source, "7.5 ~/ 0"), "{source}");
@@ -230,22 +231,19 @@ fn llvm_rejects_doubles_explicitly() {
     let error = compile_llvm("void main(){double x = 1.0; print(x);}")
         .expect_err("LLVM deveria rejeitar double");
     assert_eq!(
-        error.message,
-        "LLVM AOT ainda não suporta double e num (use o backend JavaScript)",
+        error.message, "LLVM AOT ainda não suporta double e num (use o backend JavaScript)",
         "{error:?}",
     );
-    let error = compile_llvm("void main(){print(1.0);}")
-        .expect_err("LLVM deveria rejeitar literal double");
+    let error =
+        compile_llvm("void main(){print(1.0);}").expect_err("LLVM deveria rejeitar literal double");
     assert_eq!(
-        error.message,
-        "LLVM AOT ainda não suporta literais double",
+        error.message, "LLVM AOT ainda não suporta literais double",
         "{error:?}",
     );
     let error = compile_llvm("void main(){int q = 7 ~/ 2; print(q);}")
         .expect_err("LLVM deveria rejeitar ~/");
     assert_eq!(
-        error.message,
-        "LLVM AOT ainda não suporta divisão double e truncada (`/`, `~/`)",
+        error.message, "LLVM AOT ainda não suporta divisão double e truncada (`/`, `~/`)",
         "{error:?}",
     );
 }
@@ -259,7 +257,9 @@ fn double_literals_cover_fraction_and_exponent() {
         .map(|token| format!("{:?}", token.kind))
         .collect();
     assert_eq!(textos.len(), 4, "{textos:?}");
-    javascript("void main(){double a = 1e3; double b = 1.5e-3; double c = .5; print(a); print(b); print(c);}");
+    javascript(
+        "void main(){double a = 1e3; double b = 1.5e-3; double c = .5; print(a); print(b); print(c);}",
+    );
 }
 
 /// Emissão de literais especiais preserva o valor IEEE-754 no JavaScript.

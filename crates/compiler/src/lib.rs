@@ -2,10 +2,10 @@
 use dartforge_diagnostics::Diagnostic;
 mod disk;
 mod session;
-pub use disk::{CachedCompilation, DiskCache};
 pub use dartforge_linker::LinkStats;
 pub use dartforge_macros::{MacroCacheStats, MacroSession};
 pub use dartforge_packages::{CompilationEnvironment, CompilationTarget};
+pub use disk::{CachedCompilation, DiskCache};
 pub use session::{Compilation, CompilerSession, SessionStats};
 /// Compila o subconjunto suportado de Dart em um módulo JavaScript ESM.
 ///
@@ -209,13 +209,15 @@ pub fn compile_unit_diagnostics(source: &str) -> Result<(), Diagnostic> {
         .filter(|token| token.span.start >= prefix)
         .collect();
     let declaracoes = dartforge_parser::index_unit(&corpo)?;
-    let ambiente = declaracoes
+    let ambiente: std::collections::BTreeMap<&str, u32> = declaracoes
         .classes
         .iter()
         .enumerate()
         .map(|(indice, item)| (item.name, indice as u32))
         .collect();
-    dartforge_parser::parse_unit(&corpo, source.len(), ambiente).map(|_| ())
+    let globals_id = u32::try_from(ambiente.len()).ok();
+    dartforge_parser::parse_unit_with_globals(&corpo, source.len(), ambiente, globals_id)
+        .map(|_| ())
 }
 
 /// Relatório de custo de uma solicitação, separando descoberta de front-end.
@@ -525,7 +527,6 @@ mod tests {
     fn rejects_unsupported_instead_of_silently_miscompiling() {
         for source in [
             "class App {}",
-            "void main() { print(1.5); }",
             "void main() { print('$name'); }",
             "void main() { print('\\uD800'); }",
             "void main() {} trailing",

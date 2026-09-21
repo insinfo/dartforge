@@ -184,7 +184,8 @@ fn node(javascript: &str) -> String {
 fn fixtures_de_colecoes_compilam_em_todos_os_modos() {
     for opcoes in opcoes() {
         for fonte in [FIXTURE, BITS] {
-            compile_with_options(fonte, opcoes).unwrap_or_else(|erro| panic!("{opcoes:?}: {erro:?}"));
+            compile_with_options(fonte, opcoes)
+                .unwrap_or_else(|erro| panic!("{opcoes:?}: {erro:?}"));
         }
     }
 }
@@ -242,7 +243,8 @@ fn cadeia_null_aware_avalia_o_receptor_uma_vez() {
          Caixa? fonte() => null;\n\
          void main() {\n  print(fonte()?.proxima?.v);\n}\n",
     );
-    assert_eq!(modulo.matches("$df_fonte()").count(), 1, "{modulo}");
+    let main_body = modulo.split("export function main").nth(1).unwrap();
+    assert_eq!(main_body.matches("$df_fonte()").count(), 1, "{modulo}");
     assert_eq!(modulo.matches("$dartforgeShort0").count(), 3, "{modulo}");
     assert_eq!(modulo.matches("$dartforgeShort1").count(), 3, "{modulo}");
 }
@@ -250,10 +252,10 @@ fn cadeia_null_aware_avalia_o_receptor_uma_vez() {
 /// O operando de `...?` também aparece uma única vez.
 #[test]
 fn espalhamento_null_aware_avalia_o_operando_uma_vez() {
-    let modulo = javascript(
-        "List<int>? fonte() => null;\nvoid main() {\n  print([...?fonte(), 1]);\n}\n",
-    );
-    assert_eq!(modulo.matches("$df_fonte()").count(), 1, "{modulo}");
+    let modulo =
+        javascript("List<int>? fonte() => null;\nvoid main() {\n  print([...?fonte(), 1]);\n}\n");
+    let main_body = modulo.split("export function main").nth(1).unwrap();
+    assert_eq!(main_body.matches("$df_fonte()").count(), 1, "{modulo}");
     assert!(modulo.contains("$dartforgeSpread("), "{modulo}");
 }
 
@@ -265,14 +267,20 @@ fn literal_simples_nao_usa_construtor_imperativo() {
     assert!(!modulo.contains("$dartforgeBuild"), "{modulo}");
     let com_espalhamento =
         javascript("void main() {\n  final a = <int>[1];\n  print(<int>[...a, 2]);\n}\n");
-    assert!(!com_espalhamento.contains("$dartforgeBuild"), "{com_espalhamento}");
+    assert!(
+        !com_espalhamento.contains("$dartforgeBuild"),
+        "{com_espalhamento}"
+    );
 }
 
 /// Um conjunto usa a representação própria e preserva a ordem de inserção.
 #[test]
 fn conjunto_usa_representacao_propria() {
     let modulo = javascript("void main() {\n  print(<int>{2, 1});\n}\n");
-    assert!(modulo.contains("new $dartforgeSet([2,1],['int'])"), "{modulo}");
+    assert!(
+        modulo.contains("new $dartforgeSet([2,1],['int'])"),
+        "{modulo}"
+    );
     assert!(modulo.contains("class $dartforgeSet"), "{modulo}");
 }
 
@@ -282,7 +290,10 @@ fn chaves_vazias_seguem_o_contexto() {
     let mapa = javascript("void main() {\n  print(<String, int>{});\n}\n");
     assert!(mapa.contains("new $dartforgeMap("), "{mapa}");
     let conjunto = javascript("void main() {\n  Set<int> s = {};\n  print(s.length);\n}\n");
-    assert!(conjunto.contains("new $dartforgeSet([],['int'])"), "{conjunto}");
+    assert!(
+        conjunto.contains("new $dartforgeSet([],['int'])"),
+        "{conjunto}"
+    );
     assert!(!conjunto.contains("new $dartforgeMap("), "{conjunto}");
 }
 
@@ -350,8 +361,14 @@ fn limites_semanticos_de_colecoes_e_operadores() {
         recusa("final a = <int>[1];\n  print(a?.length);"),
         "Null-aware access requires a nullable receiver"
     );
-    assert_eq!(recusa("print(1.5 & 2);"), "Type mismatch: expected Int, found Double");
-    assert_eq!(recusa("print(~1.5);"), "Type mismatch: expected Int, found Double");
+    assert_eq!(
+        recusa("print(1.5 & 2);"),
+        "Type mismatch: expected Int, found Double"
+    );
+    assert_eq!(
+        recusa("print(~1.5);"),
+        "Type mismatch: expected Int, found Double"
+    );
     assert_eq!(
         recusa("print(1 << talvez());"),
         "Type mismatch: expected Int, found NullableInt"

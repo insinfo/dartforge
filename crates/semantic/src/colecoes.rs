@@ -360,8 +360,6 @@ impl<'a> Validator<'a> {
             .expr_types
             .get(&(span.start, span.end))
             .copied()
-            .ok_or_else(|| {
-                Diagnostic::new("Null-aware target outside a null-aware chain", span)
-            })
+            .ok_or_else(|| Diagnostic::new("Null-aware target outside a null-aware chain", span))
     }
 }

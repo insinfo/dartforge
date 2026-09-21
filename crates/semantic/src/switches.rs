@@ -280,9 +280,7 @@ impl<'a> Validator<'a> {
                 StatementKind::Return(_) | StatementKind::Rethrow => return true,
                 StatementKind::Expression(value) if super::fluxo::is_throw(value) => return true,
                 StatementKind::Block(body) if self.returns(body) => return true,
-                StatementKind::Labeled { body, .. }
-                    if self.returns(std::slice::from_ref(body)) =>
-                {
+                StatementKind::Labeled { body, .. } if self.returns(std::slice::from_ref(body)) => {
                     return true;
                 }
                 StatementKind::Try {

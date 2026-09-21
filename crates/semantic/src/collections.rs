@@ -168,7 +168,9 @@ impl<'a> Validator<'a> {
                 }
                 Ok(())
             }
-            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => self.require_subtype(a, b, span),
+            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => {
+                self.require_subtype(a, b, span)
+            }
             (Some(TypeShape::Set(a)), Some(TypeShape::Set(b))) => self.require_subtype(a, b, span),
             (
                 Some(TypeShape::List(a) | TypeShape::Set(a) | TypeShape::Iterable(a)),
@@ -540,9 +542,11 @@ impl<'a> Validator<'a> {
                 element_type,
                 elements,
             } => self.set_expression(*element_type, elements, expected, e.span)?,
-            ExprKind::NullShort { receiver, chain, target } => {
-                self.null_short(receiver, chain, *target)?
-            }
+            ExprKind::NullShort {
+                receiver,
+                chain,
+                target,
+            } => self.null_short(receiver, chain, *target)?,
             ExprKind::NullShortTarget => self.null_short_target(e.span)?,
             ExprKind::List {
                 element_type,
@@ -1062,7 +1066,9 @@ fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
             scan_body(std::slice::from_ref(header), false, names);
             scan_expr(element, names);
         }
-        ExprKind::NullShort { receiver, chain, .. } => {
+        ExprKind::NullShort {
+            receiver, chain, ..
+        } => {
             scan_expr(receiver, names);
             scan_expr(chain, names);
         }
