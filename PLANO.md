@@ -869,3 +869,114 @@ Conclusão para o plano: escrever em Rust não previne o modo de falha que trava
 máquina do usuário. Só o torna detectável. Portanto o teste de platô — N edições
 sucessivas e `live_bytes` estabilizando — não é refinamento posterior, é a
 verificação que substitui a garantia que a linguagem não dá.
+
+## O que falta para não repetir webdev, analyzer e LSP do Dart
+
+Lista de trabalho, não de princípios. Cada item nomeia **a qual falha observada
+ele responde** e **como se verifica** — item sem verificação não conta como
+feito, porque "usa menos memória" sem teste é anedota.
+
+### Ponto de partida: o que já está certo, e não pode regredir
+
+Três propriedades existem hoje e são a razão de o DartForge ainda não ter o
+problema. Precisam de teste que as trave:
+
+* `CompilerSession` retém **exatamente um** snapshot (`cached: Option<Cached>`,
+  `session.rs:45`), com orçamento de 16 MiB. Uma compilação substitui a anterior,
+  então o lote é à prova de crescimento **por construção**.
+* O cache de macros já é LRU com limite duplo — entradas e bytes — e expõe
+  `evictions` (`macros/src/cache.rs:30`, `with_limits`). É o padrão a copiar.
+* A expansão de macro acontece **em memória**; não escreve `.g.dart`. O ciclo do
+  `build_runner` — gerar arquivo, reanalisar o arquivo gerado — não existe aqui.
+* O AST empresta `&'a str` da fonte; nenhuma string de identificador é copiada.
+
+### 1. Teste de platô — o portão de tudo
+
+**Falha a que responde:** memória subindo a cada edição até ser preciso matar os
+processos Dart.
+
+Aplicar N edições sucessivas e afirmar que `live_bytes` estabiliza num platô em
+vez de crescer com N. `crates/instrument` já mede (`live_bytes`, `peak_bytes`,
+`reset_peak`); falta o teste. Deve cobrir as três formas de edição que invalidam
+coisas diferentes: corpo de função, assinatura e import.
+
+**Sem este teste, nenhum outro item desta lista pode ser declarado concluído.**
+
+### 2. Teto e despejo em todo cache que sobreviva a uma requisição
+
+**Falha a que responde:** cache sem teto é a causa mecânica mais comum de
+retenção monotônica.
+
+`DiskCache` (`compiler/src/disk.rs:43`) **não tem limite de entradas**. Cada cache
+novo nasce com teto, política de despejo e `hits`/`misses`/`evictions`
+observáveis — o cache de macros já faz assim e serve de molde.
+
+**Verificação:** encher além do teto e afirmar que o tamanho não passa dele.
+
+### 3. O desenho de snapshot único não escala para o LSP
+
+**Falha a que responde:** o LSP do Dart a 6 GB.
+
+`Option<Cached>` resolve o lote porque há uma compilação por vez. Um LSP tem N
+arquivos abertos × M versões. É exatamente aí que a retenção entra, e o desenho
+atual não diz quem descarta a versão anterior.
+
+Precisa de dono explícito por documento e descarte determinístico da versão N−1
+quando N chega. **Verificação:** abrir K documentos, editar cada um K vezes,
+afirmar platô — o teste do item 1 aplicado ao servidor, não ao compilador.
+
+### 4. Interning e `SymbolId`
+
+**Falha a que responde:** o piso de memória do modelo, não o crescimento.
+
+Não começou. O AST não copia strings, o que já evita o pior; falta colapsar
+identificadores repetidos na camada semântica em índice de 4 bytes. Os 54 pontos
+que emprestam `&'a str` em `crates/syntax` definem a fronteira do trabalho.
+
+**Verificação:** `live_bytes` do modelo semântico antes e depois, no corpus real.
+
+### 5. Recuperação de erro no parser
+
+**Falha a que responde:** editor que mostra um erro por arquivo.
+
+Pré-requisito do LSP: `compile` devolve `Result<String, Diagnostic>` — um erro —
+enquanto `crates/lsp` já promete `Vec<Diagnostic>`. Em andamento.
+
+### 6. Transporte do LSP
+
+Não existe: `crates/lsp` tem 22 linhas e documenta que não tem JSON-RPC nem
+sincronização de documentos. Precisa de `didChange` **incremental** — reenviar o
+arquivo inteiro a cada tecla reintroduz o custo que se quer evitar.
+
+### 7. Consultas sob demanda com memoização, e despejo delas
+
+**Falha a que responde:** recompilar o mundo a cada tecla, que é o que força o
+modelo inteiro a ficar vivo.
+
+Desenho do rust-analyzer (`references/rust-analyzer`): interning, memoização por
+consulta, snapshots compartilhados. Com a ressalva já registrada — **o cache de
+consultas cresce** e precisa de despejo LRU, senão trocamos um vazamento por
+outro.
+
+### 8. Emissão modular por biblioteca
+
+**Falha a que responde:** os 10 GB do `webdev`, que vêm de tratar o programa como
+uma unidade.
+
+Um módulo JavaScript por biblioteca Dart: recompilar e reter uma biblioteca em
+vez do programa. Não começou.
+
+### 9. Extensão do VS Code
+
+Não existe. Cliente TypeScript fino que só localiza e inicia o binário; toda a
+lógica no servidor Rust.
+
+### 10. Medir contra o alvo real, não contra nós mesmos
+
+A comparação honesta é RSS do DartForge contra `webdev` e contra o LSP do Dart
+**no mesmo projeto**, com a mesma sequência de edições. Projeto de referência
+relatado: `new_sali` (front-end), onde o `webdev` chega a ~10 GB e o LSP a ~6 GB.
+
+Pendência registrada: `cargo bench -p dartforge-compiler --bench incremental`
+terminou com código 101 e sem saída. **Nenhum número de memória do DartForge foi
+medido ainda**, e nenhuma comparação pode ser afirmada antes disso.
