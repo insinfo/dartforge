@@ -378,6 +378,22 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
             validate_statements(body)?;
         }
         StatementKind::Block(body) => validate_statements(body)?,
+        // O backend nativo ainda não tem desenrolamento de pilha, rótulos nem
+        // iteração sobre Iterable; a rejeição acontece antes do driver.
+        StatementKind::Try { .. } | StatementKind::Rethrow => {
+            return Err(error(statement.span, "try, catch, finally e rethrow"));
+        }
+        StatementKind::Assert { .. } => {
+            return Err(error(statement.span, "assert"));
+        }
+        StatementKind::ForIn { .. } => {
+            return Err(error(statement.span, "for-in"));
+        }
+        StatementKind::Labeled { .. }
+        | StatementKind::BreakLabel(_)
+        | StatementKind::ContinueLabel(_) => {
+            return Err(error(statement.span, "rótulos de laço"));
+        }
         StatementKind::Break | StatementKind::Continue => {}
         StatementKind::FieldAssign {
             receiver, value, ..
@@ -426,6 +442,10 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
             return Err(error(value.span, "mapas e fábricas nomeadas"));
         }
         ExprKind::Record { .. } => return Err(error(value.span, "records")),
+        ExprKind::Conditional { .. } => {
+            return Err(error(value.span, "o operador condicional"));
+        }
+        ExprKind::Throw(_) => return Err(error(value.span, "throw")),
         ExprKind::Const(e) => validate_expression(e)?,
         ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
             return Err(error(value.span, "testes e casts de tipos reificados"));
@@ -750,6 +770,17 @@ impl<'a> FunctionEmitter<'a> {
                 self.terminated = true;
             }
             StatementKind::Block(body) => self.block(body)?,
+            // A validação anterior já rejeitou estas formas; o braço existe
+            // para manter a exaustividade com uma mensagem própria.
+            StatementKind::Try { .. }
+            | StatementKind::Rethrow
+            | StatementKind::Assert { .. }
+            | StatementKind::ForIn { .. }
+            | StatementKind::Labeled { .. }
+            | StatementKind::BreakLabel(_)
+            | StatementKind::ContinueLabel(_) => {
+                return Err(error(statement.span, "este controle de fluxo"));
+            }
             StatementKind::If {
                 condition,
                 then_body,
@@ -1176,6 +1207,10 @@ impl<'a> FunctionEmitter<'a> {
                     "cascatas (lowering nativo pendente)",
                 ));
             }
+            ExprKind::Conditional { .. } => {
+                return Err(error(expression.span, "o operador condicional"));
+            }
+            ExprKind::Throw(_) => return Err(error(expression.span, "throw")),
             ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
                 return Err(error(expression.span, "mapas e fábricas nomeadas"));
             }

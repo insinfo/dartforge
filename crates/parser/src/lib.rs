@@ -1299,6 +1299,11 @@ impl<'a> Cursor<'_, 'a> {
         Ok(Class {
             factories: Vec::new(),
             constructor: None,
+            constructor_extras: None,
+            named_constructors: Vec::new(),
+            static_fields: Vec::new(),
+            static_methods: Vec::new(),
+            is_library_globals: false,
             annotations,
             is_mixin_application: false,
             mixin_origin: None,
@@ -2467,6 +2472,13 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê declaração, atribuição ou chamada sem consumir o ponto e vírgula.
     fn simple(&mut self, allow_declaration: bool) -> Result<Statement<'a>, Diagnostic> {
         let start = self.position();
+        if self.peek() == Some(TokenKind::Word("late")) {
+            // Aceitar `late` sem a célula de inicialização em execução daria um
+            // programa que lê lixo em vez de lançar LateInitializationError.
+            return Err(self.error(
+                "late variables are not supported: the read-before-write check is not implemented",
+            ));
+        }
         let kind = if matches!(
             self.peek(),
             Some(TokenKind::Word("var" | "final" | "const"))

@@ -68,6 +68,11 @@ pub fn expand_mixins(program: &mut Program<'_>) -> Result<(), Diagnostic> {
             rewritten.push(Class {
                 factories: vec![],
                 constructor: None,
+                constructor_extras: None,
+                named_constructors: vec![],
+                static_fields: vec![],
+                static_methods: vec![],
+                is_library_globals: false,
                 annotations: vec![],
                 id: next,
                 name: "",

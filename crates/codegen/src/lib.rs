@@ -37,6 +37,7 @@ pub fn validate_javascript(module: &Module<'_>) -> Result<(), dartforge_diagnost
 mod asynchronous;
 mod constructors;
 mod features;
+mod fluxo;
 mod strings;
 mod types;
 
@@ -60,6 +61,16 @@ struct Output<'a> {
     next_switch: usize,
     next_wildcard: usize,
     break_targets: Vec<Option<String>>,
+    /// Numera as variáveis de `catch` para não colidirem em try aninhados.
+    next_catch: usize,
+    /// Variáveis de captura ativas; `rethrow` usa a do topo.
+    caught: Vec<String>,
+    /// Alguma expressão `throw` precisou do auxiliar de lançamento.
+    throw_used: bool,
+    /// Alguma asserção foi emitida e exige o construtor do erro.
+    assert_used: bool,
+    /// Alguma cláusula ligou o rastro de pilha de `catch (e, s)`.
+    stack_used: bool,
 }
 impl std::ops::Deref for Output<'_> {
     type Target = String;
@@ -136,6 +147,11 @@ pub fn emit(module: &Module<'_>) -> String {
         next_switch: 0,
         next_wildcard: 0,
         break_targets: vec![],
+        next_catch: 0,
+        caught: vec![],
+        throw_used: false,
+        assert_used: false,
+        stack_used: false,
         collections: module.resolution.types.iter().any(|t| {
             matches!(
                 t,
@@ -234,6 +250,8 @@ pub fn emit(module: &Module<'_>) -> String {
         asynchronous::end(Type::Void, &mut output);
     }
     output.push_str("}\n");
+    let flow = fluxo::runtime(&mut output);
+    output.push_str(&flow);
     if output.modulo_used {
         output.push_str("function $dartforgeModulo(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n");
     }
@@ -472,6 +490,16 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
         | ExprKind::NamedConstruct { arguments, .. } => {
             arguments.iter().any(expression_needs_null_assert)
         }
+        ExprKind::Conditional {
+            condition,
+            then_value,
+            else_value,
+        } => {
+            expression_needs_null_assert(condition)
+                || expression_needs_null_assert(then_value)
+                || expression_needs_null_assert(else_value)
+        }
+        ExprKind::Throw(value) => expression_needs_null_assert(value),
         ExprKind::Member { receiver, .. } => expression_needs_null_assert(receiver),
         ExprKind::MethodCall {
             receiver,
@@ -546,7 +574,32 @@ fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
                 || statements_need_null_assert(body)
         }
         StatementKind::Block(body) => statements_need_null_assert(body),
-        StatementKind::Break | StatementKind::Continue => false,
+        StatementKind::ForIn { iterable, body, .. } => {
+            expression_needs_null_assert(iterable) || statements_need_null_assert(body)
+        }
+        StatementKind::Labeled { body, .. } => statement_needs_null_assert(body),
+        StatementKind::Assert { condition, message } => {
+            expression_needs_null_assert(condition)
+                || message.as_ref().is_some_and(expression_needs_null_assert)
+        }
+        StatementKind::Try {
+            body,
+            catches,
+            finally_body,
+        } => {
+            statements_need_null_assert(body)
+                || catches
+                    .iter()
+                    .any(|clause| statements_need_null_assert(&clause.body))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|body| statements_need_null_assert(body))
+        }
+        StatementKind::Break
+        | StatementKind::Continue
+        | StatementKind::BreakLabel(_)
+        | StatementKind::ContinueLabel(_)
+        | StatementKind::Rethrow => false,
     }
 }
 
@@ -714,6 +767,13 @@ fn indent(depth: usize, output: &mut Output<'_>) {
 fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
     for statement in body {
         indent(depth, output);
+        statement_at(statement, depth, output);
+    }
+}
+
+/// Emite uma instrução já recuada; um rótulo apenas prefixa a instrução seguinte.
+fn statement_at(statement: &Statement<'_>, depth: usize, output: &mut Output<'_>) {
+    {
         match &statement.kind {
             StatementKind::RecordDestructure {
                 is_final,
@@ -892,6 +952,37 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 }
             }
             StatementKind::Continue => output.push_str("continue;\n"),
+            StatementKind::BreakLabel(name) => {
+                output.push_str("break ");
+                fluxo::label(name, output);
+                output.push_str(";\n");
+            }
+            StatementKind::ContinueLabel(name) => {
+                output.push_str("continue ");
+                fluxo::label(name, output);
+                output.push_str(";\n");
+            }
+            StatementKind::Labeled { label, body } => {
+                fluxo::label(label, output);
+                output.push_str(": ");
+                statement_at(body, depth, output);
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => fluxo::try_statement(body, catches, finally_body.as_ref(), depth, output),
+            StatementKind::Rethrow => fluxo::rethrow(output),
+            StatementKind::Assert { condition, message } => {
+                fluxo::assert_statement(condition, message.as_ref(), output);
+            }
+            StatementKind::ForIn {
+                is_final,
+                name,
+                iterable,
+                body,
+                ..
+            } => fluxo::for_in(*is_final, name, iterable, body, depth, output),
             StatementKind::Block(body) => {
                 output.push_str("{\n");
                 statements(body, depth + 1, output);
@@ -1393,6 +1484,12 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             expression(right, output);
             output.push(')');
         }
+        ExprKind::Conditional {
+            condition,
+            then_value,
+            else_value,
+        } => fluxo::conditional(condition, then_value, else_value, output),
+        ExprKind::Throw(value) => fluxo::throw_expression(value, output),
         ExprKind::Binary { op, left, right } => {
             output.push('(');
             expression(left, output);

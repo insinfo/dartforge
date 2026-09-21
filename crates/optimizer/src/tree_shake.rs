@@ -289,7 +289,46 @@ impl Scan<'_, '_> {
                     self.body(&c.body);
                 }
             }
-            StatementKind::Break | StatementKind::Continue => {}
+            StatementKind::Labeled { body, .. } => self.statement(body),
+            StatementKind::ForIn {
+                annotation,
+                iterable,
+                body,
+                ..
+            } => {
+                if let Some(t) = annotation {
+                    self.ty(*t);
+                }
+                self.expr(iterable);
+                self.body(body);
+            }
+            StatementKind::Assert { condition, message } => {
+                self.expr(condition);
+                if let Some(message) = message {
+                    self.expr(message);
+                }
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => {
+                self.body(body);
+                for clause in catches {
+                    if let Some(t) = clause.exception_type {
+                        self.ty(t);
+                    }
+                    self.body(&clause.body);
+                }
+                if let Some(body) = finally_body {
+                    self.body(body);
+                }
+            }
+            StatementKind::Break
+            | StatementKind::Continue
+            | StatementKind::BreakLabel(_)
+            | StatementKind::ContinueLabel(_)
+            | StatementKind::Rethrow => {}
         }
     }
     /// Preserva dependências de constantes que podem substituir a expressão original.
@@ -369,7 +408,18 @@ impl Scan<'_, '_> {
                 self.ty(*ty);
                 self.expr(operand);
             }
-            ExprKind::Unary { operand, .. } | ExprKind::Const(operand) => self.expr(operand),
+            ExprKind::Unary { operand, .. }
+            | ExprKind::Throw(operand)
+            | ExprKind::Const(operand) => self.expr(operand),
+            ExprKind::Conditional {
+                condition,
+                then_value,
+                else_value,
+            } => {
+                self.expr(condition);
+                self.expr(then_value);
+                self.expr(else_value);
+            }
             ExprKind::Binary { left, right, .. } => {
                 self.expr(left);
                 self.expr(right);

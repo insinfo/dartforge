@@ -866,4 +866,13 @@ pub enum ConstValue {
         element_type: Type,
         values: Vec<ConstValue>,
     },
+    /// Instância canônica de um construtor `const`.
+    ///
+    /// Os campos ficam na ordem de declaração da classe, que é estável e
+    /// determina a chave de canonicalização: dois `const C(1)` produzem a mesma
+    /// chave e, por consequência, a mesma identidade no JavaScript emitido.
+    Instance {
+        class_id: u32,
+        fields: Vec<(String, ConstValue)>,
+    },
 }

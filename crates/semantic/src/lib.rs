@@ -226,6 +226,25 @@ struct StaticInfo<'a> {
     is_final: bool,
     constant: Option<Rc<ConstValue>>,
 }
+/// Formal `this.campo` de um construtor `const`, com padrão já avaliado.
+#[derive(Clone)]
+struct ConstFormal<'a> {
+    field: &'a str,
+    label: &'a str,
+    kind: ParameterKind,
+    default: Option<ConstValue>,
+}
+/// Receita para montar `const C(...)` sem executar código do usuário.
+///
+/// Só existe para o recorte aceito de construtores const: sem superclasse, sem
+/// corpo, sem lista de inicialização e com todo campo vindo de um formal
+/// `this.campo` ou de um inicializador de declaração já constante.
+#[derive(Clone)]
+struct ConstPlan<'a> {
+    formals: Vec<ConstFormal<'a>>,
+    /// Campos na ordem de declaração; `None` indica valor vindo do formal.
+    fields: Vec<(&'a str, Option<ConstValue>)>,
+}
 /// Procura por nome numa lista ordenada, sem construir tabela associativa.
 fn find_by_name<'a, T>(items: &'a [T], name: &str, key: impl Fn(&T) -> &'a str) -> Option<&'a T> {
     let index = items.binary_search_by(|item| key(item).cmp(name)).ok()?;
@@ -240,14 +259,14 @@ struct ClassInfo<'a> {
     constructor_required: usize,
     /// Nomeados do construtor, ordenados por rótulo como em Signature.
     constructor_named: Vec<NamedParameter<'a>>,
-    /// O construtor sem nome foi declarado `const`.
-    constructor_is_const: bool,
     /// Construtores nomeados ordenados por nome; vazio no caminho comum.
     named_constructors: Vec<ConstructorInfo<'a>>,
     /// Campos estáticos ordenados por nome; não participam de herança.
     static_fields: Vec<StaticInfo<'a>>,
     /// Métodos estáticos ordenados por nome; resolvidos pelo nome da classe.
     static_methods: Vec<(&'a str, Signature<'a>)>,
+    /// Receitas de construtores const, ordenadas por nome (`""` para o sem nome).
+    const_plans: Vec<(&'a str, Rc<ConstPlan<'a>>)>,
     modifier: ClassModifier,
     kind: ClassKind,
     is_mixin_application: bool,
@@ -301,6 +320,8 @@ struct Validator<'a> {
     globals: Rc<Vec<StaticInfo<'a>>>,
     current_class: Option<u32>,
     in_field_initializer: bool,
+    /// Lista de inicialização em curso: `this` ainda não pode ser lido.
+    in_initializer_list: bool,
     /// Tabela global construída antes da análise; compartilhada, nunca por fluxo.
     extensions: Rc<Vec<ExtensionInfo<'a>>>,
     current_extension: Option<usize>,
@@ -370,6 +391,7 @@ pub fn analyze_with_async_library(
         globals: Rc::new(Vec::new()),
         current_class: None,
         in_field_initializer: false,
+        in_initializer_list: false,
         extensions: Rc::new(vec![]),
         current_extension: None,
         resolution: Rc::new(RefCell::new(Resolution {
@@ -463,18 +485,18 @@ pub fn analyze_with_async_library(
             ));
         }
         let mut info = ClassInfo {
-            has_generative: class.constructor.is_some() || class.factories.is_empty(),
+            // Declarar qualquer construtor remove o construtor implícito sem
+            // nome, exatamente como em Dart.
+            has_generative: class.constructor.is_some()
+                || (class.factories.is_empty() && class.named_constructors.is_empty()),
             factories: HashMap::new(),
             constructor_parameters: constructor_positional,
             constructor_required,
             constructor_named,
-            constructor_is_const: class
-                .constructor_extras
-                .as_ref()
-                .is_some_and(|extras| extras.is_const),
             named_constructors,
             static_fields: Vec::new(),
             static_methods: Vec::new(),
+            const_plans: Vec::new(),
             modifier: class.modifier,
             kind: class.kind,
             is_mixin_application: class.is_mixin_application,
@@ -764,6 +786,14 @@ pub fn analyze_with_async_library(
             validator.function(method)?;
         }
     }
+    // As receitas const ficam prontas antes de qualquer corpo, porque `const
+    // C(1)` pode aparecer em qualquer ponto do programa.
+    for class in &program.classes {
+        if class.is_library_globals {
+            continue;
+        }
+        validator.build_const_plans(class)?;
+    }
     for function in &program.functions {
         validator.function(function)?;
     }
@@ -848,7 +878,11 @@ pub fn analyze_with_async_library(
             }
             validator.current_class = None;
         }
-        if let Some(constructor) = &class.constructor {
+        for constructor in class
+            .constructor
+            .iter()
+            .chain(class.named_constructors.iter().map(|c| &c.constructor))
+        {
             validator.current_class = Some(class.id);
             validator.constructor_body(constructor)?;
             validator.current_class = None;
@@ -1290,7 +1324,12 @@ impl<'a> Validator<'a> {
         };
         // O avaliador de constantes decide se a expressão é constante; nenhum
         // binding local é visível na posição de um parâmetro.
-        let value = constants::evaluate(default, &self.resolution.borrow(), &|_| None)?;
+        let value = constants::evaluate(default, &self.resolution.borrow(), &|_| None, &|inner| {
+            Err(Diagnostic::new(
+                "A default value must be a literal scalar constant",
+                inner.span,
+            ))
+        })?;
         // O linker não reescreve o span de um padrão, então o valor não pode
         // depender de tabela indexada por span: só literais escalares passam,
         // e a emissão os escreve diretamente.
@@ -1623,6 +1662,19 @@ impl<'a> Validator<'a> {
         }
     }
 
+    /// Recusa ler `this` antes de a superclasse concluir sua inicialização.
+    ///
+    /// # Erros
+    /// Devolve diagnóstico enquanto a lista de inicialização estiver em curso.
+    fn reject_early_this(&self, span: Span) -> Result<(), Diagnostic> {
+        if self.in_initializer_list {
+            return Err(Diagnostic::new(
+                "Cannot read 'this' before the superclass constructor runs",
+                span,
+            ));
+        }
+        Ok(())
+    }
     /// Procura o nome do escopo mais interno até o mais externo.
     fn lookup(&self, name: &str) -> Option<Binding> {
         self.scopes
@@ -2490,6 +2542,7 @@ impl<'a> Validator<'a> {
                 Ok(Type::Duration)
             }
             ExprKind::This => {
+                self.reject_early_this(expression.span)?;
                 if self.in_field_initializer {
                     return Err(Diagnostic::new(
                         "this is unavailable in field initializers",
@@ -2517,8 +2570,17 @@ impl<'a> Validator<'a> {
                         expression.span,
                     ));
                 }
+                // `C.v` alcança um campo estático da própria classe; a busca
+                // nunca sobe para a superclasse, porque Dart não herda estáticos.
+                if let Some(member) = self.static_field(*class_id, name) {
+                    return Ok(member.ty);
+                }
                 if !class.enum_values.contains(name) {
-                    return Err(Diagnostic::new("Unknown enum value", expression.span));
+                    self.reject_inherited_static(*class_id, name, expression.span)?;
+                    return Err(Diagnostic::new(
+                        "Unknown enum value or static field",
+                        expression.span,
+                    ));
                 }
                 Ok(Type::Class(*class_id))
             }
@@ -2747,6 +2809,7 @@ impl<'a> Validator<'a> {
                     && let Some(id) = self.current_class
                 {
                     if let Some(field) = self.field(id, name) {
+                        self.reject_early_this(expression.span)?;
                         if self.in_field_initializer {
                             return Err(Diagnostic::new(
                                 "Implicit this unavailable in field initializer",
@@ -2759,6 +2822,7 @@ impl<'a> Validator<'a> {
                     if let Some(method) = self.method(id, name)
                         && method.is_getter
                     {
+                        self.reject_early_this(expression.span)?;
                         if self.in_field_initializer {
                             return Err(Diagnostic::new(
                                 "Implicit this unavailable in field initializer",
@@ -2827,6 +2891,7 @@ impl<'a> Validator<'a> {
                     return self.invoke(ty, arguments, expression.span);
                 }
                 if self.has_implicit_member(name) {
+                    self.reject_early_this(expression.span)?;
                     if self.in_field_initializer {
                         return Err(Diagnostic::new(
                             "Implicit this unavailable in field initializer",

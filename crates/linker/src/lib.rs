@@ -1327,7 +1327,49 @@ impl<'a> Resolver<'a, '_> {
                 self.scopes.pop();
             }
             StatementKind::Block(body) => self.block(body)?,
-            StatementKind::Break | StatementKind::Continue => {}
+            StatementKind::Labeled { body, .. } => self.statement(body)?,
+            StatementKind::ForIn {
+                name,
+                iterable,
+                body,
+                ..
+            } => {
+                self.expression(iterable)?;
+                let mut scope = HashSet::new();
+                scope.insert(*name);
+                self.scopes.push(scope);
+                self.block(body)?;
+                self.scopes.pop();
+            }
+            StatementKind::Assert { condition, message } => {
+                self.expression(condition)?;
+                if let Some(message) = message {
+                    self.expression(message)?;
+                }
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => {
+                self.block(body)?;
+                for clause in catches {
+                    let mut scope = HashSet::new();
+                    scope.extend(clause.exception);
+                    scope.extend(clause.stack_trace);
+                    self.scopes.push(scope);
+                    self.block(&clause.body)?;
+                    self.scopes.pop();
+                }
+                if let Some(body) = finally_body {
+                    self.block(body)?;
+                }
+            }
+            StatementKind::Break
+            | StatementKind::Continue
+            | StatementKind::BreakLabel(_)
+            | StatementKind::ContinueLabel(_)
+            | StatementKind::Rethrow => {}
         }
         self.span(&mut statement.span);
         Ok(())

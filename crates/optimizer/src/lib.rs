@@ -133,7 +133,36 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
             fold_statements(body, stats);
         }
         StatementKind::Block(body) => fold_statements(body, stats),
-        StatementKind::Break | StatementKind::Continue => {}
+        StatementKind::Labeled { body, .. } => fold_statement(body, stats),
+        StatementKind::ForIn { iterable, body, .. } => {
+            fold_expression(iterable, stats);
+            fold_statements(body, stats);
+        }
+        // A asserção nunca é removida: o contrato está em docs/FLUXO.md.
+        StatementKind::Assert { condition, message } => {
+            fold_expression(condition, stats);
+            if let Some(message) = message {
+                fold_expression(message, stats);
+            }
+        }
+        StatementKind::Try {
+            body,
+            catches,
+            finally_body,
+        } => {
+            fold_statements(body, stats);
+            for clause in catches {
+                fold_statements(&mut clause.body, stats);
+            }
+            if let Some(body) = finally_body {
+                fold_statements(body, stats);
+            }
+        }
+        StatementKind::Break
+        | StatementKind::Continue
+        | StatementKind::BreakLabel(_)
+        | StatementKind::ContinueLabel(_)
+        | StatementKind::Rethrow => {}
     }
 }
 
@@ -192,9 +221,22 @@ fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
         }
         ExprKind::Await(e)
         | ExprKind::Const(e)
+        | ExprKind::Throw(e)
         | ExprKind::TypeTest { operand: e, .. }
         | ExprKind::Cast { operand: e, .. } => {
             fold_expression(e, stats);
+            None
+        }
+        // A seleção do ramo não é dobrada: só um dos dois pode ser avaliado e
+        // substituir a expressão inteira mudaria os spans que a emissão usa.
+        ExprKind::Conditional {
+            condition,
+            then_value,
+            else_value,
+        } => {
+            fold_expression(condition, stats);
+            fold_expression(then_value, stats);
+            fold_expression(else_value, stats);
             None
         }
         ExprKind::Switch { scrutinee, arms } => {

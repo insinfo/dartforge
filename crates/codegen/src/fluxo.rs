@@ -10,16 +10,21 @@
 use super::*;
 use dartforge_syntax::CatchClause;
 
-/// Nome do rótulo JavaScript de um rótulo Dart.
+/// Escreve o rótulo JavaScript correspondente a um rótulo Dart.
 ///
 /// Rótulos vivem num espaço de nomes separado do das variáveis em JavaScript,
-/// então o prefixo serve apenas para evitar palavras reservadas.
+/// então o prefixo serve apenas para evitar palavras reservadas da linguagem.
 pub(super) fn label(name: &str, output: &mut Output<'_>) {
     output.push_str("$df_");
     output.push_str(name);
 }
 
 /// Emite `try`, as cláusulas de captura e o bloco final.
+///
+/// As cláusulas viram uma cadeia `if`/`else if` dentro de um único `catch` do
+/// JavaScript, na ordem escrita. A primeira cláusula sem `on` encerra a cadeia,
+/// porque aceita qualquer valor; sem nenhuma cláusula sem `on`, o valor que não
+/// casa é relançado, e não silenciosamente engolido.
 pub(super) fn try_statement(
     body: &[Statement<'_>],
     catches: &[CatchClause<'_>],
@@ -35,48 +40,47 @@ pub(super) fn try_statement(
         let id = output.next_catch;
         output.next_catch += 1;
         let caught = format!("$dartforgeCaught{id}");
-        write!(output, " catch ({caught}) {{\n").unwrap();
+        writeln!(output, " catch ({caught}) {{").unwrap();
         output.caught.push(caught.clone());
-        // Uma cláusula sem `on` aceita qualquer valor e encerra a cadeia; as
-        // demais testam o tipo em execução e o valor não aceito é relançado.
-        let mut open = 0usize;
+        let mut chain = 0usize;
         let mut exhaustive = false;
         for clause in catches {
-            indent(depth + 1, output);
             match clause.exception_type {
                 Some(ty) => {
-                    if open > 0 {
-                        output.pop_trailing_indent(depth + 1);
-                        output.push_str(" else ");
+                    indent(depth + 1, output);
+                    if chain > 0 {
+                        output.push_str("else ");
                     }
                     write!(output, "if ($dartforgeIs({caught},").unwrap();
                     types::descriptor(ty, output);
                     output.push_str(")) {\n");
-                    open += 1;
+                    bind_catch(clause, &caught, depth + 2, output);
+                    statements(&clause.body, depth + 2, output);
+                    indent(depth + 1, output);
+                    output.push_str("}\n");
+                    chain += 1;
                 }
                 None => {
-                    if open > 0 {
-                        output.pop_trailing_indent(depth + 1);
-                        output.push_str(" else ");
+                    if chain > 0 {
+                        indent(depth + 1, output);
+                        output.push_str("else {\n");
+                        bind_catch(clause, &caught, depth + 2, output);
+                        statements(&clause.body, depth + 2, output);
+                        indent(depth + 1, output);
+                        output.push_str("}\n");
+                    } else {
+                        bind_catch(clause, &caught, depth + 1, output);
+                        statements(&clause.body, depth + 1, output);
                     }
-                    output.push_str("{\n");
-                    open += 1;
                     exhaustive = true;
+                    // As cláusulas seguintes seriam inalcançáveis.
+                    break;
                 }
             }
-            bind_catch(clause, &caught, depth + 2, output);
-            statements(&clause.body, depth + 2, output);
-            indent(depth + 1, output);
-            output.push('}');
-            output.push('\n');
-            if exhaustive {
-                break;
-            }
         }
-        if !exhaustive {
+        if !exhaustive && chain > 0 {
             indent(depth + 1, output);
-            output.pop_trailing_indent(depth + 1);
-            writeln!(output, " else {{ throw {caught}; }}").unwrap();
+            writeln!(output, "else {{ throw {caught}; }}").unwrap();
         }
         output.caught.pop();
         indent(depth, output);
@@ -123,7 +127,8 @@ pub(super) fn rethrow(output: &mut Output<'_>) {
 
 /// Emite `assert`, avaliando a mensagem somente quando a condição falha.
 ///
-/// A asserção é sempre emitida: o contrato está em `docs/FLUXO.md`.
+/// A asserção é sempre emitida; o contrato e a justificativa estão em
+/// `docs/FLUXO.md`.
 pub(super) fn assert_statement(
     condition: &Expr<'_>,
     message: Option<&Expr<'_>>,
@@ -159,13 +164,35 @@ pub(super) fn for_in(
     output.push('\n');
 }
 
-/// Auxiliares de runtime usados apenas pelas formas efetivamente emitidas.
-pub(super) fn runtime(output: &mut Output<'_>) -> String {
+/// Emite o operador condicional preservando a avaliação de um único ramo.
+pub(super) fn conditional(
+    condition: &Expr<'_>,
+    then_value: &Expr<'_>,
+    else_value: &Expr<'_>,
+    output: &mut Output<'_>,
+) {
+    output.push('(');
+    expression(condition, output);
+    output.push_str(" ? ");
+    expression(then_value, output);
+    output.push_str(" : ");
+    expression(else_value, output);
+    output.push(')');
+}
+
+/// Emite `throw` em posição de expressão, onde o JavaScript exige uma chamada.
+pub(super) fn throw_expression(value: &Expr<'_>, output: &mut Output<'_>) {
+    output.throw_used = true;
+    output.push_str("$dartforgeThrow(");
+    expression(value, output);
+    output.push(')');
+}
+
+/// Devolve os auxiliares de runtime exigidos pelas formas efetivamente emitidas.
+pub(super) fn runtime(output: &Output<'_>) -> String {
     let mut text = String::new();
     if output.throw_used {
-        text.push_str(
-            "function $dartforgeThrow(value) { throw value; }\n",
-        );
+        text.push_str("function $dartforgeThrow(value) { throw value; }\n");
     }
     if output.assert_used {
         text.push_str(

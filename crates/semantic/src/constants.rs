@@ -8,13 +8,18 @@ use dartforge_syntax::{
 };
 
 /// Avalia expressão já tipada, consultando somente bindings declarados const.
-pub(super) fn evaluate(
-    expression: &Expr<'_>,
+///
+/// `instance` recebe cada invocação de construtor encontrada em contexto const:
+/// este módulo não conhece a tabela de classes e delega a decisão ao validador,
+/// que devolve o valor canônico ou o diagnóstico da recusa.
+pub(super) fn evaluate<'a>(
+    expression: &Expr<'a>,
     resolution: &Resolution,
     lookup: &impl Fn(&str) -> Option<ConstValue>,
+    instance: &impl Fn(&Expr<'a>) -> Result<ConstValue, Diagnostic>,
 ) -> Result<ConstValue, Diagnostic> {
     validate(expression, lookup)?;
-    evaluate_inner(expression, resolution, lookup)
+    evaluate_inner(expression, resolution, lookup, instance)
 }
 
 /// Preserva o intervalo do operando que violou o contrato constante.
@@ -45,6 +50,14 @@ fn validate(
                 return Err(error(expression.span, "identifier is not a const binding"));
             }
         }
+        // A invocação de construtor em contexto const é decidida pelo validador:
+        // aqui basta validar os argumentos, que também precisam ser constantes.
+        ExprKind::Construct { arguments, .. } | ExprKind::NamedConstruct { arguments, .. } => {
+            for argument in arguments {
+                validate(argument, lookup)?;
+            }
+        }
+        ExprKind::NamedArgument { value, .. } => validate(value, lookup)?,
         ExprKind::Const(value) | ExprKind::Unary { operand: value, .. } => validate(value, lookup)?,
         ExprKind::Binary { left, right, .. } => {
             validate(left, lookup)?;
@@ -66,10 +79,11 @@ fn validate(
 }
 
 /// Calcula valores sem efeitos; curto-circuito evita erros de operandos não executados.
-fn evaluate_inner(
-    expression: &Expr<'_>,
+fn evaluate_inner<'a>(
+    expression: &Expr<'a>,
     resolution: &Resolution,
     lookup: &impl Fn(&str) -> Option<ConstValue>,
+    instance: &impl Fn(&Expr<'a>) -> Result<ConstValue, Diagnostic>,
 ) -> Result<ConstValue, Diagnostic> {
     let span = expression.span;
     Ok(match &expression.kind {
@@ -85,7 +99,7 @@ fn evaluate_inner(
         ExprKind::Identifier(name) => {
             lookup(name).ok_or_else(|| error(span, "identifier is not a const binding"))?
         }
-        ExprKind::Const(value) => evaluate_inner(value, resolution, lookup)?,
+        ExprKind::Const(value) => evaluate_inner(value, resolution, lookup, instance)?,
         ExprKind::List {
             element_type,
             elements,
@@ -115,7 +129,7 @@ fn evaluate_inner(
             }
             let values = elements
                 .iter()
-                .map(|value| evaluate_inner(value, resolution, lookup))
+                .map(|value| evaluate_inner(value, resolution, lookup, instance))
                 .collect::<Result<Vec<_>, _>>()?;
             ConstValue::List {
                 element_type,
@@ -123,7 +137,7 @@ fn evaluate_inner(
             }
         }
         ExprKind::Unary { op, operand } => {
-            let value = evaluate_inner(operand, resolution, lookup)?;
+            let value = evaluate_inner(operand, resolution, lookup, instance)?;
             match (op, value) {
                 (UnaryOp::Negate, ConstValue::Int(n)) => {
                     ConstValue::Int(n.checked_neg().ok_or_else(|| {
@@ -139,15 +153,19 @@ fn evaluate_inner(
             }
         }
         ExprKind::Binary { op, left, right } => {
-            let left = evaluate_inner(left, resolution, lookup)?;
+            let left = evaluate_inner(left, resolution, lookup, instance)?;
             match (*op, &left) {
                 (BinaryOp::And, ConstValue::Bool(false)) => return Ok(ConstValue::Bool(false)),
                 (BinaryOp::Or, ConstValue::Bool(true)) => return Ok(ConstValue::Bool(true)),
                 (BinaryOp::IfNull, value) if *value != ConstValue::Null => return Ok(left),
                 _ => {}
             }
-            let right = evaluate_inner(right, resolution, lookup)?;
+            let right = evaluate_inner(right, resolution, lookup, instance)?;
             binary(*op, left, right, resolution, span)?
+        }
+        ExprKind::Construct { .. } | ExprKind::NamedConstruct { .. } => instance(expression)?,
+        ExprKind::NamedArgument { value, .. } => {
+            evaluate_inner(value, resolution, lookup, instance)?
         }
         _ => return Err(error(span, "expression is not supported")),
     })
@@ -251,6 +269,23 @@ fn same_type(left: Type, right: Type, resolution: &Resolution) -> bool {
 fn equal(left: &ConstValue, right: &ConstValue, resolution: &Resolution) -> bool {
     match (left, right) {
         (
+            ConstValue::Instance {
+                class_id: a,
+                fields: af,
+            },
+            ConstValue::Instance {
+                class_id: b,
+                fields: bf,
+            },
+        ) => {
+            a == b
+                && af.len() == bf.len()
+                && af
+                    .iter()
+                    .zip(bf)
+                    .all(|((a, av), (b, bv))| a == b && equal(av, bv, resolution))
+        }
+        (
             ConstValue::List {
                 element_type: a,
                 values: av,
@@ -328,6 +363,11 @@ fn binary(
 mod tests {
     use super::*;
 
+    /// Recusa instâncias const nos testes deste módulo, que só usam escalares.
+    fn reject(expression: &Expr<'_>) -> Result<ConstValue, Diagnostic> {
+        Err(error(expression.span, "instances are not supported here"))
+    }
+
     /// Monta AST pequena com intervalo estável para verificar diagnósticos locais.
     fn expression(kind: ExprKind<'_>) -> Expr<'_> {
         Expr {
@@ -354,7 +394,7 @@ mod tests {
         let condition = operation(BinaryOp::Equal, bad, expression(ExprKind::Int(0)));
         let lazy = operation(BinaryOp::And, expression(ExprKind::Bool(false)), condition);
         assert_eq!(
-            evaluate(&lazy, &Resolution::default(), &|_| None).unwrap(),
+            evaluate(&lazy, &Resolution::default(), &|_| None, &reject).unwrap(),
             ConstValue::Bool(false)
         );
         let call = expression(ExprKind::Call {
@@ -362,7 +402,7 @@ mod tests {
             arguments: vec![],
         });
         let lazy = operation(BinaryOp::And, expression(ExprKind::Bool(false)), call);
-        assert!(evaluate(&lazy, &Resolution::default(), &|_| None).is_err());
+        assert!(evaluate(&lazy, &Resolution::default(), &|_| None, &reject).is_err());
     }
     #[test]
     /// Overflow mantém diagnóstico localizado; módulo negativo segue o oracle Dart.
@@ -373,7 +413,7 @@ mod tests {
             expression(ExprKind::Int(1)),
         );
         assert_eq!(
-            evaluate(&overflow, &Resolution::default(), &|_| None)
+            evaluate(&overflow, &Resolution::default(), &|_| None, &reject)
                 .unwrap_err()
                 .span
                 .start,
@@ -385,7 +425,7 @@ mod tests {
             expression(ExprKind::Int(-3)),
         );
         assert_eq!(
-            evaluate(&remainder, &Resolution::default(), &|_| None).unwrap(),
+            evaluate(&remainder, &Resolution::default(), &|_| None, &reject).unwrap(),
             ConstValue::Int(1)
         );
     }
@@ -396,9 +436,12 @@ mod tests {
             element_type: Some(Type::Int),
             elements: vec![expression(ExprKind::Identifier("n"))],
         });
-        let result = evaluate(&value, &Resolution::default(), &|name| {
-            (name == "n").then_some(ConstValue::Int(2))
-        })
+        let result = evaluate(
+            &value,
+            &Resolution::default(),
+            &|name| (name == "n").then_some(ConstValue::Int(2)),
+            &reject,
+        )
         .unwrap();
         assert_eq!(
             result,
@@ -407,7 +450,7 @@ mod tests {
                 values: vec![ConstValue::Int(2)]
             }
         );
-        assert!(evaluate(&value, &Resolution::default(), &|_| None).is_err());
+        assert!(evaluate(&value, &Resolution::default(), &|_| None, &reject).is_err());
     }
     #[test]
     /// Tipos equivalentes com IDs diferentes preservam identidade canônica de listas.

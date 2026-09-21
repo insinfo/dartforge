@@ -333,6 +333,13 @@ impl<'a> Canonical<'a, '_> {
             Block(body) => pack("block", &[self.body(body)]),
             Break => "break".into(),
             Continue => "continue".into(),
+            // O fluxo deste incremento não entra na fusão: a chave não
+            // descreveria rótulos, cláusulas de captura nem a variável ligada.
+            Labeled { .. } | BreakLabel(_) | ContinueLabel(_) | Try { .. } | Rethrow
+            | Assert { .. } | ForIn { .. } => {
+                self.valid = false;
+                "flow".into()
+            }
         }
     }
     /// Canonicaliza apenas identificadores locais; destinos globais e tipos não mudam.
@@ -359,6 +366,8 @@ impl<'a> Canonical<'a, '_> {
             | Cast { .. }
             | NullAwareElement(_)
             | DotShorthand { .. }
+            | Conditional { .. }
+            | Throw(_)
             | Record { .. } => {
                 self.valid = false;
                 "new-expression".into()
@@ -581,7 +590,31 @@ fn visit_stmt<'a>(
             visit_body(body, s, e);
         }
         Block(b) => visit_body(b, s, e),
-        Break | Continue => {}
+        Labeled { body, .. } => visit_stmt(body, s, e),
+        ForIn { iterable, body, .. } => {
+            visit_expr(iterable, e);
+            visit_body(body, s, e);
+        }
+        Assert { condition, message } => {
+            visit_expr(condition, e);
+            if let Some(message) = message {
+                visit_expr(message, e);
+            }
+        }
+        Try {
+            body,
+            catches,
+            finally_body,
+        } => {
+            visit_body(body, s, e);
+            for clause in catches {
+                visit_body(&mut clause.body, s, e);
+            }
+            if let Some(body) = finally_body {
+                visit_body(body, s, e);
+            }
+        }
+        Break | Continue | BreakLabel(_) | ContinueLabel(_) | Rethrow => {}
     }
 }
 /// Reescreve chamadas diretas em qualquer posição de expressão.
@@ -590,7 +623,16 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
     use ExprKind::*;
     match &mut x.kind {
         NamedArgument { value, .. } => visit_expr(value, e),
-        NullAwareElement(value) => visit_expr(value, e),
+        NullAwareElement(value) | Throw(value) => visit_expr(value, e),
+        Conditional {
+            condition,
+            then_value,
+            else_value,
+        } => {
+            visit_expr(condition, e);
+            visit_expr(then_value, e);
+            visit_expr(else_value, e);
+        }
         DotShorthand { arguments, .. } => {
             for argument in arguments.iter_mut().flatten() {
                 visit_expr(argument, e);

@@ -95,23 +95,45 @@ impl<'a> Validator<'a> {
         &self,
         expression: &Expr<'a>,
     ) -> Result<ConstValue, Diagnostic> {
-        let value = constants::evaluate(expression, &self.resolution.borrow(), &|name| {
-            self.lookup(name)
-                .and_then(|b| b.constant.map(|v| (*v).clone()))
-                .or_else(|| {
-                    // Uma variável de topo `const` só é visível quando nenhum
-                    // local nem membro da instância oculta o nome escrito.
-                    (self.lookup(name).is_none() && !self.has_implicit_member(name))
-                        .then(|| self.global(name))
-                        .flatten()
-                        .and_then(|global| global.constant.as_deref().cloned())
-                })
-        })?;
+        let value = {
+            let resolution = self.resolution.borrow();
+            self.const_evaluate(expression, &resolution)?
+        };
         self.resolution
             .borrow_mut()
             .constant_values
             .insert((expression.span.start, expression.span.end), value.clone());
         Ok(value)
+    }
+    /// Avalia uma expressão const contra uma resolução já emprestada.
+    ///
+    /// Separar a avaliação do registro evita manter dois empréstimos da mesma
+    /// `RefCell` quando uma instância const precisa avaliar seus argumentos.
+    ///
+    /// # Erros
+    /// Propaga a recusa do avaliador de constantes, já com o intervalo exato.
+    pub(super) fn const_evaluate(
+        &self,
+        expression: &Expr<'a>,
+        resolution: &Resolution,
+    ) -> Result<ConstValue, Diagnostic> {
+        constants::evaluate(
+            expression,
+            resolution,
+            &|name| {
+                self.lookup(name)
+                    .and_then(|b| b.constant.map(|v| (*v).clone()))
+                    .or_else(|| {
+                        // Uma variável de topo `const` só é visível quando nenhum
+                        // local nem membro da instância oculta o nome escrito.
+                        (self.lookup(name).is_none() && !self.has_implicit_member(name))
+                            .then(|| self.global(name))
+                            .flatten()
+                            .and_then(|global| global.constant.as_deref().cloned())
+                    })
+            },
+            &|inner| self.const_instance(inner, resolution),
+        )
     }
     /// Substitui parâmetros dentro de funções e coleções, mantendo IDs originais intactos.
     pub(super) fn substitute(&self, ty: Type, bindings: &[Option<Type>], unknown: Type) -> Type {

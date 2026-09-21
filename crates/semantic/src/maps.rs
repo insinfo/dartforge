@@ -79,18 +79,51 @@ impl<'a> Validator<'a> {
         if self.lookup(class.name).is_some() || self.has_implicit_member(class.name) {
             return Err(Diagnostic::new("Declaration shadows factory class", span));
         }
-        let signature = class
-            .factories
-            .get(name)
-            .ok_or_else(|| Diagnostic::new("Unknown named factory", span))?;
-        self.check_call_arguments(
-            arguments,
-            &signature.parameters,
-            signature.required_positional,
-            &signature.named,
+        // `C.nome(...)` designa, nesta ordem, fábrica, construtor nomeado ou
+        // método estático. Os três espaços de nome são disjuntos por construção.
+        if let Some(signature) = class.factories.get(name) {
+            self.check_call_arguments(
+                arguments,
+                &signature.parameters,
+                signature.required_positional,
+                &signature.named,
+                span,
+                |_| Diagnostic::new("Incorrect factory argument count", span),
+            )?;
+            return Ok(Type::Class(class_id));
+        }
+        if let Some(declared) = find_by_name(&class.named_constructors, name, |item| item.name) {
+            if class.is_abstract {
+                return Err(Diagnostic::new(
+                    "Cannot construct an abstract class or enum",
+                    span,
+                ));
+            }
+            self.check_call_arguments(
+                arguments,
+                &declared.parameters,
+                declared.required,
+                &declared.named,
+                span,
+                |_| Diagnostic::new("Incorrect constructor argument count", span),
+            )?;
+            return Ok(Type::Class(class_id));
+        }
+        if let Some(signature) = self.static_method(class_id, name) {
+            self.check_call_arguments(
+                arguments,
+                &signature.parameters,
+                signature.required_positional,
+                &signature.named,
+                span,
+                |_| Diagnostic::new("Incorrect static method argument count", span),
+            )?;
+            return Ok(signature.result);
+        }
+        self.reject_inherited_static(class_id, name, span)?;
+        Err(Diagnostic::new(
+            "Unknown named factory, named constructor or static method",
             span,
-            |_| Diagnostic::new("Incorrect factory argument count", span),
-        )?;
-        Ok(Type::Class(class_id))
+        ))
     }
 }
