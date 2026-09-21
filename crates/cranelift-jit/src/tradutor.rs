@@ -444,6 +444,12 @@ impl Emissor<'_, '_> {
     /// Traduz uma instrução da fatia e liga os blocos de controle correspondentes.
     fn instrucao(&mut self, instrucao: &Statement<'_>) -> Result<(), Diagnostic> {
         match &instrucao.kind {
+            // `late` não tem célula de inicialização aqui: recusar é o que
+            // impede a declaração de virar `null` e a leitura antes da escrita
+            // de devolver null em vez de lançar.
+            StatementKind::Variable { is_late: true, .. } => {
+                return Err(erro(instrucao.span, "late"));
+            }
             StatementKind::Variable {
                 name,
                 annotation,
@@ -1082,6 +1088,10 @@ fn recurso_de_expressao(expressao: &Expr<'_>) -> &'static str {
 /// preserva a garantia de que nenhuma forma fora da fatia passa despercebida.
 fn validar_instrucao(instrucao: &Statement<'_>) -> Result<(), Diagnostic> {
     match &instrucao.kind {
+        // A célula de `late` — sentinela e checagem de inicialização — só é
+        // emitida no backend JavaScript; aqui a declaração viraria `null` e ler
+        // antes de escrever devolveria null em vez de lançar.
+        StatementKind::Variable { is_late: true, .. } => Err(erro(instrucao.span, "late")),
         StatementKind::Variable { initializer, .. } => validar_expressao(initializer),
         StatementKind::Assign { value, .. }
         | StatementKind::Print(value)

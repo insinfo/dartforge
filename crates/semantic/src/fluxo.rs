@@ -53,6 +53,7 @@ impl<'a> Validator<'a> {
                         constant: None,
                         ty: Some(caught),
                         is_final: true,
+                        is_late: false,
                         promoted: None,
                     },
                 );
@@ -68,6 +69,7 @@ impl<'a> Validator<'a> {
                             // o rastro é opaco e só satisfaz Object.
                             ty: Some(Type::Object),
                             is_final: true,
+                            is_late: false,
                             promoted: None,
                         },
                     )
@@ -122,6 +124,7 @@ impl<'a> Validator<'a> {
                     constant: None,
                     ty: Some(declared),
                     is_final,
+                    is_late: false,
                     promoted: None,
                 },
             );

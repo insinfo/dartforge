@@ -259,6 +259,7 @@ version = "0.1.0"
 name = "dartforge-asmjit-jit"
 version = "0.1.0"
 dependencies = [
+ "dartforge-cranelift-jit",
  "dartforge-diagnostics",
  "dartforge-hir",
  "dartforge-lexer",
@@ -357,8 +358,14 @@ name = "dartforge-jit"
 version = "0.1.0"
 dependencies = [
  "dartforge-compiler",
+ "dartforge-hir",
+ "dartforge-lexer",
+ "dartforge-llvm",
+ "dartforge-macros",
  "dartforge-native",
+ "dartforge-parser",
  "dartforge-runtime",
+ "dartforge-semantic",
  "llvm-sys",
 ]
 

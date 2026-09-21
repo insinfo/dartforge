@@ -58,7 +58,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge run <input.dart> [--merge-identical-functions] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print.\nrun executa em memória pelo JIT (perfil de desenvolvimento); aot produz executável (perfil de produção)."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge run <input.dart> [--merge-identical-functions] [--timings]\n       dartforge reload <inicial.dart> <edicao.dart> [<edicao.dart>...] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print.\nrun executa em memória pelo JIT (perfil de desenvolvimento); aot produz executável (perfil de produção)."
         );
         return Ok(());
     }
@@ -135,6 +135,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args[0] == "run" {
         return run_jit(&args[1..]);
+    }
+    if args[0] == "reload" {
+        return run_hot_reload(&args[1..]);
     }
     if args[0] == "aot" {
         if args.len() < 3 {
@@ -342,6 +345,82 @@ fn run_jit(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
                 "ir_bytes": report.module.ir_bytes,
             }))?
         );
+    }
+    Ok(())
+}
+
+/// Executa a primeira entrada e recarrega a sessão com as edições seguintes.
+///
+/// É o laço de desenvolvimento em forma de comando: a sessão JIT fica aberta, o
+/// heap gerenciado é preservado entre as versões e cada arquivo seguinte é uma
+/// edição publicada por hot reload. Sem `--timings` imprime apenas a saída do
+/// programa; com `--timings`, um objeto JSON por recarga, com o custo de cada
+/// etapa do ciclo — o front-end medido aqui, o resto medido dentro da sessão.
+///
+/// # Erros
+/// Propaga diagnósticos do compilador e da sessão JIT. Uma recarga recusada
+/// (contrato incompatível, IR inválido) encerra o comando com erro, e a versão
+/// anterior continuaria valendo se o laço prosseguisse.
+fn run_hot_reload(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.len() < 2 {
+        return Err(
+            "usage: dartforge reload <inicial.dart> <edicao.dart> [<edicao.dart>...] [--timings]"
+                .into(),
+        );
+    }
+    let timings = args.last().is_some_and(|flag| flag == "--timings");
+    let arquivos = &args[..args.len() - usize::from(timings)];
+    if arquivos.len() < 2 {
+        return Err("reload exige a versão inicial e pelo menos uma edição".into());
+    }
+    let frontend_start = std::time::Instant::now();
+    let ir = dartforge_compiler::compile_path_llvm(std::path::Path::new(&arquivos[0]))?;
+    let frontend = frontend_start.elapsed();
+    let mut session = dartforge_jit::JitSession::new()?;
+    let inicial = session.add_reloadable_module("app", &ir)?;
+    let entrada = session.run_entry()?;
+    if timings {
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "schema_version": 1, "backend": "llvm-orcv2", "profile": "jit-reload",
+                "file": arquivos[0].to_string_lossy(), "generation": inicial.generation,
+                "frontend_ns": frontend.as_nanos(), "parse_ir_ns": inicial.parse_ir.as_nanos(),
+                "contract_ns": inicial.contract.as_nanos(),
+                "add_module_ns": inicial.add_module.as_nanos(),
+                "stubs_ns": inicial.stubs.as_nanos(), "link_ns": inicial.link.as_nanos(),
+                "publish_ns": inicial.publish.as_nanos(), "retire_ns": inicial.retire.as_nanos(),
+                "reload_total_ns": inicial.total.as_nanos(),
+                "execute_ns": entrada.execute.as_nanos(), "ir_bytes": inicial.ir_bytes,
+                "entries": inicial.entries, "retained_generations": inicial.retained_generations,
+            }))?
+        );
+    }
+    for arquivo in &arquivos[1..] {
+        let frontend_start = std::time::Instant::now();
+        let ir = dartforge_compiler::compile_path_llvm(std::path::Path::new(arquivo))?;
+        let frontend = frontend_start.elapsed();
+        let relatorio = session.hot_reload("app", &ir)?;
+        let entrada = session.run_entry()?;
+        if timings {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({
+                    "schema_version": 1, "backend": "llvm-orcv2", "profile": "jit-reload",
+                    "file": arquivo.to_string_lossy(), "generation": relatorio.generation,
+                    "frontend_ns": frontend.as_nanos(), "parse_ir_ns": relatorio.parse_ir.as_nanos(),
+                    "contract_ns": relatorio.contract.as_nanos(),
+                    "add_module_ns": relatorio.add_module.as_nanos(),
+                    "stubs_ns": relatorio.stubs.as_nanos(), "link_ns": relatorio.link.as_nanos(),
+                    "publish_ns": relatorio.publish.as_nanos(),
+                    "retire_ns": relatorio.retire.as_nanos(),
+                    "reload_total_ns": relatorio.total.as_nanos(),
+                    "execute_ns": entrada.execute.as_nanos(), "ir_bytes": relatorio.ir_bytes,
+                    "entries": relatorio.entries, "new_entries": relatorio.new_entries,
+                    "retained_generations": relatorio.retained_generations,
+                }))?
+            );
+        }
     }
     Ok(())
 }

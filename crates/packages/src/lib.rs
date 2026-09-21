@@ -77,7 +77,10 @@ pub struct Part {
 /// Aresta resolvida de uma diretiva import.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Import {
-    /// Prefixo explícito, atualmente permitido somente para dart:ffi.
+    /// Prefixo explícito de `import ... as p;`, sem o ponto.
+    ///
+    /// Entre as bibliotecas SDK só `dart:ffi` o aceita; nos demais imports o
+    /// namespace importado passa a ser alcançável apenas por `p.nome`.
     pub prefix: Option<String>,
     /// Caminho relativo escrito na string da diretiva.
     pub uri: String,
@@ -127,7 +130,11 @@ impl std::error::Error for GraphError {}
 /// Retorna erro para arquivos inacessíveis ou não UTF-8, falhas do lexer e
 /// diretivas fora do subconjunto. Aceita show/hide sequenciais e package_config v2.
 /// Aceita dart:core sem filtros, `library`, `part` e `part of`; outras bibliotecas
-/// dart: e aliases são rejeitados. Partes não podem ser importadas nem reivindicadas duas vezes.
+/// dart: são rejeitadas nomeando a biblioteca ausente, e um `package:` sem entrada
+/// na configuração é rejeitado nomeando o pacote e o arquivo consultado. Prefixos
+/// `as` valem para imports relativos e `package:`; nas bibliotecas SDK só dart:ffi
+/// os aceita, e `deferred as` tem diagnóstico próprio.
+/// Partes não podem ser importadas nem reivindicadas duas vezes.
 ///
 /// ```no_run
 /// use std::path::Path;
@@ -231,14 +238,28 @@ pub fn load_with_config_and_environment(
                 uri = alternative.uri;
             }
             config::validate_uri(&uri).map_err(|message| error_at(&path, Some(span), message))?;
-            if prefix.is_some() && uri != "dart:ffi" {
+            // Nomear a biblioteca ausente economiza a investigação de quem usa o
+            // compilador: o erro genérico de esquema só dizia que `dart:` não
+            // resolve, sem dizer qual biblioteca o arquivo pediu.
+            if let Some(library) = uri.strip_prefix("dart:")
+                && !matches!(uri.as_str(), "dart:core" | "dart:ffi" | "dart:async")
+            {
                 return Err(error_at(
                     &path,
                     Some(span),
-                    "prefixos fora de dart:ffi ainda não suportados".into(),
+                    format!(
+                        "biblioteca dart:{library} ainda não existe neste subconjunto; só dart:core, dart:async e dart:ffi são reconhecidas"
+                    ),
                 ));
             }
             if matches!(uri.as_str(), "dart:core" | "dart:ffi" | "dart:async") {
+                if prefix.is_some() && uri != "dart:ffi" {
+                    return Err(error_at(
+                        &path,
+                        Some(span),
+                        "prefixo em biblioteca SDK ainda não suportado fora de dart:ffi".into(),
+                    ));
+                }
                 if uri != "dart:async" && (export || !combinators.is_empty()) {
                     return Err(error_at(
                         &path,
@@ -976,6 +997,16 @@ fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
                 expected,
                 uri,
             });
+        }
+        // `deferred as` não é um prefixo comum: ele muda o momento do
+        // carregamento, e não apenas o escopo do nome. Um diagnóstico próprio
+        // evita que a diferença passe por erro de pontuação.
+        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("deferred")) {
+            return Err(error_at(
+                path,
+                Some(tokens[index].span),
+                "carregamento diferido não é suportado: remova deferred, a biblioteca importada é ligada estaticamente".into(),
+            ));
         }
         let mut combinators = Vec::new();
         let prefix = if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("as")) {

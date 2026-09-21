@@ -301,13 +301,6 @@ pub fn emit(module: &Module<'_>) -> String {
     output.push_str("}\n");
     let flow = fluxo::runtime(&output);
     output.push_str(&flow);
-    // `late` com inicializador tem erasure ansioso no parse; a célula com
-    // leitura-antes-escrita usará este auxiliar com a mensagem exata do SDK.
-    // `dynamic` reutiliza $dartforgeCast/$dartforgeIs; `typedef` e extension
-    // types resolvem para o tipo subjacente no parse (erasure, sem emissão própria).
-    if output.late_used {
-        output.push_str("function $dartforgeLateError(kind, name) { return new Error(\"LateInitializationError: \" + kind + \" '\" + name + \"' has not been initialized.\"); }\n");
-    }
     if output.const_instance_used {
         output.push_str("const $dartforgeConstInstances = new Map();
 function $dartforgeConstInstance(key, proto, fields) { let found = $dartforgeConstInstances.get(key); if (found === undefined) { found = Object.freeze(Object.assign(Object.create(proto), fields)); $dartforgeConstInstances.set(key, found); } return found; }
@@ -351,6 +344,26 @@ function $dartforgeConstInstance(key, proto, fields) { let found = $dartforgeCon
     if output.runtime_types_used {
         types::metadata(module, &mut output);
         output.text.insert_str(0, include_str!("types.js"));
+    }
+    // Célula `late` sem inicializador: um sentinela exclusivo distingue "ainda
+    // não inicializado" de qualquer valor do usuário, `null` inclusive — por
+    // isso é um Symbol e não `null` ou `undefined`, que o programa pode
+    // atribuir. As mensagens são as do SDK Dart 3.6.2, conferidas com
+    // `dart run`: locais dizem `Local`, campos e variáveis de topo dizem
+    // `Field`. `$dartforgeLateSet` existe separado porque a escrita em
+    // `receptor.campo` não pode reavaliar o receptor para conferir o sentinela.
+    // `dynamic` reutiliza $dartforgeCast/$dartforgeIs; `typedef` e extension
+    // types resolvem para o tipo subjacente no parse (erasure, sem emissão própria).
+    if output.late_used {
+        output.text.insert_str(
+            0,
+            "const $dartforgeLate = Symbol(\"late\");
+function $dartforgeLateError(kind, name, part) { return new Error(\"LateInitializationError: \" + kind + \" '\" + name + \"' has \" + part + \" been initialized.\"); }
+function $dartforgeLateRead(value, kind, name) { if (value === $dartforgeLate) { throw $dartforgeLateError(kind, name, \"not\"); } return value; }
+function $dartforgeLateWrite(current, value, kind, name) { if (current !== $dartforgeLate) { throw $dartforgeLateError(kind, name, \"already\"); } return value; }
+function $dartforgeLateSet(target, key, value, kind, name) { if (target[key] !== $dartforgeLate) { throw $dartforgeLateError(kind, name, \"already\"); } target[key] = value; return value; }
+",
+        );
     }
     output.push_str("const $df_main = main;\nmain();\n");
     output.text
@@ -496,6 +509,9 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
                     .expect("escrever em String não falha");
                 if let Some(initializer) = &field.initializer {
                     expression(initializer, output);
+                } else if field.is_late {
+                    output.late_used = true;
+                    output.push_str("$dartforgeLate");
                 } else {
                     output.push_str("null");
                 }
@@ -542,6 +558,9 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
             output.push_str(" = ");
             if let Some(initializer) = &field.initializer {
                 expression(initializer, output);
+            } else if field.is_late {
+                output.late_used = true;
+                output.push_str("$dartforgeLate");
             } else {
                 output.push_str("null");
             }
@@ -585,6 +604,9 @@ fn emit_globals(classes: &[Class<'_>], output: &mut Output<'_>) {
             output.push_str(" = ");
             if let Some(initializer) = &field.initializer {
                 expression(initializer, output);
+            } else if field.is_late {
+                output.late_used = true;
+                output.push_str("$dartforgeLate");
             } else {
                 output.push_str("null");
             }
@@ -995,6 +1017,21 @@ fn argument_list(values: &[Expr<'_>], separator: &str, output: &mut Output<'_>) 
 /// separador é `$`, e nenhum nome Dart produz `$df$eq`.
 const EQUALS_MEMBER: &str = "$df$eq";
 
+/// Fecha uma checagem de `late` com o tipo de declaração e o nome Dart.
+///
+/// `kind` é o rótulo que o SDK usa na mensagem: `Local` para um local
+/// declarado, `Field` para campo de instância e para variável de topo. O nome
+/// vai como literal JSON para que um identificador com aspas ou barra invertida
+/// não escape do texto — o lexer não aceita esses nomes hoje, mas o auxiliar
+/// não depende disso.
+fn late_tail(kind: &str, name: &str, output: &mut Output<'_>) {
+    output.push_str(", \"");
+    output.push_str(kind);
+    output.push_str("\", ");
+    string_literal(name, output);
+    output.push(')');
+}
+
 /// Aplica o prefixo estável usado em declarações e referências.
 fn identifier(name: &str, output: &mut Output<'_>) {
     // `operator ==` não tem nome Dart: o membro gerado usa o espaço `$df$`,
@@ -1077,20 +1114,51 @@ fn statement_at(statement: &Statement<'_>, depth: usize, output: &mut Output<'_>
                 });
                 declaration(name, output);
                 output.push_str(" = ");
-                expression(initializer, output);
+                // `late` sem inicializador nasce no sentinela: o parser recusa
+                // a forma com inicializador, então não há valor a avaliar aqui.
+                if *is_late {
+                    output.late_used = true;
+                    output.push_str("$dartforgeLate");
+                } else {
+                    expression(initializer, output);
+                }
                 output.push_str(";\n");
             }
             StatementKind::Assign { name, value } => {
-                if output
-                    .resolution
-                    .implicit_members
-                    .contains(&(statement.span.start, statement.span.end))
-                {
+                let chave = (statement.span.start, statement.span.end);
+                let implicito = output.resolution.implicit_members.contains(&chave);
+                // `late final` admite uma atribuição só; a checagem lê o valor
+                // corrente antes de avaliar o novo, e o novo é avaliado sempre,
+                // como no oráculo: o efeito do lado direito precede o
+                // lançamento. Reler `x` ou `this.x` não tem efeito colateral.
+                let unica = output.resolution.late_final_writes.contains(&chave);
+                if implicito {
                     output.push_str("this.");
                 }
                 identifier(name, output);
                 output.push_str(" = ");
-                expression(value, output);
+                if unica {
+                    output.late_used = true;
+                    output.push_str("$dartforgeLateWrite(");
+                    if implicito {
+                        output.push_str("this.");
+                    }
+                    identifier(name, output);
+                    output.push_str(", ");
+                    expression(value, output);
+                    let global = output.resolution.global_accesses.contains(&chave);
+                    late_tail(
+                        if implicito || global {
+                            "Field"
+                        } else {
+                            "Local"
+                        },
+                        name,
+                        output,
+                    );
+                } else {
+                    expression(value, output);
+                }
                 output.push_str(";\n");
             }
             StatementKind::FieldAssign {
@@ -1098,6 +1166,26 @@ fn statement_at(statement: &Statement<'_>, depth: usize, output: &mut Output<'_>
                 name,
                 value,
             } => {
+                if output
+                    .resolution
+                    .late_final_writes
+                    .contains(&(statement.span.start, statement.span.end))
+                {
+                    // O receptor pode ter efeito colateral e é avaliado uma
+                    // única vez: o auxiliar recebe o objeto e a chave, nunca
+                    // uma segunda cópia da expressão do receptor.
+                    output.late_used = true;
+                    output.push_str("$dartforgeLateSet(");
+                    expression(receiver, output);
+                    output.push_str(", \"");
+                    output.push_str("$df_");
+                    output.push_str(name);
+                    output.push_str("\", ");
+                    expression(value, output);
+                    late_tail("Field", name, output);
+                    output.push_str(";\n");
+                    return;
+                }
                 expression(receiver, output);
                 output.push('.');
                 identifier(name, output);
@@ -1297,7 +1385,12 @@ fn for_clause(statement: &Statement<'_>, allow_variable: bool, output: &mut Outp
             });
             declaration(name, output);
             output.push_str(" = ");
-            expression(initializer, output);
+            if *is_late {
+                output.late_used = true;
+                output.push_str("$dartforgeLate");
+            } else {
+                expression(initializer, output);
+            }
         }
         StatementKind::Assign { name, value } => {
             identifier(name, output);
@@ -1665,6 +1758,24 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         }
         ExprKind::Null => output.push_str("null"),
         ExprKind::This => output.push_str("this"),
+        // `C<int>(...)`: a análise resolveu para construção de classe genérica e
+        // registrou o id; os argumentos de tipo foram apagados (erasure).
+        ExprKind::GenericCall { arguments, .. }
+            if output
+                .resolution
+                .generic_constructions
+                .contains_key(&(value.span.start, value.span.end)) =>
+        {
+            let class_id =
+                output.resolution.generic_constructions[&(value.span.start, value.span.end)];
+            if output.constructor_factories.contains(&class_id) {
+                write!(output, "$dartforgeNew{class_id}(").unwrap();
+            } else {
+                write!(output, "new $dartforgeClass{class_id}(").unwrap();
+            }
+            argument_list(arguments, ",", output);
+            output.push(')');
+        }
         ExprKind::Construct {
             class_id,
             arguments,
@@ -1678,9 +1789,20 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::Member { receiver, name } => {
+            let tardia = output
+                .resolution
+                .late_reads
+                .contains(&(value.span.start, value.span.end));
+            if tardia {
+                output.late_used = true;
+                output.push_str("$dartforgeLateRead(");
+            }
             expression(receiver, output);
             output.push('.');
             identifier(name, output);
+            if tardia {
+                late_tail("Field", name, output);
+            }
         }
         ExprKind::MethodCall {
             receiver,
@@ -1723,14 +1845,41 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         ExprKind::Interpolation(parts) => strings::interpolation(parts, output),
         ExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
         ExprKind::Identifier(name) => {
-            if output
+            // Só as leituras que a análise registrou pagam a checagem; um
+            // identificador comum continua sendo leitura direta.
+            let tardia = output
+                .resolution
+                .late_reads
+                .contains(&(value.span.start, value.span.end));
+            let implicito = output
                 .resolution
                 .implicit_members
-                .contains(&(value.span.start, value.span.end))
-            {
+                .contains(&(value.span.start, value.span.end));
+            if tardia {
+                output.late_used = true;
+                output.push_str("$dartforgeLateRead(");
+            }
+            if implicito {
                 output.push_str("this.");
             }
             identifier(name, output);
+            if tardia {
+                // Uma variável de topo diz `Field` na mensagem do SDK, como um
+                // campo de instância; só o local declarado diz `Local`.
+                let global = output
+                    .resolution
+                    .global_accesses
+                    .contains(&(value.span.start, value.span.end));
+                late_tail(
+                    if implicito || global {
+                        "Field"
+                    } else {
+                        "Local"
+                    },
+                    name,
+                    output,
+                );
+            }
         }
         // `print(obj)` converte pelo `toString` declarado; a análise já
         // rejeitou instâncias sem ele e já recusou sombrear `print`.
@@ -3069,6 +3218,9 @@ mod tests {
         };
         let resolution = Resolution {
             async_builtins: Default::default(),
+            generic_constructions: Default::default(),
+            late_final_writes: Default::default(),
+            late_reads: Default::default(),
             generic_arguments: Default::default(),
             constant_values: Default::default(),
             implicit_members: Default::default(),

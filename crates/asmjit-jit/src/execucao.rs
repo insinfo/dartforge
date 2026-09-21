@@ -61,7 +61,13 @@ impl ProgramaCompilado {
         &self.medicoes
     }
 
-    /// Bytes de código de máquina do bloco inteiro.
+    /// Bytes de memória executável mapeados para este programa.
+    ///
+    /// É o tamanho do mapeamento, arredondado para páginas inteiras pelo
+    /// alocador do `dynasmrt`, e por isso sempre maior ou igual aos bytes de
+    /// código realmente emitidos, que estão em
+    /// [`crate::Medicoes::bytes_codigo`]. A diferença é o custo de memória por
+    /// recarga, que interessa ao eixo 4 de `docs/ASMJIT.md`.
     #[must_use]
     pub fn bytes(&self) -> usize {
         self.bloco.size()

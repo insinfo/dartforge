@@ -21,8 +21,7 @@ const TYPEDEF: &str = "typedef F = int Function(int);\ntypedef int G(int x);\nin
 const EXTENSION_TYPE: &str = "extension type Id(int v) {\n  int answer() {\n    return 42;\n  }\n}\nvoid main() {\n  var id = Id(21);\n  print(id);\n  print(id.answer());\n  print(id is Id);\n}\n";
 
 /// `late` com inicializador (erasure ansioso; sem célula de verificação ainda).
-const LATE_EAGER: &str =
-    "void main() {\n  late int x = 40 + 2;\n  late final int y = 7;\n  print(x + y);\n}\n";
+const LATE_CELL: &str = "void main() {\n  late int x;\n  late final int y;\n  x = 40 + 2;\n  y = 7;\n  print(x + y);\n}\n";
 
 /// Erasure de classe genérica compila para JavaScript com a representação única.
 #[test]
@@ -45,11 +44,17 @@ fn extension_types_compile_with_representation_erasure() {
     assert!(js.contains("export function main"));
 }
 
-/// `late` com inicializador compila (ansioso); o resto segue rejeitado abaixo.
+/// `late` com inicializador é recusado: a avaliação seria ansiosa, e em Dart o
+/// inicializador só roda na primeira leitura. O span cobre a palavra `late`.
 #[test]
-fn late_with_initializer_compiles_eagerly() {
-    let js = compile(LATE_EAGER).unwrap();
-    assert!(js.contains("export function main"));
+fn late_with_an_initializer_is_rejected_with_an_exact_span() {
+    let source = "void main(){late int x = 1; print(x);}";
+    let error = compile(source).expect_err("late com inicializador deve ser recusado");
+    assert_eq!(
+        error.message,
+        "late with an initializer is not supported: in Dart the initializer runs on the first read and a write before that read cancels it; declare `late T name;` and assign before reading"
+    );
+    assert_eq!((error.span.start, error.span.end), (12, 16));
 }
 
 /// Parâmetro de classe duplicado informa mensagem e span exatos do segundo `T`.
@@ -91,16 +96,12 @@ fn extension_type_constructor_reports_exact_span() {
     assert_eq!((error.span.start, error.span.end), (27, 29));
 }
 
-/// `late` sem inicializador segue rejeitado: a célula ainda não existe.
+/// `late` sem inicializador é aceito e emite a checagem de inicialização.
 #[test]
-fn late_without_initializer_reports_exact_span() {
-    let source = "void main(){late int x; print(1);}";
-    let error = compile(source).expect_err("late sem inicializador deve ser rejeitado");
-    assert_eq!(
-        error.message,
-        "late variables without an initializer are not supported: the read-before-write check is not implemented"
-    );
-    assert_eq!((error.span.start, error.span.end), (13, 17));
+fn late_without_initializer_emits_the_initialization_check() {
+    let js = compile("void main(){late int x; x = 1; print(x);}").unwrap();
+    assert!(js.contains("$dartforgeLate = Symbol"));
+    assert!(js.contains("$dartforgeLateRead($df_x, \"Local\", \"x\")"));
 }
 
 /// `late const` é inválido em Dart e segue rejeitado com span do `const`.
@@ -157,7 +158,7 @@ fn advanced_types_match_dart_stdout() {
         (GENERIC_CLASS_LLVM, "42\n"),
         (TYPEDEF, "2\n6\ntrue\n"),
         (EXTENSION_TYPE, "21\n42\ntrue\n"),
-        (LATE_EAGER, "49\n"),
+        (LATE_CELL, "49\n"),
     ] {
         let js = compile(source).unwrap();
         let output = std::process::Command::new("node")

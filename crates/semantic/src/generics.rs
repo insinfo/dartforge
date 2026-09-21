@@ -328,6 +328,28 @@ impl<'a> Validator<'a> {
         if self.lookup(name).is_some() || self.has_implicit_member(name) {
             return Err(Diagnostic::new("Generic call target is shadowed", span));
         }
+        // `C<int>(...)` com `C` sendo classe é construção, não chamada de função:
+        // os argumentos de tipo são validados contra os bounds declarados e
+        // depois **apagados** (erasure), a mesma decisão que a anotação
+        // `C<int> x` toma. Validar aqui é o que impede aceitar `C<String>` onde
+        // o bound é `int` — sem esta checagem o erasure aceitaria em silêncio.
+        if !self.functions.contains_key(name)
+            && let Some(class_id) = self.class_named(name)
+        {
+            let bounds = self.class_generic_bounds(class_id);
+            if bounds.is_empty() {
+                return Err(Diagnostic::new(
+                    format!("Class '{name}' declares no type parameters"),
+                    span,
+                ));
+            }
+            self.check_class_arguments(type_arguments, &bounds, span)?;
+            self.resolution
+                .borrow_mut()
+                .generic_constructions
+                .insert((span.start, span.end), class_id);
+            return self.construct(class_id, arguments, span);
+        }
         let signature = self
             .functions
             .get(name)
@@ -500,6 +522,23 @@ impl<'a> Validator<'a> {
         self.resolution
             .borrow_mut()
             .getter_accesses
+            .insert((span.start, span.end));
+    }
+    /// Registra a leitura de uma declaração `late` sem inicializador.
+    ///
+    /// O emissor envolve exatamente estas leituras na checagem de
+    /// inicialização; uma leitura não registrada continua sendo acesso direto.
+    pub(super) fn late_read(&self, span: Span) {
+        self.resolution
+            .borrow_mut()
+            .late_reads
+            .insert((span.start, span.end));
+    }
+    /// Registra a escrita em um `late final`, que só admite uma atribuição.
+    pub(super) fn late_final_write(&self, span: Span) {
+        self.resolution
+            .borrow_mut()
+            .late_final_writes
             .insert((span.start, span.end));
     }
 }

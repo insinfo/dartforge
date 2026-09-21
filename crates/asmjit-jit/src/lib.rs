@@ -66,6 +66,7 @@ pub use medicoes::Medicoes;
 
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_hir::Module;
+use dynasmrt::DynasmApi;
 use dynasmrt::x64::Assembler;
 use std::time::Instant;
 
@@ -129,6 +130,12 @@ pub fn compilar(modulo: &Module<'_>) -> Result<ProgramaCompilado, Diagnostic> {
     let fase = Instant::now();
     let traducao = tradutor::traduzir(modulo, &mut ops)?;
     let tempo_traducao = fase.elapsed();
+    // O deslocamento corrente do montador é exatamente quantos bytes de código
+    // foram emitidos. Ele é lido aqui, antes de publicar o bloco, porque
+    // `ExecutableBuffer::size` devolve o tamanho do *mapeamento*, arredondado
+    // para cima em páginas: 4096 bytes para qualquer programa desta fatia, o que
+    // seria um contador inútil.
+    let bytes_codigo = ops.offset().0;
 
     let fase = Instant::now();
     // `commit` é chamado explicitamente porque `finalize` entra em pânico se
@@ -147,7 +154,6 @@ pub fn compilar(modulo: &Module<'_>) -> Result<ProgramaCompilado, Diagnostic> {
     })?;
     let tempo_geracao = fase.elapsed();
 
-    let bytes_codigo = bloco.size();
     Ok(ProgramaCompilado::novo(
         bloco,
         traducao.entrada,

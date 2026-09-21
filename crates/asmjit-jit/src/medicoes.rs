@@ -28,7 +28,12 @@ pub struct Medicoes {
     pub total: Duration,
     /// Instruções x86-64 emitidas; contador de trabalho independente da máquina.
     pub instrucoes_emitidas: usize,
-    /// Bytes de código de máquina produzidos, somando todas as funções.
+    /// Bytes de código de máquina emitidos, somando todas as funções.
+    ///
+    /// É o deslocamento final do montador, não o tamanho do mapeamento: o bloco
+    /// executável é arredondado para páginas inteiras e daria 4096 para qualquer
+    /// programa desta fatia. O tamanho mapeado está em
+    /// [`crate::ProgramaCompilado::bytes`].
     pub bytes_codigo: usize,
 }
 

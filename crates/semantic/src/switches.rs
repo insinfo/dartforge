@@ -62,6 +62,7 @@ impl<'a> Validator<'a> {
                         constant: None,
                         ty: Some(ty),
                         is_final: false,
+                        is_late: false,
                         promoted: None,
                     },
                 );

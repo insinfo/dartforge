@@ -101,6 +101,23 @@ fn a_real_package_reports_known_gaps() {
         }
     }
 
+    // Diagnósticos que a análise por unidade isolada produz por construção, e
+    // não por lacuna do compilador: sem resolver imports, todo nome declarado em
+    // outro arquivo é desconhecido. Contá-los desvia o trabalho, e o desvio
+    // piora conforme o parser melhora, porque mais arquivos alcançam a fase
+    // semântica e passam a esbarrar neles.
+    let artefato = |forma: &str| {
+        forma.starts_with("unknown superclass")
+            || forma.starts_with("unknown interface")
+            || forma.starts_with("Unknown identifier")
+            || forma.starts_with("Unknown class")
+    };
+    let artefatos: usize = lacunas
+        .iter()
+        .filter(|(forma, _)| artefato(forma))
+        .map(|(_, (quantas, _))| quantas)
+        .sum();
+    lacunas.retain(|forma, _| !artefato(forma));
     let mut ordenadas: Vec<_> = lacunas.iter().collect();
     ordenadas.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(b.0)));
     println!(
@@ -109,6 +126,9 @@ fn a_real_package_reports_known_gaps() {
         bytes / 1024,
         aceitos,
         100.0 * aceitos as f64 / arquivos.len() as f64
+    );
+    println!(
+        "descontados {artefatos} diagnósticos de nome não resolvido: artefato da          análise por unidade isolada, não lacuna de linguagem"
     );
     println!("lacunas por frequência:");
     for (forma, (quantas, exemplo)) in ordenadas.iter().take(30) {
@@ -122,7 +142,7 @@ fn a_real_package_reports_known_gaps() {
     // A afirmação testável é que o compilador termina em cada arquivo, com
     // sucesso ou com diagnóstico, sem pânico e sem laço infinito.
     assert_eq!(
-        aceitos + ordenadas.iter().map(|(_, (n, _))| n).sum::<usize>(),
+        aceitos + artefatos + ordenadas.iter().map(|(_, (n, _))| n).sum::<usize>(),
         arquivos.len(),
         "todo arquivo precisa terminar com sucesso ou diagnóstico"
     );

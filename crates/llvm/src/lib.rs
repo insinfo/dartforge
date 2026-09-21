@@ -28,14 +28,16 @@
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_hir::Module;
 use dartforge_syntax::{
-    BinaryOp, Expr, ExprKind, ParameterKind, Pattern, Statement, StatementKind, SwitchArm,
-    SwitchCase, Type, UnaryOp,
+    BinaryOp, Class, ClassKind, Constructor, ConstructorExtras, Expr, ExprKind, ParameterKind,
+    Pattern, Statement, StatementKind, StaticField, SwitchArm, SwitchCase, Type, UnaryOp,
 };
 use std::collections::HashMap;
 use std::fmt::Write;
 mod native;
 mod objects;
+mod statics;
 use objects::Objects;
+use statics::Statics;
 
 /// Tipo interno da ABI: escalares, agregados nullable e referências nominais.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,49 +137,18 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
             "fábricas nomeadas (lowering nativo pendente)",
         ));
     }
-    // Frente classe/construtor: nomeados, listas de inicialização, `super`
-    // explícito, `const` e membros estáticos ainda não têm lowering nativo.
     for class in &module.classes {
-        if class.is_library_globals && !class.static_fields.is_empty() {
-            return Err(error(
-                class.static_fields[0].span,
-                "variáveis de topo (lowering nativo pendente)",
-            ));
-        }
-        if let Some(declared) = class.named_constructors.first() {
-            return Err(error(
-                declared.constructor.span,
-                "construtores nomeados (lowering nativo pendente)",
-            ));
-        }
-        if let Some(extras) = class.constructor_extras.as_deref()
-            && !extras.is_plain()
-        {
-            return Err(error(
-                class.span,
-                "listas de inicialização, super explícito e const (lowering nativo pendente)",
-            ));
-        }
-        if class
-            .named_constructors
+        // Um estático é resolvido pelo nome escrito da declaração e nunca por
+        // despacho, então um getter estático precisaria de uma forma de chamada
+        // que a tabela de estáticos não tem.
+        if let Some(method) = class
+            .static_methods
             .iter()
-            .any(|declared| !declared.extras.is_plain())
+            .find(|method| method.is_getter || method.native_binding.is_some())
         {
-            return Err(error(
-                class.span,
-                "listas de inicialização, super explícito e const (lowering nativo pendente)",
-            ));
-        }
-        if let Some(field) = class.static_fields.first() {
-            return Err(error(
-                field.span,
-                "membros estáticos (lowering nativo pendente)",
-            ));
-        }
-        if let Some(method) = class.static_methods.first() {
             return Err(error(
                 method.span,
-                "membros estáticos (lowering nativo pendente)",
+                "getters estáticos e @Native em membro estático",
             ));
         }
         // O layout nativo indexa métodos por nome; um par getter/setter e o
@@ -224,8 +195,11 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
         return Err(error(f.span, "funções genéricas"));
     }
     // Classes genéricas com parâmetros ainda simbólicos não têm lowering: o
-    // parser apaga `T` para o bound (erasure), então este braço é defensivo
-    // para HIR construída manualmente ou evoluções da sintaxe.
+    // frontend apaga `T` para o seu bound antes da HIR, e o apagamento só é
+    // seguro quando o bound é nominal — aí o parâmetro vira o handle da própria
+    // classe do bound. Um `T` que chega aqui como `Type::Parameter` não foi
+    // apagado, e apagá-lo para um handle sem classe conhecida produziria
+    // resposta errada; este braço recusa em vez disso.
     if let Some(c) = module.classes.iter().find(|c| {
         c.fields
             .iter()
@@ -233,6 +207,16 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
             || c.static_fields
                 .iter()
                 .any(|f| matches!(f.ty, Type::Parameter(_) | Type::NullableParameter(_)))
+            || c.constructor
+                .iter()
+                .map(|declared| &declared.parameters)
+                .chain(
+                    c.named_constructors
+                        .iter()
+                        .map(|declared| &declared.constructor.parameters),
+                )
+                .flatten()
+                .any(|p| matches!(p.ty, Type::Parameter(_) | Type::NullableParameter(_)))
             || c.methods
                 .iter()
                 .chain(&c.static_methods)
@@ -252,8 +236,23 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
     {
         return Err(error(c.span, "enums avançadas"));
     }
+    // Um argumento de tipo reificado torna o apagamento observável: o alvo nativo
+    // não carrega o argumento em nenhum handle, então responder `is`/`as` sobre
+    // ele exigiria adivinhar. Recusar preserva a resposta correta. As chamadas
+    // genéricas já foram recusadas antes, com mensagem própria; este braço cobre
+    // o que sobrar de reificação registrada pela análise.
+    if let Some((key, _)) = module.resolution.generic_arguments.first_key_value() {
+        return Err(error(
+            Span {
+                start: key.0,
+                end: key.1,
+            },
+            "argumentos de tipo reificados (o apagamento seria observável)",
+        ));
+    }
     native::validate(module)?;
     let objects = Objects::new(module)?;
+    objects.statics.validate_order(module)?;
     if let Some(extension) = module.extensions.first() {
         return Err(error(extension.span, "extensions"));
     }
@@ -339,6 +338,9 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
         output.push_str(&emitter.finish(&signature.symbol, &params.join(", ")));
     }
     let mut emitter = FunctionEmitter::new(&signatures, &objects, Ty::Void);
+    // Estáticos são gravados na carga, antes da primeira instrução de `main`;
+    // a ordem observável está documentada em `statics`.
+    objects.emit_statics(&mut emitter, module)?;
     emitter.block(&module.statements)?;
     output.push_str(&emitter.finish("dartforge_entry", ""));
     output.push_str(&objects.emit(module, &signatures)?);
@@ -411,6 +413,12 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
         }
         StatementKind::IndexAssign { .. } => {
             return Err(error(statement.span, "atribuição por índice"));
+        }
+        // A célula de `late` — sentinela e checagem de inicialização — só é
+        // emitida no backend JavaScript. Aqui a declaração viraria um simples
+        // `null`, e ler antes de escrever devolveria null em vez de lançar.
+        StatementKind::Variable { is_late: true, .. } => {
+            return Err(error(statement.span, "late"));
         }
         StatementKind::Variable {
             annotation,
@@ -523,8 +531,15 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         ExprKind::Cascade { .. } | ExprKind::CascadeReceiver => {
             return Err(error(value.span, "cascatas (lowering nativo pendente)"));
         }
-        ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
-            return Err(error(value.span, "mapas e fábricas nomeadas"));
+        ExprKind::Map { .. } => {
+            return Err(error(value.span, "mapas"));
+        }
+        // `C.nome(...)` designa construtor nomeado, fábrica ou método estático; as
+        // fábricas já foram recusadas antes da validação das expressões.
+        ExprKind::NamedConstruct { arguments, .. } => {
+            for argument in arguments {
+                validate_expression(argument)?;
+            }
         }
         // Literais de conjunto, espalhamentos, elementos `if`/`for` e o
         // encurtamento null-aware só têm lowering no backend JavaScript.
@@ -835,6 +850,9 @@ impl<'a> FunctionEmitter<'a> {
             StatementKind::IndexAssign { .. } => {
                 return Err(error(statement.span, "atribuição por índice"));
             }
+            StatementKind::Variable { is_late: true, .. } => {
+                return Err(error(statement.span, "late"));
+            }
             StatementKind::Variable {
                 name,
                 annotation,
@@ -867,8 +885,19 @@ impl<'a> FunctionEmitter<'a> {
                     let receiver = self.this_value(statement.span)?;
                     let field = self.objects.field(receiver.ty, name, statement.span)?;
                     let value = self.expression(value)?;
-                    self.store_field(&receiver, &field, value, statement.span)?;
+                    self.store_field(&receiver.text, &field, value, statement.span)?;
                     return Ok(());
+                }
+                // Uma variável de topo só chega aqui quando a análise confirmou
+                // que nenhum local ou membro de instância a sombreia.
+                if self
+                    .objects
+                    .global_accesses
+                    .contains(&(statement.span.start, statement.span.end))
+                    && let Some(slot) = self.objects.statics.global(name).cloned()
+                {
+                    let value = self.expression(value)?;
+                    return self.store_static(&slot, value, statement.span);
                 }
                 let (ty, pointer) = self.lookup(name, statement.span)?;
                 let value = self.expression(value)?;
@@ -983,7 +1012,7 @@ impl<'a> FunctionEmitter<'a> {
                 let receiver = self.expression(receiver)?;
                 let field = self.objects.field(receiver.ty, name, statement.span)?;
                 let value = self.expression(value)?;
-                self.store_field(&receiver, &field, value, statement.span)?;
+                self.store_field(&receiver.text, &field, value, statement.span)?;
             }
         }
         Ok(())
@@ -1506,9 +1535,14 @@ impl<'a> FunctionEmitter<'a> {
                 else_value,
             } => self.conditional(condition, then_value, else_value, expression.span)?,
             ExprKind::Throw(_) => return Err(error(expression.span, "throw")),
-            ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
-                return Err(error(expression.span, "mapas e fábricas nomeadas"));
+            ExprKind::Map { .. } => {
+                return Err(error(expression.span, "mapas"));
             }
+            ExprKind::NamedConstruct {
+                class_id,
+                name,
+                arguments,
+            } => self.named_construct(*class_id, name, arguments, expression.span)?,
             ExprKind::Record { .. } => return Err(error(expression.span, "records")),
             ExprKind::Const(e) => self.expression(e)?,
             ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
@@ -1552,7 +1586,13 @@ impl<'a> FunctionEmitter<'a> {
                 class_id,
                 arguments,
             } => self.construct(*class_id, arguments, expression.span)?,
+            // `C.v` designa campo estático ou valor de enum, nessa ordem, como na
+            // resolução semântica. Um estático pertence à declaração escrita e
+            // nunca é herdado: a consulta jamais sobe para a superclasse.
             ExprKind::EnumValue { class_id, name } => {
+                if let Some(slot) = self.objects.statics.class_field(*class_id, name).cloned() {
+                    return Ok(self.load_static(&slot));
+                }
                 self.enum_value(*class_id, name, expression.span)?
             }
             ExprKind::Member { receiver, name } => {
@@ -1590,6 +1630,14 @@ impl<'a> FunctionEmitter<'a> {
                     let value = self.read_member(receiver, name, expression.span)?;
                     self.root(&value);
                     return Ok(value);
+                }
+                if self
+                    .objects
+                    .global_accesses
+                    .contains(&(expression.span.start, expression.span.end))
+                    && let Some(slot) = self.objects.statics.global(name).cloned()
+                {
+                    return Ok(self.load_static(&slot));
                 }
                 let (ty, pointer) = self.lookup(name, expression.span)?;
                 let register = self.register();
@@ -2478,11 +2526,13 @@ mod tests {
         let ir =
             compile("int f(bool c) => c ? 10 : 20; void main(){print(f(true));print(f(false));}")
                 .unwrap();
-        assert!(ir.contains("br i1 %a0, label %b0, label %b1"));
+        // O parâmetro vive num alloca do bloco de entrada, então a condição é o
+        // valor carregado dele, e não o registro de argumento.
+        assert!(ir.contains("br i1 %v1, label %b0, label %b1"));
         assert!(ir.contains("b0:\n  br label %b2\n"));
         assert!(ir.contains("b1:\n  br label %b2\n"));
-        assert!(ir.contains("b2:\n  %v0 = phi i64 [ 10, %b0 ], [ 20, %b1 ]"));
-        assert!(ir.contains("ret i64 %v0"));
+        assert!(ir.contains("b2:\n  %v2 = phi i64 [ 10, %b0 ], [ 20, %b1 ]"));
+        assert!(ir.contains("ret i64 %v2"));
     }
 
     /// O operador condicional suporta strings, booleanos e tipos de referência.
@@ -2509,7 +2559,10 @@ mod tests {
     #[test]
     fn conditional_expression_handles_nested_ternaries_and_tracks_predecessors() {
         let ir = compile("int nested(bool c1, bool c2) => c1 ? (c2 ? 1 : 2) : 3; int nested_else(bool c1, bool c2) => c1 ? 1 : (c2 ? 2 : 3); void main(){print(nested(true, false));print(nested_else(false, true));}").unwrap();
-        assert!(ir.contains("phi i64 [ 1, %b2 ], [ 2, %b3 ]"));
-        assert!(ir.contains("phi i64 [ %v0, %b4 ], [ 3, %b1 ]"));
+        assert!(ir.contains("b5:\n  %v4 = phi i64 [ 1, %b3 ], [ 2, %b4 ]"));
+        // O predecessor do phi externo é o bloco de junção da condicional
+        // interna, `b5`, e não o rótulo em que o ramo começou.
+        assert!(ir.contains("b2:\n  %v5 = phi i64 [ %v4, %b5 ], [ 3, %b1 ]"));
+        assert!(ir.contains("b2:\n  %v5 = phi i64 [ 1, %b0 ], [ %v4, %b5 ]"));
     }
 }

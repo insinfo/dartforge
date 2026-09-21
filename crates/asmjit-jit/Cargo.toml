@@ -26,3 +26,8 @@ dartforge-parser = { path = "../parser" }
 dartforge-semantic = { path = "../semantic" }
 dartforge-llvm = { path = "../llvm" }
 dartforge-native = { path = "../native" }
+# Só o `examples/experimento.rs` usa: o eixo 2 de docs/ASMJIT.md compara o código
+# deste montador com o do Cranelift e com o do AOT na mesma máquina e na mesma
+# execução, que é a única forma de a comparação valer algo. Não entra em nenhum
+# teste, e portanto não acopla a correção deste backend ao outro.
+dartforge-cranelift-jit = { path = "../cranelift-jit" }

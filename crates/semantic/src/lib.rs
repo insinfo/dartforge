@@ -31,6 +31,9 @@ struct Binding {
     constant: Option<Rc<ConstValue>>,
     ty: Option<Type>,
     is_final: bool,
+    /// `late` sem inicializador: a leitura precisa provar a inicialização e
+    /// uma escrita em `late final` precisa provar que é a primeira.
+    is_late: bool,
     promoted: Option<Type>,
 }
 /// Parâmetro nomeado de uma assinatura, já com o rótulo externo resolvido.
@@ -264,6 +267,8 @@ fn split_arguments<'e, 'a>(
 struct FieldInfo {
     ty: Type,
     is_final: bool,
+    /// `late` sem inicializador: a leitura precisa provar a inicialização.
+    is_late: bool,
 }
 /// Assinatura de um construtor generativo nomeado, na forma compacta.
 ///
@@ -287,6 +292,8 @@ struct StaticInfo<'a> {
     ty: Type,
     /// `final` ou `const`: a escrita é recusada depois da inicialização.
     is_final: bool,
+    /// `late` sem inicializador: a leitura precisa provar a inicialização.
+    is_late: bool,
     constant: Option<Rc<ConstValue>>,
 }
 /// Formal `this.campo` de um construtor `const`, com padrão já avaliado.
@@ -349,6 +356,11 @@ struct ClassInfo<'a> {
     /// caminho comum — não paga nada por este campo, que é clonado junto do
     /// `ClassInfo` compartilhado. Um `HashMap` por classe pagaria sempre.
     setters: Vec<SetterInfo<'a>>,
+    /// Bounds dos parâmetros genéricos, na ordem declarada.
+    ///
+    /// Vazio numa classe sem genéricos — o caminho comum — e por isso não custa
+    /// nada no `ClassInfo` compartilhado por `Rc`, pelo mesmo motivo de `setters`.
+    generic_bounds: Vec<Type>,
 }
 /// Setter de instância reduzido ao que a resolução de `c.x = v` consulta.
 #[derive(Clone, PartialEq, Eq)]
@@ -601,6 +613,11 @@ pub fn analyze_with_async_library(
             fields: HashMap::new(),
             methods: HashMap::new(),
             setters: Vec::new(),
+            generic_bounds: class
+                .type_parameters
+                .iter()
+                .map(|parameter| parameter.bound)
+                .collect(),
         };
         for field in &class.fields {
             if field.name == class.name
@@ -621,6 +638,9 @@ pub fn analyze_with_async_library(
                     FieldInfo {
                         ty: field.ty,
                         is_final: field.is_final,
+                        // Um campo `late` com inicializador não chega aqui: o
+                        // parser recusa a forma cuja célula preguiçosa falta.
+                        is_late: field.is_late && field.initializer.is_none(),
                     },
                 )
                 .is_some()
@@ -748,6 +768,7 @@ pub fn analyze_with_async_library(
                 name: member.name,
                 ty: member.ty,
                 is_final: member.is_final || member.is_const,
+                is_late: member.is_late && member.initializer.is_none(),
                 constant: None,
             });
         }
@@ -892,6 +913,7 @@ pub fn analyze_with_async_library(
                 name: member.name,
                 ty: member.ty,
                 is_final: member.is_final || member.is_const,
+                is_late: member.is_late && member.initializer.is_none(),
                 constant: None,
             });
         }
@@ -1651,6 +1673,7 @@ impl<'a> Validator<'a> {
                         constant: None,
                         ty: Some(parameter.ty),
                         is_final: false,
+                        is_late: false,
                         promoted: None,
                     },
                 )
@@ -1712,6 +1735,64 @@ impl<'a> Validator<'a> {
         self.in_arrow = false;
         Ok(())
     }
+    /// Valida a construção de uma classe e devolve o tipo nominal.
+    ///
+    /// Compartilhado por `C(...)` e por `C<int>(...)`: a única diferença entre as
+    /// duas é a validação dos argumentos de tipo, que acontece antes.
+    pub(crate) fn construct(
+        &self,
+        class_id: u32,
+        arguments: &[Expr<'a>],
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let class = self
+            .classes
+            .get(&class_id)
+            .ok_or_else(|| Diagnostic::new("Unknown class", span))?;
+        if class.is_abstract
+            || !class.has_generative
+            || class.kind == ClassKind::Mixin
+            || class.is_mixin_application
+            || !class.enum_values.is_empty()
+        {
+            return Err(Diagnostic::new(
+                "Cannot construct an abstract class or enum",
+                span,
+            ));
+        }
+        if self.lookup(class.name).is_some() || self.has_implicit_member(class.name) {
+            return Err(Diagnostic::new(
+                "Local declaration shadows constructor",
+                span,
+            ));
+        }
+        self.check_call_arguments(
+            arguments,
+            &class.constructor_parameters,
+            class.constructor_required,
+            &class.constructor_named,
+            span,
+            |_| Diagnostic::new("Incorrect constructor argument count", span),
+        )?;
+        Ok(Type::Class(class_id))
+    }
+    /// Procura a classe declarada com este nome, para `C<int>(...)`.
+    ///
+    /// A varredura é linear sobre as classes da unidade e só acontece quando
+    /// uma construção escreve argumentos de tipo; o caminho comum não a paga.
+    pub(crate) fn class_named(&self, name: &str) -> Option<u32> {
+        self.classes
+            .iter()
+            .find(|(_, class)| class.name == name)
+            .map(|(id, _)| *id)
+    }
+    /// Retorna os bounds genéricos declarados pela classe, se houver.
+    pub(crate) fn class_generic_bounds(&self, class_id: u32) -> Vec<Type> {
+        self.classes
+            .get(&class_id)
+            .map(|class| class.generic_bounds.clone())
+            .unwrap_or_default()
+    }
     /// Procura um campo na classe nominal e em suas bases já verificadas.
     fn field(&self, id: u32, name: &str) -> Option<FieldInfo> {
         let class = self.classes.get(&id)?;
@@ -1720,10 +1801,12 @@ impl<'a> Validator<'a> {
                 "name" if !class.methods.contains_key("name") => Some(FieldInfo {
                     ty: Type::String,
                     is_final: true,
+                    is_late: false,
                 }),
                 "index" => Some(FieldInfo {
                     ty: Type::Int,
                     is_final: true,
+                    is_late: false,
                 }),
                 _ => class.fields.get(name).copied(),
             };
@@ -1764,8 +1847,13 @@ impl<'a> Validator<'a> {
     /// inexistente, campo `final` e propriedade que só tem getter.
     fn assignable_member(&self, id: u32, name: &str, span: Span) -> Result<Type, Diagnostic> {
         if let Some(field) = self.field(id, name) {
-            if field.is_final {
+            // `late final` admite exatamente uma atribuição, provada em tempo de
+            // execução; recusá-la aqui negaria a única escrita que Dart permite.
+            if field.is_final && !field.is_late {
                 return Err(Diagnostic::new("Cannot assign to final field", span));
+            }
+            if field.is_final {
+                self.late_final_write(span);
             }
             return Ok(field.ty);
         }
@@ -2071,6 +2159,7 @@ impl<'a> Validator<'a> {
                                     constant: None,
                                     ty: None,
                                     is_final: *is_final,
+                                    is_late: false,
                                     promoted: None,
                                 },
                             )
@@ -2087,6 +2176,7 @@ impl<'a> Validator<'a> {
                 name,
                 is_final,
                 is_const,
+                is_late,
                 ..
             } = statement.kind
                 && !is_wildcard(name)
@@ -2096,7 +2186,10 @@ impl<'a> Validator<'a> {
                         Binding {
                             constant: None,
                             ty: None,
+                            // O parser recusa `late` com inicializador, então
+                            // `is_late` aqui já significa "sem inicializador".
                             is_final: is_final || is_const,
+                            is_late,
                             promoted: None,
                         },
                     )
@@ -2204,14 +2297,18 @@ impl<'a> Validator<'a> {
                     && !self.has_implicit_member(name)
                     && let Some(global) = self.global(name)
                 {
-                    let (ty, is_final) = (global.ty, global.is_final);
-                    if is_final {
+                    let (ty, is_final, is_late) = (global.ty, global.is_final, global.is_late);
+                    // `late final` admite uma atribuição; a prova é de execução.
+                    if is_final && !is_late {
                         return Err(Diagnostic::new(
                             format!("Cannot assign to final top-level variable '{name}'"),
                             statement.span,
                         ));
                     }
                     self.global_access(statement.span);
+                    if is_final {
+                        self.late_final_write(statement.span);
+                    }
                     return self.require_type(
                         self.value_expected(value, Some(ty))?,
                         ty,
@@ -2219,11 +2316,15 @@ impl<'a> Validator<'a> {
                     );
                 }
                 let binding = self.initialized(name, statement.span)?;
-                if binding.is_final {
+                // `late final` admite uma atribuição; a prova é de execução.
+                if binding.is_final && !binding.is_late {
                     return Err(Diagnostic::new(
                         format!("Cannot assign to final variable '{name}'"),
                         statement.span,
                     ));
+                }
+                if binding.is_final {
+                    self.late_final_write(statement.span);
                 }
                 let actual = self.value_expected(value, binding.ty)?;
                 self.require_type(actual, binding.ty.expect("initialized binding"), value.span)?;
@@ -2549,6 +2650,7 @@ impl<'a> Validator<'a> {
                     constant: None,
                     ty: None,
                     is_final: *is_final || *is_const,
+                    is_late: false,
                     promoted: None,
                 },
             );
@@ -2972,38 +3074,7 @@ impl<'a> Validator<'a> {
             ExprKind::Construct {
                 class_id,
                 arguments,
-            } => {
-                let class = self
-                    .classes
-                    .get(class_id)
-                    .ok_or_else(|| Diagnostic::new("Unknown class", expression.span))?;
-                if class.is_abstract
-                    || !class.has_generative
-                    || class.kind == ClassKind::Mixin
-                    || class.is_mixin_application
-                    || !class.enum_values.is_empty()
-                {
-                    return Err(Diagnostic::new(
-                        "Cannot construct an abstract class or enum",
-                        expression.span,
-                    ));
-                }
-                if self.lookup(class.name).is_some() || self.has_implicit_member(class.name) {
-                    return Err(Diagnostic::new(
-                        "Local declaration shadows constructor",
-                        expression.span,
-                    ));
-                }
-                self.check_call_arguments(
-                    arguments,
-                    &class.constructor_parameters,
-                    class.constructor_required,
-                    &class.constructor_named,
-                    expression.span,
-                    |_| Diagnostic::new("Incorrect constructor argument count", expression.span),
-                )?;
-                Ok(Type::Class(*class_id))
-            }
+            } => self.construct(*class_id, arguments, expression.span),
             ExprKind::NamedConstruct {
                 class_id,
                 name,
@@ -3059,7 +3130,14 @@ impl<'a> Validator<'a> {
                     self.getter(expression.span);
                     return Ok(method.result);
                 }
-                self.field(id, name).map(|field| field.ty).ok_or_else(|| {
+                self.field(id, name)
+                    .map(|field| {
+                        if field.is_late {
+                            self.late_read(expression.span);
+                        }
+                        field.ty
+                    })
+                    .ok_or_else(|| {
                     if self.setter(id, name).is_some() {
                         return Diagnostic::new(
                             format!(
@@ -3211,6 +3289,9 @@ impl<'a> Validator<'a> {
                             ));
                         }
                         self.implicit(expression.span);
+                        if field.is_late {
+                            self.late_read(expression.span);
+                        }
                         return Ok(field.ty);
                     }
                     if let Some(method) = self.method(id, name)
@@ -3259,11 +3340,17 @@ impl<'a> Validator<'a> {
                     && !self.has_implicit_member(name)
                     && let Some(global) = self.global(name)
                 {
-                    let ty = global.ty;
+                    let (ty, is_late) = (global.ty, global.is_late);
                     self.global_access(expression.span);
+                    if is_late {
+                        self.late_read(expression.span);
+                    }
                     return Ok(ty);
                 }
                 let binding = self.initialized(name, expression.span)?;
+                if binding.is_late {
+                    self.late_read(expression.span);
+                }
                 Ok(binding
                     .promoted
                     .or(binding.ty)

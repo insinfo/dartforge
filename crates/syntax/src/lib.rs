@@ -288,6 +288,24 @@ pub enum ExprKind<'a> {
     Record {
         fields: Vec<(Option<&'a str>, Expr<'a>)>,
     },
+    /// Incremento ou decremento com valor: `x++`, `x--`, `++x`, `--x`.
+    ///
+    /// `target` é sempre um [`ExprKind::Identifier`]: o alvo é lido e escrito
+    /// uma única vez, e um nome simples é o único alvo em que ler e escrever
+    /// não exige temporário para preservar a avaliação única do receptor.
+    /// Guardar a expressão inteira, e não só o nome, faz o alvo atravessar o
+    /// linker e os otimizadores pelo mesmo caminho de qualquer identificador —
+    /// renomeação de membro privado e remapeamento de span inclusive.
+    ///
+    /// A forma pós-fixa produz o valor **anterior** à atualização; a prefixa,
+    /// o já atualizado. `a[i++]` indexa com o valor anterior de `i`.
+    Increment {
+        target: Box<Expr<'a>>,
+        /// `false` significa decremento.
+        increase: bool,
+        /// `true` é a forma prefixa, cujo valor é o já atualizado.
+        prefix: bool,
+    },
     TypeTest {
         operand: Box<Expr<'a>>,
         ty: Type,
@@ -809,6 +827,12 @@ pub struct Class<'a> {
     pub is_mixin_application: bool,
     /// Identidade da declaração de mixin que originou a classe sintética.
     pub mixin_origin: Option<u32>,
+    /// Restrição `on` de uma declaração `mixin M on Base`.
+    ///
+    /// Limita onde o mixin pode ser aplicado — só uma classe que seja `Base` ou
+    /// derive dela — e, dentro do mixin, dá acesso aos membros de `Base`. Não é
+    /// superclasse: o mixin continua sem construtor e sem `super` próprio.
+    pub mixin_constraint: Option<u32>,
     pub modifier: ClassModifier,
     pub kind: ClassKind,
     /// Aplicações na ordem escrita; a última tem precedência de implementação.
@@ -882,14 +906,51 @@ pub struct SuperCall<'a> {
 pub struct ConstructorExtras<'a> {
     pub is_const: bool,
     pub initializers: Vec<FieldInitializer<'a>>,
+    /// Asserções da lista de inicialização, na ordem escrita.
+    ///
+    /// Rodam antes do corpo do construtor e antes de `super`, como no Dart.
+    /// Vazio no caminho comum, que por isso não aloca nada aqui.
+    pub asserts: Vec<ConstructorAssert<'a>>,
     pub super_call: Option<SuperCall<'a>>,
+    /// Redirecionamento `: this(...)`; presente exclui corpo, campos e `super`.
+    pub redirect: Option<RedirectCall<'a>>,
 }
 impl ConstructorExtras<'_> {
     /// Indica se o construtor dispensa qualquer tratamento além do comum.
     #[must_use]
     pub const fn is_plain(&self) -> bool {
-        !self.is_const && self.initializers.is_empty() && self.super_call.is_none()
+        !self.is_const
+            && self.initializers.is_empty()
+            && self.asserts.is_empty()
+            && self.super_call.is_none()
+            && self.redirect.is_none()
     }
+}
+/// Entrada `assert(condição)` ou `assert(condição, mensagem)` de uma lista de
+/// inicialização.
+///
+/// `before` guarda quantas entradas `campo = valor` foram escritas antes desta
+/// asserção. O Dart avalia a lista na ordem escrita, e o índice preserva essa
+/// ordem sem transformar [`ConstructorExtras::initializers`] numa lista de
+/// variantes — o que quebraria todo construtor montado por literal.
+#[derive(Debug, Clone)]
+pub struct ConstructorAssert<'a> {
+    pub condition: Expr<'a>,
+    pub message: Option<Expr<'a>>,
+    pub before: usize,
+    pub span: Span,
+}
+/// Redirecionamento `: this(...)` ou `: this.nome(...)` de um construtor
+/// generativo para outro construtor da **mesma** classe.
+///
+/// Um construtor redirecionador delega inteiramente: não executa corpo próprio,
+/// não inicializa campo algum e não chama `super`. `name` ausente designa o
+/// construtor sem nome.
+#[derive(Debug, Clone)]
+pub struct RedirectCall<'a> {
+    pub name: Option<&'a str>,
+    pub arguments: Vec<Expr<'a>>,
+    pub span: Span,
 }
 /// Construtor generativo nomeado `C.nome(...)`.
 #[derive(Debug, Clone)]
@@ -996,6 +1057,25 @@ pub struct Resolution {
     pub global_accesses: std::collections::BTreeSet<(usize, usize)>,
     /// Leituras de getters resolvidas estaticamente.
     pub getter_accesses: std::collections::BTreeSet<(usize, usize)>,
+    /// Construções de classe genérica com argumentos de tipo escritos.
+    ///
+    /// `C<int>(...)` é sintaticamente indistinguível de uma chamada de função
+    /// genérica; só a análise sabe que `C` é classe. O valor é o id da classe,
+    /// e o emissor constrói a instância em vez de chamar uma função. Vazio em
+    /// todo programa que não escreve argumentos de tipo numa construção.
+    pub generic_constructions: std::collections::BTreeMap<(usize, usize), u32>,
+    /// Leituras de declaração `late` que pagam a checagem de inicialização.
+    ///
+    /// Vazio em todo programa que não declara `late`, e é isso que mantém o
+    /// caminho comum sem custo: um `BTreeSet` vazio não aloca. Só as leituras
+    /// registradas aqui pagam a chamada de runtime; as demais continuam sendo
+    /// leitura direta de variável ou de propriedade do JavaScript.
+    pub late_reads: std::collections::BTreeSet<(usize, usize)>,
+    /// Escritas em `late final` que pagam a checagem de dupla inicialização.
+    ///
+    /// Um `late` não-final aceita qualquer número de escritas e nunca aparece
+    /// aqui; a checagem existe só para provar a atribuição única.
+    pub late_final_writes: std::collections::BTreeSet<(usize, usize)>,
     /// Comparações `==`/`!=` que precisam do despacho de `operator ==`.
     ///
     /// Vazio em todo programa que não declara operador algum, e é isso que

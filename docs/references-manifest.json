@@ -176,5 +176,18 @@
     "commit": "81c90c21f2cd0229877a5af71244854ba88dff64",
     "downloaded": "2026-09-20T14:30:37.1173915-03:00",
     "checkout": "shallow"
+  },
+  {
+    "name": "asmjit",
+    "url": "https://github.com/asmjit/asmjit",
+    "commit": "dffd8b164f228abbc47246c9881f107d656952b2",
+    "commitDate": "2026-09-15T13:50:09+02:00",
+    "downloaded": "2026-09-21T03:26:00-03:00",
+    "archived": false,
+    "license": "Zlib",
+    "licenseFile": "LICENSE.md",
+    "checkout": "shallow depth 1, default branch, árvore completa",
+    "compiled": false,
+    "note": "Referência do experimento de backend por montador (crates/asmjit-jit). Lida para avaliar o emissor UJIT (asmjit/ujit) — a Universal JIT API — e o custo de FFI com C++. A implementação adotada foi dynasm-rs; o levantamento está em docs/ASMJIT.md."
   }
 ]

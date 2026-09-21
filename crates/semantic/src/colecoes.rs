@@ -257,6 +257,7 @@ impl<'a> Validator<'a> {
                             constant: None,
                             ty: Some(declared),
                             is_final: *is_final,
+                            is_late: false,
                             promoted: None,
                         },
                     );
@@ -289,6 +290,7 @@ impl<'a> Validator<'a> {
                             constant: None,
                             ty: None,
                             is_final: *is_final || *is_const,
+                            is_late: false,
                             promoted: None,
                         },
                     );

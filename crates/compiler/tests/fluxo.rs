@@ -470,20 +470,24 @@ fn assert_checks_the_condition_and_the_message_types() {
     assert_eq!(error.message, "Type mismatch: expected String, found Int");
 }
 
-/// `late` é rejeitado por não ter a verificação de leitura antes da escrita.
+/// `late` sem inicializador é aceito; a checagem de inicialização é de execução.
+///
+/// `late final` aceita a primeira atribuição — recusá-la negaria a única escrita
+/// que Dart permite — e prova em execução que não houve uma segunda.
 #[test]
-fn late_is_rejected_with_an_explicit_diagnostic() {
-    let source = "void main(){late int x;x=1;print(x);}";
+fn late_without_an_initializer_checks_initialization_at_run_time() {
+    let js = javascript("void main(){late int x;x=1;print(x);}");
+    assert!(js.contains("let $df_x = $dartforgeLate;"));
+    assert!(js.contains("$dartforgeLateRead($df_x, \"Local\", \"x\")"));
+    let final_tardio = javascript("void main(){late final int x;x=1;print(x);}");
+    assert!(final_tardio.contains("$dartforgeLateWrite($df_x, 1, \"Local\", \"x\")"));
+    // `late` com inicializador continua recusado: a célula preguiçosa que Dart
+    // exige — inicializador na primeira leitura — não é emitida.
+    let source = "void main(){late int x = 1;print(x);}";
     rejeita(
         source,
-        "late variables are not supported: the read-before-write check is not implemented",
+        "late with an initializer is not supported: in Dart the initializer runs on the first read and a write before that read cancels it; declare `late T name;` and assign before reading",
         trecho(source, "late"),
-    );
-    let final_tardio = "void main(){late final int x;x=1;print(x);}";
-    rejeita(
-        final_tardio,
-        "late variables are not supported: the read-before-write check is not implemented",
-        trecho(final_tardio, "late"),
     );
 }
 

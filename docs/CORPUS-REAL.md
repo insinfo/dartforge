@@ -48,6 +48,33 @@ Isso é uma limitação do recorte escolhido, e o recorte é deliberado: analisa
 com semântica completa reprovaria todos os arquivos por nomes ausentes e
 esconderia exatamente as lacunas de sintaxe que interessam aqui.
 
+### Nem `expected an explicitly supported type` é o que parece
+
+A linha mais alta da tabela tem a **mesma** causa, e isso só apareceu ao
+classificar as 80 ocorrências uma por uma, pelo texto no span: **73 são o
+artefato de unidade isolada** — `Uint8List`, `DeflateCallback`, `Matrix4`,
+`XmlElement`, `TtfParser`, `Stopwatch`, `DateTime`, `PdfRect`, `Context`,
+`Widget`: tipos declarados em outro arquivo do pacote ou em `dart:typed_data`,
+`package:vector_math` e `package:xml`. Restam **7 lacunas reais**:
+
+| Ocorrências | Lacuna real |
+| --- | --- |
+| 4 | `const`/`static const` sem anotação de tipo (`const kIndentSize = 2;`) |
+| 1 | anotação em parâmetro (`@Deprecated('…') String? AFRelationship`) |
+| 1 | tipo com prefixo de import (`im.Image`) |
+| 1 | tipo de outro arquivo que a heurística de classificação não pegou |
+
+A consequência prática é direta: **o topo da tabela não é onde está o trabalho**.
+Tipos genéricos escritos, `late` e `typedef` já eram aceitos pelo parser antes
+desta rodada, e ainda assim a linha marcava 80 — porque contava nomes que o
+recorte não resolve. Ordenar por contagem de diagnóstico só orienta depois de
+descontar o artefato, e o desconto precisa ser feito por **inspeção do span**,
+não pela forma da mensagem.
+
+Isso também explica por que uma correção real pode não mover o total de arquivos
+aceitos: um arquivo com uma lacuna real corrigida continua reprovado pelo
+primeiro nome de outro arquivo que ele mencione.
+
 ## O que o código real usa, por frequência
 
 A contagem de diagnósticos diz onde o compilador para. Ela não diz o tamanho da

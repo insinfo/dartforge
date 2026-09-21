@@ -40,8 +40,14 @@
 #![allow(unsafe_code)]
 
 use llvm_sys::core::{
-    LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-    LLVMDisposeMemoryBuffer, LLVMDisposeMessage,
+    LLVMAddFunction, LLVMConstIntGetSExtValue, LLVMContextCreate, LLVMContextDispose,
+    LLVMCountParamTypes, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMemoryBuffer,
+    LLVMDisposeMessage, LLVMDisposeModule, LLVMGetCalledValue, LLVMGetFirstBasicBlock,
+    LLVMGetFirstFunction, LLVMGetFirstInstruction, LLVMGetNextBasicBlock, LLVMGetNextFunction,
+    LLVMGetNextInstruction, LLVMGetNumOperands, LLVMGetOperand, LLVMGetParamTypes,
+    LLVMGetReturnType, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsACallInst,
+    LLVMIsAConstantInt, LLVMIsDeclaration, LLVMIsFunctionVarArg, LLVMPrintTypeToString,
+    LLVMReplaceAllUsesWith, LLVMSetValueName2,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
@@ -56,6 +62,7 @@ use llvm_sys::orc2::{
     LLVMOrcJITDylibRef, LLVMOrcReleaseResourceTracker, LLVMOrcResourceTrackerRef,
     LLVMOrcResourceTrackerRemove, LLVMOrcThreadSafeModuleRef,
 };
+use llvm_sys::prelude::{LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::target::{LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget};
 use std::ffi::{CStr, CString, c_char};
 use std::mem::ManuallyDrop;
@@ -144,7 +151,72 @@ impl Drop for ThreadSafeModule {
     }
 }
 
-/// Analisa IR textual e devolve um módulo pronto para execução.
+/// Módulo LLVM já analisado, ainda **fora** da sessão.
+///
+/// Existe para dar um ponto de inspeção e reescrita entre a análise do IR e a
+/// entrada na `LLJIT`: é aqui que o hot reload lê a impressão digital do
+/// contrato ([`ParsedModule::signatures`], [`ParsedModule::class_layouts`]) e
+/// versiona as implementações ([`ParsedModule::version_definitions`]) antes de
+/// qualquer efeito sobre o código que está executando.
+///
+/// O contexto e o módulo pertencem a este valor até [`ParsedModule::into_thread_safe`];
+/// depois disso pertencem ao `ThreadSafeModule` devolvido.
+pub(crate) struct ParsedModule {
+    context: LLVMContextRef,
+    module: LLVMModuleRef,
+}
+
+impl Drop for ParsedModule {
+    /// Libera módulo e contexto quando o módulo não chegou à `LLJIT`.
+    ///
+    /// A ordem importa: o módulo pertence ao contexto, logo é liberado primeiro.
+    /// `into_thread_safe` usa `ManuallyDrop` para não passar por aqui.
+    fn drop(&mut self) {
+        // SAFETY: os dois ponteiros vêm de `parse_module`, que só constrói este
+        // valor depois de uma análise bem-sucedida, e nenhum deles foi consumido
+        // (o consumo em `into_thread_safe` suprime este `Drop`).
+        unsafe {
+            LLVMDisposeModule(self.module);
+            LLVMContextDispose(self.context);
+        }
+    }
+}
+
+/// Assinatura de uma função do módulo, em texto de LLVM IR.
+///
+/// É a **impressão digital do contrato de chamada** de uma função: o que precisa
+/// permanecer igual entre gerações para que a troca de implementação seja segura.
+/// O hash do corpo não entra aqui de propósito — o corpo é exatamente o que o
+/// hot reload troca.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FunctionSignature {
+    /// Nome do símbolo tal como o emissor o produziu (`df_fn_0`, `dartforge_entry`).
+    pub(crate) name: String,
+    /// Tipo de retorno em texto de IR (`i64`, `void`).
+    pub(crate) ret: String,
+    /// Tipos dos parâmetros em texto de IR, na ordem da chamada.
+    pub(crate) params: Vec<String>,
+    /// Função variádica; fora do contrato do emissor nativo.
+    pub(crate) var_arg: bool,
+}
+
+impl FunctionSignature {
+    /// Apresenta a assinatura como o LLVM a escreveria: `i64 (i64, i64)`.
+    pub(crate) fn text(&self) -> String {
+        format!("{} ({})", self.ret, self.params.join(", "))
+    }
+    /// Lista de parâmetros nomeada `%a0, %a1, ...`, para gerar o trampolim.
+    pub(crate) fn declaration_params(&self) -> String {
+        self.params
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| format!("{ty} %a{index}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// Analisa IR textual e devolve o módulo aberto para inspeção.
 ///
 /// Usa `LLVMParseIRInContext2`, que não consome o `MemoryBuffer`; a cópia do
 /// texto pertence ao buffer e é liberada antes do retorno em qualquer caminho.
@@ -152,10 +224,7 @@ impl Drop for ThreadSafeModule {
 /// # Erros
 /// Devolve o diagnóstico do próprio LLVM quando o IR é inválido, e recusa nomes
 /// ou textos com byte nulo, que não sobrevivem à fronteira C.
-pub(crate) fn parse_ir(name: &str, ir: &str) -> Result<ThreadSafeModule, String> {
-    use llvm_sys::orc2::{
-        LLVMOrcCreateNewThreadSafeContextFromLLVMContext, LLVMOrcCreateNewThreadSafeModule,
-    };
+pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String> {
     let name = CString::new(name).map_err(|_| "nome do módulo contém byte nulo".to_owned())?;
     if ir.as_bytes().contains(&0) {
         return Err("o IR contém byte nulo e não pode ser analisado".to_owned());
@@ -189,10 +258,283 @@ pub(crate) fn parse_ir(name: &str, ir: &str) -> Result<ThreadSafeModule, String>
             // Diagnóstico não fatal; o módulo é válido e a mensagem é liberada.
             drop(take_message(message));
         }
-        let thread_safe_context = LLVMOrcCreateNewThreadSafeContextFromLLVMContext(context);
-        let handle = LLVMOrcCreateNewThreadSafeModule(module, thread_safe_context);
-        LLVMOrcDisposeThreadSafeContext(thread_safe_context);
-        Ok(ThreadSafeModule { handle })
+        Ok(ParsedModule { context, module })
+    }
+}
+
+/// Analisa IR textual e devolve um módulo pronto para entrar numa `JITDylib`.
+///
+/// # Erros
+/// Os mesmos de [`parse_module`].
+pub(crate) fn parse_ir(name: &str, ir: &str) -> Result<ThreadSafeModule, String> {
+    Ok(parse_module(name, ir)?.into_thread_safe())
+}
+
+impl ParsedModule {
+    /// Empacota o módulo num `ThreadSafeModule`, transferindo a propriedade.
+    pub(crate) fn into_thread_safe(self) -> ThreadSafeModule {
+        use llvm_sys::orc2::{
+            LLVMOrcCreateNewThreadSafeContextFromLLVMContext, LLVMOrcCreateNewThreadSafeModule,
+        };
+        // O `ThreadSafeContext` assume o contexto e o `ThreadSafeModule` assume o
+        // módulo; nenhum dos dois pode ser liberado por `Drop` depois daqui.
+        let this = ManuallyDrop::new(self);
+        // SAFETY: `context` e `module` são válidos e ainda não foram consumidos.
+        // `LLVMOrcCreateNewThreadSafeContextFromLLVMContext` passa a ser o dono
+        // do contexto; `LLVMOrcCreateNewThreadSafeModule` retém sua própria
+        // referência ao contexto seguro, então a nossa pode ser devolvida logo
+        // depois, como já fazia o caminho não recarregável.
+        unsafe {
+            let thread_safe_context =
+                LLVMOrcCreateNewThreadSafeContextFromLLVMContext(this.context);
+            let handle = LLVMOrcCreateNewThreadSafeModule(this.module, thread_safe_context);
+            LLVMOrcDisposeThreadSafeContext(thread_safe_context);
+            ThreadSafeModule { handle }
+        }
+    }
+
+    /// Assinaturas das funções **definidas** pelo módulo, na ordem do IR.
+    ///
+    /// Declarações externas ficam de fora: elas são o que o módulo consome (os
+    /// 18 nomes de runtime), não o que ele oferece para ser recarregado.
+    pub(crate) fn signatures(&self) -> Vec<FunctionSignature> {
+        self.definitions()
+            .into_iter()
+            // SAFETY: cada `function` é uma definição viva deste módulo,
+            // devolvida pela travessia do próprio LLVM.
+            .map(|function| unsafe { self.signature_of(function) })
+            .collect()
+    }
+
+    /// Nomes que o módulo **declara sem definir**, isto é, o que ele consome.
+    ///
+    /// Numa sessão JIT esse conjunto precisa estar contido nos 18 símbolos de
+    /// runtime mais as entradas estáveis já publicadas. Conferir isso antes de
+    /// mexer na sessão troca um erro de ligação do ORC por um diagnóstico com o
+    /// nome que falta.
+    pub(crate) fn declarations(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        // SAFETY: travessia pela API do LLVM, terminada no primeiro nulo; os
+        // valores são válidos enquanto este módulo não for consumido.
+        unsafe {
+            let mut function = LLVMGetFirstFunction(self.module);
+            while !function.is_null() {
+                if LLVMIsDeclaration(function) != 0 {
+                    names.push(value_name(function));
+                }
+                function = LLVMGetNextFunction(function);
+            }
+        }
+        names
+    }
+
+    /// Layout nominal das classes construídas pelo módulo: `(class_id, campos)`.
+    ///
+    /// Sai das chamadas a `@dartforge_object_new(i64 class_id, i64 field_count)`
+    /// com os dois argumentos constantes, que é a forma que `crates/llvm` emite
+    /// em `@df_new_*`. Duas gerações que discordem no número de campos de uma
+    /// mesma classe têm layouts incompatíveis: os objetos já vivos no heap
+    /// gerenciado continuariam com o layout antigo, e o código novo leria campos
+    /// que não existem. Por isso essa divergência recusa a recarga em vez de
+    /// corromper o heap em silêncio.
+    ///
+    /// Classes que o módulo novo não constrói não aparecem, e portanto não são
+    /// verificadas — limite declarado em `docs/JIT.md`.
+    pub(crate) fn class_layouts(&self) -> Vec<(i64, i64)> {
+        let mut layouts = Vec::new();
+        for function in self.definitions() {
+            // SAFETY: travessia da estrutura do módulo pela própria API do LLVM.
+            // Cada ponteiro devolvido é válido enquanto o módulo existir, e o
+            // laço termina no primeiro nulo, como manda `llvm-c/Core.h`.
+            unsafe {
+                let mut block = LLVMGetFirstBasicBlock(function);
+                while !block.is_null() {
+                    let mut instruction = LLVMGetFirstInstruction(block);
+                    while !instruction.is_null() {
+                        if let Some(layout) = object_new_layout(instruction) {
+                            layouts.push(layout);
+                        }
+                        instruction = LLVMGetNextInstruction(instruction);
+                    }
+                    block = LLVMGetNextBasicBlock(block);
+                }
+            }
+        }
+        layouts.sort_unstable();
+        layouts.dedup();
+        layouts
+    }
+
+    /// Versiona as implementações e desvia todas as chamadas para as entradas.
+    ///
+    /// Para cada função definida `F` o módulo passa a conter:
+    ///
+    /// * a **implementação** renomeada para `F$sufixo`, que é o que esta geração
+    ///   materializa e o que o `ResourceTracker` desta geração descarrega;
+    /// * uma **declaração externa** `F`, que é a entrada estável, resolvida pelo
+    ///   módulo de trampolins da sessão.
+    ///
+    /// `LLVMReplaceAllUsesWith` troca *todos* os usos da implementação pela
+    /// declaração, inclusive os de dentro do próprio módulo e as recursões. É
+    /// isso que faz valer a regra do plano — «os chamadores passam pela entrada,
+    /// nunca pelo corpo».
+    ///
+    /// Hoje essa indireção interna **não é observável**: `hot_reload` toma
+    /// `&mut self` e executar toma `&self`, logo nenhuma recarga acontece com
+    /// código gerado na pilha, e o caso «quadro antigo faz uma chamada nova» não
+    /// existe. Ela está aqui para que a regra continue valendo quando a recarga
+    /// for disparada de fora do fluxo — de um observador de arquivos, ou de dentro
+    /// de uma função de runtime chamada pelo programa. Sem ela, esse passo
+    /// exigiria reescrever call sites já materializados.
+    ///
+    /// Devolve as assinaturas na ordem do IR, com os nomes **estáveis** (sem o
+    /// sufixo), que é a chave da tabela de entradas da sessão.
+    pub(crate) fn version_definitions(&self, suffix: &str) -> Vec<FunctionSignature> {
+        let mut signatures = Vec::new();
+        // A lista de definições é fotografada antes da primeira reescrita: os
+        // valores continuam válidos enquanto o módulo existir, e as declarações
+        // acrescentadas no laço não voltam a ser visitadas.
+        for function in self.definitions() {
+            // SAFETY: `function` é uma definição viva deste módulo.
+            let signature = unsafe { self.signature_of(function) };
+            let versioned = format!("{}{suffix}", signature.name);
+            let Ok(stable) = CString::new(signature.name.as_str()) else {
+                continue;
+            };
+            // SAFETY: os dois nomes vivem até o fim da iteração. `AddFunction`
+            // cria uma declaração (sem corpo) com exatamente o tipo da
+            // implementação, o que mantém todas as chamadas bem tipadas depois do
+            // `RAUW`. Renomear antes de declarar é obrigatório: dois valores
+            // globais não podem dividir um nome, e o LLVM resolveria o conflito
+            // sufixando o segundo, quebrando a entrada estável em silêncio.
+            unsafe {
+                let kind = LLVMGlobalGetValueType(function);
+                LLVMSetValueName2(
+                    function,
+                    versioned.as_ptr().cast::<c_char>(),
+                    versioned.len(),
+                );
+                let entry = LLVMAddFunction(self.module, stable.as_ptr(), kind);
+                LLVMReplaceAllUsesWith(function, entry);
+            }
+            signatures.push(signature);
+        }
+        signatures
+    }
+
+    /// Lê a assinatura de uma função definida.
+    ///
+    /// # Safety
+    /// `function` precisa ser uma função viva deste módulo.
+    unsafe fn signature_of(&self, function: LLVMValueRef) -> FunctionSignature {
+        // SAFETY: o chamador garante a validade; `GlobalGetValueType` de uma
+        // função devolve seu tipo de função, e as consultas seguintes apenas
+        // leem esse tipo.
+        unsafe {
+            let kind = LLVMGlobalGetValueType(function);
+            FunctionSignature {
+                name: value_name(function),
+                ret: type_text(LLVMGetReturnType(kind)),
+                params: param_types(kind)
+                    .into_iter()
+                    .map(|param| type_text(param))
+                    .collect(),
+                var_arg: LLVMIsFunctionVarArg(kind) != 0,
+            }
+        }
+    }
+
+    /// Funções com corpo, na ordem do IR.
+    fn definitions(&self) -> Vec<LLVMValueRef> {
+        let mut functions = Vec::new();
+        // SAFETY: travessia pela API do LLVM, terminada no primeiro nulo; os
+        // valores são válidos enquanto este módulo não for consumido.
+        unsafe {
+            let mut function = LLVMGetFirstFunction(self.module);
+            while !function.is_null() {
+                if LLVMIsDeclaration(function) == 0 {
+                    functions.push(function);
+                }
+                function = LLVMGetNextFunction(function);
+            }
+        }
+        functions
+    }
+}
+
+/// Extrai `(class_id, campos)` de uma chamada constante a `@dartforge_object_new`.
+///
+/// # Safety
+/// `instruction` precisa ser uma instrução viva de um módulo não consumido.
+unsafe fn object_new_layout(instruction: LLVMValueRef) -> Option<(i64, i64)> {
+    // SAFETY: as consultas abaixo só leem a instrução e seus operandos. `IsACall`
+    // devolve nulo quando a instrução não é chamada, e o operando final de uma
+    // chamada é o alvo — por isso os argumentos são lidos por índice explícito e
+    // a aritmética de operandos é conferida antes.
+    unsafe {
+        if LLVMIsACallInst(instruction).is_null() {
+            return None;
+        }
+        let callee = LLVMGetCalledValue(instruction);
+        if callee.is_null() || value_name(callee) != "dartforge_object_new" {
+            return None;
+        }
+        if LLVMGetNumOperands(instruction) < 3 {
+            return None;
+        }
+        let class_id = LLVMGetOperand(instruction, 0);
+        let fields = LLVMGetOperand(instruction, 1);
+        if LLVMIsAConstantInt(class_id).is_null() || LLVMIsAConstantInt(fields).is_null() {
+            return None;
+        }
+        Some((
+            LLVMConstIntGetSExtValue(class_id) as i64,
+            LLVMConstIntGetSExtValue(fields) as i64,
+        ))
+    }
+}
+
+/// Lê o nome de um valor global do LLVM.
+///
+/// # Safety
+/// `value` precisa ser um valor vivo de um módulo não consumido.
+unsafe fn value_name(value: LLVMValueRef) -> String {
+    let mut len = 0usize;
+    // SAFETY: `GetValueName2` devolve ponteiro e comprimento de uma string que
+    // pertence ao LLVM e vive tanto quanto o valor; a cópia é feita aqui.
+    unsafe {
+        let name = LLVMGetValueName2(value, &mut len);
+        if name.is_null() {
+            return String::new();
+        }
+        String::from_utf8_lossy(std::slice::from_raw_parts(name.cast::<u8>(), len)).into_owned()
+    }
+}
+
+/// Imprime um tipo do LLVM como texto de IR.
+///
+/// # Safety
+/// `kind` precisa ser um tipo vivo do contexto de um módulo não consumido.
+unsafe fn type_text(kind: LLVMTypeRef) -> String {
+    // SAFETY: `PrintTypeToString` transfere a propriedade da string, liberada
+    // aqui com `LLVMDisposeMessage`, como manda `llvm-c/Core.h`.
+    unsafe { take_message(LLVMPrintTypeToString(kind)) }
+}
+
+/// Lista os tipos dos parâmetros de um tipo de função.
+///
+/// # Safety
+/// `kind` precisa ser um tipo de função vivo.
+unsafe fn param_types(kind: LLVMTypeRef) -> Vec<LLVMTypeRef> {
+    // SAFETY: `CountParamTypes` informa o tamanho exato que `GetParamTypes`
+    // escreve, e o vetor é dimensionado antes da escrita.
+    unsafe {
+        let count = LLVMCountParamTypes(kind) as usize;
+        let mut types = vec![ptr::null_mut::<llvm_sys::LLVMType>(); count];
+        if count > 0 {
+            LLVMGetParamTypes(kind, types.as_mut_ptr());
+        }
+        types
     }
 }
 
@@ -246,6 +588,17 @@ fn exported_callable() -> LLVMJITSymbolFlags {
     }
 }
 
+/// Marca um símbolo absoluto como dado visível fora do módulo.
+///
+/// Sem `Callable`: é o endereço de uma célula de ponteiro, lida pelo trampolim
+/// da entrada estável, e não código que alguém possa chamar.
+fn exported_data() -> LLVMJITSymbolFlags {
+    LLVMJITSymbolFlags {
+        GenericFlags: LLVMJITSymbolGenericFlags::LLVMJITSymbolGenericFlagsExported as u8,
+        TargetFlags: 0,
+    }
+}
+
 /// Instância viva da `LLJIT` e sua `JITDylib` principal.
 pub(crate) struct Lljit {
     handle: LLVMOrcLLJITRef,
@@ -288,17 +641,56 @@ impl Lljit {
     /// Falha se algum nome já estiver definido na dylib, caso em que a unidade
     /// de materialização é liberada sem alterar a sessão.
     pub(crate) fn define_runtime_symbols(&self) -> Result<(), String> {
-        let mut pairs = Vec::with_capacity(RUNTIME_SYMBOLS.len());
-        for (name, address) in runtime_symbol_addresses() {
-            // SAFETY: `name` é um literal C estático e `self.handle` é válido.
+        let pairs: Vec<(&CStr, u64)> = runtime_symbol_addresses()
+            .into_iter()
+            .map(|(name, address)| (name, address as u64))
+            .collect();
+        self.define_absolute(&pairs, exported_callable())
+    }
+
+    /// Publica endereços de **dados** desta thread como símbolos absolutos.
+    ///
+    /// É como os ponteiros de implementação do hot reload entram na `JITDylib`:
+    /// cada nome passa a designar o endereço de uma célula Rust, e o trampolim
+    /// gerado lê essa célula a cada chamada. Os símbolos são exportados mas
+    /// **não** marcados como `Callable`, porque são dado, não código — a
+    /// distinção que `llvm-c/Orc.h` pede e que evita que um erro de nome
+    /// transforme uma célula em alvo de chamada.
+    ///
+    /// # Erros
+    /// Falha se algum nome já estiver definido na dylib; nesse caso a unidade de
+    /// materialização é liberada e a sessão não muda.
+    pub(crate) fn define_data_symbols(&self, pairs: &[(CString, u64)]) -> Result<(), String> {
+        let borrowed: Vec<(&CStr, u64)> = pairs
+            .iter()
+            .map(|(name, address)| (name.as_c_str(), *address))
+            .collect();
+        self.define_absolute(&borrowed, exported_data())
+    }
+
+    /// Define uma lista de símbolos absolutos com as mesmas flags.
+    ///
+    /// # Erros
+    /// Propaga o diagnóstico do LLVM, tipicamente definição duplicada.
+    fn define_absolute(
+        &self,
+        symbols: &[(&CStr, u64)],
+        flags: LLVMJITSymbolFlags,
+    ) -> Result<(), String> {
+        let mut pairs = Vec::with_capacity(symbols.len());
+        for (name, address) in symbols {
+            // SAFETY: `name` está vivo durante a chamada e `self.handle` é válido.
             // A entrada devolvida já vem retida e sua propriedade é transferida
             // para `LLVMOrcAbsoluteSymbols` abaixo, que a consome.
             let interned = unsafe { LLVMOrcLLJITMangleAndIntern(self.handle, name.as_ptr()) };
             pairs.push(LLVMOrcCSymbolMapPair {
                 Name: interned,
                 Sym: LLVMJITEvaluatedSymbol {
-                    Address: address as u64,
-                    Flags: exported_callable(),
+                    Address: *address,
+                    Flags: LLVMJITSymbolFlags {
+                        GenericFlags: flags.GenericFlags,
+                        TargetFlags: flags.TargetFlags,
+                    },
                 },
             });
         }
@@ -369,6 +761,60 @@ impl Lljit {
             Some(message) => Err(message),
             None if address == 0 => Err("símbolo resolvido para o endereço zero".to_owned()),
             None => Ok(address),
+        }
+    }
+
+    /// Chama uma entrada estável cuja assinatura foi conferida aqui mesmo.
+    ///
+    /// A verificação é a razão de a função ser segura. O chamador informa o
+    /// endereço e a assinatura que a sessão registrou para aquela entrada — lida
+    /// do próprio IR por [`ParsedModule::signatures`] —, e só duas formas são
+    /// aceitas: `i64 ()` e `i64 (i64)`. Qualquer outra vira erro, jamais uma
+    /// chamada com ABI errada. É o mesmo raciocínio de [`Lljit::run_entry`], que
+    /// não aceita nome de símbolo do chamador, aplicado a assinaturas com valor
+    /// de retorno.
+    ///
+    /// O endereço precisa ser o de uma **entrada estável** (o trampolim), nunca
+    /// o de uma implementação de geração: o trampolim não é descarregado, e é o
+    /// que garante que uma chamada feita depois de uma recarga chegue à
+    /// implementação nova.
+    ///
+    /// # Erros
+    /// Assinatura fora das duas formas suportadas, ou argumento presente/ausente
+    /// em desacordo com a aridade.
+    pub(crate) fn call_stable(
+        &self,
+        address: u64,
+        signature: &FunctionSignature,
+        argument: Option<i64>,
+    ) -> Result<i64, String> {
+        if signature.var_arg || signature.ret != "i64" {
+            return Err(format!(
+                "a entrada estável tem assinatura {} e este crate só chama i64 () e i64 (i64)",
+                signature.text()
+            ));
+        }
+        let pointer = usize::try_from(address)
+            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            as *const ();
+        match (signature.params.as_slice(), argument) {
+            ([], None) => {
+                // SAFETY: a assinatura registrada para este endereço é `i64 ()`,
+                // conferida acima, e o endereço veio de um `lookup` desta `LLJIT`
+                // viva, cujo trampolim nunca é descarregado. `extern "C"` é a ABI
+                // declarada no IR pelo emissor.
+                Ok(unsafe { std::mem::transmute::<*const (), extern "C" fn() -> i64>(pointer)() })
+            }
+            ([param], Some(value)) if param == "i64" => {
+                // SAFETY: idem, para a assinatura `i64 (i64)`.
+                Ok(unsafe {
+                    std::mem::transmute::<*const (), extern "C" fn(i64) -> i64>(pointer)(value)
+                })
+            }
+            _ => Err(format!(
+                "a entrada estável tem assinatura {} e o argumento informado não corresponde",
+                signature.text()
+            )),
         }
     }
 

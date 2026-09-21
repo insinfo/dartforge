@@ -19,6 +19,11 @@ pub(crate) struct Config {
     /// não mudou; comparar o texto é a única verificação que não depende de
     /// mtime nem de tamanho.
     pub(crate) origin: Option<(std::path::PathBuf, String)>,
+    /// Diretório a partir do qual a configuração foi procurada, sem sucesso.
+    ///
+    /// Guardado só para o diagnóstico: um `package:` que não resolve precisa
+    /// dizer **onde** o compilador procurou, e não apenas que não achou.
+    searched: PathBuf,
 }
 impl Config {
     /// Encontra a configuração explícita ou a mais próxima da entrada.
@@ -33,10 +38,15 @@ impl Config {
                 .map(|p| p.join(".dart_tool/package_config.json"))
                 .find(|p| p.exists())
         };
+        let searched = entry
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+            .join(".dart_tool/package_config.json");
         let Some(path) = path else {
             return Ok(Self {
                 packages: HashMap::new(),
                 origin: None,
+                searched,
             });
         };
         let path =
@@ -147,6 +157,7 @@ impl Config {
         Ok(Self {
             packages,
             origin: Some((path, text)),
+            searched,
         })
     }
 
@@ -157,10 +168,19 @@ impl Config {
             let (name, path) = rest
                 .split_once('/')
                 .ok_or("URI package exige nome e caminho")?;
-            let package = self
-                .packages
-                .get(name)
-                .ok_or_else(|| format!("pacote desconhecido: {name}"))?;
+            // Nomear o pacote **e** o arquivo consultado: sem o caminho, quem
+            // usa o compilador não sabe se falta a entrada ou se a configuração
+            // procurada é outra.
+            let package = self.packages.get(name).ok_or_else(|| match &self.origin {
+                Some((path, _)) => format!(
+                    "pacote {name} não encontrado na configuração de pacotes consultada: {}",
+                    path.display()
+                ),
+                None => format!(
+                    "pacote {name} não encontrado: nenhuma configuração de pacotes foi encontrada a partir de {}",
+                    self.searched.display()
+                ),
+            })?;
             let resolved = package.package.join(path).map_err(|e| e.to_string())?;
             if !resolved.as_str().starts_with(package.package.as_str()) {
                 return Err("URI package escapa do diretório packageUri".into());

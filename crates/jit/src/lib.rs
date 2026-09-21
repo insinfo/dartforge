@@ -48,8 +48,12 @@
 //!
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod ffi;
+mod reload;
 mod runtime;
 
+pub use reload::{HotReloadReport, StableEntry};
+
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// Nome do símbolo que `crates/llvm` emite para o corpo de `main`.
@@ -76,7 +80,8 @@ pub const RUNTIME_SYMBOLS: &[&str] = ffi::RUNTIME_SYMBOLS;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JitError {
     /// Etapa que falhou: `lljit`, `runtime-symbols`, `parse-ir`, `add-module`,
-    /// `lookup` ou `resource`.
+    /// `lookup`, `resource` ou, no hot reload, `contract`, `link`, `publish` e
+    /// `poisoned`.
     pub stage: &'static str,
     /// Explicação em português, com o diagnóstico do LLVM quando houver.
     pub message: String,
@@ -164,12 +169,19 @@ pub struct JitReport {
 /// o segundo `add_ir_module` devolve erro de definição duplicada. Use uma sessão
 /// por programa, ou módulos com símbolos distintos.
 pub struct JitSession {
-    /// Rastreadores dos módulos, na ordem em que foram adicionados.
+    /// Rastreadores dos módulos simples, na ordem em que foram adicionados.
     ///
     /// Declarado **antes** de `lljit` de propósito: os campos são destruídos na
     /// ordem de declaração, e liberar um `ResourceTracker` depois de destruir a
-    /// `LLJIT` que o criou seria uso de memória liberada.
+    /// `LLJIT` que o criou seria uso de memória liberada. O mesmo vale para
+    /// `reloadables`, que também guarda rastreadores.
     modules: Vec<Module>,
+    /// Módulos recarregáveis, com as gerações retidas e os trampolins.
+    reloadables: Vec<reload::Reloadable>,
+    /// Motivo pelo qual a sessão parou de aceitar recargas, se houver.
+    poisoned: Option<String>,
+    /// Identidade da sessão, para que uma [`StableEntry`] não cruze sessões.
+    id: u64,
     lljit: ffi::Lljit,
 }
 
@@ -178,6 +190,10 @@ struct Module {
     name: String,
     tracker: ffi::ResourceTracker,
     removed: bool,
+    /// Assinaturas das funções que ele define, para a verificação de contrato.
+    signatures: Vec<ffi::FunctionSignature>,
+    /// Layout nominal das classes que ele constrói: `(class_id, campos)`.
+    layouts: Vec<(i64, i64)>,
 }
 
 impl JitSession {
@@ -214,8 +230,12 @@ impl JitSession {
                 detail,
             )
         })?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         Ok(Self {
             modules: Vec::new(),
+            reloadables: Vec::new(),
+            poisoned: None,
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             lljit,
         })
     }
@@ -234,8 +254,14 @@ impl JitSession {
     pub fn add_ir_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
-        let module = ffi::parse_ir(name, ir)
+        let parsed = ffi::parse_module(name, ir)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
+        // A impressão digital do contrato é lida aqui, e não só no hot reload,
+        // porque é o que permite a uma recarga futura comparar a versão nova com
+        // esta — inclusive quando este módulo entrou pelo caminho simples.
+        let signatures = parsed.signatures();
+        let layouts = parsed.class_layouts();
+        let module = parsed.into_thread_safe();
         let parse_ir = phase.elapsed();
         let tracker = self.lljit.create_tracker();
         let phase = Instant::now();
@@ -247,123 +273,14 @@ impl JitSession {
             name: name.to_owned(),
             tracker,
             removed: false,
+            signatures,
+            layouts,
         });
         Ok(ModuleReport {
             parse_ir,
             add_module,
             total: started.elapsed(),
             ir_bytes: ir.len(),
-        })
-    }
-
-    /// Substitui um módulo residente por uma nova versão de IR em tempo de execução,
-    /// preservando o estado do heap gerenciado.
-    ///
-    /// # Semântica transacional
-    ///
-    /// 1. O novo IR é analisado e verificado primeiro via [`ffi::parse_ir`]. Se a análise
-    ///    falhar, o erro é retornado imediatamente na etapa `"parse-ir"` e a sessão
-    ///    permanece intacta com o módulo anterior ativo.
-    /// 2. O módulo residente correspondente (com o mesmo `name`, ou o módulo ativo único
-    ///    da sessão) tem seus símbolos descarregados da `JITDylib` pelo seu [`ResourceTracker`].
-    /// 3. O novo módulo é incorporado à `LLJIT` sob um novo rastreador de recursos.
-    /// 4. Se o módulo contiver [`ENTRY_SYMBOL`], ele é resolvido via [`JitSession::lookup`]
-    ///    para assegurar que todas as referências foram satisfeitas e disparar a
-    ///    materialização do código gerado.
-    ///
-    /// Os objetos previamente alocados no heap gerenciado da thread continuam válidos
-    /// e acessíveis após o recarregamento.
-    ///
-    /// # Exemplo
-    ///
-    /// ```no_run
-    /// let mut sessao = dartforge_jit::JitSession::new()?;
-    /// sessao.add_ir_module("app", "define void @dartforge_entry() { ret void }\n")?;
-    /// sessao.hot_reload("app", "define void @dartforge_entry() { ret void }\n")?;
-    /// # Ok::<(), dartforge_jit::JitError>(())
-    /// ```
-    ///
-    /// # Erros
-    /// Falha na análise (`parse-ir`), no descarregamento do módulo anterior (`resource`),
-    /// na adição do novo módulo (`add-module`) ou na resolução dos símbolos (`lookup`).
-    pub fn hot_reload(&mut self, name: &str, novo_ir: &str) -> Result<ModuleReport, JitError> {
-        let started = Instant::now();
-        let phase = Instant::now();
-        let module = ffi::parse_ir(name, novo_ir)
-            .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
-        let parse_ir = phase.elapsed();
-
-        let target_idx = self
-            .modules
-            .iter()
-            .rposition(|m| !m.removed && m.name == name)
-            .or_else(|| {
-                let active: Vec<usize> = self
-                    .modules
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, m)| !m.removed)
-                    .map(|(i, _)| i)
-                    .collect();
-                if active.len() == 1 {
-                    Some(active[0])
-                } else {
-                    None
-                }
-            });
-
-        if target_idx.is_none() {
-            let active_count = self.modules.iter().filter(|m| !m.removed).count();
-            if active_count > 1 {
-                return Err(JitError::new(
-                    "resource",
-                    &format!("não há módulo ativo chamado '{name}' nesta sessão"),
-                    String::new(),
-                ));
-            }
-        }
-
-        if let Some(idx) = target_idx {
-            self.modules[idx].tracker.remove().map_err(|detail| {
-                JitError::new(
-                    "resource",
-                    "não foi possível descarregar o módulo anterior",
-                    detail,
-                )
-            })?;
-            self.modules[idx].removed = true;
-        }
-
-        let tracker = self.lljit.create_tracker();
-        let phase = Instant::now();
-        self.lljit.add_module(&tracker, module).map_err(|detail| {
-            JitError::new("add-module", "a LLJIT recusou o novo módulo", detail)
-        })?;
-        let add_module = phase.elapsed();
-
-        if let Some(idx) = target_idx {
-            self.modules[idx] = Module {
-                name: name.to_owned(),
-                tracker,
-                removed: false,
-            };
-        } else {
-            self.modules.push(Module {
-                name: name.to_owned(),
-                tracker,
-                removed: false,
-            });
-        }
-
-        if novo_ir.contains(ENTRY_SYMBOL) {
-            self.lookup(ENTRY_SYMBOL)?;
-        }
-
-        Ok(ModuleReport {
-            parse_ir,
-            add_module,
-            total: started.elapsed(),
-            ir_bytes: novo_ir.len(),
         })
     }
 
@@ -429,11 +346,16 @@ impl JitSession {
     }
 
     /// Nomes dos módulos ainda residentes, na ordem de inclusão.
+    ///
+    /// Inclui os módulos recarregáveis, um por identidade e não um por geração:
+    /// as gerações são versões de um mesmo módulo, e contá-las aqui faria uma
+    /// sessão recarregada parecer uma sessão com vários programas.
     pub fn module_names(&self) -> Vec<&str> {
         self.modules
             .iter()
             .filter(|module| !module.removed)
             .map(|module| module.name.as_str())
+            .chain(self.reloadables.iter().map(|module| module.name.as_str()))
             .collect()
     }
 

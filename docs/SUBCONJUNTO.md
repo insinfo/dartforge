@@ -234,6 +234,31 @@ posicionais descrito em [THIS-CONSTRUCTORS.md](THIS-CONSTRUCTORS.md), nos backen
 JavaScript e LLVM. Isso substitui as restrições anteriores de construtores apenas
 implícitos ou exclusivos de enums, mantendo os demais limites explícitos.
 
+## Recursos de produção no backend nativo AOT
+
+Variáveis e constantes de nível superior, membros estáticos de classe,
+construtores nomeados com lista de inicialização e `super` explícito, o operador
+ternário e o apagamento de genéricos com bound nominal passaram a ter lowering
+LLVM. Isso substitui as recusas anteriores desses recursos no alvo nativo; o
+contrato, os símbolos emitidos e a mensagem exata de cada limite estão em
+[NATIVO-PRODUCAO.md](NATIVO-PRODUCAO.md).
+
+Estáticos e variáveis de topo são inicializados **na carga**, antes de `main`, na
+mesma ordem do backend JavaScript: campos estáticos por classe em ordem de
+herança, depois as variáveis de topo na ordem escrita. O Dart 3.6.2 e o 3.13.4
+inicializam preguiçosamente, no primeiro acesso, então um programa cujo efeito
+colateral de inicializador seja observável imprime em outra ordem nos SDKs. A
+divergência é dos dois backends do DartForge juntos, está registrada em
+NATIVO-PRODUCAO.md e é afirmada por teste. Ler um estático antes de seu
+inicializador é recusado em compilação no alvo nativo, porque o JavaScript
+emitido também falha nesses casos, com `ReferenceError`.
+
+`static` não participa de herança nem de despacho dinâmico nos dois backends:
+`C.v` resolve na declaração escrita e uma subclasse não o recebe como membro.
+Fábricas nomeadas, getters estáticos, escrita em campo estático e reificação de
+genéricos (`is`/`as` sobre parâmetros de tipo, funções genéricas) continuam
+recusados no alvo nativo, com diagnóstico próprio.
+
 ## Genéricos reificados no JavaScript
 
 Funções genéricas top-level admitem limites superiores e `T?`; o limite padrão
@@ -242,8 +267,21 @@ tipos nominais, funções, List e Iterable. A representação preserva argumento
 tipo em chamadas aninhadas e closures. Covariância de listas exige verificações
 nas escritas, conservando o tipo real dos elementos.
 
-Classes e métodos genéricos, herança parametrizada e bounds recursivos permanecem
-fora do subconjunto. LLVM rejeita os novos testes/casts e genéricos explicitamente.
+Métodos genéricos e bounds recursivos permanecem fora do subconjunto. **Classes**
+genéricas e herança parametrizada são aceitas com **apagamento** (erasure): `T`
+resolve para o seu bound, então `C<int>` e `C<String>` compartilham uma
+representação e `is C<int>` só distingue a classe crua. Os argumentos escritos são
+validados em quantidade e contra o bound antes de serem apagados, de modo que
+`C<String>` com `T extends int` é recusado em vez de apagado em silêncio. Contrato
+e mensagens em [TIPOS.md](TIPOS.md).
+
+O backend LLVM aceita o apagamento quando o bound é **nominal**: `T extends Base`
+chega ao alvo nativo já como `Base` e vira o handle dessa classe, o que é seguro
+porque nenhuma operação do subconjunto nativo observa o argumento de tipo. As
+formas que o observariam — `is`, `as`, funções genéricas, chamadas com argumentos
+de tipo escritos e bound `Object`/`Object?` — são recusadas em vez de apagadas,
+com a mensagem exata de cada caso listada em
+[NATIVO-PRODUCAO.md](NATIVO-PRODUCAO.md).
 Não há reflexão `runtimeType` completa. Detalhes e referências em
 [GENERICS-REIFIED-REFERENCIAS.md](GENERICS-REIFIED-REFERENCIAS.md).
 
@@ -315,3 +353,33 @@ LLVM continuam restritos a posicionais obrigatórios, com diagnóstico próprio.
 
 O contrato completo, a emissão JavaScript e a mensagem exata de cada limite estão
 em [PARAMETROS.md](PARAMETROS.md).
+
+## Tipos escritos, `late` e `typedef`
+
+Anotações genéricas escritas são aceitas em toda posição, com aninhamento e
+nulabilidade: `List<int>`, `Map<String, List<int>>`, `List<List<List<int>>>`,
+`Set<Map<String, int>>`, `Iterable<T>`, `Future<T>` e `List<int>?`. `typedef`
+funciona nas duas formas — `typedef F = int Function(int);` e
+`typedef int G(int x);` — resolvendo para o tipo subjacente no parse.
+
+`late` sem inicializador é aceito em local, campo e variável de topo. A
+declaração nasce num sentinela exclusivo e a leitura antes da escrita **lança em
+execução**, com a mensagem do SDK: `LateInitializationError: Local 'x' has not
+been initialized.` para um local e `Field 'x' ...` para campo e variável de topo.
+`late final` aceita exatamente uma atribuição e prova em execução que não houve
+uma segunda. O lado direito é avaliado antes do lançamento, e o receptor de
+`receptor.campo = valor` é avaliado uma única vez.
+
+Dois limites explícitos: `late T x = init;` é **recusado**, porque em Dart o
+inicializador roda na primeira leitura e uma escrita anterior o cancela — a
+célula preguiçosa não é emitida; e os casos que o Dart recusa em compilação por
+atribuição definida (ler um local definitivamente não escrito, reatribuir um
+`late final` definitivamente atribuído) aparecem aqui em execução, não em
+compilação.
+
+A célula de `late` é emissão do backend JavaScript: LLVM AOT e os dois JIT a
+recusam explicitamente (`LLVM AOT ainda não suporta late`) em vez de tratá-la
+como `null`, para que os backends não discordem em silêncio.
+
+O contrato completo, cada mensagem exata e a medição de desempenho estão em
+[TIPOS.md](TIPOS.md).

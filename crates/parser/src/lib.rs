@@ -10,15 +10,40 @@
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     Annotation, AnnotationKind, BinaryOp, CatchClause, Class, ClassKind, ClassModifier,
-    Constructor, ConstructorExtras, ConstructorParameter, DurationUnit, Expr, ExprKind, Extension,
+    Constructor, ConstructorAssert, ConstructorExtras, ConstructorParameter, DurationUnit, Expr,
+    ExprKind, Extension,
     Field, FieldInitializer, Function, GenericParameter, NamedConstructor, NativeBinding,
-    NativeType, Parameter, ParameterKind, Pattern, Program, Statement, StatementKind, StaticField,
-    StringPart, SuperCall, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape, UnaryOp,
+    NativeType, Parameter, ParameterKind, Pattern, Program, RedirectCall, Statement, StatementKind,
+    StaticField, StringPart, SuperCall, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape,
+    UnaryOp,
 };
 
+/// Recusa de `const` sem anotação cujo tipo o inicializador não decide sozinho.
+///
+/// A mensagem diz a razão, o que a dedução cobre e a saída, no mesmo formato da
+/// recusa de `dynamic`: uma recusa que não ensina o que escrever no lugar
+/// obriga quem lê a adivinhar o recorte aceito.
+const UNTYPED_CONST: &str = "a const declaration without a type annotation takes its type from the initializer, and this initializer does not decide it syntactically: only literals, constant operators over them, collection literals with a written or uniform element type, constructor invocations and references to const declarations written earlier are inferred here; write the type before the name";
+
 /// Limita o aninhamento recursivo, inclusive cadeias associativas à esquerda.
+///
+/// A contagem cobre a profundidade da **árvore**, não a da leitura: `a+b+c+d`
+/// é lido num laço, sem recursão, mas produz uma espinha esquerda tão funda
+/// quanto a cadeia é longa, e é essa espinha que a análise semântica, os
+/// otimizadores, a emissão e até o `Drop` da árvore percorrem recursivamente.
+/// Por isso `binary` e `postfix` aprofundam o nível a cada iteração.
 const MAX_DEPTH: usize = 64;
-const MAX_EXPR_NODES: usize = 128;
+/// Teto absoluto de nós de uma expressão isolada.
+///
+/// Este orçamento **não** é a proteção de pilha — quem protege a pilha é
+/// [`MAX_DEPTH`], que desde esta versão conta também as cadeias associativas à
+/// esquerda. O que resta aqui é um teto de tamanho, e o valor antigo de 128
+/// confundia largura com profundidade: `type1_fonts.dart` do pacote `pdf`
+/// declara `const List<double>` com 255 elementos, uma árvore larga e de
+/// profundidade 1, sem risco nenhum de estouro, e ainda assim recusada. Um
+/// literal de tabela é código real e precisa caber; o teto novo é dimensionado
+/// para isso e continua finito para entrada arbitrária.
+const MAX_EXPR_NODES: usize = 65_536;
 /// Limita frames simultâneos de expressão, inclusive reentrada por corpos de closures.
 /// O teto estrutural de 64 continua separado; este protege pilhas pequenas em debug.
 const MAX_ACTIVE_PRIMARIES: usize = 16;
@@ -151,6 +176,7 @@ pub fn parse_unit_with_globals<'a>(
         class_type_bounds: Vec::new(),
         guard_start: None,
         in_type_test: false,
+        inferred_constants: std::collections::BTreeMap::new(),
     };
     let mut classes = Vec::new();
     let mut extensions = Vec::new();
@@ -447,11 +473,31 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 }
                 index = skip_type_arguments(tokens, index, first.span)?;
             }
+            // `mixin M on Base`: o índice só precisa atravessar a cláusula;
+            // quem resolve a restrição é a leitura formal da declaração.
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("on")) {
-                return Err(Diagnostic::new(
-                    "mixin on constraints are not supported yet",
-                    tokens[index].span,
-                ));
+                index += 1;
+                loop {
+                    if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                        return Err(Diagnostic::new("expected mixin constraint name", first.span));
+                    }
+                    index += 1;
+                    if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
+                        index += 1;
+                        if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                            return Err(Diagnostic::new(
+                                "expected qualified mixin constraint name",
+                                first.span,
+                            ));
+                        }
+                        index += 1;
+                    }
+                    index = skip_type_arguments(tokens, index, first.span)?;
+                    if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
+                        break;
+                    }
+                    index += 1;
+                }
             }
             for clause in ["with", "implements"] {
                 if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word(clause)) {
@@ -616,6 +662,13 @@ struct Cursor<'t, 'a> {
     guard_start: Option<usize>,
     /// Marca a leitura do tipo de `is`/`as`, onde `?` pode abrir um condicional.
     in_type_test: bool,
+    /// Tipos já inferidos de `const` sem anotação, pelo nome escrito.
+    ///
+    /// Um `const` sem anotação toma o tipo do próprio inicializador, e um
+    /// inicializador pode citar outro `const` declarado antes dele — a mesma
+    /// ordem que a avaliação constante já exige. Vazio em todo arquivo que
+    /// escreve a anotação, que é o caminho comum e não aloca nada aqui.
+    inferred_constants: std::collections::BTreeMap<&'a str, Type>,
 }
 impl<'a> Cursor<'_, 'a> {
     /// Consulta o próximo token sem avançar o cursor.
@@ -825,6 +878,19 @@ impl<'a> Cursor<'_, 'a> {
                 Type::Applied(_) | Type::Duration | Type::Timer => {
                     self.intern(TypeShape::Nullable(ty))
                 }
+                // Nulabilidade é idempotente: `T?` com `T` já anulável é `T?`.
+                // O caso aparece pelo erasure do parâmetro de classe, cujo bound
+                // implícito é `Object?`: em `class A<T> { T? v; }` o `T` já vale
+                // `Object?` quando o `?` é lido, e recusá-lo rejeitaria a forma
+                // mais comum de campo genérico anulável.
+                Type::NullableInt
+                | Type::NullableDouble
+                | Type::NullableNum
+                | Type::NullableBool
+                | Type::NullableString
+                | Type::NullableObject
+                | Type::NullableClass(_)
+                | Type::NullableParameter(_) => ty,
                 Type::Null => Type::Null,
                 _ => return Err(self.error("type cannot be nullable")),
             };
@@ -1025,9 +1091,28 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             None
         };
-        if self.peek() == Some(TokenKind::Word("on")) {
-            return Err(self.error("mixin on constraints are not supported yet"));
-        }
+        // `mixin M on Base` restringe onde o mixin pode ser aplicado e dá
+        // acesso aos membros de `Base` dentro do corpo. Não é herança: o mixin
+        // continua sem construtor próprio e sem `super`.
+        let mixin_constraint = if self.peek() == Some(TokenKind::Word("on")) {
+            if kind != ClassKind::Mixin {
+                return Err(self.error("only a mixin declaration accepts an on constraint"));
+            }
+            self.index += 1;
+            let constraint = self.name()?;
+            let constraint = *self.class_ids.get(constraint).ok_or_else(|| {
+                self.error("unknown mixin constraint")
+            })?;
+            self.discard_type_arguments();
+            if self.peek() == Some(TokenKind::Symbol(',')) {
+                return Err(self.error(
+                    "this subset accepts a single on constraint per mixin: several constraints would need a synthesized intersection type to resolve members against; declare the shared supertype and constrain on it",
+                ));
+            }
+            Some(constraint)
+        } else {
+            None
+        };
         let mixins = self.nominal_list("with")?;
         if kind != ClassKind::Class && (superclass.is_some() || !mixins.is_empty()) {
             return Err(
@@ -1068,9 +1153,27 @@ impl<'a> Cursor<'_, 'a> {
             let index = self.index;
             let (metadata, native) = self.metadata()?;
             if self.peek() == Some(TokenKind::Word("factory")) {
-                if kind != ClassKind::Class || !metadata.is_empty() || native.is_some() {
-                    return Err(self
-                        .error("factory declarations require an ordinary class and no metadata"));
+                if kind != ClassKind::Class {
+                    return Err(
+                        self.error("factory declarations require an ordinary class declaration")
+                    );
+                }
+                if native.is_some() {
+                    return Err(self.error(
+                        "Native annotations belong to a top-level external function, not to a factory",
+                    ));
+                }
+                // As macros nativas geram membros a partir da classe inteira e
+                // não têm o que fazer numa fábrica; `@override` não se aplica a
+                // construtor algum. `@Deprecated` e os metadados sem semântica
+                // atravessam sem efeito, como em qualquer outro membro.
+                if let Some(annotation) = metadata.iter().find(|annotation| {
+                    !matches!(annotation.kind, AnnotationKind::Deprecated { .. })
+                }) {
+                    return Err(Diagnostic::new(
+                        "this annotation targets a class or a method, not a factory; a factory accepts Deprecated and the semantics-free annotations of package:meta",
+                        annotation.span,
+                    ));
                 }
                 factories.push(self.factory(name, id)?);
                 continue;
@@ -1183,7 +1286,11 @@ impl<'a> Cursor<'_, 'a> {
                 if ty == Type::Void {
                     return Err(self.error("fields cannot have void type"));
                 }
-                let initializer = if self.take(TokenKind::Operator("=")) {
+                let initializer = if self.peek() == Some(TokenKind::Operator("=")) {
+                    if is_late {
+                        return Err(late_initializer_error(field_start));
+                    }
+                    self.index += 1;
                     Some(self.expression()?)
                 } else {
                     None
@@ -1536,6 +1643,20 @@ impl<'a> Cursor<'_, 'a> {
         } else {
             self.block(0)?
         };
+        if let Some(redirect) = &extras.redirect {
+            if !body.is_empty() {
+                return Err(Diagnostic::new(
+                    "a redirecting constructor delegates entirely and cannot declare a body",
+                    redirect.span,
+                ));
+            }
+            if extras.is_const {
+                return Err(Diagnostic::new(
+                    "a const redirecting constructor is unsupported: the canonical instance is built from a single recipe of fields, and following a redirection would need a second recipe per target; declare the const constructor that initializes the fields directly",
+                    redirect.span,
+                ));
+            }
+        }
         Ok((
             member,
             Constructor {
@@ -1557,10 +1678,41 @@ impl<'a> Cursor<'_, 'a> {
     fn initializer_list(&mut self, extras: &mut ConstructorExtras<'a>) -> Result<(), Diagnostic> {
         loop {
             let start = self.position();
+            // `assert` na lista roda antes do corpo e antes de `super`. O
+            // índice guardado preserva a ordem escrita entre asserções e
+            // entradas `campo = valor`, que é a ordem de avaliação do Dart.
             if self.peek() == Some(TokenKind::Word("assert")) {
-                return Err(self.error("assert in an initializer list is not supported yet"));
+                self.index += 1;
+                self.expect(TokenKind::Symbol('('))?;
+                let condition = self.expression()?;
+                let mut message = None;
+                if self.take(TokenKind::Symbol(','))
+                    && self.peek() != Some(TokenKind::Symbol(')'))
+                {
+                    message = Some(self.expression()?);
+                    self.take(TokenKind::Symbol(','));
+                }
+                self.expect(TokenKind::Symbol(')'))?;
+                extras.asserts.push(ConstructorAssert {
+                    condition,
+                    message,
+                    before: extras.initializers.len(),
+                    span: Span {
+                        start,
+                        end: self.end(),
+                    },
+                });
+                if !self.take(TokenKind::Symbol(',')) {
+                    return Ok(());
+                }
+                continue;
             }
             if self.peek() == Some(TokenKind::Word("super")) {
+                if extras.redirect.is_some() {
+                    return Err(self.error(
+                        "a redirecting constructor delegates entirely and cannot also call super",
+                    ));
+                }
                 self.index += 1;
                 let name = if self.take(TokenKind::Symbol('.')) {
                     Some(self.name()?)
@@ -1593,7 +1745,34 @@ impl<'a> Cursor<'_, 'a> {
                         && self.tokens.get(self.index + 3).map(|token| token.kind)
                             == Some(TokenKind::Symbol('(')));
                 if redirect {
-                    return Err(self.error("redirecting constructors are not supported yet"));
+                    // `C.nome() : this(0)` delega inteiramente: não inicializa
+                    // campo, não chama `super` e não executa corpo próprio.
+                    self.index += 1;
+                    let name = if self.take(TokenKind::Symbol('.')) {
+                        Some(self.name()?)
+                    } else {
+                        None
+                    };
+                    if !extras.initializers.is_empty() || extras.super_call.is_some() {
+                        return Err(self.error(
+                            "a redirecting constructor delegates entirely: it cannot also initialize fields or call super; move those to the target constructor",
+                        ));
+                    }
+                    let arguments = self.arguments(0)?;
+                    extras.redirect = Some(RedirectCall {
+                        name,
+                        arguments,
+                        span: Span {
+                            start,
+                            end: self.end(),
+                        },
+                    });
+                    if self.take(TokenKind::Symbol(',')) {
+                        return Err(self.error(
+                            "the redirection must be the last entry of an initializer list",
+                        ));
+                    }
+                    return Ok(());
                 }
                 self.index += 1;
                 self.expect(TokenKind::Symbol('.'))?;
@@ -1614,6 +1793,150 @@ impl<'a> Cursor<'_, 'a> {
             }
         }
     }
+    /// Deduz o tipo de um `const` escrito sem anotação, pelo inicializador.
+    ///
+    /// A dedução é sintática e deliberadamente estreita: o subconjunto resolve
+    /// todo membro estaticamente, então o tipo de uma declaração de topo precisa
+    /// ficar decidido antes da análise semântica, que recebe o programa por
+    /// referência imutável e não teria onde gravar a resposta. Cobre literais,
+    /// operadores constantes sobre eles, literais de coleção com elemento
+    /// escrito ou uniforme, invocação de construtor e referência a um `const`
+    /// declarado antes — que é a mesma ordem que a avaliação constante exige.
+    ///
+    /// # Erros
+    /// Recusa qualquer outra forma, pedindo a anotação explícita.
+    fn constant_type(&mut self, value: &Expr<'a>) -> Result<Type, Diagnostic> {
+        let ty = match &value.kind {
+            ExprKind::Int(_) => Type::Int,
+            ExprKind::Double(_) => Type::Double,
+            ExprKind::Bool(_) => Type::Bool,
+            ExprKind::String(_) | ExprKind::OwnedString(_) | ExprKind::Interpolation(_) => {
+                Type::String
+            }
+            ExprKind::Const(inner) => self.constant_type(inner)?,
+            ExprKind::Construct { class_id, .. }
+            | ExprKind::NamedConstruct { class_id, .. }
+            | ExprKind::EnumValue { class_id, .. } => Type::Class(*class_id),
+            ExprKind::Identifier(name) => *self
+                .inferred_constants
+                .get(name)
+                .ok_or_else(|| Diagnostic::new(UNTYPED_CONST, value.span))?,
+            ExprKind::Unary { op, operand } => match op {
+                UnaryOp::Not => Type::Bool,
+                UnaryOp::BitNot => Type::Int,
+                UnaryOp::Negate => match self.constant_type(operand)? {
+                    numeric @ (Type::Int | Type::Double | Type::Num) => numeric,
+                    _ => return Err(Diagnostic::new(UNTYPED_CONST, value.span)),
+                },
+                UnaryOp::NullAssert => return Err(Diagnostic::new(UNTYPED_CONST, value.span)),
+            },
+            ExprKind::Binary { op, left, right } => match op {
+                BinaryOp::Equal
+                | BinaryOp::NotEqual
+                | BinaryOp::Less
+                | BinaryOp::LessEqual
+                | BinaryOp::Greater
+                | BinaryOp::GreaterEqual
+                | BinaryOp::And
+                | BinaryOp::Or => Type::Bool,
+                // `/` produz double mesmo entre inteiros; `~/` e os bit a bit
+                // produzem int mesmo entre doubles, como no oráculo Dart.
+                BinaryOp::Divide => Type::Double,
+                BinaryOp::TruncDivide
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::ShiftLeft
+                | BinaryOp::ShiftRight
+                | BinaryOp::ShiftRightUnsigned => Type::Int,
+                BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Remainder => {
+                    let left = self.constant_type(left)?;
+                    let right = self.constant_type(right)?;
+                    match (left, right) {
+                        (Type::String, Type::String) if *op == BinaryOp::Add => Type::String,
+                        (Type::Int, Type::Int) => Type::Int,
+                        (
+                            Type::Int | Type::Double | Type::Num,
+                            Type::Int | Type::Double | Type::Num,
+                        ) if left == Type::Num || right == Type::Num => Type::Num,
+                        (Type::Int | Type::Double, Type::Int | Type::Double) => Type::Double,
+                        _ => return Err(Diagnostic::new(UNTYPED_CONST, value.span)),
+                    }
+                }
+                BinaryOp::IfNull => return Err(Diagnostic::new(UNTYPED_CONST, value.span)),
+            },
+            ExprKind::List {
+                element_type,
+                elements,
+            } => {
+                let element = self.uniform_element(*element_type, elements, value.span)?;
+                self.intern(TypeShape::List(element))
+            }
+            ExprKind::Set {
+                element_type,
+                elements,
+            } => {
+                let element = self.uniform_element(*element_type, elements, value.span)?;
+                self.intern(TypeShape::Set(element))
+            }
+            ExprKind::Map {
+                key_type,
+                value_type,
+                entries,
+            } => {
+                let (Some(key), Some(element)) = (*key_type, *value_type) else {
+                    let mut keys = Vec::with_capacity(entries.len());
+                    let mut values = Vec::with_capacity(entries.len());
+                    for (key, element) in entries {
+                        let Some(element) = element else {
+                            return Err(Diagnostic::new(UNTYPED_CONST, value.span));
+                        };
+                        keys.push(key.clone());
+                        values.push(element.clone());
+                    }
+                    let key = self.uniform_element(None, &keys, value.span)?;
+                    let element = self.uniform_element(None, &values, value.span)?;
+                    return Ok(self.intern(TypeShape::Map {
+                        key,
+                        value: element,
+                    }));
+                };
+                self.intern(TypeShape::Map {
+                    key,
+                    value: element,
+                })
+            }
+            _ => return Err(Diagnostic::new(UNTYPED_CONST, value.span)),
+        };
+        Ok(ty)
+    }
+    /// Devolve o tipo de elemento escrito ou o comum a todos os elementos.
+    ///
+    /// # Erros
+    /// Recusa literal vazio sem tipo escrito e literal com elementos de tipos
+    /// diferentes: escolher um supertipo aqui repetiria, pela metade, a
+    /// inferência que a análise semântica faz com o contexto inteiro.
+    fn uniform_element(
+        &mut self,
+        written: Option<Type>,
+        elements: &[Expr<'a>],
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        if let Some(written) = written {
+            return Ok(written);
+        }
+        let mut common: Option<Type> = None;
+        for element in elements {
+            let ty = self.constant_type(element)?;
+            match common {
+                Some(previous) if previous != ty => {
+                    return Err(Diagnostic::new(UNTYPED_CONST, span));
+                }
+                _ => common = Some(ty),
+            }
+        }
+        common.ok_or_else(|| Diagnostic::new(UNTYPED_CONST, span))
+    }
     /// Lê um membro estático já sem a palavra `static`, campo ou método.
     fn static_member(
         &mut self,
@@ -1629,7 +1952,15 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("late const is not supported"));
         }
         let signature = self.index;
-        let ty = self.ty(!is_const && !is_final)?;
+        // `const kIndentSize = 2;` e `static const padrao = 'x';` omitem o tipo
+        // e o tomam do inicializador constante. A sondagem é a mesma de uma
+        // declaração local: só há anotação quando um tipo é seguido de um nome.
+        let infer_constant = is_const && !self.starts_annotation();
+        let ty = if infer_constant {
+            Type::Inferred
+        } else {
+            self.ty(!is_const && !is_final)?
+        };
         if self.peek() == Some(TokenKind::Word("set")) {
             return Err(self.error(if is_top_level {
                 "top-level setters are not supported yet"
@@ -1660,12 +1991,32 @@ impl<'a> Cursor<'_, 'a> {
         if ty == Type::Void {
             return Err(self.error("fields cannot have void type"));
         }
-        let initializer = if self.take(TokenKind::Operator("=")) {
+        let initializer = if self.peek() == Some(TokenKind::Operator("=")) {
+            if is_late {
+                return Err(late_initializer_error(start));
+            }
+            self.index += 1;
             Some(self.expression()?)
         } else {
             None
         };
         self.expect(TokenKind::Symbol(';'))?;
+        let ty = if infer_constant {
+            let span = Span {
+                start,
+                end: self.end(),
+            };
+            let initializer = initializer.as_ref().ok_or_else(|| {
+                Diagnostic::new("a const declaration requires an initializer", span)
+            })?;
+            let ty = self.constant_type(initializer)?;
+            if is_top_level {
+                self.inferred_constants.insert(name, ty);
+            }
+            ty
+        } else {
+            ty
+        };
         fields.push(StaticField {
             name,
             ty,
@@ -2610,6 +2961,7 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê um parâmetro comum `Tipo nome [= padrão]` com a forma de passagem dada.
     fn parameter(&mut self, kind: ParameterKind) -> Result<Parameter<'a>, Diagnostic> {
         let start = self.position();
+        self.parameter_metadata()?;
         if self.peek() == Some(TokenKind::Word("covariant")) {
             return Err(self.error("covariant parameters are not supported yet"));
         }
@@ -2626,6 +2978,42 @@ impl<'a> Cursor<'_, 'a> {
                 end: self.end(),
             },
         })
+    }
+    /// Consome os metadados escritos antes de um parâmetro.
+    ///
+    /// Um parâmetro não carrega anotação na árvore porque nenhuma das que o
+    /// Dart de produção escreve ali muda o código emitido: `@Deprecated` é
+    /// documentação e os metadados de `package:meta` são, por definição, sem
+    /// semântica. Tolerar não é ignorar em silêncio — uma anotação cujo alvo
+    /// não é um parâmetro continua recusada, com o span da própria anotação.
+    ///
+    /// # Erros
+    /// Recusa `@Native` e as anotações cujo alvo é uma declaração, não um
+    /// parâmetro.
+    fn parameter_metadata(&mut self) -> Result<(), Diagnostic> {
+        if self.peek() != Some(TokenKind::Symbol('@')) {
+            return Ok(());
+        }
+        let start = self.position();
+        let (annotations, native) = self.metadata()?;
+        if native.is_some() {
+            return Err(Diagnostic::new(
+                "Native annotations belong to a top-level external function, not to a parameter",
+                Span {
+                    start,
+                    end: self.end(),
+                },
+            ));
+        }
+        for annotation in &annotations {
+            if !matches!(annotation.kind, AnnotationKind::Deprecated { .. }) {
+                return Err(Diagnostic::new(
+                    "this annotation targets a declaration, not a parameter; a parameter accepts Deprecated and the semantics-free annotations of package:meta",
+                    annotation.span,
+                ));
+            }
+        }
+        Ok(())
     }
     /// Lê a lista completa de parâmetros de função, método ou fábrica.
     ///
@@ -2653,6 +3041,8 @@ impl<'a> Cursor<'_, 'a> {
             self.take(TokenKind::Symbol(','));
         } else if self.take(TokenKind::Symbol('{')) {
             while self.peek() != Some(TokenKind::Symbol('}')) {
+                // Dart admite o metadado antes e depois de `required`.
+                self.parameter_metadata()?;
                 let required = self.take(TokenKind::Word("required"));
                 parameters.push(self.parameter(ParameterKind::Named { required })?);
                 if !self.take(TokenKind::Symbol(',')) {
@@ -2674,6 +3064,7 @@ impl<'a> Cursor<'_, 'a> {
         kind: ParameterKind,
     ) -> Result<ConstructorParameter<'a>, Diagnostic> {
         let start = self.position();
+        self.parameter_metadata()?;
         if self.peek() == Some(TokenKind::Word("covariant")) {
             return Err(self.error("covariant parameters are not supported yet"));
         }
@@ -2722,6 +3113,8 @@ impl<'a> Cursor<'_, 'a> {
             self.take(TokenKind::Symbol(','));
         } else if self.take(TokenKind::Symbol('{')) {
             while self.peek() != Some(TokenKind::Symbol('}')) {
+                // Dart admite o metadado antes e depois de `required`.
+                self.parameter_metadata()?;
                 let required = self.take(TokenKind::Word("required"));
                 parameters.push(self.constructor_parameter(ParameterKind::Named { required })?);
                 if !self.take(TokenKind::Symbol(',')) {
@@ -3186,7 +3579,11 @@ impl<'a> Cursor<'_, 'a> {
                 }
                 _ => false,
             };
-            let initializer = if self.take(TokenKind::Operator("=")) {
+            let initializer = if self.peek() == Some(TokenKind::Operator("=")) {
+                if is_late {
+                    return Err(late_initializer_error(start));
+                }
+                self.index += 1;
                 self.expression()?
             } else if (!is_final && nullable) || is_late {
                 let end = self.end();
@@ -3538,6 +3935,10 @@ impl<'a> Cursor<'_, 'a> {
         Some((8, BinaryOp::ShiftRight, 2))
     }
     /// Contabiliza um nó e rejeita expressões que excedam os limites.
+    ///
+    /// `depth` é a profundidade da árvore no ponto do nó, e não a da recursão
+    /// do parser: as cadeias associativas à esquerda passam aqui o nível já
+    /// aprofundado pela própria iteração.
     fn charge(&mut self, depth: usize) -> Result<(), Diagnostic> {
         self.expr_nodes += 1;
         if depth >= MAX_DEPTH || self.expr_nodes > MAX_EXPR_NODES {
@@ -3546,13 +3947,18 @@ impl<'a> Cursor<'_, 'a> {
         Ok(())
     }
     /// Lê operadores binários respeitando precedência e associatividade.
+    ///
+    /// Cada operador consumido no laço acrescenta um nível à árvore resultante,
+    /// porque a associatividade à esquerda pendura o nó anterior como operando
+    /// esquerdo do novo. `level` acompanha essa profundidade real e é o que vai
+    /// ao orçamento: sem ele, `1+1+1+…` seria plano para o limite e fundo para
+    /// quem percorre a árvore depois.
     fn binary(&mut self, min: u8, depth: usize) -> Result<Expr<'a>, Diagnostic> {
         let mut left = self.primary(depth)?;
-        if matches!(self.peek(), Some(TokenKind::Operator("++" | "--"))) {
-            return Err(
-                self.error("increment and decrement are supported only as standalone statements")
-            );
+        if let Some(TokenKind::Operator(operator @ ("++" | "--"))) = self.peek() {
+            left = self.increment_suffix(left, operator, depth)?;
         }
+        let mut level = depth;
         let mut comparison = None;
         let mut type_comparison = false;
         loop {
@@ -3567,7 +3973,8 @@ impl<'a> Cursor<'_, 'a> {
                 }
                 comparison = Some(4);
                 type_comparison = true;
-                self.charge(depth)?;
+                level += 1;
+                self.charge(level)?;
                 self.index += 1;
                 let negated = operator == "is" && self.take(TokenKind::Operator("!"));
                 let ty = self.test_type()?;
@@ -3617,14 +4024,15 @@ impl<'a> Cursor<'_, 'a> {
                 }
                 comparison = Some(precedence);
             }
-            self.charge(depth)?;
+            level += 1;
+            self.charge(level)?;
             self.index += width;
             let next_min = if op == BinaryOp::IfNull {
                 precedence
             } else {
                 precedence + 1
             };
-            let right = self.binary(next_min, depth + 1)?;
+            let right = self.binary(next_min, level)?;
             let span = Span {
                 start: left.span.start,
                 end: right.span.end,
@@ -3902,6 +4310,10 @@ impl<'a> Cursor<'_, 'a> {
                 if self.generic_call_ahead() {
                     let type_arguments = self.type_arguments()?;
                     let arguments = self.arguments(depth)?;
+                    // `C<int>(...)` com `C` sendo classe é construção genérica,
+                    // não chamada de função genérica. Quem decide é a análise
+                    // semântica, que tem os bounds de cada parâmetro e valida os
+                    // argumentos antes de apagá-los; o parser não os tem.
                     ExprKind::GenericCall {
                         name,
                         type_arguments,
@@ -3993,9 +4405,24 @@ impl<'a> Cursor<'_, 'a> {
                 };
                 return self.postfix(value, depth);
             }
-            Some(TokenKind::Operator("++" | "--")) => {
-                return Err(self
-                    .error("increment and decrement are supported only as standalone statements"));
+            Some(TokenKind::Operator(operator @ ("++" | "--"))) => {
+                // `++x` produz o valor já atualizado. O alvo é lido fora de
+                // `postfix` de propósito: em Dart `++x.y` é `++(x.y)`, e deixar
+                // o resultado seguir para `postfix` produziria `(++x).y`.
+                self.index += 1;
+                let target = self.increment_target(operator)?;
+                let span = Span {
+                    start,
+                    end: self.end(),
+                };
+                return Ok(Expr {
+                    kind: ExprKind::Increment {
+                        target: Box::new(target),
+                        increase: operator == "++",
+                        prefix: true,
+                    },
+                    span,
+                });
             }
             Some(TokenKind::Word("super")) => {
                 if self.tokens.get(self.index + 1).map(|token| token.kind)
@@ -4697,14 +5124,91 @@ impl<'a> Cursor<'_, 'a> {
         })
     }
     /// Aplica asserções pós-fixas sem permitir que contornem o limite de nós.
+    /// Lê o alvo de um `++`/`--` prefixo, que precisa ser um nome simples.
+    ///
+    /// # Erros
+    /// Recusa alvo composto (`a[i]`, `o.campo`) com a razão e a alternativa:
+    /// atualizar um alvo composto exige guardar receptor e índice em
+    /// temporários para avaliá-los uma única vez, e este subconjunto ainda não
+    /// tem essa forma.
+    fn increment_target(&mut self, operator: &str) -> Result<Expr<'a>, Diagnostic> {
+        let start = self.position();
+        let Some(TokenKind::Word(name)) = self.peek() else {
+            return Err(self.error("increment and decrement require a simple variable target"));
+        };
+        if reserved(name) {
+            return Err(self.error("increment and decrement require a simple variable target"));
+        }
+        self.index += 1;
+        let span = Span {
+            start,
+            end: self.end(),
+        };
+        if matches!(
+            self.peek(),
+            Some(TokenKind::Symbol('.' | '[') | TokenKind::Operator("?."))
+        ) {
+            return Err(Diagnostic::new(
+                format!(
+                    "`{operator}` accepts only a simple variable as target: updating `a[i]` or `o.field` has to evaluate receiver and index exactly once, which needs temporaries this subset does not emit yet; write `a[i] = a[i] {} 1` as a statement instead",
+                    if operator == "++" { "+" } else { "-" }
+                ),
+                span,
+            ));
+        }
+        Ok(Expr {
+            kind: ExprKind::Identifier(name),
+            span,
+        })
+    }
+    /// Converte `alvo++`/`alvo--` lido depois de uma primária em `Increment`.
+    ///
+    /// # Erros
+    /// Recusa alvo que não seja um nome simples, pela mesma razão documentada
+    /// em [`Parser::increment_target`].
+    fn increment_suffix(
+        &mut self,
+        value: Expr<'a>,
+        operator: &'a str,
+        depth: usize,
+    ) -> Result<Expr<'a>, Diagnostic> {
+        if !matches!(value.kind, ExprKind::Identifier(_)) {
+            return Err(Diagnostic::new(
+                format!(
+                    "`{operator}` accepts only a simple variable as target: updating `a[i]` or `o.field` has to evaluate receiver and index exactly once, which needs temporaries this subset does not emit yet; write `a[i] = a[i] {} 1` as a statement instead",
+                    if operator == "++" { "+" } else { "-" }
+                ),
+                value.span,
+            ));
+        }
+        self.charge(depth)?;
+        self.index += 1;
+        let span = Span {
+            start: value.span.start,
+            end: self.end(),
+        };
+        Ok(Expr {
+            kind: ExprKind::Increment {
+                target: Box::new(value),
+                increase: operator == "++",
+                prefix: false,
+            },
+            span,
+        })
+    }
     fn postfix(&mut self, mut value: Expr<'a>, depth: usize) -> Result<Expr<'a>, Diagnostic> {
+        // Cada seletor pendura o valor anterior como receptor: a cadeia é lida
+        // num laço, mas a árvore que ela produz fica um nível mais funda a cada
+        // volta. `level` é essa profundidade real, e é a que o orçamento vê.
+        let mut level = depth;
         loop {
             if let Some(selector) = self.null_aware_selector() {
                 // A cadeia inteira curto-circuita: `a?.b.c` só avalia `.c`
                 // quando `a` não é null. O receptor sai da posição de operando
                 // e o restante dos seletores passa a pender do alvo sintético,
                 // que a emissão liga a um único temporário.
-                self.charge(depth)?;
+                level += 1;
+                self.charge(level)?;
                 let operator = self.tokens[self.index].span;
                 self.index += 1;
                 let target = Expr {
@@ -4719,7 +5223,7 @@ impl<'a> Cursor<'_, 'a> {
                             ExprKind::MethodCall {
                                 receiver: Box::new(target),
                                 name,
-                                arguments: self.arguments(depth)?,
+                                arguments: self.arguments(level)?,
                             }
                         } else {
                             ExprKind::Member {
@@ -4737,7 +5241,7 @@ impl<'a> Cursor<'_, 'a> {
                     }
                     NullAwareSelector::Index => {
                         self.expect(TokenKind::Symbol('['))?;
-                        let index = self.cascade(depth + 1)?;
+                        let index = self.cascade(level + 1)?;
                         self.expect(TokenKind::Symbol(']'))?;
                         Expr {
                             kind: ExprKind::Index {
@@ -4751,7 +5255,7 @@ impl<'a> Cursor<'_, 'a> {
                         }
                     }
                 };
-                let chain = self.postfix(selected, depth)?;
+                let chain = self.postfix(selected, level)?;
                 let span = Span {
                     start: value.span.start,
                     end: self.end(),
@@ -4766,30 +5270,34 @@ impl<'a> Cursor<'_, 'a> {
                 });
             }
             let kind = if self.peek() == Some(TokenKind::Symbol('(')) {
-                self.charge(depth)?;
+                level += 1;
+                self.charge(level)?;
                 ExprKind::Invoke {
                     callee: Box::new(value),
-                    arguments: self.arguments(depth)?,
+                    arguments: self.arguments(level)?,
                 }
             } else if self.take(TokenKind::Symbol('[')) {
-                self.charge(depth)?;
-                let index = self.cascade(depth + 1)?;
+                level += 1;
+                self.charge(level)?;
+                let index = self.cascade(level + 1)?;
                 self.expect(TokenKind::Symbol(']'))?;
                 ExprKind::Index {
                     receiver: Box::new(value),
                     index: Box::new(index),
                 }
             } else if self.take(TokenKind::Operator("!")) {
-                self.charge(depth)?;
+                level += 1;
+                self.charge(level)?;
                 ExprKind::Unary {
                     op: UnaryOp::NullAssert,
                     operand: Box::new(value),
                 }
             } else if self.take(TokenKind::Symbol('.')) {
-                self.charge(depth)?;
+                level += 1;
+                self.charge(level)?;
                 let name = self.name()?;
                 if self.peek() == Some(TokenKind::Symbol('(')) {
-                    let arguments = self.arguments(depth)?;
+                    let arguments = self.arguments(level)?;
                     ExprKind::MethodCall {
                         receiver: Box::new(value),
                         name,
@@ -5369,6 +5877,23 @@ fn binary_op(symbol: &str) -> Option<(u8, BinaryOp)> {
         "%" => (10, BinaryOp::Remainder),
         _ => return None,
     })
+}
+
+/// Recusa `late` com inicializador, cuja célula preguiçosa não é emitida.
+///
+/// Em Dart, `late T x = init` não avalia `init` na declaração: o inicializador
+/// roda na **primeira leitura**, e uma escrita anterior à primeira leitura o
+/// cancela sem jamais executá-lo. Emitir a avaliação na declaração daria a
+/// ordem de efeitos errada em silêncio, então a forma é recusada. O span cobre
+/// a palavra `late`, que é o que torna a declaração preguiçosa.
+fn late_initializer_error(start: usize) -> Diagnostic {
+    Diagnostic::new(
+        "late with an initializer is not supported: in Dart the initializer runs on the first read and a write before that read cancels it; declare `late T name;` and assign before reading",
+        Span {
+            start,
+            end: start + "late".len(),
+        },
+    )
 }
 
 // Restringe palavras reservadas e nomes especiais no subconjunto inicial.
