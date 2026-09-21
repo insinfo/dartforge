@@ -612,6 +612,7 @@ pub fn compile_graph_instrumented(
                     value: remap_type(*value, type_offset),
                 },
                 TypeShape::List(t) => TypeShape::List(remap_type(*t, type_offset)),
+                TypeShape::Set(t) => TypeShape::Set(remap_type(*t, type_offset)),
                 TypeShape::Future(t) => TypeShape::Future(remap_type(*t, type_offset)),
                 TypeShape::Nullable(t) => TypeShape::Nullable(remap_type(*t, type_offset)),
                 TypeShape::Record { positional, named } => TypeShape::Record {
@@ -997,6 +998,7 @@ impl<'a> Resolver<'a, '_> {
                     }
                 }
                 TypeShape::List(t)
+                | TypeShape::Set(t)
                 | TypeShape::Iterable(t)
                 | TypeShape::Nullable(t)
                 | TypeShape::Future(t) => self.ty(*t, span)?,
@@ -1542,8 +1544,49 @@ impl<'a> Resolver<'a, '_> {
                 }
                 for (key, value) in entries {
                     self.expression(key)?;
-                    self.expression(value)?;
+                    // `None` marca elemento de controle: só a chave é real.
+                    if let Some(value) = value {
+                        self.expression(value)?;
+                    }
                 }
+            }
+            ExprKind::Set {
+                element_type,
+                elements,
+            } => {
+                if let Some(t) = element_type {
+                    self.ty(*t, expression.span)?;
+                    *t = remap_type(*t, self.type_offset);
+                }
+                for element in elements {
+                    self.expression(element)?;
+                }
+            }
+            ExprKind::Spread { operand, .. } => self.expression(operand)?,
+            ExprKind::MapEntry { key, value } => {
+                self.expression(key)?;
+                self.expression(value)?;
+            }
+            ExprKind::CollectionIf {
+                condition,
+                then_element,
+                else_element,
+            } => {
+                self.expression(condition)?;
+                self.expression(then_element)?;
+                if let Some(element) = else_element {
+                    self.expression(element)?;
+                }
+            }
+            ExprKind::CollectionFor { header, element } => {
+                self.statement(header)?;
+                self.expression(element)?;
+            }
+            ExprKind::NullShort {
+                receiver, chain, ..
+            } => {
+                self.expression(receiver)?;
+                self.expression(chain)?;
             }
             ExprKind::NamedConstruct {
                 class_id,

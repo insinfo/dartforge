@@ -124,8 +124,10 @@ falha de `!` sobre null encerra esse processo com código 101, como no AOT.
 módulo, lookup com geração de código sob demanda e execução).
 
 A build deste crate exige a **distribuição completa** do LLVM 22.1.x, com
-`llvm-config`, apontada por `LLVM_SYS_221_PREFIX`; `scripts/env.ps1` a detecta na
-instalação local. Arquitetura, limites e justificativa em [docs/JIT.md](docs/JIT.md).
+`llvm-config`, apontada por `LLVM_SYS_221_PREFIX` — já definida em
+`.cargo/config.toml`. A ligação é dinâmica contra `LLVM-C.dll`, que precisa estar
+no `PATH` para executar; `scripts/env.ps1` cuida disso. Arquitetura, limites e
+justificativa em [docs/JIT.md](docs/JIT.md).
 
 ## Workspace
 

@@ -42,6 +42,7 @@ class $dartforgeIterable {
   $df_forEach(action) { for (const x of this) action(x); }
   $df_any(test) { for (const x of this) if (test(x)) return true; return false; }
   $df_toList() { return new $dartforgeList([...this], this.elementType); }
+  $df_contains(value) { for (const x of this) if (x === value) return true; return false; }
 }
 // Map não chama o conversor ao consultar length/isEmpty e transforma apenas last ao consultá-lo.
 class $dartforgeMapped extends $dartforgeIterable {
@@ -71,6 +72,27 @@ class $dartforgeList extends $dartforgeIterable {
     const n = this.values.length;
     for (let i = 0; i < n; i++) { action(this.values[i]); if (this.values.length !== n) throw new Error('Concurrent modification during iteration'); }
   }
+}
+// Set conserva ordem de inserção, como o LinkedHashSet padrão do Dart, e
+// compara elementos por identidade — a mesma política já adotada por Map.
+class $dartforgeSet extends $dartforgeIterable {
+  constructor(values, elementType = ['nullable',['object']]) {
+    const store = new Set(values);
+    super(function* () {
+      const size = store.size;
+      for (const x of store) {
+        if (store.size !== size) throw new Error('Concurrent modification during iteration');
+        yield x;
+      }
+      if (store.size !== size) throw new Error('Concurrent modification during iteration');
+    }, () => store.size, elementType);
+    this.store = store;
+    $dartforgeTyped(this, ['set',elementType]);
+  }
+  // Dart devolve false quando o elemento já pertencia ao conjunto.
+  $df_add(value) { $dartforgeCast(value, this.elementType); const had = this.store.has(value); this.store.add(value); return !had; }
+  $df_contains(value) { return this.store.has(value); }
+  $df_toList() { return new $dartforgeList([...this.store], this.elementType); }
 }
 // Map conserva ordem de inserção e evita propriedades especiais de objetos JavaScript.
 class $dartforgeMap {
@@ -103,14 +125,19 @@ function $dartforgeIndexSet(list, index, value) {
 // int não passa por String(x) do JavaScript: o inteiro do subconjunto tem 32 bits
 // com sinal e o zero negativo do JavaScript precisa ser impresso como "0", que é
 // o único texto que Dart produz para zero. Coleções e records vão ao formatador.
+// Uma instância responde pelo toString declarado, escolhido pelo próprio objeto
+// e não pelo tipo estático: uma derivada com toString próprio aparece mesmo por
+// uma referência da base. Instância sem toString declarado não chega aqui — a
+// análise semântica recusa imprimi-la em vez de inventar "Instance of 'Nome'".
 function $dartforgeString(value) {
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'string') return value;
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'number') return (value + 0).toString(10);
+  if (typeof value.$df_toString === 'function') return value.$df_toString();
   // Só coleções e records chegam aqui, e eles já exigem o restante deste
-  // arquivo: quando o programa interpola apenas escalares, o emissor recorta
-  // esta função entre os marcadores e a linha abaixo nunca executa.
+  // arquivo: quando o programa interpola apenas escalares ou instâncias, o
+  // emissor recorta esta função entre os marcadores e a linha abaixo não roda.
   return $dartforgeFormat(value);
 }
 // <<< $dartforgeString
@@ -133,13 +160,19 @@ function $dartforgeFormat(value, active = new Set()) {
       return '(' + parts.join(', ') + ')';
     } finally { active.delete(value); }
   }
+  // Elemento de coleção que é instância usa o toString declarado da classe.
+  if (value !== null && typeof value === 'object' && typeof value.$df_toString === 'function') return value.$df_toString();
   if (!(value instanceof $dartforgeIterable)) return String(value);
-  const list = value instanceof $dartforgeList, open = list ? '[' : '(', close = list ? ']' : ')';
+  // SDK 3.6.2: List e Set imprimem o texto integral (iterableToFullString);
+  // só o Iterable preguiçoso usa a abreviação de iterableToShortString.
+  const set = value instanceof $dartforgeSet;
+  const full = set || value instanceof $dartforgeList;
+  const open = set ? '{' : (full ? '[' : '('), close = set ? '}' : (full ? ']' : ')');
   if (active.has(value)) return open + '...' + close;
   active.add(value);
   try {
     const parts = [];
-    if (list) {
+    if (full) {
       for (const element of value) parts.push($dartforgeFormat(element, active));
     } else {
       $dartforgeIterableParts(value, active, parts);

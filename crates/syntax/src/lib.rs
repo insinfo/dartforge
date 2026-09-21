@@ -242,9 +242,20 @@ pub enum ExprKind<'a> {
     NullShort {
         receiver: Box<Expr<'a>>,
         chain: Box<Expr<'a>>,
+        /// Span do operador `?.`/`?[`, que identifica o receptor sintético.
+        target: Span,
     },
     /// Receptor sintético da cadeia null-aware envolvente; span do operador.
     NullShortTarget,
+    /// Entrada `chave: valor` escrita dentro de um `if`/`for` de literal de mapa.
+    ///
+    /// As entradas de topo continuam no par `(chave, Some(valor))` de `Map`;
+    /// esta forma existe porque um ramo de `if` ou o corpo de um `for` é uma
+    /// expressão, e precisa carregar as duas posições juntas.
+    MapEntry {
+        key: Box<Expr<'a>>,
+        value: Box<Expr<'a>>,
+    },
     /// Invocação de fábrica nomeada, validada separadamente dos membros de instância.
     NamedConstruct {
         class_id: u32,

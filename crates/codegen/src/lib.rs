@@ -35,6 +35,7 @@ pub fn validate_javascript(module: &Module<'_>) -> Result<(), dartforge_diagnost
     Ok(())
 }
 mod asynchronous;
+mod colecoes;
 mod constructors;
 mod features;
 mod fluxo;
@@ -83,6 +84,24 @@ struct Output<'a> {
     truncdiv_used: bool,
     /// Algum `%` com double precisou do módulo euclidiano sem lançamento.
     doublemod_used: bool,
+    /// Algum deslocamento precisou dos auxiliares de bits do alvo web.
+    shift_used: bool,
+    /// Algum `...?` precisou do auxiliar que omite o operando null.
+    spread_used: bool,
+    /// Numera os acumuladores dos literais com `if`/`for`.
+    next_build: usize,
+    /// Numera os temporários das cadeias null-aware.
+    next_short: usize,
+    /// Receptores sintéticos ativos; `NullShortTarget` usa o do topo.
+    null_short_targets: Vec<String>,
+    /// Alguma comparação precisou despachar `operator ==` em tempo de execução.
+    equals_used: bool,
+    /// O módulo declara uma função de topo chamada `identical`.
+    ///
+    /// Quando declara, `identical(...)` é chamada comum; quando não, é o
+    /// intrínseco de identidade de `dart:core`. O linker renomeia nomes de
+    /// topo, então a checagem por nome é exata nas duas montagens.
+    declares_identical: bool,
     /// Classes do módulo para o despacho estático de `C.x`, `C.m()` e nomeados.
     classes: &'a [Class<'a>],
 }
@@ -172,11 +191,19 @@ pub fn emit(module: &Module<'_>) -> String {
         double_used: false,
         truncdiv_used: false,
         doublemod_used: false,
+        shift_used: false,
+        spread_used: false,
+        next_build: 0,
+        next_short: 0,
+        null_short_targets: vec![],
+        equals_used: false,
+        declares_identical: module.functions.iter().any(|f| f.name == "identical"),
         classes: &module.classes,
         collections: module.resolution.types.iter().any(|t| {
             matches!(
                 t,
                 dartforge_syntax::TypeShape::List(_)
+                    | dartforge_syntax::TypeShape::Set(_)
                     | dartforge_syntax::TypeShape::Iterable(_)
                     | dartforge_syntax::TypeShape::Record { .. }
                     | dartforge_syntax::TypeShape::Map { .. }
@@ -286,11 +313,28 @@ pub fn emit(module: &Module<'_>) -> String {
 function $dartforgeConstInstance(key, proto, fields) { let found = $dartforgeConstInstances.get(key); if (found === undefined) { found = Object.freeze(Object.assign(Object.create(proto), fields)); $dartforgeConstInstances.set(key, found); } return found; }
 ");
     }
+    if output.shift_used {
+        output.push_str(colecoes::BITWISE_RUNTIME);
+    }
+    if output.spread_used {
+        output.push_str(colecoes::SPREAD_RUNTIME);
+    }
     if output.modulo_used {
         output.push_str("function $dartforgeModulo(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n");
     }
     if output.double_used || output.truncdiv_used || output.doublemod_used {
         output.push_str(DOUBLE_RUNTIME);
+    }
+    // Com o runtime de records presente, `$dartforgeEqual` já compara records
+    // e Duration e já consulta o operador; o apelido evita duas cópias da
+    // mesma regra. Sem ele, basta a versão enxuta.
+    if output.equals_used {
+        let shared = output.records || output.async_used;
+        output.push_str(if shared {
+            "const $dartforgeEquals = $dartforgeEqual;\n"
+        } else {
+            EQUALS_RUNTIME
+        });
     }
     // Um programa que só interpola escalares recebe apenas a conversão, não o
     // runtime de coleções inteiro; com coleções, core.js já a trouxe.
@@ -320,6 +364,15 @@ function $dartforgeConstInstance(key, proto, fields) { let found = $dartforgeCon
 /// `NaN` e `±Infinity` têm texto próprio. `$dartforgeTruncDiv` trunca em
 /// direção a zero e lança com divisor nulo; `$dartforgeDoubleModulo` é o
 /// módulo euclidiano sem lançamento (`7.5 % 0` vale NaN, como no oráculo).
+/// Despacho de `==` quando alguma classe declara `operator ==`.
+///
+/// Reproduz literalmente as duas regras do Dart 3.6.2: `e1 == e2` com `e1`
+/// nulo é verdadeiro somente contra `null` e **não** chama o operador; com
+/// `e1` não nulo, quem decide é a implementação do lado esquerdo, mesmo que
+/// `e2` seja `null`. Sem operador declarado no receptor, a comparação volta a
+/// ser identidade, que é o `==` herdado de `Object`.
+const EQUALS_RUNTIME: &str = "function $dartforgeEquals(left, right) { if (left === null) { return right === null; } const operator = typeof left === 'object' ? left.$df$eq : undefined; return operator === undefined ? left === right : operator.call(left, right); }\n";
+
 const DOUBLE_RUNTIME: &str = "function $dartforgeDouble(value) { if (Number.isNaN(value)) return 'NaN'; if (value === Infinity) return 'Infinity'; if (value === -Infinity) return '-Infinity'; if (Object.is(value, -0)) return '-0.0'; const text = String(value); return (/^[+-]?\\d+$/.test(text) ? text + '.0' : text); }\nfunction $dartforgeTruncDiv(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); return Math.trunc(a / b); }\nfunction $dartforgeDoubleModulo(a,b) { const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n";
 
 /// Emite um literal double preservando o valor IEEE-754 no JavaScript.
@@ -342,6 +395,11 @@ pub(crate) fn double_literal(value: f64, output: &mut Output<'_>) {
 }
 
 /// Tipo estático registrado para a expressão, quando a resolução o conhece.
+/// Indica se o tipo estático resolvido é uma instância nominal de classe.
+fn is_instance_type(ty: Option<Type>) -> bool {
+    matches!(ty, Some(Type::Class(_) | Type::NullableClass(_)))
+}
+
 fn static_type(value: &Expr<'_>, output: &Output<'_>) -> Option<Type> {
     output
         .resolution
@@ -459,7 +517,12 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
         }
         for method in &class.methods {
             indent(1, output);
-            if method.is_getter {
+            // O acessor com um parâmetro é o setter; os dois viram acessores
+            // nativos do JavaScript, então `c.x` e `c.x = v` continuam sendo
+            // leitura e escrita de propriedade, sem forma de chamada nova.
+            if method.is_setter() {
+                output.push_str("set ");
+            } else if method.is_getter {
                 output.push_str("get ");
             }
             identifier(method.name, output);
@@ -582,8 +645,32 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
             receiver, sections, ..
         } => expression_needs_null_assert(receiver) || statements_need_null_assert(sections),
         ExprKind::Map { entries, .. } => entries.iter().any(|(key, value)| {
-            expression_needs_null_assert(key) || expression_needs_null_assert(value)
+            expression_needs_null_assert(key)
+                || value.as_ref().is_some_and(expression_needs_null_assert)
         }),
+        ExprKind::Set { elements, .. } => elements.iter().any(expression_needs_null_assert),
+        ExprKind::Spread { operand, .. } => expression_needs_null_assert(operand),
+        ExprKind::MapEntry { key, value } => {
+            expression_needs_null_assert(key) || expression_needs_null_assert(value)
+        }
+        ExprKind::CollectionIf {
+            condition,
+            then_element,
+            else_element,
+        } => {
+            expression_needs_null_assert(condition)
+                || expression_needs_null_assert(then_element)
+                || else_element
+                    .as_deref()
+                    .is_some_and(expression_needs_null_assert)
+        }
+        ExprKind::CollectionFor { header, element } => {
+            statement_needs_null_assert(header) || expression_needs_null_assert(element)
+        }
+        ExprKind::NullShort { receiver, chain, .. } => {
+            expression_needs_null_assert(receiver) || expression_needs_null_assert(chain)
+        }
+        ExprKind::NullShortTarget => false,
         ExprKind::Record { fields } => fields
             .iter()
             .any(|(_, field)| expression_needs_null_assert(field)),
@@ -902,8 +989,20 @@ fn argument_list(values: &[Expr<'_>], separator: &str, output: &mut Output<'_>) 
     }
 }
 
+/// Nome JavaScript do método gerado por `operator ==`.
+///
+/// Fica fora do espaço `$df_` reservado aos identificadores do usuário: o
+/// separador é `$`, e nenhum nome Dart produz `$df$eq`.
+const EQUALS_MEMBER: &str = "$df$eq";
+
 /// Aplica o prefixo estável usado em declarações e referências.
 fn identifier(name: &str, output: &mut Output<'_>) {
+    // `operator ==` não tem nome Dart: o membro gerado usa o espaço `$df$`,
+    // separado do `$df_` dos identificadores escritos pelo usuário.
+    if name == dartforge_syntax::EQUALS_OPERATOR {
+        output.push_str(EQUALS_MEMBER);
+        return;
+    }
     // O prefixo injetivo evita palavras reservadas e globais do JavaScript.
     // Blocos léxicos preservam sombreamento; referências recebem o mesmo prefixo.
     output.push_str("$df_");
@@ -1021,6 +1120,17 @@ fn statement_at(statement: &Statement<'_>, depth: usize, output: &mut Output<'_>
                 if static_type(value, output) == Some(Type::Double) {
                     output.double_used = true;
                     output.push_str("console.log($dartforgeDouble(");
+                    expression(value, output);
+                    output.push_str("));\n");
+                    return;
+                }
+                // Instância de classe imprime pelo `toString` declarado, que a
+                // análise já exigiu; o despacho é do objeto, não do tipo
+                // estático, então uma derivada com `toString` próprio aparece
+                // mesmo por uma referência da base.
+                if is_instance_type(static_type(value, output)) {
+                    output.strings_used = true;
+                    output.push_str("console.log($dartforgeString(");
                     expression(value, output);
                     output.push_str("));\n");
                     return;
@@ -1247,45 +1357,15 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             panic!("AST inválida: elemento null-aware fora de literal de coleção")
         }
         ExprKind::Map { entries, .. } => {
-            output.push_str("new $dartforgeMap([");
-            for (index, (key, value)) in entries.iter().enumerate() {
-                if index > 0 {
-                    output.push(',');
-                }
-                let (optional_key, key) = match &key.kind {
-                    ExprKind::NullAwareElement(inner) => (true, inner.as_ref()),
-                    _ => (false, key),
-                };
-                let (optional_value, value) = match &value.kind {
-                    ExprKind::NullAwareElement(inner) => (true, inner.as_ref()),
-                    _ => (false, value),
-                };
-                if optional_key || optional_value {
-                    // A entrada inteira desaparece quando qualquer posição `?` é null.
-                    output.push_str("...(($dartforgeKey, $dartforgeValue) => ");
-                    if optional_key {
-                        output.push_str("$dartforgeKey === null");
-                    }
-                    if optional_key && optional_value {
-                        output.push_str(" || ");
-                    }
-                    if optional_value {
-                        output.push_str("$dartforgeValue === null");
-                    }
-                    output.push_str(" ? [] : [[$dartforgeKey, $dartforgeValue]])(");
-                    expression(key, output);
-                    output.push(',');
-                    expression(value, output);
-                    output.push(')');
-                    continue;
-                }
-                output.push('[');
-                expression(key, output);
-                output.push(',');
-                expression(value, output);
-                output.push(']');
+            output.push_str("new $dartforgeMap(");
+            if colecoes::entries_need_builder(entries) {
+                // `if`/`for` produzem uma quantidade variável de entradas; o
+                // caminho comum continua saindo como literal de array.
+                colecoes::builder_entries(entries, 0, output);
+            } else {
+                colecoes::entry_values(entries, output);
             }
-            output.push_str("],");
+            output.push(',');
             let ty = output
                 .resolution
                 .expr_types
@@ -1451,23 +1531,43 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::List { elements, .. } => {
-            output.push_str("new $dartforgeList([");
-            for (i, e) in elements.iter().enumerate() {
-                if i > 0 {
-                    output.push(',');
-                }
-                if let ExprKind::NullAwareElement(inner) = &e.kind {
-                    // Dart 3.8: avalia uma vez e omite o elemento quando é null.
-                    output.push_str("...(($dartforgeElement) => $dartforgeElement === null ? [] : [$dartforgeElement])(");
-                    expression(inner, output);
-                    output.push(')');
-                    continue;
-                }
-                expression(e, output);
+            output.push_str("new $dartforgeList(");
+            if colecoes::needs_builder(elements) {
+                colecoes::builder(elements, false, 0, output);
+            } else {
+                colecoes::sequence_values(elements, output);
             }
-            output.push_str("],");
+            output.push(',');
             types::descriptor(types::element_type(value, output), output);
             output.push(')');
+        }
+        ExprKind::Set { elements, .. } => {
+            output.push_str("new $dartforgeSet(");
+            if colecoes::needs_builder(elements) {
+                colecoes::builder(elements, false, 0, output);
+            } else {
+                colecoes::sequence_values(elements, output);
+            }
+            output.push(',');
+            types::descriptor(types::element_type(value, output), output);
+            output.push(')');
+        }
+        ExprKind::NullShort { receiver, chain, .. } => {
+            colecoes::null_short(receiver, chain, output)
+        }
+        ExprKind::NullShortTarget => {
+            let target = output
+                .null_short_targets
+                .last()
+                .expect("receiver sintético fora de cadeia null-aware")
+                .clone();
+            output.push_str(&target);
+        }
+        ExprKind::Spread { .. }
+        | ExprKind::MapEntry { .. }
+        | ExprKind::CollectionIf { .. }
+        | ExprKind::CollectionFor { .. } => {
+            panic!("AST inválida: elemento de coleção fora de literal de coleção")
         }
         ExprKind::Index { receiver, index } => {
             output.push_str("$dartforgeIndex(");
@@ -1614,6 +1714,29 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             }
             identifier(name, output);
         }
+        // `print(obj)` converte pelo `toString` declarado; a análise já
+        // rejeitou instâncias sem ele e já recusou sombrear `print`.
+        ExprKind::Call {
+            name: "print",
+            arguments,
+        } if arguments.len() == 1 && is_instance_type(static_type(&arguments[0], output)) => {
+            output.strings_used = true;
+            output.push_str("console.log($dartforgeString(");
+            expression(&arguments[0], output);
+            output.push_str("))");
+        }
+        // `identical` é identidade de referência: nunca consulta o operador
+        // declarado, e os operandos já foram restritos a instâncias e null.
+        ExprKind::Call {
+            name: "identical",
+            arguments,
+        } if arguments.len() == 2 && !output.declares_identical => {
+            output.push('(');
+            expression(&arguments[0], output);
+            output.push_str(" === ");
+            expression(&arguments[1], output);
+            output.push(')');
+        }
         ExprKind::Call { name, arguments }
         | ExprKind::GenericCall {
             name, arguments, ..
@@ -1689,6 +1812,16 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             expression(operand, output);
             output.push(')');
         }
+        ExprKind::Unary {
+            op: UnaryOp::BitNot,
+            operand,
+        } => {
+            // Semântica de inteiro do alvo web: `~` devolve o inteiro sem
+            // sinal de 32 bits, como `dart compile js` (`~0` vale 4294967295).
+            output.push_str("((~ ");
+            expression(operand, output);
+            output.push_str(") >>> 0)");
+        }
         ExprKind::Unary { op, operand } => {
             output.push('(');
             output.push_str(if *op == UnaryOp::Negate { "-" } else { "!" });
@@ -1727,6 +1860,40 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::Binary {
+            op: op @ (BinaryOp::ShiftLeft | BinaryOp::ShiftRight | BinaryOp::ShiftRightUnsigned),
+            left,
+            right,
+        } => {
+            // Contagem negativa lança e contagem acima de 31 zera (ou satura,
+            // em `>>`), como no alvo web; ver `colecoes::BITWISE_RUNTIME`.
+            output.shift_used = true;
+            output.push_str(match op {
+                BinaryOp::ShiftLeft => "$dartforgeShl(",
+                BinaryOp::ShiftRight => "$dartforgeShr(",
+                _ => "$dartforgeUshr(",
+            });
+            expression(left, output);
+            output.push(',');
+            expression(right, output);
+            output.push(')');
+        }
+        ExprKind::Binary {
+            op: op @ (BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor),
+            left,
+            right,
+        } => {
+            // O `>>> 0` reproduz o inteiro sem sinal de 32 bits do alvo web.
+            output.push_str("((");
+            expression(left, output);
+            output.push_str(match op {
+                BinaryOp::BitAnd => " & ",
+                BinaryOp::BitOr => " | ",
+                _ => " ^ ",
+            });
+            expression(right, output);
+            output.push_str(") >>> 0)");
+        }
+        ExprKind::Binary {
             op: BinaryOp::TruncDivide,
             left,
             right,
@@ -1734,6 +1901,29 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             // `~/` trunca em direção a zero e lança com divisor nulo.
             output.truncdiv_used = true;
             output.push_str("$dartforgeTruncDiv(");
+            expression(left, output);
+            output.push(',');
+            expression(right, output);
+            output.push(')');
+        }
+        // Comparação marcada pela análise: o operando esquerdo pode ser uma
+        // instância cuja classe declara `operator ==`. O auxiliar preserva as
+        // duas regras do Dart — receptor null nunca chama o operador, e é o
+        // lado esquerdo que escolhe a implementação.
+        ExprKind::Binary {
+            op: op @ (BinaryOp::Equal | BinaryOp::NotEqual),
+            left,
+            right,
+        } if output
+            .resolution
+            .equality_operators
+            .contains(&(value.span.start, value.span.end)) =>
+        {
+            output.equals_used = true;
+            if *op == BinaryOp::NotEqual {
+                output.push('!');
+            }
+            output.push_str("$dartforgeEquals(");
             expression(left, output);
             output.push(',');
             expression(right, output);
@@ -1779,6 +1969,12 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 BinaryOp::And => " && ",
                 BinaryOp::Or => " || ",
                 BinaryOp::IfNull => " ?? ",
+                BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::ShiftLeft
+                | BinaryOp::ShiftRight
+                | BinaryOp::ShiftRightUnsigned => unreachable!("emissão dedicada"),
             });
             expression(right, output);
             if *op == BinaryOp::Multiply
@@ -2842,6 +3038,7 @@ mod tests {
             constant_values: Default::default(),
             implicit_members: Default::default(),
             getter_accesses: Default::default(),
+            equality_operators: Default::default(),
             types: vec![],
             expr_types: Default::default(),
             extension_calls: std::collections::BTreeMap::from([(

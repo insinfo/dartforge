@@ -13,32 +13,35 @@ assert_eq!(saida, "7\n");
 
 Pela CLI: `dartforge run <entrada.dart> [--timings]`.
 
-## Requisito de build: `LLVM_SYS_221_PREFIX`
+## Requisito de build e de execução
 
-O crate liga `llvm-sys` 221.1.0, que localiza o LLVM 22.1.x pelo `llvm-config` da
-**distribuição completa** (a que traz `bin/llvm-config.exe`, `include/llvm-c/**`
-e as bibliotecas). O instalador reduzido de Windows, com apenas `LLVM-C.dll` e
-`LLVM-C.lib`, não serve.
+O crate usa `llvm-sys` 221.1.0 para as assinaturas da API C. Ele localiza o LLVM
+22.1.x pelo `llvm-config` da **distribuição completa** (a que traz
+`bin/llvm-config.exe`, `include/llvm-c/**` e as bibliotecas). O instalador
+reduzido de Windows, com apenas `LLVM-C.dll` e `LLVM-C.lib`, não serve.
 
-```pwsh
-$env:LLVM_SYS_221_PREFIX = 'D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc'
-cargo build --workspace
-```
+`.cargo/config.toml` na raiz já define `LLVM_SYS_221_PREFIX`, então qualquer
+`cargo` dentro do repositório enxerga a variável. Uma definição no ambiente do
+shell tem precedência. `DARTFORGE_LLVM_DIR` também é aceita pelo `build.rs`
+deste crate, mas o `build.rs` do `llvm-sys` só conhece `LLVM_SYS_221_PREFIX`;
+mantenha as duas iguais. Sem um prefixo válido a build do workspace inteiro
+falha, porque este crate é membro de `crates/*`.
 
-Sem a variável (e sem `llvm-config` compatível no `PATH`) a build do workspace
-inteiro falha, porque este crate é membro de `crates/*`. `DARTFORGE_LLVM_DIR`
-continua sendo o nome preferido do projeto para apontar um prefixo LLVM, mas quem
-procura o `llvm-config` é o `build.rs` do `llvm-sys`, que só conhece
-`LLVM_SYS_221_PREFIX`; defina as duas com o mesmo valor.
+A ligação é **dinâmica**, contra `LLVM-C.dll` (`no-llvm-linking` +
+`build.rs` próprio). As bibliotecas estáticas do pacote oficial de Windows usam
+CRT estática e conflitam com a CRT dinâmica do Rust — o efeito medido é um
+`STATUS_ACCESS_VIOLATION` ao liberar uma mensagem de erro do LLVM. O `build.rs` e
+[docs/JIT.md](../../docs/JIT.md) trazem a evidência.
 
-Com a ligação estática padrão não é preciso ter `LLVM-C.dll` no `PATH` para rodar
-os testes. Em modo dinâmico (`--features llvm-sys/force-dynamic`, ou distribuição
-sem bibliotecas estáticas), é.
+Consequência: **`LLVM-C.dll` precisa estar alcançável pelo carregador** para
+executar. `scripts/env.ps1` acrescenta `<prefixo>/bin` ao `PATH`. Os testes que
+abrem uma `LLJIT` são `#[ignore]` com esse motivo; rode-os com
+`cargo test -p dartforge-jit -- --include-ignored`.
 
 ## Fronteira `unsafe`
 
 Todo o `unsafe` do crate está em `src/ffi.rs`, único arquivo com
-`#[allow(unsafe_code)]`; `src/lib.rs` e `src/runtime.rs` permanecem sob
+`#![allow(unsafe_code)]`; `src/lib.rs` e `src/runtime.rs` permanecem sob
 `unsafe_code = "deny"` do workspace, de modo que qualquer `unsafe` novo fora da
 fronteira é erro de compilação. Cada bloco documenta a invariante que preserva.
 

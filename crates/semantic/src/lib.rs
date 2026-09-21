@@ -9,6 +9,7 @@ use dartforge_syntax::{
 };
 mod asynchronous;
 mod cascades;
+mod colecoes;
 mod collections;
 mod constants;
 mod constructors;
@@ -151,6 +152,68 @@ fn signature_of<'a>(function: &dartforge_syntax::Function<'a>) -> Signature<'a> 
         result: function.return_type,
     }
 }
+/// Descobre, numa varredura só, se o programa declara setter e `operator ==`.
+///
+/// Os dois resultados são `bool` porque o validador é copiado a cada
+/// ramificação de fluxo. Falsos — o caso do programa comum — desligam de
+/// imediato a busca de setters e a marcação de igualdade, deixando o caminho
+/// quente idêntico ao anterior a este trabalho.
+fn declared_accessors(program: &Program<'_>) -> (bool, bool) {
+    let mut setters = false;
+    let mut equals = false;
+    for class in &program.classes {
+        for method in class.methods.iter().chain(&class.abstract_methods) {
+            setters |= method.is_setter();
+            equals |= method.is_equals_operator();
+        }
+    }
+    (setters, equals)
+}
+/// Exige as assinaturas fixas de `toString`, `hashCode` e `operator ==`.
+///
+/// São os três membros do protocolo `Object` que o subconjunto implementa.
+/// Cada um tem uma única forma válida em Dart e declarar outra é erro, não
+/// sobrecarga: `Object` não tem nenhuma. Qualquer outro nome passa intacto.
+///
+/// # Erros
+/// Devolve o diagnóstico no intervalo da declaração escrita.
+fn check_object_protocol(method: &dartforge_syntax::Function<'_>) -> Result<(), Diagnostic> {
+    match method.name {
+        "toString" => {
+            if method.is_getter
+                || !method.parameters.is_empty()
+                || method.return_type != Type::String
+            {
+                return Err(Diagnostic::new(
+                    "toString must be declared as 'String toString()'",
+                    method.span,
+                ));
+            }
+        }
+        "hashCode" => {
+            if !method.is_property_getter() || method.return_type != Type::Int {
+                return Err(Diagnostic::new(
+                    "hashCode must be declared as 'int get hashCode'",
+                    method.span,
+                ));
+            }
+        }
+        dartforge_syntax::EQUALS_OPERATOR => {
+            if method.return_type != Type::Bool
+                || method.parameters.len() != 1
+                || method.parameters[0].kind != ParameterKind::RequiredPositional
+                || method.parameters[0].ty != Type::Object
+            {
+                return Err(Diagnostic::new(
+                    "operator == must be declared as 'bool operator ==(Object other)'",
+                    method.span,
+                ));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 /// Mesma extração para a lista de um construtor generativo.
 fn constructor_parts<'a>(
     parameters: &[dartforge_syntax::ConstructorParameter<'a>],
@@ -281,6 +344,18 @@ struct ClassInfo<'a> {
     superclass: Option<u32>,
     fields: HashMap<&'a str, FieldInfo>,
     methods: HashMap<&'a str, Signature<'a>>,
+    /// Setters de instância ordenados por nome, para busca binária.
+    ///
+    /// Um `Vec` vazio não aloca, então a classe sem acessor de escrita — o
+    /// caminho comum — não paga nada por este campo, que é clonado junto do
+    /// `ClassInfo` compartilhado. Um `HashMap` por classe pagaria sempre.
+    setters: Vec<SetterInfo<'a>>,
+}
+/// Setter de instância reduzido ao que a resolução de `c.x = v` consulta.
+#[derive(Clone, PartialEq, Eq)]
+struct SetterInfo<'a> {
+    name: &'a str,
+    value: Type,
 }
 #[derive(Clone)]
 struct ExtensionInfo<'a> {
@@ -317,6 +392,19 @@ struct Validator<'a> {
     loop_depth: usize,
     /// Tabela global construída antes da análise; compartilhada, nunca por fluxo.
     classes: Rc<HashMap<u32, ClassInfo<'a>>>,
+    /// Alguma classe do programa declara `operator ==`.
+    ///
+    /// É um `bool` porque o validador é copiado a cada ramificação de fluxo e
+    /// nenhuma estrutura nova pode entrar nesse caminho. Falso — o caso de
+    /// todo programa que não declara operador — deixa `==` exatamente como
+    /// antes: `===` do JavaScript, sem runtime algum.
+    declares_equals: bool,
+    /// Alguma classe do programa declara um setter de instância.
+    ///
+    /// Também é `bool` pelo mesmo motivo, e é o que mantém
+    /// [`Validator::setter`] sem alocação nenhuma no programa comum — ela fica
+    /// no caminho de toda resolução de identificador dentro de uma classe.
+    has_setters: bool,
     /// Variáveis de topo ordenadas por nome; vazia sem declaração alguma.
     globals: Rc<Vec<StaticInfo<'a>>>,
     current_class: Option<u32>,
@@ -370,6 +458,7 @@ pub fn analyze_with_async_library(
     program: &Program<'_>,
     async_library: bool,
 ) -> Result<Resolution, Diagnostic> {
+    let accessors = declared_accessors(program);
     let mut validator = Validator {
         in_arrow: false,
         async_library,
@@ -389,6 +478,8 @@ pub fn analyze_with_async_library(
         return_type: Type::Void,
         loop_depth: 0,
         classes: Rc::new(HashMap::new()),
+        declares_equals: accessors.1,
+        has_setters: accessors.0,
         globals: Rc::new(Vec::new()),
         current_class: None,
         in_field_initializer: false,
@@ -513,6 +604,7 @@ pub fn analyze_with_async_library(
             superclass: class.superclass,
             fields: HashMap::new(),
             methods: HashMap::new(),
+            setters: Vec::new(),
         };
         for field in &class.fields {
             if field.name == class.name
@@ -542,15 +634,44 @@ pub fn analyze_with_async_library(
         }
         for method in class.methods.iter().chain(&class.abstract_methods) {
             if method.name == class.name
-                || matches!(
-                    method.name,
-                    "toString" | "hashCode" | "runtimeType" | "noSuchMethod"
-                )
+                || matches!(method.name, "runtimeType" | "noSuchMethod")
             {
                 return Err(Diagnostic::new(
                     "Member name requires unsupported Object or constructor semantics",
                     method.span,
                 ));
+            }
+            check_object_protocol(method)?;
+            // Valores de enum são objetos congelados sem cadeia de protótipo
+            // própria: acessor, operador e protocolo Object exigiriam outra
+            // forma de emissão, então a declaração é recusada, não ignorada.
+            if !class.enum_values.is_empty()
+                && (method.is_setter()
+                    || method.is_equals_operator()
+                    || matches!(method.name, "toString" | "hashCode"))
+            {
+                return Err(Diagnostic::new(
+                    "Enums cannot declare setters, operator ==, toString or hashCode in this subset",
+                    method.span,
+                ));
+            }
+            if method.is_setter() {
+                if info.fields.contains_key(method.name)
+                    || info
+                        .setters
+                        .iter()
+                        .any(|existing| existing.name == method.name)
+                {
+                    return Err(Diagnostic::new(
+                        "Duplicate setter or conflicting field",
+                        method.span,
+                    ));
+                }
+                info.setters.push(SetterInfo {
+                    name: method.name,
+                    value: method.parameters[0].ty,
+                });
+                continue;
             }
             if info.fields.contains_key(method.name)
                 || info
@@ -559,6 +680,34 @@ pub fn analyze_with_async_library(
                     .is_some()
             {
                 return Err(Diagnostic::new("Duplicate class member", method.span));
+            }
+        }
+        // Um setter só pode acompanhar um getter de mesmo nome; um método
+        // comum homônimo seria dois membros distintos com o mesmo nome.
+        info.setters.sort_unstable_by_key(|setter| setter.name);
+        for setter in &info.setters {
+            let declared = class
+                .methods
+                .iter()
+                .chain(&class.abstract_methods)
+                .find(|m| m.is_setter() && m.name == setter.name)
+                .expect("setter registrado veio da declaração");
+            match info.methods.get(setter.name) {
+                None => {}
+                Some(getter) if getter.is_getter => {
+                    if getter.result != setter.value {
+                        return Err(Diagnostic::new(
+                            "A getter and its setter must declare the same type",
+                            declared.span,
+                        ));
+                    }
+                }
+                Some(_) => {
+                    return Err(Diagnostic::new(
+                        "Duplicate class member: a setter cannot share a method name",
+                        declared.span,
+                    ));
+                }
             }
         }
         for factory in &class.factories {
@@ -1251,6 +1400,30 @@ impl<'a> Validator<'a> {
                 ));
             }
         }
+        self.validate_setter_contracts(id, span)
+    }
+    /// Exige contravariância do parâmetro em cada setter sobrescrito.
+    ///
+    /// É a mesma regra que [`Validator::compatible_parameters`] aplica aos
+    /// métodos: o valor aceito pela base precisa continuar sendo aceito pela
+    /// derivada. Um setter também não pode substituir um campo ou um getter
+    /// herdado de tipo diferente, o que a comparação abaixo cobre.
+    fn validate_setter_contracts(&self, id: u32, span: Span) -> Result<(), Diagnostic> {
+        // Sem setter no programa não há contrato a conferir, e a varredura de
+        // ancestrais — que aloca — nem chega a começar.
+        if !self.has_setters {
+            return Ok(());
+        }
+        let mut ancestors = self.ancestors(id).into_iter().collect::<Vec<_>>();
+        ancestors.sort_unstable();
+        for ancestor in ancestors {
+            for inherited in &self.classes[&ancestor].setters {
+                let selected = self
+                    .setter(id, inherited.name)
+                    .expect("setter herdado permanece visível");
+                self.require_type(inherited.value, selected.value, span)?;
+            }
+        }
         Ok(())
     }
     /// Valida assinatura abstrata sem exigir corpo ou retorno executável.
@@ -1406,9 +1579,11 @@ impl<'a> Validator<'a> {
             || self
                 .current_extension
                 .is_some_and(|index| self.extensions[index].methods.contains_key(name))
-            || self
-                .current_class
-                .is_some_and(|id| self.field(id, name).is_some() || self.method(id, name).is_some())
+            || self.current_class.is_some_and(|id| {
+                self.field(id, name).is_some()
+                    || self.method(id, name).is_some()
+                    || self.setter(id, name).is_some()
+            })
     }
     /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
     fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
@@ -1429,11 +1604,16 @@ impl<'a> Validator<'a> {
         self.validate_bounds()?;
         self.switch_depth = 0;
         self.inferred_returns = None;
-        if function.is_getter && !function.parameters.is_empty() {
+        // Um acessor com exatamente um parâmetro é o setter `set x(T v)`; a
+        // forma está documentada em `Function::is_getter`.
+        if function.is_getter && !function.parameters.is_empty() && !function.is_setter() {
             return Err(Diagnostic::new(
                 "Getters cannot have parameters",
                 function.span,
             ));
+        }
+        if function.is_setter() && function.return_type != Type::Void {
+            return Err(Diagnostic::new("Setters must return void", function.span));
         }
         if (self.current_class.is_some() || self.current_extension.is_some())
             && !function.type_parameters.is_empty()
@@ -1559,6 +1739,52 @@ impl<'a> Validator<'a> {
             .copied()
             .or_else(|| class.superclass.and_then(|base| self.field(base, name)))
     }
+    /// Procura o setter declarado na classe, nas bases e nas interfaces.
+    ///
+    /// A lista de cada classe é ordenada, então a consulta é uma busca binária
+    /// sobre um `Vec`; classes sem setter algum têm a lista vazia e saem do
+    /// laço sem tocar memória nenhuma.
+    fn setter(&self, id: u32, name: &str) -> Option<&SetterInfo<'a>> {
+        // Programa sem setter algum sai antes de tocar memória: esta consulta
+        // fica no caminho de toda resolução de identificador dentro de classe.
+        if !self.has_setters {
+            return None;
+        }
+        let class = self.classes.get(&id)?;
+        if let Ok(index) = class.setters.binary_search_by(|entry| entry.name.cmp(name)) {
+            return Some(&class.setters[index]);
+        }
+        // A recursão termina porque `validate_class_graph` já rejeitou ciclos;
+        // sem pilha nem conjunto de visitados, a busca não aloca nada.
+        class
+            .interfaces
+            .iter()
+            .find_map(|base| self.setter(*base, name))
+            .or_else(|| class.superclass.and_then(|base| self.setter(base, name)))
+    }
+    /// Resolve a escrita `receptor.nome = valor` para campo ou setter.
+    ///
+    /// # Erros
+    /// Distingue os três casos que o Dart trata de formas diferentes: nome
+    /// inexistente, campo `final` e propriedade que só tem getter.
+    fn assignable_member(&self, id: u32, name: &str, span: Span) -> Result<Type, Diagnostic> {
+        if let Some(field) = self.field(id, name) {
+            if field.is_final {
+                return Err(Diagnostic::new("Cannot assign to final field", span));
+            }
+            return Ok(field.ty);
+        }
+        if let Some(setter) = self.setter(id, name) {
+            return Ok(setter.value);
+        }
+        if self.method(id, name).is_some_and(|member| member.is_getter) {
+            return Err(Diagnostic::new(
+                format!("Cannot assign to '{name}': the property declares a getter and no setter"),
+                span,
+            ));
+        }
+        Err(Diagnostic::new("Unknown field", span))
+    }
     /// Procura assinatura nominal sem revisitar caminhos compartilhados de interfaces.
     fn method(&self, id: u32, name: &str) -> Option<&Signature<'a>> {
         let mut stack = vec![id];
@@ -1668,33 +1894,123 @@ impl<'a> Validator<'a> {
     }
     /// Rejeita interpolar valores sem `toString` representável no subconjunto.
     ///
-    /// O conjunto é o mesmo de `print`: int, String, bool, Null e as coleções e
-    /// records cujos elementos também são representáveis. Instâncias de classe,
-    /// enums, funções, Future, Duration e Timer ficam de fora porque o
-    /// subconjunto ainda não tem o protocolo `toString` do Dart — emitir
-    /// qualquer coisa para eles produziria texto diferente do Dart 3.6.2.
+    /// O conjunto é o mesmo de `print`: escalares, coleções e records cujos
+    /// elementos também sejam representáveis, e instâncias cuja classe — ou um
+    /// ancestral — declare `String toString()`. Enums, funções, Future,
+    /// Duration, Timer e instâncias sem `toString` declarado ficam de fora;
+    /// esta última recusa é deliberada e está registrada em `docs/OBJETO.md`.
     fn interpolable(&self, expression: &Expr<'a>) -> Result<(), Diagnostic> {
         let ty = self.value(expression)?;
         if self.printable_type(ty) {
-            Ok(())
-        } else {
-            Err(Diagnostic::new(
+            return Ok(());
+        }
+        Err(self.missing_to_string(ty, expression.span).unwrap_or_else(|| {
+            Diagnostic::new(
                 "String interpolation requires unsupported toString semantics for this value",
                 expression.span,
-            ))
+            )
+        }))
+    }
+    /// Marca as comparações `==`/`!=` que precisam despachar `operator ==`.
+    ///
+    /// Programas sem operador declarado saem na primeira linha e mantêm a
+    /// emissão de hoje: `===` do JavaScript, sem runtime nenhum. Mesmo com um
+    /// operador declarado, só os operandos capazes de guardar uma instância
+    /// entram: `1 == 2` continua sendo comparação direta.
+    fn record_equality(&self, left: Type, right: Type, span: Span) {
+        if !self.declares_equals {
+            return;
+        }
+        if self.may_hold_instance(left) || self.may_hold_instance(right) {
+            self.resolution
+                .borrow_mut()
+                .equality_operators
+                .insert((span.start, span.end));
         }
     }
-    /// Rejeita impressão de objetos até existir o protocolo Dart de toString.
+    /// Indica se o tipo estático pode guardar uma instância de classe.
+    ///
+    /// É deliberadamente conservador: uma variável declarada como a base pode
+    /// conter a derivada que declara o operador, e `Object` pode conter
+    /// qualquer instância. Errar para o lado do despacho preserva a semântica;
+    /// errar para o lado de `===` produziria resposta errada em silêncio.
+    fn may_hold_instance(&self, ty: Type) -> bool {
+        match ty {
+            Type::Class(_) | Type::NullableClass(_) | Type::Object | Type::NullableObject => true,
+            Type::Parameter(_) | Type::NullableParameter(_) => {
+                self.may_hold_instance(self.upper_bound(ty))
+            }
+            Type::Applied(_) => {
+                matches!(self.shape(ty), Some(TypeShape::Nullable(inner)) if self.may_hold_instance(inner))
+            }
+            _ => false,
+        }
+    }
+    /// Valida `identical(a, b)`, que compara referências e nunca chama `==`.
+    ///
+    /// # Erros
+    /// Recusa aridade diferente de dois, argumentos rotulados e operandos
+    /// escalares, cuja identidade depende do apagamento para Number do alvo.
+    fn identical_call(&self, arguments: &[Expr<'a>], span: Span) -> Result<Type, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::new("identical expects two arguments", span));
+        }
+        for argument in arguments {
+            if matches!(argument.kind, ExprKind::NamedArgument { .. }) {
+                return Err(Diagnostic::new(
+                    "identical takes no named arguments",
+                    argument.span,
+                ));
+            }
+            let ty = self.upper_bound(self.value(argument)?);
+            // `double` e `num` são o único caso em que o apagamento para
+            // Number destrói a identidade que o Dart preserva:
+            // `identical(1, 1.0)` é falso no oráculo e `1 === 1.0` é
+            // verdadeiro no JavaScript, e `0.0` e `-0.0` são distintos lá e
+            // iguais por `===` aqui. Os demais tipos comparam por referência.
+            if matches!(
+                ty,
+                Type::Double | Type::NullableDouble | Type::Num | Type::NullableNum
+            ) {
+                return Err(Diagnostic::new(
+                    "identical on double or num operands is unsupported: the JavaScript Number erasure cannot distinguish the identities Dart distinguishes",
+                    argument.span,
+                ));
+            }
+        }
+        Ok(Type::Bool)
+    }
+    /// Nomeia a classe cujo `toString` ausente impede imprimir ou interpolar.
+    ///
+    /// O subconjunto não emite o `Instance of 'Nome'` do Dart: a decisão está
+    /// registrada em `docs/OBJETO.md` e o diagnóstico precisa dizer qual
+    /// declaração falta, não apenas que o valor não é representável.
+    fn missing_to_string(&self, ty: Type, span: Span) -> Option<Diagnostic> {
+        let id = match self.upper_bound(ty) {
+            Type::Class(id) | Type::NullableClass(id) => id,
+            _ => return None,
+        };
+        Some(Diagnostic::new(
+            format!(
+                "Class '{}' declares no 'String toString()'; this subset does not emit \"Instance of '{}'\"",
+                self.classes.get(&id)?.name,
+                self.classes.get(&id)?.name
+            ),
+            span,
+        ))
+    }
+    /// Exige o mesmo conjunto representável de [`Validator::interpolable`].
     fn printable(&self, expression: &Expr<'a>) -> Result<(), Diagnostic> {
         let ty = self.value(expression)?;
         if self.printable_type(ty) {
-            Ok(())
-        } else {
-            Err(Diagnostic::new(
+            return Ok(());
+        }
+        Err(self.missing_to_string(ty, expression.span).unwrap_or_else(|| {
+            Diagnostic::new(
                 "Printing objects or function values requires unsupported toString semantics",
                 expression.span,
-            ))
-        }
+            )
+        }))
     }
 
     /// Recusa ler `this` antes de a superclasse concluir sua inicialização.
@@ -1862,18 +2178,10 @@ impl<'a> Validator<'a> {
                 value,
             } => {
                 let id = self.receiver_class(receiver)?;
-                let field = self
-                    .field(id, name)
-                    .ok_or_else(|| Diagnostic::new("Unknown field", statement.span))?;
-                if field.is_final {
-                    return Err(Diagnostic::new(
-                        "Cannot assign to final field",
-                        statement.span,
-                    ));
-                }
+                let expected = self.assignable_member(id, name, statement.span)?;
                 self.require_type(
-                    self.value_expected(value, Some(field.ty))?,
-                    field.ty,
+                    self.value_expected(value, Some(expected))?,
+                    expected,
                     value.span,
                 )
             }
@@ -1881,18 +2189,13 @@ impl<'a> Validator<'a> {
                 self.reject_factory_instance(name, statement.span)?;
                 if self.lookup(name).is_none()
                     && let Some(id) = self.current_class
-                    && let Some(field) = self.field(id, name)
+                    && (self.field(id, name).is_some() || self.setter(id, name).is_some())
                 {
-                    if field.is_final {
-                        return Err(Diagnostic::new(
-                            "Cannot assign to final field",
-                            statement.span,
-                        ));
-                    }
+                    let expected = self.assignable_member(id, name, statement.span)?;
                     self.implicit(statement.span);
                     return self.require_type(
-                        self.value_expected(value, Some(field.ty))?,
-                        field.ty,
+                        self.value_expected(value, Some(expected))?,
+                        expected,
                         value.span,
                     );
                 }
@@ -2508,6 +2811,19 @@ impl<'a> Validator<'a> {
                 "A named argument is valid only in an argument list",
                 expression.span,
             )),
+            // As formas abaixo só existem como elemento de literal de coleção.
+            // `expression_expected` desvia Set, NullShort e NullShortTarget
+            // antes daqui; chegar aqui significa uso fora de um literal.
+            ExprKind::Spread { .. }
+            | ExprKind::CollectionIf { .. }
+            | ExprKind::CollectionFor { .. }
+            | ExprKind::MapEntry { .. }
+            | ExprKind::Set { .. }
+            | ExprKind::NullShort { .. }
+            | ExprKind::NullShortTarget => Err(Diagnostic::new(
+                "This element form is valid only inside a collection literal",
+                expression.span,
+            )),
             ExprKind::TypeTest { operand, ty, .. } => {
                 self.value(operand)?;
                 self.runtime_type(*ty, expression.span)?;
@@ -2749,6 +3065,14 @@ impl<'a> Validator<'a> {
                     return Ok(method.result);
                 }
                 self.field(id, name).map(|field| field.ty).ok_or_else(|| {
+                    if self.setter(id, name).is_some() {
+                        return Diagnostic::new(
+                            format!(
+                                "Cannot read '{name}': the property declares a setter and no getter"
+                            ),
+                            expression.span,
+                        );
+                    }
                     Diagnostic::new(
                         "Unknown field or unsupported method tear-off",
                         expression.span,
@@ -2958,6 +3282,21 @@ impl<'a> Validator<'a> {
                 {
                     return self.async_builtin(name, arguments, expression.span);
                 }
+                // `identical` é identidade de referência e nunca consulta o
+                // `operator ==` declarado; um nome local ou membro homônimo
+                // tem precedência, como em `print`.
+                if *name == "identical" && !self.functions.contains_key(name) {
+                    // Como em `print`, sombrear o intrínseco por um local ou
+                    // membro é recusado em vez de resolvido: o emissor decide
+                    // pelo nome e não teria como distinguir os dois.
+                    if self.lookup(name).is_some() || self.has_implicit_member(name) {
+                        return Err(Diagnostic::new(
+                            "Invocation of local 'identical' is unsupported; it shadows the built-in function",
+                            expression.span,
+                        ));
+                    }
+                    return self.identical_call(arguments, expression.span);
+                }
                 if self.lookup(name).is_some() {
                     let ty = self
                         .initialized(name, expression.span)?
@@ -3058,10 +3397,22 @@ impl<'a> Validator<'a> {
                         Ok(self.without_null(ty))
                     };
                 }
+                if *op == UnaryOp::BitNot {
+                    // `~` só existe sobre int em Dart; double e num não têm o
+                    // operador, e um operando anulável exige `!` antes.
+                    let actual = self.value(operand)?;
+                    if self.upper_bound(actual) != Type::Int {
+                        return Err(Diagnostic::new(
+                            format!("Type mismatch: expected Int, found {actual:?}"),
+                            operand.span,
+                        ));
+                    }
+                    return Ok(Type::Int);
+                }
                 let expected = match op {
                     UnaryOp::Negate => None,
                     UnaryOp::Not => Some(Type::Bool),
-                    UnaryOp::NullAssert => unreachable!(),
+                    UnaryOp::NullAssert | UnaryOp::BitNot => unreachable!(),
                 };
                 // Negação preserva o tipo numérico (oráculo Dart 3.6.2):
                 // `-1` é int, `-1.5` é double e `-n` (num) é num.
@@ -3116,7 +3467,10 @@ impl<'a> Validator<'a> {
                             ))
                         }
                     }
-                    BinaryOp::Equal | BinaryOp::NotEqual => Ok(Type::Bool),
+                    BinaryOp::Equal | BinaryOp::NotEqual => {
+                        self.record_equality(lhs, rhs, expression.span);
+                        Ok(Type::Bool)
+                    }
                     BinaryOp::Add => {
                         let lhs = self.upper_bound(lhs);
                         let rhs = self.upper_bound(rhs);
@@ -3214,6 +3568,29 @@ impl<'a> Validator<'a> {
                         self.require_type(lhs, Type::Bool, left.span)?;
                         self.require_type(rhs, Type::Bool, right.span)?;
                         Ok(Type::Bool)
+                    }
+                    // Bit a bit e deslocamentos existem apenas sobre int em
+                    // Dart: `double` e `num` não declaram esses operadores, e
+                    // um operando anulável precisa de `!` ou `??` antes.
+                    BinaryOp::BitAnd
+                    | BinaryOp::BitOr
+                    | BinaryOp::BitXor
+                    | BinaryOp::ShiftLeft
+                    | BinaryOp::ShiftRight
+                    | BinaryOp::ShiftRightUnsigned => {
+                        if self.upper_bound(lhs) != Type::Int {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {lhs:?}"),
+                                left.span,
+                            ));
+                        }
+                        if self.upper_bound(rhs) != Type::Int {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {rhs:?}"),
+                                right.span,
+                            ));
+                        }
+                        Ok(Type::Int)
                     }
                 }
             }

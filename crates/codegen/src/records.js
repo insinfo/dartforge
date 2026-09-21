@@ -17,8 +17,14 @@ function $dartforgeRecord(fields) {
   $dartforgeTyped(value, ['record', positional.map($dartforgeTypeOf), named.map(([name, field]) => [name, $dartforgeTypeOf(field)])]);
   return Object.freeze(value);
 }
+// Também é o despacho de `operator ==`: com `left` nulo, Dart nunca chama o
+// operador e só `null` é igual; com `left` não nulo, quem decide é a
+// implementação do lado esquerdo, mesmo quando `right` é null. Sem operador
+// declarado nada muda, porque a propriedade simplesmente não existe.
 function $dartforgeEqual(left, right) {
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return left === right;
+  if (left === null) return right === null;
+  if (typeof left === 'object' && typeof left.$df$eq === 'function') return left.$df$eq(right);
+  if (right === null || typeof left !== 'object' || typeof right !== 'object') return left === right;
   if ($dartforgeTypeTags.get(left)?.[0] === 'duration' && $dartforgeTypeTags.get(right)?.[0] === 'duration') return left.microseconds === right.microseconds;
   const a = $dartforgeRecordData.get(left), b = $dartforgeRecordData.get(right);
   if (!a || !b) return left === right;

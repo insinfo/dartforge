@@ -176,6 +176,20 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
                 "membros estáticos (lowering nativo pendente)",
             ));
         }
+        // O layout nativo indexa métodos por nome; um par getter/setter e o
+        // despacho de `operator ==` exigem entradas distintas que a tabela
+        // ainda não tem. Recusar é a única resposta honesta enquanto isso.
+        if let Some(method) = class
+            .methods
+            .iter()
+            .chain(&class.abstract_methods)
+            .find(|method| method.is_setter() || method.is_equals_operator())
+        {
+            return Err(error(
+                method.span,
+                "setters de instância e operator == (lowering nativo pendente)",
+            ));
+        }
     }
     if module
         .resolution
@@ -513,6 +527,22 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
             return Err(error(value.span, "mapas e fábricas nomeadas"));
         }
+        // Literais de conjunto, espalhamentos, elementos `if`/`for` e o
+        // encurtamento null-aware só têm lowering no backend JavaScript.
+        ExprKind::Set { .. }
+        | ExprKind::Spread { .. }
+        | ExprKind::MapEntry { .. }
+        | ExprKind::CollectionIf { .. }
+        | ExprKind::CollectionFor { .. } => {
+            return Err(error(
+                value.span,
+                "conjuntos e elementos `...`/`if`/`for` de coleção",
+            ));
+        }
+        ExprKind::NullShort { .. } | ExprKind::NullShortTarget => {
+            return Err(error(value.span, "o acesso null-aware `?.`"));
+        }
+
         ExprKind::Record { .. } => return Err(error(value.span, "records")),
         ExprKind::Conditional { .. } => {
             return Err(error(value.span, "o operador condicional"));
@@ -579,8 +609,29 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
                 validate_expression(argument)?;
             }
         }
+        ExprKind::Unary {
+            op: UnaryOp::BitNot,
+            ..
+        } => return Err(error(value.span, "o complemento de bits `~`")),
         ExprKind::Unary { operand, .. } => {
             validate_expression(operand)?;
+        }
+        ExprKind::Binary {
+            op:
+                BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::ShiftLeft
+                | BinaryOp::ShiftRight
+                | BinaryOp::ShiftRightUnsigned,
+            ..
+        } => {
+            // A semântica de 32 bits do alvo web não corresponde ao int64
+            // nativo; emitir aqui daria resultados diferentes do JavaScript.
+            return Err(error(
+                value.span,
+                "operadores de bits e deslocamento (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)",
+            ));
         }
         ExprKind::Binary {
             op: BinaryOp::Remainder,
@@ -1281,6 +1332,19 @@ impl<'a> FunctionEmitter<'a> {
             ExprKind::NamedArgument { .. } => {
                 return Err(error(expression.span, "argumentos nomeados"));
             }
+            ExprKind::Set { .. }
+            | ExprKind::Spread { .. }
+            | ExprKind::MapEntry { .. }
+            | ExprKind::CollectionIf { .. }
+            | ExprKind::CollectionFor { .. } => {
+                return Err(error(
+                    expression.span,
+                    "conjuntos e elementos `...`/`if`/`for` de coleção",
+                ));
+            }
+            ExprKind::NullShort { .. } | ExprKind::NullShortTarget => {
+                return Err(error(expression.span, "o acesso null-aware `?.`"));
+            }
             ExprKind::Cascade { .. } | ExprKind::CascadeReceiver => {
                 return Err(error(
                     expression.span,
@@ -1405,6 +1469,20 @@ impl<'a> FunctionEmitter<'a> {
                         ty: Ty::Void,
                         text: String::new(),
                     }
+                // `identical` é intrínseco de identidade; o parser deixou de
+                // reescrevê-lo em `==` para que o operador declarado pelo
+                // usuário nunca seja consultado por ele.
+                } else if *name == "identical" && !self.signatures.contains_key("identical") {
+                    if values.len() != 2 {
+                        return Err(Diagnostic::new(
+                            "identical exige dois argumentos",
+                            expression.span,
+                        ));
+                    }
+                    let mut items = values.into_iter();
+                    let left = items.next().expect("aridade validada acima");
+                    let right = items.next().expect("aridade validada acima");
+                    return self.equal_values(left, right, expression.span);
                 } else {
                     let signature = self.signatures.get(*name).ok_or_else(|| {
                         Diagnostic::new("função não resolvida na HIR LLVM", expression.span)

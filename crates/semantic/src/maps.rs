@@ -20,7 +20,7 @@ impl<'a> Validator<'a> {
         &self,
         key_type: Option<Type>,
         value_type: Option<Type>,
-        entries: &[(Expr<'a>, Expr<'a>)],
+        entries: &[(Expr<'a>, Option<Expr<'a>>)],
         expected: Option<Type>,
         span: Span,
     ) -> Result<Type, Diagnostic> {
@@ -44,13 +44,20 @@ impl<'a> Validator<'a> {
         }
         let mut inferred = None;
         for (k, v) in entries {
-            self.require_type(self.collection_element(k, Some(key))?, key, k.span)?;
-            let actual = self.collection_element(v, fixed)?;
+            // `None` é elemento de controle (`...`, `if`, `for`): contribui o
+            // par inteiro, não só o valor. A ordem escrita é preservada.
+            let (actual, span) = match v {
+                Some(v) => {
+                    self.require_type(self.collection_element(k, Some(key))?, key, k.span)?;
+                    (self.collection_element(v, fixed)?, v.span)
+                }
+                None => (self.map_element(k, key, fixed)?.1, k.span),
+            };
             if let Some(expected) = fixed {
-                self.require_type(actual, expected, v.span)?;
+                self.require_type(actual, expected, span)?;
             } else {
                 inferred = Some(if let Some(previous) = inferred {
-                    self.common(previous, actual, v.span)?
+                    self.common(previous, actual, span)?
                 } else {
                     actual
                 });

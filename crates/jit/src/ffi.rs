@@ -371,19 +371,7 @@ impl Lljit {
             None => Ok(address),
         }
     }
-}
 
-impl Drop for Lljit {
-    /// Encerra a sessão do LLVM, descarregando todo o código ainda residente.
-    fn drop(&mut self) {
-        // SAFETY: todos os trackers desta sessão já foram liberados, porque
-        // `crate::JitSession` declara o vetor de módulos antes deste campo e os
-        // campos são destruídos na ordem de declaração.
-        let _ = take_error(unsafe { LLVMOrcDisposeLLJIT(self.handle) });
-    }
-}
-
-impl Lljit {
     /// Resolve e executa a entrada do módulo, medindo as duas fases.
     ///
     /// A assinatura é segura de propósito: o nome do símbolo **não** vem do
@@ -417,6 +405,16 @@ impl Lljit {
             entry();
         }
         Ok((lookup, phase.elapsed()))
+    }
+}
+
+impl Drop for Lljit {
+    /// Encerra a sessão do LLVM, descarregando todo o código ainda residente.
+    fn drop(&mut self) {
+        // SAFETY: todos os trackers desta sessão já foram liberados, porque
+        // `crate::JitSession` declara o vetor de módulos antes deste campo e os
+        // campos são destruídos na ordem de declaração.
+        let _ = take_error(unsafe { LLVMOrcDisposeLLJIT(self.handle) });
     }
 }
 
@@ -454,20 +452,41 @@ fn runtime_symbol_addresses() -> Vec<(&'static CStr, usize)> {
         (c"dartforge_print_i64", print_i64 as *const () as usize),
         (c"dartforge_print_bool", print_bool as *const () as usize),
         (c"dartforge_print_null", print_null as *const () as usize),
-        (c"dartforge_print_string", print_string as *const () as usize),
-        (c"dartforge_null_assert_fail", null_assert_fail as *const () as usize),
-        (c"dartforge_gc_push_frame", gc_push_frame as *const () as usize),
+        (
+            c"dartforge_print_string",
+            print_string as *const () as usize,
+        ),
+        (
+            c"dartforge_null_assert_fail",
+            null_assert_fail as *const () as usize,
+        ),
+        (
+            c"dartforge_gc_push_frame",
+            gc_push_frame as *const () as usize,
+        ),
         (c"dartforge_gc_set_root", gc_set_root as *const () as usize),
         (c"dartforge_gc_root", gc_root as *const () as usize),
-        (c"dartforge_gc_pop_frame", gc_pop_frame as *const () as usize),
+        (
+            c"dartforge_gc_pop_frame",
+            gc_pop_frame as *const () as usize,
+        ),
         (c"dartforge_gc_collect", gc_collect as *const () as usize),
         (c"dartforge_object_new", object_new as *const () as usize),
         (c"dartforge_object_get", object_get as *const () as usize),
         (c"dartforge_object_set", object_set as *const () as usize),
-        (c"dartforge_object_class", object_class as *const () as usize),
+        (
+            c"dartforge_object_class",
+            object_class as *const () as usize,
+        ),
         (c"dartforge_string_new", string_new as *const () as usize),
-        (c"dartforge_string_concat", string_concat as *const () as usize),
-        (c"dartforge_string_equal", string_equal as *const () as usize),
+        (
+            c"dartforge_string_concat",
+            string_concat as *const () as usize,
+        ),
+        (
+            c"dartforge_string_equal",
+            string_equal as *const () as usize,
+        ),
         (c"dartforge_enum_get", enum_get as *const () as usize),
     ]
 }

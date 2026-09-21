@@ -709,13 +709,15 @@ impl<'a> Cursor<'_, 'a> {
                 self.expect(TokenKind::Operator(">"))?;
                 self.intern(TypeShape::Map { key, value })
             }
-            Some(TokenKind::Word("List" | "Iterable" | "Future")) => {
+            Some(TokenKind::Word("List" | "Set" | "Iterable" | "Future")) => {
                 self.index += 1;
                 self.expect(TokenKind::Operator("<"))?;
                 let element = self.type_at(word == Some(TokenKind::Word("Future")), depth + 1)?;
                 self.expect(TokenKind::Operator(">"))?;
                 self.intern(if word == Some(TokenKind::Word("List")) {
                     TypeShape::List(element)
+                } else if word == Some(TokenKind::Word("Set")) {
+                    TypeShape::Set(element)
                 } else if word == Some(TokenKind::Word("Future")) {
                     TypeShape::Future(element)
                 } else {
@@ -749,7 +751,10 @@ impl<'a> Cursor<'_, 'a> {
         };
         if !matches!(
             word,
-            Some(TokenKind::Word("List" | "Iterable" | "Map" | "Future") | TokenKind::Symbol('('))
+            Some(
+                TokenKind::Word("List" | "Set" | "Iterable" | "Map" | "Future")
+                    | TokenKind::Symbol('(')
+            )
         ) {
             self.index += 1;
         }
@@ -858,6 +863,13 @@ impl<'a> Cursor<'_, 'a> {
     }
     /// Testa uma anotação local e restaura cursor e arena após a sondagem.
     fn starts_annotation(&mut self) -> bool {
+        // `dynamic` começa uma anotação válida em Dart. Reconhecê-lo aqui faz
+        // o diagnóstico específico de `type_at` chegar ao usuário; sem isto a
+        // sondagem falharia em silêncio e a declaração viraria uma expressão,
+        // com a mensagem genérica de expressão inválida.
+        if self.peek() == Some(TokenKind::Word("dynamic")) {
+            return true;
+        }
         let index = self.index;
         let count = self.types.len();
         let result = self.ty(false).is_ok()
@@ -3380,6 +3392,51 @@ impl<'a> Cursor<'_, 'a> {
             },
         })
     }
+    /// Reconhece o início de um seletor null-aware `?.` ou `?[`.
+    ///
+    /// A adjacência em bytes é obrigatória, como no scanner do Dart: só assim
+    /// `c ? .a : .b`, que combina o condicional com os atalhos de ponto do
+    /// Dart 3.10, continua sendo um condicional. `?..` é a cascata null-aware
+    /// e chega como um token próprio, portanto nunca cai aqui.
+    fn null_aware_selector(&self) -> Option<NullAwareSelector> {
+        let question = self.tokens.get(self.index)?;
+        if question.kind != TokenKind::Operator("?") {
+            return None;
+        }
+        let next = self.tokens.get(self.index + 1)?;
+        if next.span.start != question.span.end {
+            return None;
+        }
+        match next.kind {
+            TokenKind::Symbol('.') => Some(NullAwareSelector::Member),
+            TokenKind::Symbol('[') => Some(NullAwareSelector::Index),
+            _ => None,
+        }
+    }
+    /// Reconhece `>>` e `>>>` como `>` adjacentes e informa quantos consumir.
+    ///
+    /// O lexer não junta `>` para que `List<List<int>>` continue fechando dois
+    /// argumentos de tipo com o mesmo token esperado em toda a leitura de
+    /// tipos. A distinção fica aqui e é puramente léxica: só há deslocamento
+    /// quando os tokens são adjacentes em bytes, sem espaço nem comentário
+    /// entre eles, exatamente como no scanner do Dart.
+    fn shift_ahead(&self) -> Option<(u8, BinaryOp, usize)> {
+        let first = self.tokens.get(self.index)?;
+        if first.kind != TokenKind::Operator(">") {
+            return None;
+        }
+        let second = self.tokens.get(self.index + 1)?;
+        if second.kind != TokenKind::Operator(">") || second.span.start != first.span.end {
+            return None;
+        }
+        if let Some(third) = self.tokens.get(self.index + 2)
+            && third.kind == TokenKind::Operator(">")
+            && third.span.start == second.span.end
+        {
+            return Some((8, BinaryOp::ShiftRightUnsigned, 3));
+        }
+        Some((8, BinaryOp::ShiftRight, 2))
+    }
     /// Contabiliza um nó e rejeita expressões que excedam os limites.
     fn charge(&mut self, depth: usize) -> Result<(), Diagnostic> {
         self.expr_nodes += 1;
@@ -3461,7 +3518,7 @@ impl<'a> Cursor<'_, 'a> {
                 comparison = Some(precedence);
             }
             self.charge(depth)?;
-            self.index += 1;
+            self.index += width;
             let next_min = if op == BinaryOp::IfNull {
                 precedence
             } else {
@@ -3768,35 +3825,14 @@ impl<'a> Cursor<'_, 'a> {
                     }
                 } else if self.peek() == Some(TokenKind::Symbol('(')) {
                     let arguments = self.arguments(depth)?;
-                    if name == "identical" && !self.class_ids.contains_key(name) {
-                        // `identical` vira `==`: o subconjunto não tem NaN nem
-                        // `operator ==` customizado, e instâncias `const`
-                        // canonicalizam, então o `===` emitido para `==` é
-                        // identidade. Uma `identical` declarada pelo usuário
-                        // segue o mesmo caminho (ver gaps documentados).
-                        let positional = arguments
-                            .iter()
-                            .all(|argument| {
-                                !matches!(argument.kind, ExprKind::NamedArgument { .. })
-                            });
-                        if !positional || arguments.len() != 2 {
-                            return Err(Diagnostic::new(
-                                "identical requires two positional arguments",
-                                Span {
-                                    start,
-                                    end: self.end(),
-                                },
-                            ));
-                        }
-                        let mut items = arguments.into_iter();
-                        let left = Box::new(items.next().expect("aridade validada acima"));
-                        let right = Box::new(items.next().expect("aridade validada acima"));
-                        ExprKind::Binary {
-                            op: BinaryOp::Equal,
-                            left,
-                            right,
-                        }
-                    } else if let Some(&class_id) = self.class_ids.get(name) {
+                    // `identical` deixou de virar `==` no parse. Enquanto
+                    // `operator ==` não existia, `==` sempre emitia `===` e a
+                    // troca era exata; com o operador declarável, reescrever
+                    // `identical` em `==` passaria a chamar o operador do
+                    // usuário, que é justamente o que `identical` não faz. A
+                    // chamada segue intacta e a análise semântica a trata como
+                    // intrínseco de identidade.
+                    if let Some(&class_id) = self.class_ids.get(name) {
                         ExprKind::Construct {
                             class_id,
                             arguments,
@@ -3808,7 +3844,7 @@ impl<'a> Cursor<'_, 'a> {
                     ExprKind::Identifier(name)
                 }
             }
-            Some(TokenKind::Operator(symbol @ ("-" | "!"))) => {
+            Some(TokenKind::Operator(symbol @ ("-" | "!" | "~"))) => {
                 self.index += 1;
                 if symbol == "-"
                     && matches!(self.peek(), Some(TokenKind::Number(n)) if n.parse::<u64>() == Ok(2147483648))
@@ -3818,10 +3854,10 @@ impl<'a> Cursor<'_, 'a> {
                 } else {
                     let operand = self.primary(depth + 1)?;
                     ExprKind::Unary {
-                        op: if symbol == "-" {
-                            UnaryOp::Negate
-                        } else {
-                            UnaryOp::Not
+                        op: match symbol {
+                            "-" => UnaryOp::Negate,
+                            "~" => UnaryOp::BitNot,
+                            _ => UnaryOp::Not,
                         },
                         operand: Box::new(operand),
                     }
@@ -4003,27 +4039,7 @@ impl<'a> Cursor<'_, 'a> {
             None
         };
         if self.take(TokenKind::Symbol('{')) {
-            if element_type.is_some() && value_type.is_none() {
-                return Err(
-                    self.error("map literals require two type arguments; sets are not supported")
-                );
-            }
-            let mut entries = Vec::new();
-            while self.peek() != Some(TokenKind::Symbol('}')) {
-                let key = self.collection_element(depth + 1)?;
-                self.expect(TokenKind::Symbol(':'))?;
-                let value = self.collection_element(depth + 1)?;
-                entries.push((key, value));
-                if !self.take(TokenKind::Symbol(',')) {
-                    break;
-                }
-            }
-            self.expect(TokenKind::Symbol('}'))?;
-            return Ok(ExprKind::Map {
-                key_type: element_type,
-                value_type,
-                entries,
-            });
+            return self.brace_literal(element_type, value_type, depth);
         }
         if value_type.is_some() {
             return Err(self.error("list literals require exactly one type argument"));
@@ -4031,7 +4047,7 @@ impl<'a> Cursor<'_, 'a> {
         self.expect(TokenKind::Symbol('['))?;
         let mut elements = Vec::new();
         while self.peek() != Some(TokenKind::Symbol(']')) {
-            elements.push(self.collection_element(depth + 1)?);
+            elements.push(self.collection_element(depth + 1, false)?);
             if !self.take(TokenKind::Symbol(',')) {
                 break;
             }
@@ -4042,11 +4058,187 @@ impl<'a> Cursor<'_, 'a> {
             elements,
         })
     }
-    /// Lê um elemento de coleção, aceitando o prefixo `?` do Dart 3.8.
+    /// Distingue literal de mapa de literal de conjunto, como os SDKs 3.6.2/3.13.4.
     ///
-    /// `?valor` avalia o operando uma única vez e o omite quando resulta em null.
+    /// A decisão é sintática e nesta ordem: dois argumentos de tipo dizem mapa,
+    /// um argumento diz conjunto, `{}` sem argumentos é o mapa vazio e, no
+    /// restante, a presença de uma entrada `chave: valor` no nível de topo diz
+    /// mapa. Um literal formado só por espalhamentos não é decidível sem os
+    /// tipos estáticos dos operandos e é recusado com pedido de anotação.
+    fn brace_literal(
+        &mut self,
+        element_type: Option<Type>,
+        value_type: Option<Type>,
+        depth: usize,
+    ) -> Result<ExprKind<'a>, Diagnostic> {
+        let declared_map = value_type.is_some();
+        let declared_set = element_type.is_some() && value_type.is_none();
+        let mut entries: Vec<(Expr<'a>, Option<Expr<'a>>)> = Vec::new();
+        // Guarda apenas o veredito e um span por categoria: nada por elemento.
+        let mut decision: Option<bool> = None;
+        let mut map_span: Option<Span> = None;
+        let mut set_span: Option<Span> = None;
+        while self.peek() != Some(TokenKind::Symbol('}')) {
+            let element = self.collection_element(depth + 1, declared_map)?;
+            let control = matches!(
+                element.kind,
+                ExprKind::CollectionIf { .. } | ExprKind::CollectionFor { .. }
+            );
+            let verdict = if let ExprKind::MapEntry { key, value } = element.kind {
+                let span = key.span;
+                entries.push((*key, Some(*value)));
+                map_span.get_or_insert(span);
+                Some(true)
+            } else if !declared_map && !declared_set && self.peek() == Some(TokenKind::Symbol(':'))
+            {
+                if control {
+                    return Err(Diagnostic::new(
+                        "if and for elements in map literals require explicit <K, V> type arguments",
+                        element.span,
+                    ));
+                }
+                self.index += 1;
+                map_span.get_or_insert(element.span);
+                let value = self.collection_element(depth + 1, false)?;
+                entries.push((element, Some(value)));
+                Some(true)
+            } else {
+                let verdict = decides_map(&element);
+                if verdict == Some(true) {
+                    map_span.get_or_insert(element.span);
+                } else if verdict == Some(false) {
+                    set_span.get_or_insert(element.span);
+                }
+                entries.push((element, None));
+                verdict
+            };
+            if decision.is_none() {
+                decision = verdict;
+            }
+            if !self.take(TokenKind::Symbol(',')) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol('}'))?;
+        let is_map =
+            declared_map || (!declared_set && (decision == Some(true) || entries.is_empty()));
+        if is_map {
+            if let Some(span) = set_span {
+                return Err(Diagnostic::new(
+                    "map literals require `key: value` entries",
+                    span,
+                ));
+            }
+            return Ok(ExprKind::Map {
+                key_type: element_type,
+                value_type,
+                entries,
+            });
+        }
+        if let Some(span) = map_span {
+            return Err(Diagnostic::new(
+                "set literals do not accept `key: value` entries",
+                span,
+            ));
+        }
+        if !declared_set && decision.is_none() {
+            return Err(self.error(
+                "a literal built only from spreads needs explicit <T> or <K, V> type arguments",
+            ));
+        }
+        Ok(ExprKind::Set {
+            element_type,
+            elements: entries.into_iter().map(|(element, _)| element).collect(),
+        })
+    }
+    /// Lê um elemento de literal de coleção em todas as formas do subconjunto.
+    ///
+    /// Aceita `...`/`...?`, `if`/`if-else`, `for` clássico e `for-in`, o prefixo
+    /// `?` do Dart 3.8 e uma expressão simples. Com `map`, o elemento simples
+    /// precisa ser a entrada `chave: valor`, e os ramos de `if` e o corpo do
+    /// `for` recebem o mesmo contexto — por isso `{if (c) 'a': 1}` é uma entrada
+    /// condicional, e não uma entrada cuja chave é um `if`.
+    ///
+    /// Cada operando aparece uma única vez na árvore: nenhuma subexpressão é
+    /// duplicada aqui, nem reanalisada para decidir a forma do literal.
+    fn collection_element(&mut self, depth: usize, map: bool) -> Result<Expr<'a>, Diagnostic> {
+        let start = self.position();
+        if let Some(TokenKind::Operator(spread @ ("..." | "...?"))) = self.peek() {
+            self.charge(depth)?;
+            self.index += 1;
+            let operand = self.cascade(depth + 1)?;
+            return Ok(Expr {
+                kind: ExprKind::Spread {
+                    operand: Box::new(operand),
+                    null_aware: spread == "...?",
+                },
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+        }
+        if self.peek() == Some(TokenKind::Word("if")) {
+            self.charge(depth)?;
+            self.index += 1;
+            self.expect(TokenKind::Symbol('('))?;
+            let condition = self.expression()?;
+            self.expect(TokenKind::Symbol(')'))?;
+            let then_element = self.collection_element(depth + 1, map)?;
+            // `else` liga-se sempre ao `if` mais interno, como em Dart.
+            let else_element = if self.take(TokenKind::Word("else")) {
+                Some(Box::new(self.collection_element(depth + 1, map)?))
+            } else {
+                None
+            };
+            return Ok(Expr {
+                kind: ExprKind::CollectionIf {
+                    condition: Box::new(condition),
+                    then_element: Box::new(then_element),
+                    else_element,
+                },
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+        }
+        if self.peek() == Some(TokenKind::Word("for")) {
+            self.charge(depth)?;
+            let header = self.collection_for_header()?;
+            let element = self.collection_element(depth + 1, map)?;
+            return Ok(Expr {
+                kind: ExprKind::CollectionFor {
+                    header: Box::new(header),
+                    element: Box::new(element),
+                },
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+            });
+        }
+        let value = self.null_aware_element(depth)?;
+        if !map {
+            return Ok(value);
+        }
+        self.expect(TokenKind::Symbol(':'))?;
+        let entry = self.null_aware_element(depth)?;
+        Ok(Expr {
+            kind: ExprKind::MapEntry {
+                key: Box::new(value),
+                value: Box::new(entry),
+            },
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
+    }
+    /// Lê o prefixo `?` do Dart 3.8, que omite o elemento quando avalia para null.
+    ///
     /// O prefixo não se aninha: `??valor` é rejeitado explicitamente.
-    fn collection_element(&mut self, depth: usize) -> Result<Expr<'a>, Diagnostic> {
+    fn null_aware_element(&mut self, depth: usize) -> Result<Expr<'a>, Diagnostic> {
         let start = self.position();
         if !self.take(TokenKind::Operator("?")) {
             return self.cascade(depth);
@@ -4057,6 +4249,89 @@ impl<'a> Cursor<'_, 'a> {
         let value = self.cascade(depth)?;
         Ok(Expr {
             kind: ExprKind::NullAwareElement(Box::new(value)),
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
+    }
+    /// Lê o cabeçalho de um `for` de literal, devolvendo-o com corpo vazio.
+    ///
+    /// Reaproveita as mesmas formas das instruções `for` e `for-in`, para que a
+    /// análise e a emissão não dupliquem regras de escopo nem de iteração.
+    /// `await for` e as cláusulas separadas por vírgula ficam fora do subconjunto.
+    fn collection_for_header(&mut self) -> Result<Statement<'a>, Diagnostic> {
+        let start = self.position();
+        self.expect(TokenKind::Word("for"))?;
+        if self.peek() == Some(TokenKind::Word("await")) {
+            return Err(self.error("await for in collection literals is not supported"));
+        }
+        self.expect(TokenKind::Symbol('('))?;
+        let kind = if self.for_in_ahead() {
+            if self.peek() == Some(TokenKind::Word("const")) {
+                return Err(self.error("const is not allowed in a for-in variable"));
+            }
+            let is_final = self.take(TokenKind::Word("final"));
+            let inferred = self.take(TokenKind::Word("var"));
+            if is_final && inferred {
+                return Err(self.error("final var is not supported; use final name in expression"));
+            }
+            let annotation = if !inferred && !self.at_for_in_name() {
+                Some(self.ty(false)?)
+            } else {
+                None
+            };
+            if !is_final && !inferred && annotation.is_none() {
+                return Err(self.error(
+                    "for-in requires final, var or a type; assigning to an existing variable is not supported",
+                ));
+            }
+            let name = self.name()?;
+            self.expect(TokenKind::Word("in"))?;
+            let iterable = self.expression()?;
+            self.expect(TokenKind::Symbol(')'))?;
+            StatementKind::ForIn {
+                is_final,
+                name,
+                annotation,
+                iterable,
+                body: Vec::new(),
+            }
+        } else {
+            let initializer = if self.peek() == Some(TokenKind::Symbol(';')) {
+                None
+            } else {
+                let initializer = self.simple(true)?;
+                if matches!(initializer.kind, StatementKind::RecordDestructure { .. }) {
+                    return Err(Diagnostic::new(
+                        "record destructuring in for initializers is not supported yet",
+                        initializer.span,
+                    ));
+                }
+                Some(Box::new(initializer))
+            };
+            self.expect(TokenKind::Symbol(';'))?;
+            let condition = if self.peek() == Some(TokenKind::Symbol(';')) {
+                None
+            } else {
+                Some(self.expression()?)
+            };
+            self.expect(TokenKind::Symbol(';'))?;
+            let update = if self.peek() == Some(TokenKind::Symbol(')')) {
+                None
+            } else {
+                Some(Box::new(self.simple(false)?))
+            };
+            self.expect(TokenKind::Symbol(')'))?;
+            StatementKind::For {
+                initializer,
+                condition,
+                update,
+                body: Vec::new(),
+            }
+        };
+        Ok(Statement {
+            kind,
             span: Span {
                 start,
                 end: self.end(),
@@ -4325,6 +4600,72 @@ impl<'a> Cursor<'_, 'a> {
     /// Aplica asserções pós-fixas sem permitir que contornem o limite de nós.
     fn postfix(&mut self, mut value: Expr<'a>, depth: usize) -> Result<Expr<'a>, Diagnostic> {
         loop {
+            if let Some(selector) = self.null_aware_selector() {
+                // A cadeia inteira curto-circuita: `a?.b.c` só avalia `.c`
+                // quando `a` não é null. O receptor sai da posição de operando
+                // e o restante dos seletores passa a pender do alvo sintético,
+                // que a emissão liga a um único temporário.
+                self.charge(depth)?;
+                let operator = self.tokens[self.index].span;
+                self.index += 1;
+                let target = Expr {
+                    kind: ExprKind::NullShortTarget,
+                    span: operator,
+                };
+                let selected = match selector {
+                    NullAwareSelector::Member => {
+                        self.expect(TokenKind::Symbol('.'))?;
+                        let name = self.name()?;
+                        let kind = if self.peek() == Some(TokenKind::Symbol('(')) {
+                            ExprKind::MethodCall {
+                                receiver: Box::new(target),
+                                name,
+                                arguments: self.arguments(depth)?,
+                            }
+                        } else {
+                            ExprKind::Member {
+                                receiver: Box::new(target),
+                                name,
+                            }
+                        };
+                        Expr {
+                            kind,
+                            span: Span {
+                                start: operator.start,
+                                end: self.end(),
+                            },
+                        }
+                    }
+                    NullAwareSelector::Index => {
+                        self.expect(TokenKind::Symbol('['))?;
+                        let index = self.cascade(depth + 1)?;
+                        self.expect(TokenKind::Symbol(']'))?;
+                        Expr {
+                            kind: ExprKind::Index {
+                                receiver: Box::new(target),
+                                index: Box::new(index),
+                            },
+                            span: Span {
+                                start: operator.start,
+                                end: self.end(),
+                            },
+                        }
+                    }
+                };
+                let chain = self.postfix(selected, depth)?;
+                let span = Span {
+                    start: value.span.start,
+                    end: self.end(),
+                };
+                return Ok(Expr {
+                    kind: ExprKind::NullShort {
+                        receiver: Box::new(value),
+                        chain: Box::new(chain),
+                        target: operator,
+                    },
+                    span,
+                });
+            }
             let kind = if self.peek() == Some(TokenKind::Symbol('(')) {
                 self.charge(depth)?;
                 ExprKind::Invoke {
@@ -4383,6 +4724,36 @@ impl<'a> Cursor<'_, 'a> {
             value = Expr { kind, span };
         }
         Ok(value)
+    }
+}
+
+/// Forma do seletor que abre uma cadeia null-aware.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NullAwareSelector {
+    /// `?.nome` e `?.nome(args)`.
+    Member,
+    /// `?[índice]`.
+    Index,
+}
+
+/// Decide pela sintaxe se um elemento força mapa, força conjunto ou nada diz.
+///
+/// `Some(true)` é uma entrada `chave: valor`, `Some(false)` é um valor solto e
+/// `None` é um espalhamento, cuja forma depende do tipo estático do operando.
+/// Os ramos de `if` e o corpo de `for` são inspecionados na ordem escrita, que
+/// é a mesma ordem em que Dart procura o primeiro elemento decisivo.
+fn decides_map(element: &Expr<'_>) -> Option<bool> {
+    match &element.kind {
+        ExprKind::MapEntry { .. } => Some(true),
+        ExprKind::Spread { .. } => None,
+        ExprKind::CollectionIf {
+            then_element,
+            else_element,
+            ..
+        } => decides_map(then_element)
+            .or_else(|| else_element.as_deref().and_then(decides_map)),
+        ExprKind::CollectionFor { element, .. } => decides_map(element),
+        _ => Some(false),
     }
 }
 

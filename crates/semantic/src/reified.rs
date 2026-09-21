@@ -88,7 +88,10 @@ impl<'a> Validator<'a> {
                             stack.extend(named.into_iter().map(|(_, t)| t));
                         }
                         Some(
-                            TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t),
+                            TypeShape::List(t)
+                            | TypeShape::Set(t)
+                            | TypeShape::Iterable(t)
+                            | TypeShape::Nullable(t),
                         ) => stack.push(t),
                         Some(TypeShape::Function { result, parameters }) => {
                             stack.push(result);

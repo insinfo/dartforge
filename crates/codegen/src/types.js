@@ -41,7 +41,8 @@ function $dartforgeSubtype(actual, expected) {
     return actualArgs.length === expectedArgs.length &&
       expectedArgs.every((wanted, i) => $dartforgeSubtype(actualArgs[i], wanted));
   }
-  if ((a === 'list' || a === 'iterable') && (e === a || e === 'iterable')) return $dartforgeSubtype(actual[1], expected[1]);
+  // Set<T> e List<T> são Iterable<T> em Dart; nenhum dos dois é o outro.
+  if ((a === 'list' || a === 'set' || a === 'iterable') && (e === a || e === 'iterable')) return $dartforgeSubtype(actual[1], expected[1]);
   if (a === 'future' && e === 'future') return $dartforgeSubtype(actual[1], expected[1]);
   if (a === 'map' && e === 'map') return $dartforgeSubtype(actual[1], expected[1]) && $dartforgeSubtype(actual[2], expected[2]);
   if (a === 'record' && e === 'record') {

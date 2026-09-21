@@ -172,8 +172,52 @@ fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
         ExprKind::Map { entries, .. } => {
             for (key, value) in entries {
                 fold_expression(key, stats);
-                fold_expression(value, stats);
+                // `None` marca elemento de controle: só a chave é real.
+                if let Some(value) = value {
+                    fold_expression(value, stats);
+                }
             }
+            None
+        }
+        ExprKind::Set { elements, .. } => {
+            for element in elements {
+                fold_expression(element, stats);
+            }
+            None
+        }
+        ExprKind::Spread { operand, .. } => {
+            fold_expression(operand, stats);
+            None
+        }
+        ExprKind::MapEntry { key, value } => {
+            fold_expression(key, stats);
+            fold_expression(value, stats);
+            None
+        }
+        ExprKind::CollectionIf {
+            condition,
+            then_element,
+            else_element,
+        } => {
+            fold_expression(condition, stats);
+            fold_expression(then_element, stats);
+            if let Some(element) = else_element {
+                fold_expression(element, stats);
+            }
+            None
+        }
+        ExprKind::CollectionFor { header, element } => {
+            fold_statement(header, stats);
+            fold_expression(element, stats);
+            None
+        }
+        // A cadeia null-aware não é dobrada: o curto-circuito precisa do
+        // receptor intacto, e o alvo sintético não tem valor próprio.
+        ExprKind::NullShort {
+            receiver, chain, ..
+        } => {
+            fold_expression(receiver, stats);
+            fold_expression(chain, stats);
             None
         }
         ExprKind::NamedConstruct { arguments, .. } => {

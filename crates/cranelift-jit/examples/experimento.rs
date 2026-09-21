@@ -15,6 +15,7 @@
 //! apenas o lado JIT e diz que o lado AOT foi omitido, em vez de inventar
 //! números. A máquina pode estar ocupada com outras compilações; a saída
 //! sempre traz os contadores que não dependem da carga.
+use dartforge_cranelift_jit::Otimizacao;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_hir::Module;
 use std::path::{Path, PathBuf};
@@ -146,7 +147,12 @@ fn ms(duracao: Duration) -> String {
 }
 
 /// Mede o tempo de geração de código em memória, por fase, de um programa.
-fn medir_jit(nome: &str, fonte: &str) {
+fn medir_jit(nome: &str, fonte: &str, otimizacao: Otimizacao) {
+    let rotulo = match otimizacao {
+        Otimizacao::Nenhuma => "none",
+        Otimizacao::Velocidade => "speed",
+    };
+    let nome = &format!("{nome} (opt={rotulo})");
     let modulo = match hir(fonte) {
         Ok(modulo) => modulo,
         Err(erro) => {
@@ -155,7 +161,7 @@ fn medir_jit(nome: &str, fonte: &str) {
         }
     };
     for _ in 0..AQUECIMENTOS {
-        if let Err(erro) = dartforge_cranelift_jit::compilar(&modulo) {
+        if let Err(erro) = dartforge_cranelift_jit::compilar_com(&modulo, otimizacao) {
             println!("| {nome} | JIT recusou: {erro} |");
             return;
         }
@@ -166,7 +172,8 @@ fn medir_jit(nome: &str, fonte: &str) {
     let mut instrucoes = 0;
     let mut bytes = 0;
     for _ in 0..AMOSTRAS {
-        let compilado = dartforge_cranelift_jit::compilar(&modulo).expect("já compilou antes");
+        let compilado =
+            dartforge_cranelift_jit::compilar_com(&modulo, otimizacao).expect("já compilou antes");
         let medicoes = compilado.medicoes();
         traducao.push(medicoes.traducao);
         geracao.push(medicoes.geracao);
@@ -216,9 +223,14 @@ fn medir_emissao_llvm(nome: &str, fonte: &str) {
 }
 
 /// Mede o tempo de execução do código gerado pelo JIT, já compilado.
-fn medir_execucao_jit(nome: &str, fonte: &str) {
+fn medir_execucao_jit(nome: &str, fonte: &str, otimizacao: Otimizacao) {
+    let rotulo = match otimizacao {
+        Otimizacao::Nenhuma => "none",
+        Otimizacao::Velocidade => "speed",
+    };
     let modulo = hir(fonte).expect("programa da fatia");
-    let compilado = dartforge_cranelift_jit::compilar(&modulo).expect("programa da fatia");
+    let compilado =
+        dartforge_cranelift_jit::compilar_com(&modulo, otimizacao).expect("programa da fatia");
     for _ in 0..1 {
         let _ = compilado.executar_capturando();
     }
@@ -230,7 +242,11 @@ fn medir_execucao_jit(nome: &str, fonte: &str) {
         assert!(!saida.is_empty());
     }
     let (p50, p95) = resumo(amostras);
-    println!("| {nome} | Cranelift JIT (opt_level padrão) | {} | {} |", ms(p50), ms(p95));
+    println!(
+        "| {nome} | Cranelift JIT (opt_level={rotulo}) | {} | {} |",
+        ms(p50),
+        ms(p95)
+    );
 }
 
 /// Compila o programa pelo caminho AOT e mede a execução do processo resultante.
@@ -318,7 +334,8 @@ fn main() {
     );
     println!("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
     for (nome, fonte) in programas {
-        medir_jit(nome, fonte);
+        medir_jit(nome, fonte, Otimizacao::Nenhuma);
+        medir_jit(nome, fonte, Otimizacao::Velocidade);
     }
 
     println!("\n### Eixo 1b — emissão de LLVM IR textual (mesma HIR, backend AOT)\n");
@@ -332,8 +349,13 @@ fn main() {
     println!("| programa | caminho | p50 (ms) | p95 (ms) |");
     println!("| --- | --- | --- | --- |");
     let fixture = Fixture::new();
-    for (nome, fonte) in [("trivial", TRIVIAL), ("somatorio(1e8)", SOMATORIO), ("fib(32)", FIB)] {
-        medir_execucao_jit(nome, fonte);
+    for (nome, fonte) in [
+        ("trivial", TRIVIAL),
+        ("somatorio(1e8)", SOMATORIO),
+        ("fib(32)", FIB),
+    ] {
+        medir_execucao_jit(nome, fonte, Otimizacao::Nenhuma);
+        medir_execucao_jit(nome, fonte, Otimizacao::Velocidade);
         medir_execucao_aot(nome, fonte, &fixture.0, false);
         medir_execucao_aot(nome, fonte, &fixture.0, true);
     }

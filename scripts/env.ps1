@@ -26,3 +26,14 @@ if (!$env:LLVM_SYS_221_PREFIX) {
         }
     }
 }
+
+# O JIT liga a biblioteca compartilhada da API C (LLVM-C.dll), e nao as
+# bibliotecas estaticas: o pacote oficial de Windows as compila com CRT estatica,
+# que conflita com a CRT dinamica do Rust. A DLL precisa estar alcancavel pelo
+# carregador em tempo de execucao, tanto para os testes quanto para dartforge run.
+if ($env:LLVM_SYS_221_PREFIX) {
+    $llvmBin = Join-Path $env:LLVM_SYS_221_PREFIX 'bin'
+    if ((Test-Path (Join-Path $llvmBin 'LLVM-C.dll')) -and ($env:Path -split [IO.Path]::PathSeparator) -notcontains $llvmBin) {
+        $env:Path = $llvmBin + [IO.Path]::PathSeparator + $env:Path
+    }
+}

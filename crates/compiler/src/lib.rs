@@ -181,6 +181,43 @@ pub(crate) fn validate_environment(
     }
     Ok(())
 }
+/// Analisa uma unidade isolada apenas até a sintaxe, para aferir cobertura.
+///
+/// Existe para medir o compilador contra **código Dart de produção**, onde os
+/// arquivos são bibliotecas sem `main` e com imports que o subconjunto ainda não
+/// resolve. Roda validação de versão, remoção do prefixo de diretivas,
+/// tokenização, índice de declarações e análise sintática completa da unidade.
+///
+/// Não faz análise semântica: sem resolver as dependências externas, ela
+/// reprovaria por nomes ausentes e esconderia as lacunas de sintaxe, que são o
+/// que esta aferição quer enxergar.
+///
+/// # Erros
+/// Devolve o primeiro diagnóstico léxico ou sintático da unidade.
+///
+/// # Exemplos
+/// ```
+/// let fonte = "class Ponto { final int x; Ponto(this.x); }";
+/// assert!(dartforge_compiler::compile_unit_diagnostics(fonte).is_ok());
+/// ```
+pub fn compile_unit_diagnostics(source: &str) -> Result<(), Diagnostic> {
+    let prefix = dartforge_packages::directive_prefix_end(source)?;
+    dartforge_packages::validate_language_version(&source[..prefix])?;
+    let tokens = dartforge_lexer::lex(source)?;
+    let corpo: Vec<_> = tokens
+        .into_iter()
+        .filter(|token| token.span.start >= prefix)
+        .collect();
+    let declaracoes = dartforge_parser::index_unit(&corpo)?;
+    let ambiente = declaracoes
+        .classes
+        .iter()
+        .enumerate()
+        .map(|(indice, item)| (item.name, indice as u32))
+        .collect();
+    dartforge_parser::parse_unit(&corpo, source.len(), ambiente).map(|_| ())
+}
+
 /// Relatório de custo de uma solicitação, separando descoberta de front-end.
 ///
 /// `load_ns` cobre descoberta do grafo, leitura de arquivos e resolução de

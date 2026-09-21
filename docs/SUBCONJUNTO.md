@@ -78,23 +78,36 @@ qualquer combinação de formas.
 
 O resultado é `String`. Cada expressão é avaliada exatamente uma vez, na ordem
 escrita; `null` vira `"null"`; `int` usa a conversão do runtime, não `String(x)`
-do JavaScript. Valores sem `toString` representável no subconjunto — instâncias
-de classe, enums, funções, `Future`, `Duration` e `Timer` — são rejeitados com
-`String interpolation requires unsupported toString semantics for this value`, o
-mesmo conjunto de tipos que `print` já aceitava. O contrato completo, com todos
-os diagnósticos e os limites que permanecem, está em [STRINGS.md](STRINGS.md).
+do JavaScript. Uma instância cuja classe — ou um ancestral — declara
+`String toString()` interpola pelo texto que ela produz, escolhido pelo objeto
+e não pelo tipo estático. Enums, funções, `Future`, `Duration`, `Timer` e
+instâncias **sem** `toString` declarado continuam rejeitados; a instância tem
+diagnóstico próprio, que nomeia a classe e registra a decisão de não emitir
+`Instance of 'Nome'`. O contrato completo das strings está em
+[STRINGS.md](STRINGS.md); o do protocolo `Object`, em [OBJETO.md](OBJETO.md).
 
 ## Tipos anuláveis e objetos
 
 Veja os contratos de [null safety e fluxo](NULL-SAFETY.md) e [classes/herança](CLASSES.md).
 A ferramenta compila [bibliotecas, reexports e filtros show/hide](MODULES.md), resolve [pacotes](PACKAGES.md) e aceita [extensions em uma unidade](EXTENSIONS.md).
 
+## Protocolo `Object` e acessores de instância
+
+Getters e setters de instância, inclusive o par de mesmo nome; `operator ==`
+com as duas regras do Dart (`null` à esquerda nunca chama o operador; quem
+decide é o lado esquerdo); `hashCode` como getter sobrescrito; `toString`
+integrado a `print` e à interpolação; e `identical`, que continua sendo
+identidade de referência. `Map` e `Set` deste subconjunto **não** usam
+`hashCode`: comparam chaves por identidade. `dynamic` é recusado de propósito,
+com a mensagem explicando que o subconjunto é estaticamente resolvido.
+Contrato, diagnósticos exatos e limites em [OBJETO.md](OBJETO.md).
+
 ## Ainda não suportado
 
 Prefixos de import, partes, funções locais nomeadas, parâmetros nomeados ou
 opcionais em closures, extensions, genéricos e `@Native`,
 overloads, `double`, classes/métodos genéricos, extensions importadas, `for-in`,
-rótulos, surrogates isolados, interpolação em expressão constante, Set e formas de Map/const além das documentadas abaixo,
+rótulos, surrogates isolados, interpolação em expressão constante, formas de Set/Map/const além das documentadas abaixo,
 source maps e bibliotecas padrão completas. Atualizações compostas de campos, acesso a índices e atribuições
 usadas como expressões também não são suportadas.
 Identificadores são ASCII; alguns nomes contextuais válidos em Dart ficam reservados
@@ -159,6 +172,29 @@ ainda não são suportados. Valores privados respeitam bibliotecas.
 List<T>, Iterable<T>, tipos de função, closures e um subconjunto de dart:core
 estão descritos em [COLECOES-CLOSURES.md](COLECOES-CLOSURES.md).
 As representações do runtime Rust existem, mas o lowering LLVM ainda rejeita essas construções.
+
+## Conjuntos, espalhamentos, `?.` e operadores de bits
+
+`Set<T>` tem literal (`{1, 2}`, `<int>{}`), ordem de inserção preservada, `add`,
+`contains`, `length` e iteração. `{}` sem argumentos de tipo continua sendo o
+mapa vazio, como em Dart; um literal formado só por espalhamentos exige `<T>` ou
+`<K, V>`, porque a forma dependeria do tipo estático do operando.
+
+Espalhamentos `...` e `...?` valem em lista, conjunto e mapa; `...` exige
+operando não anulável, como nos SDKs 3.6.2 e 3.13.4. Elementos `if`, `if-else`
+e `for` (clássico e `for-in`) valem em lista, conjunto e mapa, aninhados e
+combinados com espalhamentos — em mapa, `if`/`for` exigem `<K, V>` explícito.
+
+`a?.b`, `a?.b()` e `a?[i]` curto-circuitam a cadeia inteira: `a?.b.c` só avalia
+`.c` quando `a` não é null, o receptor é avaliado uma única vez e o resultado é
+anulável mesmo quando o seletor não é.
+
+`|`, `&`, `^`, `~`, `<<`, `>>` e `>>>` aceitam apenas `int` e seguem a semântica
+de inteiro do alvo web (32 bits sem sinal), conferida contra `dart compile js`
+numa grade de 696 casos. A VM usa 64 bits com sinal e diverge quando o resultado
+tem o bit de sinal ligado; a tabela completa da divergência, os diagnósticos
+exatos e os limites estão em
+[COLECOES-OPERADORES.md](COLECOES-OPERADORES.md).
 
 ## Incremento 13: genéricos e constantes
 

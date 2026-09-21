@@ -58,7 +58,8 @@ void main() {
   } while (k < 2);
 }
 ";
-const CONTROLE_ESPERADO: &str = "12\n2\n32\n-7\ntrue\nfalse\nfalse\ntrue\nfalse\n1\n0\n1\n2\n0\n20\n30\n100\n101\n";
+const CONTROLE_ESPERADO: &str =
+    "12\n2\n32\n-7\ntrue\nfalse\nfalse\ntrue\nfalse\n1\n0\n1\n2\n0\n20\n30\n100\n101\n";
 
 /// Recursão simples, recursão de árvore e recursão mútua entre duas funções.
 const RECURSAO: &str = r"
@@ -387,10 +388,7 @@ fn cada_forma_fora_da_fatia_tem_mensagem_e_span_exatos() {
 #[test]
 fn codigo_morto_depois_do_return_ainda_e_recusado() {
     let (mensagem, _) = recusa("void main() {\n  return;\n  print(1.5);\n}\n");
-    assert_eq!(
-        mensagem,
-        "Cranelift JIT ainda não suporta literais double"
-    );
+    assert_eq!(mensagem, "Cranelift JIT ainda não suporta literais double");
 }
 
 /// Diretório temporário exclusivo para os executáveis do teste diferencial.
@@ -429,10 +427,9 @@ fn a_saida_do_jit_bate_com_a_do_executavel_aot() {
     for (nome, fonte, esperado) in corpus() {
         let modulo = hir(fonte).unwrap();
         let ir = dartforge_llvm::emit(&modulo).unwrap();
-        let executavel = fixture.0.join(format!(
-            "{nome}{}",
-            if cfg!(windows) { ".exe" } else { "" }
-        ));
+        let executavel = fixture
+            .0
+            .join(format!("{nome}{}", if cfg!(windows) { ".exe" } else { "" }));
         dartforge_native::build_executable(&ir, &executavel, &opcoes).unwrap();
         let aot = std::process::Command::new(&executavel).output().unwrap();
         assert!(aot.status.success(), "AOT falhou em {nome}");
@@ -443,4 +440,27 @@ fn a_saida_do_jit_bate_com_a_do_executavel_aot() {
         assert_eq!(jit, aot, "JIT e AOT divergiram em {nome}");
         assert_eq!(jit, esperado, "ambos divergiram do Dart 3.6.2 em {nome}");
     }
+}
+
+/// Recarga: cada compilação é um módulo independente e o antigo continua válido.
+///
+/// O `cranelift-jit` 0.135.2 não expõe redefinição de função (não há
+/// `JITBuilder::hotswap` nem `JITModule::prepare_for_function_redefine`), então
+/// a única recarga possível hoje é compilar a versão nova num módulo novo. Este
+/// teste fixa esse comportamento: as duas versões coexistem, cada uma com o seu
+/// código, e a memória de uma só é liberada quando o seu `ProgramaCompilado` é
+/// destruído. Consulte `docs/CRANELIFT.md` para o levantamento completo.
+#[test]
+fn recompilar_cria_modulo_novo_e_mantem_o_antigo_valido() {
+    const V1: &str = "int valor() {\n  return 1;\n}\n\nvoid main() {\n  print(valor());\n}\n";
+    const V2: &str = "int valor() {\n  return 2;\n}\n\nvoid main() {\n  print(valor());\n}\n";
+    let modulo_v1 = hir(V1).unwrap();
+    let modulo_v2 = hir(V2).unwrap();
+    let v1 = dartforge_cranelift_jit::compilar(&modulo_v1).unwrap();
+    let v2 = dartforge_cranelift_jit::compilar(&modulo_v2).unwrap();
+    assert_eq!(v2.executar_capturando(), "2\n");
+    // A versão antiga não foi invalidada nem redirecionada pela nova.
+    assert_eq!(v1.executar_capturando(), "1\n");
+    drop(v2);
+    assert_eq!(v1.executar_capturando(), "1\n");
 }

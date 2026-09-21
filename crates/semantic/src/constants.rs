@@ -191,6 +191,7 @@ fn closed_type(ty: Type, resolution: &Resolution) -> bool {
                 .all(|t| closed_type(*t, resolution)),
             Some(
                 TypeShape::List(element)
+                | TypeShape::Set(element)
                 | TypeShape::Iterable(element)
                 | TypeShape::Nullable(element),
             ) => closed_type(*element, resolution),

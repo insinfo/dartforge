@@ -39,11 +39,13 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
         Type::Applied(id) => match output.resolution.types[id as usize].clone() {
             TypeShape::Future(element)
             | TypeShape::List(element)
+            | TypeShape::Set(element)
             | TypeShape::Iterable(element)
             | TypeShape::Nullable(element) => {
                 let tag = match &output.resolution.types[id as usize] {
                     TypeShape::Future(_) => "future",
                     TypeShape::List(_) => "list",
+                    TypeShape::Set(_) => "set",
                     TypeShape::Iterable(_) => "iterable",
                     _ => "nullable",
                 };
@@ -147,7 +149,7 @@ pub(super) fn collection_element(expression: &Expr<'_>, output: &Output<'_>) -> 
         .expr_types
         .get(&(expression.span.start, expression.span.end));
     if let Some(Type::Applied(id)) = ty
-        && let TypeShape::List(element) | TypeShape::Iterable(element) =
+        && let TypeShape::List(element) | TypeShape::Set(element) | TypeShape::Iterable(element) =
             output.resolution.types[*id as usize]
     {
         return Some(element);

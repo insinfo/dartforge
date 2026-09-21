@@ -174,6 +174,9 @@ impl<'a> Validator<'a> {
                 Some(TypeShape::List(t)) => {
                     self.intern(TypeShape::List(self.substitute(t, bindings, unknown)))
                 }
+                Some(TypeShape::Set(t)) => {
+                    self.intern(TypeShape::Set(self.substitute(t, bindings, unknown)))
+                }
                 Some(TypeShape::Iterable(t)) => {
                     self.intern(TypeShape::Iterable(self.substitute(t, bindings, unknown)))
                 }
@@ -204,9 +207,12 @@ impl<'a> Validator<'a> {
                     .into_iter()
                     .chain(named.into_iter().map(|(_, t)| t))
                     .any(|t| self.has_inferred(t)),
-                Some(TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t)) => {
-                    self.has_inferred(t)
-                }
+                Some(
+                    TypeShape::List(t)
+                    | TypeShape::Set(t)
+                    | TypeShape::Iterable(t)
+                    | TypeShape::Nullable(t),
+                ) => self.has_inferred(t),
                 Some(TypeShape::Function { result, parameters }) => {
                     self.has_inferred(result)
                         || parameters.into_iter().any(|t| self.has_inferred(t))

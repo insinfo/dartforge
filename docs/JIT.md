@@ -179,53 +179,89 @@ desenvolvimento **correto**.
 4. **O custo da dependência já estava pago.** O projeto já exige LLVM para o
    perfil de produção.
 
-Cranelift continua interessante pelo tempo de compilação, que é o argumento real
-a favor dele. Mas trocar backend só faz sentido depois que existir uma linha de
-base medida e um diferencial verde para comparar — e é exatamente isso que este
-crate entrega.
+Cranelift continua interessante pelo tempo de compilação e por dispensar uma
+instalação do LLVM, que são os argumentos reais a favor dele; `crates/cranelift-jit`
+explora esse caminho em paralelo, sobre uma fatia escalar da HIR. As duas coisas
+não competem nesta etapa: trocar de backend só faz sentido depois que existir uma
+linha de base medida e um diferencial verde para comparar contra o AOT — e é
+exatamente isso que este crate entrega.
 
-## Requisito de build
+## Requisito de build e de execução
 
-`crates/jit` liga `llvm-sys` 221.1.0, que localiza o LLVM pelo `llvm-config` da
+`crates/jit` usa `llvm-sys` 221.1.0 para as assinaturas da API C e para os
+invólucros de `LLVMInitializeNative*`. Ele localiza o LLVM pelo `llvm-config` da
 **distribuição completa** — a que traz `bin/llvm-config.exe`, `include/llvm-c/**`
 e as bibliotecas. O instalador reduzido de Windows (`LLVM-*-win64.exe`), que só
 tem `LLVM-C.dll`/`LLVM-C.lib` e os cabeçalhos `Remarks.h`/`lto.h`, **não serve**.
 
-Aponte `LLVM_SYS_221_PREFIX` para o prefixo da distribuição antes de compilar o
-workspace:
+O repositório já traz `.cargo/config.toml` com
 
-```pwsh
-$env:LLVM_SYS_221_PREFIX = 'D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc'
-cargo build --workspace
+```toml
+[env]
+LLVM_SYS_221_PREFIX = "D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
 ```
 
-```sh
-export LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
-cargo build --workspace
+de modo que qualquer `cargo` executado dentro dele enxerga a variável. Uma
+definição no ambiente do shell tem precedência, para testar outro prefixo.
+`DARTFORGE_LLVM_DIR`, o nome preferido do projeto para apontar um prefixo LLVM,
+também é aceito pelo `build.rs` deste crate — mas quem procura o `llvm-config` é
+o `build.rs` do `llvm-sys`, que só conhece `LLVM_SYS_221_PREFIX`; mantenha as
+duas com o mesmo valor.
+
+Sem um prefixo válido a build do workspace inteiro falha, porque `crates/jit` é
+membro de `crates/*`. Essa é a consequência de o perfil de desenvolvimento ser
+parte do produto, não um extra.
+
+### Por que a ligação é dinâmica, e o que isso custa
+
+A feature `no-llvm-linking` do `llvm-sys` está ligada: as diretivas de ligação
+saem do `build.rs` deste crate, que liga `LLVM-C` — a **biblioteca
+compartilhada** da API C — em vez das bibliotecas estáticas.
+
+O motivo é concreto, não preferência. As bibliotecas estáticas do pacote oficial
+`clang+llvm-22.1.8-x86_64-pc-windows-msvc` são compiladas com a CRT **estática**
+(`libcmt`); o Rust usa a CRT dinâmica (`msvcrt`). Ligar as duas produz
+
+```
+LINK : warning LNK4098: defaultlib 'libcmt.lib' conflita com uso de outras
+bibliotecas; use /NODEFAULTLIB:library
 ```
 
-Sem essa variável (e sem um `llvm-config` compatível no `PATH`) a build do
-workspace inteiro falha, porque `crates/jit` é membro de `crates/*`. Essa é a
-consequência de o perfil de desenvolvimento ser parte do produto, não um extra.
+e um binário com **dois heaps**. O efeito observado, reproduzível: um
+`LLVMParseIRInContext2` que falha devolve a mensagem de erro, ela é lida
+corretamente, e o `LLVMDisposeMessage` seguinte derruba o processo com
+`STATUS_ACCESS_VIOLATION` — alocada por uma CRT, liberada pela outra. O mesmo
+pacote também traz `llvm-config --system-libs` pedindo um `xml2s.lib` que não
+está no pacote, e não aceita `llvm-config --link-shared`, que procura um
+`LLVM-22.dll` inexistente. Com `LLVM-C.dll`, alocação e liberação acontecem as
+duas dentro da DLL, com a CRT dela, e nenhum dos dois problemas aparece.
 
-`DARTFORGE_LLVM_DIR` continua documentada como o nome preferido do projeto para
-apontar um prefixo LLVM; quando definida, exporte também `LLVM_SYS_221_PREFIX`
-com o mesmo valor, porque quem procura o `llvm-config` é o `build.rs` do
-`llvm-sys` e ele só conhece o nome dele.
+O preço é uma dependência de execução: **`LLVM-C.dll` precisa estar alcançável
+pelo carregador** — no `PATH`, em Windows — tanto para `dartforge run` quanto
+para os testes. `scripts/env.ps1` acrescenta `<prefixo>/bin` ao `PATH` quando
+encontra a DLL lá. Sem ela o executável nem chega a iniciar; a falha é do
+carregador do sistema operacional, não do programa:
 
-### Testes e DLLs
+```
+dartforge.exe: error while loading shared libraries: LLVM-C.dll:
+cannot open shared object file: No such file or directory
+```
 
-Com a ligação estática padrão do `llvm-sys` (`prefer-static`), o binário de teste
-já contém o LLVM e **não** exige `LLVM-C.dll` no `PATH`. Se a build cair no modo
-dinâmico — por exemplo com `--features llvm-sys/force-dynamic`, ou numa
-distribuição sem bibliotecas estáticas — a DLL precisa estar no `PATH` em tempo
-de execução.
+Por isso os testes que abrem uma `LLJIT` são marcados
 
-Os testes deste crate que exigem ferramentas além do LLVM são marcados
-`#[ignore]` com o motivo, seguindo o padrão do repositório: hoje isso vale para
-`jit_and_aot_agree_on_the_same_ir`, que precisa de Clang e `rustc` para construir
-o lado AOT da comparação. Execute-os com `cargo test -p dartforge-jit --
---include-ignored`.
+```rust
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+```
+
+seguindo o padrão do repositório para testes que dependem de um toolchain
+externo, como os de `crates/native`. Os testes unitários da biblioteca — formato
+das mensagens de erro, tabela de símbolos, captura de saída do runtime — não
+tocam no LLVM e continuam rodando sempre. A verificação canônica do projeto
+(`cargo test --locked --workspace -- --include-ignored`, em CONTRIBUTING.md) já
+executa os ignorados, então nada fica de fora do que o projeto considera verde.
+
+`jit_and_aot_agree_on_the_same_ir` acumula os dois requisitos: precisa da DLL e
+de Clang/`rustc` para construir o lado AOT da comparação.
 
 ### Integração contínua
 

@@ -365,6 +365,13 @@ impl<'a> Canonical<'a, '_> {
             | TypeTest { .. }
             | Cast { .. }
             | NullAwareElement(_)
+            | Set { .. }
+            | Spread { .. }
+            | MapEntry { .. }
+            | CollectionIf { .. }
+            | CollectionFor { .. }
+            | NullShort { .. }
+            | NullShortTarget
             | DotShorthand { .. }
             | Conditional { .. }
             | Throw(_)
@@ -643,8 +650,42 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
         Map { entries, .. } => {
             for (key, value) in entries {
                 visit_expr(key, e);
-                visit_expr(value, e);
+                // `None` marca elemento de controle: só a chave é real.
+                if let Some(value) = value {
+                    visit_expr(value, e);
+                }
             }
+        }
+        Set { elements, .. } => {
+            for element in elements {
+                visit_expr(element, e);
+            }
+        }
+        Spread { operand, .. } => visit_expr(operand, e),
+        MapEntry { key, value } => {
+            visit_expr(key, e);
+            visit_expr(value, e);
+        }
+        CollectionIf {
+            condition,
+            then_element,
+            else_element,
+        } => {
+            visit_expr(condition, e);
+            visit_expr(then_element, e);
+            if let Some(element) = else_element {
+                visit_expr(element, e);
+            }
+        }
+        CollectionFor { header, element } => {
+            visit_body(std::slice::from_mut(header), &mut |_| {}, e);
+            visit_expr(element, e);
+        }
+        NullShort {
+            receiver, chain, ..
+        } => {
+            visit_expr(receiver, e);
+            visit_expr(chain, e);
         }
         NamedConstruct { arguments, .. } => {
             for arg in arguments {
@@ -748,6 +789,7 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
         }
         Null
         | CascadeReceiver
+        | NullShortTarget
         | This
         | Int(_)
         | Double(_)

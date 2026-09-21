@@ -553,7 +553,9 @@ fn define_json(
             },
             origin,
         )?;
-        entries.push((key, value));
+        // `Some` marca uma entrada comum; `None` fica para os elementos de
+        // controle (`...`, `if`, `for`), que esta macro não gera.
+        entries.push((key, Some(value)));
     }
     let value = report.expr(
         ExprKind::Construct {

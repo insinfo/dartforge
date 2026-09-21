@@ -40,9 +40,8 @@ pub(crate) fn iniciar_captura() -> Option<String> {
 
 /// Encerra a captura, devolve o texto acumulado e restaura o estado anterior.
 pub(crate) fn encerrar_captura(anterior: Option<String>) -> String {
-    CAPTURA.with(|captura| {
-        std::mem::replace(&mut *captura.borrow_mut(), anterior).unwrap_or_default()
-    })
+    CAPTURA
+        .with(|captura| std::mem::replace(&mut *captura.borrow_mut(), anterior).unwrap_or_default())
 }
 
 /// Imprime um inteiro de 64 bits com sinal, igual a `dartforge_print_i64` do AOT.

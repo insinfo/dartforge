@@ -36,13 +36,17 @@
 //! # Ok::<(), dartforge_jit::JitError>(())
 //! ```
 //!
-//! # Requisito de build
+//! # Requisito de build e de execução
 //!
-//! O crate liga `llvm-sys` 221, que localiza o LLVM 22.1.x pelo `llvm-config`
-//! da distribuição completa. Aponte `LLVM_SYS_221_PREFIX` para o prefixo dessa
-//! distribuição antes de compilar o workspace. Veja `docs/JIT.md`.
+//! O crate usa `llvm-sys` 221, que localiza o LLVM 22.1.x pelo `llvm-config` da
+//! distribuição completa; `LLVM_SYS_221_PREFIX` aponta o prefixo, e
+//! `.cargo/config.toml` já a define para o repositório. A ligação é **dinâmica**,
+//! contra `LLVM-C.dll`, porque as bibliotecas estáticas do pacote oficial de
+//! Windows usam CRT estática e conflitam com a CRT dinâmica do Rust. Logo a DLL
+//! precisa estar alcançável pelo carregador em tempo de execução;
+//! `scripts/env.ps1` cuida disso. Veja [`docs/JIT.md`].
 //!
-//! [`docs/JIT.md`]: https://github.com/dartforge/dartforge/blob/main/docs/JIT.md
+//! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod ffi;
 mod runtime;
 

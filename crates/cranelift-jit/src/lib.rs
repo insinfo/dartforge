@@ -93,10 +93,69 @@ use std::time::Instant;
 /// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
 /// ```
 pub fn compilar(modulo: &Module<'_>) -> Result<ProgramaCompilado, Diagnostic> {
+    compilar_com(modulo, Otimizacao::Nenhuma)
+}
+
+/// Nível de otimização do gerador de código do Cranelift.
+///
+/// O perfil de desenvolvimento quer código pronto depressa, não código rápido,
+/// e por isso [`compilar`] usa [`Otimizacao::Nenhuma`] — o padrão do Cranelift.
+/// [`Otimizacao::Velocidade`] existe para o experimento de `docs/CRANELIFT.md`
+/// poder medir os dois pontos da troca em vez de supor um deles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Otimizacao {
+    /// `opt_level = "none"`: o padrão do Cranelift.
+    Nenhuma,
+    /// `opt_level = "speed"`.
+    Velocidade,
+}
+impl Otimizacao {
+    /// Valor aceito pela configuração `opt_level` do `cranelift-codegen`.
+    fn bandeira(self) -> &'static str {
+        match self {
+            Self::Nenhuma => "none",
+            Self::Velocidade => "speed",
+        }
+    }
+}
+
+/// Compila como [`compilar`], escolhendo o nível de otimização do Cranelift.
+///
+/// # Erros
+///
+/// Os mesmos de [`compilar`], mais a recusa da própria configuração quando o
+/// ISA do host não aceita o nível pedido.
+///
+/// # Exemplos
+///
+/// ```
+/// use dartforge_cranelift_jit::Otimizacao;
+/// use dartforge_syntax::Program;
+/// let programa = Program {
+///     main_is_arrow: false,
+///     main_is_async: false,
+///     types: vec![],
+///     classes: vec![],
+///     extensions: vec![],
+///     functions: vec![],
+///     statements: vec![],
+/// };
+/// let modulo = dartforge_hir::lower(programa);
+/// let compilado = dartforge_cranelift_jit::compilar_com(&modulo, Otimizacao::Velocidade)?;
+/// assert_eq!(compilado.executar_capturando(), "");
+/// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
+/// ```
+pub fn compilar_com(
+    modulo: &Module<'_>,
+    otimizacao: Otimizacao,
+) -> Result<ProgramaCompilado, Diagnostic> {
     let inicio = Instant::now();
     let sem_span = Span { start: 0, end: 0 };
-    let mut construtor = JITBuilder::new(default_libcall_names())
-        .map_err(|e| Diagnostic::new(format!("Cranelift JIT indisponível: {e}"), sem_span))?;
+    let mut construtor = JITBuilder::with_flags(
+        &[("opt_level", otimizacao.bandeira())],
+        default_libcall_names(),
+    )
+    .map_err(|e| Diagnostic::new(format!("Cranelift JIT indisponível: {e}"), sem_span))?;
     for (nome, endereco) in runtime::simbolos() {
         construtor.symbol(nome, endereco);
     }
@@ -119,9 +178,8 @@ pub fn compilar(modulo: &Module<'_>) -> Result<ProgramaCompilado, Diagnostic> {
         }
     }
     jit.clear_context(&mut contexto);
-    jit.finalize_definitions().map_err(|e| {
-        Diagnostic::new(format!("Cranelift não finalizou o módulo: {e}"), sem_span)
-    })?;
+    jit.finalize_definitions()
+        .map_err(|e| Diagnostic::new(format!("Cranelift não finalizou o módulo: {e}"), sem_span))?;
     let tempo_geracao = fase.elapsed();
 
     let entrada = jit.get_finalized_function(traducao.entrada);

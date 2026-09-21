@@ -11,9 +11,10 @@ use dartforge_syntax::StringPart;
 /// Recorta de `core.js` somente a conversão `toString`, entre seus marcadores.
 ///
 /// A definição continua única, no runtime. O recorte existe para que um programa
-/// que apenas interpola escalares não carregue o runtime de coleções inteiro; a
-/// delegação ao formatador fica sem destino nesse recorte, mas é inalcançável
-/// porque a análise semântica já garantiu que só escalares chegam ali.
+/// que apenas interpola escalares e instâncias não carregue o runtime de
+/// coleções inteiro; a delegação ao formatador fica sem destino nesse recorte,
+/// mas é inalcançável porque a análise semântica já garantiu que só escalares e
+/// instâncias com `toString` declarado chegam ali.
 pub(super) fn runtime() -> &'static str {
     // O runtime pode estar gravado com LF ou CRLF; o marcador ignora os dois.
     const RUNTIME: &str = include_str!("core.js");
@@ -55,9 +56,10 @@ pub(super) fn interpolation(parts: &[StringPart<'_>], output: &mut Output<'_>) {
 /// deixa `'$nome'` com o mesmo custo de uma variável. Doubles passam por
 /// `$dartforgeDouble`, que reproduz o `toString` do Dart (`1.0`, não `1`).
 /// Os demais tipos passam por `$dartforgeString`, que imprime `int` sem
-/// depender de `String(x)`, converte `null` em `"null"` e delega coleções e
-/// records ao formatador do runtime. `num` segue o caminho escalar com o
-/// limite documentado para doubles de valor inteiro (apagamento Number).
+/// depender de `String(x)`, converte `null` em `"null"`, consulta o
+/// `toString` declarado de uma instância e delega coleções e records ao
+/// formatador do runtime. `num` segue o caminho escalar com o limite
+/// documentado para doubles de valor inteiro (apagamento Number).
 fn convert(value: &Expr<'_>, output: &mut Output<'_>) {
     if output
         .resolution

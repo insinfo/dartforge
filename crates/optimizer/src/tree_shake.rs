@@ -165,6 +165,7 @@ impl Scan<'_, '_> {
                         TypeShape::Future(t)
                         | TypeShape::Nullable(t)
                         | TypeShape::List(t)
+                        | TypeShape::Set(t)
                         | TypeShape::Iterable(t) => self.ty(*t),
                         TypeShape::Function { result, parameters } => {
                             self.ty(*result);
@@ -459,8 +460,48 @@ impl Scan<'_, '_> {
                 }
                 for (k, v) in entries {
                     self.expr(k);
-                    self.expr(v);
+                    // `None` marca elemento de controle: só a chave é real.
+                    if let Some(v) = v {
+                        self.expr(v);
+                    }
                 }
+            }
+            ExprKind::Set {
+                element_type,
+                elements,
+            } => {
+                if let Some(t) = element_type {
+                    self.ty(*t);
+                }
+                for element in elements {
+                    self.expr(element);
+                }
+            }
+            ExprKind::Spread { operand, .. } => self.expr(operand),
+            ExprKind::MapEntry { key, value } => {
+                self.expr(key);
+                self.expr(value);
+            }
+            ExprKind::CollectionIf {
+                condition,
+                then_element,
+                else_element,
+            } => {
+                self.expr(condition);
+                self.expr(then_element);
+                if let Some(element) = else_element {
+                    self.expr(element);
+                }
+            }
+            ExprKind::CollectionFor { header, element } => {
+                self.statement(header);
+                self.expr(element);
+            }
+            ExprKind::NullShort {
+                receiver, chain, ..
+            } => {
+                self.expr(receiver);
+                self.expr(chain);
             }
             ExprKind::List {
                 element_type,
@@ -542,6 +583,7 @@ impl Scan<'_, '_> {
                 }
             }
             ExprKind::CascadeReceiver
+            | ExprKind::NullShortTarget
             | ExprKind::This
             | ExprKind::Null
             | ExprKind::Int(_)

@@ -28,11 +28,19 @@ impl<'a> Validator<'a> {
                     .all(|ty| self.printable_type(*ty)),
                 Some(
                     TypeShape::List(element)
+                    | TypeShape::Set(element)
                     | TypeShape::Iterable(element)
                     | TypeShape::Nullable(element),
                 ) => self.printable_type(element),
                 _ => false,
             },
+            // Instância de classe só é representável quando a própria classe ou
+            // um ancestral declara `String toString()`. Sem isso o Dart
+            // imprimiria `Instance of 'Nome'`, texto que este subconjunto
+            // escolheu recusar em vez de emitir — ver docs/OBJETO.md.
+            Type::Class(id) | Type::NullableClass(id) => {
+                self.method(id, "toString").is_some()
+            }
             _ => false,
         }
     }
@@ -91,7 +99,10 @@ impl<'a> Validator<'a> {
                             .copied()
                             .collect()
                     }
-                    TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t) => {
+                    TypeShape::List(t)
+                    | TypeShape::Set(t)
+                    | TypeShape::Iterable(t)
+                    | TypeShape::Nullable(t) => {
                         vec![*t]
                     }
                     TypeShape::Function { result, parameters } => {
@@ -160,9 +171,11 @@ impl<'a> Validator<'a> {
                 Ok(())
             }
             (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => self.require_subtype(a, b, span),
-            (Some(TypeShape::List(a) | TypeShape::Iterable(a)), Some(TypeShape::Iterable(b))) => {
-                self.require_subtype(a, b, span)
-            }
+            (Some(TypeShape::Set(a)), Some(TypeShape::Set(b))) => self.require_subtype(a, b, span),
+            (
+                Some(TypeShape::List(a) | TypeShape::Set(a) | TypeShape::Iterable(a)),
+                Some(TypeShape::Iterable(b)),
+            ) => self.require_subtype(a, b, span),
             (
                 Some(TypeShape::Function {
                     result: a,
@@ -228,6 +241,7 @@ impl<'a> Validator<'a> {
                 return self.check_type_name(inner, span);
             }
             TypeShape::List(t) => ("List", vec![t]),
+            TypeShape::Set(t) => ("Set", vec![t]),
             TypeShape::Iterable(t) => ("Iterable", vec![t]),
             TypeShape::Function { result, parameters } => {
                 for p in parameters {
@@ -260,7 +274,7 @@ impl<'a> Validator<'a> {
     /// Obtém o elemento de uma lista ou iterable; funções não são coleções.
     pub(super) fn element(&self, ty: Type) -> Option<Type> {
         match self.shape(self.upper_bound(ty)) {
-            Some(TypeShape::List(t) | TypeShape::Iterable(t)) => Some(t),
+            Some(TypeShape::List(t) | TypeShape::Set(t) | TypeShape::Iterable(t)) => Some(t),
             _ => None,
         }
     }
@@ -524,6 +538,14 @@ impl<'a> Validator<'a> {
                 expected,
                 e.span,
             )?,
+            ExprKind::Set {
+                element_type,
+                elements,
+            } => self.set_expression(*element_type, elements, expected, e.span)?,
+            ExprKind::NullShort { receiver, chain, target } => {
+                self.null_short(receiver, chain, *target)?
+            }
+            ExprKind::NullShortTarget => self.null_short_target(e.span)?,
             ExprKind::List {
                 element_type,
                 elements,
@@ -534,7 +556,7 @@ impl<'a> Validator<'a> {
                 }
                 let mut inferred = context;
                 for value in elements {
-                    let actual = self.collection_element(value, context)?;
+                    let actual = self.sequence_element(value, context)?;
                     if let Some(target) = context {
                         self.require_type(actual, target, value.span)?;
                     }
@@ -789,7 +811,12 @@ impl<'a> Validator<'a> {
             }
             return Ok(self.intern(TypeShape::List(element)));
         }
-        if name == "add" && matches!(self.shape(receiver), Some(TypeShape::List(_))) {
+        if name == "add"
+            && matches!(
+                self.shape(receiver),
+                Some(TypeShape::List(_) | TypeShape::Set(_))
+            )
+        {
             if args.len() != 1 {
                 return Err(Diagnostic::new("add expects one element", span));
             }
@@ -798,7 +825,22 @@ impl<'a> Validator<'a> {
                 element,
                 args[0].span,
             )?;
-            return Ok(Type::Void);
+            // Oráculo Dart 3.6.2: `List.add` devolve void e `Set.add` devolve
+            // bool, que é false quando o elemento já pertencia ao conjunto.
+            return Ok(if matches!(self.shape(receiver), Some(TypeShape::Set(_))) {
+                Type::Bool
+            } else {
+                Type::Void
+            });
+        }
+        if name == "contains" {
+            if args.len() != 1 {
+                return Err(Diagnostic::new("contains expects one element", span));
+            }
+            // `Iterable.contains` recebe `Object?`; aqui o contexto é o
+            // elemento, e qualquer valor comparável por `==` é aceito.
+            self.value_expected(&args[0], Some(self.nullable(element)))?;
+            return Ok(Type::Bool);
         }
         let result = match name {
             "where" | "any" => Type::Bool,
@@ -991,8 +1033,40 @@ fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
         ExprKind::Map { entries, .. } => {
             for (key, value) in entries {
                 scan_expr(key, names);
-                scan_expr(value, names);
+                // `None` marca elemento de controle: só a chave é real.
+                if let Some(value) = value {
+                    scan_expr(value, names);
+                }
             }
+        }
+        ExprKind::Set { elements, .. } => {
+            for element in elements {
+                scan_expr(element, names);
+            }
+        }
+        ExprKind::Spread { operand, .. } => scan_expr(operand, names),
+        ExprKind::MapEntry { key, value } => {
+            scan_expr(key, names);
+            scan_expr(value, names);
+        }
+        ExprKind::CollectionIf {
+            condition,
+            then_element,
+            else_element,
+        } => {
+            scan_expr(condition, names);
+            scan_expr(then_element, names);
+            if let Some(element) = else_element {
+                scan_expr(element, names);
+            }
+        }
+        ExprKind::CollectionFor { header, element } => {
+            scan_body(std::slice::from_ref(header), false, names);
+            scan_expr(element, names);
+        }
+        ExprKind::NullShort { receiver, chain, .. } => {
+            scan_expr(receiver, names);
+            scan_expr(chain, names);
         }
         ExprKind::Cascade {
             receiver, sections, ..

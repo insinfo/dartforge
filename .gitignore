@@ -7,3 +7,8 @@
 .env
 .env.*
 !.env.example
+
+# Diretórios de destino usados em medições A/B de backend e no corpus.
+/target-ab-*
+/target-corpus
+/target-nightly-*

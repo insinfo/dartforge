@@ -8,6 +8,7 @@ fn type_key(ty: Type, resolution: &dartforge_syntax::Resolution) -> String {
         Type::Applied(id) => match &resolution.types[id as usize] {
             TypeShape::Future(t) => format!("Future<{}>", type_key(*t, resolution)),
             TypeShape::List(t) => format!("List<{}>", type_key(*t, resolution)),
+            TypeShape::Set(t) => format!("Set<{}>", type_key(*t, resolution)),
             TypeShape::Iterable(t) => format!("Iterable<{}>", type_key(*t, resolution)),
             TypeShape::Nullable(t) => format!("Nullable<{}>", type_key(*t, resolution)),
             TypeShape::Map { key, value } => format!(

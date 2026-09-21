@@ -250,7 +250,10 @@ fn rejeitar_declaracoes_fora_da_fatia(modulo: &Module<'_>) -> Result<(), Diagnos
     }
     for funcao in &modulo.functions {
         if let Some(vinculo) = &funcao.native_binding {
-            return Err(erro(vinculo.span, "@Native e ligação estática a símbolos C"));
+            return Err(erro(
+                vinculo.span,
+                "@Native e ligação estática a símbolos C",
+            ));
         }
         if !funcao.type_parameters.is_empty() {
             return Err(erro(funcao.span, "funções genéricas"));
@@ -578,7 +581,10 @@ impl Emissor<'_, '_> {
     ) -> Result<(), Diagnostic> {
         let valor = self.expressao(condicao)?;
         if valor.tipo != Tipo::Bool {
-            return Err(Diagnostic::new("condição não booleana na HIR Cranelift", span));
+            return Err(Diagnostic::new(
+                "condição não booleana na HIR Cranelift",
+                span,
+            ));
         }
         let teste = valor.exigir(span)?;
         let bloco_entao = self.construtor.create_block();
@@ -631,13 +637,8 @@ impl Emissor<'_, '_> {
         corpo_primeiro: bool,
     ) -> Result<(), Diagnostic> {
         self.escopos.push(HashMap::new());
-        let resultado = self.laco_interno(
-            inicializador,
-            condicao,
-            atualizacao,
-            corpo,
-            corpo_primeiro,
-        );
+        let resultado =
+            self.laco_interno(inicializador, condicao, atualizacao, corpo, corpo_primeiro);
         self.escopos.pop();
         resultado
     }
@@ -725,9 +726,7 @@ impl Emissor<'_, '_> {
             Tipo::Void => return Err(erro(span, "impressão de void")),
         };
         let ir = valor.exigir(span)?;
-        let referencia = self
-            .jit
-            .declare_func_in_func(alvo, self.construtor.func);
+        let referencia = self.jit.declare_func_in_func(alvo, self.construtor.func);
         self.construtor.ins().call(referencia, &[ir]);
         Ok(())
     }
@@ -892,10 +891,7 @@ impl Emissor<'_, '_> {
             BinaryOp::Add => (self.construtor.ins().iadd(e, d), Tipo::Int),
             BinaryOp::Subtract => (self.construtor.ins().isub(e, d), Tipo::Int),
             BinaryOp::Multiply => (self.construtor.ins().imul(e, d), Tipo::Int),
-            BinaryOp::Equal => (
-                self.construtor.ins().icmp(IntCC::Equal, e, d),
-                Tipo::Bool,
-            ),
+            BinaryOp::Equal => (self.construtor.ins().icmp(IntCC::Equal, e, d), Tipo::Bool),
             BinaryOp::NotEqual => (
                 self.construtor.ins().icmp(IntCC::NotEqual, e, d),
                 Tipo::Bool,
@@ -929,6 +925,7 @@ impl Emissor<'_, '_> {
             | BinaryOp::BitXor
             | BinaryOp::ShiftLeft
             | BinaryOp::ShiftRight
+            | BinaryOp::ShiftRightUnsigned
             | BinaryOp::And
             | BinaryOp::Or => unreachable!("recusado ou tratado antes dos operandos"),
         };
@@ -957,10 +954,10 @@ impl Emissor<'_, '_> {
         let bloco_direito = self.construtor.create_block();
         let fim = self.construtor.create_block();
         self.construtor.append_block_param(fim, types::I8);
-        let curto = self.construtor.ins().iconst(
-            types::I8,
-            i64::from(op == BinaryOp::Or),
-        );
+        let curto = self
+            .construtor
+            .ins()
+            .iconst(types::I8, i64::from(op == BinaryOp::Or));
         if op == BinaryOp::And {
             self.construtor
                 .ins()
@@ -1002,7 +999,8 @@ fn recusar_operador_binario(op: BinaryOp, span: Span) -> Result<(), Diagnostic> 
         | BinaryOp::BitOr
         | BinaryOp::BitXor
         | BinaryOp::ShiftLeft
-        | BinaryOp::ShiftRight => Err(erro(span, "operadores bit a bit e deslocamentos")),
+        | BinaryOp::ShiftRight
+        | BinaryOp::ShiftRightUnsigned => Err(erro(span, "operadores bit a bit e deslocamentos")),
         BinaryOp::Add
         | BinaryOp::Subtract
         | BinaryOp::Multiply
@@ -1043,7 +1041,16 @@ fn recurso_de_expressao(expressao: &Expr<'_>) -> &'static str {
         ExprKind::Null => "null",
         ExprKind::Conditional { .. } => "o operador condicional",
         ExprKind::Throw(_) => "throw",
-        ExprKind::List { .. } | ExprKind::Map { .. } | ExprKind::Index { .. } => "coleções",
+        ExprKind::List { .. }
+        | ExprKind::Map { .. }
+        | ExprKind::Set { .. }
+        | ExprKind::MapEntry { .. }
+        | ExprKind::Index { .. } => "coleções",
+        ExprKind::Spread { .. } => "espalhamento em coleções",
+        ExprKind::CollectionIf { .. } | ExprKind::CollectionFor { .. } => {
+            "if e for em literais de coleção"
+        }
+        ExprKind::NullShort { .. } | ExprKind::NullShortTarget => "cadeias null-aware",
         ExprKind::Closure { .. } | ExprKind::Invoke { .. } => "closures",
         ExprKind::Record { .. } => "records",
         ExprKind::Switch { .. } => "switch",
@@ -1088,10 +1095,7 @@ fn validar_instrucao(instrucao: &Statement<'_>) -> Result<(), Diagnostic> {
         } => {
             validar_expressao(condition)?;
             then_body.iter().try_for_each(validar_instrucao)?;
-            else_body
-                .iter()
-                .flatten()
-                .try_for_each(validar_instrucao)
+            else_body.iter().flatten().try_for_each(validar_instrucao)
         }
         StatementKind::While { condition, body } | StatementKind::DoWhile { condition, body } => {
             validar_expressao(condition)?;
@@ -1103,9 +1107,7 @@ fn validar_instrucao(instrucao: &Statement<'_>) -> Result<(), Diagnostic> {
             update,
             body,
         } => {
-            initializer
-                .as_deref()
-                .map_or(Ok(()), validar_instrucao)?;
+            initializer.as_deref().map_or(Ok(()), validar_instrucao)?;
             condition.as_ref().map_or(Ok(()), validar_expressao)?;
             update.as_deref().map_or(Ok(()), validar_instrucao)?;
             body.iter().try_for_each(validar_instrucao)
