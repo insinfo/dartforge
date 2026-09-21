@@ -207,7 +207,7 @@ mediana esconderia.
 Dois defeitos que os testes pegaram e que seriam invisíveis em produção:
 
 1. A gravação usava o caminho canônico como chave e a leitura o caminho cru. No
-   Windows os dois diferem no prefixo `\?\`, o que produziria uma falta de
+   Windows os dois diferem no prefixo de caminho verbatim, o que produziria uma falta de
    cache permanente e silenciosa — o cache pareceria existir e nunca acertaria.
 2. O nome do registro não incluía as opções, então compilar com `--optimize`
    apagava o registro da compilação sem otimização. Alternar entre as duas

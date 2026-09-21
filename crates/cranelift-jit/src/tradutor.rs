@@ -793,6 +793,7 @@ impl Emissor<'_, '_> {
                         })
                     }
                     UnaryOp::NullAssert => Err(erro(expressao.span, "o operador `!` de não nulo")),
+                    UnaryOp::BitNot => Err(erro(expressao.span, "operadores bit a bit")),
                 }
             }
             ExprKind::Binary { op, left, right } => self.binaria(*op, left, right, expressao.span),
@@ -863,14 +864,7 @@ impl Emissor<'_, '_> {
         }
         // Operadores fora da fatia são recusados antes de traduzir os operandos,
         // como faz `validate_expression` do backend LLVM.
-        match op {
-            BinaryOp::Remainder => return Err(erro(span, "módulo euclidiano")),
-            BinaryOp::Divide | BinaryOp::TruncDivide => {
-                return Err(erro(span, "divisão double e truncada (`/`, `~/`)"));
-            }
-            BinaryOp::IfNull => return Err(erro(span, "o operador `??`")),
-            _ => {}
-        }
+        recusar_operador_binario(op, span)?;
         let valor_esquerdo = self.expressao(esquerda)?;
         let valor_direito = self.expressao(direita)?;
         if valor_esquerdo.tipo != valor_direito.tipo || valor_esquerdo.tipo == Tipo::Void {
@@ -930,6 +924,11 @@ impl Emissor<'_, '_> {
             | BinaryOp::Divide
             | BinaryOp::TruncDivide
             | BinaryOp::IfNull
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::ShiftLeft
+            | BinaryOp::ShiftRight
             | BinaryOp::And
             | BinaryOp::Or => unreachable!("recusado ou tratado antes dos operandos"),
         };
@@ -985,6 +984,36 @@ impl Emissor<'_, '_> {
             tipo: Tipo::Bool,
             ir: Some(self.construtor.block_params(fim)[0]),
         })
+    }
+}
+
+/// Recusa os operadores binários fora da fatia antes de traduzir os operandos.
+///
+/// O `match` é exaustivo de propósito: um operador novo no `dartforge-syntax`
+/// quebra a compilação deste crate em vez de passar despercebido.
+fn recusar_operador_binario(op: BinaryOp, span: Span) -> Result<(), Diagnostic> {
+    match op {
+        BinaryOp::Remainder => Err(erro(span, "módulo euclidiano")),
+        BinaryOp::Divide | BinaryOp::TruncDivide => {
+            Err(erro(span, "divisão double e truncada (`/`, `~/`)"))
+        }
+        BinaryOp::IfNull => Err(erro(span, "o operador `??`")),
+        BinaryOp::BitAnd
+        | BinaryOp::BitOr
+        | BinaryOp::BitXor
+        | BinaryOp::ShiftLeft
+        | BinaryOp::ShiftRight => Err(erro(span, "operadores bit a bit e deslocamentos")),
+        BinaryOp::Add
+        | BinaryOp::Subtract
+        | BinaryOp::Multiply
+        | BinaryOp::Equal
+        | BinaryOp::NotEqual
+        | BinaryOp::Less
+        | BinaryOp::LessEqual
+        | BinaryOp::Greater
+        | BinaryOp::GreaterEqual
+        | BinaryOp::And
+        | BinaryOp::Or => Ok(()),
     }
 }
 
@@ -1092,23 +1121,17 @@ fn validar_expressao(expressao: &Expr<'_>) -> Result<(), Diagnostic> {
         ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) => Ok(()),
         ExprKind::Call { arguments, .. } => arguments.iter().try_for_each(validar_expressao),
         ExprKind::Unary { op, operand } => {
-            if *op == UnaryOp::NullAssert {
-                return Err(erro(expressao.span, "o operador `!` de não nulo"));
+            match op {
+                UnaryOp::NullAssert => {
+                    return Err(erro(expressao.span, "o operador `!` de não nulo"));
+                }
+                UnaryOp::BitNot => return Err(erro(expressao.span, "operadores bit a bit")),
+                UnaryOp::Negate | UnaryOp::Not => {}
             }
             validar_expressao(operand)
         }
         ExprKind::Binary { op, left, right } => {
-            match op {
-                BinaryOp::Remainder => return Err(erro(expressao.span, "módulo euclidiano")),
-                BinaryOp::Divide | BinaryOp::TruncDivide => {
-                    return Err(erro(
-                        expressao.span,
-                        "divisão double e truncada (`/`, `~/`)",
-                    ));
-                }
-                BinaryOp::IfNull => return Err(erro(expressao.span, "o operador `??`")),
-                _ => {}
-            }
+            recusar_operador_binario(*op, expressao.span)?;
             validar_expressao(left)?;
             validar_expressao(right)
         }

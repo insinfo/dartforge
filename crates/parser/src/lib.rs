@@ -3438,8 +3438,13 @@ impl<'a> Cursor<'_, 'a> {
             let Some(TokenKind::Operator(symbol)) = self.peek() else {
                 break;
             };
-            let Some((precedence, op)) = binary_op(symbol) else {
-                break;
+            // `>>` e `>>>` chegam como `>` adjacentes; ver `shift_ahead`.
+            let (precedence, op, width) = match self.shift_ahead() {
+                Some(shift) => shift,
+                None => match binary_op(symbol) {
+                    Some((precedence, op)) => (precedence, op, 1),
+                    None => break,
+                },
             };
             if precedence < min {
                 break;
@@ -4834,12 +4839,19 @@ fn binary_op(symbol: &str) -> Option<(u8, BinaryOp)> {
         "<=" => (4, BinaryOp::LessEqual),
         ">" => (4, BinaryOp::Greater),
         ">=" => (4, BinaryOp::GreaterEqual),
-        "+" => (5, BinaryOp::Add),
-        "-" => (5, BinaryOp::Subtract),
-        "*" => (6, BinaryOp::Multiply),
-        "/" => (6, BinaryOp::Divide),
-        "~/" => (6, BinaryOp::TruncDivide),
-        "%" => (6, BinaryOp::Remainder),
+        // Precedências 5 a 8 seguem a especificação Dart: `|` liga mais frouxo
+        // que `^`, que liga mais frouxo que `&`, que liga mais frouxo que os
+        // deslocamentos. Todos ligam mais frouxo que `+`/`-`.
+        "|" => (5, BinaryOp::BitOr),
+        "^" => (6, BinaryOp::BitXor),
+        "&" => (7, BinaryOp::BitAnd),
+        "<<" => (8, BinaryOp::ShiftLeft),
+        "+" => (9, BinaryOp::Add),
+        "-" => (9, BinaryOp::Subtract),
+        "*" => (10, BinaryOp::Multiply),
+        "/" => (10, BinaryOp::Divide),
+        "~/" => (10, BinaryOp::TruncDivide),
+        "%" => (10, BinaryOp::Remainder),
         _ => return None,
     })
 }
