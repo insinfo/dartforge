@@ -558,6 +558,15 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         }
 
         ExprKind::Record { .. } => return Err(error(value.span, "records")),
+        // Ler e escrever o alvo no meio de uma expressão exige um temporário e a
+        // ordem exata de leitura/escrita; a instrução `i++` de laço continua
+        // aceita porque chega como atribuição, não como esta forma.
+        ExprKind::Increment { .. } => {
+            return Err(error(
+                value.span,
+                "incremento e decremento como expressão (`x++`, `++x`)",
+            ));
+        }
         ExprKind::Conditional {
             condition,
             then_value,

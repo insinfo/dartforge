@@ -1400,6 +1400,72 @@ mod tests {
         }
     }
 
+    /// Prefixos comuns são aceitos e `deferred as` tem diagnóstico próprio.
+    #[test]
+    fn plain_prefix_is_accepted_and_deferred_is_named() {
+        let fixture = Fixture::new();
+        let source = "import 'lib.dart' as p; void main(){}";
+        let entry = fixture.write("main.dart", source);
+        fixture.write("lib.dart", "int valor() => 1;");
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units[0].imports[0].prefix.as_deref(), Some("p"));
+        let deferred = "import 'lib.dart' deferred as p; void main(){}";
+        fixture.write("main.dart", deferred);
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.message,
+            "carregamento diferido não é suportado: remova deferred, a biblioteca importada é ligada estaticamente"
+        );
+        let start = deferred.find("deferred").unwrap();
+        assert_eq!(
+            error.span,
+            Some(Span {
+                start,
+                end: start + "deferred".len()
+            })
+        );
+    }
+
+    /// Bibliotecas dart: ausentes e pacotes ausentes são nomeados no diagnóstico.
+    #[test]
+    fn missing_sdk_library_and_package_are_named() {
+        let fixture = Fixture::new();
+        let source = "import 'dart:typed_data'; void main(){}";
+        let entry = fixture.write("main.dart", source);
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.message,
+            "biblioteca dart:typed_data ainda não existe neste subconjunto; só dart:core, dart:async e dart:ffi são reconhecidas"
+        );
+        assert_eq!(
+            error.span,
+            Some(Span {
+                start: 0,
+                end: "import 'dart:typed_data';".len()
+            })
+        );
+        fixture.write("main.dart", "import 'package:vector_math/vm.dart' as v;");
+        let error = load(&entry).unwrap_err();
+        assert!(
+            error
+                .message
+                .starts_with("pacote vector_math não encontrado"),
+            "{}",
+            error.message
+        );
+        assert!(
+            error.message.contains(".dart_tool/package_config.json")
+                || error.message.contains(".dart_tool\\package_config.json"),
+            "{}",
+            error.message
+        );
+        fixture.write("main.dart", "import 'dart:core' as core;");
+        assert_eq!(
+            load(&entry).unwrap_err().message,
+            "prefixo em biblioteca SDK ainda não suportado fora de dart:ffi"
+        );
+    }
+
     /// A primeira condição verdadeira vence sem abrir alternativas inativas.
     #[test]
     fn conditional_first_match_and_inactive_destinations() {
@@ -1608,7 +1674,9 @@ mod tests {
         let versioned = f.write("old.dart", "// @dart = 2.9\nvoid main(){}");
         assert!(load(&versioned).unwrap_err().message.contains("@dart"));
         let source = f.write("unknown.dart", "import 'package:unknown/a.dart';");
-        assert!(load(&source).unwrap_err().message.contains("desconhecido"));
+        let message = load(&source).unwrap_err().message;
+        assert!(message.contains("pacote unknown não encontrado"), "{message}");
+        assert!(message.contains("package_config.json"), "{message}");
     }
 
     /// Exports e combinadores repetidos preservam sua ordem para o linker.
@@ -1626,11 +1694,17 @@ mod tests {
         for source in [
             "import 'a%20b.dart' show;",
             "export 'a%20b.dart' hide A,;",
-            "import 'a%20b.dart' as p;",
+            "export 'a%20b.dart' as p;",
+            "import 'a%20b.dart' deferred as p;",
         ] {
             f.write("main.dart", source);
-            assert!(load(&entry).is_err());
+            assert!(load(&entry).is_err(), "{source}");
         }
+        // O prefixo é registrado junto dos combinadores, na ordem escrita.
+        f.write("main.dart", "import 'a%20b.dart' as p show A hide B;");
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units[0].imports[0].prefix.as_deref(), Some("p"));
+        assert_eq!(graph.units[0].imports[0].combinators.len(), 2);
     }
     /// IDs seguem largura e ordem textual; diamantes e ciclos reutilizam a unidade.
     #[test]

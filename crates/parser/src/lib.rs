@@ -1335,6 +1335,7 @@ impl<'a> Cursor<'_, 'a> {
         self.class_type_parameters = previous_class_params;
         self.class_type_bounds = previous_class_bounds;
         Ok(Class {
+            mixin_constraint,
             factories,
             constructor,
             constructor_extras,
@@ -1584,6 +1585,7 @@ impl<'a> Cursor<'_, 'a> {
             return Err(self.error("enum arguments and fields require a const constructor"));
         }
         Ok(Class {
+            mixin_constraint: None,
             factories: Vec::new(),
             constructor: None,
             constructor_extras: None,
@@ -5600,6 +5602,7 @@ fn starts_global_variable(tokens: &[Token<'_>], start: usize) -> bool {
 /// declaração nunca colide com uma classe do usuário nem vira um tipo.
 fn globals_class<'a>(id: u32, static_fields: Vec<StaticField<'a>>, span: Span) -> Class<'a> {
     Class {
+        mixin_constraint: None,
         factories: vec![],
         constructor: None,
         constructor_extras: None,

@@ -15,6 +15,24 @@ struct Symbol {
     owner: usize,
     class_id: Option<u32>,
 }
+/// Nome alcançável somente por um prefixo de import, com a origem já resolvida.
+///
+/// Os nomes de uma biblioteca ficam num `Vec` ordenado por `(prefixo, nome)` e
+/// são consultados por busca binária. Um mapa por prefixo por arquivo alocaria
+/// no caminho quente da resolução de namespaces sem ganho mensurável: os
+/// arquivos reais têm poucos prefixos, e o vetor de um programa sem prefixo
+/// nenhum não aloca.
+struct Prefixed<'a> {
+    /// Prefixo declarado na diretiva, sem o ponto.
+    prefix: &'a str,
+    /// Nome exportado pela biblioteca importada.
+    name: &'a str,
+    /// Origem já resolvida, inclusive por reexport transitivo.
+    symbol: Symbol,
+    /// Intervalo da diretiva que trouxe o nome, para o diagnóstico de ambiguidade.
+    span: Span,
+}
+
 /// Metadados imutáveis usados para verificar resolução antes da renomeação.
 struct ClassNames<'a> {
     supports_implicit_members: bool,
