@@ -176,6 +176,56 @@ tamanho foi introduzido, e o teste que prova isso roda também pelo caminho novo
 | acerto de cache (mediana) | 1,22 ms | **0,40 ms** |
 | acerto de cache (alocações) | 1.064 | **124** |
 
+## Quinta correção: cache em disco para o processo novo
+
+Dos quatro cenários da tabela acima, "nova execução, com cache em disco" não
+existia: um processo novo refazia tudo. `DiskCache` grava um registro por
+(entrada, opções, alvo) e o consulta **antes** do carregador de grafo — o
+registro já sabe quais arquivos abrir e com o que compará-los, então dispensa
+até a descoberta.
+
+O registro guarda as **fontes inteiras**, não uma impressão digital. A
+verificação do projeto é por conteúdo exato, e num processo novo manter essa
+garantia exige ter com o que comparar. Um hash criptográfico encolheria o
+arquivo, mas trocaria uma garantia demonstrável por uma probabilística; se o
+custo em disco virar problema medido, essa troca se discute como mudança de
+contrato, não se introduz em silêncio.
+
+| | Compilação fria | Acerto em disco |
+| --- | --- | --- |
+| **alocações por compilação** | **16.716** | **87** |
+| registro gravado | — | 113.538 bytes para ~38 KB de fontes |
+
+A comparação honesta aqui é a de alocações: **192× menos trabalho**. Os tempos
+medidos nesta rodada ficaram entre 2,7 ms e 11 ms, mas a máquina tinha quatro
+agentes compilando em paralelo; a compilação fria, que não mudou, foi medida em
+9,88 ms contra os 5,17 ms de uma rodada silenciosa, com as **mesmas 16.716
+alocações**. Isso é exatamente o motivo de o projeto medir alocações: elas não
+dependem da carga da máquina, e teriam denunciado uma regressão real que a
+mediana esconderia.
+
+Dois defeitos que os testes pegaram e que seriam invisíveis em produção:
+
+1. A gravação usava o caminho canônico como chave e a leitura o caminho cru. No
+   Windows os dois diferem no prefixo `\?\`, o que produziria uma falta de
+   cache permanente e silenciosa — o cache pareceria existir e nunca acertaria.
+2. O nome do registro não incluía as opções, então compilar com `--optimize`
+   apagava o registro da compilação sem otimização. Alternar entre as duas
+   nunca acertaria.
+
+## Formas de corpus
+
+O corpus deixou de ser só um leque plano de bibliotecas de funções, porque essa
+forma esconde dois custos reais: a descoberta em profundidade, sequencial por
+natureza, e a análise de classes, onde está o trabalho de código Dart de
+verdade.
+
+| Forma | O que exercita |
+| --- | --- |
+| plano | 24 bibliotecas importadas pela entrada; paralelismo por unidade |
+| profundo | cadeia em que cada biblioteca importa a anterior; descoberta sequencial |
+| classes | classes, campos, métodos, herança com `super` e interpolação |
+
 ## Onde o ganho aparece para quem usa
 
 Dois comandos expõem o trabalho acima:

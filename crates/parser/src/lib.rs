@@ -691,6 +691,15 @@ impl<'a> Cursor<'_, 'a> {
             Some(TokenKind::Word("Timer")) if !self.class_ids.contains_key("Timer") => Type::Timer,
             Some(TokenKind::Word("Null")) => Type::Null,
             Some(TokenKind::Word("void")) => Type::Void,
+            // `dynamic` é recusado de propósito, e não por falta de trabalho:
+            // implementá-lo pela metade é pior do que não tê-lo. Um único
+            // receptor dinâmico desliga o tree shaking de membros e obriga o
+            // runtime a preservar todo método de mesmo nome do programa.
+            Some(TokenKind::Word("dynamic")) => {
+                return Err(self.error(
+                    "dynamic is unsupported: this subset resolves every member statically, and dynamic dispatch would disable tree shaking and force the runtime to keep every same-named member; use an explicit type, Object or Object?",
+                ));
+            }
             Some(TokenKind::Word("Map")) => {
                 self.index += 1;
                 self.expect(TokenKind::Operator("<"))?;
@@ -1060,13 +1069,30 @@ impl<'a> Cursor<'_, 'a> {
                 continue;
             }
             let field_start = self.position();
+            // `set nome(T v)` sem tipo de retorno escrito: a leitura do tipo
+            // precisa ser evitada porque `set` não é um tipo.
+            if self.peek() == Some(TokenKind::Word("set")) {
+                methods.push(self.instance_setter(field_start, Type::Void, metadata, native)?);
+                continue;
+            }
             let is_final = self.take(TokenKind::Word("final"));
             let ty = self.ty(!is_final)?;
             if self.peek() == Some(TokenKind::Word("operator")) {
-                return Err(self.error("operator declarations are not supported yet"));
+                if is_final {
+                    return Err(self.error("final methods are not supported"));
+                }
+                methods.push(self.equality_operator(field_start, ty, metadata, native)?);
+                continue;
             }
             if self.peek() == Some(TokenKind::Word("set")) {
-                return Err(self.error("instance setters are not supported yet"));
+                if is_final {
+                    return Err(self.error("final methods are not supported"));
+                }
+                if ty != Type::Void {
+                    return Err(self.error("a setter declares no return type or 'void'"));
+                }
+                methods.push(self.instance_setter(field_start, ty, metadata, native)?);
+                continue;
             }
             let getter = self.take(TokenKind::Word("get"));
             let field_name = self.name()?;
@@ -2062,6 +2088,142 @@ impl<'a> Cursor<'_, 'a> {
             is_getter: false,
             annotations: Vec::new(),
             native_binding: None,
+        })
+    }
+    /// Lê o corpo em bloco ou em flecha de um acessor ou de `operator ==`.
+    ///
+    /// Reproduz a regra de descarte do corpo em flecha: com retorno `void`, o
+    /// valor é avaliado e descartado, como em `void f() => 42` no Dart 3.6.2.
+    ///
+    /// # Erros
+    /// Recusa corpo assíncrono e assinatura abstrata terminada por `;`.
+    fn member_body(&mut self, return_type: Type) -> Result<(bool, Vec<Statement<'a>>), Diagnostic> {
+        if self.peek() == Some(TokenKind::Word("async")) {
+            return Err(self.error("setters and operator == cannot be async in this subset"));
+        }
+        if self.peek() == Some(TokenKind::Symbol(';')) {
+            return Err(self.error("abstract setters and operator declarations are not supported yet"));
+        }
+        if !self.take(TokenKind::Operator("=>")) {
+            return Ok((false, self.block(0)?));
+        }
+        let start = self.position();
+        let value = self.expression()?;
+        self.expect(TokenKind::Symbol(';'))?;
+        let span = Span {
+            start,
+            end: self.end(),
+        };
+        let body = if return_type == Type::Void {
+            vec![
+                Statement {
+                    kind: StatementKind::Expression(value),
+                    span,
+                },
+                Statement {
+                    kind: StatementKind::Return(None),
+                    span,
+                },
+            ]
+        } else {
+            vec![Statement {
+                kind: StatementKind::Return(Some(value)),
+                span,
+            }]
+        };
+        Ok((true, body))
+    }
+    /// Lê `set nome(T valor)` e devolve o acessor com um único parâmetro.
+    ///
+    /// O setter viaja em `Class::methods` marcado por `is_getter` com um
+    /// parâmetro; a nota de [`dartforge_syntax::Function::is_getter`] explica
+    /// por que a marca não é um campo novo da árvore.
+    ///
+    /// # Erros
+    /// Recusa `@Native`, aridade diferente de um posicional obrigatório e as
+    /// formas de corpo que [`Cursor::member_body`] já rejeita.
+    fn instance_setter(
+        &mut self,
+        start: usize,
+        return_type: Type,
+        annotations: Vec<Annotation>,
+        native: Option<NativeBinding<'a>>,
+    ) -> Result<Function<'a>, Diagnostic> {
+        if native.is_some() {
+            return Err(self.error("Native is supported only on top-level functions"));
+        }
+        self.expect(TokenKind::Word("set"))?;
+        let name = self.name()?;
+        let parameters = self.parameter_list()?;
+        if parameters.len() != 1 || parameters[0].kind != ParameterKind::RequiredPositional {
+            return Err(Diagnostic::new(
+                "a setter takes exactly one required positional parameter",
+                Span {
+                    start,
+                    end: self.end(),
+                },
+            ));
+        }
+        let (is_arrow, body) = self.member_body(return_type)?;
+        Ok(Function {
+            is_arrow,
+            is_async: false,
+            annotations,
+            native_binding: None,
+            type_parameters: Vec::new(),
+            is_getter: true,
+            name,
+            return_type,
+            parameters,
+            body,
+            span: Span {
+                start,
+                end: self.end(),
+            },
+        })
+    }
+    /// Lê `operator ==(Object outro)`, o único operador declarável do subconjunto.
+    ///
+    /// O nome interno passa a ser `==`, que nenhum identificador Dart pode ter:
+    /// a declaração atravessa linker, otimizadores e emissão como um método
+    /// comum, com herança e contrato de override já validados.
+    ///
+    /// # Erros
+    /// Recusa qualquer outro operador com o intervalo do símbolo escrito.
+    fn equality_operator(
+        &mut self,
+        start: usize,
+        return_type: Type,
+        annotations: Vec<Annotation>,
+        native: Option<NativeBinding<'a>>,
+    ) -> Result<Function<'a>, Diagnostic> {
+        if native.is_some() {
+            return Err(self.error("Native is supported only on top-level functions"));
+        }
+        self.expect(TokenKind::Word("operator"))?;
+        if self.peek() != Some(TokenKind::Operator("==")) {
+            return Err(self.error(
+                "only 'operator ==' is supported; other operator declarations are not supported yet",
+            ));
+        }
+        self.index += 1;
+        let parameters = self.parameter_list()?;
+        let (is_arrow, body) = self.member_body(return_type)?;
+        Ok(Function {
+            is_arrow,
+            is_async: false,
+            annotations,
+            native_binding: None,
+            type_parameters: Vec::new(),
+            is_getter: false,
+            name: dartforge_syntax::EQUALS_OPERATOR,
+            return_type,
+            parameters,
+            body,
+            span: Span {
+                start,
+                end: self.end(),
+            },
         })
     }
     /// Distingue assinatura abstrata terminada por ponto e vírgula de corpo concreto.

@@ -1,6 +1,8 @@
 //! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript e LLVM IR.
 use dartforge_diagnostics::Diagnostic;
+mod disk;
 mod session;
+pub use disk::{CachedCompilation, DiskCache};
 pub use dartforge_linker::LinkStats;
 pub use dartforge_macros::{MacroCacheStats, MacroSession};
 pub use dartforge_packages::{CompilationEnvironment, CompilationTarget};

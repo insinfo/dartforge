@@ -190,6 +190,13 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
             }
             scan_exponent(bytes, &mut i);
             TokenKind::Number(&source[start..i])
+        } else if bytes.get(i..i + 4) == Some(b"...?") {
+            // Espalhamento null-aware: precisa vir antes de `...` e de `..`.
+            i += 4;
+            TokenKind::Operator(&source[start..i])
+        } else if bytes.get(i..i + 3) == Some(b"...") {
+            i += 3;
+            TokenKind::Operator(&source[start..i])
         } else if bytes.get(i..i + 3) == Some(b"?..") {
             i += 3;
             TokenKind::Operator(&source[start..i])
@@ -216,11 +223,12 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
                     | b"-="
                     | b"*="
                     | b"~/"
+                    | b"<<"
             )
         ) {
             i += 2;
             TokenKind::Operator(&source[start..i])
-        } else if b"=+-*!<>?%/".contains(&b) {
+        } else if b"=+-*!<>?%/&|^~".contains(&b) {
             i += 1;
             TokenKind::Operator(&source[start..i])
         } else {

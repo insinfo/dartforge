@@ -8,7 +8,7 @@
 //! Estes números descrevem o DartForge comparado a si mesmo. Não são comparação
 //! com DDC ou dart2js: aquela exige programas semanticamente equivalentes e está
 //! registrada separadamente em docs/BENCHMARKS.md.
-use dartforge_compiler::{CompilerSession, Optimization, compile_path_with_report};
+use dartforge_compiler::{CompilerSession, DiskCache, Optimization, compile_path_with_report};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -404,9 +404,37 @@ fn main() {
         corpus.write("main.dart", &entry);
     });
 
+    // Cenário "nova execução": processo sem nada em memória, registro em disco.
+    // Cada amostra cria uma sessão nova, que é o que torna o acerto atribuível
+    // exclusivamente ao disco.
+    let cache_dir = corpus.0.join(".dartforge-cache");
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    CompilerSession::new()
+        .with_disk_cache(DiskCache::new(&cache_dir))
+        .compile_path(&entry, Optimization::None)
+        .expect("gravação do registro em disco");
+    let mut disco_bytes = 0u64;
+    let disco = measure(
+        || {
+            let compilation = CompilerSession::new()
+                .with_disk_cache(DiskCache::new(&cache_dir))
+                .compile_path(&entry, Optimization::None)
+                .expect("leitura do registro em disco");
+            assert!(compilation.report.cache_hit, "registro deveria ter acertado");
+        },
+        samples,
+    );
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        disco_bytes = entries
+            .filter_map(|e| e.ok()?.metadata().ok())
+            .map(|m| m.len())
+            .sum();
+    }
+
     let output = json!({
         "corpus": {"libraries": libraries, "functions_per_library": functions, "samples": samples},
         "formas": formas,
+        "disco": {"timing": disco, "registro_bytes": disco_bytes},
         "frio": {"timing": cold, "last_request": cold_report},
         "sem_edicao": {"timing": warm, "last_request": warm_report},
         "comentario": comment,

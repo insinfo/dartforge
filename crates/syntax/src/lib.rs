@@ -95,6 +95,8 @@ pub enum TypeShape {
     /// Nulabilidade estrutural normalizada durante a substituição genérica.
     Nullable(Type),
     List(Type),
+    /// Conjunto com ordem de inserção preservada, como o `LinkedHashSet` padrão de Dart.
+    Set(Type),
     Iterable(Type),
     Function {
         result: Type,
@@ -122,6 +124,18 @@ pub enum BinaryOp {
     Or,
     /// Seleciona o operando direito somente quando o esquerdo é null.
     IfNull,
+    /// `&` bit a bit sobre a representação de 32 bits do alvo web.
+    BitAnd,
+    /// `|` bit a bit sobre a representação de 32 bits do alvo web.
+    BitOr,
+    /// `^` bit a bit sobre a representação de 32 bits do alvo web.
+    BitXor,
+    /// `<<` com contagem validada; contagem negativa lança, como em Dart.
+    ShiftLeft,
+    /// `>>` aritmético, preservando o sinal do operando esquerdo.
+    ShiftRight,
+    /// `>>>` lógico, disponível a partir de Dart 2.14.
+    ShiftRightUnsigned,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Operação prefixa ou asserção pós-fixa com um único operando.
@@ -130,6 +144,8 @@ pub enum UnaryOp {
     Not,
     /// Asserção pós-fixa de valor não nulo.
     NullAssert,
+    /// `~`: complemento de um sobre a representação de 32 bits do alvo web.
+    BitNot,
 }
 #[derive(Debug, Clone)]
 /// Expressão acompanhada do intervalo de origem.
@@ -174,11 +190,61 @@ pub enum ExprKind<'a> {
         parts: Vec<(DurationUnit, Expr<'a>)>,
     },
     /// Literal de mapa que preserva a ordem de avaliação das entradas.
+    ///
+    /// Uma entrada comum guarda `(chave, Some(valor))`. Os elementos de
+    /// controle — `...`, `...?`, `if` e `for` — guardam `(elemento, None)`
+    /// porque produzem zero ou mais entradas e não têm chave própria.
     Map {
         key_type: Option<Type>,
         value_type: Option<Type>,
-        entries: Vec<(Expr<'a>, Expr<'a>)>,
+        entries: Vec<(Expr<'a>, Option<Expr<'a>>)>,
     },
+    /// Literal de conjunto, com ordem de inserção preservada como em Dart.
+    ///
+    /// `{}` sem contexto é um mapa vazio; só `<T>{}` ou um contexto `Set<T>`
+    /// produzem esta forma vazia, como nos SDKs 3.6.2 e 3.13.4.
+    Set {
+        element_type: Option<Type>,
+        elements: Vec<Expr<'a>>,
+    },
+    /// Espalhamento `...operando` ou `...?operando` num literal de coleção.
+    ///
+    /// O operando é avaliado exatamente uma vez. Com `null_aware`, um operando
+    /// null não acrescenta nada; sem ele, a análise exige operando não anulável.
+    Spread {
+        operand: Box<Expr<'a>>,
+        null_aware: bool,
+    },
+    /// Elemento condicional `if (cond) a` ou `if (cond) a else b` de coleção.
+    ///
+    /// Apenas um dos ramos é avaliado; sem `else`, a condição falsa não
+    /// acrescenta nada. O `else` liga-se sempre ao `if` mais interno.
+    CollectionIf {
+        condition: Box<Expr<'a>>,
+        then_element: Box<Expr<'a>>,
+        else_element: Option<Box<Expr<'a>>>,
+    },
+    /// Elemento repetido `for (...) elemento` de um literal de coleção.
+    ///
+    /// `header` é um `StatementKind::For` ou `StatementKind::ForIn` de corpo
+    /// vazio: o elemento fica em `element` porque produz valores, não
+    /// instruções. Assim a análise e a emissão reaproveitam o cabeçalho do laço.
+    CollectionFor {
+        header: Box<Statement<'a>>,
+        element: Box<Expr<'a>>,
+    },
+    /// Cadeia null-aware `?.`/`?[`: curto-circuita todos os seletores seguintes.
+    ///
+    /// O receptor é avaliado exatamente uma vez e, quando é null, nenhum
+    /// seletor da cadeia executa e o valor é null. `chain` é construída sobre
+    /// `NullShortTarget`, o receptor sintético da cadeia — o mesmo desenho de
+    /// `Cascade`/`CascadeReceiver`. O tipo resultante é sempre anulável.
+    NullShort {
+        receiver: Box<Expr<'a>>,
+        chain: Box<Expr<'a>>,
+    },
+    /// Receptor sintético da cadeia null-aware envolvente; span do operador.
+    NullShortTarget,
     /// Invocação de fábrica nomeada, validada separadamente dos membros de instância.
     NamedConstruct {
         class_id: u32,
@@ -542,12 +608,71 @@ pub struct Function<'a> {
     pub annotations: Vec<Annotation>,
     pub native_binding: Option<NativeBinding<'a>>,
     pub type_parameters: Vec<GenericParameter<'a>>,
+    /// Marca um **acessor** de propriedade, não apenas um getter.
+    ///
+    /// Sem parâmetros é o getter `T get nome`; com exatamente um parâmetro e
+    /// retorno `void` é o setter `set nome(T valor)`. A distinção fica na
+    /// forma da assinatura, e não num campo novo, porque um setter precisa
+    /// viajar dentro de [`Class::methods`]: é essa lista que o linker percorre
+    /// para renomear membros privados e remapear spans entre bibliotecas. Uma
+    /// lista paralela ficaria invisível para ele e produziria nomes e spans
+    /// errados em programas com mais de uma biblioteca.
+    ///
+    /// A combinação "acessor com um parâmetro" era impossível antes: a análise
+    /// semântica rejeitava getters com parâmetros. [`Function::is_setter`] e
+    /// [`Function::is_property_getter`] leem a marca sem repetir a regra.
     pub is_getter: bool,
+    /// Nome declarado; `==` identifica a declaração `operator ==`.
+    ///
+    /// Nenhum identificador Dart pode ser `==`, então o nome do operador não
+    /// colide com membro algum e atravessa linker, otimizadores e emissão como
+    /// um método comum, herança e contratos de override inclusive.
     pub name: &'a str,
     pub return_type: Type,
     pub parameters: Vec<Parameter<'a>>,
     pub body: Vec<Statement<'a>>,
     pub span: Span,
+}
+/// Nome interno da declaração `operator ==`.
+///
+/// # Exemplos
+/// ```
+/// assert_eq!(dartforge_syntax::EQUALS_OPERATOR, "==");
+/// ```
+pub const EQUALS_OPERATOR: &str = "==";
+impl Function<'_> {
+    /// Indica se a declaração é o setter `set nome(T valor)`.
+    ///
+    /// # Exemplos
+    /// ```
+    /// use dartforge_syntax::{Function, Parameter, Type};
+    /// use dartforge_diagnostics::Span;
+    /// let span = Span { start: 0, end: 1 };
+    /// let mut f = Function {
+    ///     is_arrow: false, is_async: false, annotations: vec![], native_binding: None,
+    ///     type_parameters: vec![], is_getter: true, name: "x", return_type: Type::Void,
+    ///     parameters: vec![Parameter::required("v", Type::Int, span)], body: vec![], span,
+    /// };
+    /// assert!(f.is_setter());
+    /// assert!(!f.is_property_getter());
+    /// f.parameters.clear();
+    /// f.return_type = Type::Int;
+    /// assert!(f.is_property_getter());
+    /// ```
+    #[must_use]
+    pub fn is_setter(&self) -> bool {
+        self.is_getter && self.parameters.len() == 1
+    }
+    /// Indica se a declaração é o getter `T get nome`, sem parâmetros.
+    #[must_use]
+    pub fn is_property_getter(&self) -> bool {
+        self.is_getter && self.parameters.is_empty()
+    }
+    /// Indica se a declaração é `operator ==`.
+    #[must_use]
+    pub fn is_equals_operator(&self) -> bool {
+        self.name == EQUALS_OPERATOR
+    }
 }
 /// Parâmetro genérico com limite explícito; o limite omitido é Object?.
 #[derive(Debug, Clone)]
@@ -856,6 +981,12 @@ pub struct Resolution {
     pub global_accesses: std::collections::BTreeSet<(usize, usize)>,
     /// Leituras de getters resolvidas estaticamente.
     pub getter_accesses: std::collections::BTreeSet<(usize, usize)>,
+    /// Comparações `==`/`!=` que precisam do despacho de `operator ==`.
+    ///
+    /// Vazio em todo programa que não declara operador algum, e é isso que
+    /// mantém a igualdade de escalares como `===` do JavaScript: só as
+    /// comparações registradas aqui pagam a chamada de runtime.
+    pub equality_operators: std::collections::BTreeSet<(usize, usize)>,
     /// Formas originais seguidas das formas inferidas durante a análise.
     pub types: Vec<TypeShape>,
     /// Tipo resolvido de cada expressão, inclusive closures e tear-offs.

@@ -46,6 +46,7 @@ pub struct CompilerSession {
     macros: MacroSession,
     cached: Option<Cached>,
     max_payload_bytes: usize,
+    disk: Option<crate::DiskCache>,
 }
 
 /// Snapshot integral e opção que produziram a saída armazenada.
@@ -83,7 +84,25 @@ impl CompilerSession {
             macros: MacroSession::with_limits(256, (max_payload_bytes / 4).min(1024 * 1024)),
             cached: None,
             max_payload_bytes,
+            disk: None,
         }
+    }
+
+    /// Liga o cache em disco, que sobrevive ao encerramento do processo.
+    ///
+    /// Cobre o cenário "nova execução": o processo começa sem nada em memória e
+    /// ainda assim dispensa o front-end quando nenhuma fonte mudou. A validação
+    /// continua sendo por conteúdo exato — o registro guarda as fontes e as
+    /// relê para comparar —, então nenhuma garantia é afrouxada.
+    ///
+    /// ```no_run
+    /// use dartforge_compiler::{CompilerSession, DiskCache};
+    /// let cache = DiskCache::new(std::path::Path::new(".dart_tool/dartforge"));
+    /// let _sessao = CompilerSession::new().with_disk_cache(cache);
+    /// ```
+    pub fn with_disk_cache(mut self, cache: crate::DiskCache) -> Self {
+        self.disk = Some(cache);
+        self
     }
 
     /// Descarta o snapshot e a referência da sessão à saída anterior.
@@ -158,6 +177,34 @@ impl CompilerSession {
             self.macros.clear();
             return Err(error);
         }
+        // Sem entrada em memória, o disco pode dispensar até a descoberta do
+        // grafo: o registro sabe exatamente quais arquivos ler e com o que
+        // compará-los. É por isso que esta verificação vem antes do carregador.
+        if previous.is_none()
+            && let Some(disk) = &self.disk
+            && let Some(hit) = disk.load(path, options, &format!("{:?}", environment.target()))
+        {
+            return Ok(Compilation {
+                javascript: hit.javascript.into(),
+                stats: SessionStats {
+                    macro_plan_hits: 0,
+                    macro_plan_misses: 0,
+                    cache_hit: true,
+                    source_units_loaded: hit.units,
+                    compiled_units: 0,
+                },
+                report: CompileReport {
+                    load_ns: load.elapsed().as_nanos(),
+                    link: LinkStats {
+                        units: hit.units,
+                        source_bytes: hit.source_bytes,
+                        ..LinkStats::default()
+                    },
+                    total_ns: total.elapsed().as_nanos(),
+                    cache_hit: true,
+                },
+            });
+        }
         // Caminho interativo: com um grafo anterior, relê os arquivos conhecidos
         // em paralelo e reaproveita a estrutura quando só os corpos mudaram.
         // A comparação continua sendo por conteúdo exato, nunca por mtime.
@@ -210,6 +257,15 @@ impl CompilerSession {
                     return Err(error);
                 }
             };
+        if let Some(disk) = &self.disk {
+            disk.store(
+                path,
+                options,
+                &format!("{:?}", environment.target()),
+                &graph,
+                &javascript,
+            );
+        }
         let after = self.macros.stats();
         if payload_bytes(&graph)
             .saturating_add(javascript.len())
