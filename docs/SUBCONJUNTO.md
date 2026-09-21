@@ -383,3 +383,52 @@ como `null`, para que os backends não discordem em silêncio.
 
 O contrato completo, cada mensagem exata e a medição de desempenho estão em
 [TIPOS.md](TIPOS.md).
+
+## Lacunas fechadas contra o pacote `pdf` 3.13.1
+
+Sete construções que a aferição de [CORPUS-REAL.md](CORPUS-REAL.md) contou
+contra 179 arquivos de Dart de produção passaram a ser aceitas.
+
+`const` e `static const` **sem anotação de tipo** tomam o tipo do inicializador
+constante, decidido sintaticamente: literais, operadores constantes sobre eles,
+literais de coleção com tipo de elemento escrito ou uniforme, invocações de
+construtor e referências a `const` declarados antes. O tipo deduzido é um tipo de
+verdade, não `dynamic`.
+
+**Anotações em parâmetro** são aceitas com a mesma lista das declarações:
+`Deprecated` e os metadados sem efeito semântico de `package:meta`. `@pragma`
+continua com diagnóstico próprio, porque dirige o compilador e aceitá-la em
+silêncio prometeria honrar uma diretiva que não é lida. `factory` também aceita
+essa lista, o que substitui a recusa anterior de qualquer metadado em fábrica.
+
+**`mixin M on Base`** é aceito: dentro do corpo os membros de `Base` estão
+visíveis, `M` é subtipo de `Base` e a aplicação só vale onde `Base` está na
+cadeia de superclasses — `implements Base` não satisfaz a restrição. Uma única
+restrição por mixin; várias exigiriam um tipo de interseção sintetizado.
+
+**`assert` na lista de inicialização** roda antes do corpo e antes de `super`, e
+divide a lista com as entradas `campo = valor` na ordem escrita. A mensagem
+diverge da do SDK — `Failed assertion: is not true.` contra a do Dart, com
+arquivo, linha e texto da condição — e a asserção é sempre emitida, enquanto
+`dart run` só a executa com `--enable-asserts`.
+
+**Construtores redirecionadores** existem nas duas formas, `C.nomeado() :
+this(0);` e `factory C.x() = Outra;`. Um redirecionador delega inteiramente: não
+executa corpo próprio, não inicializa campo algum, não chama `super` e não aceita
+formal `this.campo`. `const` redirecionador permanece recusado, e é o único
+desses limites que o Dart não tem.
+
+**Incremento e decremento em posição de expressão** — `a[i++]`, `x = y++`,
+`a[--d]`, `a[e++] = 99` — valem sobre um nome simples de tipo numérico e
+gravável. `a[i++]` avalia `i` uma única vez e indexa com o valor **anterior**.
+Alvo composto, `final`, `late` e propriedade só com setter são recusados com a
+alternativa escrita na mensagem.
+
+O limite de complexidade de expressão foi **separado em dois**: `MAX_DEPTH`
+continua em 64 e é o que protege a pilha, contando a profundidade da árvore
+inclusive nas cadeias associativas à esquerda; `MAX_EXPR_NODES` é só um teto de
+tamanho e subiu de 128 para 65.536, porque `const List<double>` com 255 elementos
+é código real, largo e de profundidade 1.
+
+O contrato completo, cada mensagem exata e os limites que permanecem estão em
+[LACUNAS.md](LACUNAS.md).

@@ -198,19 +198,34 @@ fn privado_nao_atravessa_nem_com_prefixo() {
 #[test]
 fn prefixo_sem_ponto_e_recusado() {
     let fonte = "import 'a.dart' as p; void main() { print(p); }";
-    let fixture = Fixture::new(&[("main.dart", fonte), ("a.dart", "int valor() { return 1; }")]);
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "int valor() { return 1; }"),
+    ]);
     let error = compile_path(&fixture.entry(), Optimization::None).unwrap_err();
-    assert_eq!(error.message, "prefixo de import p exige um nome: use p.nome");
+    assert_eq!(
+        error.message,
+        "prefixo de import p exige um nome: use p.nome"
+    );
     // O intervalo é o do identificador sozinho, não o da chamada que o contém.
     let start = fonte.find("print(p)").expect("chamada") + "print(".len();
-    assert_eq!(error.span, Some(Span { start, end: start + 1 }));
+    assert_eq!(
+        error.span,
+        Some(Span {
+            start,
+            end: start + 1
+        })
+    );
 }
 
 /// Um nome de topo com o mesmo texto de um prefixo não pode ser confundido com ele.
 #[test]
 fn nome_de_topo_nao_se_confunde_com_prefixo() {
     let fonte = "import 'a.dart' as p; int p() { return 0; } void main() { print(p()); }";
-    let fixture = Fixture::new(&[("main.dart", fonte), ("a.dart", "int valor() { return 1; }")]);
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "int valor() { return 1; }"),
+    ]);
     rejeita(
         &fixture,
         "main.dart",
@@ -224,7 +239,10 @@ fn nome_de_topo_nao_se_confunde_com_prefixo() {
 #[test]
 fn deferred_as_tem_diagnostico_proprio() {
     let fonte = "import 'a.dart' deferred as p; void main() { print(p.valor()); }";
-    let fixture = Fixture::new(&[("main.dart", fonte), ("a.dart", "int valor() { return 1; }")]);
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "int valor() { return 1; }"),
+    ]);
     rejeita(
         &fixture,
         "main.dart",
@@ -275,7 +293,9 @@ fn pacote_ausente_nomeia_pacote_e_caminho() {
         .to_string();
     assert_eq!(
         error.message,
-        format!("pacote vector_math não encontrado na configuração de pacotes consultada: {consultado}")
+        format!(
+            "pacote vector_math não encontrado na configuração de pacotes consultada: {consultado}"
+        )
     );
     assert_eq!(
         error.span,
@@ -365,7 +385,10 @@ fn parte_compartilha_o_prefixo_do_declarante() {
 #[test]
 fn nome_com_prefixo_nao_e_alcancavel_sem_ele() {
     let fonte = "import 'a.dart' as p; void main() { print(valor()); }";
-    let fixture = Fixture::new(&[("main.dart", fonte), ("a.dart", "int valor() { return 1; }")]);
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "int valor() { return 1; }"),
+    ]);
     rejeita(
         &fixture,
         "main.dart",
@@ -389,6 +412,124 @@ fn prefixado_e_nao_prefixado_coexistem() {
     assert!(javascript(&fixture).contains("export function main"));
 }
 
+/// Campo estático constante e valor de enum resolvem através do prefixo.
+///
+/// As três formas que o código de produção mistura na mesma linha aparecem juntas:
+/// `p.Tipo` num parâmetro, `p.Classe.CONSTANTE` e `p.Enum.valor`.
+#[test]
+fn constante_estatica_e_valor_de_enum_com_prefixo_resolvem() {
+    let fixture = Fixture::new(&[
+        (
+            "main.dart",
+            "import 'limites.dart' as lim; \
+             int codigo(lim.Cor cor) { return lim.Limites.maximo; } \
+             void main() { print(codigo(lim.Cor.azul)); }",
+        ),
+        (
+            "limites.dart",
+            "class Limites { static const int maximo = 99; } enum Cor { vermelho, azul }",
+        ),
+    ]);
+    assert!(javascript(&fixture).contains("export function main"));
+}
+
+/// `p.Classe` fora de posição de tipo é recusado nomeando o que ele é.
+#[test]
+fn classe_com_prefixo_nao_e_valor() {
+    let fonte = "import 'imagem.dart' as im; void main() { print(im.Image); }";
+    let fixture = Fixture::new(&[("main.dart", fonte), ("imagem.dart", IMAGEM)]);
+    rejeita(
+        &fixture,
+        "main.dart",
+        fonte,
+        "im.Image é uma classe e não um valor",
+        "im.Image",
+    );
+}
+
+/// `export '...' as p;` não existe na gramática de Dart e é recusado na diretiva.
+#[test]
+fn export_com_prefixo_e_recusado() {
+    let fonte = "export 'a.dart' as pz; void main() {}";
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "int valor() { return 1; }"),
+    ]);
+    rejeita(
+        &fixture,
+        "main.dart",
+        fonte,
+        "export não aceita prefixo as: um reexport não cria namespace qualificado",
+        "pz",
+    );
+}
+
+/// A biblioteca ausente é nomeada também sem prefixo: o diagnóstico é da URI.
+#[test]
+fn biblioteca_dart_ausente_e_nomeada_sem_prefixo() {
+    let fonte = "import 'dart:math'; void main() {}";
+    let fixture = Fixture::new(&[("main.dart", fonte)]);
+    rejeita(
+        &fixture,
+        "main.dart",
+        fonte,
+        "biblioteca dart:math ainda não existe neste subconjunto; só dart:core, dart:async e dart:ffi são reconhecidas",
+        "import 'dart:math';",
+    );
+}
+
+/// Prefixo em biblioteca SDK continua restrito a `dart:ffi`.
+#[test]
+fn prefixo_em_biblioteca_sdk_e_restrito() {
+    let fonte = "import 'dart:core' as c; void main() {}";
+    let fixture = Fixture::new(&[("main.dart", fonte)]);
+    rejeita(
+        &fixture,
+        "main.dart",
+        fonte,
+        "prefixo em biblioteca SDK ainda não suportado fora de dart:ffi",
+        "import 'dart:core' as c;",
+    );
+}
+
+/// Limite registrado: variável de topo não é exportada, com ou sem prefixo.
+///
+/// Uma variável de topo vira campo estático de uma classe sintética por unidade e
+/// não entra no índice de declarações, então ela não alcança namespace nenhum. A
+/// constante de produção alcançável por prefixo precisa estar numa classe.
+#[test]
+fn variavel_de_topo_nao_atravessa_o_prefixo() {
+    let fonte = "import 'a.dart' as p; void main() { print(p.MAXIMO); }";
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "const int MAXIMO = 9; int valor() { return 1; }"),
+    ]);
+    rejeita(
+        &fixture,
+        "main.dart",
+        fonte,
+        "nome não exportado pela biblioteca importada com prefixo p: MAXIMO",
+        "p.MAXIMO",
+    );
+}
+
+/// `deferred` é reconhecido antes do `as`, inclusive num `export`.
+#[test]
+fn deferred_em_export_tambem_tem_diagnostico_proprio() {
+    let fonte = "export 'a.dart' deferred as p; void main() {}";
+    let fixture = Fixture::new(&[
+        ("main.dart", fonte),
+        ("a.dart", "int valor() { return 1; }"),
+    ]);
+    rejeita(
+        &fixture,
+        "main.dart",
+        fonte,
+        "carregamento diferido não é suportado: remova deferred, a biblioteca importada é ligada estaticamente",
+        "deferred",
+    );
+}
+
 /// A saída emitida executa com o namespace de cada biblioteca preservado.
 #[test]
 #[ignore = "requer Node.js no PATH"]
@@ -409,4 +550,32 @@ fn prefixos_executam_no_node() {
         ("b.dart", "int daB() { return 32; }"),
     ]);
     assert_eq!(node(&javascript(&fixture)), "12\n0\n9\n42\n");
+}
+
+/// Estático, enum e reexport transitivo por prefixo executam com o valor certo.
+///
+/// Um teste de resolução prova que o front-end aceitou; só a execução prova que o
+/// nome renomeado continua apontando para a declaração da biblioteca de origem.
+#[test]
+#[ignore = "requer Node.js no PATH"]
+fn estaticos_enums_e_reexports_executam_no_node() {
+    let fixture = Fixture::new(&[
+        (
+            "main.dart",
+            "import 'limites.dart' as lim; import 'fachada.dart' as f; \
+             int codigo(lim.Cor cor) { return lim.Limites.maximo; } \
+             void main() { print(codigo(lim.Cor.azul)); \
+             print(f.folha()); print(f.Caixa(5).valor); }",
+        ),
+        (
+            "limites.dart",
+            "class Limites { static const int maximo = 99; } enum Cor { vermelho, azul }",
+        ),
+        ("fachada.dart", "export 'folha.dart' show folha, Caixa;"),
+        (
+            "folha.dart",
+            "int folha() { return 7; } class Caixa { int valor; Caixa(this.valor); }",
+        ),
+    ]);
+    assert_eq!(node(&javascript(&fixture)), "99\n7\n5\n");
 }

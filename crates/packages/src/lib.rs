@@ -129,11 +129,14 @@ impl std::error::Error for GraphError {}
 ///
 /// Retorna erro para arquivos inacessíveis ou não UTF-8, falhas do lexer e
 /// diretivas fora do subconjunto. Aceita show/hide sequenciais e package_config v2.
-/// Aceita dart:core sem filtros, `library`, `part` e `part of`; outras bibliotecas
+/// Aceita metadados antes da primeira diretiva e as três formas de `library`:
+/// `library;`, `library nome;` e `library a.b.c;`, sendo que só as com nome podem
+/// ser alvo de um `part of nome;`. Aceita dart:core sem filtros, `part` e
+/// `part of` por URI ou por nome pontuado; outras bibliotecas
 /// dart: são rejeitadas nomeando a biblioteca ausente, e um `package:` sem entrada
 /// na configuração é rejeitado nomeando o pacote e o arquivo consultado. Prefixos
 /// `as` valem para imports relativos e `package:`; nas bibliotecas SDK só dart:ffi
-/// os aceita, e `deferred as` tem diagnóstico próprio.
+/// os aceita, `export` não aceita prefixo, e `deferred as` tem diagnóstico próprio.
 /// Partes não podem ser importadas nem reivindicadas duas vezes.
 ///
 /// ```no_run
@@ -205,7 +208,12 @@ pub fn load_with_config_and_environment(
         let path = units[current].path.clone();
         let directives = extract(&units[current].source, &path)?;
         units[current].directives_end = directives.end;
-        library_names[current] = directives.library.as_ref().map(|(name, _)| name.clone());
+        // Uma `library;` sem nome não fica registrada como nome: ela existe, mas
+        // não há texto que um `part of nome;` possa casar com ela.
+        library_names[current] = directives
+            .library
+            .as_ref()
+            .and_then(|(name, _)| name.clone());
         if let Role::Part { owner } = roles[current] {
             validate_part(&config, &units, &library_names, current, owner, &directives)?;
             current += 1;
@@ -717,8 +725,12 @@ fn validate_part(
 
 /// Prefixo completo de diretivas de uma unidade, antes de resolver os destinos.
 struct UnitDirectives {
-    /// Nome declarado por `library nome;`, consultado por `part of nome;`.
-    library: Option<(String, Span)>,
+    /// Diretiva `library` presente, com o nome quando ela declara um.
+    ///
+    /// `None` no lugar do nome é `library;` sem nome, a forma que Dart 2.19
+    /// introduziu e que os pacotes publicados usam: a biblioteca existe, mas
+    /// nenhum `part of nome;` pode apontar para ela.
+    library: Option<(Option<String>, Span)>,
     /// Alvo declarado por `part of ...;` quando o arquivo é uma parte.
     part_of: Option<(PartOf, Span)>,
     /// Imports e exports na ordem textual.
@@ -897,14 +909,32 @@ fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
         .map_err(|error| error_at(path, Some(error.span), error.message))?;
     validate_language_version(source)
         .map_err(|error| error_at(path, Some(error.span), error.message))?;
-    let mut index = 0;
+    // Metadados podem preceder a primeira diretiva, e código publicado usa isso:
+    // `@TestOn('vm') library;` e `@Timeout(Duration(seconds: 60)) library;` abrem
+    // arquivos de teste reais. Ignorá-los sem consumir fazia o `library` cair no
+    // varredor final e o arquivo inteiro ser recusado por diretiva fora do prefixo.
+    let mut index = skip_directive_metadata(&tokens, 0).unwrap_or(0);
     let mut end = 0;
     let mut library = None;
     let mut part_of = None;
-    if tokens.first().map(|token| token.kind) == Some(TokenKind::Word("library")) {
-        let start = tokens[0].span.start;
-        index = 1;
-        let name = dotted_name(&tokens, &mut index, source.len(), path)?;
+    if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("library")) {
+        let start = tokens[index].span.start;
+        index += 1;
+        // Dart aceita as duas formas: `library;` sem nome, desde 2.19, e
+        // `library a.b.c;` com nome pontuado. Só a segunda pode ser alvo de um
+        // `part of a.b.c;`, e é por isso que o nome continua opcional aqui em
+        // vez de virar uma string vazia que fingiria ser um nome.
+        let name = if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol(';')) {
+            None
+        } else {
+            Some(dotted_name(
+                &tokens,
+                &mut index,
+                source.len(),
+                path,
+                "diretiva library exige ; ou um nome pontuado como a.b.c",
+            )?)
+        };
         expect_directive(
             &tokens,
             &mut index,
@@ -914,16 +944,22 @@ fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
         )?;
         end = tokens[index - 1].span.end;
         library = Some((name, Span { start, end }));
-    } else if tokens.first().map(|token| token.kind) == Some(TokenKind::Word("part"))
-        && tokens.get(1).map(|token| token.kind) == Some(TokenKind::Word("of"))
+    } else if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("part"))
+        && tokens.get(index + 1).map(|token| token.kind) == Some(TokenKind::Word("of"))
     {
-        let start = tokens[0].span.start;
-        index = 2;
+        let start = tokens[index].span.start;
+        index += 2;
         let target = match tokens.get(index).map(|token| token.kind) {
             Some(TokenKind::String(_) | TokenKind::RawString(_)) => {
                 PartOf::Uri(directive_string(&tokens, &mut index, source.len(), path)?)
             }
-            _ => PartOf::Name(dotted_name(&tokens, &mut index, source.len(), path)?),
+            _ => PartOf::Name(dotted_name(
+                &tokens,
+                &mut index,
+                source.len(),
+                path,
+                "part of exige uma URI entre aspas ou um nome pontuado como a.b.c",
+            )?),
         };
         expect_directive(
             &tokens,
@@ -1018,7 +1054,20 @@ fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
                     "prefixo exige identificador".into(),
                 ));
             };
-            if export || reserved_combinator(name) {
+            // `export ... as p` não existe na gramática de Dart, e o motivo é de
+            // significado, não de pontuação: um reexport reemite nomes no
+            // namespace de quem exporta, e não cria namespace qualificado nenhum.
+            // Aceitá-lo em silêncio deixaria o arquivo parecendo prefixado sem
+            // que `p.nome` existisse em lugar algum.
+            if export {
+                return Err(error_at(
+                    path,
+                    Some(tokens[index].span),
+                    "export não aceita prefixo as: um reexport não cria namespace qualificado"
+                        .into(),
+                ));
+            }
+            if reserved_combinator(name) {
                 return Err(error_at(
                     path,
                     Some(tokens[index].span),
@@ -1111,11 +1160,16 @@ fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
         match token.kind {
             TokenKind::Symbol('{') => depth += 1,
             TokenKind::Symbol('}') => depth = depth.saturating_sub(1),
+            // A ordem exigida é a do Dart: `library`/`part of`, depois
+            // `import`/`export`, depois `part`, e só então declarações. Nomear a
+            // ordem no diagnóstico distingue "recurso ausente" de "fora de lugar".
             TokenKind::Word(word @ ("import" | "export" | "part" | "library")) if depth == 0 => {
                 return Err(error_at(
                     path,
                     Some(token.span),
-                    format!("diretiva {word} fora do prefixo suportado"),
+                    format!(
+                        "diretiva {word} fora do prefixo de diretivas: a ordem é library, import/export, part, declarações"
+                    ),
                 ));
             }
             _ => {}
@@ -1130,12 +1184,74 @@ fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
     })
 }
 
-/// Lê identificador pontuado de library ou part of, rejeitando palavras reservadas.
+/// Consome metadados `@Nome`, `@Nome(...)` e `@a.b.c(...)` antes de uma diretiva.
+///
+/// Dart permite metadados antes de qualquer diretiva, e os arquivos de teste dos
+/// pacotes publicados abrem exatamente assim: `@TestOn('vm')`, `@Skip()`,
+/// `@Tags(['x'])` e `@Timeout(Duration(seconds: 60))` precedendo `library;`. Eles
+/// não influenciam o carregamento do grafo, então são apenas consumidos — os
+/// tokens ficam antes do fim do prefixo de diretivas e o front-end nunca os vê.
+///
+/// Os argumentos são saltados por contagem de parênteses equilibrados, o que
+/// atravessa aninhamento (`Duration(seconds: 60)`) e listas sem interpretá-los.
+///
+/// # Erros
+///
+/// Devolve `None` quando um `@` não forma metadado — nome ausente ou parênteses
+/// não fechados. Quem chama então mantém o índice anterior, para que o texto siga
+/// pelos diagnósticos que já existiam em vez de ganhar um erro novo aqui.
+fn skip_directive_metadata(tokens: &[Token<'_>], mut index: usize) -> Option<usize> {
+    while tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol('@')) {
+        index += 1;
+        loop {
+            if !matches!(
+                tokens.get(index).map(|token| token.kind),
+                Some(TokenKind::Word(_))
+            ) {
+                return None;
+            }
+            index += 1;
+            if tokens.get(index).map(|token| token.kind) != Some(TokenKind::Symbol('.')) {
+                break;
+            }
+            index += 1;
+        }
+        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol('(')) {
+            let mut depth = 0usize;
+            loop {
+                match tokens.get(index).map(|token| token.kind) {
+                    Some(TokenKind::Symbol('(')) => depth += 1,
+                    Some(TokenKind::Symbol(')')) => depth -= 1,
+                    None => return None,
+                    _ => {}
+                }
+                index += 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+        }
+    }
+    Some(index)
+}
+
+/// Lê o nome pontuado de `library` ou `part of`, rejeitando palavras reservadas.
+///
+/// `a.b.c` aqui é **gramática de diretiva**, não expressão: uma sequência de
+/// identificadores separados por ponto, que produz uma única string. Nada disso
+/// vira acesso a membro, e nenhum dos segmentos é um nome a resolver — tratá-los
+/// como expressão faria o carregador procurar declarações chamadas `a`, `b` e `c`.
+///
+/// # Erros
+///
+/// `esperado` descreve o que a diretiva aceita naquele ponto, para que a recusa
+/// diga a forma correta em vez de apenas constatar que o texto não serviu.
 fn dotted_name(
     tokens: &[Token<'_>],
     index: &mut usize,
     end: usize,
     path: &Path,
+    esperado: &str,
 ) -> Result<String, GraphError> {
     let mut name = String::new();
     loop {
@@ -1143,7 +1259,7 @@ fn dotted_name(
             return Err(error_at(
                 path,
                 Some(token_span(tokens, *index, end)),
-                "diretiva exige nome de biblioteca pontuado".into(),
+                esperado.to_owned(),
             ));
         };
         if reserved_combinator(part) {
@@ -1703,6 +1819,23 @@ mod tests {
             f.write("main.dart", source);
             assert!(load(&entry).is_err(), "{source}");
         }
+        // O prefixo num `export` tem recusa própria: a mensagem diz por que a
+        // forma não existe, em vez de confundi-la com um identificador inválido.
+        let com_prefixo = "export 'a%20b.dart' as p;";
+        f.write("main.dart", com_prefixo);
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.message,
+            "export não aceita prefixo as: um reexport não cria namespace qualificado"
+        );
+        let start = com_prefixo.find(" as p;").expect("prefixo") + " as ".len();
+        assert_eq!(
+            error.span,
+            Some(Span {
+                start,
+                end: start + 1
+            })
+        );
         // O prefixo é registrado junto dos combinadores, na ordem escrita.
         f.write("main.dart", "import 'a%20b.dart' as p show A hide B;");
         let graph = load(&entry).unwrap();
@@ -1795,7 +1928,10 @@ mod tests {
             "part 'a.dart'",
             "part of;",
             "library a",
-            "library ;",
+            // `library ;` saiu desta lista: é a forma sem nome, válida no Dart
+            // atual, e passou a ser aceita. O teste dedicado está abaixo.
+            "library 'a';",
+            "library a.;",
             "void main() {} part 'a.dart';",
             "import 'a.dart'; part of 'b.dart';",
             "void main() {} import 'a.dart';",
@@ -1811,6 +1947,102 @@ mod tests {
                 span.start <= span.end && span.end <= source.len(),
                 "{source}: {error}"
             );
+        }
+    }
+
+    /// As três formas de `library` são aceitas, com e sem metadados antes.
+    ///
+    /// `library a.b.c;`, `library foo;` e `library;` são todas válidas no Dart
+    /// atual: nomear biblioteca é sintaxe legada das primeiras versões e continua
+    /// aceita, e a forma sem nome é a recomendada hoje justamente para receber
+    /// metadados. Só a forma com nome pode ser alvo de um `part of nome;`.
+    #[test]
+    fn library_directive_accepts_named_dotted_and_unnamed_forms() {
+        let fixture = Fixture::new();
+        for source in [
+            "library;",
+            "library ;",
+            "library foo;",
+            "library app.exemplo.interno;",
+            // Metadados de arquivo de teste, exatamente como os pacotes escrevem.
+            "@TestOn('vm')\nlibrary;",
+            "@Timeout(Duration(seconds: 60))\n@TestOn('browser')\nlibrary;",
+            "@Tags(['golden'])\n@Skip()\nlibrary app.exemplo;",
+            "@a.b.c()\nlibrary;",
+            "@immutable\nlibrary;",
+            "@TestOn('vm')\nlibrary;\nimport 'outra.dart';",
+        ] {
+            let entry = fixture.write("main.dart", &format!("{source} void main(){{}}"));
+            fixture.write("outra.dart", "int ajuda()=>1;");
+            let graph = load(&entry).expect(source);
+            assert_eq!(graph.entry, 0, "{source}");
+            // Os tokens dos metadados ficam antes do fim do prefixo, então o
+            // front-end nunca os recebe junto com as declarações.
+            let unit = &graph.units[0];
+            assert!(
+                unit.directives_end >= unit.source.find("library").expect("library"),
+                "{source}"
+            );
+        }
+        // Só o nome pontuado casa com `part of nome;`; a forma sem nome não.
+        let entry = fixture.write(
+            "main.dart",
+            "library app.exemplo; part 'p.dart'; void main(){}",
+        );
+        fixture.write("p.dart", "part of app.exemplo; int ajuda()=>1;");
+        assert_eq!(load(&entry).unwrap().units.len(), 2);
+        fixture.write("main.dart", "library; part 'p.dart'; void main(){}");
+        let error = load(&entry).unwrap_err();
+        assert!(
+            error.message.contains("não corresponde à biblioteca"),
+            "{}",
+            error.message
+        );
+    }
+
+    /// As recusas de nome pontuado dizem a forma aceita, não apenas que falhou.
+    ///
+    /// A mensagem antiga só constatava que faltava um nome, e por isso sugeria
+    /// que o nome fosse obrigatório — o que fez 47 arquivos de produção com
+    /// `library;` serem recusados por um recurso que já existia.
+    #[test]
+    fn dotted_name_diagnostics_name_the_accepted_forms() {
+        let fixture = Fixture::new();
+        let nomeado = "library 'app';";
+        let entry = fixture.write("main.dart", nomeado);
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.message,
+            "diretiva library exige ; ou um nome pontuado como a.b.c"
+        );
+        assert_eq!(error.span, Some(trecho(nomeado, "'app'")));
+        // A mesma gramática vale na parte, com a URI como alternativa.
+        fixture.write("main.dart", "part 'p.dart'; void main(){}");
+        fixture.write("p.dart", "part of 3;");
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.message,
+            "part of exige uma URI entre aspas ou um nome pontuado como a.b.c"
+        );
+        // `library` depois dos imports é ordem inválida, e o erro diz a ordem.
+        let fora = "import 'p.dart'; library app; void main(){}";
+        fixture.write("main.dart", fora);
+        fixture.write("p.dart", "int ajuda()=>1;");
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.message,
+            "diretiva library fora do prefixo de diretivas: a ordem é library, import/export, part, declarações"
+        );
+        assert_eq!(error.span, Some(trecho(fora, "library")));
+    }
+
+    /// Intervalo de um trecho único da fonte, em bytes, para spans exatos.
+    fn trecho(fonte: &str, texto: &str) -> Span {
+        let start = fonte.find(texto).expect(texto);
+        assert_eq!(fonte.rfind(texto), Some(start), "trecho ambíguo: {texto}");
+        Span {
+            start,
+            end: start + texto.len(),
         }
     }
 

@@ -176,6 +176,15 @@ pub(super) fn metadata(module: &Module<'_>, output: &mut Output<'_>) {
     )
     .unwrap();
     for class in &module.classes {
+        // A classe sintética de globais da biblioteca não é emitida como classe
+        // — `emit_classes` a pula, porque ela só carrega variáveis de topo —,
+        // então referenciar o seu protótipo aqui produziria um
+        // `ReferenceError: $dartforgeClassN is not defined` na carga do módulo.
+        // O sintoma só aparece num programa que tenha variável de topo **e**
+        // metadados de tipo, e é por isso que ele passou tanto tempo escondido.
+        if class.is_library_globals {
+            continue;
+        }
         if class.enum_values.is_empty() {
             writeln!(
                 output,

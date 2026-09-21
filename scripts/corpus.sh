@@ -12,6 +12,12 @@
 # É o que permite aferir pelo grafo: sem os pacotes importados no disco, todo
 # `package:` falha na carga e a medição vira um relatório de downloads ausentes.
 #
+# Com `--com-dev-dependencias`, segue também `dev_dependencies`, o que traz
+# `package:test` e a sua árvore. Só vale a pena quando o interesse é compilar os
+# pontos de entrada de `test/`: o custo é dezenas de pacotes a mais no disco, e
+# nenhum deles é o código que se quer medir. O padrão não os baixa, e o aferidor
+# relata as entradas de `test/` em grupo separado justamente por isso.
+#
 # Ao final sempre escreve `references/pub/.dart_tool/package_config.json`
 # (formato v2, lido por `crates/packages`) mapeando cada pacote baixado para o
 # seu nome, de modo que `package:pdf/pdf.dart` resolva a partir de qualquer
@@ -24,10 +30,12 @@ mkdir -p "$DESTINO"
 # Rede, serialização e internacionalização ao lado da geração de PDF.
 CORPUS_PADRAO="pdf http collection intl"
 COM_DEPENDENCIAS=0
+COM_DEV=0
 FILA=""
 for ARGUMENTO in "$@"; do
   case "$ARGUMENTO" in
     --com-dependencias) COM_DEPENDENCIAS=1 ;;
+    --com-dev-dependencias) COM_DEPENDENCIAS=1 COM_DEV=1 ;;
     -*)
       echo "opção desconhecida: $ARGUMENTO" >&2
       exit 2
@@ -45,8 +53,9 @@ PEDIDOS="$FILA"
 # `dependencies:`, que é a forma que todo pacote do pub.dev usa. `flutter` é
 # descartada porque não vem do pub e traria um SDK inteiro.
 dependencias() {
-  awk '
+  awk -v dev="$2" '
     /^dependencies:/ { dentro = 1; next }
+    /^dev_dependencies:/ { dentro = dev; next }
     /^[a-zA-Z_]+:/ { dentro = 0 }
     dentro && /^  [a-z_0-9]+:/ { sub(/:.*/, ""); gsub(/ /, ""); print }
   ' "$1" | grep -v '^flutter$' || true
@@ -85,7 +94,7 @@ except Exception:
     echo "$PACOTE $VERSAO: $(find "$ALVO" -name '*.dart' | wc -l) arquivos Dart"
   fi
   if [ "$COM_DEPENDENCIAS" = 1 ] && [ -f "$ALVO/pubspec.yaml" ]; then
-    FILA="$FILA $(dependencias "$ALVO/pubspec.yaml" | tr '\n' ' ')"
+    FILA="$FILA $(dependencias "$ALVO/pubspec.yaml" "$COM_DEV" | tr '\n' ' ')"
   fi
 done
 

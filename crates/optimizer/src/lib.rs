@@ -715,6 +715,7 @@ mod tests {
                 kind: dartforge_syntax::ClassKind::Class,
                 mixins: vec![],
                 is_mixin_application: false,
+                mixin_constraint: None,
                 mixin_origin: None,
                 enum_arguments: vec![],
                 enum_constructor_fields: vec![],

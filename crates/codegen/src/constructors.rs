@@ -196,6 +196,43 @@ fn initialize(
         init_parameter(parameter, index, output);
     }
     output.push_str(") {\n");
+    // No Dart um formal `this.campo` também é parâmetro, e a lista de
+    // inicialização o lê pelo nome escrito: `C(this.x) : assert(x > 0)` é
+    // legal. O alias existe só quando há asserção, para que o caminho comum
+    // continue emitindo exatamente o mesmo texto de antes.
+    if !extras.asserts.is_empty() {
+        for (index, parameter) in parameters.iter().enumerate() {
+            if parameter.field.is_some() {
+                output.push_str("  const ");
+                identifier(parameter.name, output);
+                writeln!(output, " = $dartforgeFormal{index};").unwrap();
+            }
+        }
+    }
+    // Um redirecionador delega inteiramente: não inicializa campo algum, não
+    // chama `super` e não executa corpo próprio. Só as asserções da lista
+    // rodam aqui, antes de o alvo montar o objeto — a mesma ordem do Dart.
+    if let Some(call) = &extras.redirect {
+        // Todas, sem filtrar por posição: um redirecionador não tem entrada
+        // `campo = valor` com que intercalar, então `before` é sempre zero.
+        for entry in &extras.asserts {
+            output.push_str("  ");
+            fluxo::assert_statement(&entry.condition, entry.message.as_ref(), output);
+        }
+        output.push_str("  $dartforgeInit");
+        write!(output, "{}", class.id).unwrap();
+        if let Some(target) = call.name {
+            identifier(target, output);
+        }
+        write!(output, "({THIS}").unwrap();
+        forward_arguments(
+            constructor_parameters(class, call.name),
+            &call.arguments,
+            output,
+        );
+        output.push_str(");\n}\n");
+        return;
+    }
     for field in &class.fields {
         let formal = parameters.iter().position(|p| p.field == Some(field.name));
         if let Some(initializer) = &field.initializer {
@@ -215,13 +252,18 @@ fn initialize(
             writeln!(output, " = $dartforgeFormal{index};").unwrap();
         }
     }
-    for entry in &extras.initializers {
+    for (index, entry) in extras.initializers.iter().enumerate() {
+        // `assert` e `campo = valor` são entradas da mesma lista e o Dart
+        // avalia uma depois da outra: `before` diz quantas entradas de campo
+        // precedem cada asserção, e é essa ordem que a emissão preserva.
+        asserts_before(extras, index, output);
         write!(output, "  {THIS}.").unwrap();
         identifier(entry.field, output);
         output.push_str(" = ");
         expression(&entry.value, output);
         output.push_str(";\n");
     }
+    asserts_before(extras, extras.initializers.len(), output);
     if let Some(base) = class.superclass {
         output.push_str("  $dartforgeInit");
         write!(output, "{base}").unwrap();
@@ -256,6 +298,45 @@ fn initialize(
     output.push_str("}\n");
 }
 
+/// Emite as asserções da lista de inicialização escritas nesta posição.
+///
+/// A asserção da lista é a mesma construção do `assert` de instrução — inclusive
+/// a mensagem, que neste subconjunto não carrega arquivo, linha e texto da
+/// condição como a do SDK — e roda antes do corpo e antes de `super`.
+fn asserts_before(extras: &ConstructorExtras<'_>, position: usize, output: &mut Output<'_>) {
+    for entry in extras
+        .asserts
+        .iter()
+        .filter(|entry| entry.before == position)
+    {
+        output.push_str("  ");
+        fluxo::assert_statement(&entry.condition, entry.message.as_ref(), output);
+    }
+}
+
+/// Parâmetros do construtor designado da classe: o sem nome ou um nomeado.
+///
+/// Devolve uma fatia vazia quando o construtor não existe; a análise semântica
+/// já recusou esse caso, e devolver vazio mantém a emissão total sem `panic`.
+fn constructor_parameters<'a, 'b>(
+    class: &'a Class<'b>,
+    name: Option<&str>,
+) -> &'a [ConstructorParameter<'b>] {
+    match name {
+        None => class
+            .constructor
+            .as_ref()
+            .map_or(&[][..], |declared| declared.parameters.as_slice()),
+        Some(name) => class
+            .named_constructors
+            .iter()
+            .find(|declared| declared.name == name)
+            .map_or(&[][..], |declared| {
+                declared.constructor.parameters.as_slice()
+            }),
+    }
+}
+
 /// Repassa os argumentos de `super` na ordem declarada pela base.
 ///
 /// Um rótulo escrito na chamada é reposicionado para o índice do parâmetro
@@ -271,23 +352,24 @@ fn super_arguments(
     let Some(class) = by_id.get(&base) else {
         return;
     };
-    let parameters = match target {
-        None => class
-            .constructor
-            .as_ref()
-            .map_or(&[][..], |declared| declared.parameters.as_slice()),
-        Some(target) => class
-            .named_constructors
-            .iter()
-            .find(|declared| declared.name == target)
-            .map_or(&[][..], |declared| {
-                declared.constructor.parameters.as_slice()
-            }),
-    };
+    let parameters = constructor_parameters(class, target);
     let arguments = extras
         .super_call
         .as_ref()
         .map_or(&[][..], |call| call.arguments.as_slice());
+    forward_arguments(parameters, arguments, output);
+}
+
+/// Casa os argumentos escritos com os parâmetros declarados pelo alvo.
+///
+/// Serve tanto a `super` quanto ao redirecionamento `: this(...)`: nos dois
+/// casos o alvo é uma função de inicialização com a posição fixa de cada
+/// parâmetro, e um rótulo escrito na chamada precisa ir para essa posição.
+fn forward_arguments(
+    parameters: &[ConstructorParameter<'_>],
+    arguments: &[Expr<'_>],
+    output: &mut Output<'_>,
+) {
     let mut positional = 0usize;
     for parameter in parameters {
         output.push_str(", ");

@@ -12,7 +12,7 @@
 
 A API load autodetecta a configuração mais próxima dos ancestrais da entrada e a relê em toda execução. load_with_config permite caminho explícito. SourceGraph conserva fontes e caminhos canônicos; imports e exports possuem combinadores ordenados e igualdade estrutural, para cache comparar o grafo resolvido.
 
-Usamos serde_json para JSON e url para resolução de URIs file, percent-encoding e caminhos Windows; não concatenamos rootUri/packageUri como paths. packageUri ausente significa raiz, não lib/. Diretórios resolvidos recebem barra final. Esquemas remotos, dart:, queries, fragments, escapes Dart na URI, imports condicionais, prefixos as e formatos .packages legados continuam diagnosticados.
+Usamos serde_json para JSON e url para resolução de URIs file, percent-encoding e caminhos Windows; não concatenamos rootUri/packageUri como paths. packageUri ausente significa raiz, não lib/. Diretórios resolvidos recebem barra final. Esquemas remotos, queries, fragments, escapes Dart na URI e formatos .packages legados continuam diagnosticados. Imports condicionais e prefixos `as` são suportados; um pacote ausente nomeia o pacote **e** o arquivo de configuração consultado, e uma biblioteca `dart:` fora do subconjunto nomeia a biblioteca pedida, conforme [IMPORTS.md](IMPORTS.md).
 
 O carregador não transfere arquivos nem executa pub get. Configurações v2 inválidas, nomes duplicados, raízes sobrepostas incompatíveis e versões de linguagem fora do subconjunto suportado são rejeitados. Resolução de exports e combinadores em namespaces pertence ao linker.
 

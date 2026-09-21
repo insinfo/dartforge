@@ -609,7 +609,14 @@ pub fn analyze_with_async_library(
             abstract_methods: class.abstract_methods.iter().map(|m| m.name).collect(),
             enum_values: class.enum_values.clone(),
             name: class.name,
-            superclass: class.superclass,
+            // `mixin M on Base` não é herança, mas dentro do corpo do mixin os
+            // membros de `Base` estão visíveis e `M` é subtipo de `Base` — as
+            // duas propriedades que a restrição existe para garantir. A busca de
+            // membro e a relação nominal sobem por este campo, então registrar a
+            // restrição aqui dá as duas de uma vez. A expansão do mixin em
+            // `dartforge-hir` continua lendo `Class::superclass` da AST, que
+            // permanece vazio: a cadeia da aplicação é a da classe que aplica.
+            superclass: class.superclass.or(class.mixin_constraint),
             fields: HashMap::new(),
             methods: HashMap::new(),
             setters: Vec::new(),
@@ -4213,6 +4220,7 @@ mod tests {
             modifier: ClassModifier::None,
             kind: ClassKind::Class,
             mixins: vec![],
+            mixin_constraint: None,
             is_mixin_application: false,
             mixin_origin: None,
             enum_arguments: vec![],

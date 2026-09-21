@@ -6,18 +6,35 @@
 //! relata o número **por pacote**: a média de um corpus de um só domínio não
 //! descreve nenhum pacote.
 //!
+//! # O alvo é o projeto que consome a biblioteca, não a biblioteca
+//!
+//! Uma biblioteca Dart **não declara `main`** — nem o SDK do Dart compila uma
+//! biblioteca isolada, por esse mesmo motivo. Compilar `lib/**` como se fosse
+//! programa pede algo que não existe, e a rodada anterior contornava isso
+//! contando `entrada exige void main()` como sucesso, o que media a chegada ao
+//! ligador e não a compilação de nada.
+//!
+//! O que se compila de um pacote é o **projeto que o consome**: os arquivos de
+//! `example/`, `bin/`, `test/` ou `tool/` que declaram `main` e importam a
+//! biblioteca por `package:`. Deles o grafo puxa `lib/` pelos imports, de modo
+//! que a biblioteca é exercitada como um consumidor real a exercita e o que não
+//! é alcançável não entra na conta. Um arquivo é ponto de entrada porque declara
+//! `main`, não porque está numa pasta.
+//!
 //! # Dois modos, porque um só mentiria
 //!
-//! * **grafo**: cada arquivo é compilado como ponto de entrada, com
-//!   `references/pub/.dart_tool/package_config.json` resolvendo `package:`, de
-//!   modo que os nomes declarados em outros arquivos do pacote resolvem de
-//!   verdade. É a medida que responde "quantos arquivos o compilador aceita".
-//!   Uma biblioteca não declara `main`, então o front-end completo termina em
-//!   `entrada exige void main()`: tudo antes da ligação passou, sobre o
-//!   fechamento transitivo inteiro, e esse desfecho conta como aceito.
+//! * **grafo**: cada ponto de entrada real é compilado pelo front-end completo,
+//!   com `references/pub/.dart_tool/package_config.json` resolvendo `package:`.
+//!   Ele responde a duas perguntas que são diferentes e por isso saem em números
+//!   separados: **quantos projetos compilam de ponta a ponta** e **quantos
+//!   arquivos de `lib/` o grafo atravessa sem diagnóstico**. As entradas de
+//!   `test/` vão em grupo próprio: elas importam `package:test`, dependência de
+//!   desenvolvimento que o corpus não baixa por padrão, e somá-las às de
+//!   `example/` misturaria duas medidas.
 //! * **unidade**: cada arquivo é analisado isoladamente, só até a sintaxe. Não
 //!   afirma nada sobre o programa e serve a uma única pergunta — quanto da
-//!   sintaxe de produção o parser cobre.
+//!   sintaxe de produção o parser cobre. É também o modo que exercita **todo**
+//!   arquivo do pacote, inclusive os que nenhum ponto de entrada alcança.
 //!
 //! `DARTFORGE_CORPUS_MODO` escolhe entre `grafo`, `unidade` e `ambos` (padrão).
 //!
@@ -35,6 +52,10 @@
 //! explicitly supported type` como lacuna quando 73 eram tipos declarados em
 //! outro arquivo. A mensagem ainda decide se o compilador estava **procurando um
 //! nome** — só ela sabe disso —, mas nunca decide a categoria.
+//!
+//! `main` ausente é a única exceção que a mensagem resolve sozinha, e resolve
+//! para **artefato**: nenhum recurso de linguagem falta ali, o que falhou foi a
+//! identificação do ponto de entrada.
 //!
 //! O corpus não é versionado: é grande e tem licença própria. Baixe com
 //! `scripts/corpus.sh --com-dependencias`, que também escreve o
@@ -72,12 +93,84 @@ struct Pacote {
     nome: String,
     /// Arquivos `.dart` do pacote, inclusive `test/` e `example/`.
     arquivos: Vec<PathBuf>,
+    /// Arquivos de `lib/`: a biblioteca que um consumidor importa.
+    ///
+    /// Medida à parte das entradas porque a pergunta é outra — cobertura de
+    /// linguagem, não "o projeto compila" — e porque nenhum desses arquivos é
+    /// compilável isoladamente: biblioteca não tem `main`.
+    biblioteca: Vec<PathBuf>,
+    /// Pontos de entrada reais, agrupados pela pasta que os traz.
+    ///
+    /// Vazio num pacote que não traga programa algum; o relatório registra o
+    /// caso e mede aquele pacote só em modo unidade, dizendo qual modo usou.
+    entradas: Vec<Entradas>,
     /// Entra no relatório por pacote.
     ///
     /// As dependências transitivas precisam estar no disco para que `package:`
     /// resolva, mas relatar os milhares de arquivos delas junto esconderia o
     /// número pedido. Elas ficam presentes e não medidas.
     medido: bool,
+}
+
+/// Pontos de entrada de uma pasta do pacote, medidos e relatados juntos.
+///
+/// A pasta não define o que é entrada — `main` define —, mas define o que o
+/// número significa: `example/` é o consumidor típico, `test/` arrasta
+/// `package:test` junto. Somar os dois daria uma média que não descreve nenhum.
+struct Entradas {
+    /// Pasta de origem, que decide o que o número significa.
+    pasta: &'static str,
+    /// Arquivos daquela pasta que declaram `main` de topo.
+    arquivos: Vec<PathBuf>,
+}
+
+/// O arquivo declara um `main` de topo?
+///
+/// Reaproveita o índice de declarações de topo: `void main()`,
+/// `Future<void> main(List<String> args) async` e `main()` declaram todas o nome
+/// `main` na coluna zero, e uma chamada `main();` dentro de outra função está
+/// indentada, logo não conta.
+fn declara_main(fonte: &str) -> bool {
+    nomes_declarados(fonte).iter().any(|nome| nome == "main")
+}
+
+/// Pontos de entrada do pacote, por pasta, na ordem em que o relatório os lê.
+///
+/// `example/` e `bin/` são programas que consomem a biblioteca como qualquer
+/// usuário a consome. `test/` e `tool/` também têm `main`, mas importam
+/// `package:test`, dependência de desenvolvimento que `scripts/corpus.sh` só
+/// baixa com `--com-dev-dependencias`: por isso vão em grupos separados, nunca
+/// somados aos de `example/`.
+fn entradas_do_pacote(raiz: &Path) -> Vec<Entradas> {
+    const PASTAS: [&str; 4] = ["example", "bin", "test", "tool"];
+    let mut grupos = Vec::new();
+    for pasta in PASTAS {
+        let diretorio = raiz.join(pasta);
+        if !diretorio.is_dir() {
+            continue;
+        }
+        let mut candidatos = Vec::new();
+        arquivos_dart(&diretorio, &mut candidatos);
+        let arquivos: Vec<PathBuf> = candidatos
+            .into_iter()
+            .filter(|arquivo| {
+                std::fs::read_to_string(arquivo).is_ok_and(|fonte| declara_main(&fonte))
+            })
+            .collect();
+        if !arquivos.is_empty() {
+            grupos.push(Entradas { pasta, arquivos });
+        }
+    }
+    grupos
+}
+
+/// Caminho canônico, ou o original quando o disco não resolve.
+///
+/// O carregador devolve caminhos canônicos e a varredura de diretórios não; sem
+/// normalizar, a interseção entre o que o grafo atravessou e o que está em `lib/`
+/// sairia vazia e a cobertura seria relatada como zero.
+fn canonico(caminho: &Path) -> PathBuf {
+    std::fs::canonicalize(caminho).unwrap_or_else(|_| caminho.to_owned())
 }
 
 /// Separa o nome do pacote da versão em `nome-1.2.3`.
@@ -122,10 +215,15 @@ fn pacotes(raiz: &Path) -> Vec<Pacote> {
         if arquivos.is_empty() {
             continue;
         }
+        let mut biblioteca = Vec::new();
+        arquivos_dart(&caminho.join("lib"), &mut biblioteca);
+        let entradas = entradas_do_pacote(&caminho);
         let medido = medidos.as_ref().is_none_or(|nomes| nomes.contains(&nome));
         encontrados.push(Pacote {
             nome,
             arquivos,
+            biblioteca,
+            entradas,
             medido,
         });
     }
@@ -699,6 +797,21 @@ fn falha_de_nome(mensagem: &str) -> bool {
 /// ambiguidade; depois vem o nome, decidido por **onde ele é declarado**; o que
 /// não é nem URI nem nome procurado é lacuna do compilador.
 fn classificar(falha: &Falha<'_>, indice: &Indice, presentes: &BTreeSet<String>) -> Classe {
+    // `main` ausente vem antes de tudo, e por dois motivos. Nenhum recurso de
+    // linguagem falta ali: o que falhou foi a identificação do ponto de entrada,
+    // e uma biblioteca nunca declara `main`. E o span desse diagnóstico é 0..0,
+    // de modo que o trecho lido seria o início do arquivo — muitas vezes um
+    // `import 'package:…'` —, o que classificaria a falha como dependência
+    // ausente se a regra da URI viesse primeiro.
+    if falha.mensagem.starts_with("entrada exige void main()")
+        || falha.mensagem.contains("expected void main() entrypoint")
+    {
+        return Classe {
+            categoria: Categoria::Artefato,
+            motivo: "arquivo sem main de topo tomado por ponto de entrada",
+            evidencia: curto(falha.arquivo),
+        };
+    }
     let trecho = falha.trecho();
     if let Some(uri) = uri_no_span(&trecho) {
         return classificar_uri(uri, presentes);
@@ -866,12 +979,23 @@ fn pacote_do_caminho(caminho: &Path, presentes: &BTreeSet<String>) -> Option<Str
 /// Contagem de um pacote em um modo, com as falhas agrupadas e auditáveis.
 #[derive(Default)]
 struct Contagem {
-    /// Arquivos em que o front-end chegou ao fim sem diagnóstico.
+    /// Unidades medidas que chegaram ao fim sem diagnóstico.
+    ///
+    /// No modo grafo a unidade é o ponto de entrada; no modo unidade, o arquivo.
     aceitos: usize,
     /// Arquivos que não são texto UTF-8; nem sucesso nem diagnóstico.
     ilegiveis: usize,
     /// `(categoria, forma, motivo)` → ocorrências, evidência e arquivo exemplo.
     falhas: BTreeMap<(Categoria, String, &'static str), (usize, String, String)>,
+    /// Arquivos de `lib/` que algum fechamento transitivo alcançou.
+    alcancados: BTreeSet<PathBuf>,
+    /// Arquivos de `lib/` que algum diagnóstico apontou.
+    ///
+    /// O front-end para no primeiro erro de cada compilação, então "não
+    /// apontado" não é prova de correção; é o que o conjunto de entradas
+    /// atravessou sem que nada reprovasse. O relatório diz isso com essas
+    /// palavras, para que o número não seja lido como mais forte do que é.
+    apontados: BTreeSet<PathBuf>,
 }
 
 impl Contagem {
@@ -903,6 +1027,8 @@ impl Contagem {
     fn absorver(&mut self, outra: &Contagem) {
         self.aceitos += outra.aceitos;
         self.ilegiveis += outra.ilegiveis;
+        self.alcancados.extend(outra.alcancados.iter().cloned());
+        self.apontados.extend(outra.apontados.iter().cloned());
         for (chave, (quantas, evidencia, exemplo)) in &outra.falhas {
             let entrada = self
                 .falhas
@@ -933,20 +1059,36 @@ impl Contagem {
     }
 }
 
-/// Mede um pacote pelo grafo: cada arquivo como ponto de entrada.
+/// Mede um grupo de pontos de entrada pelo grafo, com `package:` resolvido.
 ///
 /// `package_config.json` na raiz do corpus é descoberto pela subida de
 /// diretórios, então `package:pdf/pdf.dart` resolve a partir de qualquer arquivo.
-/// Uma biblioteca não declara `main`, e `entrada exige void main()` é o que o
-/// front-end devolve quando tudo antes da ligação passou.
-fn medir_grafo(pacote: &Pacote, indice: &Indice, presentes: &BTreeSet<String>) -> Contagem {
+/// A entrada é um programa que **tem** `main`, e o grafo puxa `lib/` pelos
+/// imports: é assim que se verifica se um pacote compila, e é o contrário de
+/// tratar cada arquivo da biblioteca como programa.
+///
+/// Além de contar entradas, registra quais arquivos de `lib/` o fechamento
+/// transitivo alcançou e quais algum diagnóstico apontou — os dois lados da
+/// cobertura de linguagem.
+fn medir_grafo(
+    pacote: &Pacote,
+    entradas: &[PathBuf],
+    biblioteca: &BTreeSet<PathBuf>,
+    indice: &Indice,
+    presentes: &BTreeSet<String>,
+) -> Contagem {
     let mut contagem = Contagem::default();
-    for arquivo in &pacote.arquivos {
-        match dartforge_compiler::compile_path_with_report(arquivo, CompileOptions::default()) {
-            Ok(_) => contagem.aceitos += 1,
-            Err(erro) if erro.message.starts_with("entrada exige void main()") => {
-                contagem.aceitos += 1;
+    for entrada in entradas {
+        let (unidades, resultado) =
+            dartforge_compiler::compile_path_with_units(entrada, CompileOptions::default());
+        for unidade in &unidades {
+            let unidade = canonico(unidade);
+            if biblioteca.contains(&unidade) {
+                contagem.alcancados.insert(unidade);
             }
+        }
+        match resultado {
+            Ok(_) => contagem.aceitos += 1,
             Err(erro) => {
                 // O diagnóstico pode apontar outro arquivo do fechamento
                 // transitivo, inclusive de outro pacote: quem classifica é o
@@ -965,16 +1107,25 @@ fn medir_grafo(pacote: &Pacote, indice: &Indice, presentes: &BTreeSet<String>) -
                 };
                 let classe = classificar(&falha, indice, presentes);
                 contagem.registrar(classe, &erro.message, &erro.path);
+                let apontado = canonico(&erro.path);
+                if biblioteca.contains(&apontado) {
+                    contagem.apontados.insert(apontado);
+                }
             }
         }
     }
     contagem
 }
 
-/// Mede um pacote por unidade isolada: só sintaxe, sem resolver nome nenhum.
-fn medir_unidade(pacote: &Pacote, indice: &Indice, presentes: &BTreeSet<String>) -> Contagem {
+/// Mede uma lista de arquivos por unidade isolada: só sintaxe, sem resolver nada.
+fn medir_unidade(
+    pacote: &Pacote,
+    arquivos: &[PathBuf],
+    indice: &Indice,
+    presentes: &BTreeSet<String>,
+) -> Contagem {
     let mut contagem = Contagem::default();
-    for arquivo in &pacote.arquivos {
+    for arquivo in arquivos {
         let Ok(fonte) = std::fs::read_to_string(arquivo) else {
             contagem.ilegiveis += 1;
             continue;
@@ -1011,8 +1162,8 @@ impl Modo {
     /// Rótulo do modo no relatório.
     fn rotulo(self) -> &'static str {
         match self {
-            Modo::Grafo => "grafo (front-end completo, package: resolvido)",
-            Modo::Unidade => "unidade isolada (só sintaxe)",
+            Modo::Grafo => "grafo (pontos de entrada com main, package: resolvido)",
+            Modo::Unidade => "unidade isolada (só sintaxe, todo arquivo do pacote)",
         }
     }
 }
@@ -1058,13 +1209,155 @@ fn imprimir(contagem: &Contagem, categoria: Categoria, limite: usize) {
     }
 }
 
+/// Relata o modo grafo: entradas reais por pasta e cobertura de `lib/`.
+///
+/// São duas medidas, e elas saem separadas de propósito. "Projetos que compilam
+/// de ponta a ponta" responde se o compilador compila código de produção;
+/// "arquivos de `lib/` atravessados sem diagnóstico" mostra quanto de linguagem
+/// o front-end já cobre. Somar as duas produziria um número que não responde a
+/// nenhuma das perguntas.
+fn relatar_grafo(medidos: &[&Pacote], indice: &Indice, presentes: &BTreeSet<String>) {
+    let mut por_pasta: BTreeMap<&'static str, Contagem> = BTreeMap::new();
+    let mut sem_entrada: Vec<&str> = Vec::new();
+    let mut lib_total = 0usize;
+    let mut lib_alcancados = 0usize;
+    let mut lib_atravessados = 0usize;
+    for pacote in medidos {
+        println!(
+            "\npackage:{} — {} arquivos em lib/",
+            pacote.nome,
+            pacote.biblioteca.len()
+        );
+        if pacote.entradas.is_empty() {
+            // Sem programa no pacote não há o que compilar de ponta a ponta. O
+            // relatório registra o caso em vez de inventar uma entrada, e aquele
+            // pacote é medido pelo modo unidade, que diz o que mede.
+            println!(
+                "  sem arquivo com main em example/, bin/, test/ ou tool/: \
+                 medido apenas no modo unidade"
+            );
+            sem_entrada.push(&pacote.nome);
+            continue;
+        }
+        let biblioteca: BTreeSet<PathBuf> = pacote.biblioteca.iter().map(|a| canonico(a)).collect();
+        let mut acumulado = Contagem::default();
+        for grupo in &pacote.entradas {
+            let contagem = medir_grafo(pacote, &grupo.arquivos, &biblioteca, indice, presentes);
+            // A propriedade que pode regredir sem ninguém notar: toda entrada
+            // termina. Um pânico ou um laço infinito nunca chega aqui, e um
+            // desfecho não contabilizado quebra esta igualdade.
+            assert_eq!(
+                contagem.aceitos + contagem.falhas_totais(),
+                grupo.arquivos.len(),
+                "pacote {} em {}/: toda entrada precisa terminar com sucesso ou diagnóstico",
+                pacote.nome,
+                grupo.pasta
+            );
+            println!(
+                "  {}/: {} entradas, {} compiladas de ponta a ponta ({:.1}%), \
+                 lacuna {} / externa {} / artefato {}",
+                grupo.pasta,
+                grupo.arquivos.len(),
+                contagem.aceitos,
+                100.0 * contagem.aceitos as f64 / grupo.arquivos.len() as f64,
+                contagem.na_categoria(Categoria::Lacuna),
+                contagem.na_categoria(Categoria::Externa),
+                contagem.na_categoria(Categoria::Artefato),
+            );
+            imprimir(&contagem, Categoria::Lacuna, 4);
+            por_pasta
+                .entry(grupo.pasta)
+                .or_default()
+                .absorver(&contagem);
+            acumulado.absorver(&contagem);
+        }
+        let atravessados = acumulado
+            .alcancados
+            .difference(&acumulado.apontados)
+            .count();
+        println!(
+            "  cobertura de lib/: {} de {} arquivos alcançados pelo grafo, \
+             {} apontados por diagnóstico, {atravessados} atravessados sem diagnóstico",
+            acumulado.alcancados.len(),
+            pacote.biblioteca.len(),
+            acumulado.apontados.len(),
+        );
+        lib_total += pacote.biblioteca.len();
+        lib_alcancados += acumulado.alcancados.len();
+        lib_atravessados += atravessados;
+    }
+    for (pasta, contagem) in &por_pasta {
+        let entradas = contagem.aceitos + contagem.falhas_totais();
+        println!(
+            "\ntotal de entradas em {pasta}/: {entradas}, {} compiladas de ponta a ponta ({:.1}%)",
+            contagem.aceitos,
+            100.0 * contagem.aceitos as f64 / entradas as f64
+        );
+        imprimir(contagem, Categoria::Lacuna, 20);
+        imprimir(contagem, Categoria::Externa, 10);
+        imprimir(contagem, Categoria::Artefato, 10);
+    }
+    println!(
+        "\ncobertura agregada de lib/: {lib_atravessados} de {lib_total} arquivos atravessados \
+         sem diagnóstico, {lib_alcancados} alcançados pelo grafo"
+    );
+    if !sem_entrada.is_empty() {
+        println!("pacotes sem ponto de entrada: {}", sem_entrada.join(", "));
+    }
+}
+
+/// Relata o modo unidade: todo arquivo do pacote, só até a sintaxe.
+fn relatar_unidade(medidos: &[&Pacote], indice: &Indice, presentes: &BTreeSet<String>) {
+    let mut agregado = Contagem::default();
+    let mut arquivos_totais = 0usize;
+    for pacote in medidos {
+        let contagem = medir_unidade(pacote, &pacote.arquivos, indice, presentes);
+        // A mesma igualdade do modo grafo, aqui sobre **todo** arquivo do
+        // pacote: é este modo que cobre os que nenhuma entrada alcança.
+        assert_eq!(
+            contagem.aceitos + contagem.falhas_totais() + contagem.ilegiveis,
+            pacote.arquivos.len(),
+            "pacote {}: todo arquivo precisa terminar com sucesso ou diagnóstico",
+            pacote.nome
+        );
+        println!(
+            "\npackage:{} — {} arquivos, {} aceitos ({:.1}%), \
+             lacuna {} / externa {} / artefato {}",
+            pacote.nome,
+            pacote.arquivos.len(),
+            contagem.aceitos,
+            100.0 * contagem.aceitos as f64 / pacote.arquivos.len() as f64,
+            contagem.na_categoria(Categoria::Lacuna),
+            contagem.na_categoria(Categoria::Externa),
+            contagem.na_categoria(Categoria::Artefato),
+        );
+        imprimir(&contagem, Categoria::Lacuna, 6);
+        agregado.absorver(&contagem);
+        arquivos_totais += pacote.arquivos.len();
+    }
+    println!(
+        "\ntotal do modo unidade: {arquivos_totais} arquivos, {} aceitos ({:.1}%)",
+        agregado.aceitos,
+        100.0 * agregado.aceitos as f64 / arquivos_totais as f64
+    );
+    println!("lacunas reais por frequência, agregadas:");
+    imprimir(&agregado, Categoria::Lacuna, 30);
+    imprimir(&agregado, Categoria::Externa, 12);
+    imprimir(&agregado, Categoria::Artefato, 12);
+    if agregado.ilegiveis > 0 {
+        println!("  {} arquivos não são texto UTF-8", agregado.ilegiveis);
+    }
+}
+
 /// Roda o front-end sobre o corpus e resume o resultado por pacote e categoria.
 ///
 /// Não exige sucesso: exige que o resultado seja **conhecido**. Um compilador em
 /// construção falha em código de produção; o que não pode acontecer é falhar sem
 /// que se saiba onde, nem entrar em pânico, nem travar. A asserção é que cada
-/// arquivo termina — com sucesso, com diagnóstico classificado, ou reconhecido
-/// como texto ilegível — e que a soma fecha com o número de arquivos.
+/// unidade medida termina — com sucesso, com diagnóstico classificado, ou
+/// reconhecida como texto ilegível — e que a soma fecha com o número de unidades:
+/// por ponto de entrada no modo grafo, e por arquivo no modo unidade, que é o que
+/// cobre **todo** arquivo do pacote, inclusive os que nenhuma entrada alcança.
 #[test]
 #[ignore = "requer o corpus em references/pub; use scripts/corpus.sh"]
 fn pacotes_reais_terminam_e_as_lacunas_saem_classificadas() {
@@ -1101,49 +1394,9 @@ fn pacotes_reais_terminam_e_as_lacunas_saem_classificadas() {
             );
         }
         println!("\n=== modo {} ===", modo.rotulo());
-        let mut agregado = Contagem::default();
-        let mut arquivos_totais = 0usize;
-        for pacote in &medidos {
-            let contagem = match modo {
-                Modo::Grafo => medir_grafo(pacote, &indice, &presentes),
-                Modo::Unidade => medir_unidade(pacote, &indice, &presentes),
-            };
-            // A propriedade que pode regredir sem ninguém notar: todo arquivo
-            // termina. Um pânico ou um laço infinito nunca chega aqui, e um
-            // desfecho não contabilizado quebra esta igualdade.
-            assert_eq!(
-                contagem.aceitos + contagem.falhas_totais() + contagem.ilegiveis,
-                pacote.arquivos.len(),
-                "pacote {}: todo arquivo precisa terminar com sucesso ou diagnóstico",
-                pacote.nome
-            );
-            println!(
-                "\npackage:{} — {} arquivos, {} aceitos ({:.1}%), \
-                 lacuna {} / externa {} / artefato {}",
-                pacote.nome,
-                pacote.arquivos.len(),
-                contagem.aceitos,
-                100.0 * contagem.aceitos as f64 / pacote.arquivos.len() as f64,
-                contagem.na_categoria(Categoria::Lacuna),
-                contagem.na_categoria(Categoria::Externa),
-                contagem.na_categoria(Categoria::Artefato),
-            );
-            imprimir(&contagem, Categoria::Lacuna, 6);
-            agregado.absorver(&contagem);
-            arquivos_totais += pacote.arquivos.len();
-        }
-        println!(
-            "\ntotal do modo {}: {arquivos_totais} arquivos, {} aceitos ({:.1}%)",
-            modo.rotulo(),
-            agregado.aceitos,
-            100.0 * agregado.aceitos as f64 / arquivos_totais as f64
-        );
-        println!("lacunas reais por frequência, agregadas:");
-        imprimir(&agregado, Categoria::Lacuna, 30);
-        imprimir(&agregado, Categoria::Externa, 12);
-        imprimir(&agregado, Categoria::Artefato, 12);
-        if agregado.ilegiveis > 0 {
-            println!("  {} arquivos não são texto UTF-8", agregado.ilegiveis);
+        match modo {
+            Modo::Grafo => relatar_grafo(&medidos, &indice, &presentes),
+            Modo::Unidade => relatar_unidade(&medidos, &indice, &presentes),
         }
     }
 }

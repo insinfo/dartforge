@@ -272,6 +272,51 @@ pub fn compile_path_with_report(
     ))
 }
 
+/// Compila um caminho devolvendo também os arquivos que o grafo atravessou.
+///
+/// A aferição contra código real precisa saber **quais** unidades o fechamento
+/// transitivo alcançou: um projeto de exemplo puxa parte de `lib/` pelos
+/// imports, e sem a lista não há como dizer que parte foi exercitada. A lista
+/// vem vazia quando a própria carga falhou, porque aí nenhuma unidade foi lida
+/// por inteiro.
+///
+/// # Erros
+/// Retorna os mesmos diagnósticos de [`compile_path_with_options`].
+///
+/// # Exemplos
+/// ```
+/// let pasta = std::env::temp_dir().join("dartforge_unidades_exemplo");
+/// std::fs::create_dir_all(&pasta)?;
+/// let entrada = pasta.join("principal.dart");
+/// std::fs::write(&entrada, "void main() { print(1); }")?;
+/// let (unidades, saida) = dartforge_compiler::compile_path_with_units(
+///     &entrada,
+///     dartforge_compiler::CompileOptions::default(),
+/// );
+/// assert!(saida.is_ok());
+/// assert_eq!(unidades.len(), 1);
+/// assert!(unidades[0].ends_with("principal.dart"));
+/// # Ok::<(), std::io::Error>(())
+/// ```
+pub fn compile_path_with_units(
+    path: &std::path::Path,
+    options: CompileOptions,
+) -> (
+    Vec<std::path::PathBuf>,
+    Result<String, dartforge_packages::GraphError>,
+) {
+    let environment = CompilationEnvironment::javascript();
+    if let Err(erro) = validate_environment(path, &environment, CompilationTarget::JavaScript) {
+        return (Vec::new(), Err(erro));
+    }
+    let graph = match dartforge_packages::load_with_environment(path, &environment) {
+        Ok(graph) => graph,
+        Err(erro) => return (Vec::new(), Err(erro)),
+    };
+    let unidades = graph.units.iter().map(|unit| unit.path.clone()).collect();
+    (unidades, compile_loaded_graph(&graph, options))
+}
+
 /// Compila um grafo recarregado pela rota compartilhada com a sessão.
 pub(crate) fn compile_loaded_graph(
     graph: &dartforge_packages::SourceGraph,

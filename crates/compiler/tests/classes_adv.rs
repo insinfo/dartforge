@@ -147,13 +147,14 @@ fn initializer_lists_match_dart() {
 
 /// `assert` na lista de inicialização é rejeitado com diagnóstico explícito.
 #[test]
-fn assert_in_initializer_list_is_rejected() {
-    let source = "class C{int x;C():assert(x>0),x=1;void main(){}}";
-    rejeita(
-        source,
-        "assert in an initializer list is not supported yet",
-        trecho(source, "assert"),
-    );
+fn assert_in_initializer_list_runs_before_the_body() {
+    // A asserção da lista roda antes do corpo e antes de `super`, então ela
+    // observa o campo ainda não atribuído — é por isso que a condição usa o
+    // parâmetro, e não o campo.
+    let source = "class C{final int x;C(int v):assert(v>0),x=v;}\
+                  void main(){print(C(3).x);}";
+    let javascript = dartforge_compiler::compile(source).expect("assert na lista é aceito");
+    assert!(javascript.contains("export function main"));
 }
 
 /// Construtores `const` canônicos: `identical` entre iguais é verdadeiro.
@@ -369,43 +370,47 @@ fn covariant_is_rejected() {
 
 /// Construtores de redirecionamento são rejeitados com diagnóstico explícito.
 #[test]
-fn redirecting_constructors_are_rejected() {
+fn a_redirecting_constructor_requires_the_target_to_exist() {
+    // Redirecionar para um construtor sem nome que a classe não declara é erro
+    // de compilação, não de execução: o alvo é resolvido estaticamente.
     let source = "class C{int x=0;C.zero():this(0);}void main(){}";
-    rejeita(
-        source,
-        "redirecting constructors are not supported yet",
-        trecho(source, "this"),
+    let erro = dartforge_compiler::compile(source).expect_err("alvo inexistente");
+    assert_eq!(
+        erro.message,
+        "The class has no unnamed generative constructor to redirect to"
     );
+    // Com o alvo declarado, o redirecionador delega e não executa corpo próprio.
+    let valido = "class C{final int x;C(this.x);C.zero():this(0);}\
+                  void main(){print(C.zero().x);}";
+    let javascript = dartforge_compiler::compile(valido).expect("redirecionador válido");
+    assert!(javascript.contains("export function main"));
 }
 
-/// LLVM rejeita construtores nomeados até o lowering existir.
+/// LLVM emite construtores nomeados com mangling determinístico.
 #[test]
-fn llvm_rejects_named_constructors() {
+fn llvm_emits_named_constructors() {
     let source = "class C{int x;C(this.x);C.named(this.x);}void main(){print(C.named(1).x);}";
     let dir = std::env::temp_dir().join("dartforge-classes-adv");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("named.dart");
     std::fs::write(&path, source).unwrap();
-    let error = dartforge_compiler::compile_path_llvm(&path).expect_err("LLVM deveria rejeitar");
-    assert!(
-        error.message.contains("construtores nomeados"),
-        "mensagem inesperada: {}",
-        error.message
-    );
+    let ir = dartforge_compiler::compile_path_llvm(&path).expect("LLVM emite nomeados");
+    // O construtor sem nome e o nomeado geram funções distintas: o sufixo
+    // separa os dois e impede que a chamada caia no construtor errado.
+    assert!(ir.contains("define i64 @df_new_0("));
+    assert!(ir.contains("define i64 @df_new_0_0("));
 }
 
 /// LLVM rejeita membros estáticos até o lowering existir.
 #[test]
-fn llvm_rejects_static_members() {
+fn llvm_emits_static_members_as_a_global() {
     let source = "class C{static int x=1;}void main(){print(C.x);}";
     let dir = std::env::temp_dir().join("dartforge-classes-adv");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("static.dart");
     std::fs::write(&path, source).unwrap();
-    let error = dartforge_compiler::compile_path_llvm(&path).expect_err("LLVM deveria rejeitar");
-    assert!(
-        error.message.contains("membros est"),
-        "mensagem inesperada: {}",
-        error.message
-    );
+    let ir = dartforge_compiler::compile_path_llvm(&path).expect("LLVM emite estáticos");
+    // A área de estáticos é `internal`: exportá-la faria uma segunda geração do
+    // JIT colidir com a primeira ao adicionar o módulo.
+    assert!(ir.contains("@df_statics = internal global"));
 }

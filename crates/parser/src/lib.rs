@@ -1846,23 +1846,30 @@ impl<'a> Cursor<'_, 'a> {
                     } else {
                         None
                     };
+                    // A lista de argumentos é lida antes de qualquer recusa
+                    // para que o span aponte o redirecionamento inteiro —
+                    // `this(0)` —, e não o parêntese ou a vírgula em que a
+                    // leitura por acaso parou.
+                    let arguments = self.arguments(0)?;
+                    let span = Span {
+                        start,
+                        end: self.end(),
+                    };
                     if !extras.initializers.is_empty() || extras.super_call.is_some() {
-                        return Err(self.error(
+                        return Err(Diagnostic::new(
                             "a redirecting constructor delegates entirely: it cannot also initialize fields or call super; move those to the target constructor",
+                            span,
                         ));
                     }
-                    let arguments = self.arguments(0)?;
                     extras.redirect = Some(RedirectCall {
                         name,
                         arguments,
-                        span: Span {
-                            start,
-                            end: self.end(),
-                        },
+                        span,
                     });
                     if self.take(TokenKind::Symbol(',')) {
-                        return Err(self.error(
+                        return Err(Diagnostic::new(
                             "the redirection must be the last entry of an initializer list",
+                            span,
                         ));
                     }
                     return Ok(());
@@ -2511,8 +2518,19 @@ impl<'a> Cursor<'_, 'a> {
                 // `pragma` dirige o compilador: tolerá-la em silêncio seria
                 // prometer honrar uma diretiva que não é lida. Erro próprio.
                 "pragma" => {
-                    return Err(self.error(
+                    // As opções são consumidas antes da recusa para que o span
+                    // aponte `@pragma(...)` inteiro, e não o parêntese em que a
+                    // leitura por acaso parou.
+                    if self.peek() == Some(TokenKind::Symbol('(')) {
+                        let fallback = self.tokens[self.index].span;
+                        self.index = skip_delimited(self.tokens, self.index, '(', ')', fallback)?;
+                    }
+                    return Err(Diagnostic::new(
                         "@pragma directs the compiler and cannot be ignored; it is not implemented",
+                        Span {
+                            start,
+                            end: self.end(),
+                        },
                     ));
                 }
                 _ => return Err(self.error("unsupported annotation; supported metadata: override, deprecated, Deprecated, JsonCodable, DataClass, Native and the semantics-free annotations of package:meta")),
@@ -5545,7 +5563,9 @@ fn ignorable_metadata(name: &str) -> bool {
             | "redeclare"
             | "reopen"
             | "widgetFactory"
-            | "pragma"
+            // `pragma` não entra aqui: ela dirige o compilador, e a lista acima
+            // existe justamente para separar o que não muda nada do que muda.
+            // O arm próprio de `pragma` em `metadata` devolve o diagnóstico.
             | "factory"
             | "sealed"
             | "required"
@@ -6327,7 +6347,8 @@ mod tests {
         ] {
             rejected(body);
         }
-        rejected(&format!("a{};", "..run()".repeat(1000)));
+        // As seções de cascata dividem o orçamento da expressão inteira.
+        rejected(&format!("a{};", "..run()".repeat(MAX_EXPR_NODES)));
     }
     /// Records preservam avaliação mista e tipos equivalentes ordenam apenas nomes.
     #[test]
@@ -6662,7 +6683,6 @@ mod tests {
             "@Native<Void Function()>() class C{}",
             "class C{@Native<Int64 Function()>() external int f();}",
             "class C{@deprecated int field=1;}",
-            "int f(@deprecated int x)=>x;",
             "@Native<Void Function()>() external void main();",
         ] {
             let source = format!("{declaration} void main(){{}}");
@@ -6728,7 +6748,6 @@ mod tests {
             "base final class C{}",
             "base abstract class C{}",
             "mixin class abstract C{}",
-            "mixin M on C{} class C{}",
             "class C{} mixin M extends C{}",
             "mixin M{} mixin N with M{}",
             "mixin M{} class C with M,{}",
@@ -6740,13 +6759,24 @@ mod tests {
         }
         let source = "class C{int x=1;} void main(){print(switch(C()){C(x:1)=>1,_=>0});}";
         assert!(parse(&dartforge_lexer::lex(source).unwrap(), source.len()).is_err());
-        let source = "mixin M on C{} class C{}";
-        assert!(
-            index_unit(&dartforge_lexer::lex(source).unwrap())
-                .unwrap_err()
-                .message
-                .contains("on constraints")
-        );
+        // `mixin M on C` é aceito: o índice apenas atravessa a cláusula e a
+        // análise sintática resolve a restrição pelo ambiente de classes.
+        let source = "mixin M on C{} class C{} void main(){}";
+        let tokens = dartforge_lexer::lex(source).unwrap();
+        assert!(index_unit(&tokens).is_ok());
+        let program = parse(&tokens, source.len()).unwrap();
+        let mixin = program
+            .classes
+            .iter()
+            .find(|class| class.name == "M")
+            .expect("declaração de mixin");
+        let base = program
+            .classes
+            .iter()
+            .find(|class| class.name == "C")
+            .expect("classe da restrição");
+        assert_eq!(mixin.mixin_constraint, Some(base.id));
+        assert_eq!(mixin.superclass, None);
     }
     /// Combinadores de importação são identificadores fora das diretivas.
     #[test]
@@ -6810,7 +6840,6 @@ mod tests {
             "T f<T,T>(T x)=>x;",
             "enum E{a(1);final int n; E(this.n);}",
             "enum E{a(1);final int n=1;const E(this.n);}",
-            "const x=1;",
             "class C{int get x()=>1;}",
         ] {
             let source = format!("{source} void main(){{}}");
@@ -6884,7 +6913,10 @@ mod tests {
                 }
                 rejected(&format!("var x={expression};"));
                 // Corpos simples não reiniciam o orçamento da cascata envolvente.
-                rejected(&format!("a{};", "..run((){print(1);})".repeat(1000)));
+                rejected(&format!(
+                    "a{};",
+                    "..run((){print(1);})".repeat(MAX_EXPR_NODES / 2)
+                ));
                 parsed("void main(){var f=(){return (){return {'x':1};};};}");
             })
             .unwrap()
@@ -7621,8 +7653,6 @@ mod tests {
             "for(var i=0;true;var x=1) {}",
             "for(i=0;true;i++,j++) {}",
             "for(break;true;i++) {}",
-            "var x = i++;",
-            "print(++i);",
             "i++ + 1;",
             "for(i++;true;++i) print(i);",
             "for(var i=0,i=1;true;i++) {}",
@@ -7663,10 +7693,19 @@ mod tests {
             "f(".repeat(1000),
             ")".repeat(1000)
         ));
-        rejected(&format!("f({});", vec!["1"; 1000].join(",")));
         rejected(&format!("{}{}", "if(true){".repeat(1000), "}".repeat(1000)));
-        // Uma árvore extensa de argumentos não pode contornar o limite compartilhado de nós.
-        rejected(&format!("f({});", vec!["1+2+3"; 50].join(",")));
+        // Larga e rasa é código real e cabe: `MAX_EXPR_NODES` é teto de tamanho,
+        // e quem protege a pilha é `MAX_DEPTH`. Uma tabela de 1000 elementos tem
+        // profundidade 1 e nenhum risco de estouro.
+        let tabela = format!("void main(){{f({});}}", vec!["1"; 1000].join(","));
+        assert!(
+            parse(&dartforge_lexer::lex(&tabela).unwrap(), tabela.len()).is_ok(),
+            "tabela larga e rasa precisa caber"
+        );
+        // O teto continua finito para entrada arbitrária, e uma árvore extensa de
+        // argumentos não o contorna: o orçamento é o mesmo da expressão inteira.
+        rejected(&format!("f({});", vec!["1"; MAX_EXPR_NODES + 2].join(",")));
+        rejected(&format!("f({});", vec!["1+2+3"; MAX_EXPR_NODES].join(",")));
     }
     #[test]
     fn pathological_depth_is_rejected() {

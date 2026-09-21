@@ -90,6 +90,17 @@ impl<'a> Validator<'a> {
                 parameter.span,
             )?;
             if let Some(name) = parameter.field {
+                // Um redirecionador delega a inicialização inteira ao alvo, e
+                // por isso não pode gravar campo nenhum: `this.campo` num
+                // redirecionador é erro de compilação também no Dart.
+                if extras.redirect.is_some() {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "A redirecting constructor cannot declare the initializing formal 'this.{name}': it delegates the whole initialization to the target; declare a plain parameter and pass it in the redirection"
+                        ),
+                        parameter.span,
+                    ));
+                }
                 let field = class
                     .fields
                     .iter()
@@ -245,7 +256,12 @@ impl<'a> Validator<'a> {
                     info.constructor_required,
                     &info.constructor_named,
                     call.span,
-                    |_| Diagnostic::new("Incorrect redirected constructor argument count", call.span),
+                    |_| {
+                        Diagnostic::new(
+                            "Incorrect redirected constructor argument count",
+                            call.span,
+                        )
+                    },
                 )
             }
             Some(name) => {
@@ -262,7 +278,12 @@ impl<'a> Validator<'a> {
                     declared.required,
                     &declared.named,
                     call.span,
-                    |_| Diagnostic::new("Incorrect redirected constructor argument count", call.span),
+                    |_| {
+                        Diagnostic::new(
+                            "Incorrect redirected constructor argument count",
+                            call.span,
+                        )
+                    },
                 )
             }
         }
