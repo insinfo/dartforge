@@ -69,6 +69,24 @@ void main() {
 "#
 }
 
+/// Exercita cascatas com campos, chamadas, índices e interrupção por null.
+fn cascade_corpus() -> &'static str {
+    r#"
+class Box {
+  int value = 0;
+  void set(int next) { value = next; }
+}
+void main() {
+  var box = Box()..value = 1..set(2);
+  var values = <int>[0]..[0] = box.value..add(3);
+  Box? missing = null;
+  missing?..value = values[0]..set(4);
+  print(box.value);
+  print(values);
+}
+"#
+}
+
 /// Lê um inteiro positivo da configuração ou aplica o padrão informado.
 fn setting(name: &str, default: usize) -> usize {
     std::env::var(name).map_or(default, |value| {
@@ -136,6 +154,14 @@ fn main() {
     let module = dartforge_hir::lower(dartforge_parser::parse(&tokens, source.len()).unwrap());
     let reified_source = reified_corpus();
     let record_source = record_corpus();
+    let cascade_source = cascade_corpus();
+    let macro_source = "@JsonCodable() class User { final String name; final int age; final String? email; } void main(){var user=User.fromJson(<String,Object?>{'name':'Dart','age':15});print(user.toJson()['age'] as int);}";
+    let macro_output_bytes = dartforge_compiler::compile(macro_source)
+        .expect("corpus de macro deve compilar")
+        .len();
+    let cascade_output_bytes = dartforge_compiler::compile(cascade_source)
+        .expect("corpus de cascatas deve compilar")
+        .len();
     let record_output_bytes = dartforge_compiler::compile(record_source)
         .expect("corpus de records deve compilar")
         .len();
@@ -223,16 +249,60 @@ fn main() {
         iterations,
         samples,
     );
+    let cascade_pipeline = measure(
+        || {
+            black_box(dartforge_compiler::compile(black_box(cascade_source)).unwrap());
+        },
+        iterations,
+        samples,
+    );
+    let macro_pipeline = measure(
+        || {
+            black_box(dartforge_compiler::compile(black_box(macro_source)).unwrap());
+        },
+        iterations,
+        samples,
+    );
+    let baseline_output_bytes = dartforge_compiler::compile(&source).unwrap().len();
+    let tree_options = dartforge_compiler::CompileOptions {
+        tree_shaking: true,
+        ..Default::default()
+    };
+    let tree_output_bytes = dartforge_compiler::compile_with_options(&source, tree_options)
+        .unwrap()
+        .len();
+    let tree_pipeline = measure(
+        || {
+            black_box(
+                dartforge_compiler::compile_with_options(black_box(&source), tree_options).unwrap(),
+            );
+        },
+        iterations,
+        samples,
+    );
     println!("{}", serde_json::to_string_pretty(&json!({
         "schema_version": 1, "kind": "warm_in_process_synthetic", "target_dart": "3.6.2",
         "os": std::env::consts::OS, "arch": std::env::consts::ARCH, "metadata": metadata,
-        "functions": functions, "source_bytes": source.len(), "iterations": iterations,
+        "functions": functions, "source_bytes": source.len(), "javascript_bytes": baseline_output_bytes, "iterations": iterations,
         "samples": samples, "warmup_iterations": iterations,
         "statistic_unit": "batch_mean_ns_per_operation", "percentile_method": "nearest_rank",
         "corpus_reachable_functions": 1,
         "note": "Inclui descarte das alocações; fases isoladas não incluem fases anteriores; não mede processo, disco, SDK, DDC nem otimizações globais. Mediana/p95 são de médias por lote, não latências individuais. Corpus analisa todas as funções, mas main chama apenas f0.",
         "phases": phases,
+        "tree_shaking_enabled": { "javascript_bytes": tree_output_bytes, "pipeline": tree_pipeline, "note": "Mesmo corpus e análise completa; main alcança apenas f0. Passe desativado no baseline." },
         "additional_corpora": {
+            "json_codable": {
+                "source_bytes": macro_source.len(), "javascript_bytes": macro_output_bytes,
+                "iterations": iterations, "samples": samples, "warmup_iterations": iterations,
+                "phases": { "pipeline": macro_pipeline },
+                "note": "Inclui expansão Rust, análise de mapas/fábrica e emissão JS; macro experimental, sem comparação DDC/dart2js."
+            },
+            "cascades": {
+                "source_bytes": cascade_source.len(), "javascript_bytes": cascade_output_bytes,
+                "iterations": iterations, "samples": samples, "warmup_iterations": iterations,
+                "phases": { "pipeline": cascade_pipeline },
+                "note": "Campos, chamadas e índices em cascatas comuns/anuláveis; não mede execução JS nem compara DDC/dart2js."
+            },
             "records": {
                 "source_bytes": record_source.len(), "javascript_bytes": record_output_bytes,
                 "iterations": iterations, "samples": samples, "warmup_iterations": iterations,

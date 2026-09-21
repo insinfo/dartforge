@@ -158,6 +158,10 @@ fn closed_type(ty: Type, resolution: &Resolution) -> bool {
     match ty {
         Type::Parameter(_) | Type::NullableParameter(_) | Type::Inferred | Type::Void => false,
         Type::Applied(id) => match resolution.types.get(id as usize) {
+            Some(TypeShape::Future(t)) => closed_type(*t, resolution),
+            Some(TypeShape::Map { key, value }) => {
+                closed_type(*key, resolution) && closed_type(*value, resolution)
+            }
             Some(TypeShape::Record { positional, named }) => positional
                 .iter()
                 .chain(named.iter().map(|(_, t)| t))
@@ -187,6 +191,13 @@ fn same_type(left: Type, right: Type, resolution: &Resolution) -> bool {
             resolution.types.get(a as usize),
             resolution.types.get(b as usize),
         ) {
+            (Some(TypeShape::Future(a)), Some(TypeShape::Future(b))) => {
+                same_type(*a, *b, resolution)
+            }
+            (
+                Some(TypeShape::Map { key: ak, value: av }),
+                Some(TypeShape::Map { key: bk, value: bv }),
+            ) => same_type(*ak, *bk, resolution) && same_type(*av, *bv, resolution),
             (
                 Some(TypeShape::Record {
                     positional: ap,

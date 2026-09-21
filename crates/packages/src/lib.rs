@@ -4,6 +4,8 @@
 //! saída de múltiplos arquivos. O lexer existente valida a tokenização inteira.
 //! Condicionais selecionam a primeira alternativa verdadeira; destinos inativos
 //! não são resolvidos nem lidos. A análise do prefixo independe do perfil alvo.
+//! Diretivas `part`/`part of` também são resolvidas: a parte vira uma unidade própria
+//! ligada ao pai, sem imports, exports ou escopo próprios.
 mod config;
 mod environment;
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -21,6 +23,11 @@ pub struct SourceGraph {
     pub units: Vec<SourceUnit>,
     /// ID da entrada solicitada, sempre zero neste carregador.
     pub entry: usize,
+    /// Arquivo de package_config lido e seu conteúdo exato, quando existe.
+    ///
+    /// Registrado para que a revalidação incremental possa provar que a
+    /// resolução de `package:` não mudou sem recarregar o grafo inteiro.
+    pub config_origin: Option<(PathBuf, String)>,
 }
 
 /// Fonte UTF-8 e diretivas pertencentes a um arquivo.
@@ -34,6 +41,37 @@ pub struct SourceUnit {
     pub imports: Vec<Import>,
     /// Arestas exportadas na ordem textual, com filtros show/hide.
     pub exports: Vec<Import>,
+    /// Partes declaradas por `part` na ordem textual; sempre vazio em uma parte.
+    pub parts: Vec<Part>,
+    /// Unidade da biblioteca que declara este arquivo como parte, quando houver.
+    pub part_of: Option<usize>,
+    /// Fim em bytes do prefixo de diretivas, inclusive library, part e part of.
+    pub directives_end: usize,
+}
+impl SourceUnit {
+    /// Cria a unidade antes de resolver as diretivas do próprio arquivo.
+    fn new(path: PathBuf, source: String, part_of: Option<usize>) -> Self {
+        Self {
+            path,
+            source,
+            imports: vec![],
+            exports: vec![],
+            parts: vec![],
+            part_of,
+            directives_end: 0,
+        }
+    }
+}
+
+/// Aresta resolvida de uma diretiva `part 'arquivo.dart';`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Part {
+    /// Caminho relativo escrito na string da diretiva.
+    pub uri: String,
+    /// Índice da unidade da parte no grafo.
+    pub target: usize,
+    /// Intervalo da diretiva completa na biblioteca declarante.
+    pub span: Span,
 }
 
 /// Aresta resolvida de uma diretiva import.
@@ -88,7 +126,8 @@ impl std::error::Error for GraphError {}
 ///
 /// Retorna erro para arquivos inacessíveis ou não UTF-8, falhas do lexer e
 /// diretivas fora do subconjunto. Aceita show/hide sequenciais e package_config v2.
-/// Aceita dart:core sem filtros; outras bibliotecas dart:, part, library e aliases são rejeitados.
+/// Aceita dart:core sem filtros, `library`, `part` e `part of`; outras bibliotecas
+/// dart: e aliases são rejeitados. Partes não podem ser importadas nem reivindicadas duas vezes.
 ///
 /// ```no_run
 /// use std::path::Path;
@@ -149,17 +188,34 @@ pub fn load_with_config_and_environment(
     let source =
         std::fs::read_to_string(&path).map_err(|error| error_at(&path, None, error.to_string()))?;
     let mut known = HashMap::from([(path.clone(), 0)]);
-    let mut units = vec![SourceUnit {
-        path,
-        source,
-        imports: vec![],
-        exports: vec![],
-    }];
+    let mut units = vec![SourceUnit::new(path, source, None)];
+    // Papel e nome declarado acompanham cada unidade para reivindicar arquivos uma vez.
+    let mut roles = vec![Role::Library];
+    let mut library_names: Vec<Option<String>> = vec![None];
     let mut sdk_units = HashMap::new();
     let mut current = 0;
     while current < units.len() {
         let path = units[current].path.clone();
         let directives = extract(&units[current].source, &path)?;
+        units[current].directives_end = directives.end;
+        library_names[current] = directives.library.as_ref().map(|(name, _)| name.clone());
+        if let Role::Part { owner } = roles[current] {
+            validate_part(&config, &units, &library_names, current, owner, &directives)?;
+            current += 1;
+            continue;
+        }
+        if let Some((_, span)) = &directives.part_of {
+            return Err(error_at(
+                &path,
+                Some(*span),
+                "part of exige uma biblioteca que declare part para este arquivo".into(),
+            ));
+        }
+        // Canonicalização e leitura são syscalls independentes: resolver as URIs
+        // é aritmética de caminhos, então todos os alvos desta unidade podem ser
+        // buscados de uma vez. Erros ficam guardados e são relatados no mesmo
+        // ponto e na mesma ordem do laço sequencial abaixo.
+        let prefetched = prefetch_imports(&config, &path, environment, &directives.imports, &known);
         for Directive {
             mut uri,
             alternatives,
@@ -167,7 +223,7 @@ pub fn load_with_config_and_environment(
             combinators,
             export,
             prefix,
-        } in directives
+        } in directives.imports
         {
             if let Some(alternative) = alternatives.into_iter().find(|alternative| {
                 environment.condition(&alternative.name, alternative.expected.as_deref())
@@ -182,8 +238,8 @@ pub fn load_with_config_and_environment(
                     "prefixos fora de dart:ffi ainda não suportados".into(),
                 ));
             }
-            if matches!(uri.as_str(), "dart:core" | "dart:ffi") {
-                if export || !combinators.is_empty() {
+            if matches!(uri.as_str(), "dart:core" | "dart:ffi" | "dart:async") {
+                if uri != "dart:async" && (export || !combinators.is_empty()) {
                     return Err(error_at(
                         &path,
                         Some(span),
@@ -199,53 +255,69 @@ pub fn load_with_config_and_environment(
                 }
                 let target = *sdk_units.entry(uri.clone()).or_insert_with(|| {
                     let id = units.len();
-                    units.push(SourceUnit {
-                        path: PathBuf::from(&uri),
-                        source: String::new(),
-                        imports: vec![],
-                        exports: vec![],
-                    });
+                    units.push(SourceUnit::new(PathBuf::from(&uri), String::new(), None));
+                    roles.push(Role::Library);
+                    library_names.push(None);
                     id
                 });
-                units[current].imports.push(Import {
+                let import = Import {
                     prefix,
                     uri,
                     target,
                     span,
                     combinators,
-                });
+                };
+                if export {
+                    units[current].exports.push(import);
+                } else {
+                    units[current].imports.push(import);
+                }
                 continue;
             }
             let candidate = config
                 .resolve(&path, &uri)
                 .map_err(|message| error_at(&path, Some(span), message))?;
-            let target_path = std::fs::canonicalize(&candidate).map_err(|error| {
-                error_at(
-                    &path,
-                    Some(span),
-                    format!("não foi possível resolver {}: {error}", candidate.display()),
-                )
-            })?;
-            let target = if let Some(&id) = known.get(&target_path) {
-                id
-            } else {
-                let source = std::fs::read_to_string(&target_path).map_err(|error| {
+            let fetched = prefetched.get(&candidate);
+            let target_path = match fetched {
+                Some(Ok((canonical, _))) => canonical.clone(),
+                Some(Err(message)) => {
+                    return Err(error_at(&path, Some(span), message.clone()));
+                }
+                None => std::fs::canonicalize(&candidate).map_err(|error| {
                     error_at(
                         &path,
                         Some(span),
-                        format!("não foi possível ler {}: {error}", target_path.display()),
+                        format!("não foi possível resolver {}: {error}", candidate.display()),
                     )
-                })?;
+                })?,
+            };
+            let target = if let Some(&id) = known.get(&target_path) {
+                id
+            } else {
+                let source = match fetched {
+                    Some(Ok((_, Some(source)))) => source.clone(),
+                    _ => std::fs::read_to_string(&target_path).map_err(|error| {
+                        error_at(
+                            &path,
+                            Some(span),
+                            format!("não foi possível ler {}: {error}", target_path.display()),
+                        )
+                    })?,
+                };
                 let id = units.len();
                 known.insert(target_path.clone(), id);
-                units.push(SourceUnit {
-                    path: target_path,
-                    source,
-                    imports: vec![],
-                    exports: vec![],
-                });
+                units.push(SourceUnit::new(target_path, source, None));
+                roles.push(Role::Library);
+                library_names.push(None);
                 id
             };
+            if matches!(roles[target], Role::Part { .. }) {
+                return Err(error_at(
+                    &path,
+                    Some(span),
+                    format!("{uri} é parte de outra biblioteca e não pode ser importada"),
+                ));
+            }
             let edge = Import {
                 prefix,
                 uri,
@@ -259,12 +331,251 @@ pub fn load_with_config_and_environment(
                 units[current].imports.push(edge);
             }
         }
+        for PartDirective { uri, span } in directives.parts {
+            config::validate_uri(&uri).map_err(|message| error_at(&path, Some(span), message))?;
+            let candidate = config
+                .resolve(&path, &uri)
+                .map_err(|message| error_at(&path, Some(span), message))?;
+            let target_path = std::fs::canonicalize(&candidate).map_err(|error| {
+                error_at(
+                    &path,
+                    Some(span),
+                    format!("não foi possível resolver {}: {error}", candidate.display()),
+                )
+            })?;
+            if let Some(&id) = known.get(&target_path) {
+                return Err(error_at(
+                    &path,
+                    Some(span),
+                    claimed_message(&roles, id, current),
+                ));
+            }
+            let source = std::fs::read_to_string(&target_path).map_err(|error| {
+                error_at(
+                    &path,
+                    Some(span),
+                    format!("não foi possível ler {}: {error}", target_path.display()),
+                )
+            })?;
+            let target = units.len();
+            known.insert(target_path.clone(), target);
+            units.push(SourceUnit::new(target_path, source, Some(current)));
+            roles.push(Role::Part { owner: current });
+            library_names.push(None);
+            units[current].parts.push(Part { uri, target, span });
+        }
         current += 1;
     }
     Ok(SourceGraph {
         units,
         entry: 0,
         environment: environment.clone(),
+        config_origin: config.origin.clone(),
+    })
+}
+
+/// Reaproveita a estrutura de um grafo quando só os corpos dos arquivos mudaram.
+///
+/// Relê **todos** os arquivos já conhecidos, em paralelo, e compara byte a byte.
+/// Não usa mtime nem tamanho: a garantia de que uma edição com mtime restaurado
+/// e tamanho idêntico invalida o cache continua valendo.
+///
+/// A estrutura só é reaproveitada quando, para cada arquivo alterado, as
+/// diretivas continuam **estruturalmente idênticas** — mesmas URIs na mesma
+/// ordem, mesmos combinadores, mesmos prefixos, mesmos `part` e o mesmo
+/// `part of`. Como a resolução é função pura de diretivas, configuração e
+/// ambiente, isso prova que as arestas e os IDs das unidades são os mesmos.
+/// Os spans e o fim do prefixo de diretivas são atualizados a partir do texto
+/// novo, porque é esse texto que o front-end vai analisar.
+///
+/// Devolve `None` sempre que houver qualquer dúvida: arquivo ausente, diretiva
+/// nova ou removida, configuração de pacotes alterada, ambiente diferente ou
+/// entrada apontando para outro arquivo. Nesses casos o chamador deve recarregar
+/// o grafo do zero.
+///
+/// # Exemplos
+///
+/// ```no_run
+/// # use dartforge_packages::{load, revalidate, CompilationEnvironment};
+/// let antes = load(std::path::Path::new("lib/main.dart"))?;
+/// let ambiente = CompilationEnvironment::javascript();
+/// match revalidate(&antes, std::path::Path::new("lib/main.dart"), &ambiente) {
+///     Some(agora) => assert_eq!(agora.units.len(), antes.units.len()),
+///     None => { /* estrutura mudou: recarregar */ }
+/// }
+/// # Ok::<(), dartforge_packages::GraphError>(())
+/// ```
+pub fn revalidate(
+    graph: &SourceGraph,
+    entry: &Path,
+    environment: &CompilationEnvironment,
+) -> Option<SourceGraph> {
+    if graph.environment != *environment || graph.entry != 0 || graph.units.is_empty() {
+        return None;
+    }
+    if std::fs::canonicalize(entry).ok()? != graph.units[0].path {
+        return None;
+    }
+    if let Some((path, previous)) = &graph.config_origin
+        && std::fs::read_to_string(path).ok()?.as_str() != previous.as_str()
+    {
+        return None;
+    }
+    let sources = read_known_sources(graph)?;
+    let mut units = Vec::with_capacity(graph.units.len());
+    for (unit, source) in graph.units.iter().zip(sources) {
+        let Some(source) = source else {
+            // Unidade sintética de biblioteca SDK: não tem arquivo em disco.
+            units.push(SourceUnit {
+                path: unit.path.clone(),
+                source: String::new(),
+                imports: clone_imports(&unit.imports),
+                exports: clone_imports(&unit.exports),
+                parts: clone_parts(&unit.parts),
+                part_of: unit.part_of,
+                directives_end: unit.directives_end,
+            });
+            continue;
+        };
+        if source == unit.source {
+            units.push(SourceUnit {
+                path: unit.path.clone(),
+                source,
+                imports: clone_imports(&unit.imports),
+                exports: clone_imports(&unit.exports),
+                parts: clone_parts(&unit.parts),
+                part_of: unit.part_of,
+                directives_end: unit.directives_end,
+            });
+            continue;
+        }
+        let directives = extract(&source, &unit.path).ok()?;
+        let updated = rebind_directives(unit, &directives)?;
+        units.push(SourceUnit {
+            path: unit.path.clone(),
+            source,
+            directives_end: directives.end,
+            ..updated
+        });
+    }
+    Some(SourceGraph {
+        units,
+        entry: 0,
+        environment: environment.clone(),
+        config_origin: graph.config_origin.clone(),
+    })
+}
+
+/// Lê em paralelo os arquivos do grafo; `None` marca unidade sintética de SDK.
+///
+/// Qualquer falha de leitura devolve `None` para o grafo inteiro: um arquivo que
+/// sumiu muda a resolução e exige a carga completa, com o diagnóstico correto.
+fn read_known_sources(graph: &SourceGraph) -> Option<Vec<Option<String>>> {
+    let read = |unit: &SourceUnit| {
+        if unit.path.to_str().is_some_and(|p| p.starts_with("dart:")) {
+            return Some(None);
+        }
+        std::fs::read_to_string(&unit.path).ok().map(Some)
+    };
+    let results: Vec<Option<Option<String>>> = if graph.units.len() < PREFETCH_THRESHOLD {
+        graph.units.iter().map(read).collect()
+    } else {
+        use rayon::prelude::*;
+        graph.units.par_iter().map(read).collect()
+    };
+    results.into_iter().collect()
+}
+
+/// Copia arestas preservando alvo, filtros e prefixo.
+fn clone_imports(imports: &[Import]) -> Vec<Import> {
+    imports
+        .iter()
+        .map(|import| Import {
+            prefix: import.prefix.clone(),
+            uri: import.uri.clone(),
+            target: import.target,
+            span: import.span,
+            combinators: import.combinators.clone(),
+        })
+        .collect()
+}
+
+/// Copia declarações `part` preservando o alvo já resolvido.
+fn clone_parts(parts: &[Part]) -> Vec<Part> {
+    parts
+        .iter()
+        .map(|part| Part {
+            uri: part.uri.clone(),
+            target: part.target,
+            span: part.span,
+        })
+        .collect()
+}
+
+/// Confere que as diretivas relidas são as mesmas e adota os spans novos.
+///
+/// Devolve `None` na menor divergência estrutural. Em particular, uma diretiva
+/// acrescentada depois das anteriores muda a contagem e reprova aqui, que é
+/// exatamente o caso que uma comparação só do prefixo deixaria passar.
+fn rebind_directives(unit: &SourceUnit, directives: &UnitDirectives) -> Option<SourceUnit> {
+    if unit.part_of.is_some() != directives.part_of.is_some()
+        || unit.parts.len() != directives.parts.len()
+    {
+        return None;
+    }
+    let mut imports = Vec::new();
+    let mut exports = Vec::new();
+    // As arestas ficam em vetores separados, mas cada um preserva a ordem
+    // textual: consumir o vetor correspondente ao tipo da diretiva reconstrói
+    // a correspondência mesmo quando import e export estão intercalados.
+    for directive in &directives.imports {
+        let existing = if directive.export {
+            unit.exports.get(exports.len())?
+        } else {
+            unit.imports.get(imports.len())?
+        };
+        if existing.uri != directive.uri
+            || existing.prefix != directive.prefix
+            || existing.combinators != directive.combinators
+            || !directive.alternatives.is_empty()
+        {
+            return None;
+        }
+        let rebound = Import {
+            prefix: existing.prefix.clone(),
+            uri: existing.uri.clone(),
+            target: existing.target,
+            span: directive.span,
+            combinators: existing.combinators.clone(),
+        };
+        if directive.export {
+            exports.push(rebound);
+        } else {
+            imports.push(rebound);
+        }
+    }
+    if imports.len() != unit.imports.len() || exports.len() != unit.exports.len() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for (existing, fresh) in unit.parts.iter().zip(&directives.parts) {
+        if existing.uri != fresh.uri {
+            return None;
+        }
+        parts.push(Part {
+            uri: existing.uri.clone(),
+            target: existing.target,
+            span: fresh.span,
+        });
+    }
+    Some(SourceUnit {
+        path: unit.path.clone(),
+        source: String::new(),
+        imports,
+        exports,
+        parts,
+        part_of: unit.part_of,
+        directives_end: directives.end,
     })
 }
 
@@ -275,6 +586,142 @@ fn error_at(path: &Path, span: Option<Span>, message: String) -> GraphError {
         span,
         message,
     }
+}
+
+/// Papel já atribuído a uma unidade descoberta, usado para reivindicar arquivos.
+#[derive(Clone, Copy)]
+enum Role {
+    /// Arquivo com escopo próprio: entrada, import ou export.
+    Library,
+    /// Arquivo reivindicado por uma única biblioteca através de `part`.
+    Part { owner: usize },
+}
+
+/// Explica por que o arquivo apontado por `part` já pertence a outra unidade.
+fn claimed_message(roles: &[Role], target: usize, current: usize) -> String {
+    match roles[target] {
+        Role::Library if target == current => {
+            "uma biblioteca não pode declarar a si mesma como parte".into()
+        }
+        Role::Library => "arquivo já carregado como biblioteca não pode ser parte".into(),
+        Role::Part { owner } if owner == current => {
+            "part duplicado para o mesmo arquivo nesta biblioteca".into()
+        }
+        Role::Part { .. } => "arquivo já é parte de outra biblioteca".into(),
+    }
+}
+
+/// Valida as restrições da parte e sua correspondência com a biblioteca declarante.
+fn validate_part(
+    config: &config::Config,
+    units: &[SourceUnit],
+    library_names: &[Option<String>],
+    current: usize,
+    owner: usize,
+    directives: &UnitDirectives,
+) -> Result<(), GraphError> {
+    let path = &units[current].path;
+    if let Some(directive) = directives.imports.first() {
+        return Err(error_at(
+            path,
+            Some(directive.span),
+            "parte não pode declarar import ou export".into(),
+        ));
+    }
+    if let Some(part) = directives.parts.first() {
+        return Err(error_at(
+            path,
+            Some(part.span),
+            "parte não pode declarar part".into(),
+        ));
+    }
+    if let Some((_, span)) = &directives.library {
+        return Err(error_at(
+            path,
+            Some(*span),
+            "parte não pode declarar library".into(),
+        ));
+    }
+    let parent = &units[owner].path;
+    let Some((target, span)) = &directives.part_of else {
+        return Err(error_at(
+            path,
+            Some(Span { start: 0, end: 0 }),
+            format!(
+                "arquivo incluído por part exige part of de {}",
+                parent.display()
+            ),
+        ));
+    };
+    match target {
+        PartOf::Uri(uri) => {
+            config::validate_uri(uri).map_err(|message| error_at(path, Some(*span), message))?;
+            let candidate = config
+                .resolve(path, uri)
+                .map_err(|message| error_at(path, Some(*span), message))?;
+            let resolved = std::fs::canonicalize(&candidate).map_err(|error| {
+                error_at(
+                    path,
+                    Some(*span),
+                    format!("não foi possível resolver {}: {error}", candidate.display()),
+                )
+            })?;
+            if &resolved != parent {
+                return Err(error_at(
+                    path,
+                    Some(*span),
+                    format!(
+                        "part of aponta para {} em vez de {}",
+                        resolved.display(),
+                        parent.display()
+                    ),
+                ));
+            }
+        }
+        PartOf::Name(name) => {
+            if library_names[owner].as_deref() != Some(name.as_str()) {
+                return Err(error_at(
+                    path,
+                    Some(*span),
+                    format!(
+                        "part of {name} não corresponde à biblioteca {}",
+                        parent.display()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Prefixo completo de diretivas de uma unidade, antes de resolver os destinos.
+struct UnitDirectives {
+    /// Nome declarado por `library nome;`, consultado por `part of nome;`.
+    library: Option<(String, Span)>,
+    /// Alvo declarado por `part of ...;` quando o arquivo é uma parte.
+    part_of: Option<(PartOf, Span)>,
+    /// Imports e exports na ordem textual.
+    imports: Vec<Directive>,
+    /// Partes declaradas depois dos imports, na ordem textual.
+    parts: Vec<PartDirective>,
+    /// Fim em bytes da última diretiva reconhecida.
+    end: usize,
+}
+
+/// Forma aceita em `part of`: URI relativa do pai ou nome de biblioteca.
+enum PartOf {
+    /// URI relativa que deve resolver exatamente para o arquivo pai.
+    Uri(String),
+    /// Nome pontuado que deve coincidir com o `library` do pai.
+    Name(String),
+}
+
+/// Diretiva `part 'arquivo.dart';` antes de resolver o destino.
+struct PartDirective {
+    /// Caminho relativo escrito na string da diretiva.
+    uri: String,
+    /// Intervalo da diretiva completa no arquivo declarante.
+    span: Span,
 }
 
 /// Diretiva sintática antes da resolução do destino.
@@ -345,7 +792,7 @@ fn directive_string(
 ///     assert_eq!(dartforge_packages::directive_prefix_end(fonte).unwrap(), fonte.len());
 pub fn directive_prefix_end(source: &str) -> Result<usize, Diagnostic> {
     extract(source, Path::new("<source>"))
-        .map(|directives| directives.last().map_or(0, |directive| directive.span.end))
+        .map(|directives| directives.end)
         .map_err(|error| {
             Diagnostic::new(
                 error.message,
@@ -354,13 +801,119 @@ pub fn directive_prefix_end(source: &str) -> Result<usize, Diagnostic> {
         })
 }
 
-/// Extrai imports e exports do prefixo, preservando combinadores sequenciais.
-fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
+/// Abaixo deste número de importações o custo de coordenação supera o ganho.
+const PREFETCH_THRESHOLD: usize = 4;
+
+/// Canonicaliza e lê, em paralelo, os arquivos importados por uma unidade.
+///
+/// Só toca arquivos: não interpreta diretivas nem altera o grafo. Cada resultado
+/// é indexado pelo caminho candidato antes da canonicalização, de modo que o laço
+/// sequencial continue decidindo tudo na ordem escrita — inclusive qual erro é
+/// relatado primeiro. Alvos já conhecidos não são relidos; URIs `dart:` e
+/// condicionais não selecionadas são ignoradas aqui e resolvidas no laço.
+fn prefetch_imports(
+    config: &config::Config,
+    importer: &Path,
+    environment: &CompilationEnvironment,
+    imports: &[Directive],
+    known: &HashMap<PathBuf, usize>,
+) -> HashMap<PathBuf, Result<(PathBuf, Option<String>), String>> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for directive in imports {
+        let uri = directive
+            .alternatives
+            .iter()
+            .find(|alternative| {
+                environment.condition(&alternative.name, alternative.expected.as_deref())
+            })
+            .map_or(directive.uri.as_str(), |alternative| {
+                alternative.uri.as_str()
+            });
+        if uri.starts_with("dart:") {
+            continue;
+        }
+        let Ok(candidate) = config.resolve(importer, uri) else {
+            continue;
+        };
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    if candidates.len() < PREFETCH_THRESHOLD {
+        return HashMap::new();
+    }
+    use rayon::prelude::*;
+    candidates
+        .par_iter()
+        .map(|candidate| {
+            let result = match std::fs::canonicalize(candidate) {
+                Err(error) => Err(format!(
+                    "não foi possível resolver {}: {error}",
+                    candidate.display()
+                )),
+                Ok(canonical) => {
+                    if known.contains_key(&canonical) {
+                        Ok((canonical, None))
+                    } else {
+                        match std::fs::read_to_string(&canonical) {
+                            Ok(source) => Ok((canonical, Some(source))),
+                            Err(error) => Err(format!(
+                                "não foi possível ler {}: {error}",
+                                canonical.display()
+                            )),
+                        }
+                    }
+                }
+            };
+            (candidate.clone(), result)
+        })
+        .collect()
+}
+
+/// Extrai library, part of, imports/exports e parts na ordem exigida pelo Dart.
+fn extract(source: &str, path: &Path) -> Result<UnitDirectives, GraphError> {
     let tokens = dartforge_lexer::lex(source)
         .map_err(|error| error_at(path, Some(error.span), error.message))?;
     validate_language_version(source)
         .map_err(|error| error_at(path, Some(error.span), error.message))?;
     let mut index = 0;
+    let mut end = 0;
+    let mut library = None;
+    let mut part_of = None;
+    if tokens.first().map(|token| token.kind) == Some(TokenKind::Word("library")) {
+        let start = tokens[0].span.start;
+        index = 1;
+        let name = dotted_name(&tokens, &mut index, source.len(), path)?;
+        expect_directive(
+            &tokens,
+            &mut index,
+            TokenKind::Symbol(';'),
+            source.len(),
+            path,
+        )?;
+        end = tokens[index - 1].span.end;
+        library = Some((name, Span { start, end }));
+    } else if tokens.first().map(|token| token.kind) == Some(TokenKind::Word("part"))
+        && tokens.get(1).map(|token| token.kind) == Some(TokenKind::Word("of"))
+    {
+        let start = tokens[0].span.start;
+        index = 2;
+        let target = match tokens.get(index).map(|token| token.kind) {
+            Some(TokenKind::String(_) | TokenKind::RawString(_)) => {
+                PartOf::Uri(directive_string(&tokens, &mut index, source.len(), path)?)
+            }
+            _ => PartOf::Name(dotted_name(&tokens, &mut index, source.len(), path)?),
+        };
+        expect_directive(
+            &tokens,
+            &mut index,
+            TokenKind::Symbol(';'),
+            source.len(),
+            path,
+        )?;
+        end = tokens[index - 1].span.end;
+        part_of = Some((target, Span { start, end }));
+    }
     let mut directives = Vec::new();
     while matches!(
         tokens.get(index).map(|t| t.kind),
@@ -486,18 +1039,41 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
                 "diretiva exige ; (deferred não suportado)".into(),
             ));
         }
+        end = tokens[index].span.end;
         directives.push(Directive {
             prefix,
             uri,
             alternatives,
             combinators,
             export,
-            span: Span {
-                start,
-                end: tokens[index].span.end,
-            },
+            span: Span { start, end },
         });
         index += 1;
+    }
+    let mut parts = Vec::new();
+    while tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("part")) {
+        let start = tokens[index].span.start;
+        if tokens.get(index + 1).map(|token| token.kind) == Some(TokenKind::Word("of")) {
+            return Err(error_at(
+                path,
+                Some(tokens[index].span),
+                "part of deve ser a primeira diretiva do arquivo".into(),
+            ));
+        }
+        index += 1;
+        let uri = directive_string(&tokens, &mut index, source.len(), path)?;
+        expect_directive(
+            &tokens,
+            &mut index,
+            TokenKind::Symbol(';'),
+            source.len(),
+            path,
+        )?;
+        end = tokens[index - 1].span.end;
+        parts.push(PartDirective {
+            uri,
+            span: Span { start, end },
+        });
     }
     let mut depth = 0usize;
     for token in &tokens[index..] {
@@ -514,7 +1090,46 @@ fn extract(source: &str, path: &Path) -> Result<Vec<Directive>, GraphError> {
             _ => {}
         }
     }
-    Ok(directives)
+    Ok(UnitDirectives {
+        library,
+        part_of,
+        imports: directives,
+        parts,
+        end,
+    })
+}
+
+/// Lê identificador pontuado de library ou part of, rejeitando palavras reservadas.
+fn dotted_name(
+    tokens: &[Token<'_>],
+    index: &mut usize,
+    end: usize,
+    path: &Path,
+) -> Result<String, GraphError> {
+    let mut name = String::new();
+    loop {
+        let Some(TokenKind::Word(part)) = tokens.get(*index).map(|token| token.kind) else {
+            return Err(error_at(
+                path,
+                Some(token_span(tokens, *index, end)),
+                "diretiva exige nome de biblioteca pontuado".into(),
+            ));
+        };
+        if reserved_combinator(part) {
+            return Err(error_at(
+                path,
+                Some(tokens[*index].span),
+                "identificador inválido no nome da biblioteca".into(),
+            ));
+        }
+        name.push_str(part);
+        *index += 1;
+        if tokens.get(*index).map(|token| token.kind) != Some(TokenKind::Symbol('.')) {
+            return Ok(name);
+        }
+        name.push('.');
+        *index += 1;
+    }
 }
 /// Decodifica escapes Dart em unidades UTF-16 e rejeita surrogates isolados.
 fn decode_directive_string(text: &str, span: Span) -> Result<String, Diagnostic> {
@@ -1069,7 +1684,12 @@ mod tests {
             "import 'a.dart' deferred as a;",
             "export 'a.dart';",
             "part 'a.dart';",
-            "library a;",
+            "part 'a.dart'",
+            "part of;",
+            "library a",
+            "library ;",
+            "void main() {} part 'a.dart';",
+            "import 'a.dart'; part of 'b.dart';",
             "void main() {} import 'a.dart';",
             "import 'a.dart' if (true) 'b.dart';",
             "import 'a\\x2edart';",
@@ -1095,6 +1715,162 @@ mod tests {
         let error = load(&entry).unwrap_err();
         assert_eq!(error.path, std::fs::canonicalize(child).unwrap());
         assert!(error.span.is_some());
+    }
+
+    /// A parte entra no grafo ligada ao pai, por URI ou por nome de biblioteca.
+    #[test]
+    fn parts_join_the_parent_library() {
+        let fixture = Fixture::new();
+        let entry = fixture.write(
+            "main.dart",
+            "library app.exemplo; import 'outra.dart'; part 'sub/p.dart'; void main(){}",
+        );
+        fixture.write("outra.dart", "int outro()=>1;");
+        fixture.write("sub/p.dart", "part of app.exemplo; int ajuda()=>2;");
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units.len(), 3);
+        assert_eq!(graph.units[0].parts[0].uri, "sub/p.dart");
+        assert_eq!(graph.units[0].parts[0].target, 2);
+        let span = graph.units[0].parts[0].span;
+        assert_eq!(
+            &graph.units[0].source[span.start..span.end],
+            "part 'sub/p.dart';"
+        );
+        assert_eq!(graph.units[2].part_of, Some(0));
+        assert!(graph.units[2].parts.is_empty());
+        assert_eq!(graph.units[2].directives_end, "part of app.exemplo;".len());
+        assert_eq!(graph.units[1].part_of, None);
+        fixture.write("sub/p.dart", "part of '../main.dart'; int ajuda()=>2;");
+        let graph = load(&entry).unwrap();
+        assert_eq!(graph.units[2].part_of, Some(0));
+        assert_eq!(graph, load(&entry).unwrap());
+    }
+
+    /// Reivindicações duplicadas, ciclos e destinos divergentes têm diagnóstico próprio.
+    #[test]
+    fn part_claims_are_exclusive_and_checked() {
+        let fixture = Fixture::new();
+        let entry = fixture.write("main.dart", "part 'p.dart'; void main(){}");
+        fixture.write("p.dart", "part of 'main.dart';");
+        assert!(load(&entry).is_ok());
+        for (parent, part, needle) in [
+            (
+                "part 'p.dart'; part 'p.dart'; void main(){}",
+                "part of 'main.dart';",
+                "part duplicado",
+            ),
+            (
+                "import 'p.dart'; part 'p.dart'; void main(){}",
+                "part of 'main.dart';",
+                "já carregado como biblioteca",
+            ),
+            (
+                "part 'main.dart'; void main(){}",
+                "part of 'main.dart';",
+                "a si mesma como parte",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "int ajuda()=>1;",
+                "exige part of",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "part of 'outro.dart';",
+                "em vez de",
+            ),
+            (
+                "library app; part 'p.dart'; void main(){}",
+                "part of outro.nome;",
+                "não corresponde",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "part of app;",
+                "não corresponde",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "part of 'main.dart'; import 'outro.dart';",
+                "não pode declarar import",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "part of 'main.dart'; export 'outro.dart';",
+                "não pode declarar import",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "part of 'main.dart'; part 'outro.dart';",
+                "não pode declarar part",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "library p; int ajuda()=>1;",
+                "não pode declarar library",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "int ajuda()=>1; part of 'main.dart';",
+                "fora do prefixo",
+            ),
+            (
+                "part 'p.dart'; void main(){}",
+                "library p; part of 'main.dart';",
+                "primeira diretiva",
+            ),
+            (
+                "import 'outro.dart'; void main(){}",
+                "int ajuda()=>1;",
+                "declare part",
+            ),
+        ] {
+            fixture.write("main.dart", parent);
+            fixture.write("p.dart", part);
+            fixture.write(
+                "outro.dart",
+                if needle == "declare part" {
+                    "part of 'main.dart';"
+                } else {
+                    "int outro()=>3;"
+                },
+            );
+            let error = load(&entry).unwrap_err();
+            assert!(
+                error.message.contains(needle),
+                "{parent} | {part} -> {error}"
+            );
+            let span = error.span.expect("diagnóstico de part tem posição");
+            let owner = std::fs::read_to_string(&error.path).unwrap();
+            assert!(span.start <= span.end && span.end <= owner.len(), "{error}");
+        }
+        let entry = fixture.write("main.dart", "part of 'p.dart'; void main(){}");
+        assert!(load(&entry).unwrap_err().message.contains("declare part"));
+    }
+
+    /// Duas bibliotecas distintas não podem reivindicar o mesmo arquivo.
+    #[test]
+    fn part_cannot_belong_to_two_libraries() {
+        let fixture = Fixture::new();
+        let entry = fixture.write(
+            "main.dart",
+            "import 'outra.dart'; part 'p.dart'; void main(){}",
+        );
+        fixture.write("outra.dart", "part 'p.dart';");
+        fixture.write("p.dart", "part of 'main.dart';");
+        let error = load(&entry).unwrap_err();
+        assert_eq!(
+            error.path,
+            std::fs::canonicalize(fixture.0.join("outra.dart")).unwrap()
+        );
+        assert!(error.message.contains("parte de outra biblioteca"));
+        fixture.write("outra.dart", "import 'p.dart';");
+        assert!(
+            load(&entry)
+                .unwrap_err()
+                .message
+                .contains("não pode ser importada")
+        );
     }
 
     /// Uma cadeia longa é carregada pela fila sem chamadas recursivas de load.

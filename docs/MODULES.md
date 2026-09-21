@@ -16,7 +16,7 @@ O compilador liga ASTs de cada biblioteca, sem concatenar nem reescrever os arqu
 
 ## Limites explícitos
 
-- Não há `dart:`, `part`, `library`, `as`, `deferred` ou imports condicionais. Combinadores `show` e `hide` são suportados em imports e exports. A resolução de `package:` segue o suporte de package_config v2 oferecido pelo carregador.
+- Não há `deferred`; `as` só vale para `dart:ffi`. `part`, `part of` e `library` são suportados e documentados em [PARTS.md](PARTS.md): a parte não é uma biblioteca, mas compartilha namespace, imports e privacidade com o arquivo que a declara. Combinadores `show` e `hide` são suportados em imports e exports. A resolução de `package:` segue o suporte de package_config v2 oferecido pelo carregador.
 - Ambiguidades entre imports diretos são rejeitadas mesmo quando o nome não é usado. Uma declaração própria com aquele nome resolve a colisão. Use `show`/`hide` para desambiguar; prefixos `as` continuam fora do subconjunto.
 - Extensions ainda são rejeitadas pela compilação do grafo, para não atribuir alcance ou precedência incorretos a extensions importadas.
 - Chamadas de membros exigem receptor explícito; referências implícitas não são vinculadas silenciosamente a funções globais homônimas.

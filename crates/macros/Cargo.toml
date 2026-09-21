@@ -1,0 +1,19 @@
+[package]
+name = "dartforge-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-syntax = { path = "../syntax" }
+dartforge-diagnostics = { path = "../diagnostics" }
+# Os testes fecham o ciclo lex -> parse -> expand -> analyze -> emit para provar que
+# os membros gerados passam pelo mesmo sistema de tipos e backend da aplicação.
+[dev-dependencies]
+dartforge-lexer = { path = "../lexer" }
+dartforge-parser = { path = "../parser" }
+dartforge-semantic = { path = "../semantic" }
+dartforge-hir = { path = "../hir" }
+dartforge-codegen = { path = "../codegen" }

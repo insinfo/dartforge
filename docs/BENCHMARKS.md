@@ -101,3 +101,14 @@ configuração de desempenho. Cada relatório registra se essas opções foram u
 execução e rejeita frames de raízes deixados ativos após retorno. Registra picos
 e coleta sem forçar coleta final. Veja [o incremento 10](IMPLEMENTACAO-10.md)
 para os testes de slots reutilizáveis e limites das estimativas de memória.
+
+## Macros e tree shaking
+
+`cargo bench -p dartforge-compiler --bench macros` mede planos sem cache, acertos
+após aquecimento e schemas alterados com expulsão. A consulta do cache não evita
+materialização da AST. O relatório separa payload retido de número de nós gerados.
+
+O benchmark `pipeline` também registra `tree_shaking_enabled` para o mesmo corpus
+sintético (uma função alcançável entre todas as declarações). Os tempos incluem
+análise de código morto, alcance e emissão. A redução da emissão pode compensar
+ou não o custo do passe; a opção permanece desativada por padrão.

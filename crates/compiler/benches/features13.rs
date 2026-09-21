@@ -19,6 +19,7 @@ fn main() {
             let options = CompileOptions {
                 optimization,
                 merge_identical_functions: false,
+                tree_shaking: false,
             };
             for _ in 0..50 {
                 black_box(compile_with_options(black_box(source), options).unwrap());

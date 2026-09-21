@@ -12,3 +12,4 @@ dartforge-lexer = { path = "../lexer" }
 dartforge-syntax = { path = "../syntax" }
 serde_json = "1"
 url = "2.5"
+rayon = "1"

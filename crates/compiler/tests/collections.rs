@@ -46,6 +46,7 @@ fn options() -> impl Iterator<Item = CompileOptions> {
                 .map(move |merge_identical_functions| CompileOptions {
                     optimization,
                     merge_identical_functions,
+                    tree_shaking: false,
                 })
         })
 }

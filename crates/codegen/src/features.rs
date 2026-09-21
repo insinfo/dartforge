@@ -6,9 +6,15 @@ use dartforge_syntax::{ConstValue, Pattern, SwitchArm, SwitchCase, TypeShape};
 fn type_key(ty: Type, resolution: &dartforge_syntax::Resolution) -> String {
     match ty {
         Type::Applied(id) => match &resolution.types[id as usize] {
+            TypeShape::Future(t) => format!("Future<{}>", type_key(*t, resolution)),
             TypeShape::List(t) => format!("List<{}>", type_key(*t, resolution)),
             TypeShape::Iterable(t) => format!("Iterable<{}>", type_key(*t, resolution)),
             TypeShape::Nullable(t) => format!("Nullable<{}>", type_key(*t, resolution)),
+            TypeShape::Map { key, value } => format!(
+                "Map<{},{}>",
+                type_key(*key, resolution),
+                type_key(*value, resolution)
+            ),
             TypeShape::Record { positional, named } => format!(
                 "Record({:?};{:?})",
                 positional
@@ -123,12 +129,7 @@ pub(super) fn enhanced_enum(class: &Class<'_>, output: &mut Output<'_>) {
         }
         identifier(method.name, output);
         output.push('(');
-        for (i, p) in method.parameters.iter().enumerate() {
-            if i > 0 {
-                output.push(',');
-            }
-            identifier(p.name, output);
-        }
+        parameter_header(&method.parameters, output);
         output.push_str(") ");
         function_body(method, 1, output);
         output.push('\n');

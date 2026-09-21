@@ -66,6 +66,7 @@ pub fn expand_mixins(program: &mut Program<'_>) -> Result<(), Diagnostic> {
                 .ok_or_else(|| Diagnostic::new("Synthetic class IDs exhausted", class.span))?;
             base_contract |= has_base_contract(mixin_id, original, &indices);
             rewritten.push(Class {
+                factories: vec![],
                 constructor: None,
                 annotations: vec![],
                 id: next,
@@ -156,5 +157,27 @@ mod tests {
         assert!(expand_mixins(&mut program).is_err());
         assert_eq!(program.classes.len(), 2);
         assert_eq!(program.classes[1].mixins, vec![0]);
+    }
+    /// A clonagem dos métodos conserva async e expressões await na aplicação sintética.
+    #[test]
+    fn mixin_applications_preserve_async_methods() {
+        let mut program = parse(
+            "mixin M{Future<int> value() async=>await Future<int>.value(1);}class C with M{}Future<void> main() async{}",
+        );
+        expand_mixins(&mut program).unwrap();
+        assert!(program.main_is_async);
+        let application = program
+            .classes
+            .iter()
+            .find(|class| class.is_mixin_application)
+            .unwrap();
+        assert!(application.methods[0].is_async);
+        assert!(matches!(
+            application.methods[0].body[0].kind,
+            dartforge_syntax::StatementKind::Return(Some(dartforge_syntax::Expr {
+                kind: dartforge_syntax::ExprKind::Await(_),
+                ..
+            }))
+        ));
     }
 }

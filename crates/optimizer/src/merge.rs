@@ -55,14 +55,24 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
         for field in &class.fields {
             forbidden.insert(field.name);
         }
-        for method in class.methods.iter().chain(&class.abstract_methods) {
+        for method in class
+            .methods
+            .iter()
+            .chain(&class.abstract_methods)
+            .chain(&class.factories)
+        {
             forbidden.insert(method.name);
         }
     }
     for f in program
         .functions
         .iter()
-        .chain(program.classes.iter().flat_map(|c| &c.methods))
+        .chain(
+            program
+                .classes
+                .iter()
+                .flat_map(|c| c.methods.iter().chain(&c.factories)),
+        )
         .chain(program.extensions.iter().flat_map(|e| &e.methods))
     {
         for p in &f.parameters {
@@ -88,7 +98,7 @@ pub fn merge_identical_functions(program: &mut Program<'_>, resolution: &Resolut
     let mut representatives = BTreeMap::new();
     let mut replacements = BTreeMap::new();
     for f in &program.functions {
-        if f.name == "main" || f.native_binding.is_some() {
+        if f.is_async || f.name == "main" || f.native_binding.is_some() {
             continue;
         }
         let Some(key) = function_key(f, resolution) else {
@@ -143,6 +153,11 @@ fn function_key(f: &Function<'_>, resolution: &Resolution) -> Option<String> {
     for p in &f.parameters {
         c.declare(p.name, true);
     }
+    // Duas funções só são intercambiáveis se as formas de passagem, os rótulos
+    // externos e a ausência de padrão coincidirem; padrões tornam a fusão inelegível.
+    if f.parameters.iter().any(|p| p.default.is_some()) {
+        return None;
+    }
     let body = c.body(&f.body);
     c.valid.then(|| {
         pack(
@@ -151,7 +166,13 @@ fn function_key(f: &Function<'_>, resolution: &Resolution) -> Option<String> {
                 format!("{:?}", f.return_type),
                 format!(
                     "{:?}",
-                    f.parameters.iter().map(|p| p.ty).collect::<Vec<_>>()
+                    f.parameters
+                        .iter()
+                        // O nome de um posicional não é observável: a canonicalização
+                        // renomeia bindings. O rótulo de um nomeado é, porque faz
+                        // parte de como a função é chamada.
+                        .map(|p| (p.ty, p.kind, p.kind.is_named().then(|| p.label())))
+                        .collect::<Vec<_>>()
                 ),
                 body,
             ],
@@ -318,11 +339,26 @@ impl<'a> Canonical<'a, '_> {
     fn expression(&mut self, e: &Expr<'a>) -> String {
         use ExprKind::*;
         match &e.kind {
-            Const(_)
+            // Argumento rotulado: o rótulo entra na chave, o valor é canonicalizado.
+            NamedArgument { label, value } => {
+                let value = self.expression(value);
+                pack("named", &[(*label).to_owned(), value])
+            }
+            Await(_)
+            | FutureValue { .. }
+            | FutureDelayed { .. }
+            | Duration { .. }
+            | Map { .. }
+            | NamedConstruct { .. }
+            | Cascade { .. }
+            | CascadeReceiver
+            | Const(_)
             | Switch { .. }
             | GenericCall { .. }
             | TypeTest { .. }
             | Cast { .. }
+            | NullAwareElement(_)
+            | DotShorthand { .. }
             | Record { .. } => {
                 self.valid = false;
                 "new-expression".into()
@@ -340,6 +376,19 @@ impl<'a> Canonical<'a, '_> {
             Bool(b) => format!("bool{b}"),
             String(s) => pack("str", &[(*s).into()]),
             OwnedString(s) => pack("str", std::slice::from_ref(s)),
+            // Texto e expressões entram na mesma chave, na ordem escrita: duas
+            // interpolações só são equivalentes se as partes coincidirem.
+            Interpolation(parts) => {
+                let mut pieces = Vec::with_capacity(parts.len());
+                for part in parts {
+                    pieces.push(match part {
+                        StringPart::Borrowed(text) => pack("str", &[(*text).into()]),
+                        StringPart::Owned(text) => pack("str", std::slice::from_ref(text)),
+                        StringPart::Expression(value) => self.expression(value),
+                    });
+                }
+                pack("interp", &pieces)
+            }
             Identifier(n) => self.binding(n),
             Construct {
                 class_id,
@@ -430,7 +479,7 @@ fn visit_program<'a>(
         if let Some(constructor) = &mut c.constructor {
             visit_body(&mut constructor.body, s, e);
         }
-        for m in &mut c.methods {
+        for m in c.methods.iter_mut().chain(&mut c.factories) {
             visit_body(&mut m.body, s, e);
         }
     }
@@ -540,12 +589,58 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
     e(x);
     use ExprKind::*;
     match &mut x.kind {
+        NamedArgument { value, .. } => visit_expr(value, e),
+        NullAwareElement(value) => visit_expr(value, e),
+        DotShorthand { arguments, .. } => {
+            for argument in arguments.iter_mut().flatten() {
+                visit_expr(argument, e);
+            }
+        }
+        Map { entries, .. } => {
+            for (key, value) in entries {
+                visit_expr(key, e);
+                visit_expr(value, e);
+            }
+        }
+        NamedConstruct { arguments, .. } => {
+            for arg in arguments {
+                visit_expr(arg, e);
+            }
+        }
+        Cascade {
+            receiver, sections, ..
+        } => {
+            visit_expr(receiver, e);
+            visit_body(sections, &mut |_| {}, e);
+        }
         Record { fields } => {
             for (_, field) in fields {
                 visit_expr(field, e);
             }
         }
-        Const(v) | TypeTest { operand: v, .. } | Cast { operand: v, .. } => visit_expr(v, e),
+        FutureValue { value, .. } => {
+            if let Some(v) = value {
+                visit_expr(v, e);
+            }
+        }
+        FutureDelayed {
+            duration,
+            computation,
+            ..
+        } => {
+            visit_expr(duration, e);
+            if let Some(v) = computation {
+                visit_expr(v, e);
+            }
+        }
+        Duration { parts } => {
+            for (_, v) in parts {
+                visit_expr(v, e);
+            }
+        }
+        Await(v) | Const(v) | TypeTest { operand: v, .. } | Cast { operand: v, .. } => {
+            visit_expr(v, e)
+        }
         Switch { scrutinee, arms } => {
             visit_expr(scrutinee, e);
             for a in arms {
@@ -594,6 +689,13 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
                 visit_expr(x, e);
             }
         }
+        Interpolation(parts) => {
+            for part in parts {
+                if let StringPart::Expression(value) = part {
+                    visit_expr(value, e);
+                }
+            }
+        }
         Member { receiver, .. } => visit_expr(receiver, e),
         Unary { operand, .. } => visit_expr(operand, e),
         Binary { left, right, .. } => {
@@ -601,6 +703,7 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
             visit_expr(right, e);
         }
         Null
+        | CascadeReceiver
         | This
         | Int(_)
         | Bool(_)
@@ -631,6 +734,26 @@ mod tests {
         check(
             "int a(int x) { return x + 1; } int b(int x) { return x + 1; } void main() { print(a(1)); print(b(2)); }",
             1,
+        );
+    }
+    /// Corpos com cascade não recebem chave; chamadas elegíveis em suas seções ainda são visitadas.
+    #[test]
+    fn cascade_bodies_are_conservative_and_nested_calls_are_rewritten() {
+        check(
+            "class Box{int x=0;} Box a()=>Box()..x=1; Box b()=>Box()..x=1; void main(){a();b();}",
+            0,
+        );
+        check(
+            "class Box{int x=0;} int a()=>1; int b()=>1; void main(){Box()..x=b();}",
+            1,
+        );
+        check(
+            "int a()=>1; int b()=>1; void main(){var callbacks=<int Function()>[]..add(a)..add(b);print(callbacks[0]==callbacks[1]);}",
+            0,
+        );
+        check(
+            "int a()=>1; int b()=>1; void main(){var callbacks=<int Function()>[]..add(()=>a())..add(()=>b());}",
+            0,
         );
     }
     /// Tipos e destinos diferentes permanecem significativos; nomes locais são alfa-equivalentes.

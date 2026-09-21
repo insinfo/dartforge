@@ -70,6 +70,8 @@ struct Layout {
 pub(super) struct Objects {
     layouts: BTreeMap<u32, Layout>,
     pub(super) implicit_members: std::collections::BTreeSet<(usize, usize)>,
+    /// Tipo estático de cada expressão, indexado pelo intervalo original da AST.
+    pub(super) expr_types: BTreeMap<(usize, usize), Type>,
     pub(super) globals: RefCell<Vec<String>>,
 }
 impl Objects {
@@ -136,6 +138,17 @@ impl Objects {
                     .enumerate()
                 {
                     validate_statements(&method.body)?;
+                    // O backend AOT ainda não emite prólogo de opcionais ou nomeados.
+                    if let Some(parameter) = method
+                        .parameters
+                        .iter()
+                        .find(|parameter| parameter.kind != ParameterKind::RequiredPositional)
+                    {
+                        return Err(error(
+                            parameter.span,
+                            "parâmetros opcionais ou nomeados no backend nativo",
+                        ));
+                    }
                     let signature = Signature {
                         symbol: format!("df_method_{}_{}", class.id, index),
                         result: ty(method.return_type, method.span)?,
@@ -165,6 +178,16 @@ impl Objects {
 
                 let constructor_parameters = if let Some(constructor) = &class.constructor {
                     validate_statements(&constructor.body)?;
+                    if let Some(parameter) = constructor
+                        .parameters
+                        .iter()
+                        .find(|parameter| parameter.kind != ParameterKind::RequiredPositional)
+                    {
+                        return Err(error(
+                            parameter.span,
+                            "parâmetros opcionais ou nomeados no backend nativo",
+                        ));
+                    }
                     constructor
                         .parameters
                         .iter()
@@ -220,8 +243,22 @@ impl Objects {
         Ok(Self {
             layouts,
             implicit_members: module.resolution.implicit_members.clone(),
+            expr_types: module.resolution.expr_types.clone(),
             globals: RefCell::new(vec![]),
         })
+    }
+    /// Lista as classes concretas cuja identidade satisfaz um teste nominal.
+    ///
+    /// `dartforge_object_class` devolve sempre a classe concreta do handle; um teste
+    /// contra tipo abstrato ou interface precisa comparar com todos os implementadores.
+    pub(super) fn concrete_descendants(&self, id: u32) -> Vec<u32> {
+        self.layouts
+            .iter()
+            .filter(|(child, layout)| {
+                !layout.is_abstract && self.assignable(Ty::Class(**child), Ty::Class(id))
+            })
+            .map(|(child, _)| *child)
+            .collect()
     }
     /// Compatibilidade nominal preserva a identidade concreta do objeto.
     pub(super) fn assignable(&self, actual: Ty, expected: Ty) -> bool {

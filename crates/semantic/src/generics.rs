@@ -98,6 +98,14 @@ impl<'a> Validator<'a> {
         let value = constants::evaluate(expression, &self.resolution.borrow(), &|name| {
             self.lookup(name)
                 .and_then(|b| b.constant.map(|v| (*v).clone()))
+                .or_else(|| {
+                    // Uma variável de topo `const` só é visível quando nenhum
+                    // local nem membro da instância oculta o nome escrito.
+                    (self.lookup(name).is_none() && !self.has_implicit_member(name))
+                        .then(|| self.global(name))
+                        .flatten()
+                        .and_then(|global| global.constant.as_deref().cloned())
+                })
         })?;
         self.resolution
             .borrow_mut()
@@ -121,6 +129,13 @@ impl<'a> Validator<'a> {
                 .flatten()
                 .unwrap_or(unknown),
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Future(t)) => {
+                    self.intern(TypeShape::Future(self.substitute(t, bindings, unknown)))
+                }
+                Some(TypeShape::Map { key, value }) => self.intern(TypeShape::Map {
+                    key: self.substitute(key, bindings, unknown),
+                    value: self.substitute(value, bindings, unknown),
+                }),
                 Some(TypeShape::Record { positional, named }) => self.intern(TypeShape::Record {
                     positional: positional
                         .into_iter()
@@ -159,6 +174,10 @@ impl<'a> Validator<'a> {
         match ty {
             Type::Inferred => true,
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Future(t)) => self.has_inferred(t),
+                Some(TypeShape::Map { key, value }) => {
+                    self.has_inferred(key) || self.has_inferred(value)
+                }
                 Some(TypeShape::Record { positional, named }) => positional
                     .into_iter()
                     .chain(named.into_iter().map(|(_, t)| t))
@@ -205,6 +224,16 @@ impl<'a> Validator<'a> {
                 });
             }
             Type::Applied(_) => match (self.shape(formal), self.shape(actual)) {
+                (Some(TypeShape::Future(f)), Some(TypeShape::Future(a))) => {
+                    self.infer(f, a, bindings, span)?
+                }
+                (
+                    Some(TypeShape::Map { key: fk, value: fv }),
+                    Some(TypeShape::Map { key: ak, value: av }),
+                ) => {
+                    self.infer(fk, ak, bindings, span)?;
+                    self.infer(fv, av, bindings, span)?;
+                }
                 (
                     Some(TypeShape::Record {
                         positional: fp,
@@ -368,6 +397,13 @@ impl<'a> Validator<'a> {
         self.resolution
             .borrow_mut()
             .implicit_members
+            .insert((span.start, span.end));
+    }
+    /// Registra leitura ou escrita resolvida para uma variável de topo.
+    pub(super) fn global_access(&self, span: Span) {
+        self.resolution
+            .borrow_mut()
+            .global_accesses
             .insert((span.start, span.end));
     }
     /// Registra acesso de propriedade com getter, distinto de tear-off de método.

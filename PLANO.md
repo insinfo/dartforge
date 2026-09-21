@@ -11,7 +11,7 @@ O workspace é um ponto de partida, não um substituto funcional de DDC/dart2js.
 A versão de referência ngdart publicada selecionada é 8.0.0-dev.4, ainda prévia.
 O alvo inicial de compatibilidade é Dart 3.6.2, definido pelo proprietário para ngdart. O executável no PATH foi verificado e corresponde ao alvo Dart 3.6.2. O pubspec da referência ngdart exige Dart >=3.1.0 <4.0.0, intervalo que inclui esse alvo.
 O clone da branch padrão de AngularDart e o pacote publicado ficam separados.
-A linguagem, as bibliotecas, o Analyzer e os baselines DDC/dart2js devem seguir Dart 3.6.2. Fixar também o pacote ngdart e as revisões dos testes antes de ampliar suporte.
+Dart 3.6.2 permanece o baseline mínimo do ngdart e das regressões. Recursos mais recentes e macros próprias são autorizados, com contratos e testes identificados por versão. Fixar o pacote ngdart e as revisões dos testes; não tratar o baseline como teto.
 Não assumir que a branch HEAD do SDK equivale ao Dart exigido pelo ngdart escolhido.
 
 ## Princípios técnicos
@@ -381,3 +381,137 @@ Próximos passos: padrões aninhados e de atribuição, constantes de records e 
 LLVM/Wasm; extension types precisam de identidade estática e erasure distinto de
 classes. Macros oficiais foram canceladas, portanto uma eventual metaprogramação
 experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
+
+## Incremento 20 — cascatas
+
+- Implementar `..`/`?..` em JavaScript com avaliação única, null safety, efeitos
+  ordenados, imports e integração com otimizações: ver [contrato](docs/IMPLEMENTACAO-20.md).
+- Próximos passos: atribuições compostas em seções, lowering nativo com raízes GC
+  e extensão dos testes diferenciais. Recursos posteriores ao Dart 3.6.2 exigem
+  identificação da versão mínima por recurso, sem alterar silenciosamente a linguagem.
+
+## Incremento 21 — macros e evolução da linguagem
+
+- Dart 3.6.2 é o mínimo de compatibilidade, não um teto. O abandono oficial de
+  macros não impede a implementação experimental própria do DartForge.
+- Primeira macro: @JsonCodable incorporada em Rust, expansão AST anterior à
+  semântica, proveniência e transação; Map com chave String e fábricas nomeadas JS.
+- Pendentes: executar macros de usuário, protocolo/resolução de pacotes, cache
+  das consultas/expansões, serialização composta e backend nativo.
+- Implementar progressivamente wildcard variables, null-aware elements,
+  dot shorthands, parâmetros nomeados privados, primary constructors e
+  extension types com contratos versionados e testes de SDK correspondentes.
+- Referências e detalhes: [IMPLEMENTACAO-21](docs/IMPLEMENTACAO-21.md).
+
+## Incremento 22 — fases e planos de macros
+
+- Barreiras Types/Declarations/Definitions, transação restrita às classes alteradas,
+  cache LRU com limites, invalidação de schema e proveniência rematerializada.
+- Próximos: consultas entre bibliotecas, protocolo de workers isolados e macros Dart
+  de usuário. A macro Rust incorporada não é um executor genérico de Dart.
+- [Contrato e medição](docs/IMPLEMENTACAO-22.md).
+
+## Incremento 23 — alcance e concorrência
+
+- Tree shaking conservador JS opt-in; análise semântica completa anterior à poda.
+- Future/async/await, microtasks e timers one-shot com oráculo Dart 3.6.2.
+- Próximos: Timer.periodic, composição de Futures e Zones; Streams com cancelamento,
+  pausa e erros; async* e await-for; isolates com heaps/event loops distintos, ports,
+  validação de mensagens e transferência de propriedade de buffers.
+- Isolate.run não pode ser implementado como chamada síncrona nem Promise na mesma
+  thread. No JS precisa de workers; no nativo exige heaps/GC isolados e protocolo.
+- [Contrato e limites](docs/IMPLEMENTACAO-23.md).
+
+## Incremento 24 — macro @DataClass e augmentations
+
+- Segunda macro incorporada com o mesmo contrato de fases, plano cacheável e
+  proveniência; coexistência verificada com @JsonCodable.
+- Emissão textual determinística das declarações geradas em forma de
+  `augment class`, para inspeção e prova de proveniência; o texto não é
+  reconsumido pelo compilador.
+- Limites do subconjunto documentados: `copyWith` posicional anulável,
+  `igualA` no lugar de `operator ==` e `descrever()` reduzido.
+- [Contrato](docs/IMPLEMENTACAO-24.md).
+
+## Incremento 25 — sintaxe moderna posterior ao Dart 3.6.2
+
+- Curingas `_` (3.7), elementos null-aware `?valor` (3.8), atalhos de ponto
+  `.membro` (3.10) e construtores primários `class C(...)` (3.13) no backend
+  JavaScript, cada um identificado pela versão mínima em que existe.
+- `part`/`part of` com namespace, imports e privacidade compartilhados pela
+  biblioteca declarante: ver [PARTS](docs/PARTS.md).
+- `switch` instrução e expressão com lowering real no backend LLVM.
+- Pendentes: parâmetros nomeados, `required` e valores padrão — pré-requisito
+  dos parâmetros nomeados privados (3.12); `Set`, spreads e `?...`; membros
+  estáticos; extension types (3.3).
+- [Contrato e limites](docs/IMPLEMENTACAO-25.md).
+
+## Incremento 26 — desempenho de compilação como objetivo primário
+
+O compromisso passa a ser explícito: uma edição pequena deve provocar uma
+quantidade pequena de trabalho. Medição antes de otimização, e contadores de
+trabalho realizado ao lado dos tempos, porque mediana sozinha não distingue
+reuso de máquina rápida.
+
+- [x] `LinkStats`/`CompileReport`: tempo por fase cronometrado no próprio trecho
+      e contadores de unidades, tokens, classes, funções e bytes emitidos.
+- [x] Crate `dartforge-instrument` com alocador contador (bytes vivos, pico e
+      número de alocações); único ponto de `unsafe` do workspace, isolado.
+- [x] Benchmark `incremental` com sequências reais de edição: comentário, corpo,
+      assinatura pública, constante e import.
+- [x] Primeiro gargalo eliminado: as tabelas de classes, funções e extensions
+      deixaram de ser copiadas a cada ramificação de fluxo. Compilação fria
+      21,04 ms → 6,04 ms; fase semântica 14,57 ms → 1,12 ms; alocações por
+      compilação 311.676 → 16.411.
+- [x] Revalidação incremental do grafo: releitura paralela dos arquivos já
+      conhecidos e reuso da estrutura quando só os corpos mudaram, com as
+      diretivas reextraídas e comparadas estruturalmente. Acerto de cache
+      1,22 ms → 0,40 ms e 1.064 → 124 alocações.
+- [x] Suíte de validade do cache com sequências de edições, exclusão, restauração
+      e renomeação, exigindo igualdade com a compilação limpa em cada passo.
+- [ ] Incrementalidade do front-end: a AST empresta `&str` da fonte, então nada
+      sobrevive entre solicitações. Exige interning com `SymbolId` e arenas por
+      unidade antes de qualquer cache por unidade.
+- [ ] Incrementalidade semântica: resumo da biblioteca separado dos corpos, com
+      identidade estável por declaração e impressão digital que interrompe a
+      invalidação quando a interface não muda.
+- [ ] Emissão modular por biblioteca com nomes estáveis e texto em cache.
+- [ ] Leitura do grafo por níveis em paralelo, sem afrouxar a verificação por
+      conteúdo exato.
+- [ ] Interning de nomes e tipos; arenas por unidade e por revisão.
+- [ ] Paralelismo por unidade no front-end, depois da incrementalidade.
+- [ ] Um módulo JavaScript por biblioteca Dart (a biblioteca é o arquivo mais
+      seus `part`, não o pacote), com as dependências preservadas como imports
+      ESM. O empacotamento para produção fica como etapa separada. Granularidade
+      da saída e granularidade do trabalho são requisitos distintos: recompilação
+      realmente rápida precisa dos dois.
+
+Metodologia, linha de base e perfil por cenário: [DESEMPENHO](docs/DESEMPENHO.md).
+
+## Incremento 27 — Dart de produção
+
+Medição que abriu esta frente: das 47 construções comuns de Dart verificadas por
+sondagem, **9 compilavam**. Um compilador rápido que não compila código real não
+serve; e cada recurso novo entra sob a mesma disciplina de desempenho do
+incremento 26 — alocações por compilação medidas antes e depois, porque o tempo
+tem ruído e a contagem de alocações não.
+
+- [x] Parâmetros nomeados, posicionais opcionais, `required`, valores padrão e
+      parâmetros nomeados privados `this._x` (Dart 3.12). Alocações por
+      compilação inalteradas: 16.716 antes e depois.
+      [Contrato](docs/PARAMETROS.md).
+- [ ] Literais de string completos: interpolação, strings triplas e literais
+      adjacentes. É a lacuna mais bloqueante: quase todo arquivo Dart real usa.
+- [ ] Construtores nomeados, listas de inicialização, `super` explícito,
+      construtores `const`, membros estáticos e declarações de topo.
+- [ ] Controle de fluxo: `try`/`catch`/`finally`, `throw`, `rethrow`, `assert`,
+      `for-in`, rótulos em `break`/`continue`, operador ternário e `late`.
+- [ ] Coleções: `Set`, spreads `...`/`...?`, `if`/`for` em literais, acesso
+      null-aware `?.` e os operadores `~/`, `|`, `&`, `^`, `<<`, `>>`, `~`.
+- [ ] `double` e `num` com a semântica numérica do alvo web, que não é a da VM.
+- [ ] Classes genéricas, `typedef` e extension types.
+
+Correção incidental: a rota rápida de unidade isolada exigia apenas ausência de
+`import`/`export`. Um arquivo que declara somente `library x;` ou `part` não tem
+aresta alguma mas tem prefixo de diretivas, e era entregue inteiro ao parser.
+A condição passou a exigir também ausência de `part` e prefixo vazio.

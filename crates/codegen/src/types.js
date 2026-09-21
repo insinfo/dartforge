@@ -26,6 +26,8 @@ function $dartforgeSubtype(actual, expected) {
   if (e === 'object') return a !== 'void';
   if (a === 'class' && e === 'class') return ($dartforgeNominalMembers[expected[1]] || [expected[1]]).includes(actual[1]);
   if ((a === 'list' || a === 'iterable') && (e === a || e === 'iterable')) return $dartforgeSubtype(actual[1], expected[1]);
+  if (a === 'future' && e === 'future') return $dartforgeSubtype(actual[1], expected[1]);
+  if (a === 'map' && e === 'map') return $dartforgeSubtype(actual[1], expected[1]) && $dartforgeSubtype(actual[2], expected[2]);
   if (a === 'record' && e === 'record') {
     return actual[1].length === expected[1].length && actual[2].length === expected[2].length &&
       actual[1].every((field, i) => $dartforgeSubtype(field, expected[1][i])) &&

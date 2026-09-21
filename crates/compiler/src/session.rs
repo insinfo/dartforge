@@ -1,15 +1,23 @@
-//! Cache da última saída por conteúdo exato; não realiza compilação incremental.
+//! Cache da última saída por conteúdo exato e cache limitado de planos de macros.
 //!
 //! Cada solicitação recarrega fontes e resolução de pacotes. Um acerto economiza
 //! parsing/análise/emissão, mas não leituras, descoberta do grafo ou tokenização
 //! feita pelo carregador. Falhas descartam a entrada anterior.
-use crate::{CompileOptions, Optimization, compile_loaded_graph};
+//! Planos de macros podem sobreviver a edições sem reutilizar AST/análise/emissão.
+use crate::{
+    CompileOptions, CompileReport, LinkStats, MacroCacheStats, MacroSession, Optimization,
+    compile_loaded_graph_instrumented,
+};
 use dartforge_packages::{Combinator, GraphError, Import, SourceGraph};
 use std::{path::Path, sync::Arc};
 
 /// Estatísticas de uma solicitação concluída com sucesso.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionStats {
+    /// Planos reutilizados nesta solicitação; zero quando a saída JS inteira foi reutilizada.
+    pub macro_plan_hits: usize,
+    /// Planos materializados pela primeira vez ou sem retenção nesta solicitação.
+    pub macro_plan_misses: usize,
     /// O grafo e a opção eram idênticos à última compilação armazenada.
     pub cache_hit: bool,
     /// Fontes carregadas nesta chamada; não inclui leituras de configuração/metadados.
@@ -25,6 +33,8 @@ pub struct Compilation {
     pub javascript: Arc<str>,
     /// Contagens honestas desta solicitação, sem inferir granularidade incremental.
     pub stats: SessionStats,
+    /// Tempo por fase e trabalho realizado; em acerto só `load_ns` é diferente de zero.
+    pub report: CompileReport,
 }
 
 /// Sessão com no máximo uma entrada e orçamento de payload configurável.
@@ -33,6 +43,7 @@ pub struct Compilation {
 /// capacidade ociosa, estruturas, Arc e overhead do alocador; não limita a memória
 /// transitória da compilação nem Arcs de saída mantidos pelo chamador.
 pub struct CompilerSession {
+    macros: MacroSession,
     cached: Option<Cached>,
     max_payload_bytes: usize,
 }
@@ -69,6 +80,7 @@ impl CompilerSession {
     /// ```
     pub fn with_cache_limit_bytes(max_payload_bytes: usize) -> Self {
         Self {
+            macros: MacroSession::with_limits(256, (max_payload_bytes / 4).min(1024 * 1024)),
             cached: None,
             max_payload_bytes,
         }
@@ -79,6 +91,12 @@ impl CompilerSession {
     /// Saídas Arc já entregues continuam válidas enquanto o chamador as mantiver.
     pub fn clear(&mut self) {
         self.cached = None;
+        self.macros.clear();
+    }
+
+    /// Consulta retenção e contadores do cache de planos, independentemente do cache JS.
+    pub fn macro_cache_stats(&self) -> MacroCacheStats {
+        self.macros.stats()
     }
 
     /// Recarrega o grafo, compara conteúdo exato e reutiliza somente a mesma saída.
@@ -130,10 +148,33 @@ impl CompilerSession {
         options: CompileOptions,
         environment: &crate::CompilationEnvironment,
     ) -> Result<Compilation, GraphError> {
+        let total = std::time::Instant::now();
+        let load = std::time::Instant::now();
         // Retira antes de carregar: inclusive erros de filesystem invalidam a entrada.
         let previous = self.cached.take();
-        crate::validate_environment(path, environment, crate::CompilationTarget::JavaScript)?;
-        let graph = dartforge_packages::load_with_environment(path, environment)?;
+        if let Err(error) =
+            crate::validate_environment(path, environment, crate::CompilationTarget::JavaScript)
+        {
+            self.macros.clear();
+            return Err(error);
+        }
+        // Caminho interativo: com um grafo anterior, relê os arquivos conhecidos
+        // em paralelo e reaproveita a estrutura quando só os corpos mudaram.
+        // A comparação continua sendo por conteúdo exato, nunca por mtime.
+        let revalidated = previous
+            .as_ref()
+            .and_then(|cached| dartforge_packages::revalidate(&cached.graph, path, environment));
+        let graph = match revalidated {
+            Some(graph) => graph,
+            None => match dartforge_packages::load_with_environment(path, environment) {
+                Ok(graph) => graph,
+                Err(error) => {
+                    self.macros.clear();
+                    return Err(error);
+                }
+            },
+        };
+        let load_ns = load.elapsed().as_nanos();
         let count = graph.units.len();
         if let Some(cached) = previous.as_ref()
             && cached.options == options
@@ -144,15 +185,37 @@ impl CompilerSession {
             return Ok(Compilation {
                 javascript,
                 stats: SessionStats {
+                    macro_plan_hits: 0,
+                    macro_plan_misses: 0,
                     cache_hit: true,
                     source_units_loaded: count,
                     compiled_units: 0,
                 },
+                report: CompileReport {
+                    load_ns,
+                    link: LinkStats::default(),
+                    total_ns: total.elapsed().as_nanos(),
+                    cache_hit: true,
+                },
             });
         }
         drop(previous);
-        let javascript: Arc<str> = compile_loaded_graph(&graph, options)?.into();
-        if payload_bytes(&graph).saturating_add(javascript.len()) <= self.max_payload_bytes {
+        let before = self.macros.stats();
+        let mut link = LinkStats::default();
+        let javascript: Arc<str> =
+            match compile_loaded_graph_instrumented(&graph, options, &mut self.macros, &mut link) {
+                Ok(javascript) => javascript.into(),
+                Err(error) => {
+                    self.macros.clear();
+                    return Err(error);
+                }
+            };
+        let after = self.macros.stats();
+        if payload_bytes(&graph)
+            .saturating_add(javascript.len())
+            .saturating_add(after.payload_bytes)
+            <= self.max_payload_bytes
+        {
             self.cached = Some(Cached {
                 graph,
                 options,
@@ -162,9 +225,17 @@ impl CompilerSession {
         Ok(Compilation {
             javascript,
             stats: SessionStats {
+                macro_plan_hits: after.hits.saturating_sub(before.hits),
+                macro_plan_misses: after.misses.saturating_sub(before.misses),
                 cache_hit: false,
                 source_units_loaded: count,
                 compiled_units: count,
+            },
+            report: CompileReport {
+                load_ns,
+                link,
+                total_ns: total.elapsed().as_nanos(),
+                cache_hit: false,
             },
         })
     }
@@ -252,7 +323,9 @@ mod tests {
             SessionStats {
                 cache_hit: false,
                 source_units_loaded: 2,
-                compiled_units: 2
+                compiled_units: 2,
+                macro_plan_hits: 0,
+                macro_plan_misses: 0,
             }
         );
         assert_eq!(
@@ -260,7 +333,9 @@ mod tests {
             SessionStats {
                 cache_hit: true,
                 source_units_loaded: 2,
-                compiled_units: 0
+                compiled_units: 0,
+                macro_plan_hits: 0,
+                macro_plan_misses: 0,
             }
         );
         assert!(Arc::ptr_eq(&first.javascript, &second.javascript));

@@ -10,6 +10,9 @@
 //! JavaScript para null; isso não implementa integralmente o TypeError Dart.
 //! Classes usam métodos nativos e construtor sem argumentos que preserva a ordem Dart, com
 //! herança única previamente validada. Não incluem reflexão ou runtimeType Dart.
+//! Cascades usam uma função arrow lexical por receptor, preservando this e o valor
+//! original. O guard de ?.. antecede todas as seções; cascades aninhados mantêm
+//! contextos separados. Referência: SDK 3.6.2 tests/language/cascade/nested_test.dart.
 use dartforge_hir::Module;
 use dartforge_syntax::{
     BinaryOp, Class, Expr, ExprKind, Function, Statement, StatementKind, Type, UnaryOp,
@@ -31,8 +34,10 @@ pub fn validate_javascript(module: &Module<'_>) -> Result<(), dartforge_diagnost
     }
     Ok(())
 }
+mod asynchronous;
 mod constructors;
 mod features;
+mod strings;
 mod types;
 
 /// Estado local de emissão com a resolução estática fornecida pela análise.
@@ -40,14 +45,20 @@ struct Output<'a> {
     text: String,
     resolution: &'a dartforge_syntax::Resolution,
     collections: bool,
+    /// Alguma interpolação precisou converter um valor que não é String.
+    strings_used: bool,
     runtime_types_used: bool,
     records: bool,
     next_record: usize,
+    next_cascade: usize,
+    cascade_receivers: Vec<String>,
     modulo_used: bool,
+    async_used: bool,
     enum_ids: std::collections::HashSet<u32>,
     constructor_factories: std::collections::HashSet<u32>,
     nominal_members: std::collections::HashMap<u32, Vec<u32>>,
     next_switch: usize,
+    next_wildcard: usize,
     break_targets: Vec<Option<String>>,
 }
 impl std::ops::Deref for Output<'_> {
@@ -83,7 +94,7 @@ impl std::ops::DerefMut for Output<'_> {
 /// ```
 /// use dartforge_hir::lower;
 /// use dartforge_syntax::Program;
-/// let module = lower(Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] });
+/// let module = lower(Program { main_is_arrow: false, main_is_async: false, types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] });
 /// let javascript = dartforge_codegen::emit(&module);
 /// assert!(javascript.contains("export function main()"));
 /// assert!(javascript.ends_with("main();\n"));
@@ -93,6 +104,18 @@ pub fn emit(module: &Module<'_>) -> String {
         text: String::from("// Saída do subconjunto DartForge\n"),
         resolution: &module.resolution,
         modulo_used: false,
+        strings_used: false,
+        async_used: module.main_is_async
+            || module
+                .resolution
+                .types
+                .iter()
+                .any(|t| matches!(t, dartforge_syntax::TypeShape::Future(_)))
+            || module
+                .resolution
+                .expr_types
+                .values()
+                .any(|t| matches!(t, Type::Duration | Type::Timer)),
         runtime_types_used: false,
         records: module
             .resolution
@@ -100,6 +123,8 @@ pub fn emit(module: &Module<'_>) -> String {
             .iter()
             .any(|ty| matches!(ty, dartforge_syntax::TypeShape::Record { .. })),
         next_record: 0,
+        next_cascade: 0,
+        cascade_receivers: vec![],
         constructor_factories: constructors::factory_ids(&module.classes),
         enum_ids: module
             .classes
@@ -109,6 +134,7 @@ pub fn emit(module: &Module<'_>) -> String {
             .collect(),
         nominal_members: features::nominal_members(&module.classes),
         next_switch: 0,
+        next_wildcard: 0,
         break_targets: vec![],
         collections: module.resolution.types.iter().any(|t| {
             matches!(
@@ -116,12 +142,11 @@ pub fn emit(module: &Module<'_>) -> String {
                 dartforge_syntax::TypeShape::List(_)
                     | dartforge_syntax::TypeShape::Iterable(_)
                     | dartforge_syntax::TypeShape::Record { .. }
+                    | dartforge_syntax::TypeShape::Map { .. }
             )
         }),
     };
-    if output.records {
-        output.push_str(include_str!("records.js"));
-    }
+
     if output.collections {
         output.runtime_types_used = true;
         output.push_str(include_str!("core.js"));
@@ -150,6 +175,7 @@ pub fn emit(module: &Module<'_>) -> String {
                 || class
                     .methods
                     .iter()
+                    .chain(&class.factories)
                     .any(|method| statements_need_null_assert(&method.body))
         })
     {
@@ -164,12 +190,7 @@ pub fn emit(module: &Module<'_>) -> String {
                 extension.id, index
             )
             .expect("escrever em String não falha");
-            for (index, parameter) in method.parameters.iter().enumerate() {
-                if index != 0 {
-                    output.push_str(", ");
-                }
-                identifier(parameter.name, &mut output);
-            }
+            parameter_header(&method.parameters, &mut output);
             output.push_str(") ");
             function_body(method, 0, &mut output);
             output.push('\n');
@@ -177,19 +198,25 @@ pub fn emit(module: &Module<'_>) -> String {
     }
     emit_classes(&module.classes, &mut output);
     constructors::emit(&module.classes, &mut output);
+    for class in &module.classes {
+        for factory in &class.factories {
+            write!(output, "function $dartforgeFactory{}", class.id).unwrap();
+            identifier(factory.name, &mut output);
+            output.push('(');
+            parameter_header(&factory.parameters, &mut output);
+            output.push_str(") ");
+            function_body(factory, 0, &mut output);
+            output.push('\n');
+        }
+    }
     for function in &module.functions {
         output.push_str("function ");
         identifier(function.name, &mut output);
         output.push('(');
-        for (index, parameter) in function.parameters.iter().enumerate() {
-            if index != 0 {
-                output.push_str(", ");
-            }
-            identifier(parameter.name, &mut output);
-        }
+        let wrote = parameter_header(&function.parameters, &mut output);
         if !function.type_parameters.is_empty() {
             output.runtime_types_used = true;
-            if !function.parameters.is_empty() {
+            if wrote {
                 output.push(',');
             }
             output.push_str("$dartforgeTypes");
@@ -199,10 +226,28 @@ pub fn emit(module: &Module<'_>) -> String {
         output.push('\n');
     }
     output.push_str("export function main() {\n");
+    if module.main_is_async {
+        asynchronous::begin(&mut output);
+    }
     statements(&module.statements, 1, &mut output);
+    if module.main_is_async {
+        asynchronous::end(Type::Void, &mut output);
+    }
     output.push_str("}\n");
     if output.modulo_used {
         output.push_str("function $dartforgeModulo(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n");
+    }
+    // Um programa que só interpola escalares recebe apenas a conversão, não o
+    // runtime de coleções inteiro; com coleções, core.js já a trouxe.
+    if output.strings_used && !output.collections {
+        output.text.insert_str(0, strings::runtime());
+    }
+    if output.records || output.async_used {
+        output.text.insert_str(0, include_str!("records.js"));
+    }
+    if output.async_used {
+        output.runtime_types_used = true;
+        output.text.insert_str(0, include_str!("async.js"));
     }
     if output.runtime_types_used {
         types::metadata(module, &mut output);
@@ -321,12 +366,7 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
             }
             identifier(method.name, output);
             output.push('(');
-            for (index, parameter) in method.parameters.iter().enumerate() {
-                if index != 0 {
-                    output.push_str(", ");
-                }
-                identifier(parameter.name, output);
-            }
+            parameter_header(&method.parameters, output);
             output.push_str(") ");
             function_body(method, 1, output);
             output.push('\n');
@@ -338,6 +378,9 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
 /// Separa parâmetros dos locais e produz null no retorno nullable implícito.
 fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>) {
     output.push_str("{\n");
+    if function.is_async {
+        asynchronous::begin(output);
+    }
     // O bloco interno permite que um local Dart sombreie um parâmetro JavaScript.
     indent(depth + 1, output);
     block(&function.body, depth + 1, output);
@@ -356,6 +399,12 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
         indent(depth + 1, output);
         output.push_str("return null;\n");
     }
+    if function.is_async {
+        asynchronous::end(
+            asynchronous::result_type(function.return_type, output),
+            output,
+        );
+    }
     indent(depth, output);
     output.push('}');
 }
@@ -363,10 +412,31 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
 /// Detecta asserções em qualquer expressão, inclusive argumentos e operandos.
 fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
     match &value.kind {
+        ExprKind::NamedArgument { value, .. } => expression_needs_null_assert(value),
+        ExprKind::Cascade {
+            receiver, sections, ..
+        } => expression_needs_null_assert(receiver) || statements_need_null_assert(sections),
+        ExprKind::Map { entries, .. } => entries.iter().any(|(key, value)| {
+            expression_needs_null_assert(key) || expression_needs_null_assert(value)
+        }),
         ExprKind::Record { fields } => fields
             .iter()
             .any(|(_, field)| expression_needs_null_assert(field)),
-        ExprKind::Const(e) => expression_needs_null_assert(e),
+        ExprKind::Const(e) | ExprKind::Await(e) => expression_needs_null_assert(e),
+        ExprKind::FutureValue { value, .. } => value
+            .as_ref()
+            .is_some_and(|e| expression_needs_null_assert(e)),
+        ExprKind::FutureDelayed {
+            duration,
+            computation,
+            ..
+        } => {
+            expression_needs_null_assert(duration)
+                || computation
+                    .as_ref()
+                    .is_some_and(|e| expression_needs_null_assert(e))
+        }
+        ExprKind::Duration { parts } => parts.iter().any(|(_, e)| expression_needs_null_assert(e)),
         ExprKind::TypeTest { operand, .. } | ExprKind::Cast { operand, .. } => {
             expression_needs_null_assert(operand)
         }
@@ -378,6 +448,10 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
                 })
         }
         ExprKind::Closure { body, .. } => statements_need_null_assert(body),
+        ExprKind::NullAwareElement(inner) => expression_needs_null_assert(inner),
+        ExprKind::DotShorthand { arguments, .. } => arguments
+            .as_ref()
+            .is_some_and(|a| a.iter().any(expression_needs_null_assert)),
         ExprKind::List { elements, .. } => elements.iter().any(expression_needs_null_assert),
         ExprKind::Index { receiver, index } => {
             expression_needs_null_assert(receiver) || expression_needs_null_assert(index)
@@ -394,7 +468,8 @@ fn expression_needs_null_assert(value: &Expr<'_>) -> bool {
         }
         ExprKind::Call { arguments, .. }
         | ExprKind::GenericCall { arguments, .. }
-        | ExprKind::Construct { arguments, .. } => {
+        | ExprKind::Construct { arguments, .. }
+        | ExprKind::NamedConstruct { arguments, .. } => {
             arguments.iter().any(expression_needs_null_assert)
         }
         ExprKind::Member { receiver, .. } => expression_needs_null_assert(receiver),
@@ -475,6 +550,151 @@ fn statement_needs_null_assert(statement: &Statement<'_>) -> bool {
     }
 }
 
+/// Emite o nome de uma ligação declarada, isolando curingas `_` do Dart 3.7.
+///
+/// Cada `_` recebe identidade única no JavaScript porque a linguagem alvo proíbe
+/// redeclarar o mesmo nome no escopo. A análise semântica garante que nenhuma
+/// referência alcança esses nomes.
+fn declaration(name: &str, output: &mut Output<'_>) {
+    if name == "_" {
+        let id = output.next_wildcard;
+        output.next_wildcard += 1;
+        write!(output, "$df_$wild{id}").expect("escrever em String não falha");
+        return;
+    }
+    identifier(name, output);
+}
+
+/// Prefixo reservado das chaves do objeto de parâmetros nomeados.
+///
+/// Fica fora do espaço `$df_` dos identificadores do usuário, de modo que uma
+/// chave nunca colide com um nome Dart nem com um auxiliar do runtime.
+const NAMED_KEY: &str = "$dfn$";
+
+/// Emite o cabeçalho de parâmetros de uma função, método ou fábrica.
+///
+/// Os posicionais saem na ordem declarada; um opcional sem padrão explícito
+/// recebe `null`, porque Dart não possui `undefined`. Os nomeados viram um
+/// único objeto desestruturado no fim da lista, com chave `$dfn$rótulo` e
+/// ligação no nome interno. O objeto tem padrão `{}` para que uma chamada sem
+/// nomeado alguma continue válida.
+///
+/// Devolve `true` se algo foi escrito, para que o chamador saiba se precisa de
+/// separador antes de acrescentar parâmetros sintéticos.
+fn parameter_header(
+    parameters: &[dartforge_syntax::Parameter<'_>],
+    output: &mut Output<'_>,
+) -> bool {
+    let mut wrote = false;
+    for parameter in parameters.iter().filter(|p| !p.kind.is_named()) {
+        if wrote {
+            output.push_str(", ");
+        }
+        wrote = true;
+        declaration(parameter.name, output);
+        default_value(parameter.kind, parameter.default.as_deref(), output);
+    }
+    if !parameters.iter().any(|p| p.kind.is_named()) {
+        return wrote;
+    }
+    if wrote {
+        output.push_str(", ");
+    }
+    output.push('{');
+    for (index, parameter) in parameters.iter().filter(|p| p.kind.is_named()).enumerate() {
+        if index != 0 {
+            output.push_str(", ");
+        }
+        output.push_str(NAMED_KEY);
+        output.push_str(parameter.label());
+        output.push_str(": ");
+        declaration(parameter.name, output);
+        default_value(parameter.kind, parameter.default.as_deref(), output);
+    }
+    output.push_str("} = {}");
+    true
+}
+
+/// Escreve `= padrão` quando o parâmetro é opcional.
+///
+/// Sem padrão escrito, um opcional recebe `null`: a ausência do argumento em
+/// Dart produz null, nunca `undefined`.
+fn default_value(
+    kind: dartforge_syntax::ParameterKind,
+    default: Option<&Expr<'_>>,
+    output: &mut Output<'_>,
+) {
+    if let Some(default) = default {
+        output.push_str(" = ");
+        literal_default(default, output);
+    } else if !kind.is_required() {
+        output.push_str(" = null");
+    }
+}
+
+/// Escreve o literal escalar de um valor padrão sem consultar tabela por span.
+///
+/// A análise semântica já restringiu o padrão a um literal escalar. Emitir a
+/// árvore diretamente mantém o padrão independente da renumeração de spans que
+/// o linker aplica ao combinar bibliotecas. Zero inteiro sai sempre positivo,
+/// como no restante da emissão.
+fn literal_default(default: &Expr<'_>, output: &mut Output<'_>) {
+    match &default.kind {
+        ExprKind::Int(value) => write!(output, "{value}").expect("escrever em String não falha"),
+        ExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+        ExprKind::String(value) => string_literal(value, output),
+        ExprKind::OwnedString(value) => string_literal(value, output),
+        ExprKind::Null => output.push_str("null"),
+        ExprKind::Unary {
+            op: UnaryOp::Negate,
+            operand,
+        } => match operand.kind {
+            ExprKind::Int(value) => {
+                write!(output, "{}", -i64::from(value)).expect("escrever em String não falha");
+            }
+            _ => expression(default, output),
+        },
+        // Árvores montadas fora do pipeline validado caem no caminho geral.
+        _ => expression(default, output),
+    }
+}
+
+/// Emite argumentos posicionais e o objeto de nomeados na ordem escrita.
+///
+/// O objeto entra no fim da lista; suas propriedades seguem a ordem escrita,
+/// que o JavaScript avalia de cima para baixo, preservando a ordem Dart.
+fn argument_list(values: &[Expr<'_>], separator: &str, output: &mut Output<'_>) {
+    let mut wrote = false;
+    let mut object = false;
+    for value in values {
+        if let ExprKind::NamedArgument { label, value } = &value.kind {
+            if object {
+                output.push_str(separator);
+            } else {
+                if wrote {
+                    output.push_str(separator);
+                }
+                output.push('{');
+                object = true;
+            }
+            output.push_str(NAMED_KEY);
+            output.push_str(label);
+            output.push_str(": ");
+            expression(value, output);
+            wrote = true;
+            continue;
+        }
+        if wrote {
+            output.push_str(separator);
+        }
+        expression(value, output);
+        wrote = true;
+    }
+    if object {
+        output.push('}');
+    }
+}
+
 /// Aplica o prefixo estável usado em declarações e referências.
 fn identifier(name: &str, output: &mut Output<'_>) {
     // O prefixo injetivo evita palavras reservadas e globais do JavaScript.
@@ -537,7 +757,7 @@ fn statements(body: &[Statement<'_>], depth: usize, output: &mut Output<'_>) {
                 ..
             } => {
                 output.push_str(if *is_final { "const " } else { "let " });
-                identifier(name, output);
+                declaration(name, output);
                 output.push_str(" = ");
                 expression(initializer, output);
                 output.push_str(";\n");
@@ -700,7 +920,7 @@ fn for_clause(statement: &Statement<'_>, allow_variable: bool, output: &mut Outp
             ..
         } if allow_variable => {
             output.push_str(if *is_final { "const " } else { "let " });
-            identifier(name, output);
+            declaration(name, output);
             output.push_str(" = ");
             expression(initializer, output);
         }
@@ -734,6 +954,112 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         return;
     }
     match &value.kind {
+        // `argument_list` intercepta o rótulo; aqui só resta o valor interno,
+        // o que mantém a emissão correta se a forma escapar de uma chamada.
+        ExprKind::NamedArgument { value, .. } => expression(value, output),
+        ExprKind::Await(_)
+        | ExprKind::FutureValue { .. }
+        | ExprKind::FutureDelayed { .. }
+        | ExprKind::Duration { .. } => asynchronous::expression(value, output),
+        ExprKind::Cascade {
+            receiver,
+            null_aware,
+            sections,
+        } => {
+            let id = output.next_cascade;
+            output.next_cascade += 1;
+            let temporary = format!("$dartforgeCascade{id}");
+            writeln!(output, "(({temporary}) => {{").unwrap();
+            if *null_aware {
+                writeln!(output, "if ({temporary} === null) return {temporary};").unwrap();
+            }
+            output.cascade_receivers.push(temporary.clone());
+            statements(sections, 1, output);
+            output.cascade_receivers.pop();
+            write!(output, "return {temporary};\n}})(").unwrap();
+            expression(receiver, output);
+            output.push(')');
+        }
+        ExprKind::CascadeReceiver => {
+            let receiver = output
+                .cascade_receivers
+                .last()
+                .expect("receiver sintético fora de cascade")
+                .clone();
+            output.push_str(&receiver);
+        }
+        ExprKind::NullAwareElement(_) => {
+            panic!("AST inválida: elemento null-aware fora de literal de coleção")
+        }
+        ExprKind::Map { entries, .. } => {
+            output.push_str("new $dartforgeMap([");
+            for (index, (key, value)) in entries.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                let (optional_key, key) = match &key.kind {
+                    ExprKind::NullAwareElement(inner) => (true, inner.as_ref()),
+                    _ => (false, key),
+                };
+                let (optional_value, value) = match &value.kind {
+                    ExprKind::NullAwareElement(inner) => (true, inner.as_ref()),
+                    _ => (false, value),
+                };
+                if optional_key || optional_value {
+                    // A entrada inteira desaparece quando qualquer posição `?` é null.
+                    output.push_str("...(($dartforgeKey, $dartforgeValue) => ");
+                    if optional_key {
+                        output.push_str("$dartforgeKey === null");
+                    }
+                    if optional_key && optional_value {
+                        output.push_str(" || ");
+                    }
+                    if optional_value {
+                        output.push_str("$dartforgeValue === null");
+                    }
+                    output.push_str(" ? [] : [[$dartforgeKey, $dartforgeValue]])(");
+                    expression(key, output);
+                    output.push(',');
+                    expression(value, output);
+                    output.push(')');
+                    continue;
+                }
+                output.push('[');
+                expression(key, output);
+                output.push(',');
+                expression(value, output);
+                output.push(']');
+            }
+            output.push_str("],");
+            let ty = output
+                .resolution
+                .expr_types
+                .get(&(value.span.start, value.span.end))
+                .expect("Map sem tipo resolvido");
+            let Type::Applied(id) = ty else {
+                panic!("Map sem tipo estrutural")
+            };
+            let dartforge_syntax::TypeShape::Map { key, value } =
+                output.resolution.types[*id as usize]
+            else {
+                panic!("Map com tipo incompatível")
+            };
+            types::descriptor(key, output);
+            output.push(',');
+            types::descriptor(value, output);
+            output.push(')');
+        }
+        ExprKind::NamedConstruct {
+            class_id,
+            name,
+            arguments,
+        } => {
+            write!(output, "$dartforgeFactory{class_id}").unwrap();
+            identifier(name, output);
+            output.push('(');
+            argument_list(arguments, ",", output);
+            output.push(')');
+        }
         ExprKind::Record { fields } => {
             output.push_str("$dartforgeRecord([");
             for (index, (name, field)) in fields.iter().enumerate() {
@@ -778,17 +1104,35 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             features::switch_expression(scrutinee, arms, output)
         }
         ExprKind::Closure {
-            parameters, body, ..
+            parameters,
+            body,
+            is_async,
+            ..
         } => {
             output.push_str("$dartforgeTyped(((");
             for (i, p) in parameters.iter().enumerate() {
                 if i > 0 {
                     output.push(',');
                 }
-                identifier(p.name, output);
+                declaration(p.name, output);
             }
             output.push_str(") => {\n");
+            if *is_async {
+                asynchronous::begin(output);
+            }
             block(body, 1, output);
+            if *is_async {
+                let ty = output.resolution.expr_types[&(value.span.start, value.span.end)];
+                let Type::Applied(id) = ty else {
+                    panic!("closure sem assinatura");
+                };
+                let dartforge_syntax::TypeShape::Function { result, .. } =
+                    output.resolution.types[id as usize]
+                else {
+                    panic!("closure sem assinatura");
+                };
+                asynchronous::end(asynchronous::result_type(result, output), output);
+            }
             output.push_str("\nreturn null;\n}),");
             let ty = *output
                 .resolution
@@ -803,6 +1147,13 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             for (i, e) in elements.iter().enumerate() {
                 if i > 0 {
                     output.push(',');
+                }
+                if let ExprKind::NullAwareElement(inner) = &e.kind {
+                    // Dart 3.8: avalia uma vez e omite o elemento quando é null.
+                    output.push_str("...(($dartforgeElement) => $dartforgeElement === null ? [] : [$dartforgeElement])(");
+                    expression(inner, output);
+                    output.push(')');
+                    continue;
                 }
                 expression(e, output);
             }
@@ -821,17 +1172,45 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push('(');
             expression(callee, output);
             output.push_str(")(");
-            for (i, e) in arguments.iter().enumerate() {
-                if i > 0 {
-                    output.push(',');
-                }
-                expression(e, output);
-            }
+            argument_list(arguments, ",", output);
             output.push(')');
         }
         ExprKind::EnumValue { class_id, name } => {
             write!(output, "$dartforgeClass{class_id}.").unwrap();
             identifier(name, output);
+        }
+        ExprKind::DotShorthand { name, arguments } => {
+            // O alvo nominal vem da resolução: o parser não conhece a classe.
+            let ty = output
+                .resolution
+                .expr_types
+                .get(&(value.span.start, value.span.end))
+                .expect("atalho de ponto sem tipo resolvido");
+            let Type::Class(class_id) = ty else {
+                panic!("AST inválida: atalho de ponto sem classe resolvida")
+            };
+            match arguments {
+                None => {
+                    write!(output, "$dartforgeClass{class_id}.").unwrap();
+                    identifier(name, output);
+                }
+                Some(arguments) if *name == "new" => {
+                    if output.constructor_factories.contains(class_id) {
+                        write!(output, "$dartforgeNew{class_id}(").unwrap();
+                    } else {
+                        write!(output, "new $dartforgeClass{class_id}(").unwrap();
+                    }
+                    argument_list(arguments, ",", output);
+                    output.push(')');
+                }
+                Some(arguments) => {
+                    write!(output, "$dartforgeFactory{class_id}").unwrap();
+                    identifier(name, output);
+                    output.push('(');
+                    argument_list(arguments, ",", output);
+                    output.push(')');
+                }
+            }
         }
         ExprKind::Null => output.push_str("null"),
         ExprKind::This => output.push_str("this"),
@@ -844,12 +1223,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             } else {
                 write!(output, "new $dartforgeClass{class_id}(").unwrap();
             }
-            for (index, argument) in arguments.iter().enumerate() {
-                if index != 0 {
-                    output.push(',');
-                }
-                expression(argument, output);
-            }
+            argument_list(arguments, ",", output);
             output.push(')');
         }
         ExprKind::Member { receiver, name } => {
@@ -882,12 +1256,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push('.');
             identifier(name, output);
             output.push('(');
-            for (index, argument) in arguments.iter().enumerate() {
-                if index != 0 {
-                    output.push_str(", ");
-                }
-                expression(argument, output);
-            }
+            argument_list(arguments, ", ", output);
             if *name == "map" && types::collection_element(value, output).is_some() {
                 if !arguments.is_empty() {
                     output.push(',');
@@ -899,6 +1268,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         ExprKind::Int(value) => write!(output, "{value}").expect("escrever em String não falha"),
         ExprKind::String(value) => string_literal(value, output),
         ExprKind::OwnedString(value) => string_literal(value, output),
+        ExprKind::Interpolation(parts) => strings::interpolation(parts, output),
         ExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
         ExprKind::Identifier(name) => {
             if output
@@ -923,6 +1293,26 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 identifier(name, output);
             } else {
                 match *name {
+                    "Timer"
+                        if output
+                            .resolution
+                            .async_builtins
+                            .contains(&(value.span.start, value.span.end)) =>
+                    {
+                        output.async_used = true;
+                        output.runtime_types_used = true;
+                        output.push_str("new $dartforgeTimer");
+                    }
+                    "scheduleMicrotask"
+                        if output
+                            .resolution
+                            .async_builtins
+                            .contains(&(value.span.start, value.span.end)) =>
+                    {
+                        output.async_used = true;
+                        output.runtime_types_used = true;
+                        output.push_str("$dartforgeScheduleMicrotask");
+                    }
                     "main" => output.push_str("$df_main"),
                     "print" => {
                         let collections = output.collections;
@@ -936,12 +1326,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 }
             }
             output.push('(');
-            for (index, argument) in arguments.iter().enumerate() {
-                if index != 0 {
-                    output.push_str(", ");
-                }
-                expression(argument, output);
-            }
+            argument_list(arguments, ", ", output);
             if let Some(types) = output
                 .resolution
                 .generic_arguments
@@ -998,7 +1383,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             op: op @ (BinaryOp::Equal | BinaryOp::NotEqual),
             left,
             right,
-        } if output.records => {
+        } if output.records || output.async_used => {
             if *op == BinaryOp::NotEqual {
                 output.push('!');
             }
@@ -1045,6 +1430,8 @@ mod tests {
         let mut enumeration = empty_class(12, None);
         enumeration.enum_values = vec!["name", "other"];
         let program = Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             classes: vec![enumeration],
             extensions: vec![],
@@ -1105,6 +1492,8 @@ mod tests {
     }
     fn compile(statements: Vec<Statement<'_>>) -> String {
         emit(&dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1261,6 +1650,8 @@ mod tests {
         body: Vec<Statement<'static>>,
     ) -> Function<'static> {
         Function {
+            is_async: false,
+            is_arrow: false,
             annotations: vec![],
             native_binding: None,
             is_getter: false,
@@ -1269,11 +1660,7 @@ mod tests {
             return_type,
             parameters: parameters
                 .iter()
-                .map(|&(name, ty)| Parameter {
-                    name,
-                    ty,
-                    span: Span { start: 0, end: 0 },
-                })
+                .map(|&(name, ty)| Parameter::required(name, ty, Span { start: 0, end: 0 }))
                 .collect(),
             body,
             span: Span { start: 0, end: 0 },
@@ -1380,6 +1767,8 @@ mod tests {
             ))),
         ];
         emit(&dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1523,6 +1912,8 @@ mod tests {
             }),
         ];
         emit(&dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1610,6 +2001,8 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn function_body_locals_can_shadow_parameters() {
         let module = dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1655,6 +2048,8 @@ mod tests {
         assert!(plain.contains("console.log((null ?? 4));"));
         assert!(!plain.contains("$dartforgeNullAssert"));
         let module = dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1676,6 +2071,8 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn null_operators_preserve_lazy_evaluation_and_single_effects() {
         let module = dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1731,6 +2128,8 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn null_assert_throws_after_evaluating_operand_once() {
         let module = dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1765,6 +2164,8 @@ mod tests {
     #[ignore = "requer Node.js no PATH"]
     fn nullable_function_fallthrough_returns_null() {
         let module = dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -1816,6 +2217,7 @@ mod tests {
         use dartforge_syntax::Field;
         let span = Span { start: 0, end: 0 };
         let base = Class {
+            factories: vec![],
             constructor: None,
             annotations: vec![],
             modifier: dartforge_syntax::ClassModifier::None,
@@ -1853,6 +2255,7 @@ mod tests {
             )],
         };
         let child = Class {
+            factories: vec![],
             constructor: None,
             annotations: vec![],
             modifier: dartforge_syntax::ClassModifier::None,
@@ -1885,6 +2288,8 @@ mod tests {
             )],
         };
         let module = dartforge_hir::lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![child, base],
@@ -1946,6 +2351,7 @@ mod tests {
     /// Gera classes vazias com IDs arbitrários para validar o contrato interno.
     fn empty_class(id: u32, superclass: Option<u32>) -> Class<'static> {
         Class {
+            factories: vec![],
             constructor: None,
             annotations: vec![],
             modifier: dartforge_syntax::ClassModifier::None,
@@ -2021,6 +2427,8 @@ mod tests {
         });
         selected.span = span;
         let program = Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             classes: vec![],
             extensions: vec![Extension {
@@ -2054,6 +2462,7 @@ mod tests {
             statements: vec![print(selected)],
         };
         let resolution = Resolution {
+            async_builtins: Default::default(),
             generic_arguments: Default::default(),
             constant_values: Default::default(),
             implicit_members: Default::default(),

@@ -1,6 +1,8 @@
 //! Pipeline compartilhado de compilação Dart 3.6.2 para JavaScript e LLVM IR.
 use dartforge_diagnostics::Diagnostic;
 mod session;
+pub use dartforge_linker::LinkStats;
+pub use dartforge_macros::{MacroCacheStats, MacroSession};
 pub use dartforge_packages::{CompilationEnvironment, CompilationTarget};
 pub use session::{Compilation, CompilerSession, SessionStats};
 /// Compila o subconjunto suportado de Dart em um módulo JavaScript ESM.
@@ -35,11 +37,13 @@ pub enum Optimization {
     Constants,
 }
 
-/// Opções independentes de transformação; ambas desativadas por padrão.
+/// Opções independentes de transformação; desativadas por padrão.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompileOptions {
     pub optimization: Optimization,
     pub merge_identical_functions: bool,
+    /// Remove declarações inalcançáveis no backend JavaScript; desativado para menor latência.
+    pub tree_shaking: bool,
 }
 impl From<Optimization> for CompileOptions {
     /// Preserva o comportamento das APIs anteriores.
@@ -47,13 +51,14 @@ impl From<Optimization> for CompileOptions {
         Self {
             optimization,
             merge_identical_functions: false,
+            tree_shaking: false,
         }
     }
 }
 /// Compila uma unidade e aplica somente a política de otimização solicitada.
 ///
 /// A análise semântica precede qualquer otimização, inclusive em ramos constantes.
-/// Esta opção ainda não oferece otimização global, inlining ou tree shaking.
+/// Esta opção aplica apenas constantes; use CompileOptions para passes adicionais.
 ///
 /// # Erros
 /// Retorna os mesmos diagnósticos de [`compile`]; otimização não oculta código inválido.
@@ -75,17 +80,32 @@ pub fn compile_with_optimization(
 /// # Erros
 /// Retorna diagnósticos de sintaxe e semântica antes de transformar o programa.
 pub fn compile_with_options(source: &str, options: CompileOptions) -> Result<String, Diagnostic> {
+    compile_with_macro_session(source, options, &mut MacroSession::with_limits(0, 0))
+}
+
+/// Compila com cache limitado de planos de macro, separado da saída JavaScript.
+/// # Erros
+/// Retorna os mesmos diagnósticos de sintaxe e semântica, inclusive em acertos de plano.
+pub fn compile_with_macro_session(
+    source: &str,
+    options: CompileOptions,
+    macros: &mut MacroSession,
+) -> Result<String, Diagnostic> {
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
     reject_unresolved_native(&ast)?;
-    dartforge_hir::expand_mixins(&mut ast)?;
-    let resolution = dartforge_semantic::analyze(&ast)?;
+    let expansion = macros.expand(&mut ast, source.len())?;
+    dartforge_hir::expand_mixins(&mut ast).map_err(|e| expansion.remap(e))?;
+    let resolution = dartforge_semantic::analyze(&ast).map_err(|e| expansion.remap(e))?;
     if options.optimization == Optimization::Constants {
         dartforge_optimizer::fold_constants(&mut ast);
     }
     if options.merge_identical_functions {
         dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);
+    }
+    if options.tree_shaking {
+        dartforge_optimizer::tree_shake(&mut ast, &resolution);
     }
     Ok(dartforge_codegen::emit(&dartforge_hir::lower_resolved(
         ast, resolution,
@@ -159,38 +179,165 @@ pub(crate) fn validate_environment(
     }
     Ok(())
 }
+/// Relatório de custo de uma solicitação, separando descoberta de front-end.
+///
+/// `load_ns` cobre descoberta do grafo, leitura de arquivos e resolução de
+/// pacotes; `link` cobre o pipeline de compilação e a emissão. Nenhuma fase é
+/// obtida por subtração: cada uma é cronometrada no próprio trecho.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompileReport {
+    /// Descoberta do grafo, leitura das fontes e resolução de pacotes.
+    pub load_ns: u128,
+    /// Fases do front-end e da emissão; zero quando a saída foi reutilizada.
+    pub link: LinkStats,
+    /// Tempo total da solicitação, medido de ponta a ponta.
+    pub total_ns: u128,
+    /// A saída anterior foi reutilizada integralmente.
+    pub cache_hit: bool,
+}
+
+/// Compila um caminho devolvendo o relatório de custo junto do JavaScript.
+///
+/// Esta rota não usa cache: mede sempre uma compilação fria, que é a linha de
+/// base contra a qual qualquer reuso precisa ser comparado.
+///
+/// # Erros
+/// Retorna os mesmos diagnósticos de [`compile_path_with_options`].
+pub fn compile_path_with_report(
+    path: &std::path::Path,
+    options: CompileOptions,
+) -> Result<(String, CompileReport), dartforge_packages::GraphError> {
+    let total = std::time::Instant::now();
+    let load = std::time::Instant::now();
+    let environment = CompilationEnvironment::javascript();
+    validate_environment(path, &environment, CompilationTarget::JavaScript)?;
+    let graph = dartforge_packages::load_with_environment(path, &environment)?;
+    let load_ns = load.elapsed().as_nanos();
+    let mut link = LinkStats::default();
+    let javascript = compile_loaded_graph_instrumented(
+        &graph,
+        options,
+        &mut MacroSession::with_limits(0, 0),
+        &mut link,
+    )?;
+    Ok((
+        javascript,
+        CompileReport {
+            load_ns,
+            link,
+            total_ns: total.elapsed().as_nanos(),
+            cache_hit: false,
+        },
+    ))
+}
+
 /// Compila um grafo recarregado pela rota compartilhada com a sessão.
 pub(crate) fn compile_loaded_graph(
     graph: &dartforge_packages::SourceGraph,
     options: CompileOptions,
+) -> Result<String, dartforge_packages::GraphError> {
+    compile_loaded_graph_with_macros(graph, options, &mut MacroSession::with_limits(0, 0))
+}
+
+/// Reutiliza planos de macro da sessão sem reutilizar ASTs de bibliotecas anteriores.
+pub(crate) fn compile_loaded_graph_with_macros(
+    graph: &dartforge_packages::SourceGraph,
+    options: CompileOptions,
+    macros: &mut MacroSession,
+) -> Result<String, dartforge_packages::GraphError> {
+    compile_loaded_graph_instrumented(graph, options, macros, &mut LinkStats::default())
+}
+
+/// Compila o grafo carregado preenchendo o tempo por fase em `stats`.
+pub(crate) fn compile_loaded_graph_instrumented(
+    graph: &dartforge_packages::SourceGraph,
+    options: CompileOptions,
+    macros: &mut MacroSession,
+    stats: &mut LinkStats,
 ) -> Result<String, dartforge_packages::GraphError> {
     validate_environment(
         &graph.units[graph.entry].path,
         &graph.environment,
         CompilationTarget::JavaScript,
     )?;
-    // A unidade isolada preserva o caminho direto e evita resolver um namespace sem imports.
+    // A unidade isolada preserva o caminho direto e evita resolver um namespace
+    // sem imports. `directives_end == 0` é indispensável: um arquivo que declara
+    // apenas `library x;` não tem aresta alguma, mas tem prefixo de diretivas, e
+    // entregá-lo inteiro ao parser faria a diretiva virar erro de sintaxe.
     if graph.units.len() == 1
         && graph.units[0].imports.is_empty()
         && graph.units[0].exports.is_empty()
+        && graph.units[0].parts.is_empty()
+        && graph.units[0].directives_end == 0
     {
-        return compile_with_options(&graph.units[0].source, options).map_err(|error| {
-            dartforge_packages::GraphError {
+        return compile_unit_instrumented(&graph.units[0].source, options, macros, stats).map_err(
+            |error| dartforge_packages::GraphError {
                 path: graph.units[0].path.clone(),
                 span: Some(error.span),
                 message: error.message,
-            }
-        });
+            },
+        );
     }
-    dartforge_linker::compile_graph_with_options(
+    dartforge_linker::compile_graph_instrumented(
         graph,
         options.optimization == Optimization::Constants,
         options.merge_identical_functions,
+        options.tree_shaking,
+        macros,
+        stats,
         |module| {
             dartforge_codegen::validate_javascript(module)?;
             Ok(dartforge_codegen::emit(module))
         },
     )
+}
+
+/// Executa o caminho de unidade isolada cronometrando cada fase.
+///
+/// Mantém o atalho que evita resolver namespaces quando não há imports, sem
+/// abrir mão da medição: o caminho rápido também precisa ser mensurável.
+fn compile_unit_instrumented(
+    source: &str,
+    options: CompileOptions,
+    macros: &mut MacroSession,
+    stats: &mut LinkStats,
+) -> Result<String, Diagnostic> {
+    dartforge_packages::validate_language_version(source)?;
+    stats.units = 1;
+    stats.source_bytes = source.len();
+    let lex_start = std::time::Instant::now();
+    let tokens = dartforge_lexer::lex(source)?;
+    stats.lex_ns = lex_start.elapsed().as_nanos();
+    stats.tokens = tokens.len();
+    let parse_start = std::time::Instant::now();
+    let mut ast = dartforge_parser::parse(&tokens, source.len())?;
+    stats.parse_ns = parse_start.elapsed().as_nanos();
+    reject_unresolved_native(&ast)?;
+    let macros_start = std::time::Instant::now();
+    let expansion = macros.expand(&mut ast, source.len())?;
+    stats.macros_ns = macros_start.elapsed().as_nanos();
+    let analyze_start = std::time::Instant::now();
+    dartforge_hir::expand_mixins(&mut ast).map_err(|e| expansion.remap(e))?;
+    let resolution = dartforge_semantic::analyze(&ast).map_err(|e| expansion.remap(e))?;
+    stats.analyze_ns = analyze_start.elapsed().as_nanos();
+    stats.classes = ast.classes.len();
+    stats.functions = ast.functions.len();
+    let optimize_start = std::time::Instant::now();
+    if options.optimization == Optimization::Constants {
+        dartforge_optimizer::fold_constants(&mut ast);
+    }
+    if options.merge_identical_functions {
+        dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);
+    }
+    if options.tree_shaking {
+        dartforge_optimizer::tree_shake(&mut ast, &resolution);
+    }
+    stats.optimize_ns = optimize_start.elapsed().as_nanos();
+    let emit_start = std::time::Instant::now();
+    let javascript = dartforge_codegen::emit(&dartforge_hir::lower_resolved(ast, resolution));
+    stats.emit_ns = emit_start.elapsed().as_nanos();
+    stats.output_bytes = javascript.len();
+    Ok(javascript)
 }
 /// Compila uma unidade validada para LLVM IR do subconjunto nativo.
 ///
@@ -209,16 +356,36 @@ pub fn compile_llvm_with_options(
     source: &str,
     options: CompileOptions,
 ) -> Result<String, Diagnostic> {
+    if options.tree_shaking {
+        return Err(Diagnostic::new(
+            "tree shaking ainda exige o backend JavaScript",
+            dartforge_diagnostics::Span { start: 0, end: 0 },
+        ));
+    }
     dartforge_packages::validate_language_version(source)?;
     let tokens = dartforge_lexer::lex(source)?;
     let mut ast = dartforge_parser::parse(&tokens, source.len())?;
     reject_unresolved_native(&ast)?;
-    dartforge_hir::expand_mixins(&mut ast)?;
-    let resolution = dartforge_semantic::analyze(&ast)?;
+    let expansion = dartforge_macros::expand(&mut ast, source.len())?;
+    dartforge_hir::expand_mixins(&mut ast).map_err(|e| expansion.remap(e))?;
+    let resolution = dartforge_semantic::analyze(&ast).map_err(|e| expansion.remap(e))?;
     if options.merge_identical_functions {
         dartforge_optimizer::merge_identical_functions(&mut ast, &resolution);
     }
     dartforge_llvm::emit(&dartforge_hir::lower_resolved(ast, resolution))
+        .map_err(|e| expansion.remap(e))
+}
+
+/// Inspeciona a expansão experimental sem emitir código nem executar a aplicação.
+/// # Erros
+/// Retorna falhas de parsing, alvo de macro ou colisões entre declarações.
+pub fn macro_expansion_report(
+    source: &str,
+) -> Result<dartforge_macros::ExpansionReport, Diagnostic> {
+    dartforge_packages::validate_language_version(source)?;
+    let tokens = dartforge_lexer::lex(source)?;
+    let mut ast = dartforge_parser::parse(&tokens, source.len())?;
+    dartforge_macros::expand(&mut ast, source.len())
 }
 
 /// Impede bindings sem resolução de biblioteca nas APIs de fonte isolada.
@@ -264,11 +431,20 @@ pub fn compile_path_llvm_with_environment(
     options: CompileOptions,
     environment: &CompilationEnvironment,
 ) -> Result<String, dartforge_packages::GraphError> {
+    if options.tree_shaking {
+        return Err(dartforge_packages::GraphError {
+            path: path.to_owned(),
+            span: None,
+            message: "tree shaking ainda exige o backend JavaScript".into(),
+        });
+    }
     validate_environment(path, environment, CompilationTarget::Native)?;
     let graph = dartforge_packages::load_with_environment(path, environment)?;
     if graph.units.len() == 1
         && graph.units[0].imports.is_empty()
         && graph.units[0].exports.is_empty()
+        && graph.units[0].parts.is_empty()
+        && graph.units[0].directives_end == 0
     {
         return compile_llvm_with_options(&graph.units[0].source, options).map_err(|error| {
             dartforge_packages::GraphError {

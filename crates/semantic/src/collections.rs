@@ -15,6 +15,9 @@ impl<'a> Validator<'a> {
             | Type::NullableBool
             | Type::NullableString => true,
             Type::Applied(_) => match self.shape(ty) {
+                Some(TypeShape::Map { key, value }) => {
+                    self.printable_type(key) && self.printable_type(value)
+                }
                 Some(TypeShape::Record { positional, named }) => positional
                     .iter()
                     .chain(named.iter().map(|(_, ty)| ty))
@@ -74,6 +77,8 @@ impl<'a> Validator<'a> {
                 })?;
                 stack.push((id, true));
                 let children = match shape {
+                    TypeShape::Future(t) => vec![*t],
+                    TypeShape::Map { key, value } => vec![*key, *value],
                     TypeShape::Record { positional, named } => {
                         self.record_shape(positional.len(), named, Span { start: 0, end: 0 })?;
                         positional
@@ -109,6 +114,20 @@ impl<'a> Validator<'a> {
     ) -> Result<(), Diagnostic> {
         let fail = || Diagnostic::new("Incompatible structural type", span);
         match (self.shape(actual), self.shape(expected)) {
+            (Some(TypeShape::Future(a)), Some(TypeShape::Future(b))) => {
+                if b == Type::Void {
+                    Ok(())
+                } else {
+                    self.require_type(a, b, span)
+                }
+            }
+            (
+                Some(TypeShape::Map { key: ak, value: av }),
+                Some(TypeShape::Map { key: bk, value: bv }),
+            ) => {
+                self.require_type(ak, bk, span)?;
+                self.require_type(av, bv, span)
+            }
             (
                 Some(TypeShape::Record {
                     positional: a,
@@ -169,6 +188,17 @@ impl<'a> Validator<'a> {
             .shape(ty)
             .ok_or_else(|| Diagnostic::new("Unknown structural type", span))?;
         let (name, children) = match shape {
+            TypeShape::Future(t) => {
+                self.future_name(span)?;
+                self.check_type_name(t, span)?;
+                return Ok(());
+            }
+            TypeShape::Map { key, value } => {
+                if key != Type::String {
+                    return Err(Diagnostic::new("Only String Map keys are supported", span));
+                }
+                ("Map", vec![key, value])
+            }
             TypeShape::Record { positional, named } => {
                 self.record_shape(positional.len(), &named, span)?;
                 for child in positional
@@ -255,6 +285,18 @@ impl<'a> Validator<'a> {
                 }
             }
             match (self.shape(a), self.shape(b)) {
+                (Some(TypeShape::Future(a)), Some(TypeShape::Future(b))) => {
+                    return Ok(self.intern(TypeShape::Future(self.common(a, b, span)?)));
+                }
+                (
+                    Some(TypeShape::Map { key: ak, value: av }),
+                    Some(TypeShape::Map { key: bk, value: bv }),
+                ) => {
+                    return Ok(self.intern(TypeShape::Map {
+                        key: self.common(ak, bk, span)?,
+                        value: self.common(av, bv, span)?,
+                    }));
+                }
                 (
                     Some(TypeShape::Record {
                         positional: a,
@@ -373,7 +415,50 @@ impl<'a> Validator<'a> {
         e: &Expr<'a>,
         expected: Option<Type>,
     ) -> Result<Type, Diagnostic> {
+        if let ExprKind::Identifier(name)
+        | ExprKind::Call { name, .. }
+        | ExprKind::GenericCall { name, .. } = &e.kind
+        {
+            self.reject_factory_instance(name, e.span)?;
+        }
         let ty = match &e.kind {
+            ExprKind::FutureValue { value, value_type } => self.future_value(
+                value.as_deref(),
+                value_type.or_else(|| {
+                    if let Some(TypeShape::Future(t)) = expected.and_then(|t| self.shape(t)) {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                }),
+                e.span,
+            )?,
+            ExprKind::FutureDelayed {
+                duration,
+                computation,
+                value_type,
+            } => self.future_delayed(
+                duration,
+                computation.as_deref(),
+                value_type.or_else(|| {
+                    if let Some(TypeShape::Future(t)) = expected.and_then(|t| self.shape(t)) {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                }),
+                e.span,
+            )?,
+            ExprKind::Map {
+                key_type,
+                value_type,
+                entries,
+            } => self.map_expression(*key_type, *value_type, entries, expected, e.span)?,
+            ExprKind::Cascade {
+                receiver,
+                null_aware,
+                sections,
+            } => self.cascade(receiver, *null_aware, sections, expected, e.span)?,
             ExprKind::Record { fields } => self.record_expression(fields, expected, e.span)?,
             ExprKind::Const(inner) => {
                 let ty = self.expression_expected(inner, expected)?;
@@ -383,6 +468,12 @@ impl<'a> Validator<'a> {
             ExprKind::Switch { scrutinee, arms } => {
                 self.switch_expression(scrutinee, arms, e.span, expected)?
             }
+            ExprKind::Conditional {
+                condition,
+                then_value,
+                else_value,
+            } => self.conditional(condition, then_value, else_value, expected, e.span)?,
+            ExprKind::Throw(value) => self.throw_expression(value, expected)?,
             ExprKind::GenericCall {
                 name,
                 type_arguments,
@@ -398,12 +489,23 @@ impl<'a> Validator<'a> {
             {
                 self.generic_call(name, &[], arguments, e.span, expected)?
             }
+            ExprKind::DotShorthand { name, arguments } => {
+                self.dot_shorthand(name, arguments.as_deref(), expected, e.span)?
+            }
             ExprKind::Closure {
                 parameters,
                 return_type,
                 body,
                 is_arrow,
-            } => self.closure(parameters, *return_type, body, *is_arrow, expected, e.span)?,
+                is_async,
+            } => self.closure(
+                parameters,
+                *return_type,
+                body,
+                (*is_arrow, *is_async),
+                expected,
+                e.span,
+            )?,
             ExprKind::List {
                 element_type,
                 elements,
@@ -414,7 +516,7 @@ impl<'a> Validator<'a> {
                 }
                 let mut inferred = context;
                 for value in elements {
-                    let actual = self.value_expected(value, context)?;
+                    let actual = self.collection_element(value, context)?;
                     if let Some(target) = context {
                         self.require_type(actual, target, value.span)?;
                     }
@@ -445,6 +547,34 @@ impl<'a> Validator<'a> {
             .insert((e.span.start, e.span.end), ty);
         Ok(ty)
     }
+    /// Analisa um elemento de coleção e remove a nulabilidade aceita por `?`.
+    ///
+    /// Dart 3.8 omite o elemento quando `?valor` avalia para null, portanto o
+    /// tipo do elemento é o tipo do operando sem null. O operando recebe o
+    /// contexto anulável correspondente e é avaliado uma única vez.
+    pub(super) fn collection_element(
+        &self,
+        e: &Expr<'a>,
+        context: Option<Type>,
+    ) -> Result<Type, Diagnostic> {
+        let ExprKind::NullAwareElement(inner) = &e.kind else {
+            return self.value_expected(e, context);
+        };
+        let nullable = context.map(|t| self.nullable(t));
+        let actual = self.value_expected(inner, nullable)?;
+        let ty = self.without_null(actual);
+        if ty == Type::Void || ty == Type::Inferred || ty == Type::Null {
+            return Err(Diagnostic::new(
+                "Unsupported null-aware collection element type",
+                e.span,
+            ));
+        }
+        self.resolution
+            .borrow_mut()
+            .expr_types
+            .insert((e.span.start, e.span.end), ty);
+        Ok(ty)
+    }
     /// Analisa valor com contexto e rejeita ausência de resultado.
     pub(super) fn value_expected(
         &self,
@@ -467,10 +597,11 @@ impl<'a> Validator<'a> {
         parameters: &[dartforge_syntax::Parameter<'a>],
         annotation: Type,
         body: &[Statement<'a>],
-        is_arrow: bool,
+        modifiers: (bool, bool),
         expected: Option<Type>,
         span: Span,
     ) -> Result<Type, Diagnostic> {
+        let (is_arrow, is_async) = modifiers;
         let contextual = expected.and_then(|t| self.shape(t));
         let (context_result, context_params) = match contextual {
             Some(TypeShape::Function { result, parameters }) => (Some(result), parameters),
@@ -480,6 +611,20 @@ impl<'a> Validator<'a> {
             return Err(Diagnostic::new("Incorrect closure parameter count", span));
         }
         let mut nested = self.clone();
+        nested.in_async = is_async;
+        nested.in_arrow = is_arrow;
+        let context_result = if is_async {
+            context_result
+                .map(|t| self.async_result(t, span))
+                .transpose()?
+        } else {
+            context_result
+        };
+        let annotation = if is_async && annotation != Type::Inferred {
+            self.async_result(annotation, span)?
+        } else {
+            annotation
+        };
         for scope in &mut nested.scopes {
             for binding in scope.values_mut() {
                 if !binding.is_final {
@@ -507,6 +652,11 @@ impl<'a> Validator<'a> {
                     p.span,
                 ));
             }
+            if crate::is_wildcard(p.name) {
+                // Dart 3.7: `_` em closures preserva a aridade sem declarar nome.
+                types.push(ty);
+                continue;
+            }
             if scope
                 .insert(
                     p.name,
@@ -527,6 +677,9 @@ impl<'a> Validator<'a> {
         nested.loop_depth = 0;
         nested.in_constructor = false;
         nested.switch_depth = 0;
+        // Rótulos e cláusulas catch não atravessam a fronteira de uma closure.
+        nested.labels.clear();
+        nested.catch_depth = 0;
         nested.return_type = if annotation != Type::Inferred {
             annotation
         } else {
@@ -557,6 +710,9 @@ impl<'a> Validator<'a> {
         if annotation != Type::Inferred {
             self.require_type(result, annotation, span)?;
             result = annotation;
+        }
+        if is_async {
+            result = self.intern(TypeShape::Future(result));
         }
         let ty = self.intern(TypeShape::Function {
             result,
@@ -672,7 +828,7 @@ pub(super) fn captured_writes<'a>(program: &Program<'a>) -> HashSet<&'a str> {
         if let Some(constructor) = &c.constructor {
             scan_body(&constructor.body, false, &mut names);
         }
-        for m in &c.methods {
+        for m in c.methods.iter().chain(&c.factories) {
             scan_body(&m.body, false, &mut names);
         }
     }
@@ -740,6 +896,32 @@ fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a s
                 scan_expr(condition, names);
                 scan_body(body, inside, names);
             }
+            StatementKind::ForIn { iterable, body, .. } => {
+                scan_expr(iterable, names);
+                scan_body(body, inside, names);
+            }
+            StatementKind::Labeled { body, .. } => {
+                scan_body(std::slice::from_ref(body), inside, names);
+            }
+            StatementKind::Assert { condition, message } => {
+                scan_expr(condition, names);
+                if let Some(message) = message {
+                    scan_expr(message, names);
+                }
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => {
+                scan_body(body, inside, names);
+                for clause in catches {
+                    scan_body(&clause.body, inside, names);
+                }
+                if let Some(body) = finally_body {
+                    scan_body(body, inside, names);
+                }
+            }
             StatementKind::For {
                 initializer,
                 condition,
@@ -764,6 +946,38 @@ fn scan_body<'a>(body: &[Statement<'a>], inside: bool, names: &mut HashSet<&'a s
 /// Visita closures aninhadas e coleta também efeitos em argumentos e receptores.
 fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
     match &e.kind {
+        ExprKind::Await(value) => scan_expr(value, names),
+        ExprKind::FutureValue {
+            value: Some(value), ..
+        } => scan_expr(value, names),
+        ExprKind::FutureValue { value: None, .. } => {}
+        ExprKind::FutureDelayed {
+            duration,
+            computation,
+            ..
+        } => {
+            scan_expr(duration, names);
+            if let Some(value) = computation {
+                scan_expr(value, names);
+            }
+        }
+        ExprKind::Duration { parts } => {
+            for (_, part) in parts {
+                scan_expr(part, names);
+            }
+        }
+        ExprKind::Map { entries, .. } => {
+            for (key, value) in entries {
+                scan_expr(key, names);
+                scan_expr(value, names);
+            }
+        }
+        ExprKind::Cascade {
+            receiver, sections, ..
+        } => {
+            scan_expr(receiver, names);
+            scan_body(sections, false, names);
+        }
         ExprKind::Record { fields } => {
             for (_, value) in fields {
                 scan_expr(value, names);
@@ -789,6 +1003,10 @@ fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
         }
         ExprKind::Closure { body, .. } => scan_body(body, true, names),
         ExprKind::Construct {
+            arguments: elements,
+            ..
+        }
+        | ExprKind::NamedConstruct {
             arguments: elements,
             ..
         }
@@ -822,9 +1040,19 @@ fn scan_expr<'a>(e: &Expr<'a>, names: &mut HashSet<&'a str>) {
             scan_expr(index, names);
         }
         ExprKind::Unary { operand, .. }
+        | ExprKind::Throw(operand)
         | ExprKind::Member {
             receiver: operand, ..
         } => scan_expr(operand, names),
+        ExprKind::Conditional {
+            condition,
+            then_value,
+            else_value,
+        } => {
+            scan_expr(condition, names);
+            scan_expr(then_value, names);
+            scan_expr(else_value, names);
+        }
         _ => {}
     }
 }

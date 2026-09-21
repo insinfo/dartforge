@@ -1,5 +1,6 @@
 //! Liga bibliotecas Dart do grafo por símbolos e ASTs, sem concatenar fontes.
-//! Cada arquivo constitui uma biblioteca, com imports diretos e privacidade por unidade.
+//! Cada arquivo constitui uma biblioteca, com imports diretos e privacidade por unidade,
+//! exceto as partes: suas declarações entram na biblioteca que as declara com `part`.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_packages::{Combinator, GraphError, SourceGraph};
 use dartforge_syntax::{
@@ -10,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 /// Símbolo declarado por uma biblioteca antes da análise de corpos.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Symbol {
+    intrinsic: bool,
     owner: usize,
     class_id: Option<u32>,
 }
@@ -48,6 +50,60 @@ pub fn compile_graph(graph: &SourceGraph, optimize_constants: bool) -> Result<St
     })
 }
 
+/// Tempo por fase, em nanossegundos, e trabalho efetivamente realizado.
+///
+/// Os números respondem "quanto trabalho foi feito", não apenas "quanto tempo
+/// passou": sem os contadores, um ganho por reuso de cache seria indistinguível
+/// de uma máquina mais rápida. Nenhuma fase é estimada por diferença; cada uma
+/// é cronometrada no próprio trecho.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LinkStats {
+    /// Tokenização de todas as unidades, incluindo o filtro de diretivas.
+    pub lex_ns: u128,
+    /// Índice de declarações de topo de cada unidade.
+    pub outline_ns: u128,
+    /// Resolução de namespaces, prefixos, exports e privacidade por biblioteca.
+    pub namespace_ns: u128,
+    /// Combinação das unidades em um programa único, com remapeamento de spans.
+    pub merge_ns: u128,
+    /// Análise sintática completa de cada unidade com o ambiente nominal.
+    pub parse_ns: u128,
+    /// Expansão de macros incorporadas antes da semântica.
+    pub macros_ns: u128,
+    /// Expansão de mixins e validação semântica do programa combinado.
+    pub analyze_ns: u128,
+    /// Passes opcionais: constantes, fusão e tree shaking.
+    pub optimize_ns: u128,
+    /// Lowering para HIR e emissão do texto final.
+    pub emit_ns: u128,
+    /// Unidades que passaram pelo front-end nesta chamada.
+    pub units: usize,
+    /// Bytes de fonte lidos pelo front-end nesta chamada.
+    pub source_bytes: usize,
+    /// Tokens conservados após remover as diretivas.
+    pub tokens: usize,
+    /// Classes do programa combinado, incluindo aplicações de mixin sintéticas.
+    pub classes: usize,
+    /// Funções de topo do programa combinado.
+    pub functions: usize,
+    /// Bytes do texto produzido pelo backend.
+    pub output_bytes: usize,
+}
+impl LinkStats {
+    /// Soma das fases cronometradas; não inclui descoberta nem leitura do grafo.
+    pub fn front_end_ns(&self) -> u128 {
+        self.lex_ns
+            + self.outline_ns
+            + self.namespace_ns
+            + self.merge_ns
+            + self.parse_ns
+            + self.macros_ns
+            + self.analyze_ns
+            + self.optimize_ns
+            + self.emit_ns
+    }
+}
+
 /// Resolve e valida bibliotecas antes de entregar a HIR a um backend selecionado.
 ///
 /// A HIR empresta nomes das arenas locais e só pode ser consumida durante a chamada.
@@ -71,6 +127,55 @@ pub fn compile_graph_with_options(
     merge_identical: bool,
     emit: impl FnOnce(&dartforge_hir::Module<'_>) -> Result<String, Diagnostic>,
 ) -> Result<String, GraphError> {
+    compile_graph_with_macro_session(
+        graph,
+        optimize_constants,
+        merge_identical,
+        false,
+        &mut dartforge_macros::MacroSession::with_limits(0, 0),
+        emit,
+    )
+}
+
+/// Resolve bibliotecas reutilizando somente planos de macro próprios e limitados.
+/// # Erros
+/// Preserva validação e localização dos diagnósticos mesmo quando o plano é reutilizado.
+pub fn compile_graph_with_macro_session(
+    graph: &SourceGraph,
+    optimize_constants: bool,
+    merge_identical: bool,
+    tree_shaking: bool,
+    macros: &mut dartforge_macros::MacroSession,
+    emit: impl FnOnce(&dartforge_hir::Module<'_>) -> Result<String, Diagnostic>,
+) -> Result<String, GraphError> {
+    compile_graph_instrumented(
+        graph,
+        optimize_constants,
+        merge_identical,
+        tree_shaking,
+        macros,
+        &mut LinkStats::default(),
+        emit,
+    )
+}
+
+/// Compila registrando tempo por fase e trabalho realizado em `stats`.
+///
+/// A instrumentação é um contador por fase e não altera o resultado. Em erro,
+/// `stats` conserva as fases já concluídas, o que permite localizar onde o
+/// custo apareceu antes da falha.
+///
+/// # Erros
+/// Idênticos aos de [`compile_graph_with_macro_session`].
+pub fn compile_graph_instrumented(
+    graph: &SourceGraph,
+    optimize_constants: bool,
+    merge_identical: bool,
+    tree_shaking: bool,
+    macros: &mut dartforge_macros::MacroSession,
+    stats: &mut LinkStats,
+    emit: impl FnOnce(&dartforge_hir::Module<'_>) -> Result<String, Diagnostic>,
+) -> Result<String, GraphError> {
     if graph.entry >= graph.units.len() {
         return Err(GraphError {
             path: std::path::PathBuf::new(),
@@ -78,33 +183,86 @@ pub fn compile_graph_with_options(
             message: "entrada do grafo inválida".into(),
         });
     }
-    let mut tokens = Vec::new();
-    let mut declarations = Vec::new();
+    // Cada parte compartilha namespace, imports e privacidade da biblioteca declarante.
+    let mut library: Vec<usize> = (0..graph.units.len()).collect();
+    for (owner, unit) in graph.units.iter().enumerate() {
+        for part in &unit.parts {
+            if part.target >= graph.units.len()
+                || part.target == owner
+                || unit.part_of.is_some()
+                || library[part.target] != part.target
+                || graph.units[part.target].part_of != Some(owner)
+            {
+                return Err(source_error(
+                    graph,
+                    owner,
+                    Diagnostic::new("destino de part inválido no grafo", part.span),
+                ));
+            }
+            library[part.target] = owner;
+        }
+    }
     for (unit_id, unit) in graph.units.iter().enumerate() {
-        let all = dartforge_lexer::lex(&unit.source)
-            .map_err(|error| source_error(graph, unit_id, error))?;
+        if unit.part_of.is_some()
+            && (library[unit_id] == unit_id || !unit.imports.is_empty() || !unit.exports.is_empty())
+        {
+            return Err(source_error(
+                graph,
+                unit_id,
+                Diagnostic::new(
+                    "parte exige uma biblioteca declarante e não pode ter import ou export",
+                    Span { start: 0, end: 0 },
+                ),
+            ));
+        }
+    }
+    if library[graph.entry] != graph.entry {
+        return Err(source_error(
+            graph,
+            graph.entry,
+            Diagnostic::new(
+                "entrada não pode ser parte de outra biblioteca",
+                Span { start: 0, end: 0 },
+            ),
+        ));
+    }
+    stats.units = graph.units.len();
+    stats.source_bytes = graph.units.iter().map(|unit| unit.source.len()).sum();
+    // Tokenização: trabalho independente por unidade, sem estado compartilhado.
+    let lex_start = std::time::Instant::now();
+    let tokens = map_units(graph, |unit| {
+        let all = dartforge_lexer::lex(&unit.source)?;
         let prefix = unit
             .imports
             .iter()
             .chain(&unit.exports)
             .map(|import| import.span.end)
+            .chain(unit.parts.iter().map(|part| part.span.end))
+            .chain(std::iter::once(unit.directives_end))
             .max()
             .unwrap_or(0);
-        let body = all
+        Ok(all
             .into_iter()
             .filter(|token| token.span.start >= prefix)
-            .collect::<Vec<_>>();
-        declarations.push(
-            dartforge_parser::index_unit(&body)
-                .map_err(|error| source_error(graph, unit_id, error))?,
-        );
-        tokens.push(body);
-    }
-    let mut own = Vec::new();
+            .collect::<Vec<_>>())
+    });
+    let tokens = first_error(graph, tokens)?;
+    stats.lex_ns += lex_start.elapsed().as_nanos();
+    stats.tokens = tokens.iter().map(Vec::len).sum();
+    // Índice de declarações de topo: também independente por unidade.
+    let outline_start = std::time::Instant::now();
+    let declarations = map_indexed(tokens.len(), |unit_id| {
+        dartforge_parser::index_unit(&tokens[unit_id])
+    });
+    let declarations = first_error(graph, declarations)?;
+    stats.outline_ns += outline_start.elapsed().as_nanos();
+    let namespace_start = std::time::Instant::now();
+    // Índices de biblioteca; as unidades de partes permanecem com namespace vazio.
+    let mut own: Vec<HashMap<&str, Symbol>> = vec![HashMap::new(); graph.units.len()];
     let mut next_class = 0u32;
     let mut class_origins = HashMap::new();
-    for (owner, declaration) in declarations.iter().enumerate() {
-        let mut symbols = HashMap::new();
+    for (unit_id, declaration) in declarations.iter().enumerate() {
+        let owner = library[unit_id];
         for (names, is_class) in [
             (&declaration.classes, true),
             (&declaration.functions, false),
@@ -113,7 +271,7 @@ pub fn compile_graph_with_options(
                 if matches!(item.name, "print" | "int" | "String" | "bool") {
                     return Err(source_error(
                         graph,
-                        owner,
+                        unit_id,
                         Diagnostic::new(
                             "declaração oculta um nome nativo fora do subconjunto",
                             item.span,
@@ -125,7 +283,7 @@ pub fn compile_graph_with_options(
                     next_class = next_class.checked_add(1).ok_or_else(|| {
                         source_error(
                             graph,
-                            owner,
+                            unit_id,
                             Diagnostic::new("excesso de classes", item.span),
                         )
                     })?;
@@ -134,19 +292,44 @@ pub fn compile_graph_with_options(
                 } else {
                     None
                 };
-                if symbols
-                    .insert(item.name, Symbol { owner, class_id })
+                if own[owner]
+                    .insert(
+                        item.name,
+                        Symbol {
+                            owner,
+                            class_id,
+                            intrinsic: false,
+                        },
+                    )
                     .is_some()
                 {
                     return Err(source_error(
                         graph,
-                        owner,
+                        unit_id,
                         Diagnostic::new("símbolo top-level duplicado", item.span),
                     ));
                 }
             }
         }
-        own.push(symbols);
+    }
+    for (unit_id, symbols) in own.iter_mut().enumerate() {
+        if graph.units.iter().any(|unit| {
+            unit.imports
+                .iter()
+                .chain(&unit.exports)
+                .any(|edge| edge.uri == "dart:async" && edge.target == unit_id)
+        }) {
+            for name in ["Timer", "scheduleMicrotask"] {
+                symbols.insert(
+                    name,
+                    Symbol {
+                        owner: unit_id,
+                        class_id: None,
+                        intrinsic: true,
+                    },
+                );
+            }
+        }
     }
     let exported = exported_namespaces(graph, &own)?;
     let mut visible = own.clone();
@@ -185,7 +368,8 @@ pub fn compile_graph_with_options(
     }
     // A arena permanece imóvel até emissão; referências da AST nunca escapam desta função.
     let mut names = HashMap::new();
-    for (owner, unit_tokens) in tokens.iter().enumerate() {
+    for (unit_id, unit_tokens) in tokens.iter().enumerate() {
+        let owner = library[unit_id];
         for token in unit_tokens {
             if let TokenKind::Word(name) = token.kind
                 && (own[owner].contains_key(name) || name.starts_with('_'))
@@ -196,17 +380,31 @@ pub fn compile_graph_with_options(
             }
         }
     }
-    let mut programs = Vec::new();
+    let mut reports = Vec::new();
+    stats.namespace_ns += namespace_start.elapsed().as_nanos();
+    // Ambientes nominais resolvidos em sequência; o parsing em si é independente.
+    let parse_start = std::time::Instant::now();
+    let environments: Vec<BTreeMap<&str, u32>> = (0..graph.units.len())
+        .map(|unit_id| {
+            visible[library[unit_id]]
+                .iter()
+                .filter_map(|(&name, symbol)| symbol.class_id.map(|id| (name, id)))
+                .collect()
+        })
+        .collect();
+    let parsed = map_indexed(graph.units.len(), |unit_id| {
+        dartforge_parser::parse_unit(
+            &tokens[unit_id],
+            graph.units[unit_id].source.len(),
+            environments[unit_id].clone(),
+        )
+    });
+    let mut programs = first_error(graph, parsed)?;
+    stats.parse_ns += parse_start.elapsed().as_nanos();
     for (unit_id, unit) in graph.units.iter().enumerate() {
-        let env: BTreeMap<_, _> = visible[unit_id]
-            .iter()
-            .filter_map(|(&name, symbol)| symbol.class_id.map(|id| (name, id)))
-            .collect();
-        programs.push(
-            dartforge_parser::parse_unit(&tokens[unit_id], unit.source.len(), env)
-                .map_err(|error| source_error(graph, unit_id, error))?,
-        );
-        let program = programs.last().unwrap();
+        let owner = library[unit_id];
+        let _ = unit;
+        let program = &programs[unit_id];
         for annotation in program
             .functions
             .iter()
@@ -221,7 +419,7 @@ pub fn compile_graph_with_options(
             )
         {
             let name = metadata_name(annotation);
-            if visible[unit_id].contains_key(name) {
+            if visible[owner].contains_key(name) {
                 return Err(source_error(
                     graph,
                     unit_id,
@@ -234,7 +432,7 @@ pub fn compile_graph_with_options(
         }
         for function in &program.functions {
             if let Some(binding) = &function.native_binding {
-                let imported = unit
+                let imported = graph.units[owner]
                     .imports
                     .iter()
                     .any(|edge| edge.uri == "dart:ffi" && edge.prefix.as_deref() == binding.prefix);
@@ -242,9 +440,9 @@ pub fn compile_graph_with_options(
                     || {
                         ["Native", "Int32", "Int64", "Void"]
                             .iter()
-                            .any(|name| visible[unit_id].contains_key(name))
+                            .any(|name| visible[owner].contains_key(name))
                     },
-                    |prefix| visible[unit_id].contains_key(prefix),
+                    |prefix| visible[owner].contains_key(prefix),
                 );
                 if !imported || shadowed {
                     return Err(source_error(
@@ -259,8 +457,17 @@ pub fn compile_graph_with_options(
             }
         }
     }
+    let macros_start = std::time::Instant::now();
+    for (unit_id, program) in programs.iter_mut().enumerate() {
+        reports.push(
+            macros
+                .expand(program, graph.units[unit_id].source.len())
+                .map_err(|error| source_error(graph, unit_id, error))?,
+        );
+    }
     let mut classes = HashMap::new();
-    for (owner, program) in programs.iter_mut().enumerate() {
+    for (unit_id, program) in programs.iter_mut().enumerate() {
+        let owner = library[unit_id];
         for class in &mut program.classes {
             class.library_id = owner;
             classes.insert(
@@ -316,10 +523,14 @@ pub fn compile_graph_with_options(
             }
         }
     }
-    let entry_function = programs[graph.entry]
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
+    let entry_unit = (0..graph.units.len())
+        .filter(|&unit_id| library[unit_id] == graph.entry)
+        .find(|&unit_id| {
+            programs[unit_id]
+                .functions
+                .iter()
+                .any(|function| function.name == "main")
+        })
         .ok_or_else(|| {
             source_error(
                 graph,
@@ -327,14 +538,21 @@ pub fn compile_graph_with_options(
                 Diagnostic::new("entrada exige void main()", Span { start: 0, end: 0 }),
             )
         })?;
-    if entry_function.return_type != Type::Void
+    let entry_function = programs[entry_unit]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("a unidade selecionada declara main");
+    let future_void = matches!(entry_function.return_type, Type::Applied(id)
+        if programs[entry_unit].types.get(id as usize) == Some(&TypeShape::Future(Type::Void)));
+    if (entry_function.return_type != Type::Void && !(entry_function.is_async && future_void))
         || !entry_function.parameters.is_empty()
         || !entry_function.type_parameters.is_empty()
         || entry_function.native_binding.is_some()
     {
         return Err(source_error(
             graph,
-            graph.entry,
+            entry_unit,
             Diagnostic::new(
                 "entrada exige void main() sem parâmetros",
                 entry_function.span,
@@ -342,17 +560,23 @@ pub fn compile_graph_with_options(
         ));
     }
     let entry_span = entry_function.span;
+    let main_is_async = entry_function.is_async;
     let mut offsets = Vec::new();
     let mut offset = 0usize;
-    for unit in &graph.units {
+    for (unit, report) in graph.units.iter().zip(&reports) {
         offsets.push(offset);
-        offset = offset.checked_add(unit.source.len() + 1).ok_or_else(|| {
-            source_error(
-                graph,
-                graph.entry,
-                Diagnostic::new("grafo excede o espaço de spans", entry_span),
-            )
-        })?;
+        offset = report
+            .extent
+            .max(unit.source.len())
+            .checked_add(1)
+            .and_then(|extent| offset.checked_add(extent))
+            .ok_or_else(|| {
+                source_error(
+                    graph,
+                    graph.entry,
+                    Diagnostic::new("grafo excede o espaço de spans", entry_span),
+                )
+            })?;
     }
     let mut linked_types = Vec::new();
     for (unit_id, program) in programs.iter_mut().enumerate() {
@@ -360,9 +584,11 @@ pub fn compile_graph_with_options(
             source_error(graph, unit_id, Diagnostic::new("tipos demais", entry_span))
         })?;
         let mut resolver = Resolver {
+            report: &reports[unit_id],
             types: &program.types,
             type_offset,
             unit: unit_id,
+            library: library[unit_id],
             graph,
             visible: &visible,
             names: &names,
@@ -370,6 +596,7 @@ pub fn compile_graph_with_options(
             class_origins: &class_origins,
             scopes: vec![],
             current_class: None,
+            factory_class: None,
             offset: offsets[unit_id],
         };
         for class in &mut program.classes {
@@ -380,7 +607,12 @@ pub fn compile_graph_with_options(
         }
         for shape in &program.types {
             linked_types.push(match shape {
+                TypeShape::Map { key, value } => TypeShape::Map {
+                    key: remap_type(*key, type_offset),
+                    value: remap_type(*value, type_offset),
+                },
                 TypeShape::List(t) => TypeShape::List(remap_type(*t, type_offset)),
+                TypeShape::Future(t) => TypeShape::Future(remap_type(*t, type_offset)),
                 TypeShape::Nullable(t) => TypeShape::Nullable(remap_type(*t, type_offset)),
                 TypeShape::Record { positional, named } => TypeShape::Record {
                     positional: positional
@@ -405,33 +637,44 @@ pub fn compile_graph_with_options(
     }
     let entry_name = names[&(graph.entry, "main")].as_str();
     let mut linked = Program {
+        main_is_arrow: false,
+        main_is_async,
         types: linked_types,
         extensions: vec![],
         classes: vec![],
         functions: vec![],
         statements: vec![Statement {
-            kind: StatementKind::Expression(Expr {
-                kind: ExprKind::Call {
-                    name: entry_name,
-                    arguments: vec![],
+            kind: entry_statement(
+                Expr {
+                    kind: ExprKind::Call {
+                        name: entry_name,
+                        arguments: vec![],
+                    },
+                    span: Span {
+                        start: entry_span.start + offsets[entry_unit],
+                        end: entry_span.end + offsets[entry_unit],
+                    },
                 },
-                span: Span {
-                    start: entry_span.start + offsets[graph.entry],
-                    end: entry_span.end + offsets[graph.entry],
-                },
-            }),
+                main_is_async,
+            ),
             span: Span {
-                start: entry_span.start + offsets[graph.entry],
-                end: entry_span.end + offsets[graph.entry],
+                start: entry_span.start + offsets[entry_unit],
+                end: entry_span.end + offsets[entry_unit],
             },
         }],
     };
+    stats.macros_ns += macros_start.elapsed().as_nanos();
+    let merge_start = std::time::Instant::now();
     for program in programs {
         linked.classes.extend(program.classes);
         linked.functions.extend(program.functions);
     }
+    stats.classes = linked.classes.len();
+    stats.functions = linked.functions.len();
+    stats.merge_ns += merge_start.elapsed().as_nanos();
+    let analyze_start = std::time::Instant::now();
     let resolution = dartforge_hir::expand_mixins(&mut linked)
-        .and_then(|()| dartforge_semantic::analyze(&linked))
+        .and_then(|()| dartforge_semantic::analyze_with_async_library(&linked, true))
         .map_err(|error| {
             let unit_id = offsets
                 .iter()
@@ -440,22 +683,29 @@ pub fn compile_graph_with_options(
             source_error(
                 graph,
                 unit_id,
-                Diagnostic::new(
+                reports[unit_id].remap(Diagnostic::new(
                     error.message,
                     Span {
                         start: error.span.start.saturating_sub(offsets[unit_id]),
                         end: error.span.end.saturating_sub(offsets[unit_id]),
                     },
-                ),
+                )),
             )
         })?;
+    stats.analyze_ns += analyze_start.elapsed().as_nanos();
+    let optimize_start = std::time::Instant::now();
     if optimize_constants {
         dartforge_optimizer::fold_constants(&mut linked);
     }
     if merge_identical {
         dartforge_optimizer::merge_identical_functions(&mut linked, &resolution);
     }
-    emit(&dartforge_hir::lower_resolved(linked, resolution)).map_err(|error| {
+    if tree_shaking {
+        dartforge_optimizer::tree_shake(&mut linked, &resolution);
+    }
+    stats.optimize_ns += optimize_start.elapsed().as_nanos();
+    let emit_start = std::time::Instant::now();
+    let emitted = emit(&dartforge_hir::lower_resolved(linked, resolution)).map_err(|error| {
         let unit_id = offsets
             .iter()
             .rposition(|&start| start <= error.span.start)
@@ -463,17 +713,76 @@ pub fn compile_graph_with_options(
         source_error(
             graph,
             unit_id,
-            Diagnostic::new(
+            reports[unit_id].remap(Diagnostic::new(
                 error.message,
                 Span {
                     start: error.span.start.saturating_sub(offsets[unit_id]),
                     end: error.span.end.saturating_sub(offsets[unit_id]),
                 },
-            ),
+            )),
         )
-    })
+    })?;
+    stats.emit_ns += emit_start.elapsed().as_nanos();
+    stats.output_bytes = emitted.len();
+    Ok(emitted)
 }
 
+/// Abaixo deste número de unidades o custo de coordenação supera o ganho.
+const PARALLEL_UNIT_THRESHOLD: usize = 4;
+
+/// Aplica `work` a cada unidade, em paralelo quando há unidades suficientes.
+///
+/// A ordem dos resultados é sempre a ordem das unidades: o paralelismo não pode
+/// mudar identidades, IDs de classe nem qual diagnóstico é relatado primeiro.
+fn map_units<'a, T: Send + 'a>(
+    graph: &'a SourceGraph,
+    work: impl Fn(&'a dartforge_packages::SourceUnit) -> Result<T, Diagnostic> + Send + Sync,
+) -> Vec<Result<T, Diagnostic>> {
+    if graph.units.len() < PARALLEL_UNIT_THRESHOLD {
+        return graph.units.iter().map(work).collect();
+    }
+    use rayon::prelude::*;
+    graph.units.par_iter().map(work).collect()
+}
+
+/// Igual a [`map_units`], mas indexado, para trabalho que consulta vetores já prontos.
+fn map_indexed<T: Send>(
+    count: usize,
+    work: impl Fn(usize) -> Result<T, Diagnostic> + Send + Sync,
+) -> Vec<Result<T, Diagnostic>> {
+    if count < PARALLEL_UNIT_THRESHOLD {
+        return (0..count).map(work).collect();
+    }
+    use rayon::prelude::*;
+    (0..count).into_par_iter().map(work).collect()
+}
+
+/// Converte resultados por unidade no primeiro erro **em ordem de unidade**.
+///
+/// Coletar diretamente em `Result` devolveria um erro qualquer entre os que
+/// falharam, tornando o diagnóstico dependente do escalonamento das threads.
+fn first_error<T>(
+    graph: &SourceGraph,
+    results: Vec<Result<T, Diagnostic>>,
+) -> Result<Vec<T>, GraphError> {
+    let mut values = Vec::with_capacity(results.len());
+    for (unit_id, result) in results.into_iter().enumerate() {
+        match result {
+            Ok(value) => values.push(value),
+            Err(error) => return Err(source_error(graph, unit_id, error)),
+        }
+    }
+    Ok(values)
+}
+
+/// Devolve o Future da entrada assíncrona sem inserir um segundo nó com o mesmo span.
+fn entry_statement(expression: Expr<'_>, is_async: bool) -> StatementKind<'_> {
+    if is_async {
+        StatementKind::Return(Some(expression))
+    } else {
+        StatementKind::Expression(expression)
+    }
+}
 /// Aplica combinadores na ordem declarada sem tornar nomes privados públicos.
 fn allows_name(name: &str, combinators: &[Combinator]) -> bool {
     !name.starts_with('_')
@@ -583,6 +892,8 @@ fn source_error(graph: &SourceGraph, unit: usize, error: Diagnostic) -> GraphErr
 /// Recupera o nome core reconhecido antes de qualquer renomeação de símbolos.
 fn metadata_name(annotation: &dartforge_syntax::Annotation) -> &'static str {
     match &annotation.kind {
+        dartforge_syntax::AnnotationKind::JsonCodable => "JsonCodable",
+        dartforge_syntax::AnnotationKind::DataClass => "DataClass",
         dartforge_syntax::AnnotationKind::Override => "override",
         dartforge_syntax::AnnotationKind::Deprecated { message: None } => "deprecated",
         dartforge_syntax::AnnotationKind::Deprecated { message: Some(_) } => "Deprecated",
@@ -599,9 +910,13 @@ fn remap_type(ty: Type, offset: u32) -> Type {
 
 /// Resolve símbolos preservando o ambiente local de formas estruturais.
 struct Resolver<'a, 'g> {
+    report: &'g dartforge_macros::ExpansionReport,
     types: &'g [TypeShape],
     type_offset: u32,
+    /// Arquivo analisado, usado em diagnósticos e no deslocamento de spans.
     unit: usize,
+    /// Biblioteca dona dos símbolos, igual à unidade fora de uma parte.
+    library: usize,
     graph: &'g SourceGraph,
     visible: &'g [HashMap<&'a str, Symbol>],
     names: &'a HashMap<(usize, &'a str), String>,
@@ -609,12 +924,17 @@ struct Resolver<'a, 'g> {
     class_origins: &'g HashMap<u32, (usize, &'a str)>,
     scopes: Vec<HashSet<&'a str>>,
     current_class: Option<u32>,
+    factory_class: Option<u32>,
     offset: usize,
 }
 impl<'a> Resolver<'a, '_> {
     /// Cria diagnóstico no arquivo corrente antes da mudança dos spans.
     fn error(&self, span: Span, message: impl Into<String>) -> GraphError {
-        source_error(self.graph, self.unit, Diagnostic::new(message, span))
+        source_error(
+            self.graph,
+            self.unit,
+            self.report.remap(Diagnostic::new(message, span)),
+        )
     }
     /// Converte um intervalo local para o domínio temporário usado na análise conjunta.
     fn span(&self, span: &mut Span) {
@@ -627,7 +947,11 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Consulta membros visíveis sem confundir privados de bibliotecas distintas.
     fn implicit_member(&self, name: &str) -> bool {
-        let mut pending: Vec<u32> = self.current_class.into_iter().collect();
+        let mut pending: Vec<u32> = self
+            .current_class
+            .or(self.factory_class)
+            .into_iter()
+            .collect();
         let mut visited = HashSet::new();
         while let Some(id) = pending.pop() {
             if !visited.insert(id) {
@@ -636,7 +960,8 @@ impl<'a> Resolver<'a, '_> {
             let Some(class) = self.classes.get(&id) else {
                 continue;
             };
-            if class.members.contains(name) && (!name.starts_with('_') || class.owner == self.unit)
+            if class.members.contains(name)
+                && (!name.starts_with('_') || class.owner == self.library)
             {
                 return true;
             }
@@ -649,7 +974,7 @@ impl<'a> Resolver<'a, '_> {
     /// Retorna um nome privado pertencente à biblioteca corrente.
     fn member_name(&self, name: &'a str) -> &'a str {
         if name.starts_with('_') {
-            self.names[&(self.unit, name)].as_str()
+            self.names[&(self.library, name)].as_str()
         } else {
             name
         }
@@ -662,14 +987,19 @@ impl<'a> Resolver<'a, '_> {
                 .get(id as usize)
                 .ok_or_else(|| self.error(span, "ID de tipo inválido"))?
             {
+                TypeShape::Map { key, value } => {
+                    self.ty(*key, span)?;
+                    self.ty(*value, span)?;
+                }
                 TypeShape::Record { positional, named } => {
                     for t in positional.iter().chain(named.iter().map(|(_, t)| t)) {
                         self.ty(*t, span)?;
                     }
                 }
-                TypeShape::List(t) | TypeShape::Iterable(t) | TypeShape::Nullable(t) => {
-                    self.ty(*t, span)?
-                }
+                TypeShape::List(t)
+                | TypeShape::Iterable(t)
+                | TypeShape::Nullable(t)
+                | TypeShape::Future(t) => self.ty(*t, span)?,
                 TypeShape::Function { result, parameters } => {
                     self.ty(*result, span)?;
                     for t in parameters {
@@ -678,7 +1008,16 @@ impl<'a> Resolver<'a, '_> {
                 }
             }
         }
+        if ty == Type::Timer
+            && !self.visible[self.library]
+                .get("Timer")
+                .is_some_and(|symbol| symbol.intrinsic)
+        {
+            return Err(self.error(span, "Timer requires a visible dart:async import"));
+        }
         let name = match ty {
+            Type::Timer => Some("Timer"),
+            Type::Duration => Some("Duration"),
             Type::Class(id) | Type::NullableClass(id) => {
                 self.class_origins.get(&id).map(|(_, name)| *name)
             }
@@ -731,6 +1070,12 @@ impl<'a> Resolver<'a, '_> {
                 if let Some(field) = &mut parameter.field {
                     *field = self.member_name(field);
                 }
+                // O valor padrão é código da biblioteca de origem: sem percorrê-lo
+                // os spans ficariam no espaço da unidade e poderiam colidir com o
+                // span já remapeado de outra unidade na tabela de constantes.
+                if let Some(default) = &mut parameter.default {
+                    self.expression(default)?;
+                }
                 self.span(&mut parameter.span);
             }
             self.scopes.push(
@@ -751,7 +1096,13 @@ impl<'a> Resolver<'a, '_> {
             }
             self.function(method, false)?;
         }
-        class.name = self.names[&(self.unit, class.name)].as_str();
+        self.current_class = None;
+        self.factory_class = Some(class.id);
+        for factory in &mut class.factories {
+            self.function(factory, false)?;
+        }
+        self.factory_class = None;
+        class.name = self.names[&(self.library, class.name)].as_str();
         self.span(&mut class.span);
         self.current_class = None;
         Ok(())
@@ -774,6 +1125,10 @@ impl<'a> Resolver<'a, '_> {
         for parameter in &mut function.parameters {
             self.ty(parameter.ty, parameter.span)?;
             parameter.ty = remap_type(parameter.ty, self.type_offset);
+            // Ver a nota em `class`: o padrão também precisa de spans remapeados.
+            if let Some(default) = &mut parameter.default {
+                self.expression(default)?;
+            }
             self.span(&mut parameter.span);
         }
         self.scopes.push(
@@ -786,7 +1141,7 @@ impl<'a> Resolver<'a, '_> {
         self.block(&mut function.body)?;
         self.scopes.pop();
         function.name = if top_level {
-            self.names[&(self.unit, function.name)].as_str()
+            self.names[&(self.library, function.name)].as_str()
         } else {
             self.member_name(function.name)
         };
@@ -979,6 +1334,30 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Resolve chamadas e construtores sem reescrever texto nem capturar globais indevidos.
     fn expression(&mut self, expression: &mut Expr<'a>) -> Result<(), GraphError> {
+        if let ExprKind::Identifier(name @ ("Timer" | "scheduleMicrotask")) = &expression.kind
+            && !self.local(name)
+            && !self.implicit_member(name)
+            && !self.visible[self.library].contains_key(name)
+        {
+            return Err(self.error(
+                expression.span,
+                "async intrinsic requires a visible dart:async import",
+            ));
+        }
+        if self.factory_class.is_some() {
+            let name = match &expression.kind {
+                ExprKind::Identifier(name)
+                | ExprKind::Call { name, .. }
+                | ExprKind::GenericCall { name, .. } => Some(*name),
+                _ => None,
+            };
+            if name.is_some_and(|name| !self.local(name) && self.implicit_member(name)) {
+                return Err(self.error(
+                    expression.span,
+                    "instance members cannot be accessed from a factory",
+                ));
+            }
+        }
         if let ExprKind::GenericCall { type_arguments, .. } = &mut expression.kind {
             for t in type_arguments {
                 self.ty(*t, expression.span)?;
@@ -986,6 +1365,44 @@ impl<'a> Resolver<'a, '_> {
             }
         }
         match &mut expression.kind {
+            ExprKind::Await(value) => self.expression(value)?,
+            ExprKind::FutureValue { value, value_type } => {
+                if let Some(ty) = value_type {
+                    self.ty(*ty, expression.span)?;
+                    *ty = remap_type(*ty, self.type_offset);
+                }
+                if let Some(value) = value {
+                    self.expression(value)?;
+                }
+            }
+            ExprKind::FutureDelayed {
+                duration,
+                computation,
+                value_type,
+            } => {
+                if let Some(ty) = value_type {
+                    self.ty(*ty, expression.span)?;
+                    *ty = remap_type(*ty, self.type_offset);
+                }
+                self.expression(duration)?;
+                if let Some(value) = computation {
+                    self.expression(value)?;
+                }
+            }
+            ExprKind::Duration { parts } => {
+                for (_, value) in parts {
+                    self.expression(value)?;
+                }
+            }
+            ExprKind::Cascade {
+                receiver, sections, ..
+            } => {
+                self.expression(receiver)?;
+                for section in sections {
+                    self.statement(section)?;
+                }
+            }
+            ExprKind::CascadeReceiver => {}
             ExprKind::Record { fields } => {
                 for (_, field) in fields {
                     self.expression(field)?;
@@ -1037,7 +1454,7 @@ impl<'a> Resolver<'a, '_> {
                 if implicit {
                     *name = self.member_name(name);
                 } else if *name != "print" && !self.local(name) {
-                    let symbol = self.visible[self.unit].get(name).ok_or_else(|| {
+                    let symbol = self.visible[self.library].get(name).ok_or_else(|| {
                         self.error(
                             expression.span,
                             format!("função não visível nesta biblioteca: {name}"),
@@ -1046,7 +1463,9 @@ impl<'a> Resolver<'a, '_> {
                     if symbol.class_id.is_some() {
                         return Err(self.error(expression.span, "classe usada como função"));
                     }
-                    *name = self.names[&(symbol.owner, *name)].as_str();
+                    if !symbol.intrinsic {
+                        *name = self.names[&(symbol.owner, *name)].as_str();
+                    }
                 }
                 for argument in arguments {
                     self.expression(argument)?;
@@ -1069,6 +1488,41 @@ impl<'a> Resolver<'a, '_> {
                     .push(parameters.iter().map(|p| p.name).collect());
                 self.block(body)?;
                 self.scopes.pop();
+            }
+            ExprKind::Map {
+                key_type,
+                value_type,
+                entries,
+            } => {
+                for ty in [key_type, value_type].into_iter().flatten() {
+                    self.ty(*ty, expression.span)?;
+                    *ty = remap_type(*ty, self.type_offset);
+                }
+                for (key, value) in entries {
+                    self.expression(key)?;
+                    self.expression(value)?;
+                }
+            }
+            ExprKind::NamedConstruct {
+                class_id,
+                name,
+                arguments,
+            } => {
+                self.ty(Type::Class(*class_id), expression.span)?;
+                let (owner, _) = self
+                    .class_origins
+                    .get(class_id)
+                    .ok_or_else(|| self.error(expression.span, "unknown factory class"))?;
+                if name.starts_with('_') && *owner != self.library {
+                    return Err(self.error(
+                        expression.span,
+                        "private factory belongs to another library",
+                    ));
+                }
+                *name = self.member_name(name);
+                for argument in arguments {
+                    self.expression(argument)?;
+                }
             }
             ExprKind::List {
                 element_type,
@@ -1093,8 +1547,9 @@ impl<'a> Resolver<'a, '_> {
                 }
             }
             ExprKind::Identifier(name) if !self.local(name) && !self.implicit_member(name) => {
-                if let Some(symbol) = self.visible[self.unit].get(name)
+                if let Some(symbol) = self.visible[self.library].get(name)
                     && symbol.class_id.is_none()
+                    && !symbol.intrinsic
                 {
                     *name = self.names[&(symbol.owner, *name)].as_str();
                 }
@@ -1123,7 +1578,7 @@ impl<'a> Resolver<'a, '_> {
                     .class_origins
                     .get(class_id)
                     .ok_or_else(|| self.error(expression.span, "enum desconhecido"))?;
-                if name.starts_with('_') && *owner != self.unit {
+                if name.starts_with('_') && *owner != self.library {
                     return Err(
                         self.error(expression.span, "valor de enum privado em outra biblioteca")
                     );
@@ -1149,6 +1604,16 @@ impl<'a> Resolver<'a, '_> {
                 self.expression(left)?;
                 self.expression(right)?;
             }
+            // Os trechos literais não referenciam nada; as expressões, sim, e
+            // sem esta recursão um nome importado dentro de '${...}' ficaria
+            // sem qualificação de biblioteca e sem span remapeado.
+            ExprKind::Interpolation(parts) => {
+                for part in parts {
+                    if let dartforge_syntax::StringPart::Expression(value) = part {
+                        self.expression(value)?;
+                    }
+                }
+            }
             _ => {}
         }
         self.span(&mut expression.span);
@@ -1160,6 +1625,176 @@ impl<'a> Resolver<'a, '_> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    /// Futuras, callbacks e entrada async atravessam unidades com spans e tipos próprios.
+    #[test]
+    fn async_graph_traverses_futures_and_propagates_entry() {
+        let mut graph = graph(&[
+            (
+                "Future<void> main() async{await value();Timer(Duration.zero,()=>print(2));scheduleMicrotask(()=>print(3));}",
+                &[1, 2],
+            ),
+            (
+                "Future<int> value() async=>await Future<int>.delayed(Duration(milliseconds:1),() async=>4);",
+                &[],
+            ),
+            ("", &[]),
+        ]);
+        graph.units[0].imports[1].uri = "dart:async".into();
+        compile_graph_with(&graph, false, |module| {
+            assert!(module.main_is_async);
+            assert!(matches!(
+                module.statements[0].kind,
+                StatementKind::Return(Some(_))
+            ));
+            assert!(
+                module
+                    .functions
+                    .iter()
+                    .filter(|function| function.is_async)
+                    .count()
+                    >= 2
+            );
+            Ok(String::new())
+        })
+        .unwrap();
+    }
+    /// O namespace async respeita combinadores, reexports, sombras locais e ambiguidades.
+    #[test]
+    fn async_intrinsics_require_visible_library_symbols() {
+        for source in [
+            "void main(){Timer(Duration.zero,()=>print(1));}",
+            "void main(){var f=scheduleMicrotask;}",
+            "void main(){Timer? timer=null;}",
+        ] {
+            assert!(compile_graph(&graph(&[(source, &[])]), false).is_err());
+        }
+        let mut reexport = graph(&[
+            ("void main(){scheduleMicrotask(()=>print(1));}", &[1]),
+            ("", &[]),
+            ("", &[]),
+        ]);
+        let mut exported = edge(2, vec![Combinator::Show(vec!["scheduleMicrotask".into()])]);
+        exported.uri = "dart:async".into();
+        reexport.units[1].exports.push(exported);
+        assert!(compile_graph(&reexport, false).is_ok());
+        reexport.units[0].source = "void main(){Timer(Duration.zero,()=>print(1));}".into();
+        assert!(compile_graph(&reexport, false).is_err());
+        let mut ambiguity = graph(&[
+            ("void main(){}", &[1, 2]),
+            ("", &[]),
+            ("void scheduleMicrotask(){}", &[]),
+        ]);
+        ambiguity.units[0].imports[0].uri = "dart:async".into();
+        assert!(
+            compile_graph(&ambiguity, false)
+                .unwrap_err()
+                .message
+                .contains("ambíguo")
+        );
+        let own = graph(&[(
+            "void scheduleMicrotask(){}void main(){scheduleMicrotask();}",
+            &[],
+        )]);
+        assert!(compile_graph(&own, false).is_ok());
+    }
+    /// Expansão por biblioteca preserva chaves JSON privadas e remapeia os tipos Map.
+    #[test]
+    fn imported_json_macro_and_factory_types_are_linked() {
+        let graph = graph(&[
+            (
+                "void main(){var user=User.fromJson({'_name':'Ana'});print(user.toJson()['_name'] as String);}",
+                &[1],
+            ),
+            ("@JsonCodable() class User{final String _name;}", &[]),
+        ]);
+        for optimize in [false, true] {
+            let js = compile_graph(&graph, optimize).unwrap();
+            assert!(js.contains("_name"));
+        }
+        let error = compile_graph_with(&graph, false, |module| {
+            Err(Diagnostic::new(
+                "generated backend failure",
+                module.classes[0].factories[0].span,
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(error.path, graph.units[1].path);
+        assert_eq!(
+            error.span,
+            Some(Span {
+                start: 0,
+                end: "@JsonCodable()".len()
+            })
+        );
+        assert!(error.message.contains("JsonCodable"));
+    }
+    /// Fábricas privadas não atravessam bibliotecas e seus corpos não recebem this implícito.
+    #[test]
+    fn named_factory_privacy_and_static_scope() {
+        let graph = graph(&[
+            ("void main(){C._make();}", &[1]),
+            ("class C{factory C._make()=>C();}", &[]),
+        ]);
+        assert!(
+            compile_graph(&graph, false)
+                .unwrap_err()
+                .message
+                .contains("private factory")
+        );
+        let graph = self::graph(&[
+            ("void main(){print(C.make().value);}", &[1]),
+            (
+                "int value()=>3;class C{int value=1;C(int v){value=v;}factory C.make()=>C(value());}",
+                &[],
+            ),
+        ]);
+        assert!(
+            compile_graph(&graph, false)
+                .unwrap_err()
+                .message
+                .contains("instance members")
+        );
+    }
+    /// O mapa produzido mantém a chave original mesmo com renomeação do campo privado.
+    #[test]
+    #[ignore = "requer Node.js no PATH"]
+    fn imported_json_private_key_roundtrip_executes() {
+        let graph = graph(&[
+            (
+                "void main(){var user=User.fromJson({'_name':'Ana'});print(user.toJson()['_name'] as String);}",
+                &[1],
+            ),
+            ("@JsonCodable() class User{final String _name;}", &[]),
+        ]);
+        for optimize in [false, true] {
+            let js = compile_graph(&graph, optimize).unwrap();
+            let run = std::process::Command::new("node")
+                .args(["--eval", &js])
+                .output()
+                .unwrap();
+            assert!(
+                run.status.success(),
+                "{}",
+                String::from_utf8_lossy(&run.stderr)
+            );
+            assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "Ana");
+        }
+    }
+    /// Cascades importados remapeiam chamadas e campos privados sem tocar no receptor sintético.
+    #[test]
+    fn linked_cascade_sections_resolve_private_members_and_global_calls() {
+        let graph = graph(&[
+            ("void main(){print(make().read());}", &[1]),
+            (
+                "class Box{int _value=0;int read()=>_value;} int _effect()=>2; Box make()=>Box().._value=_effect()+3;",
+                &[],
+            ),
+        ]);
+        for optimize in [false, true] {
+            let output = compile_graph(&graph, optimize).unwrap();
+            assert!(output.contains("$dartforgeCascade"));
+        }
+    }
     /// Arenas de tipos de bibliotecas distintas não confundem List<String> e List<int>.
     #[test]
     fn structural_types_and_closure_scopes_across_libraries() {
@@ -1265,11 +1900,53 @@ mod tests {
         ]);
         assert!(compile_graph(&implemented, false).is_ok());
     }
+    /// Partes compartilham o namespace da biblioteca e exigem um grafo coerente.
+    #[test]
+    fn graph_parts_share_the_library_namespace() {
+        let mut sources = graph(&[
+            ("void main(){print(ajuda()+_segredo());}", &[]),
+            ("int ajuda()=>1; int _segredo()=>2;", &[]),
+        ]);
+        // Sem part a segunda unidade é outra biblioteca e nada dela fica visível.
+        assert!(
+            compile_graph(&sources, false)
+                .unwrap_err()
+                .message
+                .contains("não visível")
+        );
+        sources.units[0].parts.push(dartforge_packages::Part {
+            uri: "library_1.dart".into(),
+            target: 1,
+            span: Span { start: 0, end: 0 },
+        });
+        sources.units[1].part_of = Some(0);
+        for optimize in [false, true] {
+            let js = compile_graph(&sources, optimize).unwrap();
+            assert!(js.contains("$lib0$ajuda"));
+            assert!(js.contains("$lib0$_segredo"));
+            assert!(!js.contains("$lib1$"));
+        }
+        // Reivindicação divergente, import na parte e entrada como parte são erros.
+        sources.units[1].part_of = Some(1);
+        assert!(compile_graph(&sources, false).is_err());
+        sources.units[1].part_of = Some(0);
+        sources.units[1].imports.push(edge(0, vec![]));
+        assert!(compile_graph(&sources, false).is_err());
+        sources.units[1].imports.clear();
+        sources.entry = 1;
+        assert!(
+            compile_graph(&sources, false)
+                .unwrap_err()
+                .message
+                .contains("entrada não pode ser parte")
+        );
+    }
     /// Monta um grafo em memória com imports representados pelas arestas declaradas.
     fn graph(sources: &[(&str, &[usize])]) -> SourceGraph {
         SourceGraph {
             environment: dartforge_packages::CompilationEnvironment::javascript(),
             entry: 0,
+            config_origin: None,
             units: sources
                 .iter()
                 .enumerate()
@@ -1277,6 +1954,9 @@ mod tests {
                     path: PathBuf::from(format!("library_{id}.dart")),
                     source: (*source).into(),
                     exports: vec![],
+                    parts: vec![],
+                    part_of: None,
+                    directives_end: 0,
                     imports: targets
                         .iter()
                         .map(|&target| dartforge_packages::Import {

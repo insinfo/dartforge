@@ -5,6 +5,7 @@ param(
     [string[]]$OptimizationLevels = @('O2'),
     [switch]$DartForgeOptimize,
     [switch]$MergeIdenticalFunctions,
+    [switch]$TreeShake,
     [switch]$AllowVersionMismatch
 )
 $ErrorActionPreference = 'Stop'
@@ -47,6 +48,7 @@ try {
             $compilerArguments = @('compile', $case.FullName, $actualJs)
             if ($DartForgeOptimize) { $compilerArguments += '--optimize' }
             if ($MergeIdenticalFunctions) { $compilerArguments += '--merge-identical-functions' }
+            if ($TreeShake) { $compilerArguments += '--tree-shake' }
             & $exe @compilerArguments
             if ($LASTEXITCODE) { throw 'DartForge compilation failed' }
             $actual = @(& $nodeCommand $actualJs)
@@ -76,6 +78,7 @@ try {
         targetVersionMatched=$matchesTarget; nodeVersion=$nodeVersion
         dartforgeOptimization=if ($DartForgeOptimize) {'constants'} else {'none'}
         mergeIdenticalFunctions=[bool]$MergeIdenticalFunctions
+        treeShaking=[bool]$TreeShake
         backend='dart2js vs DartForge release'; optimizationLevels=$levels
         generatedAt=(Get-Date -Format o); results=$results
     }

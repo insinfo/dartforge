@@ -31,11 +31,43 @@ pub(super) fn emit(classes: &[Class<'_>], output: &mut Output<'_>) {
             .constructor
             .as_ref()
             .map_or(&[][..], |ctor| ctor.parameters.as_slice());
-        for index in 0..parameters.len() {
-            if index != 0 {
+        // Posicionais mantêm a posição declarada; nomeados chegam pelo objeto
+        // desestruturado, sempre ligados ao mesmo `$dartforgeArgument{índice}`.
+        let mut wrote = false;
+        for (index, parameter) in parameters.iter().enumerate() {
+            if parameter.kind.is_named() {
+                continue;
+            }
+            if wrote {
                 output.push(',');
             }
+            wrote = true;
             write!(output, "$dartforgeArgument{index}").unwrap();
+            default_value(parameter.kind, parameter.default.as_deref(), output);
+        }
+        if parameters.iter().any(|parameter| parameter.kind.is_named()) {
+            if wrote {
+                output.push(',');
+            }
+            output.push('{');
+            let mut first = true;
+            for (index, parameter) in parameters.iter().enumerate() {
+                if !parameter.kind.is_named() {
+                    continue;
+                }
+                if !first {
+                    output.push(',');
+                }
+                first = false;
+                write!(
+                    output,
+                    "{NAMED_KEY}{}: $dartforgeArgument{index}",
+                    parameter.label()
+                )
+                .unwrap();
+                default_value(parameter.kind, parameter.default.as_deref(), output);
+            }
+            output.push_str("} = {}");
         }
         writeln!(
             output,

@@ -19,10 +19,18 @@
 //! oferecem identidade, index, name e nullabilidade por singletons gerenciados.
 //! @Native aceita somente Int32/Int64/Void por ligação estática de símbolos C.
 //! Adaptadores truncam Int32 e estendem seu sinal; isLeaf não altera a ABI nem habilita callbacks.
+//! Switch avalia o discriminante uma vez e testa os braços na ordem declarada, sem
+//! fallthrough implícito: cada caso encerra e a expressão une os braços em um phi.
+//! Padrões constantes reutilizam a semântica de ==; padrões de tipo e bindings usam
+//! dartforge_object_class contra as classes concretas do cone, sempre com handle não nulo.
+//! break sai do switch mais próximo e continue segue pertencendo ao laço que o envolve.
 //! Consulte LLVM 17 LangRef (alloca, phi, br, add) e SDK Dart 3.6.2 sdk/lib/core/int.dart.
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_hir::Module;
-use dartforge_syntax::{BinaryOp, Expr, ExprKind, Statement, StatementKind, Type, UnaryOp};
+use dartforge_syntax::{
+    BinaryOp, Expr, ExprKind, ParameterKind, Pattern, Statement, StatementKind, SwitchArm,
+    SwitchCase, Type, UnaryOp,
+};
 use std::collections::HashMap;
 use std::fmt::Write;
 mod native;
@@ -101,12 +109,32 @@ impl Ty {
 ///
 /// ```
 /// use dartforge_syntax::Program;
-/// let module = dartforge_hir::lower(Program { types: vec![], classes: vec![], extensions: vec![], functions: vec![], statements: vec![] });
+/// let module = dartforge_hir::lower(Program { main_is_arrow: false, main_is_async: false, types: vec![], classes: vec![], extensions: vec![], functions: vec![], statements: vec![] });
 /// let ir = dartforge_llvm::emit(&module)?;
 /// assert!(ir.contains("define void @dartforge_entry()"));
 /// # Ok::<(), dartforge_diagnostics::Diagnostic>(())
 /// ```
 pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
+    if module.main_is_async
+        || module
+            .functions
+            .iter()
+            .chain(module.classes.iter().flat_map(|c| &c.methods))
+            .chain(module.extensions.iter().flat_map(|e| &e.methods))
+            .any(|f| f.is_async)
+    {
+        return Err(error(
+            Span { start: 0, end: 0 },
+            "async/await (máquina de estados nativa pendente)",
+        ));
+    }
+
+    if let Some(factory) = module.classes.iter().flat_map(|c| &c.factories).next() {
+        return Err(error(
+            factory.span,
+            "fábricas nomeadas (lowering nativo pendente)",
+        ));
+    }
     if module
         .resolution
         .expr_types
@@ -157,6 +185,17 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
         },
     );
     for (index, function) in module.functions.iter().enumerate() {
+        // Parâmetros opcionais e nomeados exigem um prólogo que o AOT não emite.
+        if let Some(parameter) = function
+            .parameters
+            .iter()
+            .find(|parameter| parameter.kind != ParameterKind::RequiredPositional)
+        {
+            return Err(error(
+                parameter.span,
+                "parâmetros opcionais ou nomeados no backend nativo",
+            ));
+        }
         let result = ty(function.return_type, function.span)?;
         let parameters = function
             .parameters
@@ -233,6 +272,7 @@ fn error(span: Span, feature: &str) -> Diagnostic {
 /// Converte somente os tipos públicos do subconjunto nativo.
 fn ty(value: Type, _span: Span) -> Result<Ty, Diagnostic> {
     match value {
+        Type::Duration | Type::Timer => Err(error(_span, "Duration e Timer")),
         Type::Object | Type::NullableObject | Type::NullableParameter(_) => {
             Err(error(_span, "Object e parâmetros de tipo reificados"))
         }
@@ -274,7 +314,16 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
         StatementKind::RecordDestructure { .. } => {
             return Err(error(statement.span, "desestruturação de records"));
         }
-        StatementKind::Switch { .. } => return Err(error(statement.span, "switch/patterns")),
+        StatementKind::Switch { scrutinee, cases } => {
+            validate_expression(scrutinee)?;
+            for case in cases {
+                validate_pattern(&case.pattern, case.span)?;
+                if let Some(guard) = &case.guard {
+                    validate_expression(guard)?;
+                }
+                validate_statements(&case.body)?;
+            }
+        }
         StatementKind::IndexAssign { .. } => {
             return Err(error(statement.span, "atribuição por índice"));
         }
@@ -339,16 +388,70 @@ fn validate_statement(statement: &Statement<'_>) -> Result<(), Diagnostic> {
     }
     Ok(())
 }
+/// Confere o padrão antes da emissão, inclusive em braços nunca selecionados.
+///
+/// `Pattern::Binding` sem anotação herda o tipo do discriminante e por isso não é
+/// convertido aqui; a escolha depende do valor emitido e acontece em `bind_pattern`.
+fn validate_pattern(pattern: &Pattern<'_>, span: Span) -> Result<(), Diagnostic> {
+    match pattern {
+        Pattern::Wildcard => Ok(()),
+        Pattern::Constant(value) => validate_expression(value),
+        Pattern::Type(annotation) => {
+            value_ty(*annotation, span)?;
+            Ok(())
+        }
+        Pattern::Binding { ty: annotation, .. } => {
+            if *annotation != Type::Inferred {
+                value_ty(*annotation, span)?;
+            }
+            Ok(())
+        }
+    }
+}
 /// Rejeita expressões incompatíveis antes de qualquer simplificação ou emissão.
 fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
     match &value.kind {
+        // O backend AOT ainda não modela passagem por rótulo.
+        ExprKind::NamedArgument { .. } => {
+            return Err(error(value.span, "argumentos nomeados"));
+        }
+        ExprKind::Await(_)
+        | ExprKind::FutureValue { .. }
+        | ExprKind::FutureDelayed { .. }
+        | ExprKind::Duration { .. } => return Err(error(value.span, "operações assíncronas")),
+        ExprKind::Cascade { .. } | ExprKind::CascadeReceiver => {
+            return Err(error(value.span, "cascatas (lowering nativo pendente)"));
+        }
+        ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
+            return Err(error(value.span, "mapas e fábricas nomeadas"));
+        }
         ExprKind::Record { .. } => return Err(error(value.span, "records")),
         ExprKind::Const(e) => validate_expression(e)?,
         ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
             return Err(error(value.span, "testes e casts de tipos reificados"));
         }
-        ExprKind::Switch { .. } | ExprKind::GenericCall { .. } => {
-            return Err(error(value.span, "switch/genéricos"));
+        ExprKind::GenericCall { .. } => {
+            return Err(error(value.span, "chamadas genéricas"));
+        }
+        ExprKind::Switch { scrutinee, arms } => {
+            validate_expression(scrutinee)?;
+            for arm in arms {
+                validate_pattern(&arm.pattern, arm.span)?;
+                if let Some(guard) = &arm.guard {
+                    validate_expression(guard)?;
+                }
+                validate_expression(&arm.value)?;
+            }
+        }
+        ExprKind::NullAwareElement(_) => {
+            return Err(error(value.span, "elementos null-aware de coleções"));
+        }
+        // A conversão toString ainda é função do runtime JavaScript.
+        ExprKind::Interpolation(_) => {
+            return Err(error(value.span, "interpolação de strings"));
+        }
+        ExprKind::DotShorthand { .. } => {
+            return Err(error(value.span, "atalhos de ponto"));
         }
         ExprKind::Closure { .. }
         | ExprKind::List { .. }
@@ -414,7 +517,8 @@ struct FunctionEmitter<'a> {
     this_class: Option<u32>,
     result: Ty,
     scopes: Vec<HashMap<String, (Ty, String)>>,
-    loops: Vec<(String, String)>,
+    /// Destino de break e, somente para laços, destino de continue.
+    loops: Vec<(String, Option<String>)>,
     allocas: String,
     code: String,
     next_value: usize,
@@ -569,7 +673,9 @@ impl<'a> FunctionEmitter<'a> {
             StatementKind::RecordDestructure { .. } => {
                 return Err(error(statement.span, "desestruturação de records"));
             }
-            StatementKind::Switch { .. } => return Err(error(statement.span, "switch/patterns")),
+            StatementKind::Switch { scrutinee, cases } => {
+                self.switch_statement(scrutinee, cases)?;
+            }
             StatementKind::IndexAssign { .. } => {
                 return Err(error(statement.span, "atribuição por índice"));
             }
@@ -690,14 +796,16 @@ impl<'a> FunctionEmitter<'a> {
                 )?;
             }
             StatementKind::Break | StatementKind::Continue => {
-                let (end, next) = self.loops.last().ok_or_else(|| {
+                // break encerra o switch ou o laço mais próximo; continue ignora
+                // switches e sempre retoma o laço textualmente mais interno.
+                let target = if matches!(statement.kind, StatementKind::Break) {
+                    self.loops.last().map(|(end, _)| end.clone())
+                } else {
+                    self.loops.iter().rev().find_map(|(_, next)| next.clone())
+                };
+                let target = target.ok_or_else(|| {
                     Diagnostic::new("controle de laço fora do laço", statement.span)
                 })?;
-                let target = if matches!(statement.kind, StatementKind::Break) {
-                    end.clone()
-                } else {
-                    next.clone()
-                };
                 self.jump(&target);
             }
             StatementKind::FieldAssign {
@@ -747,7 +855,7 @@ impl<'a> FunctionEmitter<'a> {
         )?;
         self.branch(&value.text, &work, &end);
         self.start(&work);
-        self.loops.push((end.clone(), step.clone()));
+        self.loops.push((end.clone(), Some(step.clone())));
         self.block(body)?;
         self.loops.pop();
         if !self.terminated {
@@ -1059,18 +1167,48 @@ impl<'a> FunctionEmitter<'a> {
     /// Emite expressão em ordem; && e || produzem CFG e phi, nunca avaliação ávida.
     fn expression(&mut self, expression: &Expr<'_>) -> Result<Value, Diagnostic> {
         let value = match &expression.kind {
+            ExprKind::NamedArgument { .. } => {
+                return Err(error(expression.span, "argumentos nomeados"));
+            }
+            ExprKind::Cascade { .. } | ExprKind::CascadeReceiver => {
+                return Err(error(
+                    expression.span,
+                    "cascatas (lowering nativo pendente)",
+                ));
+            }
+            ExprKind::Map { .. } | ExprKind::NamedConstruct { .. } => {
+                return Err(error(expression.span, "mapas e fábricas nomeadas"));
+            }
             ExprKind::Record { .. } => return Err(error(expression.span, "records")),
             ExprKind::Const(e) => self.expression(e)?,
             ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
                 return Err(error(expression.span, "testes e casts de tipos reificados"));
             }
-            ExprKind::Switch { .. } | ExprKind::GenericCall { .. } => {
-                return Err(error(expression.span, "switch/genéricos"));
+            ExprKind::GenericCall { .. } => {
+                return Err(error(expression.span, "chamadas genéricas"));
+            }
+            ExprKind::Switch { scrutinee, arms } => {
+                self.switch_expression(scrutinee, arms, expression.span)?
+            }
+            ExprKind::Await(_)
+            | ExprKind::FutureValue { .. }
+            | ExprKind::FutureDelayed { .. }
+            | ExprKind::Duration { .. } => {
+                return Err(error(expression.span, "operações assíncronas"));
             }
             ExprKind::Closure { .. }
             | ExprKind::List { .. }
             | ExprKind::Index { .. }
             | ExprKind::Invoke { .. } => return Err(error(expression.span, "coleções e closures")),
+            ExprKind::Interpolation(_) => {
+                return Err(error(expression.span, "interpolação de strings"));
+            }
+            ExprKind::NullAwareElement(_) => {
+                return Err(error(expression.span, "elementos null-aware de coleções"));
+            }
+            ExprKind::DotShorthand { .. } => {
+                return Err(error(expression.span, "atalhos de ponto"));
+            }
             ExprKind::String(s) => self.string(s),
             ExprKind::OwnedString(s) => self.string(s),
             ExprKind::This => Value {
@@ -1340,6 +1478,303 @@ impl<'a> FunctionEmitter<'a> {
             text: register,
         })
     }
+    /// Compara discriminante e constante do padrão com a mesma semântica de `==`.
+    ///
+    /// Strings usam comparação de conteúdo do runtime, objetos e enums usam
+    /// identidade de handle e escalares de tipos diferentes nunca são iguais.
+    fn equal_values(&mut self, left: Value, right: Value, span: Span) -> Result<Value, Diagnostic> {
+        if left.ty == Ty::Void || right.ty == Ty::Void {
+            return Err(error(span, "comparação void"));
+        }
+        if left.ty.nullable() || right.ty.nullable() || left.ty.reference() || right.ty.reference()
+        {
+            return self.equality(BinaryOp::Equal, left, right, span);
+        }
+        if left.ty != right.ty {
+            return Ok(Value {
+                ty: Ty::Bool,
+                text: "false".into(),
+            });
+        }
+        let register = self.register();
+        self.line(format!(
+            "{register} = icmp eq {} {}, {}",
+            left.ty.ir(),
+            left.text,
+            right.text
+        ));
+        Ok(Value {
+            ty: Ty::Bool,
+            text: register,
+        })
+    }
+    /// Testa a identidade nominal concreta do handle contra um tipo alvo.
+    ///
+    /// O handle precisa ser não nulo: `dartforge_object_class` só aceita objetos.
+    fn class_test(&mut self, handle: &str, id: u32, span: Span) -> Result<String, Diagnostic> {
+        let descendants = self.objects.concrete_descendants(id);
+        if descendants.is_empty() {
+            return Ok("false".into());
+        }
+        let class = self.register();
+        self.line(format!(
+            "{class} = call i64 @dartforge_object_class(i64 {handle})"
+        ));
+        let mut accumulated: Option<String> = None;
+        for child in descendants {
+            let same = self.register();
+            self.line(format!("{same} = icmp eq i64 {class}, {child}"));
+            accumulated = Some(match accumulated {
+                None => same,
+                Some(previous) => {
+                    let any = self.register();
+                    self.line(format!("{any} = or i1 {previous}, {same}"));
+                    any
+                }
+            });
+        }
+        accumulated.ok_or_else(|| Diagnostic::new("teste nominal vazio na HIR LLVM", span))
+    }
+    /// Produz um i1 que decide se o discriminante satisfaz o tipo do padrão.
+    ///
+    /// # Erros
+    /// Rejeita alvos sem relação nominal representável nesta ABI.
+    fn type_test(&mut self, value: &Value, target: Ty, span: Span) -> Result<String, Diagnostic> {
+        if value.ty == Ty::Null {
+            return Ok(if target.nullable() { "true" } else { "false" }.into());
+        }
+        if self.objects.assignable(value.ty.base(), target.base()) {
+            // O tipo estático já garante a forma: só a ausência pode reprovar.
+            if value.ty.nullable() && !target.nullable() {
+                return Ok(self.present(value));
+            }
+            return Ok("true".into());
+        }
+        let (Ty::Class(_), Ty::Class(id)) = (value.ty.base(), target.base()) else {
+            return Err(error(
+                span,
+                "padrão de tipo sem relação nominal representável",
+            ));
+        };
+        if !self.objects.assignable(target.base(), value.ty.base()) {
+            return Err(error(
+                span,
+                "padrão de tipo sem relação nominal representável",
+            ));
+        }
+        if !value.ty.nullable() {
+            return self.class_test(&value.text, id, span);
+        }
+        // Handle zero não é objeto: a consulta de classe fica em bloco protegido.
+        let present = self.present(value);
+        let check = self.label();
+        let end = self.label();
+        let origin = self.current.clone();
+        self.branch(&present, &check, &end);
+        self.start(&check);
+        let matched = self.class_test(&value.text, id, span)?;
+        let checked = self.current.clone();
+        self.jump(&end);
+        self.start(&end);
+        let register = self.register();
+        self.line(format!(
+            "{register} = phi i1 [ {}, %{origin} ], [ {matched}, %{checked} ]",
+            target.nullable()
+        ));
+        Ok(register)
+    }
+    /// Avalia o teste do padrão sem introduzir bindings nem avaliar a guarda.
+    fn pattern_test(
+        &mut self,
+        pattern: &Pattern<'_>,
+        value: &Value,
+        span: Span,
+    ) -> Result<String, Diagnostic> {
+        match pattern {
+            Pattern::Wildcard => Ok("true".into()),
+            Pattern::Constant(constant) => {
+                let constant = self.expression(constant)?;
+                let scrutinee = Value {
+                    ty: value.ty,
+                    text: value.text.clone(),
+                };
+                Ok(self.equal_values(scrutinee, constant, span)?.text)
+            }
+            Pattern::Type(annotation) => {
+                let target = value_ty(*annotation, span)?;
+                self.type_test(value, target, span)
+            }
+            Pattern::Binding {
+                ty: annotation,
+                name: _,
+            } => {
+                let target = self.pattern_binding_ty(*annotation, value, span)?;
+                self.type_test(value, target, span)
+            }
+        }
+    }
+    /// Binding sem anotação assume o tipo estático do discriminante.
+    fn pattern_binding_ty(
+        &self,
+        annotation: Type,
+        value: &Value,
+        span: Span,
+    ) -> Result<Ty, Diagnostic> {
+        if annotation == Type::Inferred {
+            Ok(value.ty)
+        } else {
+            value_ty(annotation, span)
+        }
+    }
+    /// Adapta o discriminante já testado ao tipo do binding, sem repetir a checagem.
+    fn bind_value(&mut self, value: &Value, target: Ty, span: Span) -> Result<Value, Diagnostic> {
+        let scrutinee = Value {
+            ty: value.ty,
+            text: value.text.clone(),
+        };
+        if scrutinee.ty == target {
+            return Ok(scrutinee);
+        }
+        // Referências compartilham a representação i64: o teste já fixou a classe.
+        if scrutinee.ty.reference() && target.reference() {
+            return Ok(Value {
+                ty: target,
+                text: scrutinee.text,
+            });
+        }
+        if scrutinee.ty.nullable() && !target.nullable() && scrutinee.ty.base() == target {
+            return Ok(self.payload(&scrutinee));
+        }
+        self.coerce(scrutinee, target, span)
+    }
+    /// Declara o local do binding no bloco do braço, já protegido contra o GC.
+    fn bind_pattern(
+        &mut self,
+        pattern: &Pattern<'_>,
+        value: &Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Pattern::Binding {
+            ty: annotation,
+            name,
+        } = pattern
+        else {
+            return Ok(());
+        };
+        let target = self.pattern_binding_ty(*annotation, value, span)?;
+        let bound = self.bind_value(value, target, span)?;
+        let pointer = self.local(name, bound.ty);
+        self.root_local(&pointer, &bound);
+        self.line(format!(
+            "store {} {}, ptr {pointer}",
+            bound.ty.ir(),
+            bound.text
+        ));
+        Ok(())
+    }
+    /// Abre o braço na ordem do Dart: padrão, binding e por fim a guarda.
+    ///
+    /// Devolve o rótulo do próximo candidato; o bloco aberto recebe o corpo do braço.
+    fn arm_open(
+        &mut self,
+        pattern: &Pattern<'_>,
+        guard: Option<&Expr<'_>>,
+        value: &Value,
+        span: Span,
+    ) -> Result<String, Diagnostic> {
+        let test = self.pattern_test(pattern, value, span)?;
+        let body = self.label();
+        let next = self.label();
+        self.branch(&test, &body, &next);
+        self.start(&body);
+        self.bind_pattern(pattern, value, span)?;
+        if let Some(guard) = guard {
+            let condition = self.expression(guard)?;
+            let condition = self.coerce(condition, Ty::Bool, guard.span)?;
+            let run = self.label();
+            self.branch(&condition.text, &run, &next);
+            self.start(&run);
+        }
+        Ok(next)
+    }
+    /// Emite o switch instrução: discriminante único, sem fallthrough implícito.
+    ///
+    /// Cada caso termina saltando para o fim; `break` no corpo usa o mesmo destino
+    /// e `continue` continua pertencendo ao laço que envolve o switch.
+    fn switch_statement(
+        &mut self,
+        scrutinee: &Expr<'_>,
+        cases: &[SwitchCase<'_>],
+    ) -> Result<(), Diagnostic> {
+        let value = self.expression(scrutinee)?;
+        let end = self.label();
+        self.loops.push((end.clone(), None));
+        for case in cases {
+            self.scopes.push(HashMap::new());
+            let next = self.arm_open(&case.pattern, case.guard.as_ref(), &value, case.span)?;
+            self.block(&case.body)?;
+            if !self.terminated {
+                self.jump(&end);
+            }
+            self.scopes.pop();
+            self.start(&next);
+        }
+        self.loops.pop();
+        // Switch instrução não precisa ser exaustivo: nenhum caso apenas segue adiante.
+        self.jump(&end);
+        self.start(&end);
+        Ok(())
+    }
+    /// Emite o switch expressão com phi sobre os braços realmente selecionáveis.
+    ///
+    /// O tipo do resultado vem da análise semântica; a exaustividade já foi provada
+    /// lá, então a queda final é um erro de runtime explícito, nunca um valor poison.
+    ///
+    /// # Erros
+    /// Rejeita braços cujo padrão ou tipo resultante fica fora do subconjunto nativo.
+    fn switch_expression(
+        &mut self,
+        scrutinee: &Expr<'_>,
+        arms: &[SwitchArm<'_>],
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let resolved = *self
+            .objects
+            .expr_types
+            .get(&(span.start, span.end))
+            .ok_or_else(|| Diagnostic::new("switch expressão sem tipo resolvido", span))?;
+        let result = value_ty(resolved, span)?;
+        if arms.is_empty() {
+            return Err(Diagnostic::new("switch expressão sem braços", span));
+        }
+        let value = self.expression(scrutinee)?;
+        let end = self.label();
+        let mut incoming = vec![];
+        for arm in arms {
+            self.scopes.push(HashMap::new());
+            let next = self.arm_open(&arm.pattern, arm.guard.as_ref(), &value, arm.span)?;
+            let produced = self.expression(&arm.value)?;
+            let produced = self.coerce(produced, result, arm.value.span)?;
+            incoming.push(format!("[ {}, %{} ]", produced.text, self.current));
+            self.jump(&end);
+            self.scopes.pop();
+            self.start(&next);
+        }
+        self.line("call void @dartforge_null_assert_fail()".into());
+        self.line("unreachable".into());
+        self.terminated = true;
+        self.start(&end);
+        let register = self.register();
+        self.line(format!(
+            "{register} = phi {} {}",
+            result.ir(),
+            incoming.join(", ")
+        ));
+        Ok(Value {
+            ty: result,
+            text: register,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1577,5 +2012,118 @@ mod tests {
             .unwrap();
         assert!(adapter.contains("call i64 @df_method_1_0(i64 %this)"));
         assert!(adapter.contains("ret void"));
+    }
+
+    /// O discriminante é avaliado uma vez e cada caso encerra no mesmo bloco final.
+    #[test]
+    fn switch_statement_evaluates_scrutinee_once_without_fallthrough() {
+        let ir = compile("int pick(){print(0);return 2;} void main(){switch(pick()){case 1: print(10); case 2: print(20); default: print(30);}}").unwrap();
+        assert_eq!(ir.matches("call i64 @df_fn_0()").count(), 1);
+        assert_eq!(ir.matches("icmp eq i64 %v0,").count(), 2);
+        // Nenhum corpo continua no caso seguinte: todos saltam para o fim do switch.
+        for printed in [10, 20, 30] {
+            assert!(ir.contains(&format!(
+                "call void @dartforge_print_i64(i64 {printed})\n  br label %b0\n"
+            )));
+        }
+        // default vira um teste sempre verdadeiro, preservando a ordem dos casos.
+        assert!(ir.contains("br i1 true, label %b5, label %b6"));
+    }
+
+    /// A guarda roda depois do binding e reprova para o próximo caso, não para o fim.
+    #[test]
+    fn switch_guard_runs_after_binding_and_falls_to_the_next_case() {
+        let ir = compile("void main(){int n=3; switch(n){case int v when v>2: print(1); case 3: print(2); default: print(3);}}").unwrap();
+        let arm = ir
+            .split("br i1 true, label %b1, label %b2\n")
+            .nth(1)
+            .unwrap();
+        // O binding é gravado antes de qualquer leitura feita pela guarda.
+        assert!(arm.starts_with("b1:\n  store i64 %v1, ptr %v2\n"));
+        assert!(arm.contains("icmp sgt i64 %v3, 2"));
+        assert!(arm.contains("label %b3, label %b2\n"));
+        // O destino reprovado é o teste do caso seguinte sobre o mesmo discriminante.
+        assert!(ir.contains("b2:\n  %v5 = icmp eq i64 %v1, 3\n"));
+    }
+
+    /// Switch expressão junta os braços em um único phi e nunca produz valor poison.
+    #[test]
+    fn switch_expression_joins_arms_with_phi_and_traps_when_unmatched() {
+        let ir = compile("void main(){print(switch(2){1=>10,2=>20,_=>30});}").unwrap();
+        assert_eq!(ir.matches("phi i64").count(), 1);
+        assert!(ir.contains("phi i64 [ 10, %b1 ], [ 20, %b3 ], [ 30, %b5 ]"));
+        assert!(ir.contains("call void @dartforge_null_assert_fail()\n  unreachable"));
+    }
+
+    /// Strings comparam conteúdo, enums e classes seladas comparam identidade nominal.
+    #[test]
+    fn switch_over_strings_enums_and_sealed_hierarchies() {
+        let text = compile(
+            "void main(){String s='b'; switch(s){case 'a': print(1); case 'b': print(2);}}",
+        )
+        .unwrap();
+        assert_eq!(text.matches("call i8 @dartforge_string_equal").count(), 2);
+        let enums = compile("enum C{red,green} void main(){C c=C.red; switch(c){case C.red: print(1); case C.green: print(2);} print(switch(c){C.red=>1,C.green=>2});}").unwrap();
+        assert_eq!(enums.matches("call i64 @dartforge_enum_get").count(), 5);
+        assert!(!enums.contains("call i64 @dartforge_object_class"));
+        let sealed = compile("sealed class S{} class A extends S{} class B extends S{} void main(){S v=A(); switch(v){case A a: print(1); case B(): print(2);}}").unwrap();
+        assert_eq!(
+            sealed.matches("call i64 @dartforge_object_class").count(),
+            2
+        );
+        // Handle ausente nunca chega à consulta de classe do runtime.
+        let optional = compile("sealed class S{} class A extends S{} class B extends S{} void main(){S? v=A(); switch(v){case A a: print(1); case B(): print(2); case null: print(0);}}").unwrap();
+        assert!(optional.contains("icmp ne i64 %v2, 0\n  br i1 %v3, label %b1, label %b2"));
+        assert!(optional.contains("phi i1 [ false, %entry ], [ %v5, %b1 ]"));
+    }
+
+    /// Discriminante nullable escolhe o caso null antes de expor o payload promovido.
+    #[test]
+    fn switch_on_nullable_int_binds_only_the_present_payload() {
+        let ir =
+            compile("void main(){int? n=1; switch(n){case null: print(0); case int v: print(v);}}")
+                .unwrap();
+        assert!(ir.contains("extractvalue { i1, i64 } %v3, 0"));
+        assert!(ir.contains("b3:\n  %v8 = extractvalue { i1, i64 } %v3, 1\n"));
+    }
+
+    /// break encerra somente o switch; continue continua pertencendo ao laço externo.
+    #[test]
+    fn switch_break_ends_the_case_and_continue_reaches_the_loop() {
+        let ir = compile("void main(){for(var i=0;i<3;i++){switch(i){case 0: continue; case 1: break; default: print(i);} print(9);}}").unwrap();
+        // b2 é o passo do for e b4 é o fim do switch.
+        assert!(ir.contains("b5:\n  br label %b2\n"));
+        assert!(ir.contains("b7:\n  br label %b4\n"));
+        assert!(ir.contains("b4:\n  call void @dartforge_print_i64(i64 9)\n  br label %b2\n"));
+    }
+
+    /// Recursos sem lowering dentro de padrões, guardas e corpos conservam seu span.
+    #[test]
+    fn unsupported_switch_members_keep_original_span_and_reason() {
+        for (source, fragment) in [
+            (
+                "void main(){int x=1; switch(x){case 1: print(x as int); default: print(2);}}",
+                "x as int",
+            ),
+            (
+                "void main(){int x=1; switch(x){case 1 when x is int: print(1); default: print(2);}}",
+                "x is int",
+            ),
+            (
+                "void main(){int x=1; print(switch(x){1 when x is int=>1,_=>0});}",
+                "x is int",
+            ),
+            (
+                "void main(){int x=1; print(switch(x){1=>x as int,_=>0});}",
+                "x as int",
+            ),
+        ] {
+            let error = compile(source).unwrap_err();
+            assert_eq!(
+                error.message,
+                "LLVM AOT ainda não suporta testes e casts de tipos reificados"
+            );
+            assert_eq!(&source[error.span.start..error.span.end], fragment);
+        }
     }
 }

@@ -18,6 +18,7 @@ fn records_match_dart_in_all_modes() {
                 CompileOptions {
                     optimization,
                     merge_identical_functions,
+                    tree_shaking: false,
                 },
             )
             .unwrap();
@@ -89,6 +90,7 @@ fn record_bindings_do_not_capture_merged_functions() {
                 CompileOptions {
                     optimization,
                     merge_identical_functions: true,
+                    tree_shaking: false,
                 },
             )
             .unwrap();

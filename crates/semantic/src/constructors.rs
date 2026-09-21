@@ -9,6 +9,9 @@ impl<'a> Validator<'a> {
         if !class.enum_values.is_empty() {
             return Ok(());
         }
+        if !self.classes[&class.id].has_generative {
+            return Ok(());
+        }
         if class.constructor.is_some()
             && (class.kind != ClassKind::Class || class.is_mixin_application)
         {
@@ -17,16 +20,18 @@ impl<'a> Validator<'a> {
                 class.span,
             ));
         }
-        if class
-            .superclass
-            .is_some_and(|id| !self.classes[&id].constructor_parameters.is_empty())
-        {
+        if class.superclass.is_some_and(|id| {
+            !self.classes[&id].has_generative
+                || !self.classes[&id].constructor_parameters.is_empty()
+                || !self.classes[&id].constructor_named.is_empty()
+        }) {
             return Err(Diagnostic::new(
                 "Implicit super() cannot invoke a constructor requiring arguments",
                 class.span,
             ));
         }
         let mut names = HashSet::new();
+        let mut labels = HashSet::new();
         let mut initialized = HashSet::new();
         if let Some(constructor) = &class.constructor {
             for parameter in &constructor.parameters {
@@ -39,6 +44,28 @@ impl<'a> Validator<'a> {
                         parameter.span,
                     ));
                 }
+                if parameter.kind.is_named() {
+                    // Dart 3.12: só o initializing formal pode ter nome privado,
+                    // e o rótulo externo perde o sublinhado inicial.
+                    if parameter.name.starts_with('_') && parameter.field.is_none() {
+                        return Err(Diagnostic::new(
+                            "A named parameter accepts a private name only as an initializing formal",
+                            parameter.span,
+                        ));
+                    }
+                    if !labels.insert(parameter.label()) {
+                        return Err(Diagnostic::new(
+                            format!("Duplicate named parameter '{}'", parameter.label()),
+                            parameter.span,
+                        ));
+                    }
+                }
+                self.validate_parameter_default(
+                    parameter.kind,
+                    parameter.ty,
+                    parameter.default.as_deref(),
+                    parameter.span,
+                )?;
                 if let Some(name) = parameter.field {
                     let field = class
                         .fields
@@ -79,9 +106,13 @@ impl<'a> Validator<'a> {
         &mut self,
         constructor: &dartforge_syntax::Constructor<'a>,
     ) -> Result<(), Diagnostic> {
-        self.type_parameters.clear();
+        self.type_parameters = Rc::new(Vec::new());
+        self.in_async = false;
+        self.in_arrow = false;
         self.loop_depth = 0;
         self.switch_depth = 0;
+        self.labels.clear();
+        self.catch_depth = 0;
         self.inferred_returns = None;
         self.return_type = Type::Void;
         let mut parameters = HashMap::new();

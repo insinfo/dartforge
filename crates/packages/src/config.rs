@@ -13,6 +13,12 @@ struct Package {
 /// Configuração relida em cada carregamento para detectar remapeamentos.
 pub(crate) struct Config {
     packages: HashMap<String, Package>,
+    /// Arquivo de configuração lido e seu conteúdo exato, quando existe.
+    ///
+    /// A revalidação incremental precisa provar que a resolução de `package:`
+    /// não mudou; comparar o texto é a única verificação que não depende de
+    /// mtime nem de tamanho.
+    pub(crate) origin: Option<(std::path::PathBuf, String)>,
 }
 impl Config {
     /// Encontra a configuração explícita ou a mais próxima da entrada.
@@ -30,6 +36,7 @@ impl Config {
         let Some(path) = path else {
             return Ok(Self {
                 packages: HashMap::new(),
+                origin: None,
             });
         };
         let path =
@@ -137,7 +144,10 @@ impl Config {
                 }
             }
         }
-        Ok(Self { packages })
+        Ok(Self {
+            packages,
+            origin: Some((path, text)),
+        })
     }
 
     /// Resolve package ou URI de arquivo, preservando codificação e componentes.

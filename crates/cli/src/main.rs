@@ -58,7 +58,46 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+        );
+        return Ok(());
+    }
+    if args[0] == "macro-info" {
+        if args.len() != 2 {
+            return Err("usage: dartforge macro-info <input.dart>".into());
+        }
+        let source = fs::read_to_string(&args[1])?;
+        let report = dartforge_compiler::macro_expansion_report(&source)?;
+        let phases: Vec<_> = report
+            .phases
+            .iter()
+            .map(|phase| {
+                serde_json::json!({
+                    "phase":format!("{:?}",phase.phase),"applications":phase.applications,
+                    "generated_declarations":phase.generated_declarations
+                })
+            })
+            .collect();
+        let origins: Vec<_> = report
+            .origins
+            .iter()
+            .map(|origin| {
+                serde_json::json!({
+                    "generated": {"start":origin.generated.start,"end":origin.generated.end},
+                    "annotation": {"start":origin.annotation.start,"end":origin.annotation.end}
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version":1,"experimental":true,"macro_host":"rust_builtin",
+                "applications":report.applications,"generated_declarations":report.generated_declarations,
+                "virtual_source_extent":report.extent,"origins":origins,
+                "phases":phases,"plan_hits":report.plan_hits,"plan_misses":report.plan_misses,
+                "materialized_nodes":report.materialized_nodes,
+                "note":"Unidade isolada; macros Dart arbitrárias e resolução de pacotes de macros ainda não implementadas."
+            }))?
         );
         return Ok(());
     }
@@ -169,18 +208,37 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    if args.len() < 3 || (args[0] != "compile" && args[0] != "emit-llvm") {
-        return Err("usage: dartforge compile|emit-llvm <input> <output> [--optimize] [--merge-identical-functions]".into());
+    if args.len() < 3 || !matches!(args[0].to_str(), Some("compile" | "emit-llvm" | "watch")) {
+        return Err("usage: dartforge compile|watch|emit-llvm <input> <output> [--optimize] [--merge-identical-functions] [--timings]".into());
     }
     let mut options = dartforge_compiler::CompileOptions::default();
-    for flag in &args[3..] {
+    let mut tree_flag_seen = false;
+    let mut timings = false;
+    let mut interval_ms = 150u64;
+    let mut flags = args[3..].iter();
+    while let Some(flag) = flags.next() {
         if flag == "--optimize"
             && options.optimization == dartforge_compiler::Optimization::None
             && args[0] == "compile"
         {
             options.optimization = dartforge_compiler::Optimization::Constants;
+        } else if (flag == "--tree-shake" || flag == "--no-tree-shake")
+            && !tree_flag_seen
+            && args[0] == "compile"
+        {
+            tree_flag_seen = true;
+            options.tree_shaking = flag == "--tree-shake";
         } else if flag == "--merge-identical-functions" && !options.merge_identical_functions {
             options.merge_identical_functions = true;
+        } else if flag == "--timings" && !timings && args[0] != "emit-llvm" {
+            timings = true;
+        } else if flag == "--interval" && args[0] == "watch" {
+            interval_ms = flags
+                .next()
+                .and_then(|value| value.to_str())
+                .and_then(|value| value.parse().ok())
+                .filter(|value| (10..=10_000).contains(value))
+                .ok_or("--interval exige um valor em milissegundos entre 10 e 10000")?;
         } else {
             return Err(
                 format!("opção desconhecida ou repetida: {}", flag.to_string_lossy()).into(),
@@ -194,6 +252,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         write_new(&output, &ir)?;
         return Ok(());
     }
+    if args[0] == "watch" {
+        return watch(&input, &output, options, timings, interval_ms);
+    }
+    if timings {
+        let (js, report) = dartforge_compiler::compile_path_with_report(&input, options)?;
+        write_new(&output, &js)?;
+        println!(
+            "{} -> {} ({} bytes)",
+            input.display(),
+            output.display(),
+            js.len()
+        );
+        println!("{}", serde_json::to_string_pretty(&report_json(&report))?);
+        return Ok(());
+    }
     let js = dartforge_compiler::compile_path_with_options(&input, options)?;
     write_new(&output, &js)?;
     println!(
@@ -203,6 +276,98 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         js.len()
     );
     Ok(())
+}
+
+/// Serializa o relatório de custo por fase, com os contadores de trabalho.
+///
+/// Os tempos são cronometrados no próprio trecho de cada fase; nenhum é obtido
+/// por subtração. Os contadores existem porque tempo sozinho não distingue reuso
+/// de cache de uma máquina mais rápida.
+fn report_json(report: &dartforge_compiler::CompileReport) -> serde_json::Value {
+    let link = report.link;
+    serde_json::json!({
+        "cache_hit": report.cache_hit,
+        "total_ns": report.total_ns,
+        "phases_ns": {
+            "load": report.load_ns, "lex": link.lex_ns, "outline": link.outline_ns,
+            "namespace": link.namespace_ns, "parse": link.parse_ns, "macros": link.macros_ns,
+            "merge": link.merge_ns, "analyze": link.analyze_ns, "optimize": link.optimize_ns,
+            "emit": link.emit_ns
+        },
+        "work": {
+            "units": link.units, "source_bytes": link.source_bytes, "tokens": link.tokens,
+            "classes": link.classes, "functions": link.functions, "output_bytes": link.output_bytes
+        }
+    })
+}
+
+/// Mantém o compilador aberto e recompila quando o conteúdo das fontes muda.
+///
+/// Este é o cenário de "edição com o compilador já aberto": a sessão reaproveita
+/// a estrutura do grafo quando só os corpos mudaram, e o arquivo de saída só é
+/// reescrito quando o JavaScript realmente muda, para não acordar quem observa o
+/// diretório de saída.
+///
+/// A detecção é por releitura e comparação de conteúdo, nunca por mtime ou
+/// tamanho: uma edição que restaure os metadados continua sendo percebida. Por
+/// isso o intervalo é uma sondagem, não um observador do sistema de arquivos.
+///
+/// # Erros
+/// Erros de compilação são impressos e o laço continua; erros de escrita encerram.
+fn watch(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    options: dartforge_compiler::CompileOptions,
+    timings: bool,
+    interval_ms: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut session = dartforge_compiler::CompilerSession::new();
+    let mut last: Option<String> = None;
+    println!(
+        "observando {} a cada {interval_ms} ms; Ctrl+C encerra",
+        input.display()
+    );
+    loop {
+        match session.compile_path_with_options(input, options) {
+            Ok(compilation) => {
+                let changed = last.as_deref() != Some(&*compilation.javascript);
+                if changed {
+                    write_or_replace(output, &compilation.javascript)?;
+                    last = Some(compilation.javascript.to_string());
+                    println!(
+                        "{} -> {} ({} bytes) em {:.2} ms",
+                        input.display(),
+                        output.display(),
+                        compilation.javascript.len(),
+                        compilation.report.total_ns as f64 / 1e6
+                    );
+                }
+                if timings && changed {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&report_json(&compilation.report))?
+                    );
+                }
+            }
+            Err(error) => {
+                let span = error
+                    .span
+                    .map(|span| format!(" ({}..{})", span.start, span.end))
+                    .unwrap_or_default();
+                eprintln!("{}{span}: {}", error.path.display(), error.message);
+                last = None;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(interval_ms));
+    }
+}
+
+/// Grava a saída substituindo o conteúdo anterior, para o laço de observação.
+fn write_or_replace(output: &std::path::Path, text: &str) -> std::io::Result<()> {
+    if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(output, text)
 }
 /// Grava um artefato textual sem sobrescrever arquivos existentes.
 fn write_new(output: &std::path::Path, text: &str) -> std::io::Result<()> {

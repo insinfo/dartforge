@@ -33,16 +33,25 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
         }
         Type::Class(id) => write!(output, "['class',{id}]").unwrap(),
         Type::Applied(id) => match output.resolution.types[id as usize].clone() {
-            TypeShape::List(element)
+            TypeShape::Future(element)
+            | TypeShape::List(element)
             | TypeShape::Iterable(element)
             | TypeShape::Nullable(element) => {
                 let tag = match &output.resolution.types[id as usize] {
+                    TypeShape::Future(_) => "future",
                     TypeShape::List(_) => "list",
                     TypeShape::Iterable(_) => "iterable",
                     _ => "nullable",
                 };
                 write!(output, "['{tag}',").unwrap();
                 descriptor(element, output);
+                output.push(']');
+            }
+            TypeShape::Map { key, value } => {
+                output.push_str("['map',");
+                descriptor(key, output);
+                output.push(',');
+                descriptor(value, output);
                 output.push(']');
             }
             TypeShape::Record { positional, named } => {
@@ -71,6 +80,8 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
             }
         },
         _ => output.push_str(match ty {
+            Type::Duration => "['duration']",
+            Type::Timer => "['timer']",
             Type::Int => "['int']",
             Type::String => "['string']",
             Type::Bool => "['bool']",
@@ -118,7 +129,11 @@ pub(super) fn collection_element(expression: &Expr<'_>, output: &Output<'_>) -> 
 
 /// Registra tipos nominais e funções sem mudar identidade observável dos objetos.
 pub(super) fn metadata(module: &Module<'_>, output: &mut Output<'_>) {
-    output.push_str("$dartforgeTyped(main,['function',['void'],[]]);\n");
+    output.push_str(if module.main_is_async {
+        "$dartforgeTyped(main,['function',['future',['void']],[]]);\n"
+    } else {
+        "$dartforgeTyped(main,['function',['void'],[]]);\n"
+    });
     let members: std::collections::BTreeMap<_, _> = output
         .nominal_members
         .iter()
@@ -141,6 +156,15 @@ pub(super) fn metadata(module: &Module<'_>, output: &mut Output<'_>) {
         }
     }
     for function in &module.functions {
+        // O descritor reificado só descreve posicionais obrigatórios; a análise
+        // semântica já rejeita tear-offs de assinaturas com grupo opcional.
+        if function
+            .parameters
+            .iter()
+            .any(|parameter| parameter.kind != dartforge_syntax::ParameterKind::RequiredPositional)
+        {
+            continue;
+        }
         if function.type_parameters.is_empty() {
             output.push_str("$dartforgeTyped(");
             identifier(function.name, output);

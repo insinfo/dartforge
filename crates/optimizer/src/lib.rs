@@ -2,6 +2,8 @@
 //! O passe preserva efeitos, curto circuito, intervalos de origem e operações
 //! inteiras que ultrapassem i32. Não realiza propagação de variáveis nem remove blocos.
 use dartforge_syntax::{BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, UnaryOp};
+mod tree_shake;
+pub use tree_shake::{TreeShakeStats, tree_shake};
 
 /// Limite de bytes de uma nova string produzida por concatenação constante.
 const MAX_FOLDED_STRING_BYTES: usize = 64 * 1024;
@@ -22,7 +24,7 @@ pub struct FoldStats {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let mut programa = Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// let mut programa = Program { main_is_arrow: false, main_is_async: false, types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert_eq!(dartforge_optimizer::fold_constants(&mut programa).folded_expressions, 0);
 /// ```
 pub fn fold_constants(program: &mut Program<'_>) -> FoldStats {
@@ -36,7 +38,7 @@ pub fn fold_constants(program: &mut Program<'_>) -> FoldStats {
         if let Some(constructor) = &mut class.constructor {
             fold_statements(&mut constructor.body, &mut stats);
         }
-        for method in &mut class.methods {
+        for method in class.methods.iter_mut().chain(&mut class.factories) {
             fold_statements(&mut method.body, &mut stats);
         }
     }
@@ -138,13 +140,58 @@ fn fold_statement(statement: &mut Statement<'_>, stats: &mut FoldStats) {
 /// Simplifica filhos puros e substitui somente operadores com resultado comprovado.
 fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
     let replacement = match &mut expression.kind {
+        ExprKind::Map { entries, .. } => {
+            for (key, value) in entries {
+                fold_expression(key, stats);
+                fold_expression(value, stats);
+            }
+            None
+        }
+        ExprKind::NamedConstruct { arguments, .. } => {
+            for argument in arguments {
+                fold_expression(argument, stats);
+            }
+            None
+        }
+        ExprKind::Cascade {
+            receiver, sections, ..
+        } => {
+            fold_expression(receiver, stats);
+            fold_statements(sections, stats);
+            None
+        }
+        ExprKind::CascadeReceiver => None,
         ExprKind::Record { fields } => {
             for (_, field) in fields {
                 fold_expression(field, stats);
             }
             None
         }
-        ExprKind::Const(e)
+        ExprKind::FutureValue { value, .. } => {
+            if let Some(e) = value {
+                fold_expression(e, stats);
+            }
+            None
+        }
+        ExprKind::FutureDelayed {
+            duration,
+            computation,
+            ..
+        } => {
+            fold_expression(duration, stats);
+            if let Some(e) = computation {
+                fold_expression(e, stats);
+            }
+            None
+        }
+        ExprKind::Duration { parts } => {
+            for (_, e) in parts {
+                fold_expression(e, stats);
+            }
+            None
+        }
+        ExprKind::Await(e)
+        | ExprKind::Const(e)
         | ExprKind::TypeTest { operand: e, .. }
         | ExprKind::Cast { operand: e, .. } => {
             fold_expression(e, stats);
@@ -227,6 +274,15 @@ fn fold_expression(expression: &mut Expr<'_>, stats: &mut FoldStats) {
         }
         ExprKind::Member { receiver, .. } => {
             fold_expression(receiver, stats);
+            None
+        }
+        // As partes literais já foram juntadas no parser; só as expressões dobram.
+        ExprKind::Interpolation(parts) => {
+            for part in parts {
+                if let dartforge_syntax::StringPart::Expression(value) = part {
+                    fold_expression(value, stats);
+                }
+            }
             None
         }
         _ => None,
@@ -359,6 +415,39 @@ mod tests {
         let mut stats = FoldStats::default();
         fold_expression(&mut value, &mut stats);
         (value, stats)
+    }
+
+    /// Simplifica RHS puro sem substituir o receptor sintético nem apagar o guard de null.
+    #[test]
+    fn cascade_sections_fold_without_erasing_receiver_or_guard() {
+        let cascade = expr(ExprKind::Cascade {
+            receiver: Box::new(call()),
+            null_aware: true,
+            sections: vec![stmt(StatementKind::FieldAssign {
+                receiver: expr(ExprKind::CascadeReceiver),
+                name: "value",
+                value: binary(BinaryOp::Add, int(2), int(3)),
+            })],
+        });
+        let (result, _) = folded(cascade);
+        let ExprKind::Cascade {
+            receiver,
+            null_aware,
+            sections,
+        } = result.kind
+        else {
+            panic!("cascade apagado")
+        };
+        assert!(null_aware);
+        assert!(matches!(receiver.kind, ExprKind::Call { .. }));
+        let StatementKind::FieldAssign {
+            receiver, value, ..
+        } = &sections[0].kind
+        else {
+            panic!("seção alterada")
+        };
+        assert!(matches!(receiver.kind, ExprKind::CascadeReceiver));
+        assert!(matches!(value.kind, ExprKind::Int(5)));
     }
     /// Verifica recursão, posições preservadas e normalização de zero inteiro.
     #[test]
@@ -523,9 +612,12 @@ mod tests {
     fn traverses_class_members_and_loop_positions() {
         let sum = || binary(BinaryOp::Add, int(1), int(2));
         let mut program = Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![Class {
+                factories: vec![],
                 constructor: None,
                 annotations: vec![],
                 modifier: dartforge_syntax::ClassModifier::None,
@@ -552,6 +644,8 @@ mod tests {
                     span: SPAN,
                 }],
                 methods: vec![Function {
+                    is_arrow: false,
+                    is_async: false,
                     annotations: vec![],
                     native_binding: None,
                     is_getter: false,
@@ -565,6 +659,8 @@ mod tests {
                 span: SPAN,
             }],
             functions: vec![Function {
+                is_arrow: false,
+                is_async: false,
                 annotations: vec![],
                 native_binding: None,
                 is_getter: false,

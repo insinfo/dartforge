@@ -1,12 +1,13 @@
 # Subconjunto implementado
 
-Alvo: Dart 3.6.2, igual ao SDK instalado e ao configurado no CI.
+Base mínima de compatibilidade: Dart 3.6.2. A evolução inclui recursos posteriores e extensões experimentais, identificados abaixo.
 
 ## Suporte atual
 
-- Uma entrada `void main()` sem parâmetros.
+- Uma entrada `void main()` ou `Future<void> main() async`, sem parâmetros.
 - Funções de nível superior com retorno explícito `int`, `String`, `bool` ou `void`.
-- Parâmetros posicionais obrigatórios e tipados; chamadas antecipadas e recursivas.
+- Parâmetros posicionais obrigatórios, opcionais `[...]` e nomeados `{...}` com
+  `required` e valores padrão; chamadas antecipadas e recursivas.
 - `return` com valor ou vazio, conforme o tipo; `if/else` com blocos obrigatórios.
 - Declarações locais inicializadas `var`/`final`/`int`/`String`/`bool`, atribuições e escopos.
 - Literais inteiros i32, strings Unicode, booleanos e `print`.
@@ -58,8 +59,30 @@ rejeitados explicitamente. Escapes desconhecidos perdem a barra invertida, confo
 Dart; por exemplo, `\q` produz `q`. Para NUL, use `\x00` ou `\u0000`.
 
 Strings raw `r'...'` e `r"..."` preservam barras invertidas e dólares literalmente.
-Não há interpolação, strings de aspas triplas ou strings multilinha. Um escape `\n`
-dentro de uma string de uma linha pode produzir uma quebra de linha no valor.
+Um escape `\n` dentro de uma string de uma linha pode produzir uma quebra de linha
+no valor; uma quebra de linha escrita na fonte exige aspas triplas.
+
+### Interpolação, aspas triplas e literais adjacentes
+
+Há interpolação: `'$nome'` interpola o identificador e `'${expressão}'` interpola
+a expressão inteira. A distinção é léxica, então `'$obj.campo'` interpola apenas
+`obj` e concatena `.campo` como texto, e `'$a$b'` são duas interpolações. Depois
+de `$` é preciso vir um identificador que não seja palavra reservada, ou `{`.
+`\$` e as strings raw continuam com o cifrão literal.
+
+Aspas triplas `'''...'''` e `"""..."""` aceitam quebras de linha e interpolação;
+`r'''...'''` não interpola. A primeira linha depois da abertura é descartada
+quando só tem espaços e tabulações, e CR e CRLF escritos na fonte viram LF.
+Literais adjacentes (`'a' 'b' '$c'`) concatenam em tempo de compilação, em
+qualquer combinação de formas.
+
+O resultado é `String`. Cada expressão é avaliada exatamente uma vez, na ordem
+escrita; `null` vira `"null"`; `int` usa a conversão do runtime, não `String(x)`
+do JavaScript. Valores sem `toString` representável no subconjunto — instâncias
+de classe, enums, funções, `Future`, `Duration` e `Timer` — são rejeitados com
+`String interpolation requires unsupported toString semantics for this value`, o
+mesmo conjunto de tipos que `print` já aceitava. O contrato completo, com todos
+os diagnósticos e os limites que permanecem, está em [STRINGS.md](STRINGS.md).
 
 ## Tipos anuláveis e objetos
 
@@ -69,8 +92,9 @@ A ferramenta compila [bibliotecas, reexports e filtros show/hide](MODULES.md), r
 ## Ainda não suportado
 
 Prefixos de import, partes, funções locais nomeadas, parâmetros nomeados ou
-opcionais, overloads, `double`, genéricos definidos pelo usuário, extensions importadas, async, `for-in`, `switch`,
-rótulos, interpolação, strings triplas, surrogates isolados, Set/Map, Dart `const`,
+opcionais em closures, extensions, genéricos e `@Native`,
+overloads, `double`, classes/métodos genéricos, extensions importadas, `for-in`,
+rótulos, surrogates isolados, interpolação em expressão constante, Set e formas de Map/const além das documentadas abaixo,
 source maps e bibliotecas padrão completas. Atualizações compostas de campos, acesso a índices e atribuições
 usadas como expressões também não são suportadas.
 Identificadores são ASCII; alguns nomes contextuais válidos em Dart ficam reservados
@@ -82,7 +106,7 @@ Números usam JavaScript Number; limitar literais a i32 não limita a faixa dos 
 Não há garantia de equivalência integral à VM nem implementação completa de `int` Dart.
 Casos numéricos de borda são testes de regressão, não prova geral de conformidade.
 
-O parser limita aninhamento a 64 níveis e expressões a 128 nós, inclusive argumentos de
+O parser limita aninhamento a 64 níveis estruturais, 16 primárias ativas e expressões a 128 nós, inclusive argumentos de
 chamadas. Esses são limites temporários do protótipo, não da linguagem Dart.
 Não existe limite estático para recursão ou iterações executadas pelo programa gerado.
 
@@ -194,3 +218,64 @@ reificados estão integrados a genéricos e nulabilidade. Declarações var/fina
 podem desestruturar um record sem padrões aninhados. Veja
 [contrato e limites do incremento 19](IMPLEMENTACAO-19.md). LLVM, extension types
 e macros não ganham suporte por essa implementação.
+
+## Cascatas no JavaScript
+
+Cascatas `..` e `?..` avaliam o receptor uma vez e preservam sua identidade.
+Seções admitem chamadas, seletores e atribuições simples a campos/índices.
+Null na cascata `?..` impede todos os efeitos das seções. Atribuições compostas
+nas seções e LLVM permanecem diagnosticados. Veja o
+[contrato e a matriz de versões](IMPLEMENTACAO-20.md).
+
+## Metaprogramação experimental
+
+`@JsonCodable()` incorporada em Rust expande classes simples com campos escalares
+em construtor, fábrica fromJson e método toJson. A geração acontece antes da
+análise normal. Mapas com chaves String, acesso/atribuição por índice e fábricas
+nomeadas com corpo de expressão estão disponíveis no JavaScript.
+Veja [contrato, referências e limites](IMPLEMENTACAO-21.md).
+A base 3.6.2 não impede recursos mais recentes; ainda não há execução de macros
+arbitrárias escritas em Dart nem resolução do antigo package:json.
+
+## Tree shaking e async
+
+Tree shaking JavaScript opcional (`--tree-shake`), desativado por padrão.
+Funções/classes inacessíveis são removidas após a análise estática completa.
+O passe preserva métodos de classes vivas e descritores reificados.
+
+Async/await, Future.value/delayed, Duration, scheduleMicrotask e Timer one-shot
+possuem implementação JS. Consultar [o contrato e limites](IMPLEMENTACAO-23.md),
+incluindo APIs de async ainda ausentes e rejeição explícita no backend LLVM.
+
+Macros incorporadas possuem [fases e cache de planos](IMPLEMENTACAO-22.md).
+
+## Parâmetros nomeados, opcionais e padrões
+
+Funções de topo, métodos, métodos abstratos, construtores generativos e fábricas
+nomeadas aceitam `{...}` de nomeados — com `required` e com valor padrão — e
+`[...]` de posicionais opcionais. Um initializing formal nomeado pode ter nome
+privado (`this._apiKey`, chamado por `apiKey:`), conforme Dart 3.12.
+
+```dart
+class Cliente {
+  final String host;
+  final int porta;
+  Cliente({required this.host, this.porta = 80});
+}
+
+void registrar(String m, [int nivel = 0, String? tag]) => print('$m $nivel $tag');
+
+void main() {
+  registrar('a');
+  print(Cliente(porta: 8080, host: 'b').host);
+}
+```
+
+Regras: um único grupo opcional por assinatura; opcional sem padrão exige tipo
+anulável; o padrão precisa ser uma constante escalar; os nomeados vêm depois dos
+posicionais na chamada, em qualquer ordem entre si, e são avaliados na ordem
+escrita. Closures, métodos de extension, funções genéricas, `@Native` e o backend
+LLVM continuam restritos a posicionais obrigatórios, com diagnóstico próprio.
+
+O contrato completo, a emissão JavaScript e a mensagem exata de cada limite estão
+em [PARAMETROS.md](PARAMETROS.md).

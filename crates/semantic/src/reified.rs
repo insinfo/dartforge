@@ -9,6 +9,7 @@ impl<'a> Validator<'a> {
             Type::Bool => Type::NullableBool,
             Type::Class(id) => Type::NullableClass(id),
             Type::Object => Type::NullableObject,
+            Type::Duration | Type::Timer => self.intern(TypeShape::Nullable(ty)),
             Type::Parameter(id) => Type::NullableParameter(id),
             Type::Applied(_) if !matches!(self.shape(ty), Some(TypeShape::Nullable(_))) => {
                 self.intern(TypeShape::Nullable(ty))
@@ -75,6 +76,11 @@ impl<'a> Validator<'a> {
                         }
                     }
                     Type::Applied(_) => match self.shape(ty) {
+                        Some(TypeShape::Future(t)) => stack.push(t),
+                        Some(TypeShape::Map { key, value }) => {
+                            stack.push(key);
+                            stack.push(value);
+                        }
                         Some(TypeShape::Record { positional, named }) => {
                             stack.extend(positional);
                             stack.extend(named.into_iter().map(|(_, t)| t));

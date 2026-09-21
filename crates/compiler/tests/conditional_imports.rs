@@ -284,6 +284,7 @@ fn conditional_imports_match_dart_3_6_2_in_all_modes() {
             let options = CompileOptions {
                 optimization,
                 merge_identical_functions,
+                tree_shaking: false,
             };
             let output = compile_path_with_environment(
                 &fixture.entry(),

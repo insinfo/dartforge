@@ -16,3 +16,5 @@ dartforge-semantic = { path = "../semantic" }
 dartforge-optimizer = { path = "../optimizer" }
 dartforge-hir = { path = "../hir" }
 dartforge-codegen = { path = "../codegen" }
+dartforge-macros = { path = "../macros" }
+rayon = "1"

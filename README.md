@@ -2,14 +2,14 @@
 
 [![CI](https://github.com/insinfo/dartforge/actions/workflows/ci.yml/badge.svg)](https://github.com/insinfo/dartforge/actions/workflows/ci.yml)
 
-Compilador experimental **Dart 3.6.2 → JavaScript e executáveis nativos LLVM**, escrito em Rust, sob licença MIT.
+Compilador experimental **Dart → JavaScript e executáveis nativos LLVM**, escrito em Rust, sob licença MIT. Dart 3.6.2 é a base mínima; recursos mais recentes e macros próprias são incorporados progressivamente.
 Objetivo: uma base compartilhada para compilação, análise, LSP, ngdart e ferramentas web.
 
 ## Estado atual
 
 O protótipo suporta um subconjunto explícito:
 
-- Uma entrada `void main()`, funções tipadas e parâmetros posicionais obrigatórios.
+- Entrada `void main()` ou `Future<void> main() async`, funções tipadas e parâmetros posicionais obrigatórios.
 - No JS: closures com capturas mutáveis, funções como valores e tipos de função.
 - No JS: List<T>/Iterable<T>, indexação e operações preguiçosas where/map.
 - Chamadas, recursão, `return`, `if/else` e laços `while`, `do/while`, `for` com blocos obrigatórios.
@@ -25,6 +25,9 @@ O protótipo suporta um subconjunto explícito:
 - Validação de nomes, tipos, argumentos, retornos e mutabilidade.
 - Avaliação opcional de constantes puras com `--optimize`.
 - Fusão conservadora de funções idênticas com `--merge-identical-functions` (opt-in).
+- Tree shaking de funções/classes com `--tree-shake`; desligado por padrão (`--no-tree-shake`).
+- No JS: async/await, Future.value/delayed, microtarefas, Duration e Timer de disparo único.
+- Macros JsonCodable próprias em três fases, com cache limitado de planos.
 - Emissão JavaScript ESM e testes diferenciais com o SDK Dart 3.6.2.
 
 Ainda não compila aplicações Dart/ngdart completas. Faltam classes e métodos genéricos,
@@ -203,3 +206,23 @@ O [incremento 19](docs/IMPLEMENTACAO-19.md) acrescenta records posicionais/nomea
 tipos estruturais, igualdade, reificação e desestruturação local var/final no JS.
 Extension types permanecem pendentes. O experimento oficial de macros foi
 cancelado; @JsonCodable não integra a compatibilidade estável anunciada.
+
+## Cascatas
+
+O [incremento 20](docs/IMPLEMENTACAO-20.md) integra `..` e `?..` ao JavaScript:
+receptor único, efeitos em ordem e interrupção de todas as seções quando nulo.
+Atribuições compostas nas seções e lowering LLVM permanecem pendentes.
+Recursos posteriores ao Dart 3.6.2 têm versões explicitadas no relatório.
+
+## Macros experimentais e mapas
+
+O [incremento 21](docs/IMPLEMENTACAO-21.md) implementa `@JsonCodable()` incorporada
+em Rust, com expansão da AST, construtor, fábrica `fromJson` e método `toJson`.
+Inclui mapas tipados com chaves String no JavaScript. `dartforge macro-info arquivo.dart`
+mostra contagem e origem das declarações geradas em uma unidade isolada.
+Macros arbitrárias escritas em Dart e integração com pacotes de macros continuam
+pendentes. Dart 3.6.2 é a base mínima; recursos posteriores estão no roteiro.
+
+Detalhes recentes: [fases/cache de macros](docs/IMPLEMENTACAO-22.md) e
+[tree shaking/async](docs/IMPLEMENTACAO-23.md). Streams, isolates e execução de macros
+Dart arbitrárias ainda estão pendentes.

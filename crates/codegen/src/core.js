@@ -72,16 +72,56 @@ class $dartforgeList extends $dartforgeIterable {
     for (let i = 0; i < n; i++) { action(this.values[i]); if (this.values.length !== n) throw new Error('Concurrent modification during iteration'); }
   }
 }
+// Map conserva ordem de inserção e evita propriedades especiais de objetos JavaScript.
+class $dartforgeMap {
+  constructor(entries, keyType, valueType) {
+    this.values = new Map(entries);
+    this.keyType = keyType;
+    this.valueType = valueType;
+    $dartforgeTyped(this, ['map', keyType, valueType]);
+  }
+  get $df_length() { return this.values.size; }
+}
 function $dartforgeIndex(list, index) {
+  if (list instanceof $dartforgeMap) return list.values.has(index) ? list.values.get(index) : null;
   if (!Number.isInteger(index) || index < 0 || index >= list.values.length) throw new RangeError('Index out of range');
   return list.values[index];
 }
 function $dartforgeIndexSet(list, index, value) {
+  if (list instanceof $dartforgeMap) {
+    $dartforgeCast(index, list.keyType);
+    $dartforgeCast(value, list.valueType);
+    list.values.set(index, value);
+    return;
+  }
   $dartforgeCast(value, list.elementType);
   if (!Number.isInteger(index) || index < 0 || index >= list.values.length) throw new RangeError('Index out of range');
   list.values[index] = value;
 }
+// >>> $dartforgeString
+// toString de Dart 3.6.2 para os valores do subconjunto, usado pela interpolação.
+// int não passa por String(x) do JavaScript: o inteiro do subconjunto tem 32 bits
+// com sinal e o zero negativo do JavaScript precisa ser impresso como "0", que é
+// o único texto que Dart produz para zero. Coleções e records vão ao formatador.
+function $dartforgeString(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return (value + 0).toString(10);
+  // Só coleções e records chegam aqui, e eles já exigem o restante deste
+  // arquivo: quando o programa interpola apenas escalares, o emissor recorta
+  // esta função entre os marcadores e a linha abaixo nunca executa.
+  return $dartforgeFormat(value);
+}
+// <<< $dartforgeString
 function $dartforgeFormat(value, active = new Set()) {
+  if (value instanceof $dartforgeMap) {
+    if (active.has(value)) return '{...}';
+    active.add(value);
+    try {
+      return '{' + [...value.values].map(([key, field]) => $dartforgeFormat(key, active) + ': ' + $dartforgeFormat(field, active)).join(', ') + '}';
+    } finally { active.delete(value); }
+  }
   const record = $dartforgeRecordData.get(value);
   if (record) {
     if (active.has(value)) return '(...)';

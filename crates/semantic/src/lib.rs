@@ -5,16 +5,22 @@ use dartforge_syntax::{
     BinaryOp, Expr, ExprKind, Program, Statement, StatementKind, Type, UnaryOp,
 };
 use dartforge_syntax::{
-    ClassKind, ClassModifier, ConstValue, ExtensionTarget, Resolution, TypeShape,
+    ClassKind, ClassModifier, ConstValue, ExtensionTarget, ParameterKind, Resolution, TypeShape,
 };
+mod asynchronous;
+mod cascades;
 mod collections;
 mod constants;
 mod constructors;
+mod fluxo;
 mod generics;
+mod maps;
 mod modifiers;
 mod native;
 mod records;
 mod reified;
+mod shorthands;
+mod statics;
 mod switches;
 use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, rc::Rc};
@@ -26,13 +32,169 @@ struct Binding {
     is_final: bool,
     promoted: Option<Type>,
 }
+/// Parâmetro nomeado de uma assinatura, já com o rótulo externo resolvido.
+///
+/// A lista que os guarda permanece ordenada por `label` para busca binária:
+/// uma assinatura é compartilhada por `Rc` e não pode carregar um `HashMap`.
 #[derive(Clone, PartialEq, Eq)]
-struct Signature {
+struct NamedParameter<'a> {
+    label: &'a str,
+    ty: Type,
+    is_required: bool,
+}
+#[derive(Clone, PartialEq, Eq)]
+struct Signature<'a> {
     generic_count: usize,
     bounds: Vec<Type>,
     is_getter: bool,
+    /// Posicionais na ordem declarada: os obrigatórios precedem os opcionais.
     parameters: Vec<Type>,
+    /// Quantos dos primeiros `parameters` a chamada precisa fornecer.
+    required_positional: usize,
+    /// Nomeados ordenados por rótulo; vazio no caminho comum e sem alocação.
+    named: Vec<NamedParameter<'a>>,
     result: Type,
+}
+impl<'a> Signature<'a> {
+    /// Procura um nomeado por rótulo; a lista é pequena e sempre ordenada.
+    fn named(&self, label: &str) -> Option<&NamedParameter<'a>> {
+        let index = self
+            .named
+            .binary_search_by(|candidate| candidate.label.cmp(label))
+            .ok()?;
+        Some(&self.named[index])
+    }
+}
+/// Extrai a forma compacta de uma lista de parâmetros declarada.
+///
+/// Devolve os tipos posicionais, quantos deles são obrigatórios e os nomeados
+/// ordenados. O caminho comum — só posicionais obrigatórios — não aloca nada
+/// além do `Vec` de tipos que a assinatura já mantinha.
+fn signature_parts<'a>(
+    parameters: &[dartforge_syntax::Parameter<'a>],
+) -> (Vec<Type>, usize, Vec<NamedParameter<'a>>) {
+    // Os nomeados sempre encerram a lista, então uma única varredura basta e o
+    // `collect` continua recebendo um iterador de tamanho exato: uma alocação.
+    let (split, required) = split_kinds(parameters.iter().map(|parameter| parameter.kind));
+    let positional = parameters[..split]
+        .iter()
+        .map(|parameter| parameter.ty)
+        .collect::<Vec<_>>();
+    if split == parameters.len() {
+        return (positional, required, Vec::new());
+    }
+    let mut named = parameters[split..]
+        .iter()
+        .map(|parameter| NamedParameter {
+            label: parameter.label(),
+            ty: parameter.ty,
+            is_required: parameter.kind.is_required(),
+        })
+        .collect::<Vec<_>>();
+    named.sort_unstable_by_key(|parameter| parameter.label);
+    (positional, required, named)
+}
+/// Localiza o início do grupo nomeado e o total de posicionais obrigatórios.
+///
+/// Uma única varredura, sem alocar, usada pelas duas formas de parâmetro.
+fn split_kinds(kinds: impl Iterator<Item = ParameterKind>) -> (usize, usize) {
+    let mut split = 0;
+    let mut required = 0;
+    let mut contiguous = true;
+    for (index, kind) in kinds.enumerate() {
+        if kind.is_named() {
+            continue;
+        }
+        split = index + 1;
+        if contiguous && kind == ParameterKind::RequiredPositional {
+            required += 1;
+        } else {
+            contiguous = false;
+        }
+    }
+    (split, required)
+}
+/// Indica se a expressão é um literal escalar aceito como valor padrão.
+///
+/// Apenas `int`, `String`, `bool`, `null` e a negação de um literal inteiro.
+/// A restrição mantém a emissão do padrão independente de qualquer tabela
+/// indexada por span, que o linker não reescreve dentro de um parâmetro.
+fn is_scalar_literal(expression: &Expr<'_>) -> bool {
+    match &expression.kind {
+        ExprKind::Int(_)
+        | ExprKind::Bool(_)
+        | ExprKind::String(_)
+        | ExprKind::OwnedString(_)
+        | ExprKind::Null => true,
+        ExprKind::Unary {
+            op: UnaryOp::Negate,
+            operand,
+        } => matches!(operand.kind, ExprKind::Int(_)),
+        _ => false,
+    }
+}
+/// Monta a assinatura compacta de uma função, método ou fábrica declarada.
+fn signature_of<'a>(function: &dartforge_syntax::Function<'a>) -> Signature<'a> {
+    let (parameters, required_positional, named) = signature_parts(&function.parameters);
+    Signature {
+        generic_count: function.type_parameters.len(),
+        bounds: function
+            .type_parameters
+            .iter()
+            .map(|parameter| parameter.bound)
+            .collect(),
+        is_getter: function.is_getter,
+        parameters,
+        required_positional,
+        named,
+        result: function.return_type,
+    }
+}
+/// Mesma extração para a lista de um construtor generativo.
+fn constructor_parts<'a>(
+    parameters: &[dartforge_syntax::ConstructorParameter<'a>],
+) -> (Vec<Type>, usize, Vec<NamedParameter<'a>>) {
+    let (split, required) = split_kinds(parameters.iter().map(|parameter| parameter.kind));
+    let positional = parameters[..split]
+        .iter()
+        .map(|parameter| parameter.ty)
+        .collect::<Vec<_>>();
+    if split == parameters.len() {
+        return (positional, required, Vec::new());
+    }
+    let mut named = parameters[split..]
+        .iter()
+        .map(|parameter| NamedParameter {
+            label: parameter.label(),
+            ty: parameter.ty,
+            is_required: parameter.kind.is_required(),
+        })
+        .collect::<Vec<_>>();
+    named.sort_unstable_by_key(|parameter| parameter.label);
+    (positional, required, named)
+}
+/// Separa a lista escrita em posicionais e nomeados sem alocar.
+///
+/// Os nomeados só podem aparecer no fim da lista; o parser já garante isso e
+/// esta verificação protege árvores construídas por macros ou por testes.
+fn split_arguments<'e, 'a>(
+    arguments: &'e [Expr<'a>],
+    span: Span,
+) -> Result<(&'e [Expr<'a>], &'e [Expr<'a>]), Diagnostic> {
+    let first = arguments
+        .iter()
+        .position(|argument| matches!(argument.kind, ExprKind::NamedArgument { .. }))
+        .unwrap_or(arguments.len());
+    if arguments[first..]
+        .iter()
+        .any(|argument| !matches!(argument.kind, ExprKind::NamedArgument { .. }))
+    {
+        return Err(Diagnostic::new(
+            "Positional arguments must precede named arguments",
+            span,
+        ));
+    }
+    Ok(arguments.split_at(first))
 }
 
 #[derive(Clone, Copy)]
@@ -40,9 +202,52 @@ struct FieldInfo {
     ty: Type,
     is_final: bool,
 }
+/// Assinatura de um construtor generativo nomeado, na forma compacta.
+///
+/// As listas seguem o mesmo contrato de [`Signature`]: posicionais na ordem
+/// declarada e nomeados ordenados por rótulo, sem tabela associativa alguma.
+#[derive(Clone, PartialEq, Eq)]
+struct ConstructorInfo<'a> {
+    name: &'a str,
+    parameters: Vec<Type>,
+    required: usize,
+    named: Vec<NamedParameter<'a>>,
+    is_const: bool,
+}
+/// Membro estático de classe ou variável de topo já tipado.
+///
+/// `constant` só existe para declarações `const`, cujo valor é canônico e
+/// utilizável dentro de outras expressões constantes.
+#[derive(Clone)]
+struct StaticInfo<'a> {
+    name: &'a str,
+    ty: Type,
+    /// `final` ou `const`: a escrita é recusada depois da inicialização.
+    is_final: bool,
+    constant: Option<Rc<ConstValue>>,
+}
+/// Procura por nome numa lista ordenada, sem construir tabela associativa.
+fn find_by_name<'a, T>(items: &'a [T], name: &str, key: impl Fn(&T) -> &'a str) -> Option<&'a T> {
+    let index = items.binary_search_by(|item| key(item).cmp(name)).ok()?;
+    Some(&items[index])
+}
 #[derive(Clone)]
 struct ClassInfo<'a> {
+    has_generative: bool,
+    factories: HashMap<&'a str, Signature<'a>>,
     constructor_parameters: Vec<Type>,
+    /// Quantos posicionais do construtor a chamada precisa fornecer.
+    constructor_required: usize,
+    /// Nomeados do construtor, ordenados por rótulo como em Signature.
+    constructor_named: Vec<NamedParameter<'a>>,
+    /// O construtor sem nome foi declarado `const`.
+    constructor_is_const: bool,
+    /// Construtores nomeados ordenados por nome; vazio no caminho comum.
+    named_constructors: Vec<ConstructorInfo<'a>>,
+    /// Campos estáticos ordenados por nome; não participam de herança.
+    static_fields: Vec<StaticInfo<'a>>,
+    /// Métodos estáticos ordenados por nome; resolvidos pelo nome da classe.
+    static_methods: Vec<(&'a str, Signature<'a>)>,
     modifier: ClassModifier,
     kind: ClassKind,
     is_mixin_application: bool,
@@ -55,30 +260,49 @@ struct ClassInfo<'a> {
     name: &'a str,
     superclass: Option<u32>,
     fields: HashMap<&'a str, FieldInfo>,
-    methods: HashMap<&'a str, Signature>,
+    methods: HashMap<&'a str, Signature<'a>>,
 }
 #[derive(Clone)]
 struct ExtensionInfo<'a> {
     id: u32,
     on_type: Type,
-    methods: HashMap<&'a str, (usize, Signature)>,
+    methods: HashMap<&'a str, (usize, Signature<'a>)>,
 }
 #[derive(Clone)]
 struct Validator<'a> {
+    in_arrow: bool,
+    async_library: bool,
+    in_async: bool,
+    factory_class: Option<u32>,
+    cascade_receiver: Option<Type>,
     in_constructor: bool,
     exhaustive_switches: Rc<RefCell<HashSet<(usize, usize)>>>,
-    type_parameters: Vec<dartforge_syntax::GenericParameter<'a>>,
+    /// Ambiente genérico da declaração corrente; trocado por inteiro, nunca em partes.
+    type_parameters: Rc<Vec<dartforge_syntax::GenericParameter<'a>>>,
     switch_depth: usize,
+    /// Cláusulas catch ativas; só `rethrow` consulta, e um contador basta.
+    catch_depth: usize,
+    /// Rótulos de laços visíveis, do mais externo ao mais interno.
+    ///
+    /// São fatias emprestadas da fonte num `Vec` vazio no caminho comum; um
+    /// `Vec` vazio não aloca, então clonar o validador a cada ramificação de
+    /// fluxo continua sem custo algum para funções sem rótulo.
+    labels: Vec<&'a str>,
     captured_writes: Rc<HashSet<&'a str>>,
     inferred_returns: Option<Rc<RefCell<Vec<Type>>>>,
     scopes: Vec<HashMap<&'a str, Binding>>,
-    functions: HashMap<&'a str, Signature>,
+    /// Tabela global construída antes da análise; compartilhada, nunca por fluxo.
+    functions: Rc<HashMap<&'a str, Signature<'a>>>,
     return_type: Type,
     loop_depth: usize,
-    classes: HashMap<u32, ClassInfo<'a>>,
+    /// Tabela global construída antes da análise; compartilhada, nunca por fluxo.
+    classes: Rc<HashMap<u32, ClassInfo<'a>>>,
+    /// Variáveis de topo ordenadas por nome; vazia sem declaração alguma.
+    globals: Rc<Vec<StaticInfo<'a>>>,
     current_class: Option<u32>,
     in_field_initializer: bool,
-    extensions: Vec<ExtensionInfo<'a>>,
+    /// Tabela global construída antes da análise; compartilhada, nunca por fluxo.
+    extensions: Rc<Vec<ExtensionInfo<'a>>>,
     current_extension: Option<usize>,
     resolution: Rc<RefCell<Resolution>>,
 }
@@ -89,7 +313,7 @@ struct Validator<'a> {
 /// # Exemplos
 /// ```
 /// use dartforge_syntax::Program;
-/// let programa = Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// let programa = Program { main_is_arrow: false, main_is_async: false, types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert!(dartforge_semantic::validate(&programa).is_ok());
 /// ```
 ///
@@ -111,25 +335,42 @@ pub fn validate(program: &Program<'_>) -> Result<(), Diagnostic> {
 ///
 /// # Exemplos
 /// ```
-/// let programa = dartforge_syntax::Program { types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
+/// let programa = dartforge_syntax::Program { main_is_arrow: false, main_is_async: false, types: vec![], extensions: vec![], classes: vec![], functions: vec![], statements: vec![] };
 /// assert!(dartforge_semantic::analyze(&programa).unwrap().extension_calls.is_empty());
 /// ```
 pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
+    analyze_with_async_library(program, false)
+}
+/// Analisa após o linker verificar a disponibilidade dos nomes de dart:async por biblioteca.
+/// # Erros
+/// Retorna diagnósticos de tipos ou uso de intrínsecos sem a biblioteca habilitada.
+pub fn analyze_with_async_library(
+    program: &Program<'_>,
+    async_library: bool,
+) -> Result<Resolution, Diagnostic> {
     let mut validator = Validator {
+        in_arrow: false,
+        async_library,
+        in_async: false,
+        factory_class: None,
+        cascade_receiver: None,
         in_constructor: false,
         exhaustive_switches: Rc::new(RefCell::new(HashSet::new())),
-        type_parameters: vec![],
+        type_parameters: Rc::new(vec![]),
         switch_depth: 0,
+        catch_depth: 0,
+        labels: Vec::new(),
         captured_writes: Rc::new(collections::captured_writes(program)),
         inferred_returns: None,
         scopes: Vec::new(),
-        functions: HashMap::new(),
+        functions: Rc::new(HashMap::new()),
         return_type: Type::Void,
         loop_depth: 0,
-        classes: HashMap::new(),
+        classes: Rc::new(HashMap::new()),
+        globals: Rc::new(Vec::new()),
         current_class: None,
         in_field_initializer: false,
-        extensions: vec![],
+        extensions: Rc::new(vec![]),
         current_extension: None,
         resolution: Rc::new(RefCell::new(Resolution {
             types: program.types.clone(),
@@ -137,18 +378,38 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         })),
     };
     validator.validate_shapes()?;
-    validator.functions.insert(
+    let main_result = if program.main_is_async {
+        validator.intern(TypeShape::Future(Type::Void))
+    } else {
+        Type::Void
+    };
+    Rc::make_mut(&mut validator.functions).insert(
         "main",
         Signature {
             generic_count: 0,
             bounds: vec![],
             is_getter: false,
             parameters: vec![],
-            result: Type::Void,
+            required_positional: 0,
+            named: vec![],
+            result: main_result,
         },
     );
     let mut class_names = HashSet::new();
+    let mut globals_class = None;
     for class in &program.classes {
+        // A declaração sintética de variáveis de topo não é um tipo nominal:
+        // não entra na tabela de classes nem participa de herança.
+        if class.is_library_globals {
+            if globals_class.is_some() {
+                return Err(Diagnostic::new(
+                    "Duplicate library globals declaration",
+                    class.span,
+                ));
+            }
+            globals_class = Some(class);
+            continue;
+        }
         if class
             .annotations
             .iter()
@@ -171,11 +432,49 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 class.span,
             ));
         }
+        let (constructor_positional, constructor_required, constructor_named) =
+            class.constructor.as_ref().map_or_else(
+                || (Vec::new(), 0, Vec::new()),
+                |constructor| constructor_parts(&constructor.parameters),
+            );
+        let mut named_constructors = class
+            .named_constructors
+            .iter()
+            .map(|declared| {
+                let (parameters, required, named) =
+                    constructor_parts(&declared.constructor.parameters);
+                ConstructorInfo {
+                    name: declared.name,
+                    parameters,
+                    required,
+                    named,
+                    is_const: declared.extras.is_const,
+                }
+            })
+            .collect::<Vec<_>>();
+        named_constructors.sort_unstable_by_key(|declared| declared.name);
+        if named_constructors
+            .windows(2)
+            .any(|pair| pair[0].name == pair[1].name)
+        {
+            return Err(Diagnostic::new(
+                "Duplicate named constructor",
+                class.span,
+            ));
+        }
         let mut info = ClassInfo {
-            constructor_parameters: class
-                .constructor
+            has_generative: class.constructor.is_some() || class.factories.is_empty(),
+            factories: HashMap::new(),
+            constructor_parameters: constructor_positional,
+            constructor_required,
+            constructor_named,
+            constructor_is_const: class
+                .constructor_extras
                 .as_ref()
-                .map_or_else(Vec::new, |c| c.parameters.iter().map(|p| p.ty).collect()),
+                .is_some_and(|extras| extras.is_const),
+            named_constructors,
+            static_fields: Vec::new(),
+            static_methods: Vec::new(),
             modifier: class.modifier,
             kind: class.kind,
             is_mixin_application: class.is_mixin_application,
@@ -233,22 +532,92 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
             if info.fields.contains_key(method.name)
                 || info
                     .methods
-                    .insert(
-                        method.name,
-                        Signature {
-                            generic_count: method.type_parameters.len(),
-                            bounds: method.type_parameters.iter().map(|p| p.bound).collect(),
-                            is_getter: method.is_getter,
-                            parameters: method.parameters.iter().map(|p| p.ty).collect(),
-                            result: method.return_type,
-                        },
-                    )
+                    .insert(method.name, signature_of(method))
                     .is_some()
             {
                 return Err(Diagnostic::new("Duplicate class member", method.span));
             }
         }
-        if validator.classes.insert(class.id, info).is_some() {
+        for factory in &class.factories {
+            if factory.return_type != Type::Class(class.id)
+                || factory.is_getter
+                || !factory.type_parameters.is_empty()
+                || factory.native_binding.is_some()
+                || class.kind != ClassKind::Class
+                || !class.enum_values.is_empty()
+            {
+                return Err(Diagnostic::new(
+                    "Unsupported factory signature",
+                    factory.span,
+                ));
+            }
+            if info.fields.contains_key(factory.name)
+                || info.methods.contains_key(factory.name)
+                || info
+                    .factories
+                    .insert(factory.name, signature_of(factory))
+                    .is_some()
+            {
+                return Err(Diagnostic::new(
+                    "Duplicate factory or conflicting member",
+                    factory.span,
+                ));
+            }
+        }
+        for member in &class.static_fields {
+            if info.fields.contains_key(member.name)
+                || info.methods.contains_key(member.name)
+                || info.factories.contains_key(member.name)
+                || info
+                    .static_fields
+                    .iter()
+                    .any(|existing| existing.name == member.name)
+            {
+                return Err(Diagnostic::new(
+                    "Duplicate static member or conflicting instance member",
+                    member.span,
+                ));
+            }
+            info.static_fields.push(StaticInfo {
+                name: member.name,
+                ty: member.ty,
+                is_final: member.is_final || member.is_const,
+                constant: None,
+            });
+        }
+        for method in &class.static_methods {
+            if info.fields.contains_key(method.name)
+                || info.methods.contains_key(method.name)
+                || info.factories.contains_key(method.name)
+                || info
+                    .static_fields
+                    .iter()
+                    .any(|existing| existing.name == method.name)
+                || info
+                    .static_methods
+                    .iter()
+                    .any(|(name, _)| *name == method.name)
+            {
+                return Err(Diagnostic::new(
+                    "Duplicate static member or conflicting instance member",
+                    method.span,
+                ));
+            }
+            if method.is_getter || !method.type_parameters.is_empty() {
+                return Err(Diagnostic::new(
+                    "Static getters and generic static methods are unsupported",
+                    method.span,
+                ));
+            }
+            info.static_methods.push((method.name, signature_of(method)));
+        }
+        info.static_fields
+            .sort_unstable_by_key(|member| member.name);
+        info.static_methods.sort_unstable_by_key(|(name, _)| *name);
+        if Rc::make_mut(&mut validator.classes)
+            .insert(class.id, info)
+            .is_some()
+        {
             return Err(Diagnostic::new("Duplicate class ID", class.span));
         }
     }
@@ -266,22 +635,8 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 function.span,
             ));
         }
-        if validator
-            .functions
-            .insert(
-                function.name,
-                Signature {
-                    generic_count: function.type_parameters.len(),
-                    bounds: function.type_parameters.iter().map(|p| p.bound).collect(),
-                    is_getter: function.is_getter,
-                    parameters: function
-                        .parameters
-                        .iter()
-                        .map(|parameter| parameter.ty)
-                        .collect(),
-                    result: function.return_type,
-                },
-            )
+        if Rc::make_mut(&mut validator.functions)
+            .insert(function.name, signature_of(function))
             .is_some()
         {
             return Err(Diagnostic::new(
@@ -326,36 +681,104 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                 ));
             }
             if methods
-                .insert(
-                    method.name,
-                    (
-                        index,
-                        Signature {
-                            generic_count: method.type_parameters.len(),
-                            bounds: method.type_parameters.iter().map(|p| p.bound).collect(),
-                            is_getter: method.is_getter,
-                            parameters: method.parameters.iter().map(|p| p.ty).collect(),
-                            result: method.return_type,
-                        },
-                    ),
-                )
+                .insert(method.name, (index, signature_of(method)))
                 .is_some()
             {
                 return Err(Diagnostic::new("Duplicate extension method", method.span));
             }
         }
-        validator.extensions.push(ExtensionInfo {
+        Rc::make_mut(&mut validator.extensions).push(ExtensionInfo {
             id: extension.id,
             on_type: extension.on_type,
             methods,
         });
     }
+    if let Some(class) = globals_class {
+        // Os nomes entram primeiro para que qualquer inicializador enxergue toda
+        // a biblioteca; só os valores `const` dependem da ordem escrita.
+        let mut globals: Vec<StaticInfo<'_>> = Vec::with_capacity(class.static_fields.len());
+        for member in &class.static_fields {
+            if validator.functions.contains_key(member.name)
+                || class_names.contains(member.name)
+                || extension_names.contains(member.name)
+                || member.name == "print"
+            {
+                return Err(Diagnostic::new(
+                    format!("Duplicate or reserved top-level name '{}'", member.name),
+                    member.span,
+                ));
+            }
+            if globals.iter().any(|global| global.name == member.name) {
+                return Err(Diagnostic::new(
+                    format!("Duplicate top-level variable '{}'", member.name),
+                    member.span,
+                ));
+            }
+            validator.check_type_name(member.ty, member.span)?;
+            if matches!(member.ty, Type::Void | Type::Null | Type::Inferred) {
+                return Err(Diagnostic::new(
+                    "Unsupported top-level variable type",
+                    member.span,
+                ));
+            }
+            globals.push(StaticInfo {
+                name: member.name,
+                ty: member.ty,
+                is_final: member.is_final || member.is_const,
+                constant: None,
+            });
+        }
+        globals.sort_unstable_by_key(|global| global.name);
+        validator.globals = Rc::new(globals);
+        for member in &class.static_fields {
+            validator.validate_static_initializer(member)?;
+            if member.is_const {
+                let value = validator.constant_initializer(member)?;
+                let table = Rc::make_mut(&mut validator.globals);
+                let index = table
+                    .binary_search_by(|global| global.name.cmp(member.name))
+                    .expect("variável de topo registrada antes da avaliação");
+                table[index].constant = Some(Rc::new(value));
+            }
+        }
+    }
+    for class in &program.classes {
+        if class.is_library_globals {
+            continue;
+        }
+        for member in &class.static_fields {
+            validator.validate_static_initializer(member)?;
+            if member.is_const {
+                let value = validator.constant_initializer(member)?;
+                let info = Rc::make_mut(&mut validator.classes)
+                    .get_mut(&class.id)
+                    .expect("classe registrada antes da avaliação de estáticos");
+                let index = info
+                    .static_fields
+                    .binary_search_by(|field| field.name.cmp(member.name))
+                    .expect("campo estático registrado antes da avaliação");
+                info.static_fields[index].constant = Some(Rc::new(value));
+            }
+        }
+        for method in &class.static_methods {
+            validator.function(method)?;
+        }
+    }
     for function in &program.functions {
         validator.function(function)?;
     }
-    validator.type_parameters.clear();
+    validator.type_parameters = Rc::new(Vec::new());
     for class in &program.classes {
+        if class.is_library_globals {
+            continue;
+        }
         validator.validate_enum(class)?;
+        validator.current_class = None;
+        for factory in &class.factories {
+            validator.factory_class = Some(class.id);
+            validator.function(factory)?;
+            validator.factory_class = None;
+        }
         validator.current_class = Some(class.id);
         validator.validate_constructor_fields(class)?;
         validator.current_class = None;
@@ -404,12 +827,16 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
                     ));
                 }
                 if let Some(base) = validator.method(parent, method.name) {
-                    if base.parameters.len() != method.parameters.len() {
-                        return Err(Diagnostic::new("Incompatible override arity", method.span));
-                    }
-                    for (expected, actual) in base.parameters.iter().zip(&method.parameters) {
-                        validator.require_type(*expected, actual.ty, actual.span)?;
-                    }
+                    let actual = validator.classes[&class.id]
+                        .methods
+                        .get(method.name)
+                        .expect("método próprio registrado na tabela da classe");
+                    validator.compatible_parameters(
+                        actual,
+                        base,
+                        method.span,
+                        "Incompatible override arity",
+                    )?;
                     if base.result != Type::Void {
                         validator.require_type(method.return_type, base.result, method.span)?;
                     }
@@ -428,6 +855,9 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         }
     }
     for class in &program.classes {
+        if class.is_library_globals {
+            continue;
+        }
         validator.current_class = Some(class.id);
         for method in &class.abstract_methods {
             if class
@@ -463,9 +893,13 @@ pub fn analyze(program: &Program<'_>) -> Result<Resolution, Diagnostic> {
         validator.current_class = None;
         validator.current_extension = None;
     }
-    validator.type_parameters.clear();
+    validator.type_parameters = Rc::new(Vec::new());
     validator.return_type = Type::Void;
+    validator.in_async = program.main_is_async;
+    validator.in_arrow = program.main_is_arrow;
     validator.loop_depth = 0;
+    validator.labels.clear();
+    validator.catch_depth = 0;
     validator.block(&program.statements)?;
     let resolution = std::mem::take(&mut *validator.resolution.borrow_mut());
     Ok(resolution)
@@ -474,6 +908,9 @@ impl<'a> Validator<'a> {
     /// Valida arestas nominais antes de qualquer busca recursiva de membros.
     fn validate_class_graph(&self, program: &Program<'a>) -> Result<(), Diagnostic> {
         for class in &program.classes {
+            if class.is_library_globals {
+                continue;
+            }
             let mut active = HashSet::new();
             let mut finished = HashSet::new();
             let mut stack = vec![(class.id, false)];
@@ -585,8 +1022,138 @@ impl<'a> Validator<'a> {
         }
         seen
     }
+    /// Confere os argumentos nomeados de uma chamada contra a assinatura.
+    ///
+    /// As listas são pequenas e percorridas na ordem escrita: duplicatas
+    /// comparam-se com os rótulos já vistos e a ausência de um obrigatório
+    /// varre a lista ordenada da assinatura. Nenhuma tabela é construída.
+    fn check_named_arguments(
+        &self,
+        arguments: &[Expr<'a>],
+        named: &[NamedParameter<'a>],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        for (index, argument) in arguments.iter().enumerate() {
+            let ExprKind::NamedArgument { label, value } = &argument.kind else {
+                return Err(Diagnostic::new(
+                    "Positional arguments must precede named arguments",
+                    argument.span,
+                ));
+            };
+            if arguments[..index].iter().any(|previous| {
+                matches!(&previous.kind, ExprKind::NamedArgument { label: seen, .. } if seen == label)
+            }) {
+                return Err(Diagnostic::new(
+                    format!("Duplicate named argument '{label}'"),
+                    argument.span,
+                ));
+            }
+            let Ok(position) = named.binary_search_by(|candidate| candidate.label.cmp(label))
+            else {
+                return Err(Diagnostic::new(
+                    format!("Unknown named argument '{label}'"),
+                    argument.span,
+                ));
+            };
+            let expected = named[position].ty;
+            self.require_type(
+                self.value_expected(value, Some(expected))?,
+                expected,
+                value.span,
+            )?;
+        }
+        for parameter in named.iter().filter(|parameter| parameter.is_required) {
+            if !arguments.iter().any(|argument| {
+                matches!(&argument.kind, ExprKind::NamedArgument { label, .. } if *label == parameter.label)
+            }) {
+                return Err(Diagnostic::new(
+                    format!("Missing required named argument '{}'", parameter.label),
+                    span,
+                ));
+            }
+        }
+        Ok(())
+    }
+    /// Confere posicionais e nomeados de uma chamada contra a forma compacta.
+    ///
+    /// `arity` só é consultado no caminho de erro, para que cada forma de
+    /// chamada preserve sua própria mensagem de contagem de argumentos.
+    fn check_call_arguments(
+        &self,
+        arguments: &[Expr<'a>],
+        positional: &[Type],
+        required_positional: usize,
+        named: &[NamedParameter<'a>],
+        span: Span,
+        arity: impl Fn(usize) -> Diagnostic,
+    ) -> Result<(), Diagnostic> {
+        let (written, labelled) = split_arguments(arguments, span)?;
+        if written.len() < required_positional || written.len() > positional.len() {
+            return Err(arity(written.len()));
+        }
+        for (argument, expected) in written.iter().zip(positional) {
+            self.require_type(
+                self.value_expected(argument, Some(*expected))?,
+                *expected,
+                argument.span,
+            )?;
+        }
+        self.check_named_arguments(labelled, named, span)
+    }
+    /// Exige que a assinatura aceite toda chamada válida para o contrato herdado.
+    ///
+    /// Posicionais são contravariantes; obrigatoriedade só pode afrouxar. Um
+    /// nomeado do contrato não pode desaparecer nem passar a ser obrigatório.
+    fn compatible_parameters(
+        &self,
+        actual: &Signature<'a>,
+        expected: &Signature<'a>,
+        span: Span,
+        arity: &str,
+    ) -> Result<(), Diagnostic> {
+        if actual.required_positional > expected.required_positional
+            || actual.parameters.len() < expected.parameters.len()
+        {
+            return Err(Diagnostic::new(arity, span));
+        }
+        for (&expected_ty, &actual_ty) in expected.parameters.iter().zip(&actual.parameters) {
+            self.require_type(expected_ty, actual_ty, span)?;
+        }
+        for parameter in &expected.named {
+            let Some(overridden) = actual.named(parameter.label) else {
+                return Err(Diagnostic::new(
+                    if parameter.is_required {
+                        format!(
+                            "Override drops required named parameter '{}'",
+                            parameter.label
+                        )
+                    } else {
+                        format!("Override drops named parameter '{}'", parameter.label)
+                    },
+                    span,
+                ));
+            };
+            self.require_type(parameter.ty, overridden.ty, span)?;
+        }
+        for parameter in &actual.named {
+            if parameter.is_required
+                && !expected
+                    .named(parameter.label)
+                    .is_some_and(|base| base.is_required)
+            {
+                return Err(Diagnostic::new(
+                    format!(
+                        "Override adds required named parameter '{}'",
+                        parameter.label
+                    ),
+                    span,
+                ));
+            }
+        }
+        Ok(())
+    }
     /// Procura apenas corpos concretos herdados via extends, ignorando redeclarações abstratas.
-    fn implementation(&self, id: u32, name: &str) -> Option<&Signature> {
+    fn implementation(&self, id: u32, name: &str) -> Option<&Signature<'a>> {
         let class = self.classes.get(&id)?;
         if !class.abstract_methods.contains(name)
             && let Some(method) = class.methods.get(name)
@@ -600,8 +1167,8 @@ impl<'a> Validator<'a> {
     /// Exige parâmetros contravariantes e retorno covariante; void aceita resultado descartado.
     fn compatible_signature(
         &self,
-        actual: &Signature,
-        expected: &Signature,
+        actual: &Signature<'a>,
+        expected: &Signature<'a>,
         span: Span,
     ) -> Result<(), Diagnostic> {
         if actual.is_getter != expected.is_getter {
@@ -610,12 +1177,7 @@ impl<'a> Validator<'a> {
                 span,
             ));
         }
-        if actual.parameters.len() != expected.parameters.len() {
-            return Err(Diagnostic::new("Incompatible method contract arity", span));
-        }
-        for (&actual, &expected) in actual.parameters.iter().zip(&expected.parameters) {
-            self.require_type(expected, actual, span)?;
-        }
+        self.compatible_parameters(actual, expected, span, "Incompatible method contract arity")?;
         if expected.result != Type::Void {
             self.require_type(actual.result, expected.result, span)?;
         }
@@ -624,7 +1186,7 @@ impl<'a> Validator<'a> {
     /// Confere todos os contratos, inclusive requisitos transitivos de interfaces.
     fn validate_contracts(&self, id: u32, span: Span) -> Result<(), Diagnostic> {
         let class = &self.classes[&id];
-        let mut required = std::collections::BTreeMap::<&str, Vec<&Signature>>::new();
+        let mut required = std::collections::BTreeMap::<&str, Vec<&Signature<'a>>>::new();
         let mut ids = self.ancestors(id).into_iter().collect::<Vec<_>>();
         ids.sort_unstable();
         for ancestor in ids {
@@ -672,6 +1234,7 @@ impl<'a> Validator<'a> {
             ));
         }
         self.check_type_name(function.return_type, function.span)?;
+        self.validate_parameters(&function.parameters, None)?;
         let mut names = HashSet::new();
         for p in &function.parameters {
             self.check_type_name(p.ty, p.span)?;
@@ -684,18 +1247,133 @@ impl<'a> Validator<'a> {
         }
         Ok(())
     }
+    /// Valida a forma e o valor padrão de um parâmetro isolado.
+    ///
+    /// O padrão precisa ser uma expressão constante escalar: listas const são
+    /// canônicas em Dart e a emissão JavaScript recriaria o valor por chamada.
+    fn validate_parameter_default(
+        &self,
+        kind: ParameterKind,
+        ty: Type,
+        default: Option<&Expr<'a>>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match (kind, default) {
+            (ParameterKind::RequiredPositional, Some(_)) => {
+                return Err(Diagnostic::new(
+                    "Only optional or named parameters accept a default value",
+                    span,
+                ));
+            }
+            (ParameterKind::Named { required: true }, Some(_)) => {
+                return Err(Diagnostic::new(
+                    "A required named parameter cannot have a default value",
+                    span,
+                ));
+            }
+            (ParameterKind::OptionalPositional, None) if !self.may_be_null(ty) => {
+                return Err(Diagnostic::new(
+                    "Optional positional parameter requires a default value or a nullable type",
+                    span,
+                ));
+            }
+            (ParameterKind::Named { required: false }, None) if !self.may_be_null(ty) => {
+                return Err(Diagnostic::new(
+                    "Optional named parameter requires a default value or a nullable type",
+                    span,
+                ));
+            }
+            _ => {}
+        }
+        let Some(default) = default else {
+            return Ok(());
+        };
+        // O avaliador de constantes decide se a expressão é constante; nenhum
+        // binding local é visível na posição de um parâmetro.
+        let value = constants::evaluate(default, &self.resolution.borrow(), &|_| None)?;
+        // O linker não reescreve o span de um padrão, então o valor não pode
+        // depender de tabela indexada por span: só literais escalares passam,
+        // e a emissão os escreve diretamente.
+        if !is_scalar_literal(default) {
+            return Err(Diagnostic::new(
+                "A default value must be a literal scalar constant",
+                default.span,
+            ));
+        }
+        let actual = match value {
+            ConstValue::Int(_) => Type::Int,
+            ConstValue::String(_) => Type::String,
+            ConstValue::Bool(_) => Type::Bool,
+            // `is_scalar_literal` já rejeitou enum e lista; resta apenas null.
+            _ => Type::Null,
+        };
+        self.require_type(actual, ty, default.span)
+    }
+    /// Valida grupos, rótulos e padrões da lista de parâmetros de uma função.
+    ///
+    /// `positional_only` recebe a mensagem do contexto que ainda não emite
+    /// prólogo de opcionais; None aceita as três formas de passagem.
+    fn validate_parameters(
+        &self,
+        parameters: &[dartforge_syntax::Parameter<'a>],
+        positional_only: Option<&str>,
+    ) -> Result<(), Diagnostic> {
+        for (index, parameter) in parameters.iter().enumerate() {
+            if parameter.kind == ParameterKind::RequiredPositional {
+                // Caminho comum: só resta rejeitar um padrão sem grupo opcional.
+                if parameter.default.is_some() {
+                    return Err(Diagnostic::new(
+                        "Only optional or named parameters accept a default value",
+                        parameter.span,
+                    ));
+                }
+                continue;
+            }
+            if let Some(reason) = positional_only {
+                return Err(Diagnostic::new(reason, parameter.span));
+            }
+            if parameter.kind.is_named() && parameter.name.starts_with('_') {
+                return Err(Diagnostic::new(
+                    "A named parameter accepts a private name only as an initializing formal",
+                    parameter.span,
+                ));
+            }
+            if parameter.kind.is_named()
+                && parameters[..index].iter().any(|previous| {
+                    previous.kind.is_named() && previous.label() == parameter.label()
+                })
+            {
+                return Err(Diagnostic::new(
+                    format!("Duplicate named parameter '{}'", parameter.label()),
+                    parameter.span,
+                ));
+            }
+            self.validate_parameter_default(
+                parameter.kind,
+                parameter.ty,
+                parameter.default.as_deref(),
+                parameter.span,
+            )?;
+        }
+        Ok(())
+    }
     /// Detecta membros que ocultariam uma referência global sem receptor explícito.
     fn has_implicit_member(&self, name: &str) -> bool {
-        self.current_extension
-            .is_some_and(|index| self.extensions[index].methods.contains_key(name))
+        self.factory_class
+            .is_some_and(|id| self.field(id, name).is_some() || self.method(id, name).is_some())
+            || self
+                .current_extension
+                .is_some_and(|index| self.extensions[index].methods.contains_key(name))
             || self
                 .current_class
                 .is_some_and(|id| self.field(id, name).is_some() || self.method(id, name).is_some())
     }
     /// Valida uma função ou método com parâmetros mutáveis em escopo externo ao corpo.
     fn function(&mut self, function: &dartforge_syntax::Function<'a>) -> Result<(), Diagnostic> {
+        self.in_arrow = function.is_arrow;
+        self.in_async = function.is_async;
         self.in_constructor = false;
-        self.type_parameters = function.type_parameters.clone();
+        self.type_parameters = Rc::new(function.type_parameters.clone());
         if function
             .type_parameters
             .iter()
@@ -724,6 +1402,18 @@ impl<'a> Validator<'a> {
             ));
         }
         self.check_type_name(function.return_type, function.span)?;
+        self.validate_parameters(
+            &function.parameters,
+            if self.current_extension.is_some() {
+                Some("Extension methods support only required positional parameters")
+            } else if !function.type_parameters.is_empty() {
+                Some("Generic functions support only required positional parameters")
+            } else if function.native_binding.is_some() {
+                Some("@Native functions support only required positional parameters")
+            } else {
+                None
+            },
+        )?;
         let mut parameters = HashMap::new();
         for parameter in &function.parameters {
             self.check_type_name(parameter.ty, parameter.span)?;
@@ -732,6 +1422,10 @@ impl<'a> Validator<'a> {
                     "Void parameters are unsupported",
                     parameter.span,
                 ));
+            }
+            if is_wildcard(parameter.name) {
+                // Dart 3.7: parâmetros `_` não declaram nome e podem repetir.
+                continue;
             }
             if parameters
                 .insert(
@@ -764,16 +1458,28 @@ impl<'a> Validator<'a> {
             ));
         }
         if function.native_binding.is_some() {
+            if function.is_async {
+                return Err(Diagnostic::new(
+                    "Native functions cannot be async",
+                    function.span,
+                ));
+            }
             return self.validate_native(function);
         }
         self.scopes.push(parameters);
-        self.return_type = function.return_type;
+        self.return_type = if function.is_async {
+            self.async_result(function.return_type, function.span)?
+        } else {
+            function.return_type
+        };
         self.loop_depth = 0;
+        self.labels.clear();
+        self.catch_depth = 0;
         self.block(&function.body)?;
         self.scopes.pop();
-        if function.return_type != Type::Void
+        if self.return_type != Type::Void
             && self
-                .require_type(Type::Null, function.return_type, function.span)
+                .require_type(Type::Null, self.return_type, function.span)
                 .is_err()
             && !self.returns(&function.body)
         {
@@ -785,6 +1491,8 @@ impl<'a> Validator<'a> {
                 function.span,
             ));
         }
+        self.in_async = false;
+        self.in_arrow = false;
         Ok(())
     }
     /// Procura um campo na classe nominal e em suas bases já verificadas.
@@ -810,7 +1518,7 @@ impl<'a> Validator<'a> {
             .or_else(|| class.superclass.and_then(|base| self.field(base, name)))
     }
     /// Procura assinatura nominal sem revisitar caminhos compartilhados de interfaces.
-    fn method(&self, id: u32, name: &str) -> Option<&Signature> {
+    fn method(&self, id: u32, name: &str) -> Option<&Signature<'a>> {
         let mut stack = vec![id];
         let mut visited = HashSet::new();
         while let Some(id) = stack.pop() {
@@ -882,6 +1590,24 @@ impl<'a> Validator<'a> {
                 "Member access requires a non-null class instance",
                 receiver.span,
             )),
+        }
+    }
+    /// Rejeita interpolar valores sem `toString` representável no subconjunto.
+    ///
+    /// O conjunto é o mesmo de `print`: int, String, bool, Null e as coleções e
+    /// records cujos elementos também são representáveis. Instâncias de classe,
+    /// enums, funções, Future, Duration e Timer ficam de fora porque o
+    /// subconjunto ainda não tem o protocolo `toString` do Dart — emitir
+    /// qualquer coisa para eles produziria texto diferente do Dart 3.6.2.
+    fn interpolable(&self, expression: &Expr<'a>) -> Result<(), Diagnostic> {
+        let ty = self.value(expression)?;
+        if self.printable_type(ty) {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
+                "String interpolation requires unsupported toString semantics for this value",
+                expression.span,
+            ))
         }
     }
     /// Rejeita impressão de objetos até existir o protocolo Dart de toString.
@@ -962,6 +1688,7 @@ impl<'a> Validator<'a> {
                 is_const,
                 ..
             } = statement.kind
+                && !is_wildcard(name)
                 && scope
                     .insert(
                         name,
@@ -1027,6 +1754,10 @@ impl<'a> Validator<'a> {
                 } else {
                     None
                 };
+                if is_wildcard(name) {
+                    // Dart 3.7: `_` avalia o inicializador e descarta a ligação.
+                    return Ok(());
+                }
                 let binding = self
                     .scopes
                     .last_mut()
@@ -1060,6 +1791,7 @@ impl<'a> Validator<'a> {
                 )
             }
             StatementKind::Assign { name, value } => {
+                self.reject_factory_instance(name, statement.span)?;
                 if self.lookup(name).is_none()
                     && let Some(id) = self.current_class
                     && let Some(field) = self.field(id, name)
@@ -1074,6 +1806,24 @@ impl<'a> Validator<'a> {
                     return self.require_type(
                         self.value_expected(value, Some(field.ty))?,
                         field.ty,
+                        value.span,
+                    );
+                }
+                if self.lookup(name).is_none()
+                    && !self.has_implicit_member(name)
+                    && let Some(global) = self.global(name)
+                {
+                    let (ty, is_final) = (global.ty, global.is_final);
+                    if is_final {
+                        return Err(Diagnostic::new(
+                            format!("Cannot assign to final top-level variable '{name}'"),
+                            statement.span,
+                        ));
+                    }
+                    self.global_access(statement.span);
+                    return self.require_type(
+                        self.value_expected(value, Some(ty))?,
+                        ty,
                         value.span,
                     );
                 }
@@ -1122,6 +1872,18 @@ impl<'a> Validator<'a> {
                 value,
             } => {
                 let ty = self.upper_bound(self.value(receiver)?);
+                if let Some(TypeShape::Map {
+                    key,
+                    value: element,
+                }) = self.shape(ty)
+                {
+                    self.require_type(self.value(index)?, key, index.span)?;
+                    return self.require_type(
+                        self.value_expected(value, Some(element))?,
+                        element,
+                        value.span,
+                    );
+                }
                 let Some(TypeShape::List(element)) = self.shape(ty) else {
                     return Err(Diagnostic::new(
                         "Index assignment requires a List",
@@ -1152,6 +1914,24 @@ impl<'a> Validator<'a> {
                 } else {
                     Type::Void
                 };
+                let ty = if self.in_async
+                    && self.return_type != Type::Void
+                    && self
+                        .require_type(ty, self.return_type, statement.span)
+                        .is_err()
+                {
+                    self.await_type(ty)
+                } else {
+                    ty
+                };
+                let ty = if self.in_async
+                    && self.return_type == Type::Void
+                    && matches!(self.shape(ty), Some(TypeShape::Future(Type::Void)))
+                {
+                    Type::Void
+                } else {
+                    ty
+                };
                 self.inferred_returns
                     .as_ref()
                     .expect("inferência ativa")
@@ -1160,6 +1940,9 @@ impl<'a> Validator<'a> {
                 Ok(())
             }
             StatementKind::Return(value) => match (self.return_type, value) {
+                (expected, Some(expression)) if self.in_async => {
+                    self.async_return(expression, expected)
+                }
                 (Type::Void, None) => Ok(()),
                 (Type::Void, Some(expression)) => {
                     self.require_type(self.expression(expression)?, Type::Void, expression.span)
@@ -1242,6 +2025,60 @@ impl<'a> Validator<'a> {
                     Ok(())
                 }
             }
+            StatementKind::BreakLabel(label) | StatementKind::ContinueLabel(label) => {
+                if self.labels.contains(label) {
+                    Ok(())
+                } else {
+                    Err(Diagnostic::new(
+                        format!("Unknown loop label '{label}'"),
+                        statement.span,
+                    ))
+                }
+            }
+            StatementKind::Labeled { label, body } => {
+                if self.labels.contains(label) {
+                    return Err(Diagnostic::new(
+                        format!("Duplicate loop label '{label}'"),
+                        statement.span,
+                    ));
+                }
+                self.labels.push(label);
+                let result = self.statement(body);
+                self.labels.pop();
+                result
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => self.try_statement(body, catches, finally_body.as_ref()),
+            StatementKind::Rethrow => {
+                if self.catch_depth == 0 {
+                    Err(Diagnostic::new(
+                        "rethrow requires an enclosing catch clause",
+                        statement.span,
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            StatementKind::Assert { condition, message } => {
+                self.assert_statement(condition, message.as_ref())
+            }
+            StatementKind::ForIn {
+                is_final,
+                name,
+                annotation,
+                iterable,
+                body,
+            } => self.for_in(
+                name,
+                *annotation,
+                *is_final,
+                iterable,
+                body,
+                statement.span,
+            ),
             StatementKind::Block(statements) => self.block(statements),
         }
     }
@@ -1295,6 +2132,7 @@ impl<'a> Validator<'a> {
                 },
             ..
         }) = initializer
+            && !is_wildcard(name)
         {
             scope.insert(
                 *name,
@@ -1425,7 +2263,24 @@ impl<'a> Validator<'a> {
                 }
                 StatementKind::Block(body)
                 | StatementKind::While { body, .. }
-                | StatementKind::DoWhile { body, .. } => self.invalidate_writes(body),
+                | StatementKind::DoWhile { body, .. }
+                | StatementKind::ForIn { body, .. } => self.invalidate_writes(body),
+                StatementKind::Labeled { body, .. } => {
+                    self.invalidate_writes(std::slice::from_ref(body));
+                }
+                StatementKind::Try {
+                    body,
+                    catches,
+                    finally_body,
+                } => {
+                    self.invalidate_writes(body);
+                    for clause in catches {
+                        self.invalidate_writes(&clause.body);
+                    }
+                    if let Some(body) = finally_body {
+                        self.invalidate_writes(body);
+                    }
+                }
                 StatementKind::If {
                     then_body,
                     else_body,
@@ -1494,6 +2349,13 @@ impl<'a> Validator<'a> {
             Type::String | Type::NullableString => "String",
             Type::Bool | Type::NullableBool => "bool",
             Type::Object | Type::NullableObject => "Object",
+            Type::Duration => "Duration",
+            Type::Timer => {
+                if !self.async_library {
+                    return Err(Diagnostic::new("Timer requires dart:async", span));
+                }
+                "Timer"
+            }
         };
         if self.lookup(name).is_some()
             || self.functions.contains_key(name)
@@ -1528,6 +2390,10 @@ impl<'a> Validator<'a> {
     /// Determina o tipo sem contexto adicional; o wrapper registra o resultado para os backends.
     fn expression_inner(&self, expression: &Expr<'a>) -> Result<Type, Diagnostic> {
         match &expression.kind {
+            ExprKind::NamedArgument { .. } => Err(Diagnostic::new(
+                "A named argument is valid only in an argument list",
+                expression.span,
+            )),
             ExprKind::TypeTest { operand, ty, .. } => {
                 self.value(operand)?;
                 self.runtime_type(*ty, expression.span)?;
@@ -1546,16 +2412,41 @@ impl<'a> Validator<'a> {
             ExprKind::Switch { scrutinee, arms } => {
                 self.switch_expression(scrutinee, arms, expression.span, None)
             }
+            ExprKind::Conditional {
+                condition,
+                then_value,
+                else_value,
+            } => self.conditional(condition, then_value, else_value, None, expression.span),
+            ExprKind::Throw(value) => self.throw_expression(value, None),
             ExprKind::GenericCall {
                 name,
                 type_arguments,
                 arguments,
             } => self.generic_call(name, type_arguments, arguments, expression.span, None),
-            ExprKind::Closure { .. } | ExprKind::List { .. } | ExprKind::Record { .. } => {
+            ExprKind::CascadeReceiver => self.cascade_receiver.ok_or_else(|| {
+                Diagnostic::new("Cascade receiver outside a cascade", expression.span)
+            }),
+            ExprKind::Map { .. }
+            | ExprKind::Cascade { .. }
+            | ExprKind::Closure { .. }
+            | ExprKind::List { .. }
+            | ExprKind::Record { .. } => {
                 unreachable!("expressões contextuais são tratadas no wrapper")
             }
+            ExprKind::DotShorthand { .. } => Err(Diagnostic::new(
+                "Dot shorthand requires a context type in this position",
+                expression.span,
+            )),
+            ExprKind::NullAwareElement(_) => Err(Diagnostic::new(
+                "Null-aware elements are only valid directly inside list or map literals",
+                expression.span,
+            )),
             ExprKind::Index { receiver, index } => {
                 let ty = self.upper_bound(self.value(receiver)?);
+                if let Some(TypeShape::Map { value, .. }) = self.shape(ty) {
+                    self.value(index)?;
+                    return Ok(self.nullable(value));
+                }
                 let Some(TypeShape::List(element)) = self.shape(ty) else {
                     return Err(Diagnostic::new(
                         "Index access requires a List",
@@ -1568,6 +2459,35 @@ impl<'a> Validator<'a> {
             ExprKind::Invoke { callee, arguments } => {
                 let ty = self.value(callee)?;
                 self.invoke(ty, arguments, expression.span)
+            }
+            ExprKind::Await(operand) => {
+                if !self.in_async {
+                    return Err(Diagnostic::new(
+                        "await requires an async body",
+                        expression.span,
+                    ));
+                }
+                Ok(self.await_type(self.expression(operand)?))
+            }
+            ExprKind::FutureValue { value, value_type } => {
+                self.future_value(value.as_deref(), *value_type, expression.span)
+            }
+            ExprKind::FutureDelayed {
+                duration,
+                computation,
+                value_type,
+            } => self.future_delayed(
+                duration,
+                computation.as_deref(),
+                *value_type,
+                expression.span,
+            ),
+            ExprKind::Duration { parts } => {
+                self.check_type_name(Type::Duration, expression.span)?;
+                for (_, part) in parts {
+                    self.require_type(self.value(part)?, Type::Int, part.span)?;
+                }
+                Ok(Type::Duration)
             }
             ExprKind::This => {
                 if self.in_field_initializer {
@@ -1611,6 +2531,7 @@ impl<'a> Validator<'a> {
                     .get(class_id)
                     .ok_or_else(|| Diagnostic::new("Unknown class", expression.span))?;
                 if class.is_abstract
+                    || !class.has_generative
                     || class.kind == ClassKind::Mixin
                     || class.is_mixin_application
                     || !class.enum_values.is_empty()
@@ -1626,23 +2547,50 @@ impl<'a> Validator<'a> {
                         expression.span,
                     ));
                 }
-                if arguments.len() != class.constructor_parameters.len() {
-                    return Err(Diagnostic::new(
-                        "Incorrect constructor argument count",
-                        expression.span,
-                    ));
-                }
-                for (argument, expected) in arguments.iter().zip(&class.constructor_parameters) {
-                    self.require_type(
-                        self.value_expected(argument, Some(*expected))?,
-                        *expected,
-                        argument.span,
-                    )?;
-                }
+                self.check_call_arguments(
+                    arguments,
+                    &class.constructor_parameters,
+                    class.constructor_required,
+                    &class.constructor_named,
+                    expression.span,
+                    |_| Diagnostic::new("Incorrect constructor argument count", expression.span),
+                )?;
                 Ok(Type::Class(*class_id))
             }
+            ExprKind::NamedConstruct {
+                class_id,
+                name,
+                arguments,
+            } => self.factory_call(*class_id, name, arguments, expression.span),
             ExprKind::Member { receiver, name } => {
                 let receiver_type = self.upper_bound(self.value(receiver)?);
+                if receiver_type == Type::Duration {
+                    return match *name {
+                        "inDays" | "inHours" | "inMinutes" | "inSeconds" | "inMilliseconds"
+                        | "inMicroseconds" => Ok(Type::Int),
+                        "isNegative" => Ok(Type::Bool),
+                        _ => Err(Diagnostic::new(
+                            "Unsupported Duration property",
+                            expression.span,
+                        )),
+                    };
+                }
+                if receiver_type == Type::Timer {
+                    return match *name {
+                        "isActive" => Ok(Type::Bool),
+                        "tick" => Ok(Type::Int),
+                        _ => Err(Diagnostic::new(
+                            "Unsupported Timer property",
+                            expression.span,
+                        )),
+                    };
+                }
+                if matches!(self.shape(receiver_type), Some(TypeShape::Map { .. })) {
+                    return match *name {
+                        "length" => Ok(Type::Int),
+                        _ => Err(Diagnostic::new("Unsupported Map property", expression.span)),
+                    };
+                }
                 if matches!(self.shape(receiver_type), Some(TypeShape::Record { .. })) {
                     return self.record_field(receiver_type, name, expression.span);
                 }
@@ -1677,6 +2625,12 @@ impl<'a> Validator<'a> {
                 arguments,
             } => {
                 let receiver_type = self.upper_bound(self.value(receiver)?);
+                if receiver_type == Type::Timer {
+                    if *name == "cancel" && arguments.is_empty() {
+                        return Ok(Type::Void);
+                    }
+                    return Err(Diagnostic::new("Unsupported Timer method", expression.span));
+                }
                 if matches!(self.shape(receiver_type), Some(TypeShape::Record { .. })) {
                     return self.invoke(
                         self.record_field(receiver_type, name, expression.span)?,
@@ -1764,24 +2718,29 @@ impl<'a> Validator<'a> {
                     self.getter(expression.span);
                     return self.invoke(signature.result, arguments, expression.span);
                 }
-                if signature.parameters.len() != arguments.len() {
-                    return Err(Diagnostic::new(
-                        "Incorrect method argument count",
-                        expression.span,
-                    ));
-                }
-                for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                    self.require_type(
-                        self.value_expected(argument, Some(*expected))?,
-                        *expected,
-                        argument.span,
-                    )?;
-                }
+                self.check_call_arguments(
+                    arguments,
+                    &signature.parameters,
+                    signature.required_positional,
+                    &signature.named,
+                    expression.span,
+                    |_| Diagnostic::new("Incorrect method argument count", expression.span),
+                )?;
                 Ok(signature.result)
             }
             ExprKind::Null => Ok(Type::Null),
             ExprKind::Int(_) => Ok(Type::Int),
             ExprKind::String(_) | ExprKind::OwnedString(_) => Ok(Type::String),
+            ExprKind::Interpolation(parts) => {
+                // A ordem da lista é a ordem escrita: analisar aqui já fixa a
+                // ordem de avaliação que o emissor precisa preservar.
+                for part in parts {
+                    if let dartforge_syntax::StringPart::Expression(value) = part {
+                        self.interpolable(value)?;
+                    }
+                }
+                Ok(Type::String)
+            }
             ExprKind::Bool(_) => Ok(Type::Bool),
             ExprKind::Identifier(name) => {
                 if self.lookup(name).is_none()
@@ -1821,10 +2780,30 @@ impl<'a> Validator<'a> {
                             expression.span,
                         ));
                     }
+                    if !signature.named.is_empty()
+                        || signature.required_positional != signature.parameters.len()
+                    {
+                        // O tipo de função do subconjunto só descreve posicionais
+                        // obrigatórios; um tear-off perderia a forma de passagem.
+                        return Err(Diagnostic::new(
+                            "Tear-offs of functions with optional or named parameters are unsupported",
+                            expression.span,
+                        ));
+                    }
                     return Ok(self.intern(TypeShape::Function {
                         result: signature.result,
                         parameters: signature.parameters.clone(),
                     }));
+                }
+                // Locais e membros da instância têm precedência; só depois deles
+                // uma variável de topo entra na resolução.
+                if self.lookup(name).is_none()
+                    && !self.has_implicit_member(name)
+                    && let Some(global) = self.global(name)
+                {
+                    let ty = global.ty;
+                    self.global_access(expression.span);
+                    return Ok(ty);
                 }
                 let binding = self.initialized(name, expression.span)?;
                 Ok(binding
@@ -1833,6 +2812,13 @@ impl<'a> Validator<'a> {
                     .expect("initialized binding"))
             }
             ExprKind::Call { name, arguments } => {
+                if matches!(*name, "Timer" | "scheduleMicrotask")
+                    && self.lookup(name).is_none()
+                    && !self.has_implicit_member(name)
+                    && !self.functions.contains_key(name)
+                {
+                    return self.async_builtin(name, arguments, expression.span);
+                }
                 if self.lookup(name).is_some() {
                     let ty = self
                         .initialized(name, expression.span)?
@@ -1857,19 +2843,19 @@ impl<'a> Validator<'a> {
                                 self.getter(expression.span);
                                 return self.invoke(signature.result, arguments, expression.span);
                             }
-                            if signature.parameters.len() != arguments.len() {
-                                return Err(Diagnostic::new(
-                                    "Incorrect implicit method argument count",
-                                    expression.span,
-                                ));
-                            }
-                            for (arg, expected) in arguments.iter().zip(&signature.parameters) {
-                                self.require_type(
-                                    self.value_expected(arg, Some(*expected))?,
-                                    *expected,
-                                    arg.span,
-                                )?;
-                            }
+                            self.check_call_arguments(
+                                arguments,
+                                &signature.parameters,
+                                signature.required_positional,
+                                &signature.named,
+                                expression.span,
+                                |_| {
+                                    Diagnostic::new(
+                                        "Incorrect implicit method argument count",
+                                        expression.span,
+                                    )
+                                },
+                            )?;
                             return Ok(signature.result);
                         }
                     }
@@ -1891,23 +2877,27 @@ impl<'a> Validator<'a> {
                 let signature = self.functions.get(name).ok_or_else(|| {
                     Diagnostic::new(format!("Unknown function '{name}'"), expression.span)
                 })?;
-                if arguments.len() != signature.parameters.len() {
-                    return Err(Diagnostic::new(
-                        format!(
-                            "Function '{name}' expects {} arguments, received {}",
-                            signature.parameters.len(),
-                            arguments.len()
-                        ),
-                        expression.span,
-                    ));
-                }
-                for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                    self.require_type(
-                        self.value_expected(argument, Some(*expected))?,
-                        *expected,
-                        argument.span,
-                    )?;
-                }
+                self.check_call_arguments(
+                    arguments,
+                    &signature.parameters,
+                    signature.required_positional,
+                    &signature.named,
+                    expression.span,
+                    |written| {
+                        // Aridades exata e mínima coincidem quando não há opcionais.
+                        let expected = if written < signature.required_positional {
+                            signature.required_positional
+                        } else {
+                            signature.parameters.len()
+                        };
+                        Diagnostic::new(
+                            format!(
+                                "Function '{name}' expects {expected} arguments, received {written}"
+                            ),
+                            expression.span,
+                        )
+                    },
+                )?;
                 Ok(signature.result)
             }
             ExprKind::Unary { op, operand } => {
@@ -1946,6 +2936,9 @@ impl<'a> Validator<'a> {
                     self.value(right)?
                 };
                 match op {
+                    // `a ?? (throw e)` nunca produz o valor do lado direito:
+                    // o tipo do resultado é o do lado esquerdo sem null.
+                    BinaryOp::IfNull if fluxo::is_throw(right) => Ok(self.without_null(lhs)),
                     BinaryOp::IfNull => {
                         if matches!(lhs, Type::Parameter(_)) {
                             return Err(Diagnostic::new(
@@ -2008,6 +3001,13 @@ impl<'a> Validator<'a> {
     }
 }
 /// Identifica os tipos primitivos que admitem null.
+/// Identifica o curinga `_`, que a partir do Dart 3.7 não declara ligação alguma.
+///
+/// Campos, membros e declarações de topo chamados `_` continuam sendo nomes
+/// comuns; esta função só é consultada em locais, parâmetros e padrões.
+pub(crate) fn is_wildcard(name: &str) -> bool {
+    name == "_"
+}
 fn is_nullable(ty: Type) -> bool {
     matches!(
         ty,
@@ -2082,6 +3082,8 @@ mod tests {
     /// Valida um corpo de main sem funções auxiliares.
     fn check(statements: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -2109,6 +3111,8 @@ mod tests {
         body: Vec<Statement<'static>>,
     ) -> dartforge_syntax::Function<'static> {
         dartforge_syntax::Function {
+            is_arrow: false,
+            is_async: false,
             annotations: vec![],
             native_binding: None,
             type_parameters: vec![],
@@ -2117,11 +3121,7 @@ mod tests {
             return_type: result,
             parameters: parameters
                 .into_iter()
-                .map(|(name, ty)| dartforge_syntax::Parameter {
-                    name,
-                    ty,
-                    span: SPAN,
-                })
+                .map(|(name, ty)| dartforge_syntax::Parameter::required(name, ty, SPAN))
                 .collect(),
             body,
             span: SPAN,
@@ -2159,6 +3159,8 @@ mod tests {
         let mut ext = extension(7, "Numbers", Type::Int);
         ext.methods[0].body = vec![ret(binary(BinaryOp::Add, expr(ExprKind::This), int()))];
         let program = Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![ext],
             classes: vec![],
@@ -2171,6 +3173,8 @@ mod tests {
             7
         );
         let program = Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![extension(7, "Numbers", Type::Int)],
             classes: vec![],
@@ -2184,6 +3188,8 @@ mod tests {
     fn extensions_require_unique_applicable_nonnullable_receiver() {
         assert!(
             analyze(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![extension(0, "A", Type::Int), extension(1, "B", Type::Int)],
                 classes: vec![],
@@ -2200,6 +3206,8 @@ mod tests {
         );
         assert!(
             analyze(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![extension(0, "A", Type::Int)],
                 classes: vec![],
@@ -2220,6 +3228,8 @@ mod tests {
         );
         assert_eq!(
             analyze(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![extension(0, "A", Type::Int)],
                 classes: vec![],
@@ -2240,6 +3250,8 @@ mod tests {
             .push(function("value", Type::Int, vec![], vec![ret(int())]));
         assert!(
             analyze(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![extension(0, "E", Type::Class(0))],
                 classes: vec![c],
@@ -2257,6 +3269,8 @@ mod tests {
         c.fields.push(field("value", false));
         assert!(
             analyze(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![extension(0, "E", Type::Class(0))],
                 classes: vec![c],
@@ -2278,6 +3292,8 @@ mod tests {
             (Some(Type::NullableClass(0)), 0),
         ] {
             let program = Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![
                     extension(0, "EA", Type::Class(0)),
@@ -2309,6 +3325,8 @@ mod tests {
             .push(function("onlyChild", Type::Int, vec![], vec![ret(int())]));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "A", None), b],
@@ -2342,6 +3360,7 @@ mod tests {
     ) -> dartforge_syntax::Class<'static> {
         dartforge_syntax::Class {
             constructor: None,
+            factories: vec![],
             annotations: vec![],
             modifier: ClassModifier::None,
             kind: ClassKind::Class,
@@ -2398,6 +3417,8 @@ mod tests {
             .push(function("get", Type::Int, vec![], vec![ret(int())]));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
@@ -2429,6 +3450,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "Base", None), class(1, "Child", Some(0))],
@@ -2457,6 +3480,8 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    main_is_arrow: false,
+                    main_is_async: false,
                     types: vec![],
                     extensions: vec![],
                     classes,
@@ -2478,6 +3503,8 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
@@ -2492,6 +3519,8 @@ mod tests {
         child.fields.push(field("x", false));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
@@ -2513,6 +3542,8 @@ mod tests {
             .push(function("f", Type::Void, vec![("x", Type::Int)], vec![]));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![base, child],
@@ -2530,6 +3561,8 @@ mod tests {
         c.fields.push(field("x", true));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
@@ -2553,6 +3586,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "A", None)],
@@ -2566,6 +3601,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "A", None)],
@@ -2593,6 +3630,8 @@ mod tests {
         });
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
@@ -2616,6 +3655,8 @@ mod tests {
         });
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
@@ -2637,6 +3678,8 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![class(0, "C", None), a],
@@ -2656,6 +3699,8 @@ mod tests {
         ));
         assert!(
             analyze(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
@@ -2691,6 +3736,8 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![base, child, a, b],
@@ -2717,6 +3764,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
@@ -2753,6 +3802,8 @@ mod tests {
         ));
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![c],
@@ -2769,6 +3820,8 @@ mod tests {
     /// Valida um corpo com um parâmetro inteiro anulável.
     fn nullable_body(body: Vec<Statement<'static>>) -> Result<(), Diagnostic> {
         validate(&Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -2962,6 +4015,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -2980,6 +4035,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3055,6 +4112,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3229,6 +4288,8 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    main_is_arrow: false,
+                    main_is_async: false,
                     types: vec![],
                     extensions: vec![],
                     classes: vec![],
@@ -3240,6 +4301,8 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3264,6 +4327,8 @@ mod tests {
     /// Verifica referências antecipadas, recursão e parâmetros mutáveis.
     fn forward_calls_recursion_and_mutable_parameters() {
         let program = Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: vec![],
@@ -3301,6 +4366,8 @@ mod tests {
         for arguments in [vec![], vec![int(), int()], vec![expr(ExprKind::Bool(true))]] {
             assert!(
                 validate(&Program {
+                    main_is_arrow: false,
+                    main_is_async: false,
                     types: vec![],
                     extensions: vec![],
                     classes: vec![],
@@ -3340,6 +4407,8 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    main_is_arrow: false,
+                    main_is_async: false,
                     types: vec![],
                     extensions: vec![],
                     classes: vec![],
@@ -3351,6 +4420,8 @@ mod tests {
         }
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3408,6 +4479,8 @@ mod tests {
         ] {
             assert!(
                 validate(&Program {
+                    main_is_arrow: false,
+                    main_is_async: false,
                     types: vec![],
                     extensions: vec![],
                     classes: vec![],
@@ -3423,6 +4496,8 @@ mod tests {
     fn parameters_shadow_body_types_but_not_signature_types() {
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3438,6 +4513,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3453,6 +4530,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3632,6 +4711,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3670,6 +4751,8 @@ mod tests {
         );
         assert!(
             validate(&Program {
+                main_is_arrow: false,
+                main_is_async: false,
                 types: vec![],
                 extensions: vec![],
                 classes: vec![],
@@ -3767,6 +4850,7 @@ mod tests {
                 | Type::NullableParameter(_)
                 | Type::Object
                 | Type::NullableObject => unreachable!(),
+                Type::Duration | Type::Timer => unreachable!(),
                 Type::Void
                 | Type::Null
                 | Type::NullableInt

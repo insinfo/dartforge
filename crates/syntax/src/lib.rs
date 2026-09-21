@@ -7,6 +7,34 @@ pub enum TokenKind<'a> {
     String(&'a str),
     /// Conteúdo de uma string raw, sem interpretação de escapes.
     RawString(&'a str),
+    /// String de aspas triplas sem interpolação; `raw` preserva barras invertidas.
+    ///
+    /// A primeira linha em branco já foi descartada pelo lexer; a normalização de
+    /// CR e CRLF para LF fica com o parser, que só aloca quando é necessária.
+    MultilineString {
+        text: &'a str,
+        raw: bool,
+    },
+    /// Abre uma string interpolada com o literal anterior à primeira expressão.
+    StringStart {
+        text: &'a str,
+        multiline: bool,
+    },
+    /// Fecha uma interpolação e carrega o literal até a próxima expressão.
+    StringMid {
+        text: &'a str,
+        multiline: bool,
+    },
+    /// Fecha a última interpolação e carrega o literal final do literal.
+    StringEnd {
+        text: &'a str,
+        multiline: bool,
+    },
+    /// Identificador da forma `$nome`, que nunca continua em acesso a membro.
+    ///
+    /// Distingue `'$obj.campo'`, que interpola apenas `obj`, de `'${obj.campo}'`,
+    /// que interpola a expressão inteira.
+    InterpolatedName(&'a str),
     Number(&'a str),
     Symbol(char),
     Operator(&'a str),
@@ -20,6 +48,8 @@ pub struct Token<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Tipo primitivo ou ausência de valor reconhecido neste subconjunto.
 pub enum Type {
+    Duration,
+    Timer,
     /// Parâmetro posicional do ambiente genérico da função corrente.
     Parameter(u32),
     /// Parâmetro genérico tornado anulável explicitamente por T?.
@@ -46,6 +76,12 @@ pub enum Type {
 /// Forma estrutural compartilhada sem retirar Copy dos tipos da AST.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeShape {
+    Future(Type),
+    /// Mapa com tipos reificados de chave e valor.
+    Map {
+        key: Type,
+        value: Type,
+    },
     /// Tipo de record; nomes ordenados canonicamente, posições mantidas na ordem.
     Record {
         positional: Vec<Type>,
@@ -92,9 +128,76 @@ pub struct Expr<'a> {
     pub kind: ExprKind<'a>,
     pub span: Span,
 }
-#[derive(Debug, Clone)]
+/// Unidade nomeada de Duration, preservada na ordem de avaliação da chamada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurationUnit {
+    Days,
+    Hours,
+    Minutes,
+    Seconds,
+    Milliseconds,
+    Microseconds,
+}
 /// Forma sintática de uma expressão.
+#[derive(Debug, Clone)]
 pub enum ExprKind<'a> {
+    /// Argumento rotulado `nome: valor` de uma lista de argumentos.
+    ///
+    /// Modelado como expressão para não duplicar o campo `arguments` de cada
+    /// forma de chamada. O parser só a produz como elemento direto de uma lista
+    /// de argumentos e a análise semântica rejeita a forma em qualquer outra
+    /// posição. O span cobre `nome: valor` inteiro; `label` é o rótulo externo.
+    NamedArgument {
+        label: &'a str,
+        value: Box<Expr<'a>>,
+    },
+    Await(Box<Expr<'a>>),
+    FutureValue {
+        value: Option<Box<Expr<'a>>>,
+        value_type: Option<Type>,
+    },
+    FutureDelayed {
+        duration: Box<Expr<'a>>,
+        computation: Option<Box<Expr<'a>>>,
+        value_type: Option<Type>,
+    },
+    Duration {
+        parts: Vec<(DurationUnit, Expr<'a>)>,
+    },
+    /// Literal de mapa que preserva a ordem de avaliação das entradas.
+    Map {
+        key_type: Option<Type>,
+        value_type: Option<Type>,
+        entries: Vec<(Expr<'a>, Expr<'a>)>,
+    },
+    /// Invocação de fábrica nomeada, validada separadamente dos membros de instância.
+    NamedConstruct {
+        class_id: u32,
+        name: &'a str,
+        arguments: Vec<Expr<'a>>,
+    },
+    /// Avalia o receptor uma vez e devolve-o após executar as seções em ordem.
+    Cascade {
+        receiver: Box<Expr<'a>>,
+        null_aware: bool,
+        sections: Vec<Statement<'a>>,
+    },
+    /// Receptor sintético da cascata envolvente; span aponta somente seu operador.
+    CascadeReceiver,
+    /// Atalho de ponto `.nome` ou `.nome(args)`: o tipo vem apenas do contexto.
+    ///
+    /// A resolução nominal ocorre na análise semântica, que grava o tipo da
+    /// expressão; o parser não conhece a classe alvo. `arguments` ausente indica
+    /// acesso a um valor de enum, presente indica fábrica nomeada.
+    DotShorthand {
+        name: &'a str,
+        arguments: Option<Vec<Expr<'a>>>,
+    },
+    /// Elemento condicional `?valor` de coleção: omitido quando avalia para null.
+    ///
+    /// Só é válido diretamente em literais de lista e nas duas posições de uma
+    /// entrada de mapa. O operando é avaliado exatamente uma vez.
+    NullAwareElement(Box<Expr<'a>>),
     /// Literal de record; None indica posição e a lista preserva toda ordem de avaliação.
     Record {
         fields: Vec<(Option<&'a str>, Expr<'a>)>,
@@ -119,6 +222,7 @@ pub enum ExprKind<'a> {
         arms: Vec<SwitchArm<'a>>,
     },
     Closure {
+        is_async: bool,
         parameters: Vec<Parameter<'a>>,
         return_type: Type,
         body: Vec<Statement<'a>>,
@@ -155,11 +259,33 @@ pub enum ExprKind<'a> {
         name: &'a str,
         arguments: Vec<Expr<'a>>,
     },
+    /// Operador condicional; apenas um dos ramos é avaliado.
+    ///
+    /// Liga mais forte que a cascata e mais fraco que `??`, `||` e `&&`, e é
+    /// associativo à direita: `a ? b : c ? d : e` agrupa `c ? d : e`.
+    Conditional {
+        condition: Box<Expr<'a>>,
+        then_value: Box<Expr<'a>>,
+        else_value: Box<Expr<'a>>,
+    },
+    /// `throw valor`: interrompe o fluxo e nunca produz um valor utilizável.
+    ///
+    /// Dart só admite esta forma no topo de uma expressão ou num ramo do
+    /// operador condicional; `a ?? throw e` exige parênteses em 3.6.2 e 3.13.4.
+    Throw(Box<Expr<'a>>),
     Null,
     Int(i32),
     String(&'a str),
     /// String que precisou de alocação para decodificar escapes Unicode.
     OwnedString(String),
+    /// Interpolação de string: trechos literais e expressões na ordem escrita.
+    ///
+    /// O parser só produz esta forma quando há pelo menos uma expressão; literais
+    /// adjacentes sem nenhuma interpolação continuam virando `String`/`OwnedString`.
+    /// Trechos literais vazios são omitidos, então a lista não tem posições
+    /// inúteis. Cada expressão é avaliada exatamente uma vez, na ordem da lista,
+    /// e convertida com a semântica de `toString` do Dart.
+    Interpolation(Vec<StringPart<'a>>),
     Bool(bool),
     Identifier(&'a str),
     Call {
@@ -175,6 +301,16 @@ pub enum ExprKind<'a> {
         left: Box<Expr<'a>>,
         right: Box<Expr<'a>>,
     },
+}
+/// Parte de uma interpolação de string, na ordem em que foi escrita.
+#[derive(Debug, Clone)]
+pub enum StringPart<'a> {
+    /// Texto literal emprestado da fonte, sem escapes nem normalização pendentes.
+    Borrowed(&'a str),
+    /// Texto literal que precisou de alocação para decodificar escapes.
+    Owned(String),
+    /// Expressão convertida com `toString` e avaliada exatamente uma vez.
+    Expression(Expr<'a>),
 }
 #[derive(Debug, Clone)]
 /// Instrução acompanhada do intervalo de origem.
@@ -242,22 +378,155 @@ pub enum StatementKind<'a> {
         update: Option<Box<Statement<'a>>>,
         body: Vec<Statement<'a>>,
     },
-    /// Encerra o laço mais próximo; rótulos ainda não são suportados.
+    /// Encerra o laço mais próximo; a forma rotulada é `BreakLabel`.
     Break,
     /// Inicia a próxima iteração do laço mais próximo.
     Continue,
+    /// Encerra o laço rotulado, que pode ser externo ao mais próximo.
+    BreakLabel(&'a str),
+    /// Retoma o laço rotulado, que pode ser externo ao mais próximo.
+    ContinueLabel(&'a str),
+    /// Rótulo aplicado a um laço; só laços podem receber rótulo neste subconjunto.
+    Labeled {
+        label: &'a str,
+        body: Box<Statement<'a>>,
+    },
+    /// Protege o corpo com cláusulas de captura e um bloco final.
+    ///
+    /// As cláusulas são testadas na ordem escrita; `finally_body` executa em
+    /// toda saída do `try`, inclusive por `return`, `break`, `continue` e
+    /// exceção, sem alterar o valor de retorno nem engolir a exceção.
+    Try {
+        body: Vec<Statement<'a>>,
+        catches: Vec<CatchClause<'a>>,
+        finally_body: Option<Vec<Statement<'a>>>,
+    },
+    /// Relança o valor capturado pela cláusula `catch` envolvente.
+    Rethrow,
+    /// Verificação de desenvolvimento `assert(condição)` ou com mensagem.
+    Assert {
+        condition: Expr<'a>,
+        message: Option<Expr<'a>>,
+    },
+    /// `for (final x in iterável)`; o iterável é avaliado exatamente uma vez.
+    ForIn {
+        is_final: bool,
+        name: &'a str,
+        annotation: Option<Type>,
+        iterable: Expr<'a>,
+        body: Vec<Statement<'a>>,
+    },
     Block(Vec<Statement<'a>>),
 }
+/// Cláusula de captura de uma instrução `try`.
+///
+/// `exception_type` vem de `on T` e restringe a captura ao valor cujo tipo em
+/// execução é `T`; sem ele a cláusula captura qualquer valor lançado.
+/// `exception` e `stack_trace` são as variáveis de `catch (e)` e `catch (e, s)`;
+/// uma cláusula `on T { ... }` sem `catch` não liga nenhuma das duas.
 #[derive(Debug, Clone)]
-/// Parâmetro posicional obrigatório com tipo explícito.
+pub struct CatchClause<'a> {
+    pub exception_type: Option<Type>,
+    pub exception: Option<&'a str>,
+    pub stack_trace: Option<&'a str>,
+    pub body: Vec<Statement<'a>>,
+    pub span: Span,
+}
+/// Forma de passagem de um parâmetro na assinatura declarada.
+///
+/// A ordem de declaração é sempre obrigatórios posicionais, depois opcionais
+/// posicionais (`[...]`) **ou** nomeados (`{...}`); Dart não permite os dois
+/// grupos opcionais na mesma assinatura e o parser rejeita a combinação.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParameterKind {
+    /// Posicional obrigatório: a forma neutra e única até este incremento.
+    #[default]
+    RequiredPositional,
+    /// Posicional dentro de `[...]`; ausente assume o padrão ou null.
+    OptionalPositional,
+    /// Nomeado dentro de `{...}`; `required` torna a ausência um erro de compilação.
+    Named { required: bool },
+}
+impl ParameterKind {
+    /// Indica se o parâmetro é passado por rótulo em vez de por posição.
+    #[must_use]
+    pub const fn is_named(self) -> bool {
+        matches!(self, Self::Named { .. })
+    }
+    /// Indica se a chamada precisa fornecer o argumento obrigatoriamente.
+    #[must_use]
+    pub const fn is_required(self) -> bool {
+        matches!(
+            self,
+            Self::RequiredPositional | Self::Named { required: true }
+        )
+    }
+}
+/// Rótulo externo de um parâmetro nomeado privado (Dart 3.12).
+///
+/// O nome interno `_apiKey` é visível apenas dentro da declaração; quem chama
+/// escreve `apiKey:`. Nomes sem sublinhado inicial são devolvidos intactos.
+///
+/// # Exemplos
+/// ```
+/// assert_eq!(dartforge_syntax::external_label("_apiKey"), "apiKey");
+/// assert_eq!(dartforge_syntax::external_label("apiKey"), "apiKey");
+/// ```
+#[must_use]
+pub fn external_label(name: &str) -> &str {
+    name.strip_prefix('_').unwrap_or(name)
+}
+#[derive(Debug, Clone)]
+/// Parâmetro de função com tipo explícito, forma de passagem e padrão opcional.
+///
+/// `default` guarda a expressão escrita; a análise semântica exige que ela seja
+/// um literal escalar constante, como documentado em `docs/PARAMETROS.md`. O
+/// `Box` mantém o caminho comum — posicional obrigatório sem padrão — sem
+/// alocação alguma.
 pub struct Parameter<'a> {
     pub name: &'a str,
     pub ty: Type,
+    pub kind: ParameterKind,
+    pub default: Option<Box<Expr<'a>>>,
     pub span: Span,
+}
+impl<'a> Parameter<'a> {
+    /// Cria um parâmetro posicional obrigatório, a forma neutra da assinatura.
+    ///
+    /// # Exemplos
+    /// ```
+    /// use dartforge_syntax::{Parameter, ParameterKind, Type};
+    /// use dartforge_diagnostics::Span;
+    /// let p = Parameter::required("a", Type::Int, Span { start: 0, end: 1 });
+    /// assert_eq!(p.kind, ParameterKind::RequiredPositional);
+    /// assert!(p.default.is_none());
+    /// ```
+    #[must_use]
+    pub const fn required(name: &'a str, ty: Type, span: Span) -> Self {
+        Self {
+            name,
+            ty,
+            kind: ParameterKind::RequiredPositional,
+            default: None,
+            span,
+        }
+    }
+    /// Rótulo usado na chamada; só difere do nome interno em nomeados privados.
+    #[must_use]
+    pub fn label(&self) -> &'a str {
+        if self.kind.is_named() {
+            external_label(self.name)
+        } else {
+            self.name
+        }
+    }
 }
 #[derive(Debug, Clone)]
 /// Função top-level com assinatura e corpo.
 pub struct Function<'a> {
+    /// Corpo arrow conserva regras de descarte e adoção de Future distintas de return em bloco.
+    pub is_arrow: bool,
+    pub is_async: bool,
     pub annotations: Vec<Annotation>,
     pub native_binding: Option<NativeBinding<'a>>,
     pub type_parameters: Vec<GenericParameter<'a>>,
@@ -301,12 +570,20 @@ pub struct Annotation {
 /// Metadados suportados sem execução de construtores arbitrários.
 #[derive(Debug, Clone)]
 pub enum AnnotationKind {
+    /// Solicita expansão da macro nativa de serialização antes da análise semântica.
+    JsonCodable,
+    /// Solicita a macro nativa de classe de dados: copyWith, igualdade e texto.
+    DataClass,
     Override,
-    Deprecated { message: Option<String> },
+    Deprecated {
+        message: Option<String>,
+    },
 }
 #[derive(Debug, Clone)]
 /// Programa com funções auxiliares e o corpo da entrada main.
 pub struct Program<'a> {
+    pub main_is_arrow: bool,
+    pub main_is_async: bool,
     pub types: Vec<TypeShape>,
     pub extensions: Vec<Extension<'a>>,
     pub classes: Vec<Class<'a>>,
@@ -361,7 +638,23 @@ pub enum ClassKind {
 /// Classe nominal com construtor implícito, herança e aplicações de mixins.
 #[derive(Debug, Clone)]
 pub struct Class<'a> {
+    /// Fábricas nomeadas com retorno explícito da classe e sem receptor this.
+    pub factories: Vec<Function<'a>>,
     pub constructor: Option<Constructor<'a>>,
+    /// Extras do construtor sem nome; `None` é o caminho comum e não aloca.
+    pub constructor_extras: Option<Box<ConstructorExtras<'a>>>,
+    /// Construtores nomeados na ordem escrita.
+    pub named_constructors: Vec<NamedConstructor<'a>>,
+    /// Campos estáticos na ordem escrita; nunca herdados.
+    pub static_fields: Vec<StaticField<'a>>,
+    /// Métodos estáticos na ordem escrita; resolvidos pelo nome da classe.
+    pub static_methods: Vec<Function<'a>>,
+    /// Declaração sintética que só agrupa as variáveis de topo da biblioteca.
+    ///
+    /// Não é instanciável, não tem membros de instância e não aparece como
+    /// tipo: existe porque `Program` não pode ganhar campos sem quebrar o
+    /// linker, que constrói a estrutura por literal.
+    pub is_library_globals: bool,
     pub annotations: Vec<Annotation>,
     /// Marca a classe sintética criada ao expandir uma aplicação de mixin.
     pub is_mixin_application: bool,
@@ -407,14 +700,110 @@ pub struct Constructor<'a> {
     pub body: Vec<Statement<'a>>,
     pub span: Span,
 }
+/// Entrada `campo = valor` de uma lista de inicialização.
+///
+/// O campo precisa pertencer à própria classe; o valor é avaliado com os
+/// parâmetros do construtor em escopo e antes de a superclasse inicializar.
+#[derive(Debug, Clone)]
+pub struct FieldInitializer<'a> {
+    pub field: &'a str,
+    pub value: Expr<'a>,
+    pub span: Span,
+}
+/// Chamada explícita da superclasse: `super(...)` ou `super.nome(...)`.
+///
+/// `name` ausente designa o construtor sem nome da base. Os argumentos são
+/// avaliados depois de toda a lista de inicialização da classe derivada,
+/// conforme a ordem observada no Dart 3.6.2.
+#[derive(Debug, Clone)]
+pub struct SuperCall<'a> {
+    pub name: Option<&'a str>,
+    pub arguments: Vec<Expr<'a>>,
+    pub span: Span,
+}
+/// Partes de um construtor que o caminho comum não paga.
+///
+/// Ficam fora de [`Constructor`] porque o expansor de macros constrói aquela
+/// estrutura por literal; manter a forma antiga intacta evita quebrar os
+/// geradores existentes. Um construtor sem `const`, sem lista de inicialização
+/// e sem `super` explícito não aloca nada aqui.
+#[derive(Debug, Clone, Default)]
+pub struct ConstructorExtras<'a> {
+    pub is_const: bool,
+    pub initializers: Vec<FieldInitializer<'a>>,
+    pub super_call: Option<SuperCall<'a>>,
+}
+impl ConstructorExtras<'_> {
+    /// Indica se o construtor dispensa qualquer tratamento além do comum.
+    #[must_use]
+    pub const fn is_plain(&self) -> bool {
+        !self.is_const && self.initializers.is_empty() && self.super_call.is_none()
+    }
+}
+/// Construtor generativo nomeado `C.nome(...)`.
+#[derive(Debug, Clone)]
+pub struct NamedConstructor<'a> {
+    pub name: &'a str,
+    pub constructor: Constructor<'a>,
+    pub extras: ConstructorExtras<'a>,
+}
+/// Membro estático de uma classe ou variável de topo de uma biblioteca.
+///
+/// Não participa de herança nem de despacho dinâmico: a resolução é sempre
+/// estática pelo nome da declaração que o contém.
+#[derive(Debug, Clone)]
+pub struct StaticField<'a> {
+    pub name: &'a str,
+    pub ty: Type,
+    pub is_final: bool,
+    pub is_const: bool,
+    pub initializer: Option<Expr<'a>>,
+    pub span: Span,
+}
 /// Parâmetro comum ou inicializador this.campo; field referencia somente campo próprio.
 /// Inicializadores this.campo não introduzem variáveis locais no corpo do construtor.
+///
+/// Um initializing formal nomeado pode ter nome privado (`this._x`): o campo
+/// continua `_x` e o rótulo da chamada é `x`, conforme Dart 3.12.
 #[derive(Debug, Clone)]
 pub struct ConstructorParameter<'a> {
     pub name: &'a str,
     pub ty: Type,
     pub field: Option<&'a str>,
+    pub kind: ParameterKind,
+    pub default: Option<Box<Expr<'a>>>,
     pub span: Span,
+}
+impl<'a> ConstructorParameter<'a> {
+    /// Cria um parâmetro posicional obrigatório do construtor.
+    ///
+    /// # Exemplos
+    /// ```
+    /// use dartforge_syntax::{ConstructorParameter, ParameterKind, Type};
+    /// use dartforge_diagnostics::Span;
+    /// let p = ConstructorParameter::required("x", Type::Int, Some("x"), Span { start: 0, end: 1 });
+    /// assert_eq!(p.kind, ParameterKind::RequiredPositional);
+    /// ```
+    #[must_use]
+    pub const fn required(name: &'a str, ty: Type, field: Option<&'a str>, span: Span) -> Self {
+        Self {
+            name,
+            ty,
+            field,
+            kind: ParameterKind::RequiredPositional,
+            default: None,
+            span,
+        }
+    }
+    /// Rótulo usado na chamada; nomeados privados perdem o sublinhado inicial.
+    #[must_use]
+    pub fn label(&self) -> &'a str {
+        if self.kind.is_named() {
+            external_label(self.name)
+        } else {
+            self.name
+        }
+    }
 }
 
 /// Extension nomeada com métodos de instância resolvidos estaticamente.
@@ -440,12 +829,19 @@ pub struct ExtensionTarget {
 /// deverá usar intervalos virtuais únicos ao combinar bibliotecas com extensions.
 #[derive(Debug, Default)]
 pub struct Resolution {
+    /// Chamadas resolvidas aos intrínsecos de agendamento de dart:async.
+    pub async_builtins: std::collections::BTreeSet<(usize, usize)>,
     /// Argumentos reificados explícitos ou inferidos por chamada genérica.
     pub generic_arguments: std::collections::BTreeMap<(usize, usize), Vec<Type>>,
     /// Valores constantes validados, incluindo listas canônicas e argumentos de enum.
     pub constant_values: std::collections::BTreeMap<(usize, usize), ConstValue>,
     /// Identificadores, chamadas e atribuições que usam receptor this implícito.
     pub implicit_members: std::collections::BTreeSet<(usize, usize)>,
+    /// Leituras e escritas resolvidas para uma variável de topo da biblioteca.
+    ///
+    /// O emissor não decide pelo nome isolado: um local homônimo tem
+    /// precedência e nunca aparece aqui.
+    pub global_accesses: std::collections::BTreeSet<(usize, usize)>,
     /// Leituras de getters resolvidas estaticamente.
     pub getter_accesses: std::collections::BTreeSet<(usize, usize)>,
     /// Formas originais seguidas das formas inferidas durante a análise.

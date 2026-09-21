@@ -207,6 +207,7 @@ impl<'a> Validator<'a> {
         let mut result = None;
         for arm in arms {
             let mut branch = self.clone();
+            branch.in_async = false;
             branch.scopes.push(HashMap::new());
             let constant = branch.pattern(&arm.pattern, ty, arm.span)?;
             if let Some(guard) = &arm.guard {
@@ -268,12 +269,32 @@ impl<'a> Validator<'a> {
         }
         Ok(())
     }
-    /// Prova retorno sem considerar laços e sem atravessar break ou continue inalcançáveis.
+    /// Prova saída obrigatória sem considerar laços e sem atravessar break ou continue.
+    ///
+    /// `throw` e `rethrow` tornam inalcançável o que vem depois, então contam
+    /// como saída do mesmo modo que `return`. Um `try` sai quando o `finally`
+    /// sai, ou quando o corpo e **todas** as cláusulas saem.
     pub(super) fn returns(&self, statements: &[Statement<'a>]) -> bool {
         for s in statements {
             match &s.kind {
-                StatementKind::Return(_) => return true,
+                StatementKind::Return(_) | StatementKind::Rethrow => return true,
+                StatementKind::Expression(value) if super::fluxo::is_throw(value) => return true,
                 StatementKind::Block(body) if self.returns(body) => return true,
+                StatementKind::Labeled { body, .. }
+                    if self.returns(std::slice::from_ref(body)) =>
+                {
+                    return true;
+                }
+                StatementKind::Try {
+                    body,
+                    catches,
+                    finally_body,
+                } if finally_body.as_ref().is_some_and(|f| self.returns(f))
+                    || (self.returns(body) && catches.iter().all(|c| self.returns(&c.body))) =>
+                {
+                    return true;
+                }
+                StatementKind::BreakLabel(_) | StatementKind::ContinueLabel(_) => return false,
                 StatementKind::If {
                     then_body,
                     else_body: Some(other),

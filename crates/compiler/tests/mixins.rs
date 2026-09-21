@@ -23,6 +23,7 @@ fn mixins_match_dart_oracle_in_all_modes() {
                 CompileOptions {
                     optimization,
                     merge_identical_functions,
+                    tree_shaking: false,
                 },
             )
             .unwrap();

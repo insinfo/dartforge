@@ -13,6 +13,7 @@ fn constructors_and_scopes_compile_in_all_modes() {
                 CompileOptions {
                     optimization,
                     merge_identical_functions,
+                    tree_shaking: false,
                 },
             )
             .unwrap();
@@ -35,6 +36,7 @@ fn constructors_and_scopes_match_dart_in_all_modes() {
                 CompileOptions {
                     optimization,
                     merge_identical_functions,
+                    tree_shaking: false,
                 },
             )
             .unwrap();

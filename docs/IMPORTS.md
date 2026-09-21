@@ -22,10 +22,12 @@ A ordem de descoberta em largura e a ordem textual dos imports determinam IDs es
 Imports repetidos mantêm arestas distintas para a mesma unidade. Ciclos são aceitos pelo
 carregador; isso não significa que namespaces ou inicialização cíclica estejam resolvidos.
 
-Não são suportados `package:`, `dart:`, caminhos absolutos, escapes em URIs, percent-encoding,
-query, fragmento, `as`, `show`, `hide`, `deferred`, imports condicionais, `export`, `part`
-ou `library`. Diretivas import depois de declarações são rejeitadas. Todos esses casos
-produzem erro explícito, sem tentar resolver parcialmente a diretiva.
+Não são suportados caminhos absolutos, escapes em URIs, query, fragmento, `deferred`
+e prefixos `as` fora de `dart:ffi`. `package:`, `dart:core`, `show`, `hide`, `export`,
+imports condicionais, `library`, `part` e `part of` são suportados; as partes seguem
+[a documentação de partes](PARTS.md). Diretivas import depois de declarações são
+rejeitadas. Todos os casos fora do subconjunto produzem erro explícito, sem tentar
+resolver parcialmente a diretiva.
 
 O lexer atual tokeniza o arquivo inteiro. Assim, a descoberta de imports ainda exige
 que as fontes pertençam ao subconjunto léxico do protótipo, mesmo que os corpos não

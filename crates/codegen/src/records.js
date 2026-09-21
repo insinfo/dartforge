@@ -19,6 +19,7 @@ function $dartforgeRecord(fields) {
 }
 function $dartforgeEqual(left, right) {
   if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return left === right;
+  if ($dartforgeTypeTags.get(left)?.[0] === 'duration' && $dartforgeTypeTags.get(right)?.[0] === 'duration') return left.microseconds === right.microseconds;
   const a = $dartforgeRecordData.get(left), b = $dartforgeRecordData.get(right);
   if (!a || !b) return left === right;
   return a[0].length === b[0].length && a[1].length === b[1].length &&

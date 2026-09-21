@@ -33,11 +33,14 @@ fn main() {
     let mut cases = vec![];
     for count in [100u32, 1000] {
         let module = lower(Program {
+            main_is_arrow: false,
+            main_is_async: false,
             types: vec![],
             extensions: vec![],
             classes: (0..count)
                 .rev()
                 .map(|id| Class {
+                    factories: vec![],
                     constructor: None,
                     annotations: vec![],
                     modifier: dartforge_syntax::ClassModifier::None,
