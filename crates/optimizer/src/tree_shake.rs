@@ -418,6 +418,9 @@ impl Scan<'_, '_> {
             ExprKind::Unary { operand, .. }
             | ExprKind::Throw(operand)
             | ExprKind::Const(operand) => self.expr(operand),
+            // O alvo é um identificador: a marcação que ele já recebe cobre a
+            // leitura e a escrita, porque `++` é as duas coisas no mesmo nome.
+            ExprKind::Increment { target, .. } => self.expr(target),
             ExprKind::Conditional {
                 condition,
                 then_value,

@@ -1425,6 +1425,27 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         // `argument_list` intercepta o rótulo; aqui só resta o valor interno,
         // o que mantém a emissão correta se a forma escapar de uma chamada.
         ExprKind::NamedArgument { value, .. } => expression(value, output),
+        // `x++` e `++x` do JavaScript têm exatamente a semântica do Dart: o
+        // alvo é lido e escrito uma única vez, a forma pós-fixa produz o valor
+        // anterior e a prefixa o já atualizado. A análise semântica já restringiu
+        // o alvo a um nome simples com tipo numérico, que é lvalue no JavaScript
+        // emitido — `this.$df_x` inclusive. Os parênteses preservam a precedência
+        // em qualquer posição de expressão.
+        ExprKind::Increment {
+            target,
+            increase,
+            prefix,
+        } => {
+            output.push('(');
+            if *prefix {
+                output.push_str(if *increase { "++" } else { "--" });
+            }
+            expression(target, output);
+            if !*prefix {
+                output.push_str(if *increase { "++" } else { "--" });
+            }
+            output.push(')');
+        }
         ExprKind::Await(_)
         | ExprKind::FutureValue { .. }
         | ExprKind::FutureDelayed { .. }

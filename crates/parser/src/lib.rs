@@ -11,11 +11,10 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_syntax::{
     Annotation, AnnotationKind, BinaryOp, CatchClause, Class, ClassKind, ClassModifier,
     Constructor, ConstructorAssert, ConstructorExtras, ConstructorParameter, DurationUnit, Expr,
-    ExprKind, Extension,
-    Field, FieldInitializer, Function, GenericParameter, NamedConstructor, NativeBinding,
-    NativeType, Parameter, ParameterKind, Pattern, Program, RedirectCall, Statement, StatementKind,
-    StaticField, StringPart, SuperCall, SwitchArm, SwitchCase, Token, TokenKind, Type, TypeShape,
-    UnaryOp,
+    ExprKind, Extension, Field, FieldInitializer, Function, GenericParameter, NamedConstructor,
+    NativeBinding, NativeType, Parameter, ParameterKind, Pattern, Program, RedirectCall, Statement,
+    StatementKind, StaticField, StringPart, SuperCall, SwitchArm, SwitchCase, Token, TokenKind,
+    Type, TypeShape, UnaryOp,
 };
 
 /// Recusa de `const` sem anotação cujo tipo o inicializador não decide sozinho.
@@ -160,12 +159,58 @@ pub fn parse_unit_with_globals<'a>(
     class_ids: std::collections::BTreeMap<&'a str, u32>,
     globals_id: Option<u32>,
 ) -> Result<Program<'a>, Diagnostic> {
+    parse_unit_inner(tokens, source_len, class_ids, globals_id, &[])
+}
+
+/// Analisa uma unidade reconhecendo também `p.Tipo` de imports com prefixo.
+///
+/// `prefixed_classes` traz `(prefixo, nome, id)` **ordenado por `(prefixo,
+/// nome)`**; a consulta é binária, sem um mapa por prefixo por arquivo. Nomes
+/// privados não entram nessa lista: quem a monta já aplicou a privacidade por
+/// biblioteca, que um prefixo não atravessa.
+///
+/// # Erros
+///
+/// Retorna os mesmos diagnósticos de [`parse_unit`]; um `p.Nome` ausente da
+/// lista não é tipo e recai no diagnóstico comum de tipo não suportado.
+///
+///     let fonte = "void usa(im.Image quadro) {}";
+///     let tokens = dartforge_lexer::lex(fonte).unwrap();
+///     let unidade = dartforge_parser::parse_unit_with_prefixed_classes(
+///         &tokens,
+///         fonte.len(),
+///         Default::default(),
+///         &[("im", "Image", 7)],
+///     )
+///     .unwrap();
+///     assert_eq!(
+///         unidade.functions[0].parameters[0].ty,
+///         dartforge_syntax::Type::Class(7)
+///     );
+pub fn parse_unit_with_prefixed_classes<'a>(
+    tokens: &[Token<'a>],
+    source_len: usize,
+    class_ids: std::collections::BTreeMap<&'a str, u32>,
+    prefixed_classes: &[(&'a str, &'a str, u32)],
+) -> Result<Program<'a>, Diagnostic> {
+    parse_unit_inner(tokens, source_len, class_ids, None, prefixed_classes)
+}
+
+/// Corpo comum das entradas públicas de análise de unidade.
+fn parse_unit_inner<'a>(
+    tokens: &[Token<'a>],
+    source_len: usize,
+    class_ids: std::collections::BTreeMap<&'a str, u32>,
+    globals_id: Option<u32>,
+    prefixed_classes: &[(&'a str, &'a str, u32)],
+) -> Result<Program<'a>, Diagnostic> {
     let mut cursor = Cursor {
         tokens,
         index: 0,
         source_len,
         expr_nodes: 0,
         class_ids,
+        prefixed_classes,
         types: Vec::new(),
         closure_depth: 0,
         active_primaries: 0,
@@ -424,6 +469,17 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
             if first.kind == TokenKind::Symbol('(') {
                 index = skip_delimited(tokens, index - 1, '(', ')', first.span)?;
             }
+            // Tipo de retorno alcançado por prefixo de import: `p.Tipo nome(...)`.
+            // O índice de declarações não resolve tipos, então basta saltar o
+            // nome qualificado para achar o nome declarado.
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.'))
+                && matches!(
+                    tokens.get(index + 1).map(|t| t.kind),
+                    Some(TokenKind::Word(_))
+                )
+            {
+                index += 2;
+            }
             index = skip_type_arguments(tokens, index, first.span)?;
             if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
                 index += 1;
@@ -479,7 +535,10 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                 index += 1;
                 loop {
                     if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
-                        return Err(Diagnostic::new("expected mixin constraint name", first.span));
+                        return Err(Diagnostic::new(
+                            "expected mixin constraint name",
+                            first.span,
+                        ));
                     }
                     index += 1;
                     if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
@@ -648,6 +707,11 @@ struct Cursor<'t, 'a> {
     source_len: usize,
     expr_nodes: usize,
     class_ids: std::collections::BTreeMap<&'a str, u32>,
+    /// Classes alcançáveis por prefixo de import, ordenadas por `(prefixo, nome)`.
+    ///
+    /// Vazio em todo arquivo sem import com prefixo, que é o caso comum e não
+    /// aloca nada aqui; a consulta é binária em vez de um mapa por prefixo.
+    prefixed_classes: &'t [(&'a str, &'a str, u32)],
     types: Vec<TypeShape>,
     closure_depth: usize,
     active_primaries: usize,
@@ -721,6 +785,26 @@ impl<'a> Cursor<'_, 'a> {
             }
             _ => Err(self.error("expected a non-reserved identifier")),
         }
+    }
+    /// Resolve `p.Tipo` por busca binária no vetor ordenado de nomes com prefixo.
+    ///
+    /// Devolve `None` quando o token corrente não é seguido por `.` e um nome,
+    /// ou quando o par não existe: nesse caso o texto não é um tipo qualificado
+    /// e o restante de `type_at` decide o que ele é.
+    fn prefixed_class(&self, prefix: &str) -> Option<u32> {
+        if self.prefixed_classes.is_empty()
+            || self.tokens.get(self.index + 1).map(|token| token.kind)
+                != Some(TokenKind::Symbol('.'))
+        {
+            return None;
+        }
+        let TokenKind::Word(name) = self.tokens.get(self.index + 2)?.kind else {
+            return None;
+        };
+        self.prefixed_classes
+            .binary_search_by(|(candidate, member, _)| (*candidate, *member).cmp(&(prefix, name)))
+            .ok()
+            .map(|index| self.prefixed_classes[index].2)
     }
     /// Interna uma forma estrutural e preserva IDs locais estáveis.
     fn intern(&mut self, shape: TypeShape) -> Type {
@@ -846,6 +930,13 @@ impl<'a> Cursor<'_, 'a> {
             Some(TokenKind::Word(name)) if self.typedefs.contains_key(name) => self.typedefs[name],
             Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
                 Type::Class(self.class_ids[name])
+            }
+            // `p.Tipo` de um import com prefixo ocupa três tokens: dois são
+            // consumidos aqui e o terceiro pelo avanço comum no fim da função.
+            Some(TokenKind::Word(prefix)) if self.prefixed_class(prefix).is_some() => {
+                let id = self.prefixed_class(prefix).expect("par já conferido");
+                self.index += 2;
+                Type::Class(id)
             }
             _ => return Err(self.error("expected an explicitly supported type")),
         };
@@ -1100,9 +1191,10 @@ impl<'a> Cursor<'_, 'a> {
             }
             self.index += 1;
             let constraint = self.name()?;
-            let constraint = *self.class_ids.get(constraint).ok_or_else(|| {
-                self.error("unknown mixin constraint")
-            })?;
+            let constraint = *self
+                .class_ids
+                .get(constraint)
+                .ok_or_else(|| self.error("unknown mixin constraint"))?;
             self.discard_type_arguments();
             if self.peek() == Some(TokenKind::Symbol(',')) {
                 return Err(self.error(
@@ -1688,8 +1780,7 @@ impl<'a> Cursor<'_, 'a> {
                 self.expect(TokenKind::Symbol('('))?;
                 let condition = self.expression()?;
                 let mut message = None;
-                if self.take(TokenKind::Symbol(','))
-                    && self.peek() != Some(TokenKind::Symbol(')'))
+                if self.take(TokenKind::Symbol(',')) && self.peek() != Some(TokenKind::Symbol(')'))
                 {
                     message = Some(self.expression()?);
                     self.take(TokenKind::Symbol(','));

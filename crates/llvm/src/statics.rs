@@ -71,7 +71,9 @@ pub(super) struct Statics {
     /// Slots físicos da área; zero significa que o programa não tem estáticos.
     pub(super) slots: usize,
     globais: BTreeMap<String, Entrada>,
-    campos: BTreeMap<(u32, String), Entrada>,
+    /// Campos estáticos por classe; a tabela interna permite consultar por
+    /// `&str` sem alocar uma chave a cada leitura emitida.
+    campos: BTreeMap<u32, BTreeMap<String, Entrada>>,
     /// Ordem de inicialização: `None` é o grupo de variáveis de topo.
     ///
     /// O par identifica a declaração pela classe e pelo índice escrito, o que
@@ -101,7 +103,9 @@ impl Statics {
                 let field = statics.reservar(member)?;
                 statics
                     .campos
-                    .insert((class.id, member.name.to_owned()), field);
+                    .entry(class.id)
+                    .or_default()
+                    .insert(member.name.to_owned(), field);
                 statics.ordem.push((Some(class.id), written));
             }
         }
@@ -141,7 +145,8 @@ impl Statics {
     /// Posição de um campo estático da própria declaração, sem consultar a base.
     pub(super) fn class_field(&self, class: u32, name: &str) -> Option<&Field> {
         self.campos
-            .get(&(class, name.to_owned()))
+            .get(&class)?
+            .get(name)
             .map(|entrada| &entrada.field)
     }
 
@@ -543,7 +548,11 @@ impl<'a> Grafo<'a> {
                 }
             }
             ExprKind::EnumValue { class_id, name } => {
-                if let Some(entrada) = statics.campos.get(&(*class_id, (*name).to_owned())) {
+                if let Some(entrada) = statics
+                    .campos
+                    .get(class_id)
+                    .and_then(|campos| campos.get(*name))
+                {
                     leituras.push((entrada.ordem, expression.span));
                 }
             }
@@ -611,7 +620,11 @@ impl<'a> Grafo<'a> {
                 self.expressao(statics, module, left, chamados, leituras);
                 self.expressao(statics, module, right, chamados, leituras);
             }
-            ExprKind::Unary { operand, .. } | ExprKind::Const(operand) => {
+            ExprKind::Unary { operand, .. }
+            | ExprKind::Const(operand)
+            // O alvo de um incremento é lido e escrito; a emissão recusa a forma
+            // com valor, mas o alcance é conferido antes dessa recusa.
+            | ExprKind::Increment { target: operand, .. } => {
                 self.expressao(statics, module, operand, chamados, leituras);
             }
             ExprKind::Switch { scrutinee, arms } => {

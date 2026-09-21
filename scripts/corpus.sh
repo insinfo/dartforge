@@ -36,6 +36,10 @@ for ARGUMENTO in "$@"; do
   esac
 done
 [ -n "$(echo "$FILA" | tr -d ' ')" ] || FILA="$CORPUS_PADRAO"
+# Os pacotes pedidos são os que o relatório mede; as dependências baixadas por
+# arrasto ficam no disco só para que `package:` resolva. Sem esta lista, o teste
+# mediria milhares de arquivos de dependência e esconderia o número pedido.
+PEDIDOS="$FILA"
 
 # Dependências de um pubspec sem um parser de YAML: as chaves indentadas sob
 # `dependencies:`, que é a forma que todo pacote do pub.dev usa. `flutter` é
@@ -106,4 +110,6 @@ mkdir -p "$DESTINO/.dart_tool"
   done
   printf ']}\n'
 } > "$CONFIG"
+echo "$PEDIDOS" | tr ' ' '\n' | grep -v '^$' > "$DESTINO/.dart_tool/medidos.txt"
 echo "package_config: $CONFIG"
+echo "medidos: $(echo "$PEDIDOS" | tr -s ' ')"

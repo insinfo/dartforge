@@ -330,6 +330,23 @@ impl Objects {
         }
         false
     }
+    /// Menor supertipo nominal comum de duas classes, subindo só por `extends`.
+    ///
+    /// Serve à unificação dos ramos do operador condicional: `c ? Dog() : Cat()`
+    /// precisa do tipo de `Animal` para o `phi`. Interfaces não participam da
+    /// busca porque `implements` não define uma cadeia única, e escolher entre
+    /// duas interfaces comuns exigiria uma regra de precedência que o
+    /// subconjunto não tem — recusar é melhor que escolher arbitrariamente.
+    pub(super) fn common_supertype(&self, left: u32, right: u32) -> Option<u32> {
+        let mut current = Some(left);
+        while let Some(id) = current {
+            if self.assignable(Ty::Class(right), Ty::Class(id)) {
+                return Some(id);
+            }
+            current = self.layouts.get(&id).and_then(|layout| layout.parent);
+        }
+        None
+    }
     /// Resolve o slot pelo tipo estático do receiver, preservando diagnóstico de origem.
     pub(super) fn field(&self, receiver: Ty, name: &str, span: Span) -> Result<Field, Diagnostic> {
         let Ty::Class(id) = receiver.base() else {

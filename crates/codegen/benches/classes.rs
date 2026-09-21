@@ -42,6 +42,7 @@ fn main() {
                 .map(|id| Class {
                     factories: vec![],
                     constructor: None,
+                    mixin_constraint: None,
                     annotations: vec![],
                     modifier: dartforge_syntax::ClassModifier::None,
                     kind: dartforge_syntax::ClassKind::Class,

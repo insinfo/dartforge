@@ -3,23 +3,96 @@
 Uma sondagem de construções isoladas diz **quais recursos existem**. Ela não diz
 se o compilador aguenta um arquivo real, nem — o que importa mais — **quais
 recursos o código de verdade usa e com que frequência**. Este documento registra
-a aferição contra um pacote real do pub.dev e o que ela mudou nas prioridades.
+a aferição contra pacotes reais do pub.dev e o que ela mudou nas prioridades.
+
+A primeira versão desta aferição mediu a coisa errada: ela rodava o front-end
+arquivo a arquivo, **sem resolver imports**, e chamava o resultado de "arquivos
+que compilam". Num pacote de verdade, cada arquivo menciona nomes declarados nos
+outros, então o número media o recorte da medição, não o compilador. O documento
+anterior já registrava a suspeita — 73 das 80 ocorrências da linha mais alta da
+tabela eram tipos de outro arquivo — e concluía que "uma correção real pode não
+mover o total de aceitos". Um número com essa propriedade não serve para
+priorizar nada. O que segue é a medição refeita.
 
 ## Corpus
 
-`pdf` 3.13.1, do pub.dev: **179 arquivos Dart, 1,1 MB**. Baixado por
-`scripts/corpus.sh pdf`, para `references/pub/`, que o Git ignora — o corpus é
-grande e cada pacote tem licença própria.
+Quatro pacotes do pub.dev, de domínios diferentes, porque um corpus de um único
+pacote de geração de PDF mede o estilo daquele pacote e não a linguagem:
 
-O teste `crates/compiler/tests/corpus_real.rs` roda o front-end sobre cada
-arquivo e agrupa os diagnósticos por **forma**, descartando nomes e números
-concretos: sem isso, `Unknown identifier 'a'` e `Unknown identifier 'b'`
-contariam como lacunas diferentes e o ranking não significaria nada.
+| Pacote | Versão | Domínio | Arquivos `.dart` |
+| --- | --- | --- | --- |
+| `pdf` | 3.13.1 | geração de documentos | 179 |
+| `intl` | 0.20.3 | internacionalização | 91 |
+| `collection` | 1.19.1 | estruturas de dados | 49 |
+| `http` | 1.6.0 | rede | 48 |
+
+Baixados por `scripts/corpus.sh --com-dependencias` para `references/pub/`, que o
+Git ignora — o corpus é grande e cada pacote tem licença própria. As
+**dependências transitivas** (22 pacotes: `xml`, `vector_math`, `image`,
+`petitparser`, `meta`, `path`, `async`…) também vão para o disco, mas não são
+medidas: elas existem para que `package:` resolva.
+
+Baixar as dependências custou pouco — um comando e alguns megabytes — e é a
+única forma de compilar pelo grafo sem que a medição se transforme num relatório
+de downloads ausentes. A decisão foi baixá-las e não medi-las.
 
 O teste **não exige sucesso**. Um compilador em construção falha em código de
 produção, e isso não é notícia. O que ele afirma é que todo arquivo **termina**,
 com sucesso ou com diagnóstico: sem pânico e sem laço infinito. Essa é a
-propriedade que pode regredir sem ninguém notar.
+propriedade que pode regredir sem ninguém notar, e a asserção é uma igualdade
+por pacote — aceitos + diagnósticos classificados + arquivos não-UTF-8 tem de
+fechar com o número de arquivos.
+
+## Dois modos, porque um só mentiria
+
+O aferidor `crates/compiler/tests/corpus_real.rs` tem dois modos, ambos
+selecionáveis por `DARTFORGE_CORPUS_MODO`:
+
+* **grafo** — cada arquivo é compilado como ponto de entrada por
+  `compile_path_with_report`, com `package_config.json` resolvendo `package:`.
+  O front-end roda sobre o **fechamento transitivo** do arquivo, então os nomes
+  declarados em outros arquivos do pacote resolvem de verdade. É este o número
+  que responde "quantos arquivos o compilador aceita". Uma biblioteca não declara
+  `main`, e o ligador termina em `entrada exige void main()` depois de lexar,
+  indexar, resolver namespaces, analisar sintática e semanticamente **todas** as
+  unidades: esse desfecho conta como aceito, porque só a ligação do executável
+  faltou.
+* **unidade** — cada arquivo é analisado isoladamente, só até a sintaxe, por
+  `compile_unit_diagnostics`. Não afirma nada sobre o programa e responde a uma
+  única pergunta: quanto da *sintaxe* de produção o parser cobre. Era o único
+  modo até aqui, e é o que produzia números contaminados quando lido como
+  "arquivos que compilam".
+
+## Três categorias, classificadas por span
+
+Cada diagnóstico cai em uma de três categorias, porque elas exigem ações
+diferentes:
+
+* **lacuna** — o compilador precisa implementar. Inclui nomes de `dart:core`,
+  que é importada implicitamente em todo arquivo Dart: `Stopwatch` ausente é
+  trabalho do compilador, não dependência que falta baixar.
+* **externa** — biblioteca fora do disco: `package:` que o corpus não baixou, ou
+  `dart:` que o carregador ainda não implementa (`dart:math`, `dart:typed_data`,
+  `dart:convert` — hoje só `dart:core`, `dart:async` e `dart:ffi` existem).
+* **artefato** — consequência do recorte da medição, não do código medido.
+
+A categoria vem do **span** — o texto exato que o diagnóstico aponta — e de onde
+aquele nome é declarado no corpus, que o teste indexa de todos os pacotes
+presentes. A regra é esta ordem:
+
+1. uma URI de biblioteca no span identifica a dependência sem ambiguidade;
+2. um nome declarado **no próprio arquivo** é lacuna: nada externo o explica;
+3. um nome declarado em outro arquivo do mesmo pacote, ou em outro pacote do
+   corpus, é artefato;
+4. um nome de `dart:core` é lacuna; de outra biblioteca `dart:` ausente, externa;
+5. o que não é nem URI nem nome procurado é lacuna do compilador.
+
+A mensagem ainda decide se o compilador estava **procurando um nome** — só ela
+sabe disso —, mas nunca decide a categoria. Era exatamente esse o erro da rodada
+anterior: o desconto de artefato olhava a forma da mensagem, e por isso deixou
+passar 73 tipos de outros arquivos contados como lacuna. O relatório imprime a
+evidência de cada linha (o nome e onde ele foi achado), para que qualquer
+classificação possa ser conferida à mão em vez de aceita por confiança.
 
 ## Resultado
 
@@ -141,10 +214,21 @@ aferição contra código real existe.
 ## Como repetir
 
 ```sh
-scripts/corpus.sh pdf
+scripts/corpus.sh --com-dependencias          # corpus padrão: pdf http collection intl
 cargo test -p dartforge-compiler --test corpus_real -- --ignored --nocapture
 ```
 
-Outros pacotes podem ser acrescentados como argumentos. Um corpus com pacotes de
-domínios diferentes — rede, serialização, interface — daria um retrato menos
-enviesado do que um único pacote de geração de PDF.
+O script baixa os pacotes pedidos, segue as dependências declaradas em cada
+`pubspec.yaml` e escreve dois arquivos em `references/pub/.dart_tool/`:
+
+* `package_config.json` (formato v2, o mesmo que `crates/packages` lê), mapeando
+  cada pacote baixado para o seu nome, de modo que `package:pdf/pdf.dart`
+  resolva a partir de qualquer arquivo do corpus;
+* `medidos.txt`, com os pacotes pedidos na linha de comando. As dependências
+  baixadas por arrasto ficam no disco só para resolver `package:` e **não**
+  entram no relatório: contá-las somaria milhares de arquivos alheios ao que se
+  quis medir.
+
+Qualquer conjunto de pacotes serve: `scripts/corpus.sh json_serializable` mede
+só esse, sem dependências. `DARTFORGE_CORPUS_MODO=grafo|unidade|ambos` escolhe o
+modo; sem a variável, o teste roda os dois.

@@ -89,8 +89,11 @@ fn conditionals_lower_every_supported_family() {
     assert!(ir.contains("insertvalue { i1, i64 } zeroinitializer, i1 true, 0"));
     assert!(ir.contains("phi { i1, i64 }"));
 
-    // Condicionais aninhadas usam os predecessores reais da sub-árvore
-    assert!(ir.contains("phi i64 [ 1, %b2 ], [ 2, %b3 ]"));
+    // Condicionais aninhadas usam os predecessores reais da sub-árvore: o phi
+    // interno junta os blocos da própria sub-árvore, b3 e b4.
+    assert!(ir.contains("phi i64 [ 1, %b3 ], [ 2, %b4 ]"));
+    // O phi externo tem como predecessor o bloco de junção do aninhado, b5.
+    assert!(ir.contains("phi i64 [ %v2, %b5 ], [ 3, %b1 ]"));
 
     // Hierarquia de classes unifica para classe base comum
     assert!(ir.contains("phi i64"));
@@ -101,15 +104,16 @@ fn conditionals_lower_every_supported_family() {
 fn conditionals_predecessors_and_cfg_integrity() {
     let ir = emit(SOURCE).unwrap();
 
-    // Cada branch condicional tem dois sucessores
-    assert!(ir.contains("br i1 %a0, label %b0, label %b1"));
+    // Cada branch condicional tem dois sucessores. O parâmetro vive num alloca do
+    // bloco de entrada, então a condição é o valor carregado dele.
+    assert!(ir.contains("br i1 %v1, label %b0, label %b1"));
 
     // Blocos then e else terminam com br label
     assert!(ir.contains("b0:\n  br label %b2\n"));
     assert!(ir.contains("b1:\n  br label %b2\n"));
 
     // Bloco de junção começa com a instrução phi
-    assert!(ir.contains("b2:\n  %v0 = phi i64"));
+    assert!(ir.contains("b2:\n  %v2 = phi i64"));
 }
 
 /// Diretório temporário exclusivo para executáveis de regressão.

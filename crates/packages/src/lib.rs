@@ -1675,7 +1675,10 @@ mod tests {
         assert!(load(&versioned).unwrap_err().message.contains("@dart"));
         let source = f.write("unknown.dart", "import 'package:unknown/a.dart';");
         let message = load(&source).unwrap_err().message;
-        assert!(message.contains("pacote unknown não encontrado"), "{message}");
+        assert!(
+            message.contains("pacote unknown não encontrado"),
+            "{message}"
+        );
         assert!(message.contains("package_config.json"), "{message}");
     }
 

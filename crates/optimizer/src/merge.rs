@@ -476,6 +476,20 @@ impl<'a> Canonical<'a, '_> {
                 ],
             ),
             Unary { op, operand } => pack("unary", &[format!("{op:?}"), self.expression(operand)]),
+            // A forma prefixa e a pós-fixa produzem valores diferentes: as duas
+            // entram na chave, senão `x++` e `++x` seriam fundidos.
+            Increment {
+                target,
+                increase,
+                prefix,
+            } => pack(
+                "increment",
+                &[
+                    self.expression(target),
+                    increase.to_string(),
+                    prefix.to_string(),
+                ],
+            ),
             Binary { op, left, right } => pack(
                 "binary",
                 &[
@@ -788,6 +802,7 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
         }
         Member { receiver, .. } => visit_expr(receiver, e),
         Unary { operand, .. } => visit_expr(operand, e),
+        Increment { target, .. } => visit_expr(target, e),
         Binary { left, right, .. } => {
             visit_expr(left, e);
             visit_expr(right, e);

@@ -1483,6 +1483,14 @@ impl<'a> FunctionEmitter<'a> {
                     Ty::Class(a)
                 });
             }
+            // Ramos irmãos — `c ? Dog() : Cat()` — unificam na menor base comum.
+            if let Some(common) = self.objects.common_supertype(a, b) {
+                return Ok(if nullable {
+                    Ty::NullableClass(common)
+                } else {
+                    Ty::Class(common)
+                });
+            }
         }
         Err(error(span, "tipos incompatíveis no operador condicional"))
     }
@@ -1553,6 +1561,12 @@ impl<'a> FunctionEmitter<'a> {
                 arguments,
             } => self.named_construct(*class_id, name, arguments, expression.span)?,
             ExprKind::Record { .. } => return Err(error(expression.span, "records")),
+            ExprKind::Increment { .. } => {
+                return Err(error(
+                    expression.span,
+                    "incremento e decremento como expressão (`x++`, `++x`)",
+                ));
+            }
             ExprKind::Const(e) => self.expression(e)?,
             ExprKind::TypeTest { .. } | ExprKind::Cast { .. } => {
                 return Err(error(expression.span, "testes e casts de tipos reificados"));

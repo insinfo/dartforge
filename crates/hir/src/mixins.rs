@@ -61,11 +61,30 @@ pub fn expand_mixins(program: &mut Program<'_>) -> Result<(), Diagnostic> {
                     mixin.span,
                 ));
             }
+            // `mixin M on Base` só pode ser aplicado onde `Base` já está na
+            // cadeia de superclasses. A verificação acontece aqui porque é
+            // exatamente aqui que a cadeia da aplicação fica conhecida: `parent`
+            // já é o topo do que foi aplicado antes deste mixin.
+            if let Some(constraint) = mixin.mixin_constraint
+                && !chain_satisfies(parent, constraint, &rewritten)
+            {
+                return Err(Diagnostic::new(
+                    format!(
+                        "Mixin '{}' constrains on '{}', which is not in the superclass chain here",
+                        mixin.name,
+                        indices
+                            .get(&constraint)
+                            .map_or("?", |index| original[*index].name)
+                    ),
+                    class.span,
+                ));
+            }
             next = next
                 .checked_add(1)
                 .ok_or_else(|| Diagnostic::new("Synthetic class IDs exhausted", class.span))?;
             base_contract |= has_base_contract(mixin_id, original, &indices);
             rewritten.push(Class {
+                mixin_constraint: None,
                 factories: vec![],
                 constructor: None,
                 constructor_extras: None,
@@ -106,6 +125,35 @@ pub fn expand_mixins(program: &mut Program<'_>) -> Result<(), Diagnostic> {
     }
     program.classes = rewritten;
     Ok(())
+}
+
+/// Indica se a cadeia iniciada em `start` contém a restrição `on` exigida.
+///
+/// Percorre apenas ligações de superclasse, como manda a regra do Dart: uma
+/// classe que apenas `implements Base` não satisfaz `on Base`, porque a
+/// restrição existe para garantir que os membros de `Base` estarão lá em
+/// execução. Uma aplicação sintética conta quando o mixin que a originou é a
+/// própria restrição, o que cobre `class C extends B with A, M` com
+/// `mixin M on A`.
+fn chain_satisfies(start: Option<u32>, constraint: u32, classes: &[Class<'_>]) -> bool {
+    let mut current = start;
+    let mut visited = BTreeSet::new();
+    while let Some(id) = current {
+        if !visited.insert(id) {
+            return false;
+        }
+        if id == constraint {
+            return true;
+        }
+        let Some(class) = classes.iter().find(|class| class.id == id) else {
+            return false;
+        };
+        if class.is_mixin_application && class.mixin_origin == Some(constraint) {
+            return true;
+        }
+        current = class.superclass;
+    }
+    false
 }
 
 /// Propaga base/final por superclasses e mixins sem recursão, mesmo antes da expansão.

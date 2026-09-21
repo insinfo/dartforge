@@ -23,12 +23,17 @@ impl<'a> Validator<'a> {
         let plain = dartforge_syntax::ConstructorExtras::default();
         if let Some(constructor) = &class.constructor {
             let extras = class.constructor_extras.as_deref().unwrap_or(&plain);
-            self.validate_constructor(class, Some(constructor), extras)?;
+            self.validate_constructor(class, None, Some(constructor), extras)?;
         } else if class.named_constructors.is_empty() {
-            self.validate_constructor(class, None, &plain)?;
+            self.validate_constructor(class, None, None, &plain)?;
         }
         for declared in &class.named_constructors {
-            self.validate_constructor(class, Some(&declared.constructor), &declared.extras)?;
+            self.validate_constructor(
+                class,
+                Some(declared.name),
+                Some(&declared.constructor),
+                &declared.extras,
+            )?;
         }
         Ok(())
     }
@@ -40,6 +45,7 @@ impl<'a> Validator<'a> {
     fn validate_constructor(
         &mut self,
         class: &dartforge_syntax::Class<'a>,
+        name: Option<&'a str>,
         constructor: Option<&dartforge_syntax::Constructor<'a>>,
         extras: &dartforge_syntax::ConstructorExtras<'a>,
     ) -> Result<(), Diagnostic> {
@@ -105,7 +111,11 @@ impl<'a> Validator<'a> {
             }
         }
         self.with_initializer_scope(parameters, |validator| {
-            for entry in &extras.initializers {
+            // A ordem é a escrita: `assert` e `campo = valor` são entradas da
+            // mesma lista e o Dart avalia uma depois da outra. `before` diz
+            // quantas entradas de campo precedem cada asserção.
+            for (index, entry) in extras.initializers.iter().enumerate() {
+                validator.validate_initializer_asserts(extras, index)?;
                 let field = class
                     .fields
                     .iter()
@@ -128,8 +138,23 @@ impl<'a> Validator<'a> {
                 let actual = validator.value_expected(&entry.value, Some(field.ty))?;
                 validator.require_type(actual, field.ty, entry.value.span)?;
             }
+            validator.validate_initializer_asserts(extras, extras.initializers.len())?;
+            // Um redirecionador delega inteiramente: não há `super` próprio nem
+            // campo para exigir, porque o alvo é que inicializa o objeto.
+            if let Some(call) = &extras.redirect {
+                return validator.validate_redirect(class, name, call);
+            }
             validator.validate_super_call(class, parameters, extras, span)
         })?;
+        if extras.redirect.is_some() {
+            if extras.is_const {
+                return Err(Diagnostic::new(
+                    "A const redirecting constructor is unsupported in this subset",
+                    span,
+                ));
+            }
+            return Ok(());
+        }
         for field in &class.fields {
             if field.initializer.is_none()
                 && !field.is_late
@@ -149,6 +174,98 @@ impl<'a> Validator<'a> {
             ));
         }
         Ok(())
+    }
+    /// Confere as asserções da lista de inicialização escritas nesta posição.
+    ///
+    /// Uma asserção da lista roda antes do corpo e antes de `super`; o escopo
+    /// é o mesmo das entradas `campo = valor`, sem `this`.
+    ///
+    /// # Erros
+    /// Recusa condição não booleana e mensagem que não seja `String`.
+    fn validate_initializer_asserts(
+        &self,
+        extras: &dartforge_syntax::ConstructorExtras<'a>,
+        position: usize,
+    ) -> Result<(), Diagnostic> {
+        for entry in extras
+            .asserts
+            .iter()
+            .filter(|entry| entry.before == position)
+        {
+            self.assert_statement(&entry.condition, entry.message.as_ref())?;
+        }
+        Ok(())
+    }
+    /// Resolve `: this(...)` ou `: this.nome(...)` para um construtor da classe.
+    ///
+    /// # Erros
+    /// Recusa alvo inexistente, redirecionamento para o próprio construtor,
+    /// cadeia cíclica e contagem ou rótulo de argumento incompatível.
+    fn validate_redirect(
+        &self,
+        class: &dartforge_syntax::Class<'a>,
+        from: Option<&'a str>,
+        call: &dartforge_syntax::RedirectCall<'a>,
+    ) -> Result<(), Diagnostic> {
+        if call.name == from {
+            return Err(Diagnostic::new(
+                "A redirecting constructor cannot redirect to itself",
+                call.span,
+            ));
+        }
+        // A cadeia é curta e local à classe; seguir os nomes escritos detecta o
+        // ciclo sem alocar tabela alguma e sem depender de ordem de declaração.
+        let mut seen: Vec<Option<&'a str>> = vec![from, call.name];
+        let mut current = call.name;
+        while let Some(next) = redirect_of(class, current) {
+            if seen.contains(&next.name) {
+                return Err(Diagnostic::new(
+                    "Redirecting constructors form a cycle",
+                    call.span,
+                ));
+            }
+            seen.push(next.name);
+            current = next.name;
+        }
+        let info = self
+            .classes
+            .get(&class.id)
+            .ok_or_else(|| Diagnostic::new("Unknown class", call.span))?;
+        match call.name {
+            None => {
+                if !info.has_generative {
+                    return Err(Diagnostic::new(
+                        "The class has no unnamed generative constructor to redirect to",
+                        call.span,
+                    ));
+                }
+                self.check_call_arguments(
+                    &call.arguments,
+                    &info.constructor_parameters,
+                    info.constructor_required,
+                    &info.constructor_named,
+                    call.span,
+                    |_| Diagnostic::new("Incorrect redirected constructor argument count", call.span),
+                )
+            }
+            Some(name) => {
+                let declared = find_by_name(&info.named_constructors, name, |item| item.name)
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            format!("Unknown redirected constructor '{}.{name}'", info.name),
+                            call.span,
+                        )
+                    })?;
+                self.check_call_arguments(
+                    &call.arguments,
+                    &declared.parameters,
+                    declared.required,
+                    &declared.named,
+                    call.span,
+                    |_| Diagnostic::new("Incorrect redirected constructor argument count", call.span),
+                )
+            }
+        }
     }
     /// Executa a ação com os parâmetros do construtor em escopo e sem `this`.
     ///
@@ -484,5 +601,23 @@ impl<'a> Validator<'a> {
         self.in_constructor = false;
         self.scopes.pop();
         result
+    }
+}
+
+/// Devolve o redirecionamento declarado pelo construtor de nome indicado.
+fn redirect_of<'a, 'b>(
+    class: &'b dartforge_syntax::Class<'a>,
+    name: Option<&str>,
+) -> Option<&'b dartforge_syntax::RedirectCall<'a>> {
+    match name {
+        None => class
+            .constructor_extras
+            .as_deref()
+            .and_then(|extras| extras.redirect.as_ref()),
+        Some(name) => class
+            .named_constructors
+            .iter()
+            .find(|declared| declared.name == name)
+            .and_then(|declared| declared.extras.redirect.as_ref()),
     }
 }

@@ -2113,6 +2113,100 @@ impl<'a> Validator<'a> {
         Ok(())
     }
     /// Procura o nome do escopo mais interno até o mais externo.
+    /// Valida `x++`, `x--`, `++x` e `--x` em posição de expressão.
+    ///
+    /// Dart define a forma como `x = x + 1`, então o alvo precisa ser legível e
+    /// gravável e o tipo precisa aceitar o operador numérico. A pós-fixa produz
+    /// o valor **anterior** e a prefixa o já atualizado; o tipo é o mesmo nos
+    /// dois casos, e é por isso que só a emissão distingue as duas.
+    ///
+    /// A leitura é registrada pela própria resolução do identificador, chamada
+    /// aqui depois das recusas: um alvo `late` sairia daqui como leitura
+    /// verificada, que não é um destino de atribuição no JavaScript emitido.
+    ///
+    /// # Erros
+    /// Recusa alvo composto, `final`, `const`, `late`, alvo que só tem getter e
+    /// tipo não numérico.
+    fn increment(
+        &self,
+        target: &Expr<'a>,
+        increase: bool,
+        prefix: bool,
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let _ = prefix;
+        let operator = if increase { "++" } else { "--" };
+        let ExprKind::Identifier(name) = &target.kind else {
+            return Err(Diagnostic::new(
+                format!("`{operator}` accepts only a simple variable as target"),
+                target.span,
+            ));
+        };
+        let final_error = |kind: &str| {
+            Err(Diagnostic::new(
+                format!("Cannot apply `{operator}` to {kind} '{name}'"),
+                span,
+            ))
+        };
+        let late_error = || {
+            Err(Diagnostic::new(
+                format!(
+                    "`{operator}` on the late declaration '{name}' is unsupported: it reads and writes the same name, and a late read is a checked call rather than an assignment target; write `{name} = {name} {} 1` as a statement",
+                    if increase { "+" } else { "-" }
+                ),
+                span,
+            ))
+        };
+        if let Some(binding) = self.lookup(name) {
+            if binding.is_late {
+                return late_error();
+            }
+            if binding.is_final {
+                return final_error("final variable");
+            }
+        } else if let Some(id) = self
+            .current_class
+            .filter(|id| self.field(*id, name).is_some())
+        {
+            let field = self.field(id, name).expect("campo consultado acima");
+            if field.is_late {
+                return late_error();
+            }
+            if field.is_final {
+                return final_error("final field");
+            }
+        } else if self
+            .current_class
+            .is_some_and(|id| self.setter(id, name).is_some())
+        {
+            return Err(Diagnostic::new(
+                format!(
+                    "`{operator}` on '{name}' is unsupported: the declaration has a setter but no field, so reading and writing would go through two different members; write the pair explicitly"
+                ),
+                span,
+            ));
+        } else if !self.has_implicit_member(name)
+            && let Some(global) = self.global(name)
+        {
+            if global.is_late {
+                return late_error();
+            }
+            if global.is_final {
+                return final_error("final top-level variable");
+            }
+        }
+        let ty = self.value(target)?;
+        match ty {
+            Type::Int | Type::Double | Type::Num => Ok(ty),
+            _ => Err(Diagnostic::new(
+                format!(
+                    "`{operator}` requires an int, double or num target: Dart defines it as `{name} = {name} {} 1`, which needs the numeric operator",
+                    if increase { "+" } else { "-" }
+                ),
+                span,
+            )),
+        }
+    }
     fn lookup(&self, name: &str) -> Option<Binding> {
         self.scopes
             .iter()
@@ -3461,6 +3555,11 @@ impl<'a> Validator<'a> {
                 )?;
                 Ok(signature.result)
             }
+            ExprKind::Increment {
+                target,
+                increase,
+                prefix,
+            } => self.increment(target, *increase, *prefix, expression.span),
             ExprKind::Unary { op, operand } => {
                 if *op == UnaryOp::NullAssert {
                     let ty = self.value(operand)?;

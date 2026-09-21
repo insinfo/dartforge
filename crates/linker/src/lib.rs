@@ -22,6 +22,7 @@ struct Symbol {
 /// no caminho quente da resolução de namespaces sem ganho mensurável: os
 /// arquivos reais têm poucos prefixos, e o vetor de um programa sem prefixo
 /// nenhum não aloca.
+#[derive(Clone, Copy)]
 struct Prefixed<'a> {
     /// Prefixo declarado na diretiva, sem o ponto.
     prefix: &'a str,
@@ -31,6 +32,21 @@ struct Prefixed<'a> {
     symbol: Symbol,
     /// Intervalo da diretiva que trouxe o nome, para o diagnóstico de ambiguidade.
     span: Span,
+}
+
+/// Nó que um acesso `p.nome` assume depois de resolvido.
+#[derive(Clone, Copy)]
+enum Shape<'a> {
+    /// Função de topo importada, com o nome já qualificado pela biblioteca.
+    Call(&'a str),
+    /// Valor de topo importado, com o nome já qualificado pela biblioteca.
+    Value(&'a str),
+    /// Construtor sem nome de uma classe importada.
+    Construct(u32),
+    /// Construtor nomeado ou método estático de uma classe importada.
+    Named(u32, &'a str),
+    /// Valor de enum ou campo estático de uma classe importada.
+    Enum(u32, &'a str),
 }
 
 /// Metadados imutáveis usados para verificar resolução antes da renomeação.
@@ -353,6 +369,12 @@ pub fn compile_graph_instrumented(
     let mut visible = own.clone();
     for (unit_id, unit) in graph.units.iter().enumerate() {
         for import in &unit.imports {
+            // Import com prefixo não entra no namespace sem qualificação: seus
+            // nomes só existem em `prefixed`, alcançáveis por `p.nome`. Por isso
+            // não há ambiguidade entre um nome com prefixo e outro sem.
+            if import.prefix.is_some() {
+                continue;
+            }
             let imported = exported.get(import.target).ok_or_else(|| {
                 source_error(
                     graph,
@@ -384,6 +406,88 @@ pub fn compile_graph_instrumented(
             }
         }
     }
+    // Namespaces alcançáveis somente por prefixo. Um programa sem prefixo não
+    // paga nada aqui: os dois vetores externos continuam vazios e sem alocação.
+    let mut prefixed: Vec<Vec<Prefixed>> = Vec::new();
+    let mut prefixes: Vec<Vec<&str>> = Vec::new();
+    if graph
+        .units
+        .iter()
+        .flat_map(|unit| &unit.imports)
+        .any(|import| import.prefix.is_some())
+    {
+        prefixed = vec![Vec::new(); graph.units.len()];
+        prefixes = vec![Vec::new(); graph.units.len()];
+        for (unit_id, unit) in graph.units.iter().enumerate() {
+            for import in &unit.imports {
+                let Some(prefix) = import.prefix.as_deref() else {
+                    continue;
+                };
+                // Um prefixo não pode competir com um nome já alcançável sem
+                // qualificação: em Dart o mesmo texto não é os dois ao mesmo tempo.
+                if visible[unit_id].contains_key(prefix) {
+                    return Err(source_error(
+                        graph,
+                        unit_id,
+                        Diagnostic::new(
+                            format!(
+                                "prefixo de import {prefix} colide com um nome visível nesta biblioteca"
+                            ),
+                            import.span,
+                        ),
+                    ));
+                }
+                prefixes[unit_id].push(prefix);
+                let imported = exported.get(import.target).ok_or_else(|| {
+                    source_error(
+                        graph,
+                        unit_id,
+                        Diagnostic::new("destino de import inválido", import.span),
+                    )
+                })?;
+                // `allows_name` já recusa `_nome`: a privacidade por biblioteca
+                // não atravessa a fronteira, nem através de um prefixo.
+                for (&name, &symbol) in imported {
+                    if !allows_name(name, &import.combinators) {
+                        continue;
+                    }
+                    prefixed[unit_id].push(Prefixed {
+                        prefix,
+                        name,
+                        symbol,
+                        span: import.span,
+                    });
+                }
+            }
+        }
+        for (unit_id, entries) in prefixed.iter_mut().enumerate() {
+            entries.sort_unstable_by(|left, right| {
+                (left.prefix, left.name, left.symbol).cmp(&(right.prefix, right.name, right.symbol))
+            });
+            // Dois imports com o mesmo prefixo compõem um namespace único; o
+            // mesmo nome vindo de declarações diferentes é ambíguo, como em Dart.
+            if let Some(pair) = entries.windows(2).find(|pair| {
+                pair[0].prefix == pair[1].prefix
+                    && pair[0].name == pair[1].name
+                    && pair[0].symbol.owner != pair[1].symbol.owner
+            }) {
+                return Err(source_error(
+                    graph,
+                    unit_id,
+                    Diagnostic::new(
+                        format!(
+                            "import ambíguo: {}.{}; use show/hide para desambiguar",
+                            pair[1].prefix, pair[1].name
+                        ),
+                        pair[1].span,
+                    ),
+                ));
+            }
+            entries.dedup_by(|right, left| left.prefix == right.prefix && left.name == right.name);
+            prefixes[unit_id].sort_unstable();
+            prefixes[unit_id].dedup();
+        }
+    }
     // A arena permanece imóvel até emissão; referências da AST nunca escapam desta função.
     let mut names = HashMap::new();
     for (unit_id, unit_tokens) in tokens.iter().enumerate() {
@@ -410,11 +514,32 @@ pub fn compile_graph_instrumented(
                 .collect()
         })
         .collect();
+    // Classes alcançáveis por prefixo, na ordem `(prefixo, nome)` herdada de
+    // `prefixed`: o parser as consulta por busca binária. Uma parte herda as do
+    // arquivo que a declara, porque herda também seus imports.
+    let prefixed_classes: Vec<Vec<(&str, &str, u32)>> = if prefixed.is_empty() {
+        Vec::new()
+    } else {
+        (0..graph.units.len())
+            .map(|unit_id| {
+                prefixed[library[unit_id]]
+                    .iter()
+                    .filter_map(|entry| {
+                        entry
+                            .symbol
+                            .class_id
+                            .map(|id| (entry.prefix, entry.name, id))
+                    })
+                    .collect()
+            })
+            .collect()
+    };
     let parsed = map_indexed(graph.units.len(), |unit_id| {
-        dartforge_parser::parse_unit(
+        dartforge_parser::parse_unit_with_prefixed_classes(
             &tokens[unit_id],
             graph.units[unit_id].source.len(),
             environments[unit_id].clone(),
+            prefixed_classes.get(unit_id).map_or(&[][..], Vec::as_slice),
         )
     });
     let mut programs = first_error(graph, parsed)?;
@@ -609,6 +734,12 @@ pub fn compile_graph_instrumented(
             library: library[unit_id],
             graph,
             visible: &visible,
+            prefixed: prefixed
+                .get(library[unit_id])
+                .map_or(&[][..], Vec::as_slice),
+            prefixes: prefixes
+                .get(library[unit_id])
+                .map_or(&[][..], Vec::as_slice),
             names: &names,
             classes: &classes,
             class_origins: &class_origins,
@@ -938,6 +1069,10 @@ struct Resolver<'a, 'g> {
     library: usize,
     graph: &'g SourceGraph,
     visible: &'g [HashMap<&'a str, Symbol>],
+    /// Namespace alcançável por prefixo nesta biblioteca, ordenado por `(prefixo, nome)`.
+    prefixed: &'g [Prefixed<'a>],
+    /// Prefixos declarados pela biblioteca, ordenados, para recusar `p` sem ponto.
+    prefixes: &'g [&'a str],
     names: &'a HashMap<(usize, &'a str), String>,
     classes: &'g HashMap<u32, ClassNames<'a>>,
     class_origins: &'g HashMap<u32, (usize, &'a str)>,
@@ -989,6 +1124,155 @@ impl<'a> Resolver<'a, '_> {
             pending.extend(class.mixins.iter().copied());
         }
         false
+    }
+    /// Busca binária no namespace alcançado por prefixo da biblioteca corrente.
+    fn prefixed_symbol(&self, prefix: &str, name: &str) -> Option<Symbol> {
+        self.prefixed
+            .binary_search_by(|entry| (entry.prefix, entry.name).cmp(&(prefix, name)))
+            .ok()
+            .map(|index| self.prefixed[index].symbol)
+    }
+    /// Resolve `p.nome` ou recusa nomeando o prefixo e o nome exatos.
+    ///
+    /// Um `_nome` nunca chega ao vetor, então a mesma recusa cobre a
+    /// privacidade por biblioteca: um prefixo não abre a fronteira.
+    fn prefixed_lookup(&self, prefix: &str, name: &str, span: Span) -> Result<Symbol, GraphError> {
+        self.prefixed_symbol(prefix, name).ok_or_else(|| {
+            self.error(
+                span,
+                format!(
+                    "nome não exportado pela biblioteca importada com prefixo {prefix}: {name}"
+                ),
+            )
+        })
+    }
+    /// Informa se o nome é um prefixo de import declarado por esta biblioteca.
+    fn is_prefix(&self, name: &str) -> bool {
+        self.prefixes.binary_search(&name).is_ok()
+    }
+    /// Reconhece o identificador de um prefixo, sem confundi-lo com um local.
+    fn prefix_of(&self, expression: &Expr<'a>) -> Option<&'a str> {
+        match expression.kind {
+            ExprKind::Identifier(name) if !self.local(name) && self.is_prefix(name) => Some(name),
+            _ => None,
+        }
+    }
+    /// Devolve o nome global de um símbolo importado, preservando intrínsecos.
+    fn global_name(&self, symbol: Symbol, name: &'a str) -> &'a str {
+        if symbol.intrinsic {
+            name
+        } else {
+            self.names[&(symbol.owner, name)].as_str()
+        }
+    }
+    /// Reescreve `p.nome` no nó que o nome importado exige.
+    ///
+    /// O parser não conhece prefixos em posição de expressão: `p.f()` chega como
+    /// chamada de método sobre o identificador `p`, e `p.C.nomeada(...)` como
+    /// chamada sobre um acesso a membro. Reescrever aqui concentra a diferença
+    /// em um lugar e deixa renomeação, privacidade e construção no mesmo caminho
+    /// dos nomes sem prefixo.
+    ///
+    /// Devolve `true` quando o nó já está resolvido por completo. Construtor
+    /// nomeado e valor de enum voltam como `false` de propósito: os braços que
+    /// já existem em [`Resolver::expression`] cuidam deles sem duplicação.
+    fn prefixed_expression(&mut self, expression: &mut Expr<'a>) -> Result<bool, GraphError> {
+        if self.prefixed.is_empty() {
+            return Ok(false);
+        }
+        let span = expression.span;
+        // A forma é decidida antes de mexer no nó: a consulta precisa de `&self`
+        // e a substituição, de `&mut`.
+        let shape = match &expression.kind {
+            ExprKind::MethodCall { receiver, name, .. } => {
+                if let Some(prefix) = self.prefix_of(receiver) {
+                    let symbol = self.prefixed_lookup(prefix, name, span)?;
+                    match symbol.class_id {
+                        Some(class_id) => Shape::Construct(class_id),
+                        None => Shape::Call(self.global_name(symbol, *name)),
+                    }
+                } else if let ExprKind::Member {
+                    receiver: owner,
+                    name: class,
+                } = &receiver.kind
+                {
+                    let Some(prefix) = self.prefix_of(owner) else {
+                        return Ok(false);
+                    };
+                    Shape::Named(self.prefixed_class(prefix, class, span)?, *name)
+                } else {
+                    return Ok(false);
+                }
+            }
+            ExprKind::Member { receiver, name } => {
+                if let Some(prefix) = self.prefix_of(receiver) {
+                    let symbol = self.prefixed_lookup(prefix, name, span)?;
+                    if symbol.class_id.is_some() {
+                        return Err(self
+                            .error(span, format!("{prefix}.{name} é uma classe e não um valor")));
+                    }
+                    Shape::Value(self.global_name(symbol, *name))
+                } else if let ExprKind::Member {
+                    receiver: owner,
+                    name: class,
+                } = &receiver.kind
+                {
+                    let Some(prefix) = self.prefix_of(owner) else {
+                        return Ok(false);
+                    };
+                    Shape::Enum(self.prefixed_class(prefix, class, span)?, *name)
+                } else {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        };
+        let mut arguments = match &mut expression.kind {
+            ExprKind::MethodCall { arguments, .. } => std::mem::take(arguments),
+            _ => Vec::new(),
+        };
+        // Construtor nomeado e valor de enum voltam aos braços que já existem,
+        // que aplicam privacidade, renomeação de membro e verificação de tipo.
+        match shape {
+            Shape::Named(class_id, name) => {
+                expression.kind = ExprKind::NamedConstruct {
+                    class_id,
+                    name,
+                    arguments,
+                };
+                return Ok(false);
+            }
+            Shape::Enum(class_id, name) => {
+                expression.kind = ExprKind::EnumValue { class_id, name };
+                return Ok(false);
+            }
+            _ => {}
+        }
+        for argument in &mut arguments {
+            self.expression(argument)?;
+        }
+        expression.kind = match shape {
+            Shape::Call(name) => ExprKind::Call { name, arguments },
+            Shape::Construct(class_id) => ExprKind::Construct {
+                class_id,
+                arguments,
+            },
+            Shape::Value(name) => ExprKind::Identifier(name),
+            Shape::Named(..) | Shape::Enum(..) => unreachable!("devolvidos acima"),
+        };
+        self.span(&mut expression.span);
+        Ok(true)
+    }
+    /// Exige que `p.Nome` seja uma classe antes de construir ou ler um estático.
+    fn prefixed_class(
+        &self,
+        prefix: &'a str,
+        class: &'a str,
+        span: Span,
+    ) -> Result<u32, GraphError> {
+        self.prefixed_lookup(prefix, class, span)?
+            .class_id
+            .ok_or_else(|| self.error(span, format!("{prefix}.{class} não é uma classe")))
     }
     /// Retorna um nome privado pertencente à biblioteca corrente.
     fn member_name(&self, name: &'a str) -> &'a str {
@@ -1396,6 +1680,24 @@ impl<'a> Resolver<'a, '_> {
     }
     /// Resolve chamadas e construtores sem reescrever texto nem capturar globais indevidos.
     fn expression(&mut self, expression: &mut Expr<'a>) -> Result<(), GraphError> {
+        if self.prefixed_expression(expression)? {
+            return Ok(());
+        }
+        // Um prefixo não é um identificador comum: só `p.nome` alcança o
+        // namespace importado, e um nome de topo com o mesmo texto já foi
+        // recusado na construção do namespace.
+        if let ExprKind::Identifier(name)
+        | ExprKind::Call { name, .. }
+        | ExprKind::GenericCall { name, .. } = &expression.kind
+            && !self.local(name)
+            && !self.implicit_member(name)
+            && self.is_prefix(name)
+        {
+            return Err(self.error(
+                expression.span,
+                format!("prefixo de import {name} exige um nome: use {name}.nome"),
+            ));
+        }
         if let ExprKind::Identifier(name @ ("Timer" | "scheduleMicrotask")) = &expression.kind
             && !self.local(name)
             && !self.implicit_member(name)
@@ -1703,6 +2005,11 @@ impl<'a> Resolver<'a, '_> {
                 }
             }
             ExprKind::Unary { operand, .. } => self.expression(operand)?,
+            // Braço mínimo de recursão para a variante de incremento: o alvo é
+            // um identificador e precisa passar pelo mesmo caminho de qualquer
+            // outro — sem isto, `x++` num programa com mais de uma biblioteca
+            // perderia a renomeação de membro privado e o span remapeado.
+            ExprKind::Increment { target, .. } => self.expression(target)?,
             ExprKind::Binary { left, right, .. } => {
                 self.expression(left)?;
                 self.expression(right)?;
