@@ -382,6 +382,8 @@ impl<'a> Canonical<'a, '_> {
                 "this".into()
             }
             Int(n) => format!("int{n}"),
+            // Bits IEEE-754: `-0.0` e `0.0` (e NaNs distintos) não colidem na chave.
+            Double(v) => format!("double{}", v.to_bits()),
             Bool(b) => format!("bool{b}"),
             String(s) => pack("str", &[(*s).into()]),
             OwnedString(s) => pack("str", std::slice::from_ref(s)),
@@ -748,6 +750,7 @@ fn visit_expr<'a>(x: &mut Expr<'a>, e: &mut impl FnMut(&mut Expr<'a>)) {
         | CascadeReceiver
         | This
         | Int(_)
+        | Double(_)
         | Bool(_)
         | String(_)
         | OwnedString(_)

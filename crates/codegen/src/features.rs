@@ -45,6 +45,8 @@ fn constant_key(
 ) -> serde_json::Value {
     match value {
         ConstValue::Int(n) => serde_json::json!(["int", n]),
+        // Bits IEEE-754: chave exata sem os não finitos que o JSON não representa.
+        ConstValue::Double(bits) => serde_json::json!(["double", bits]),
         ConstValue::Bool(b) => serde_json::json!(["bool", b]),
         ConstValue::String(s) => serde_json::json!(["string", s]),
         ConstValue::Null => serde_json::json!(["null"]),
@@ -60,12 +62,21 @@ fn constant_key(
                 .map(|v| constant_key(v, resolution))
                 .collect::<Vec<_>>()
         ]),
+        ConstValue::Instance { class_id, fields } => serde_json::json!([
+            "instance",
+            class_id,
+            fields
+                .iter()
+                .map(|(name, v)| (name, constant_key(v, resolution)))
+                .collect::<Vec<_>>()
+        ]),
     }
 }
 /// Emite valores já avaliados; listas recebem cache compartilhado e armazenamento congelado.
 pub(super) fn constant(value: &ConstValue, output: &mut Output<'_>) {
     match value {
         ConstValue::Int(n) => write!(output, "{n}").unwrap(),
+        ConstValue::Double(bits) => super::double_literal(f64::from_bits(*bits), output),
         ConstValue::Bool(b) => output.push_str(if *b { "true" } else { "false" }),
         ConstValue::String(s) => string_literal(s, output),
         ConstValue::Null => output.push_str("null"),
@@ -89,6 +100,23 @@ pub(super) fn constant(value: &ConstValue, output: &mut Output<'_>) {
             }
             output.push_str("],");
             types::descriptor(*element_type, output);
+            output.push(')');
+        }
+        ConstValue::Instance { class_id, fields } => {
+            output.const_instance_used = true;
+            output.push_str("$dartforgeConstInstance(");
+            let key = constant_key(value, output.resolution).to_string();
+            string_literal(&key, output);
+            write!(output, ",$dartforgeClass{class_id}.prototype,{{").unwrap();
+            for (i, (name, v)) in fields.iter().enumerate() {
+                if i > 0 {
+                    output.push(',');
+                }
+                identifier(name, output);
+                output.push(':');
+                constant(v, output);
+            }
+            output.push_str("})");
             output.push(')');
         }
     }
@@ -196,6 +224,15 @@ fn pattern(pattern: &Pattern<'_>, temp: &str, output: &mut Output<'_>) {
                 } else {
                     write!(output, "Number.isInteger({temp})").unwrap();
                 }
+            }
+            // Apagamento Number: `is double`/`is num` é `typeof number`, com o
+            // limite documentado para doubles de valor inteiro.
+            Type::Double | Type::NullableDouble | Type::Num | Type::NullableNum => {
+                output.push('(');
+                if matches!(ty, Type::NullableDouble | Type::NullableNum) {
+                    write!(output, "{temp}===null||").unwrap();
+                }
+                write!(output, "typeof {temp}==='number')").unwrap();
             }
             Type::String | Type::NullableString | Type::Bool | Type::NullableBool => {
                 let name = if matches!(ty, Type::String | Type::NullableString) {

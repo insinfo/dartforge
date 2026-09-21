@@ -414,6 +414,73 @@ impl<'a> Validator<'a> {
         );
         Ok(self.substitute(signature.result, &bindings, Type::Inferred))
     }
+    /// Apaga argumentos de uma classe genérica após conferir aridade e bounds.
+    ///
+    /// O parser já valida e descarta `<...>` (erasure com bound); este auxiliar
+    /// existe para a futura checagem nominal em `semantic/src/lib.rs`, que deve
+    /// chamá-lo ao resolver construções e supertipos parametrizados. Sem essa
+    /// chamada, argumentos errados passam silenciosamente (gap documentado).
+    #[allow(dead_code)]
+    pub(super) fn check_class_arguments(
+        &self,
+        arguments: &[Type],
+        bounds: &[Type],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if arguments.len() != bounds.len() {
+            return Err(Diagnostic::new("Incorrect class type argument count", span));
+        }
+        let bindings = arguments.iter().map(|ty| Some(*ty)).collect::<Vec<_>>();
+        for (argument, bound) in arguments.iter().zip(bounds) {
+            self.check_type_name(*argument, span)?;
+            if matches!(argument, Type::Void | Type::Inferred) {
+                return Err(Diagnostic::new(
+                    "Unsupported class type argument",
+                    span,
+                ));
+            }
+            self.require_type(
+                *argument,
+                self.substitute(*bound, &bindings, Type::NullableObject),
+                span,
+            )?;
+        }
+        Ok(())
+    }
+    /// Infere o argumento de `C(expr)` a partir do tipo do argumento posicional.
+    ///
+    /// Cobertura mínima de um parâmetro: coleta a restrição do primeiro
+    /// argumento contra o tipo do campo/parâmetro correspondente e fixa o
+    /// bound quando nada foi inferido. A integração com a resolução de
+    /// construtores vive em `semantic/src/lib.rs` (não aplicada aqui).
+    #[allow(dead_code)]
+    pub(super) fn infer_class_construction(
+        &self,
+        formal: Type,
+        actual: Type,
+        bound: Type,
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let mut bindings = vec![None];
+        self.infer(formal, actual, &mut bindings, span)?;
+        if bindings[0].is_none() {
+            let candidate = self.substitute(bound, &bindings, Type::Inferred);
+            if self.has_inferred(candidate) {
+                return Err(Diagnostic::new(
+                    "Cannot infer class type argument",
+                    span,
+                ));
+            }
+            bindings[0] = Some(candidate);
+        }
+        let inferred = bindings[0].expect("argumento inferido ou bound");
+        self.require_type(
+            inferred,
+            self.substitute(bound, &bindings, Type::NullableObject),
+            span,
+        )?;
+        Ok(inferred)
+    }
     /// Registra nomes resolvidos sobre this sem modificar a AST emprestada.
     pub(super) fn implicit(&self, span: Span) {
         self.resolution

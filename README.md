@@ -108,6 +108,25 @@ Dart capturáveis no alvo nativo. Veja [null safety AOT](docs/AOT-NULL-SAFETY.md
 Detalhes: [driver e ABI](docs/AOT-DRIVER.md), [referências Dartino](docs/AOT-REFERENCIAS.md)
 e [incremento atual de raízes reutilizáveis e fusão](docs/IMPLEMENTACAO-10.md).
 
+## Execução em memória pelo JIT
+
+    ./scripts/env.ps1
+    cargo run --release -p dartforge-cli -- run examples/native/main.dart --timings
+
+`run` é o perfil de desenvolvimento: o mesmo LLVM IR do `aot`, executado em
+memória por ORCv2 (`LLJIT`), sem gravar nada em disco. O perfil de produção
+continua sendo `aot`. Um teste diferencial exige que os dois produzam a mesma
+saída para o mesmo IR.
+
+O programa executa **dentro do processo do compilador**: não há isolamento, e uma
+falha de `!` sobre null encerra esse processo com código 101, como no AOT.
+`--timings` emite JSON com o custo por fase (sessão, parsing do IR, adição do
+módulo, lookup com geração de código sob demanda e execução).
+
+A build deste crate exige a **distribuição completa** do LLVM 22.1.x, com
+`llvm-config`, apontada por `LLVM_SYS_221_PREFIX`; `scripts/env.ps1` a detecta na
+instalação local. Arquitetura, limites e justificativa em [docs/JIT.md](docs/JIT.md).
+
 ## Workspace
 
 | Crate | Responsabilidade |
@@ -122,6 +141,7 @@ e [incremento atual de raízes reutilizáveis e fusão](docs/IMPLEMENTACAO-10.md
 | optimizer | Simplificação opcional de constantes após validação |
 | compiler / cli | Pipeline compartilhado e executável |
 | llvm / native / runtime | LLVM IR, driver AOT e runtime Rust inicial |
+| jit | Execução em memória do mesmo IR por LLVM ORCv2 (perfil de desenvolvimento) |
 | ngdart / lsp / web | Fronteiras iniciais para expansão |
 
 ## Contribuição e documentação

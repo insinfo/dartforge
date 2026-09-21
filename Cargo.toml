@@ -6,7 +6,14 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# `unsafe` é permitido onde for inevitável — FFI com a API C do LLVM, alocador
+# contador — ou onde uma medição comprovar ganho. `deny` em vez de `allow` para
+# que cada uso seja deliberado e rastreável: um `#[allow(unsafe_code)]` aparece
+# no diff e no grep, um `allow` global não apareceria em lugar nenhum.
+# Todo bloco `unsafe` documenta, em português, a invariante que preserva.
+unsafe_code = "deny"
+# Dentro de uma `unsafe fn`, cada operação insegura ainda exige bloco explícito.
+unsafe_op_in_unsafe_fn = "deny"
 [profile.release]
 lto = "thin"
 codegen-units = 1

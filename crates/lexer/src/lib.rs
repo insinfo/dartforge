@@ -21,6 +21,29 @@ struct Interpolation {
     start: usize,
 }
 
+/// Consome o expoente `e[+-]dígitos` de um literal double quando bem formado.
+///
+/// `1e3`, `1E+3` e `1.5e-3` são doubles; um `e` sem dígitos (`1e`, `1e+`)
+/// permanece para os tokens seguintes e falha adiante com o diagnóstico
+/// da posição de uso, como no oráculo Dart.
+fn scan_exponent(bytes: &[u8], i: &mut usize) {
+    let mut end = *i;
+    if !matches!(bytes.get(end), Some(b'e' | b'E')) {
+        return;
+    }
+    end += 1;
+    if matches!(bytes.get(end), Some(b'+' | b'-')) {
+        end += 1;
+    }
+    if !matches!(bytes.get(end), Some(next) if next.is_ascii_digit()) {
+        return;
+    }
+    while matches!(bytes.get(end), Some(next) if next.is_ascii_digit()) {
+        end += 1;
+    }
+    *i = end;
+}
+
 /// Divide o código em tokens sem copiar seus lexemas.
 ///
 /// # Exemplos
@@ -133,6 +156,39 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
             while i < bytes.len() && bytes[i].is_ascii_digit() {
                 i += 1;
             }
+            // Fração decimal: `1.0` e `1.5e-3` são um único literal double.
+            // `1..campo` continua sendo cascata e `1.nome`, acesso a membro:
+            // só há fração quando o ponto é seguido de dígito.
+            if bytes.get(i) == Some(&b'.')
+                && matches!(bytes.get(i + 1), Some(next) if next.is_ascii_digit())
+            {
+                i += 2;
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+            } else if bytes.get(i) == Some(&b'.')
+                && !matches!(
+                    bytes.get(i + 1),
+                    Some(b'.') | Some(b'a'..=b'z') | Some(b'A'..=b'Z') | Some(b'_' | b'$')
+                )
+            {
+                // Oráculo Dart 3.6.2/3.13.4: `1.` é inválido (`1.nome` e `1..`
+                // continuam válidos e seguem como inteiro + símbolo).
+                return Err(Diagnostic::new(
+                    "invalid double literal: '.' must be followed by a digit",
+                    Span { start, end: i + 1 },
+                ));
+            }
+            scan_exponent(bytes, &mut i);
+            TokenKind::Number(&source[start..i])
+        } else if b == b'.' && matches!(bytes.get(i + 1), Some(next) if next.is_ascii_digit()) {
+            // Oráculo Dart 3.6.2/3.13.4: `.5` vale 0.5 e chega aqui como
+            // literal double (o ponto nunca é símbolo isolado antes de dígito).
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            scan_exponent(bytes, &mut i);
             TokenKind::Number(&source[start..i])
         } else if bytes.get(i..i + 3) == Some(b"?..") {
             i += 3;
@@ -159,11 +215,12 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
                     | b"+="
                     | b"-="
                     | b"*="
+                    | b"~/"
             )
         ) {
             i += 2;
             TokenKind::Operator(&source[start..i])
-        } else if b"=+-*!<>?%".contains(&b) {
+        } else if b"=+-*!<>?%/".contains(&b) {
             i += 1;
             TokenKind::Operator(&source[start..i])
         } else {
@@ -548,8 +605,47 @@ mod tests {
         assert_eq!(tokens[1].span, Span { start: 7, end: 8 });
         let err = lex("é").unwrap_err();
         assert_eq!(err.span, Span { start: 0, end: 2 });
-        for source in ["1 / 2", "'a\nb'", "a & b", "a | b"] {
+        for source in ["'a\nb'", "a & b", "a | b", "a ~ b"] {
             assert!(lex(source).is_err(), "{source}");
+        }
+    }
+    #[test]
+    fn doubles_division_and_truncating_division() {
+        // `1.0`, `1e3` e `1.5e-3` são um único literal; `/` e `~/` viram operadores.
+        let tokens = lex("1.0 1e3 1.5e-3 .5 7 ~/ 2 1 / 2").unwrap();
+        assert_eq!(
+            tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            vec![
+                TokenKind::Number("1.0"),
+                TokenKind::Number("1e3"),
+                TokenKind::Number("1.5e-3"),
+                TokenKind::Number(".5"),
+                TokenKind::Number("7"),
+                TokenKind::Operator("~/"),
+                TokenKind::Number("2"),
+                TokenKind::Number("1"),
+                TokenKind::Operator("/"),
+                TokenKind::Number("2"),
+            ]
+        );
+        // `1..campo` é cascata e `1.nome`, acesso a membro: o ponto não fecha double.
+        let tokens = lex("1..isEven").unwrap();
+        assert_eq!(
+            tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            vec![
+                TokenKind::Number("1"),
+                TokenKind::Operator(".."),
+                TokenKind::Word("isEven"),
+            ]
+        );
+        // Oráculo Dart 3.6.2/3.13.4: `1.` é inválido.
+        for source in ["var x = 1.;", "var x = 1. ;", "print(1.)"] {
+            let err = lex(source).expect_err(source);
+            assert_eq!(
+                err.message,
+                "invalid double literal: '.' must be followed by a digit",
+                "{source}"
+            );
         }
     }
 }

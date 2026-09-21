@@ -456,7 +456,7 @@ reuso de máquina rápida.
 - [x] `LinkStats`/`CompileReport`: tempo por fase cronometrado no próprio trecho
       e contadores de unidades, tokens, classes, funções e bytes emitidos.
 - [x] Crate `dartforge-instrument` com alocador contador (bytes vivos, pico e
-      número de alocações); único ponto de `unsafe` do workspace, isolado.
+      número de alocações), isolado no binário de benchmark.
 - [x] Benchmark `incremental` com sequências reais de edição: comentário, corpo,
       assinatura pública, constante e import.
 - [x] Primeiro gargalo eliminado: as tabelas de classes, funções e extensions
@@ -515,3 +515,74 @@ Correção incidental: a rota rápida de unidade isolada exigia apenas ausência
 `import`/`export`. Um arquivo que declara somente `library x;` ou `part` não tem
 aresta alguma mas tem prefixo de diretivas, e era entregue inteiro ao parser.
 A condição passou a exigir também ausência de `part` e prefixo vazio.
+
+## Incremento 28 — perfis de execução: JIT, hot reload e AOT
+
+Decisão de arquitetura: **um frontend incremental**, **uma HIR/MIR própria**, **um
+runtime nativo compartilhado** e **dois perfis** sobre o mesmo alvo. `Native`
+continua sendo o alvo; `DevJit` e `ReleaseAot` são perfis, não plataformas — do
+contrário a seleção de bibliotecas condicionais passaria a enxergar
+desenvolvimento e produção como sistemas diferentes.
+
+A HIR própria existe para que as decisões da linguagem não fiquem amarradas ao
+LLVM. Cada backend traduz as operações dela; nenhum backend recebe a IR de outro.
+
+### Experimento de backend, em curso
+
+Dois JITs sendo construídos para serem comparados por medição, não por
+preferência:
+
+- `crates/jit` — LLVM ORCv2 via `llvm-sys 221.1.0`, partindo do LLVM IR que o
+  backend nativo já emite. Exige a distribuição completa do LLVM 22.1.8
+  (`LLVM_SYS_221_PREFIX`), com `llvm-config`, cabeçalhos e libs estáticas.
+- `crates/cranelift-jit` — Cranelift, Rust puro, sem dependência externa,
+  partindo da **HIR**, nunca de LLVM IR.
+
+Quatro eixos de comparação: tempo de geração de código em memória, tempo de
+execução do código gerado, custo de construção do próprio compilador (inclusive
+os ~3 GB da distribuição LLVM) e quais primitivas cada um oferece para redefinir
+uma função já compilada.
+
+Contrato central dos dois: **teste diferencial contra o AOT**. Um backend que
+discorda do AOT no mesmo programa está errado, por mais rápido que seja.
+
+### Hot reload — depois que o backend estiver escolhido
+
+Misturar a depuração do protocolo de recarga com a escolha de backend é o jeito
+mais rápido de não entender nenhum dos dois. O desenho:
+
+- **Identidade estável, implementação substituível.** Cada função recarregável
+  tem uma entrada permanente e uma implementação versionada por geração. As
+  chamadas passam pela entrada. `LLVMOrcCreateLocalIndirectStubsManager` e
+  `LLVMOrcCreateLocalLazyCallThroughManager` existem na API C e servem a isso.
+- **Identidades separadas por propósito**: identidade da declaração na sessão,
+  impressão digital do contrato de chamada, do corpo e do ambiente capturado.
+  O hash do corpo não serve como identidade da função.
+- **Atualização transacional em três fases**: preparar sem tocar na aplicação em
+  execução, publicar num ponto seguro, e só então aposentar o código antigo.
+  Uma falha de análise ou de geração não pode destruir a versão que funciona.
+- **Regra de visibilidade**: chamadas já iniciadas terminam no corpo antigo;
+  chamadas novas usam a implementação nova. Substituir frames ativos fica fora.
+- **Retirada de código antigo** só quando nenhuma função da geração estiver
+  executando. Na primeira versão, reter gerações até o reinício, com o
+  crescimento de memória declarado.
+- **Escopo da versão 1**: apenas mudanças de corpo com contrato compatível.
+  Assinatura, campos de classe e ambiente de closure incompatíveis exigem
+  reinício, com diagnóstico claro em vez de corrupção.
+- **Fusão de funções desativada** no caminho de recarga: compartilhar corpo
+  entre duas declarações impediria substituir uma sem afetar a outra.
+- **Inlining não atravessa fronteira recarregável** na primeira versão. Se `A`
+  incorporou o corpo de `B`, trocar a entrada de `B` não atualiza a cópia.
+
+### Medição do ciclo de recarga
+
+O relatório precisa separar: detecção da edição, análise incremental, geração da
+IR, geração de código nativo, ligação em memória, espera pelo ponto seguro,
+publicação e atualização da aplicação. Um JIT duas vezes mais rápido na geração
+nativa não torna a recarga duas vezes mais rápida quando a geração nativa é uma
+fração pequena do total — a mesma aritmética que já orientou o incremento 26.
+
+### Trilha JavaScript, separada
+
+Frontend incremental → JavaScript modular → protocolo de recarga no navegador.
+ORC não entra nesse caminho.

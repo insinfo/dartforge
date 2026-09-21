@@ -58,7 +58,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge run <input.dart> [--merge-identical-functions] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print.\nrun executa em memória pelo JIT (perfil de desenvolvimento); aot produz executável (perfil de produção)."
         );
         return Ok(());
     }
@@ -132,6 +132,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }))?
         );
         return Ok(());
+    }
+    if args[0] == "run" {
+        return run_jit(&args[1..]);
     }
     if args[0] == "aot" {
         if args.len() < 3 {
@@ -275,6 +278,71 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         output.display(),
         js.len()
     );
+    Ok(())
+}
+
+/// Compila a entrada para LLVM IR e a executa em memória pelo JIT ORCv2.
+///
+/// É o perfil de desenvolvimento: nada é gravado em disco e o programa executa
+/// dentro deste processo. O perfil de produção continua sendo `dartforge aot`,
+/// que produz um executável ligado ao runtime Rust. Os dois consomem o mesmo IR.
+///
+/// `--timings` imprime o custo por fase em JSON, depois da saída do programa,
+/// no mesmo formato de campos `*_ns` usado por `dartforge aot --timings`.
+///
+/// # Erros
+/// Propaga diagnósticos do compilador e falhas da sessão JIT, incluindo IR
+/// recusado pelo LLVM e símbolo de entrada ausente.
+fn run_jit(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() {
+        return Err(
+            "usage: dartforge run <input.dart> [--merge-identical-functions] [--timings]".into(),
+        );
+    }
+    let mut merge_identical_functions = false;
+    let mut timings = false;
+    for flag in &args[1..] {
+        if flag == "--merge-identical-functions" && !merge_identical_functions {
+            merge_identical_functions = true;
+        } else if flag == "--timings" && !timings {
+            timings = true;
+        } else {
+            return Err(format!(
+                "opção de execução desconhecida ou repetida: {}",
+                flag.to_string_lossy()
+            )
+            .into());
+        }
+    }
+    let total_start = std::time::Instant::now();
+    let input = PathBuf::from(&args[0]);
+    let frontend_start = std::time::Instant::now();
+    let ir = dartforge_compiler::compile_path_llvm_with_options(
+        &input,
+        dartforge_compiler::CompileOptions {
+            merge_identical_functions,
+            ..Default::default()
+        },
+    )?;
+    let frontend = frontend_start.elapsed();
+    let report = dartforge_jit::run_ir(&ir)?;
+    let total = total_start.elapsed();
+    if timings {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1, "backend": "llvm-orcv2", "profile": "jit",
+                "merge_identical_functions": merge_identical_functions,
+                "frontend_ns": frontend.as_nanos(), "session_ns": report.session.as_nanos(),
+                "parse_ir_ns": report.module.parse_ir.as_nanos(),
+                "add_module_ns": report.module.add_module.as_nanos(),
+                "lookup_ns": report.entry.lookup.as_nanos(),
+                "execute_ns": report.entry.execute.as_nanos(),
+                "jit_total_ns": report.total.as_nanos(), "total_ns": total.as_nanos(),
+                "ir_bytes": report.module.ir_bytes,
+            }))?
+        );
+    }
     Ok(())
 }
 

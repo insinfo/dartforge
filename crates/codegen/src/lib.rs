@@ -60,6 +60,8 @@ struct Output<'a> {
     nominal_members: std::collections::HashMap<u32, Vec<u32>>,
     next_switch: usize,
     next_wildcard: usize,
+    /// Numera os temporários de `for-in` para não colidirem no mesmo escopo.
+    next_for_in: usize,
     break_targets: Vec<Option<String>>,
     /// Numera as variáveis de `catch` para não colidirem em try aninhados.
     next_catch: usize,
@@ -71,6 +73,18 @@ struct Output<'a> {
     assert_used: bool,
     /// Alguma cláusula ligou o rastro de pilha de `catch (e, s)`.
     stack_used: bool,
+    /// Alguma constante é instância `const` e exige o auxiliar de canonicalização.
+    const_instance_used: bool,
+    /// Alguma célula `late` exigiu o erro de leitura-antes-escrita.
+    late_used: bool,
+    /// Algum double precisou do formatador `$dartforgeDouble` (toString Dart).
+    double_used: bool,
+    /// Alguma divisão `~/` precisou do auxiliar de truncamento.
+    truncdiv_used: bool,
+    /// Algum `%` com double precisou do módulo euclidiano sem lançamento.
+    doublemod_used: bool,
+    /// Classes do módulo para o despacho estático de `C.x`, `C.m()` e nomeados.
+    classes: &'a [Class<'a>],
 }
 impl std::ops::Deref for Output<'_> {
     type Target = String;
@@ -146,12 +160,19 @@ pub fn emit(module: &Module<'_>) -> String {
         nominal_members: features::nominal_members(&module.classes),
         next_switch: 0,
         next_wildcard: 0,
+        next_for_in: 0,
         break_targets: vec![],
         next_catch: 0,
         caught: vec![],
         throw_used: false,
         assert_used: false,
         stack_used: false,
+        const_instance_used: false,
+        late_used: false,
+        double_used: false,
+        truncdiv_used: false,
+        doublemod_used: false,
+        classes: &module.classes,
         collections: module.resolution.types.iter().any(|t| {
             matches!(
                 t,
@@ -241,6 +262,7 @@ pub fn emit(module: &Module<'_>) -> String {
         function_body(function, 0, &mut output);
         output.push('\n');
     }
+    emit_globals(&module.classes, &mut output);
     output.push_str("export function main() {\n");
     if module.main_is_async {
         asynchronous::begin(&mut output);
@@ -252,8 +274,23 @@ pub fn emit(module: &Module<'_>) -> String {
     output.push_str("}\n");
     let flow = fluxo::runtime(&mut output);
     output.push_str(&flow);
+    // `late` com inicializador tem erasure ansioso no parse; a célula com
+    // leitura-antes-escrita usará este auxiliar com a mensagem exata do SDK.
+    // `dynamic` reutiliza $dartforgeCast/$dartforgeIs; `typedef` e extension
+    // types resolvem para o tipo subjacente no parse (erasure, sem emissão própria).
+    if output.late_used {
+        output.push_str("function $dartforgeLateError(kind, name) { return new Error(\"LateInitializationError: \" + kind + \" '\" + name + \"' has not been initialized.\"); }\n");
+    }
+    if output.const_instance_used {
+        output.push_str("const $dartforgeConstInstances = new Map();
+function $dartforgeConstInstance(key, proto, fields) { let found = $dartforgeConstInstances.get(key); if (found === undefined) { found = Object.freeze(Object.assign(Object.create(proto), fields)); $dartforgeConstInstances.set(key, found); } return found; }
+");
+    }
     if output.modulo_used {
         output.push_str("function $dartforgeModulo(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n");
+    }
+    if output.double_used || output.truncdiv_used || output.doublemod_used {
+        output.push_str(DOUBLE_RUNTIME);
     }
     // Um programa que só interpola escalares recebe apenas a conversão, não o
     // runtime de coleções inteiro; com coleções, core.js já a trouxe.
@@ -273,6 +310,44 @@ pub fn emit(module: &Module<'_>) -> String {
     }
     output.push_str("const $df_main = main;\nmain();\n");
     output.text
+}
+
+/// Runtime numérico de doubles (semântica WEB/JS Number com toString Dart).
+///
+/// `$dartforgeDouble` reproduz o `toString` do Dart 3.6.2 para os casos da
+/// bateria validada: inteiros ganham `.0`, exponenciais seguem o `String(x)`
+/// do JavaScript (mesmo limiar `1e21` e mesmo `e+`/`e-` do oráculo) e `-0.0`,
+/// `NaN` e `±Infinity` têm texto próprio. `$dartforgeTruncDiv` trunca em
+/// direção a zero e lança com divisor nulo; `$dartforgeDoubleModulo` é o
+/// módulo euclidiano sem lançamento (`7.5 % 0` vale NaN, como no oráculo).
+const DOUBLE_RUNTIME: &str = "function $dartforgeDouble(value) { if (Number.isNaN(value)) return 'NaN'; if (value === Infinity) return 'Infinity'; if (value === -Infinity) return '-Infinity'; if (Object.is(value, -0)) return '-0.0'; const text = String(value); return (/^[+-]?\\d+$/.test(text) ? text + '.0' : text); }\nfunction $dartforgeTruncDiv(a,b) { if (b === 0) throw new RangeError('Integer division by zero'); return Math.trunc(a / b); }\nfunction $dartforgeDoubleModulo(a,b) { const d = Math.abs(b), r = a % d; return r < 0 ? r + d : r + 0; }\n";
+
+/// Emite um literal double preservando o valor IEEE-754 no JavaScript.
+///
+/// Inteiros finitos abaixo de 1e21 saem com `.0` (`1.0`); o restante usa o
+/// decimal de Rust, que o JavaScript lê para o mesmo binário; não finitos
+/// viram os identificadores `Infinity`/`-Infinity`/`NaN` do JavaScript.
+pub(crate) fn double_literal(value: f64, output: &mut Output<'_>) {
+    if value.is_nan() {
+        output.push_str("NaN");
+    } else if value == f64::INFINITY {
+        output.push_str("Infinity");
+    } else if value == f64::NEG_INFINITY {
+        output.push_str("-Infinity");
+    } else if value.fract() == 0.0 && value.abs() < 1e21 {
+        write!(output, "{value:.1}").expect("escrever em String não falha");
+    } else {
+        write!(output, "{value}").expect("escrever em String não falha");
+    }
+}
+
+/// Tipo estático registrado para a expressão, quando a resolução o conhece.
+fn static_type(value: &Expr<'_>, output: &Output<'_>) -> Option<Type> {
+    output
+        .resolution
+        .expr_types
+        .get(&(value.span.start, value.span.end))
+        .copied()
 }
 
 /// Ordena a herança em O(V+E) esperado, com IDs esparsos e sem recursão.
@@ -313,6 +388,11 @@ fn class_order(classes: &[Class<'_>]) -> Vec<usize> {
 fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
     for index in class_order(classes) {
         let class = &classes[index];
+        // A pseudo-classe de variáveis de topo não vira classe JS: os campos
+        // saem como `let`/`const` do módulo em `emit_globals`.
+        if class.is_library_globals {
+            continue;
+        }
         if !class.enum_values.is_empty() && (!class.fields.is_empty() || !class.methods.is_empty())
         {
             features::enhanced_enum(class, output);
@@ -389,8 +469,73 @@ fn emit_classes(classes: &[Class<'_>], output: &mut Output<'_>) {
             function_body(method, 1, output);
             output.push('\n');
         }
+        // Estáticos pertencem à declaração e nunca são herdados: saem como
+        // membros `static` da própria classe; a resolução semântica já vetou
+        // o acesso por subclasses com o nome da origem no diagnóstico.
+        for field in &class.static_fields {
+            indent(1, output);
+            output.push_str("static ");
+            identifier(field.name, output);
+            output.push_str(" = ");
+            if let Some(initializer) = &field.initializer {
+                expression(initializer, output);
+            } else {
+                output.push_str("null");
+            }
+            output.push_str(";\n");
+        }
+        for method in &class.static_methods {
+            indent(1, output);
+            output.push_str("static ");
+            if method.is_getter {
+                output.push_str("get ");
+            }
+            identifier(method.name, output);
+            output.push('(');
+            parameter_header(&method.parameters, output);
+            output.push_str(") ");
+            function_body(method, 1, output);
+            output.push('\n');
+        }
         output.push_str("}\n");
     }
+}
+
+/// Emite variáveis de topo como `let`/`const` do módulo, na ordem escrita.
+///
+/// `final`/`const` viram `const`, mutáveis viram `let`. Sem inicializador
+/// escrito, um anulável recebe `null` (a análise semântica já exigiu um dos
+/// dois). Os nomes usam o mesmo prefixo das declarações locais, então leituras
+/// e escritas existentes continuam válidas sem consultar a resolução.
+fn emit_globals(classes: &[Class<'_>], output: &mut Output<'_>) {
+    for class in classes {
+        if !class.is_library_globals {
+            continue;
+        }
+        for field in &class.static_fields {
+            output.push_str(if field.is_final || field.is_const {
+                "const "
+            } else {
+                "let "
+            });
+            identifier(field.name, output);
+            output.push_str(" = ");
+            if let Some(initializer) = &field.initializer {
+                expression(initializer, output);
+            } else {
+                output.push_str("null");
+            }
+            output.push_str(";\n");
+        }
+    }
+}
+
+/// Localiza a classe pelo ID para o despacho estático de `C.x` e `C.m(...)`.
+fn class_by_id<'x, 'y>(classes: &'x [Class<'y>], id: u32) -> &'x Class<'y> {
+    classes
+        .iter()
+        .find(|class| class.id == id)
+        .expect("AST inválida: classe estática ausente")
 }
 
 /// Separa parâmetros dos locais e produz null no retorno nullable implícito.
@@ -407,6 +552,8 @@ fn function_body(function: &Function<'_>, depth: usize, output: &mut Output<'_>)
         function.return_type,
         Type::Null
             | Type::NullableInt
+            | Type::NullableDouble
+            | Type::NullableNum
             | Type::NullableString
             | Type::NullableBool
             | Type::NullableObject
@@ -694,6 +841,7 @@ fn default_value(
 fn literal_default(default: &Expr<'_>, output: &mut Output<'_>) {
     match &default.kind {
         ExprKind::Int(value) => write!(output, "{value}").expect("escrever em String não falha"),
+        ExprKind::Double(value) => double_literal(*value, output),
         ExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
         ExprKind::String(value) => string_literal(value, output),
         ExprKind::OwnedString(value) => string_literal(value, output),
@@ -704,6 +852,12 @@ fn literal_default(default: &Expr<'_>, output: &mut Output<'_>) {
         } => match operand.kind {
             ExprKind::Int(value) => {
                 write!(output, "{}", -i64::from(value)).expect("escrever em String não falha");
+            }
+            // `-0.0 == 0.0`: negar zera o sinal, então o padrão é sempre `0.0`.
+            ExprKind::Double(value) if value == 0.0 => output.push_str("0.0"),
+            ExprKind::Double(value) => {
+                output.push('-');
+                double_literal(value, output);
             }
             _ => expression(default, output),
         },
@@ -861,6 +1015,16 @@ fn statement_at(statement: &Statement<'_>, depth: usize, output: &mut Output<'_>
                 output.push_str(");\n");
             }
             StatementKind::Print(value) => {
+                // Doubles imprimem via `$dartforgeDouble` (toString Dart);
+                // `num` segue o caminho escalar com o limite documentado para
+                // doubles de valor inteiro (apagamento Number).
+                if static_type(value, output) == Some(Type::Double) {
+                    output.double_used = true;
+                    output.push_str("console.log($dartforgeDouble(");
+                    expression(value, output);
+                    output.push_str("));\n");
+                    return;
+                }
                 let collections = output.collections;
                 output.push_str(if collections {
                     "console.log($dartforgeFormat("
@@ -1145,11 +1309,36 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             name,
             arguments,
         } => {
-            write!(output, "$dartforgeFactory{class_id}").unwrap();
-            identifier(name, output);
-            output.push('(');
-            argument_list(arguments, ",", output);
-            output.push(')');
+            // `C.nome(...)` designa, nesta ordem, fábrica, construtor nomeado
+            // ou método estático, como na resolução semântica.
+            let class = class_by_id(output.classes, *class_id);
+            if class
+                .factories
+                .iter()
+                .any(|factory| factory.name == *name)
+            {
+                write!(output, "$dartforgeFactory{class_id}").unwrap();
+                identifier(name, output);
+                output.push('(');
+                argument_list(arguments, ",", output);
+                output.push(')');
+            } else if class
+                .named_constructors
+                .iter()
+                .any(|declared| declared.name == *name)
+            {
+                write!(output, "$dartforgeNew{class_id}").unwrap();
+                identifier(name, output);
+                output.push('(');
+                argument_list(arguments, ",", output);
+                output.push(')');
+            } else {
+                write!(output, "$dartforgeClass{class_id}.").unwrap();
+                identifier(name, output);
+                output.push('(');
+                argument_list(arguments, ", ", output);
+                output.push(')');
+            }
         }
         ExprKind::Record { fields } => {
             output.push_str("$dartforgeRecord([");
@@ -1174,6 +1363,25 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             ty,
             negated,
         } => {
+            // `is double`/`is num` não passam pelo descritor reificado
+            // (apagamento Number): checagem `typeof` embutida, com o limite
+            // documentado para doubles de valor inteiro.
+            if matches!(
+                ty,
+                Type::Double | Type::Num | Type::NullableDouble | Type::NullableNum
+            ) {
+                if *negated {
+                    output.push('!');
+                }
+                if matches!(ty, Type::NullableDouble | Type::NullableNum) {
+                    output.push_str("(($dartforgeValue)=>$dartforgeValue===null||typeof $dartforgeValue==='number')(");
+                } else {
+                    output.push_str("(($dartforgeValue)=>typeof $dartforgeValue==='number')(");
+                }
+                expression(operand, output);
+                output.push(')');
+                return;
+            }
             if *negated {
                 output.push('!');
             }
@@ -1184,6 +1392,15 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::Cast { operand, ty } => {
+            // Casts para double/num são verificados estaticamente na semântica
+            // (apagamento Number): sem checagem de runtime a emitir.
+            if matches!(
+                ty,
+                Type::Double | Type::Num | Type::NullableDouble | Type::NullableNum
+            ) {
+                expression(operand, output);
+                return;
+            }
             output.push_str("$dartforgeCast(");
             expression(operand, output);
             output.push(',');
@@ -1267,6 +1484,8 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::EnumValue { class_id, name } => {
+            // `C.v` alcança um campo estático da própria classe ou um valor de
+            // enum; ambos vivem como propriedades da construção emitida.
             write!(output, "$dartforgeClass{class_id}.").unwrap();
             identifier(name, output);
         }
@@ -1295,11 +1514,34 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                     output.push(')');
                 }
                 Some(arguments) => {
-                    write!(output, "$dartforgeFactory{class_id}").unwrap();
-                    identifier(name, output);
-                    output.push('(');
-                    argument_list(arguments, ",", output);
-                    output.push(')');
+                    let class = class_by_id(output.classes, *class_id);
+                    if class
+                        .factories
+                        .iter()
+                        .any(|factory| factory.name == *name)
+                    {
+                        write!(output, "$dartforgeFactory{class_id}").unwrap();
+                        identifier(name, output);
+                        output.push('(');
+                        argument_list(arguments, ",", output);
+                        output.push(')');
+                    } else if class
+                        .named_constructors
+                        .iter()
+                        .any(|declared| declared.name == *name)
+                    {
+                        write!(output, "$dartforgeNew{class_id}").unwrap();
+                        identifier(name, output);
+                        output.push('(');
+                        argument_list(arguments, ",", output);
+                        output.push(')');
+                    } else {
+                        write!(output, "$dartforgeClass{class_id}.").unwrap();
+                        identifier(name, output);
+                        output.push('(');
+                        argument_list(arguments, ", ", output);
+                        output.push(')');
+                    }
                 }
             }
         }
@@ -1357,6 +1599,7 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::Int(value) => write!(output, "{value}").expect("escrever em String não falha"),
+        ExprKind::Double(value) => double_literal(*value, output),
         ExprKind::String(value) => string_literal(value, output),
         ExprKind::OwnedString(value) => string_literal(value, output),
         ExprKind::Interpolation(parts) => strings::interpolation(parts, output),
@@ -1451,9 +1694,11 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push_str(if *op == UnaryOp::Negate { "-" } else { "!" });
             output.push(' ');
             expression(operand, output);
-            if *op == UnaryOp::Negate {
-                // O operando é int: normaliza o zero negativo do JavaScript.
+            if *op == UnaryOp::Negate && !matches!(static_type(operand, output), Some(Type::Double))
+            {
+                // O operando int normaliza o zero negativo do JavaScript.
                 // Somar zero preserva precisão e transbordamento de Number.
+                // Doubles preservam `-0.0`, como no oráculo Dart.
                 output.push_str(" + 0");
             }
             output.push(')');
@@ -1463,8 +1708,32 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             left,
             right,
         } => {
-            output.modulo_used = true;
-            output.push_str("$dartforgeModulo(");
+            // Com doubles o módulo é euclidiano sem lançamento (`7.5 % 0`
+            // vale NaN no oráculo); int/int (ou tipo desconhecido em ASTs de
+            // teste sem resolução) usa `$dartforgeModulo`.
+            if matches!(
+                static_type(value, output),
+                None | Some(Type::Int) | Some(Type::NullableInt)
+            ) {
+                output.modulo_used = true;
+                output.push_str("$dartforgeModulo(");
+            } else {
+                output.doublemod_used = true;
+                output.push_str("$dartforgeDoubleModulo(");
+            }
+            expression(left, output);
+            output.push(',');
+            expression(right, output);
+            output.push(')');
+        }
+        ExprKind::Binary {
+            op: BinaryOp::TruncDivide,
+            left,
+            right,
+        } => {
+            // `~/` trunca em direção a zero e lança com divisor nulo.
+            output.truncdiv_used = true;
+            output.push_str("$dartforgeTruncDiv(");
             expression(left, output);
             output.push(',');
             expression(right, output);
@@ -1498,6 +1767,9 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 BinaryOp::Subtract => " - ",
                 BinaryOp::Multiply => " * ",
                 BinaryOp::Remainder => unreachable!("emissão dedicada"),
+                // `/` do JavaScript já é divisão double, como no Dart.
+                BinaryOp::Divide => " / ",
+                BinaryOp::TruncDivide => unreachable!("emissão dedicada"),
                 BinaryOp::Equal => " === ",
                 BinaryOp::NotEqual => " !== ",
                 BinaryOp::Less => " < ",
@@ -1509,8 +1781,14 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 BinaryOp::IfNull => " ?? ",
             });
             expression(right, output);
-            if *op == BinaryOp::Multiply {
+            if *op == BinaryOp::Multiply
+                && !matches!(
+                    static_type(value, output),
+                    Some(Type::Double | Type::Num)
+                )
+            {
                 // Um inteiro negativo multiplicado por zero continua sendo zero inteiro.
+                // Doubles preservam `-0.0`, como no oráculo Dart.
                 output.push_str(" + 0");
             }
             output.push(')');

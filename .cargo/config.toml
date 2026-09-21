@@ -1,0 +1,17 @@
+# Configuração do ambiente de build do DartForge.
+#
+# `llvm-sys` localiza o LLVM pela variável LLVM_SYS_<versão>_PREFIX. Defini-la
+# aqui evita exportá-la em cada terminal e mantém o caminho versionado junto do
+# código: um colaborador que clone o repositório vê de imediato qual
+# distribuição é esperada.
+#
+# A distribuição precisa ser a completa — `clang+llvm-...-windows-msvc`, com
+# llvm-config, cabeçalhos llvm-c/** e bibliotecas estáticas. O instalador
+# reduzido `LLVM-...-win64.exe` traz apenas clang e LLVM-C.dll, sem llvm-config,
+# e não serve para o llvm-sys.
+#
+# `relative = false` não existe para [env]; o caminho é absoluto de propósito.
+# Quem instalar o LLVM em outro lugar sobrescreve a variável no próprio ambiente,
+# que tem precedência sobre esta seção.
+[env]
+LLVM_SYS_221_PREFIX = "D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"

@@ -144,7 +144,11 @@ pub(super) fn assert_statement(
     output.push_str("); }\n");
 }
 
-/// Emite `for-in`; `for...of` avalia o iterável exatamente uma vez.
+/// Emite `for-in` ligando o iterável a um temporário avaliado uma única vez.
+///
+/// O `for...of` do JavaScript já avalia o iterável uma vez; o temporário
+/// numerado registra essa garantia do Dart 3.6.2 e evita reemissão em
+/// futuras normalizações do cabeçalho.
 pub(super) fn for_in(
     is_final: bool,
     name: &str,
@@ -153,12 +157,16 @@ pub(super) fn for_in(
     depth: usize,
     output: &mut Output<'_>,
 ) {
+    let id = output.next_for_in;
+    output.next_for_in += 1;
+    write!(output, "const $dartforgeForIn{id} = ").unwrap();
+    expression(iterable, output);
+    output.push_str(";\n");
+    indent(depth, output);
     output.break_targets.push(None);
     output.push_str(if is_final { "for (const " } else { "for (let " });
     declaration(name, output);
-    output.push_str(" of ");
-    expression(iterable, output);
-    output.push_str(") ");
+    write!(output, " of $dartforgeForIn{id}) ").unwrap();
     block(body, depth, output);
     output.break_targets.pop();
     output.push('\n');

@@ -1,0 +1,9 @@
+{
+  "agent": {
+    "planning_mode": "continuous",
+    "review_threshold": "high_impact_only"
+  },
+  "subagents": {
+    "interruption_policy": "never"
+  }
+}

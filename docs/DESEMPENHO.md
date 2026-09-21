@@ -32,9 +32,22 @@ tokens, classes, funções e bytes emitidos. `CompileReport` (crate
 fontes e resolução de pacotes — e o tempo total.
 
 O crate `dartforge-instrument` fornece um alocador global contador (bytes vivos,
-pico e número de alocações). É o único ponto do workspace que usa `unsafe`, num
-`impl GlobalAlloc` de 40 linhas; todos os demais crates mantêm
-`unsafe_code = "forbid"`. Ele é instalado apenas no binário de benchmark.
+pico e número de alocações), num `impl GlobalAlloc` de 40 linhas. É instalado
+apenas no binário de benchmark.
+
+## Política de `unsafe`
+
+O workspace usava `unsafe_code = "forbid"`. A regra passou a ser `deny`, com
+`unsafe_op_in_unsafe_fn = "deny"` junto: `unsafe` é permitido onde for
+**inevitável** — FFI com a API C do LLVM, alocador global — ou onde uma
+**medição comprovar ganho**.
+
+`deny` em vez de `allow` global é escolha deliberada: cada uso exige um
+`#[allow(unsafe_code)]` pontual, que aparece no diff e no `grep`. Um `allow`
+global não apareceria em lugar nenhum. Todo bloco `unsafe` documenta em
+português a invariante que preserva, e quando a justificativa for desempenho, e
+não inevitabilidade, a medição entra junto — a mesma disciplina que vale para o
+resto deste documento.
 
 O número de alocações é tão importante quanto o tempo: ele não depende da carga
 da máquina e denuncia trabalho quadrático que a mediana esconde.

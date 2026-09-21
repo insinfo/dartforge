@@ -135,6 +135,48 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
             "fábricas nomeadas (lowering nativo pendente)",
         ));
     }
+    // Frente classe/construtor: nomeados, listas de inicialização, `super`
+    // explícito, `const` e membros estáticos ainda não têm lowering nativo.
+    for class in &module.classes {
+        if class.is_library_globals && !class.static_fields.is_empty() {
+            return Err(error(
+                class.static_fields[0].span,
+                "variáveis de topo (lowering nativo pendente)",
+            ));
+        }
+        if let Some(declared) = class.named_constructors.first() {
+            return Err(error(
+                declared.constructor.span,
+                "construtores nomeados (lowering nativo pendente)",
+            ));
+        }
+        if let Some(extras) = class.constructor_extras.as_deref()
+            && !extras.is_plain()
+        {
+            return Err(error(
+                class.span,
+                "listas de inicialização, super explícito e const (lowering nativo pendente)",
+            ));
+        }
+        if class.named_constructors.iter().any(|declared| !declared.extras.is_plain()) {
+            return Err(error(
+                class.span,
+                "listas de inicialização, super explícito e const (lowering nativo pendente)",
+            ));
+        }
+        if let Some(field) = class.static_fields.first() {
+            return Err(error(
+                field.span,
+                "membros estáticos (lowering nativo pendente)",
+            ));
+        }
+        if let Some(method) = class.static_methods.first() {
+            return Err(error(
+                method.span,
+                "membros estáticos (lowering nativo pendente)",
+            ));
+        }
+    }
     if module
         .resolution
         .expr_types
@@ -162,6 +204,33 @@ pub fn emit(module: &Module<'_>) -> Result<String, Diagnostic> {
         .find(|f| !f.type_parameters.is_empty())
     {
         return Err(error(f.span, "funções genéricas"));
+    }
+    // Classes genéricas com parâmetros ainda simbólicos não têm lowering: o
+    // parser apaga `T` para o bound (erasure), então este braço é defensivo
+    // para HIR construída manualmente ou evoluções da sintaxe.
+    if let Some(c) = module.classes.iter().find(|c| {
+        c.fields.iter().any(|f| {
+            matches!(
+                f.ty,
+                Type::Parameter(_) | Type::NullableParameter(_)
+            )
+        }) || c.static_fields.iter().any(|f| {
+            matches!(
+                f.ty,
+                Type::Parameter(_) | Type::NullableParameter(_)
+            )
+        }) || c
+            .methods
+            .iter()
+            .chain(&c.static_methods)
+            .chain(&c.factories)
+            .flat_map(|m| m.parameters.iter().map(|p| p.ty).chain([m.return_type]))
+            .any(|ty| matches!(ty, Type::Parameter(_) | Type::NullableParameter(_)))
+    }) {
+        return Err(error(
+            c.span,
+            "classes genéricas (parâmetros de tipo em campos ou métodos)",
+        ));
     }
     if let Some(c) = module
         .classes
@@ -281,6 +350,9 @@ fn ty(value: Type, _span: Span) -> Result<Ty, Diagnostic> {
             "tipos estruturais e genéricos (coleções, funções e records)",
         )),
         Type::Int => Ok(Ty::Int),
+        Type::Double | Type::Num | Type::NullableDouble | Type::NullableNum => {
+            Err(error(_span, "double e num (use o backend JavaScript)"))
+        }
         Type::Bool => Ok(Ty::Bool),
         Type::Void => Ok(Ty::Void),
         Type::Null => Ok(Ty::Null),
@@ -478,6 +550,10 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
         | ExprKind::Index { .. }
         | ExprKind::Invoke { .. } => return Err(error(value.span, "coleções e closures")),
         ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Identifier(_) | ExprKind::Null => {}
+        // O backend AOT usa int de 64 bits; doubles exigem o backend JavaScript.
+        ExprKind::Double(_) => {
+            return Err(error(value.span, "literais double"));
+        }
         ExprKind::This
         | ExprKind::EnumValue { .. }
         | ExprKind::String(_)
@@ -510,6 +586,10 @@ fn validate_expression(value: &Expr<'_>) -> Result<(), Diagnostic> {
             op: BinaryOp::Remainder,
             ..
         } => return Err(error(value.span, "módulo euclidiano")),
+        ExprKind::Binary {
+            op: BinaryOp::Divide | BinaryOp::TruncDivide,
+            ..
+        } => return Err(error(value.span, "divisão double e truncada (`/`, `~/`)")),
         ExprKind::Binary { left, right, .. } => {
             validate_expression(left)?;
             validate_expression(right)?;
@@ -1280,6 +1360,7 @@ impl<'a> FunctionEmitter<'a> {
                 ty: Ty::Int,
                 text: value.to_string(),
             },
+            ExprKind::Double(_) => return Err(error(expression.span, "literais double")),
             ExprKind::Bool(value) => Value {
                 ty: Ty::Bool,
                 text: value.to_string(),

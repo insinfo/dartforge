@@ -14,6 +14,8 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
         }
         Type::NullableObject
         | Type::NullableInt
+        | Type::NullableDouble
+        | Type::NullableNum
         | Type::NullableString
         | Type::NullableBool
         | Type::NullableClass(_) => {
@@ -22,6 +24,8 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
                 match ty {
                     Type::NullableObject => Type::Object,
                     Type::NullableInt => Type::Int,
+                    Type::NullableDouble => Type::Double,
+                    Type::NullableNum => Type::Num,
                     Type::NullableString => Type::String,
                     Type::NullableBool => Type::Bool,
                     Type::NullableClass(id) => Type::Class(id),
@@ -83,6 +87,8 @@ pub(super) fn descriptor(ty: Type, output: &mut Output<'_>) {
             Type::Duration => "['duration']",
             Type::Timer => "['timer']",
             Type::Int => "['int']",
+            Type::Double => "['double']",
+            Type::Num => "['num']",
             Type::String => "['string']",
             Type::Bool => "['bool']",
             Type::Object => "['object']",
@@ -105,6 +111,28 @@ pub(super) fn function_descriptor(result: Type, parameters: &[Type], output: &mu
         descriptor(*parameter, output);
     }
     output.push_str("]]");
+}
+
+/// Emite descritor nominal com argumentos opcionais (reificação futura).
+///
+/// Hoje o HIR só carrega a classe crua (erasure: `['class',id]`); quando a
+/// sintaxe levar argumentos, chamar isto com `args` preserva a aridade no
+/// runtime, e o `types.js` já tolera a forma estendida.
+#[allow(dead_code)]
+pub(super) fn class_descriptor(id: u32, args: &[Type], output: &mut Output<'_>) {
+    output.runtime_types_used = true;
+    write!(output, "['class',{id}").unwrap();
+    if !args.is_empty() {
+        output.push_str(",[");
+        for (index, arg) in args.iter().enumerate() {
+            if index > 0 {
+                output.push(',');
+            }
+            descriptor(*arg, output);
+        }
+        output.push(']');
+    }
+    output.push(']');
 }
 
 /// Obtém o tipo real do elemento inferido, sem inspecionar os valores da lista vazia.

@@ -70,6 +70,11 @@ pub enum Type {
     NullableString,
     NullableBool,
     Int,
+    Double,
+    /// Supertipo numérico de `int` e `double` (união coberta pela semântica WEB/JS Number).
+    Num,
+    NullableDouble,
+    NullableNum,
     String,
     Bool,
 }
@@ -103,6 +108,10 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Remainder,
+    /// Divisão `/`: sempre produz `double`, mesmo entre inteiros (oráculo Dart 3.6.2).
+    Divide,
+    /// Divisão truncada `~/`: sempre produz `int`, mesmo entre doubles.
+    TruncDivide,
     Equal,
     NotEqual,
     Less,
@@ -275,6 +284,9 @@ pub enum ExprKind<'a> {
     Throw(Box<Expr<'a>>),
     Null,
     Int(i32),
+    /// Literal double com semântica WEB (JS Number); a impressão Dart (`1.0`)
+    /// é reproduzida pelo formatador `$dartforgeDouble` no backend JavaScript.
+    Double(f64),
     String(&'a str),
     /// String que precisou de alocação para decodificar escapes Unicode.
     OwnedString(String),
@@ -855,6 +867,10 @@ pub struct Resolution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstValue {
     Int(i32),
+    /// Bits IEEE-754 de um literal double (`f64::to_bits`); `u64` preserva
+    /// `Eq`/`Hash` da canonicalização const sem distinguir `-0.0` de `0.0`
+    /// além dos próprios bits.
+    Double(u64),
     Bool(bool),
     String(String),
     Null,

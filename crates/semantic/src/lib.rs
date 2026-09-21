@@ -116,12 +116,13 @@ fn split_kinds(kinds: impl Iterator<Item = ParameterKind>) -> (usize, usize) {
 }
 /// Indica se a expressão é um literal escalar aceito como valor padrão.
 ///
-/// Apenas `int`, `String`, `bool`, `null` e a negação de um literal inteiro.
-/// A restrição mantém a emissão do padrão independente de qualquer tabela
+/// Apenas `int`, `double`, `String`, `bool`, `null` e a negação de um literal
+/// numérico. A restrição mantém a emissão do padrão independente de qualquer tabela
 /// indexada por span, que o linker não reescreve dentro de um parâmetro.
 fn is_scalar_literal(expression: &Expr<'_>) -> bool {
     match &expression.kind {
         ExprKind::Int(_)
+        | ExprKind::Double(_)
         | ExprKind::Bool(_)
         | ExprKind::String(_)
         | ExprKind::OwnedString(_)
@@ -129,7 +130,7 @@ fn is_scalar_literal(expression: &Expr<'_>) -> bool {
         ExprKind::Unary {
             op: UnaryOp::Negate,
             operand,
-        } => matches!(operand.kind, ExprKind::Int(_)),
+        } => matches!(operand.kind, ExprKind::Int(_) | ExprKind::Double(_)),
         _ => false,
     }
 }
@@ -1213,7 +1214,8 @@ impl<'a> Validator<'a> {
         }
         self.compatible_parameters(actual, expected, span, "Incompatible method contract arity")?;
         if expected.result != Type::Void {
-            self.require_type(actual.result, expected.result, span)?;
+            // Covariância estrita: sem promoção (int não é subtipo de double).
+            self.require_subtype(actual.result, expected.result, span)?;
         }
         Ok(())
     }
@@ -1341,6 +1343,7 @@ impl<'a> Validator<'a> {
         }
         let actual = match value {
             ConstValue::Int(_) => Type::Int,
+            ConstValue::Double(_) => Type::Double,
             ConstValue::String(_) => Type::String,
             ConstValue::Bool(_) => Type::Bool,
             // `is_scalar_literal` já rejeitou enum e lista; resta apenas null.
@@ -1574,7 +1577,33 @@ impl<'a> Validator<'a> {
         None
     }
     /// Compara tipos primitivos e relações nominais de subtipo entre classes.
+    ///
+    /// Inclui a promoção de atribuição do oráculo Dart 3.6.2 (`int→double`,
+    /// `int|double→num`); contratos de override que exigem subtipagem estrita
+    /// usam [`Validator::require_subtype`].
     fn require_type(&self, actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
+        self.require_inner(actual, expected, span, true)
+    }
+    /// Subtipagem estrita sem promoção numérica, para covariância de retorno.
+    ///
+    /// `int` não é subtipo de `double` no Dart: um override não pode
+    /// estreitar `double` para `int` no retorno, embora `return 1;` seja
+    /// válido num corpo com retorno `double` (posição de atribuição).
+    fn require_subtype(&self, actual: Type, expected: Type, span: Span) -> Result<(), Diagnostic> {
+        // int e double são subtipos reais de num, mesmo sem promoção.
+        if numeric_subtype(actual, expected) {
+            return Ok(());
+        }
+        self.require_inner(actual, expected, span, false)
+    }
+    /// Núcleo compartilhado das duas comparações; `promote` libera int→double.
+    fn require_inner(
+        &self,
+        actual: Type,
+        expected: Type,
+        span: Span,
+        promote: bool,
+    ) -> Result<(), Diagnostic> {
         if actual == expected {
             return Ok(());
         }
@@ -1594,13 +1623,19 @@ impl<'a> Validator<'a> {
             return Ok(());
         }
         if matches!(actual, Type::Parameter(_) | Type::NullableParameter(_)) {
-            return self.require_type(self.upper_bound(actual), expected, span);
+            return self.require_inner(self.upper_bound(actual), expected, span, promote);
+        }
+        // Promoção de atribuição (oráculo Dart 3.6.2, semântica WEB/JS Number):
+        // int vale onde double ou num é esperado; double vale onde num é
+        // esperado. Anulabilidade continua exigida dos dois lados.
+        if promote && numeric_promotion(actual, expected) {
+            return Ok(());
         }
         if let Some(TypeShape::Nullable(inner)) = self.shape(expected) {
             if actual == Type::Null {
                 return Ok(());
             }
-            return self.require_type(self.without_null(actual), inner, span);
+            return self.require_inner(self.without_null(actual), inner, span, promote);
         }
         if matches!(actual, Type::Applied(_)) || matches!(expected, Type::Applied(_)) {
             return self.require_structural(actual, expected, span);
@@ -2078,17 +2113,42 @@ impl<'a> Validator<'a> {
                 }
             }
             StatementKind::BreakLabel(label) | StatementKind::ContinueLabel(label) => {
-                if self.labels.contains(label) {
-                    Ok(())
-                } else {
-                    Err(Diagnostic::new(
+                // A fronteira de closure preserva os rótulos externos após um
+                // sentinela vazio (ver `collections.rs`): o que casa até ele
+                // foi declarado numa função externa, como `label_in_outer_scope`
+                // do Dart 3.6.2; o resto da função não tem sentinela alguma.
+                let boundary = self
+                    .labels
+                    .iter()
+                    .rposition(|candidate| candidate.is_empty());
+                match self
+                    .labels
+                    .iter()
+                    .rposition(|candidate| *candidate == *label)
+                {
+                    Some(position) if boundary.map_or(true, |index| position > index) => Ok(()),
+                    Some(_) => Err(Diagnostic::new(
+                        format!("Can't reference label '{label}' declared in an outer method."),
+                        statement.span,
+                    )),
+                    None => Err(Diagnostic::new(
                         format!("Unknown loop label '{label}'"),
                         statement.span,
-                    ))
+                    )),
                 }
             }
             StatementKind::Labeled { label, body } => {
-                if self.labels.contains(label) {
+                // Rótulos repetem-se apenas dentro da mesma função: o que está
+                // até o sentinela pertence a uma função externa e não conflita.
+                let current = match self
+                    .labels
+                    .iter()
+                    .rposition(|candidate| candidate.is_empty())
+                {
+                    Some(index) => &self.labels[index + 1..],
+                    None => &self.labels[..],
+                };
+                if current.contains(label) {
                     return Err(Diagnostic::new(
                         format!("Duplicate loop label '{label}'"),
                         statement.span,
@@ -2398,6 +2458,8 @@ impl<'a> Validator<'a> {
                 return Ok(());
             }
             Type::Int | Type::NullableInt => "int",
+            Type::Double | Type::NullableDouble => "double",
+            Type::Num | Type::NullableNum => "num",
             Type::String | Type::NullableString => "String",
             Type::Bool | Type::NullableBool => "bool",
             Type::Object | Type::NullableObject => "Object",
@@ -2452,8 +2514,20 @@ impl<'a> Validator<'a> {
                 Ok(Type::Bool)
             }
             ExprKind::Cast { operand, ty } => {
-                self.value(operand)?;
+                let actual = self.value(operand)?;
                 self.runtime_type(*ty, expression.span)?;
+                // Apagamento Number: `as double`/`as num` só vale quando a
+                // conversão é estaticamente verificável (`1 as double` lança
+                // no oráculo e seria invisível em `typeof x === 'number'`).
+                if matches!(
+                    ty,
+                    Type::Double | Type::Num | Type::NullableDouble | Type::NullableNum
+                ) && self.require_subtype(actual, *ty, expression.span).is_err() {
+                    return Err(Diagnostic::new(
+                        "Casts to double or num require a statically known numeric operand",
+                        expression.span,
+                    ));
+                }
                 Ok(*ty)
             }
             ExprKind::Const(inner) => {
@@ -2792,6 +2866,7 @@ impl<'a> Validator<'a> {
             }
             ExprKind::Null => Ok(Type::Null),
             ExprKind::Int(_) => Ok(Type::Int),
+            ExprKind::Double(_) => Ok(Type::Double),
             ExprKind::String(_) | ExprKind::OwnedString(_) => Ok(Type::String),
             ExprKind::Interpolation(parts) => {
                 // A ordem da lista é a ordem escrita: analisar aqui já fixa a
@@ -2984,12 +3059,24 @@ impl<'a> Validator<'a> {
                     };
                 }
                 let expected = match op {
-                    UnaryOp::Negate => Type::Int,
-                    UnaryOp::Not => Type::Bool,
+                    UnaryOp::Negate => None,
+                    UnaryOp::Not => Some(Type::Bool),
                     UnaryOp::NullAssert => unreachable!(),
                 };
-                self.require_type(self.value(operand)?, expected, operand.span)?;
-                Ok(expected)
+                // Negação preserva o tipo numérico (oráculo Dart 3.6.2):
+                // `-1` é int, `-1.5` é double e `-n` (num) é num.
+                if let Some(expected) = expected {
+                    self.require_type(self.value(operand)?, expected, operand.span)?;
+                    return Ok(expected);
+                }
+                let actual = self.value(operand)?;
+                match self.upper_bound(actual) {
+                    ty @ (Type::Int | Type::Double | Type::Num) => Ok(ty),
+                    _ => Err(Diagnostic::new(
+                        format!("Type mismatch: expected Int, found {actual:?}"),
+                        operand.span,
+                    )),
+                }
             }
             ExprKind::Binary { op, left, right } => {
                 let lhs = self.value(left)?;
@@ -3033,26 +3120,94 @@ impl<'a> Validator<'a> {
                     BinaryOp::Add => {
                         let lhs = self.upper_bound(lhs);
                         let rhs = self.upper_bound(rhs);
-                        if matches!(lhs, Type::Int | Type::String) && lhs == rhs {
+                        if matches!(lhs, Type::String) && lhs == rhs {
                             Ok(lhs)
+                        } else if is_number(lhs)
+                            && is_number(rhs)
+                            && !self.may_be_null(lhs)
+                            && !self.may_be_null(rhs)
+                        {
+                            // int+int→int; com double→double; com num→num.
+                            Ok(numeric_result(lhs, rhs))
                         } else {
                             Err(Diagnostic::new(
-                                "Operator '+' requires two int operands or two String operands",
+                                "Operator '+' requires numeric operands of compatible type or two String operands",
                                 expression.span,
                             ))
                         }
                     }
                     BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Remainder => {
-                        self.require_type(lhs, Type::Int, left.span)?;
-                        self.require_type(rhs, Type::Int, right.span)?;
+                        let lhs = self.upper_bound(lhs);
+                        let rhs = self.upper_bound(rhs);
+                        if !is_number(lhs) || self.may_be_null(lhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {lhs:?}"),
+                                left.span,
+                            ));
+                        }
+                        if !is_number(rhs) || self.may_be_null(rhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {rhs:?}"),
+                                right.span,
+                            ));
+                        }
+                        Ok(numeric_result(lhs, rhs))
+                    }
+                    BinaryOp::Divide => {
+                        // `/` sempre produz double, mesmo entre inteiros (oráculo Dart 3.6.2).
+                        let lhs = self.upper_bound(lhs);
+                        let rhs = self.upper_bound(rhs);
+                        if !is_number(lhs) || self.may_be_null(lhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Double, found {lhs:?}"),
+                                left.span,
+                            ));
+                        }
+                        if !is_number(rhs) || self.may_be_null(rhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Double, found {rhs:?}"),
+                                right.span,
+                            ));
+                        }
+                        Ok(Type::Double)
+                    }
+                    BinaryOp::TruncDivide => {
+                        // `~/` sempre produz int, mesmo entre doubles.
+                        let lhs = self.upper_bound(lhs);
+                        let rhs = self.upper_bound(rhs);
+                        if !is_number(lhs) || self.may_be_null(lhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {lhs:?}"),
+                                left.span,
+                            ));
+                        }
+                        if !is_number(rhs) || self.may_be_null(rhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {rhs:?}"),
+                                right.span,
+                            ));
+                        }
                         Ok(Type::Int)
                     }
                     BinaryOp::Less
                     | BinaryOp::LessEqual
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual => {
-                        self.require_type(lhs, Type::Int, left.span)?;
-                        self.require_type(rhs, Type::Int, right.span)?;
+                        // Comparações aceitam int, double e num misturados.
+                        let lhs = self.upper_bound(lhs);
+                        let rhs = self.upper_bound(rhs);
+                        if !is_number(lhs) || self.may_be_null(lhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {lhs:?}"),
+                                left.span,
+                            ));
+                        }
+                        if !is_number(rhs) || self.may_be_null(rhs) {
+                            return Err(Diagnostic::new(
+                                format!("Type mismatch: expected Int, found {rhs:?}"),
+                                right.span,
+                            ));
+                        }
                         Ok(Type::Bool)
                     }
                     BinaryOp::And | BinaryOp::Or => {
@@ -3077,6 +3232,8 @@ fn is_nullable(ty: Type) -> bool {
     matches!(
         ty,
         Type::NullableInt
+            | Type::NullableDouble
+            | Type::NullableNum
             | Type::NullableString
             | Type::NullableBool
             | Type::NullableClass(_)
@@ -3088,12 +3245,72 @@ fn is_nullable(ty: Type) -> bool {
 fn non_null(ty: Type) -> Type {
     match ty {
         Type::NullableInt => Type::Int,
+        Type::NullableDouble => Type::Double,
+        Type::NullableNum => Type::Num,
         Type::NullableObject => Type::Object,
         Type::NullableParameter(id) => Type::Parameter(id),
         Type::NullableString => Type::String,
         Type::NullableBool => Type::Bool,
         Type::NullableClass(id) => Type::Class(id),
         other => other,
+    }
+}
+/// Indica se o tipo é numérico não estrutural (int, double ou num, anuláveis ou não).
+fn is_number(ty: Type) -> bool {
+    matches!(
+        ty,
+        Type::Int
+            | Type::Double
+            | Type::Num
+            | Type::NullableInt
+            | Type::NullableDouble
+            | Type::NullableNum
+    )
+}
+/// Posto numérico para promoção: int (0) → double (1) → num (2).
+fn numeric_rank(ty: Type) -> Option<(u8, bool)> {
+    match ty {
+        Type::Int => Some((0, false)),
+        Type::Double => Some((1, false)),
+        Type::Num => Some((2, false)),
+        Type::NullableInt => Some((0, true)),
+        Type::NullableDouble => Some((1, true)),
+        Type::NullableNum => Some((2, true)),
+        _ => None,
+    }
+}
+/// Promoção de atribuição do oráculo Dart 3.6.2: int vale onde double ou num
+/// é esperado, e double vale onde num é esperado, sem perder null.
+fn numeric_promotion(actual: Type, expected: Type) -> bool {
+    match (numeric_rank(actual), numeric_rank(expected)) {
+        (Some((a, a_null)), Some((e, e_null))) if a < e => !a_null || e_null,
+        _ => false,
+    }
+}
+/// Subtipagem numérica real do Dart: int e double são subtipos de num
+/// (vale também na variante estrita usada por covariância e casts).
+fn numeric_subtype(actual: Type, expected: Type) -> bool {
+    match (numeric_rank(actual), numeric_rank(expected)) {
+        (Some((_, a_null)), Some((2, e_null))) => !a_null || e_null,
+        _ => false,
+    }
+}
+/// Resultado de `+ - * %` entre numéricos: int+int→int, com double→double,
+/// com num→num; anulabilidade contamina o resultado como no restante da análise.
+fn numeric_result(left: Type, right: Type) -> Type {
+    let ((a, a_null), (e, e_null)) = (
+        numeric_rank(left).expect("operando numérico"),
+        numeric_rank(right).expect("operando numérico"),
+    );
+    let rank = a.max(e);
+    let nullable = a_null || e_null;
+    match (rank, nullable) {
+        (0, false) => Type::Int,
+        (0, true) => Type::NullableInt,
+        (1, false) => Type::Double,
+        (1, true) => Type::NullableDouble,
+        (_, false) => Type::Num,
+        (_, true) => Type::NullableNum,
     }
 }
 /// Compara tipos e associa a incompatibilidade ao trecho indicado.
@@ -4919,11 +5136,15 @@ mod tests {
                 Type::Void
                 | Type::Null
                 | Type::NullableInt
+                | Type::NullableDouble
+                | Type::NullableNum
                 | Type::NullableString
                 | Type::NullableBool
                 | Type::Class(_)
                 | Type::NullableClass(_) => unreachable!(),
                 Type::Int => int(),
+                Type::Double => expr(ExprKind::Double(1.5)),
+                Type::Num => int(),
                 Type::String => expr(ExprKind::String("text")),
                 Type::Bool => expr(ExprKind::Bool(true)),
             };

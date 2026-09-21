@@ -146,6 +146,9 @@ pub fn parse_unit_with_globals<'a>(
         active_primaries: 0,
         expression_frames: 0,
         type_parameters: Vec::new(),
+        typedefs: std::collections::BTreeMap::new(),
+        class_type_parameters: Vec::new(),
+        class_type_bounds: Vec::new(),
         guard_start: None,
         in_type_test: false,
     };
@@ -163,6 +166,8 @@ pub fn parse_unit_with_globals<'a>(
         }
         if starts_nominal(tokens, declaration_index) {
             classes.push(cursor.class()?);
+        } else if declaration_kind == Some(TokenKind::Word("typedef")) {
+            cursor.typedef_decl()?;
         } else if starts_global_variable(tokens, declaration_index) {
             let global = cursor.global_variable()?;
             if globals_id.is_none() {
@@ -175,6 +180,12 @@ pub fn parse_unit_with_globals<'a>(
         } else if declaration_kind == Some(TokenKind::Word("extension")) {
             if cursor.peek() == Some(TokenKind::Symbol('@')) {
                 return Err(cursor.error("annotations on extensions are not supported yet"));
+            }
+            if tokens.get(declaration_index + 1).map(|token| token.kind)
+                == Some(TokenKind::Word("type"))
+            {
+                cursor.extension_type(&mut extensions, &mut functions)?;
+                continue;
             }
             let id =
                 u32::try_from(extensions.len()).map_err(|_| cursor.error("too many extensions"))?;
@@ -547,6 +558,12 @@ struct Cursor<'t, 'a> {
     active_primaries: usize,
     expression_frames: usize,
     type_parameters: Vec<&'a str>,
+    /// Apelidos `typedef` (nome direto para o tipo, já com erasure aplicado).
+    typedefs: std::collections::BTreeMap<&'a str, Type>,
+    /// Parâmetros da classe em análise; usos de `T` viram o bound (erasure).
+    class_type_parameters: Vec<&'a str>,
+    /// Bounds na mesma ordem de `class_type_parameters`.
+    class_type_bounds: Vec<Type>,
     guard_start: Option<usize>,
     /// Marca a leitura do tipo de `is`/`as`, onde `?` pode abrir um condicional.
     in_type_test: bool,
@@ -665,6 +682,8 @@ impl<'a> Cursor<'_, 'a> {
         let mut ty = match word {
             Some(TokenKind::Symbol('(')) => self.record_type(depth)?,
             Some(TokenKind::Word("int")) => Type::Int,
+            Some(TokenKind::Word("double")) => Type::Double,
+            Some(TokenKind::Word("num")) => Type::Num,
             Some(TokenKind::Word("String")) => Type::String,
             Some(TokenKind::Word("bool")) => Type::Bool,
             Some(TokenKind::Word("Object")) => Type::Object,
@@ -700,6 +719,20 @@ impl<'a> Cursor<'_, 'a> {
                     .position(|p| *p == name)
                     .unwrap() as u32,
             ),
+            // Erasure de classe genérica: `T` vira seu bound; sem descritor
+            // reificado, `C<int>` e `C<String>` usam a mesma representação.
+            Some(TokenKind::Word(name)) if self.class_type_parameters.contains(&name) => {
+                self.class_type_bounds[self
+                    .class_type_parameters
+                    .iter()
+                    .position(|p| *p == name)
+                    .expect("parâmetro de classe validado")]
+            }
+            // Apelido `typedef`/representation de extension type: já resolvido
+            // no parse; `is`/`as` enxergam diretamente o tipo subjacente.
+            Some(TokenKind::Word(name)) if self.typedefs.contains_key(name) => {
+                self.typedefs[name]
+            }
             Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
                 Type::Class(self.class_ids[name])
             }
@@ -711,9 +744,16 @@ impl<'a> Cursor<'_, 'a> {
         ) {
             self.index += 1;
         }
+        // Argumentos de classe genérica têm erasure: `C<int>` valida e descarta,
+        // antes do `?` para que `C<int>?` forme o anulável da classe crua.
+        if matches!(ty, Type::Class(_) | Type::NullableClass(_)) {
+            self.discard_type_arguments();
+        }
         if self.nullable_marker(depth) {
             ty = match ty {
                 Type::Int => Type::NullableInt,
+                Type::Double => Type::NullableDouble,
+                Type::Num => Type::NullableNum,
                 Type::Bool => Type::NullableBool,
                 Type::String => Type::NullableString,
                 Type::Class(id) => Type::NullableClass(id),
@@ -852,6 +892,37 @@ impl<'a> Cursor<'_, 'a> {
         if is_enum {
             return self.enumeration(id, name, start, annotations);
         }
+        // Parâmetros de classe genérica com erasure: `T` resolve para o bound
+        // durante todo o corpo; a representação em runtime é única por classe.
+        let previous_class_params =
+            std::mem::take(&mut self.class_type_parameters);
+        let previous_class_bounds = std::mem::take(&mut self.class_type_bounds);
+        if self.take(TokenKind::Operator("<")) {
+            loop {
+                let param_name = self.name()?;
+                if self.class_type_parameters.contains(&param_name) {
+                    return Err(self.error("duplicate class type parameter"));
+                }
+                self.class_type_parameters.push(param_name);
+                self.class_type_bounds.push(Type::NullableObject);
+                let bound = if self.take(TokenKind::Word("extends")) {
+                    self.ty(false)?
+                } else {
+                    Type::NullableObject
+                };
+                if matches!(bound, Type::Void | Type::Inferred | Type::Null) {
+                    return Err(self.error("Unsupported class generic bound"));
+                }
+                *self
+                    .class_type_bounds
+                    .last_mut()
+                    .expect("bound recém-empilhado") = bound;
+                if !self.take(TokenKind::Symbol(',')) {
+                    break;
+                }
+            }
+            self.expect(TokenKind::Operator(">"))?;
+        }
         // Dart 3.13: a lista primaria declara campos e o construtor sem nome.
         let primary = if self.peek() == Some(TokenKind::Symbol('(')) {
             if kind != ClassKind::Class {
@@ -865,12 +936,13 @@ impl<'a> Cursor<'_, 'a> {
         };
         let superclass = if self.take(TokenKind::Word("extends")) {
             let parent = self.name()?;
-            Some(
-                *self
-                    .class_ids
-                    .get(parent)
-                    .ok_or_else(|| self.error("unknown superclass"))?,
-            )
+            let base = *self
+                .class_ids
+                .get(parent)
+                .ok_or_else(|| self.error("unknown superclass"))?;
+            // Herança parametrizada tem erasure: `extends C<int>` valida e descarta.
+            self.discard_type_arguments();
+            Some(base)
         } else {
             None
         };
@@ -893,6 +965,7 @@ impl<'a> Cursor<'_, 'a> {
                         .get(name)
                         .ok_or_else(|| self.error("unknown interface"))?,
                 );
+                self.discard_type_arguments();
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
                 }
@@ -934,7 +1007,7 @@ impl<'a> Cursor<'_, 'a> {
                     return Err(self.error("annotations on static members are not supported yet"));
                 }
                 self.index += 1;
-                self.static_member(&mut static_fields, &mut static_methods)?;
+                self.static_member(&mut static_fields, &mut static_methods, false)?;
                 continue;
             }
             // `const C(...)` declara construtor const; `C.nome(...)`, um nomeado.
@@ -989,6 +1062,12 @@ impl<'a> Cursor<'_, 'a> {
             let field_start = self.position();
             let is_final = self.take(TokenKind::Word("final"));
             let ty = self.ty(!is_final)?;
+            if self.peek() == Some(TokenKind::Word("operator")) {
+                return Err(self.error("operator declarations are not supported yet"));
+            }
+            if self.peek() == Some(TokenKind::Word("set")) {
+                return Err(self.error("instance setters are not supported yet"));
+            }
             let getter = self.take(TokenKind::Word("get"));
             let field_name = self.name()?;
             if getter || self.peek() == Some(TokenKind::Symbol('(')) {
@@ -1050,6 +1129,8 @@ impl<'a> Cursor<'_, 'a> {
                 }
             }
         }
+        self.class_type_parameters = previous_class_params;
+        self.class_type_bounds = previous_class_bounds;
         Ok(Class {
             factories,
             constructor,
@@ -1404,9 +1485,12 @@ impl<'a> Cursor<'_, 'a> {
                 return Ok(());
             }
             if self.peek() == Some(TokenKind::Word("this")) {
-                if self.tokens.get(self.index + 1).map(|token| token.kind)
-                    == Some(TokenKind::Symbol('('))
-                {
+                let next = self.tokens.get(self.index + 1).map(|token| token.kind);
+                let redirect = next == Some(TokenKind::Symbol('('))
+                    || (next == Some(TokenKind::Symbol('.'))
+                        && self.tokens.get(self.index + 3).map(|token| token.kind)
+                            == Some(TokenKind::Symbol('(')));
+                if redirect {
                     return Err(self.error("redirecting constructors are not supported yet"));
                 }
                 self.index += 1;
@@ -1433,14 +1517,26 @@ impl<'a> Cursor<'_, 'a> {
         &mut self,
         fields: &mut Vec<StaticField<'a>>,
         methods: &mut Vec<Function<'a>>,
+        is_top_level: bool,
     ) -> Result<(), Diagnostic> {
         let start = self.position();
         let is_const = self.take(TokenKind::Word("const"));
         let is_final = !is_const && self.take(TokenKind::Word("final"));
         let signature = self.index;
         let ty = self.ty(!is_const && !is_final)?;
+        if self.peek() == Some(TokenKind::Word("set")) {
+            return Err(self.error(if is_top_level {
+                "top-level setters are not supported yet"
+            } else {
+                "static setters are not supported yet"
+            }));
+        }
         if self.peek() == Some(TokenKind::Word("get")) {
-            return Err(self.error("static getters are not supported yet"));
+            return Err(self.error(if is_top_level {
+                "top-level getters are not supported yet"
+            } else {
+                "static getters are not supported yet"
+            }));
         }
         let name = self.name()?;
         if matches!(
@@ -1487,7 +1583,7 @@ impl<'a> Cursor<'_, 'a> {
         }
         let mut fields = Vec::new();
         let mut methods = Vec::new();
-        self.static_member(&mut fields, &mut methods)?;
+        self.static_member(&mut fields, &mut methods, true)?;
         if let Some(method) = methods.first() {
             return Err(Diagnostic::new(
                 "expected a top-level variable declaration",
@@ -1508,12 +1604,169 @@ impl<'a> Cursor<'_, 'a> {
                         .get(name)
                         .ok_or_else(|| self.error("unknown nominal type"))?,
                 );
+                self.discard_type_arguments();
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
                 }
             }
         }
         Ok(ids)
+    }
+    /// Lê `typedef` moderno (`typedef F = int Function(int);`) ou legado
+    /// (`typedef int F(int);`); o apelido resolve para o tipo já no parse.
+    fn typedef_decl(&mut self) -> Result<(), Diagnostic> {
+        self.expect(TokenKind::Word("typedef"))?;
+        let mark = self.index;
+        let alias_start = self.position();
+        if let Ok(alias) = self.name() {
+            let alias_span = Span {
+                start: alias_start,
+                end: self.end(),
+            };
+            if matches!(
+                self.peek(),
+                Some(TokenKind::Operator("=" | "<"))
+            ) {
+                if self.peek() == Some(TokenKind::Operator("<")) {
+                    return Err(self.error("generic typedefs are not supported yet"));
+                }
+                if self.class_ids.contains_key(alias) || self.typedefs.contains_key(alias) {
+                    return Err(Diagnostic::new("duplicate typedef name", alias_span));
+                }
+                self.expect(TokenKind::Operator("="))?;
+                let target = self.ty(true)?;
+                self.expect(TokenKind::Symbol(';'))?;
+                self.typedefs.insert(alias, target);
+                return Ok(());
+            }
+        }
+        self.index = mark;
+        let result = self.ty(true)?;
+        let alias_start = self.position();
+        let alias = self.name()?;
+        let alias_span = Span {
+            start: alias_start,
+            end: self.end(),
+        };
+        if self.peek() == Some(TokenKind::Operator("<")) {
+            return Err(self.error("generic typedefs are not supported yet"));
+        }
+        if self.class_ids.contains_key(alias) || self.typedefs.contains_key(alias) {
+            return Err(Diagnostic::new("duplicate typedef name", alias_span));
+        }
+        self.expect(TokenKind::Symbol('('))?;
+        let mut parameters = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol(')')) {
+            parameters.push(self.ty(false)?);
+            if matches!(self.peek(), Some(TokenKind::Word(param)) if !reserved(param)) {
+                self.name()?;
+            }
+            if !self.take(TokenKind::Symbol(',')) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Symbol(')'))?;
+        self.expect(TokenKind::Symbol(';'))?;
+        let target = self.intern(TypeShape::Function {
+            result,
+            parameters,
+        });
+        self.typedefs.insert(alias, target);
+        Ok(())
+    }
+    /// Lê `extension type` com erasure para a representação e despacho estático.
+    ///
+    /// O tipo vira a representação (`is` checa a representação, custo zero em
+    /// runtime); os membros viram uma extension sobre a representação e o
+    /// construtor primário vira uma função-identidade com o nome declarado.
+    fn extension_type(
+        &mut self,
+        extensions: &mut Vec<Extension<'a>>,
+        functions: &mut Vec<Function<'a>>,
+    ) -> Result<(), Diagnostic> {
+        let start = self.position();
+        self.expect(TokenKind::Word("extension"))?;
+        self.expect(TokenKind::Word("type"))?;
+        let name = self.name()?;
+        if self.class_ids.contains_key(name) || self.typedefs.contains_key(name) {
+            return Err(self.error("duplicate extension type name"));
+        }
+        if self.peek() == Some(TokenKind::Operator("<")) {
+            return Err(self.error("generic extension types are not supported yet"));
+        }
+        self.expect(TokenKind::Symbol('('))?;
+        let representation = self.ty(false)?;
+        let field = self.name()?;
+        self.expect(TokenKind::Symbol(')'))?;
+        if self.take(TokenKind::Word("implements")) {
+            return Err(self.error(
+                "extension type implements clauses are not supported yet",
+            ));
+        }
+        self.expect(TokenKind::Symbol('{'))?;
+        let mut methods = Vec::new();
+        while self.peek() != Some(TokenKind::Symbol('}')) {
+            if (self.peek() == Some(TokenKind::Word(name))
+                && matches!(
+                    self.tokens.get(self.index + 1).map(|token| token.kind),
+                    Some(TokenKind::Symbol('(' | '.'))
+                ))
+                || (self.peek() == Some(TokenKind::Word("const"))
+                    && self.tokens.get(self.index + 1).map(|token| token.kind)
+                        == Some(TokenKind::Word(name)))
+            {
+                return Err(self.error(
+                    "extension type constructors are not supported yet: use the primary representation constructor",
+                ));
+            }
+            let method = self.function_with_abstract(false, false)?.0;
+            if method.is_getter {
+                return Err(Diagnostic::new(
+                    "extension type getters are not supported yet",
+                    method.span,
+                ));
+            }
+            methods.push(method);
+        }
+        self.expect(TokenKind::Symbol('}'))?;
+        let end = self.end();
+        let span = Span { start, end };
+        self.typedefs.insert(name, representation);
+        let id =
+            u32::try_from(extensions.len()).map_err(|_| self.error("too many extensions"))?;
+        extensions.push(Extension {
+            id,
+            name,
+            on_type: representation,
+            methods,
+            span,
+        });
+        functions.push(Function {
+            is_arrow: false,
+            is_async: false,
+            annotations: Vec::new(),
+            native_binding: None,
+            type_parameters: Vec::new(),
+            is_getter: false,
+            name,
+            return_type: representation,
+            parameters: vec![Parameter {
+                name: field,
+                ty: representation,
+                kind: ParameterKind::RequiredPositional,
+                default: None,
+                span,
+            }],
+            body: vec![Statement {
+                kind: StatementKind::Return(Some(Expr {
+                    kind: ExprKind::Identifier(field),
+                    span,
+                })),
+                span,
+            }],
+            span,
+        });
+        Ok(())
     }
     /// Lê uma extension nomeada sobre tipo não anulável, contendo somente métodos.
     fn extension(&mut self, id: u32) -> Result<Extension<'a>, Diagnostic> {
@@ -1702,6 +1955,85 @@ impl<'a> Cursor<'_, 'a> {
         self.expect(TokenKind::Symbol('.'))?;
         let name = self.name()?;
         let parameters = self.parameter_list()?;
+        // A fábrica com redirecionamento (`= Alvo` ou `= Alvo.nome`) vira um
+        // corpo sintetizado que repassa cada parâmetro e converte o resultado
+        // para a classe da fábrica; o `as` mantém a verificação em runtime e
+        // dispensa sub-tipagem na análise semântica.
+        if self.take(TokenKind::Operator("=")) {
+            let target = self.name()?;
+            let target_id = *self.class_ids.get(target).ok_or_else(|| {
+                self.error("unknown factory redirect target")
+            })?;
+            let member = if self.take(TokenKind::Symbol('.')) {
+                Some(self.name()?)
+            } else {
+                None
+            };
+            let call_start = start;
+            let mut arguments = Vec::with_capacity(parameters.len());
+            for parameter in &parameters {
+                let value = Expr {
+                    kind: ExprKind::Identifier(parameter.name),
+                    span: parameter.span,
+                };
+                arguments.push(if parameter.kind.is_named() {
+                    Expr {
+                        kind: ExprKind::NamedArgument {
+                            label: parameter.label(),
+                            value: Box::new(value),
+                        },
+                        span: parameter.span,
+                    }
+                } else {
+                    value
+                });
+            }
+            let call_span = Span {
+                start: call_start,
+                end: self.end(),
+            };
+            let target_kind = match member {
+                Some(member) => ExprKind::NamedConstruct {
+                    class_id: target_id,
+                    name: member,
+                    arguments,
+                },
+                None => ExprKind::Construct {
+                    class_id: target_id,
+                    arguments,
+                },
+            };
+            self.expect(TokenKind::Symbol(';'))?;
+            let body = vec![Statement {
+                kind: StatementKind::Return(Some(Expr {
+                    kind: ExprKind::Cast {
+                        operand: Box::new(Expr {
+                            kind: target_kind,
+                            span: call_span,
+                        }),
+                        ty: Type::Class(class_id),
+                    },
+                    span: call_span,
+                })),
+                span: call_span,
+            }];
+            return Ok(Function {
+                is_arrow: false,
+                is_async: false,
+                name,
+                return_type: Type::Class(class_id),
+                parameters,
+                body,
+                span: Span {
+                    start,
+                    end: self.end(),
+                },
+                type_parameters: Vec::new(),
+                is_getter: false,
+                annotations: Vec::new(),
+                native_binding: None,
+            });
+        }
         // A fábrica aceita corpo de expressão ou bloco, como qualquer função.
         let is_arrow = self.take(TokenKind::Operator("=>"));
         let body = if is_arrow {
@@ -1768,9 +2100,19 @@ impl<'a> Cursor<'_, 'a> {
             Vec::new()
         };
         let return_type = self.ty(true)?;
+        let getter_start = self.position();
         let is_getter = self.take(TokenKind::Word("get"));
         if is_getter && allow_generic {
-            return Err(self.error("top-level getters are not supported yet"));
+            return Err(Diagnostic::new(
+                "top-level getters are not supported yet",
+                Span {
+                    start: getter_start,
+                    end: self.end(),
+                },
+            ));
+        }
+        if allow_generic && self.peek() == Some(TokenKind::Word("set")) {
+            return Err(self.error("top-level setters are not supported yet"));
         }
         let name = self.name()?;
         if let Some(binding) = native_binding.as_mut()
@@ -1960,6 +2302,9 @@ impl<'a> Cursor<'_, 'a> {
     /// Lê um parâmetro comum `Tipo nome [= padrão]` com a forma de passagem dada.
     fn parameter(&mut self, kind: ParameterKind) -> Result<Parameter<'a>, Diagnostic> {
         let start = self.position();
+        if self.peek() == Some(TokenKind::Word("covariant")) {
+            return Err(self.error("covariant parameters are not supported yet"));
+        }
         let ty = self.ty(false)?;
         let name = self.name()?;
         let default = self.parameter_default()?;
@@ -2021,6 +2366,12 @@ impl<'a> Cursor<'_, 'a> {
         kind: ParameterKind,
     ) -> Result<ConstructorParameter<'a>, Diagnostic> {
         let start = self.position();
+        if self.peek() == Some(TokenKind::Word("covariant")) {
+            return Err(self.error("covariant parameters are not supported yet"));
+        }
+        if self.peek() == Some(TokenKind::Word("super")) {
+            return Err(self.error("super parameters are not supported yet"));
+        }
         let (name, ty, field) = if self.take(TokenKind::Word("this")) {
             self.expect(TokenKind::Symbol('.'))?;
             let name = self.name()?;
@@ -2469,15 +2820,47 @@ impl<'a> Cursor<'_, 'a> {
         self.expect(TokenKind::Symbol(')'))?;
         Ok(condition)
     }
+    /// Sonda `late` com inicializador sem consumir tokens nem internar tipos.
+    ///
+    /// Só essa forma tem erasure ansioso implementado; sem inicializador a
+    /// leitura-antes-escrita exigiria a célula com `LateInitializationError`.
+    fn late_has_initializer(&mut self) -> bool {
+        let index = self.index;
+        let count = self.types.len();
+        self.index += 1;
+        let _ = self.take(TokenKind::Word("final"));
+        let result = if self.take(TokenKind::Word("var")) {
+            self.name().is_ok() && self.peek() == Some(TokenKind::Operator("="))
+        } else {
+            self.ty(false).is_ok()
+                && self.name().is_ok()
+                && self.peek() == Some(TokenKind::Operator("="))
+        };
+        self.index = index;
+        self.types.truncate(count);
+        result
+    }
     /// Lê declaração, atribuição ou chamada sem consumir o ponto e vírgula.
     fn simple(&mut self, allow_declaration: bool) -> Result<Statement<'a>, Diagnostic> {
         let start = self.position();
         if self.peek() == Some(TokenKind::Word("late")) {
-            // Aceitar `late` sem a célula de inicialização em execução daria um
-            // programa que lê lixo em vez de lançar LateInitializationError.
-            return Err(self.error(
-                "late variables are not supported: the read-before-write check is not implemented",
-            ));
+            // `late` com inicializador vira variável ansiosa; sem inicializador
+            // a célula de verificação ainda não existe (ver gaps documentados).
+            if self.tokens.get(self.index + 1).map(|token| token.kind)
+                == Some(TokenKind::Word("const"))
+            {
+                self.index += 1;
+                return Err(self.error("late const is not supported"));
+            }
+            if !self.late_has_initializer() {
+                return Err(self.error(
+                    "late variables without an initializer are not supported: the read-before-write check is not implemented",
+                ));
+            }
+            self.index += 1;
+            if self.peek() == Some(TokenKind::Word("const")) {
+                return Err(self.error("late const is not supported"));
+            }
         }
         let kind = if matches!(
             self.peek(),
@@ -2512,8 +2895,36 @@ impl<'a> Cursor<'_, 'a> {
                 None
             };
             let name = self.name()?;
-            self.expect(TokenKind::Operator("="))?;
-            let initializer = self.expression()?;
+            // `bool? b;` é válido em Dart 3.6.2 e inicializa com null; só
+            // vale para tipo anulável e não-final, desaçucarado para `= null`.
+            // `final` sem inicializador e tipo não-anulável sem inicializador
+            // continuam exigindo `=`.
+            let nullable = match annotation {
+                Some(
+                    Type::NullableInt
+                    | Type::NullableBool
+                    | Type::NullableString
+                    | Type::NullableObject
+                    | Type::NullableClass(_)
+                    | Type::NullableParameter(_),
+                ) => true,
+                Some(Type::Applied(id)) => {
+                    matches!(self.types.get(id as usize), Some(TypeShape::Nullable(_)))
+                }
+                _ => false,
+            };
+            let initializer = if self.take(TokenKind::Operator("=")) {
+                self.expression()?
+            } else if !is_final && nullable {
+                let end = self.end();
+                Expr {
+                    kind: ExprKind::Null,
+                    span: Span { start: end, end },
+                }
+            } else {
+                self.expect(TokenKind::Operator("="))?;
+                unreachable!("o `=` foi testado acima");
+            };
             StatementKind::Variable {
                 is_const,
                 name,
@@ -2567,6 +2978,15 @@ impl<'a> Cursor<'_, 'a> {
                         index: *index,
                         value: self.expression()?,
                     },
+                    // `C.x = v` chega aqui como acesso estático; a escrita
+                    // exige resolução de estáticos na análise semântica (ver
+                    // gaps documentados), então a rejeição é explícita.
+                    ExprKind::EnumValue { .. } => {
+                        return Err(Diagnostic::new(
+                            "static field assignments are not supported yet",
+                            value.span,
+                        ));
+                    }
                     _ => return Err(self.error("assignment requires a member or index target")),
                 }
             } else {
@@ -3031,15 +3451,49 @@ impl<'a> Cursor<'_, 'a> {
                         "const Duration is not supported yet; use Duration.zero or Duration(...)",
                     ));
                 }
-                let start = self.position();
-                let kind = self.list_literal(depth + 1)?;
-                ExprKind::Const(Box::new(Expr {
-                    kind,
-                    span: Span {
-                        start,
-                        end: self.end(),
-                    },
-                }))
+                // `const C(...)` e `const C.nome(...)` viram o mesmo nó de
+                // construção envolto em `Const`; a canonicalização é decidida
+                // pela receita const da análise semântica.
+                let invoked = match self.peek() {
+                    Some(TokenKind::Word(name)) if self.class_ids.contains_key(name) => {
+                        Some(name)
+                    }
+                    _ => None,
+                };
+                if let Some(name) = invoked {
+                    let class_id = self.class_ids[name];
+                    self.index += 1;
+                    let kind = if self.take(TokenKind::Symbol('.')) {
+                        let member = self.name()?;
+                        ExprKind::NamedConstruct {
+                            class_id,
+                            name: member,
+                            arguments: self.arguments(depth)?,
+                        }
+                    } else {
+                        ExprKind::Construct {
+                            class_id,
+                            arguments: self.arguments(depth)?,
+                        }
+                    };
+                    ExprKind::Const(Box::new(Expr {
+                        kind,
+                        span: Span {
+                            start,
+                            end: self.end(),
+                        },
+                    }))
+                } else {
+                    let start = self.position();
+                    let kind = self.list_literal(depth + 1)?;
+                    ExprKind::Const(Box::new(Expr {
+                        kind,
+                        span: Span {
+                            start,
+                            end: self.end(),
+                        },
+                    }))
+                }
             }
             Some(TokenKind::Word("switch")) => {
                 self.index += 1;
@@ -3086,11 +3540,19 @@ impl<'a> Cursor<'_, 'a> {
                 ExprKind::Null
             }
             Some(TokenKind::Number(text)) => {
-                let value = text.parse::<i32>().map_err(|_| {
-                    self.error("integer literal outside supported signed 32-bit range")
-                })?;
-                self.index += 1;
-                ExprKind::Int(value)
+                if text.bytes().any(|b| matches!(b, b'.' | b'e' | b'E')) {
+                    let value = text.parse::<f64>().map_err(|_| {
+                        self.error("invalid double literal outside supported 64-bit range")
+                    })?;
+                    self.index += 1;
+                    ExprKind::Double(value)
+                } else {
+                    let value = text.parse::<i32>().map_err(|_| {
+                        self.error("integer literal outside supported signed 32-bit range")
+                    })?;
+                    self.index += 1;
+                    ExprKind::Int(value)
+                }
             }
             Some(
                 TokenKind::String(_)
@@ -3139,7 +3601,35 @@ impl<'a> Cursor<'_, 'a> {
                     }
                 } else if self.peek() == Some(TokenKind::Symbol('(')) {
                     let arguments = self.arguments(depth)?;
-                    if let Some(&class_id) = self.class_ids.get(name) {
+                    if name == "identical" && !self.class_ids.contains_key(name) {
+                        // `identical` vira `==`: o subconjunto não tem NaN nem
+                        // `operator ==` customizado, e instâncias `const`
+                        // canonicalizam, então o `===` emitido para `==` é
+                        // identidade. Uma `identical` declarada pelo usuário
+                        // segue o mesmo caminho (ver gaps documentados).
+                        let positional = arguments
+                            .iter()
+                            .all(|argument| {
+                                !matches!(argument.kind, ExprKind::NamedArgument { .. })
+                            });
+                        if !positional || arguments.len() != 2 {
+                            return Err(Diagnostic::new(
+                                "identical requires two positional arguments",
+                                Span {
+                                    start,
+                                    end: self.end(),
+                                },
+                            ));
+                        }
+                        let mut items = arguments.into_iter();
+                        let left = Box::new(items.next().expect("aridade validada acima"));
+                        let right = Box::new(items.next().expect("aridade validada acima"));
+                        ExprKind::Binary {
+                            op: BinaryOp::Equal,
+                            left,
+                            right,
+                        }
+                    } else if let Some(&class_id) = self.class_ids.get(name) {
                         ExprKind::Construct {
                             class_id,
                             arguments,
@@ -3206,6 +3696,14 @@ impl<'a> Cursor<'_, 'a> {
                 return Err(self
                     .error("increment and decrement are supported only as standalone statements"));
             }
+            Some(TokenKind::Word("super")) => {
+                if self.tokens.get(self.index + 1).map(|token| token.kind)
+                    == Some(TokenKind::Symbol('.'))
+                {
+                    return Err(self.error("super method calls are not supported yet"));
+                }
+                return Err(self.error("expected a supported expression"));
+            }
             _ => return Err(self.error("expected a supported expression")),
         };
         self.postfix(
@@ -3239,7 +3737,9 @@ impl<'a> Cursor<'_, 'a> {
             } else {
                 None
             };
-            fields.push((name, self.cascade(depth + 1)?));
+            // O interior aceita `throw` para que `(throw e)` agrupe o
+            // lançamento; `(throw e, 1)` é um record válido (Dart 3.6.2).
+            fields.push((name, self.throw_or(depth + 1, false)?));
             comma = self.take(TokenKind::Symbol(','));
             if !comma {
                 break;
@@ -3488,6 +3988,7 @@ impl<'a> Cursor<'_, 'a> {
         let value = self.primary(depth + 1)?;
         let supported = match &value.kind {
             ExprKind::Int(_)
+            | ExprKind::Double(_)
             | ExprKind::Bool(_)
             | ExprKind::Null
             | ExprKind::String(_)
@@ -3497,7 +3998,7 @@ impl<'a> Cursor<'_, 'a> {
             ExprKind::Unary {
                 op: UnaryOp::Negate,
                 operand,
-            } => matches!(operand.kind, ExprKind::Int(_)),
+            } => matches!(operand.kind, ExprKind::Int(_) | ExprKind::Double(_)),
             _ => false,
         };
         if !supported {
@@ -3507,9 +4008,33 @@ impl<'a> Cursor<'_, 'a> {
         }
         Ok(Pattern::Constant(value))
     }
+        /// Descarta `<A, B>` após um tipo classe (erasure); devolve se consumiu.
+    ///
+    /// A tentativa é restaurada quando `<` não abre argumentos válidos, para
+    /// não confundir outros usos do operador. Tipos internos são validados.
+    fn discard_type_arguments(&mut self) -> bool {
+        if self.peek() != Some(TokenKind::Operator("<")) {
+            return false;
+        }
+        let index = self.index;
+        let count = self.types.len();
+        let mut ok = false;
+        if self.take(TokenKind::Operator("<")) {
+            ok = self.ty(false).is_ok();
+            while ok && self.take(TokenKind::Symbol(',')) {
+                ok = self.ty(false).is_ok();
+            }
+            ok = ok && self.take(TokenKind::Operator(">"));
+        }
+        if !ok {
+            self.index = index;
+            self.types.truncate(count);
+            return false;
+        }
+        true
+    }
     /// Consome argumentos de tipo explícitos de uma chamada genérica top-level.
-    fn type_arguments(&mut self) -> Result<Vec<Type>, Diagnostic> {
-        self.expect(TokenKind::Operator("<"))?;
+    fn type_arguments(&mut self) -> Result<Vec<Type>, Diagnostic> {        self.expect(TokenKind::Operator("<"))?;
         let mut types = Vec::new();
         loop {
             types.push(self.ty(false)?);
@@ -4150,6 +4675,8 @@ fn binary_op(symbol: &str) -> Option<(u8, BinaryOp)> {
         "+" => (5, BinaryOp::Add),
         "-" => (5, BinaryOp::Subtract),
         "*" => (6, BinaryOp::Multiply),
+        "/" => (6, BinaryOp::Divide),
+        "~/" => (6, BinaryOp::TruncDivide),
         "%" => (6, BinaryOp::Remainder),
         _ => return None,
     })
@@ -4235,6 +4762,8 @@ fn reserved(name: &str) -> bool {
             | "with"
             | "yield"
             | "int"
+            | "double"
+            | "num"
             | "String"
             | "bool"
             | "print"
@@ -4750,16 +5279,15 @@ mod tests {
                 .is_empty()
         );
     }
-    /// Construtores nomeados, listas de inicialização e parâmetros opcionais são rejeitados.
+    /// Formas de construtor fora do subconjunto continuam rejeitadas.
+    ///
+    /// Nomeados, `const`, listas de inicialização e `super` explícito fazem
+    /// parte do subconjunto e são exercitados em `crates/compiler/tests/classes_adv.rs.
     #[test]
     fn rejects_constructor_forms_outside_subset() {
         for declaration in [
             "class C{C();C(){}}",
-            "class C{C.named();}",
-            "class C{const C();}",
             "class C{factory C();}",
-            "class C{C():super();}",
-            "class C{C():x=1;int x;}",
             "class C{C(super.x);}",
             "class C{C(int this.x);int x;}",
             "mixin class C{C();}",
@@ -5305,9 +5833,7 @@ mod tests {
     #[test]
     fn invalid_class_forms_and_member_limits() {
         for source in [
-            "class C { C.named() {} } void main(){}",
             "class C { late int x; } void main(){}",
-            "class C { static int x=1; } void main(){}",
             "class C { void x=1; } void main(){}",
             "class C extends Missing {} void main(){}",
             "class C {} class C {} void main(){}",

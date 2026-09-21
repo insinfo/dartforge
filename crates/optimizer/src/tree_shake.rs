@@ -344,6 +344,12 @@ impl Scan<'_, '_> {
                     self.constant(v);
                 }
             }
+            ConstValue::Instance { class_id, fields } => {
+                self.class(*class_id);
+                for (_, v) in fields {
+                    self.constant(v);
+                }
+            }
             _ => {}
         }
     }
@@ -539,6 +545,7 @@ impl Scan<'_, '_> {
             | ExprKind::This
             | ExprKind::Null
             | ExprKind::Int(_)
+            | ExprKind::Double(_)
             | ExprKind::Bool(_)
             | ExprKind::String(_)
             | ExprKind::OwnedString(_) => {}

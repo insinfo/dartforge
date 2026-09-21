@@ -6,6 +6,9 @@ function $dartforgeTyped(value, type) { $dartforgeTypeTags.set(value, type); ret
 function $dartforgeTypeOf(value) {
   if (value === null) return ['null'];
   if (typeof value === 'number' && Number.isInteger(value)) return ['int'];
+  // Apagamento Number: doubles não inteiros são ['double']; doubles de valor
+  // inteiro reportam ['int'] (limite documentado: `1.0 is int` dá true).
+  if (typeof value === 'number') return ['double'];
   if (typeof value === 'string') return ['string'];
   if (typeof value === 'boolean') return ['bool'];
   if (value && value.$dartforgeEnumTag !== undefined) return ['class', value.$dartforgeEnumTag];
@@ -23,8 +26,21 @@ function $dartforgeSubtype(actual, expected) {
   const a = actual[0], e = expected[0];
   if (e === 'nullable') return a === 'null' || (a === 'nullable' ? $dartforgeSubtype(actual[1], expected[1]) : $dartforgeSubtype(actual, expected[1]));
   if (a === 'nullable' || a === 'null') return a === e;
+  // `dynamic` esperado desliga a checagem estática: qualquer valor não-void passa.
+  if (e === 'dynamic') return a !== 'void';
   if (e === 'object') return a !== 'void';
-  if (a === 'class' && e === 'class') return ($dartforgeNominalMembers[expected[1]] || [expected[1]]).includes(actual[1]);
+  // Hierarquia numérica do Dart: int e double são subtipos de num.
+  if (e === 'num') return a === 'int' || a === 'double' || a === 'num';
+  if (e === 'double') return a === 'double';
+  // Classes genéricas têm erasure por padrão: sem argumentos, compara o cru;
+  // com argumentos nos dois lados, exige mesma aridade e covariância por posição.
+  if (a === 'class' && e === 'class') {
+    if (!($dartforgeNominalMembers[expected[1]] || [expected[1]]).includes(actual[1])) return false;
+    const actualArgs = actual[2], expectedArgs = expected[2];
+    if (actualArgs === undefined || expectedArgs === undefined) return true;
+    return actualArgs.length === expectedArgs.length &&
+      expectedArgs.every((wanted, i) => $dartforgeSubtype(actualArgs[i], wanted));
+  }
   if ((a === 'list' || a === 'iterable') && (e === a || e === 'iterable')) return $dartforgeSubtype(actual[1], expected[1]);
   if (a === 'future' && e === 'future') return $dartforgeSubtype(actual[1], expected[1]);
   if (a === 'map' && e === 'map') return $dartforgeSubtype(actual[1], expected[1]) && $dartforgeSubtype(actual[2], expected[2]);

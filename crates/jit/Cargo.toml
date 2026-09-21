@@ -1,0 +1,20 @@
+[package]
+name = "dartforge-jit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Este crate adota a lint do workspace (`unsafe_code = "deny"`). Todo o `unsafe`
+# está concentrado em `src/ffi.rs`, único arquivo com `#![allow(unsafe_code)]`;
+# `src/runtime.rs` e `src/lib.rs` permanecem 100% seguros.
+[lints]
+workspace = true
+
+[dependencies]
+dartforge-runtime = { path = "../runtime" }
+llvm-sys = "221.1.0"
+
+[dev-dependencies]
+dartforge-compiler = { path = "../compiler" }
+dartforge-native = { path = "../native" }

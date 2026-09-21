@@ -14,3 +14,15 @@ if ($env:CARGO_HOME) {
 if (!$env:DARTFORGE_CLANG -and !(Get-Command clang -ErrorAction SilentlyContinue) -and (Test-Path 'D:\LLVM\22.1.8\bin\clang.exe')) {
     $env:DARTFORGE_CLANG = 'D:\LLVM\22.1.8\bin\clang.exe'
 }
+
+# crates/jit liga llvm-sys, que procura llvm-config na distribuicao completa do
+# LLVM 22.1.x. O instalador reduzido (apenas LLVM-C.dll/.lib) nao serve. Sem esta
+# variavel a build do workspace inteiro falha. Veja docs/JIT.md.
+if (!$env:LLVM_SYS_221_PREFIX) {
+    foreach ($prefix in @($env:DARTFORGE_LLVM_DIR, 'D:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc')) {
+        if ($prefix -and (Test-Path (Join-Path $prefix 'bin\llvm-config.exe'))) {
+            $env:LLVM_SYS_221_PREFIX = $prefix
+            break
+        }
+    }
+}

@@ -8,10 +8,14 @@ impl<'a> Validator<'a> {
                 self.printable_type(self.upper_bound(ty))
             }
             Type::Int
+            | Type::Double
+            | Type::Num
             | Type::Bool
             | Type::String
             | Type::Null
             | Type::NullableInt
+            | Type::NullableDouble
+            | Type::NullableNum
             | Type::NullableBool
             | Type::NullableString => true,
             Type::Applied(_) => match self.shape(ty) {
@@ -113,20 +117,22 @@ impl<'a> Validator<'a> {
         span: Span,
     ) -> Result<(), Diagnostic> {
         let fail = || Diagnostic::new("Incompatible structural type", span);
+        // Comparação estrita: a promoção int→double vale em posições de
+        // atribuição, mas `List<int>` não é `List<double>` no oráculo Dart.
         match (self.shape(actual), self.shape(expected)) {
             (Some(TypeShape::Future(a)), Some(TypeShape::Future(b))) => {
                 if b == Type::Void {
                     Ok(())
                 } else {
-                    self.require_type(a, b, span)
+                    self.require_subtype(a, b, span)
                 }
             }
             (
                 Some(TypeShape::Map { key: ak, value: av }),
                 Some(TypeShape::Map { key: bk, value: bv }),
             ) => {
-                self.require_type(ak, bk, span)?;
-                self.require_type(av, bv, span)
+                self.require_subtype(ak, bk, span)?;
+                self.require_subtype(av, bv, span)
             }
             (
                 Some(TypeShape::Record {
@@ -149,13 +155,13 @@ impl<'a> Validator<'a> {
                     .chain(an.into_iter().map(|(_, ty)| ty))
                     .zip(b.into_iter().chain(bn.into_iter().map(|(_, ty)| ty)))
                 {
-                    self.require_type(a, b, span)?;
+                    self.require_subtype(a, b, span)?;
                 }
                 Ok(())
             }
-            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => self.require_type(a, b, span),
+            (Some(TypeShape::List(a)), Some(TypeShape::List(b))) => self.require_subtype(a, b, span),
             (Some(TypeShape::List(a) | TypeShape::Iterable(a)), Some(TypeShape::Iterable(b))) => {
-                self.require_type(a, b, span)
+                self.require_subtype(a, b, span)
             }
             (
                 Some(TypeShape::Function {
@@ -171,12 +177,12 @@ impl<'a> Validator<'a> {
                     return Err(fail());
                 }
                 for (a, b) in ap.into_iter().zip(bp) {
-                    self.require_type(b, a, span)?;
+                    self.require_subtype(b, a, span)?;
                 }
                 if b == Type::Void || b == Type::Inferred {
                     Ok(())
                 } else {
-                    self.require_type(a, b, span)
+                    self.require_subtype(a, b, span)
                 }
             }
             _ => Err(fail()),
@@ -271,6 +277,18 @@ impl<'a> Validator<'a> {
         }
         if a == Type::Null || b == Type::Null {
             return Ok(self.nullable(if a == Type::Null { b } else { a }));
+        }
+        // Oráculo Dart 3.6.2: a junção de int e double é num (não double),
+        // preservando a anulabilidade de qualquer um dos lados.
+        if matches!(
+            (self.without_null(a), self.without_null(b)),
+            (Type::Int, Type::Double) | (Type::Double, Type::Int)
+        ) {
+            return Ok(if self.may_be_null(a) || self.may_be_null(b) {
+                self.nullable(Type::Num)
+            } else {
+                Type::Num
+            });
         }
         if self.require_type(a, b, span).is_ok() {
             Ok(b)
@@ -677,8 +695,12 @@ impl<'a> Validator<'a> {
         nested.loop_depth = 0;
         nested.in_constructor = false;
         nested.switch_depth = 0;
-        // Rótulos e cláusulas catch não atravessam a fronteira de uma closure.
-        nested.labels.clear();
+        // Cláusulas catch não atravessam a fronteira de uma closure. Os
+        // rótulos externos são preservados após um sentinela vazio (nenhum
+        // rótulo real é vazio) para que `break`/`continue` rotulado
+        // diagnostique `label_in_outer_scope` como o Dart 3.6.2, em vez de
+        // "Unknown loop label"; ver a resolução em `lib.rs`.
+        nested.labels.push("");
         nested.catch_depth = 0;
         nested.return_type = if annotation != Type::Inferred {
             annotation

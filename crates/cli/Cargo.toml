@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 dartforge-abi = { path = "../abi" }
 dartforge-native = { path = "../native" }
+dartforge-jit = { path = "../jit" }
 dartforge-compiler = { path = "../compiler" }
 dartforge-packages = { path = "../packages" }
 serde_json = "1"

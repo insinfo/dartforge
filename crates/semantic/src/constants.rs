@@ -40,6 +40,7 @@ fn validate(
             ));
         }
         ExprKind::Int(_)
+        | ExprKind::Double(_)
         | ExprKind::Bool(_)
         | ExprKind::String(_)
         | ExprKind::OwnedString(_)
@@ -88,6 +89,7 @@ fn evaluate_inner<'a>(
     let span = expression.span;
     Ok(match &expression.kind {
         ExprKind::Int(value) => ConstValue::Int(*value),
+        ExprKind::Double(value) => ConstValue::Double(value.to_bits()),
         ExprKind::Bool(value) => ConstValue::Bool(*value),
         ExprKind::String(value) => ConstValue::String((*value).into()),
         ExprKind::OwnedString(value) => ConstValue::String(value.clone()),
@@ -143,6 +145,9 @@ fn evaluate_inner<'a>(
                     ConstValue::Int(n.checked_neg().ok_or_else(|| {
                         error(span, "integer overflow outside supported i32 range")
                     })?)
+                }
+                (UnaryOp::Negate, ConstValue::Double(bits)) => {
+                    ConstValue::Double((-f64::from_bits(bits)).to_bits())
                 }
                 (UnaryOp::Not, ConstValue::Bool(value)) => ConstValue::Bool(!value),
                 (UnaryOp::NullAssert, ConstValue::Null) => {
@@ -265,8 +270,60 @@ fn same_type(left: Type, right: Type, resolution: &Resolution) -> bool {
     }
 }
 
+/// Constante double a partir de f64 (NaN/Infinity preservados como no oráculo).
+fn double(value: f64) -> ConstValue {
+    ConstValue::Double(value.to_bits())
+}
+
+/// Aplica `+ - * / % ~/ < <= > >=` em doubles const.
+///
+/// `/` e `%` nunca falham (oráculo: `const x = 1.0/0.0` vale Infinity e
+/// `const x = 7.5 % 0` vale NaN); `%` segue o módulo euclidiano não negativo
+/// do runtime. `~/` trunca em direção a zero, exige divisor não nulo e
+/// resultado na faixa i32 do subconjunto.
+fn double_binary(op: BinaryOp, left: f64, right: f64, span: Span) -> Result<ConstValue, Diagnostic> {
+    match op {
+        BinaryOp::Add => Ok(double(left + right)),
+        BinaryOp::Subtract => Ok(double(left - right)),
+        BinaryOp::Multiply => Ok(double(left * right)),
+        BinaryOp::Divide => Ok(double(left / right)),
+        BinaryOp::Remainder => {
+            let divisor = right.abs();
+            let mut result = left % divisor;
+            if result < 0.0 {
+                result += divisor;
+            }
+            Ok(double(result))
+        }
+        BinaryOp::TruncDivide => {
+            if right == 0.0 {
+                return Err(error(span, "integer division by zero"));
+            }
+            let truncated = (left / right).trunc();
+            if !truncated.is_finite()
+                || truncated < f64::from(i32::MIN)
+                || truncated > f64::from(i32::MAX)
+            {
+                return Err(error(span, "integer overflow outside supported i32 range"));
+            }
+            // `as` é exato dentro da faixa verificada acima.
+            Ok(ConstValue::Int(truncated as i32))
+        }
+        BinaryOp::Less => Ok(ConstValue::Bool(left < right)),
+        BinaryOp::LessEqual => Ok(ConstValue::Bool(left <= right)),
+        BinaryOp::Greater => Ok(ConstValue::Bool(left > right)),
+        BinaryOp::GreaterEqual => Ok(ConstValue::Bool(left >= right)),
+        _ => Err(error(span, "invalid double operator")),
+    }
+}
+
 /// Igualdade de listas const corresponde à identidade de seus valores canônicos.
 fn equal(left: &ConstValue, right: &ConstValue, resolution: &Resolution) -> bool {
+    // Doubles comparam por valor IEEE-754 (`-0.0 == 0.0`, `NaN != NaN`),
+    // não por identidade de bits.
+    if let (ConstValue::Double(a), ConstValue::Double(b)) = (left, right) {
+        return f64::from_bits(*a) == f64::from_bits(*b);
+    }
     match (left, right) {
         (
             ConstValue::Instance {
@@ -325,6 +382,19 @@ fn binary(
     }
     match (left, right) {
         (ConstValue::Int(a), ConstValue::Int(b)) => {
+            // `/` entre inteiros produz double e `~/` trunca para int (oráculo
+            // Dart 3.6.2: `const f = 1/2` vale 0.5; `~/0` é erro const).
+            if op == BinaryOp::Divide {
+                return Ok(ConstValue::Double((f64::from(a) / f64::from(b)).to_bits()));
+            }
+            if op == BinaryOp::TruncDivide {
+                if b == 0 {
+                    return Err(error(span, "integer division by zero"));
+                }
+                return Ok(ConstValue::Int(a.checked_div(b).ok_or_else(|| {
+                    error(span, "integer overflow outside supported i32 range")
+                })?));
+            }
             let arithmetic = match op {
                 BinaryOp::Add => a.checked_add(b),
                 BinaryOp::Subtract => a.checked_sub(b),
@@ -351,6 +421,19 @@ fn binary(
             BinaryOp::Or => Ok(ConstValue::Bool(a || b)),
             _ => Err(error(span, "invalid boolean operator")),
         },
+        // Operandos mistos int/double promovem para double, como na tipagem.
+        (ConstValue::Int(a), ConstValue::Double(b)) => {
+            double_binary(op, f64::from(a), f64::from_bits(b), span)
+        }
+        (ConstValue::Double(a), ConstValue::Int(b)) => {
+            double_binary(op, f64::from_bits(a), f64::from(b), span)
+        }
+        (ConstValue::Double(a), ConstValue::Double(b)) => double_binary(
+            op,
+            f64::from_bits(a),
+            f64::from_bits(b),
+            span,
+        ),
         (ConstValue::String(mut a), ConstValue::String(b)) if op == BinaryOp::Add => {
             a.push_str(&b);
             Ok(ConstValue::String(a))

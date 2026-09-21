@@ -1358,7 +1358,7 @@ impl<'a> Resolver<'a, '_> {
                     scope.extend(clause.exception);
                     scope.extend(clause.stack_trace);
                     self.scopes.push(scope);
-                    self.block(&clause.body)?;
+                    self.block(&mut clause.body)?;
                     self.scopes.pop();
                 }
                 if let Some(body) = finally_body {

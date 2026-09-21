@@ -52,9 +52,12 @@ pub(super) fn interpolation(parts: &[StringPart<'_>], output: &mut Output<'_>) {
 /// Converte uma expressão interpolada com a semântica de `toString` do Dart.
 ///
 /// Uma `String` já é o próprio texto e dispensa a chamada de runtime, o que
-/// deixa `'$nome'` com o mesmo custo de uma variável. Os demais tipos passam por
-/// `$dartforgeString`, que imprime `int` sem depender de `String(x)`, converte
-/// `null` em `"null"` e delega coleções e records ao formatador do runtime.
+/// deixa `'$nome'` com o mesmo custo de uma variável. Doubles passam por
+/// `$dartforgeDouble`, que reproduz o `toString` do Dart (`1.0`, não `1`).
+/// Os demais tipos passam por `$dartforgeString`, que imprime `int` sem
+/// depender de `String(x)`, converte `null` em `"null"` e delega coleções e
+/// records ao formatador do runtime. `num` segue o caminho escalar com o
+/// limite documentado para doubles de valor inteiro (apagamento Number).
 fn convert(value: &Expr<'_>, output: &mut Output<'_>) {
     if output
         .resolution
@@ -63,6 +66,13 @@ fn convert(value: &Expr<'_>, output: &mut Output<'_>) {
         == Some(&Type::String)
     {
         output.push('(');
+        expression(value, output);
+        output.push(')');
+        return;
+    }
+    if super::static_type(value, output) == Some(Type::Double) {
+        output.double_used = true;
+        output.push_str("$dartforgeDouble(");
         expression(value, output);
         output.push(')');
         return;

@@ -661,6 +661,11 @@ mod tests {
             classes: vec![Class {
                 factories: vec![],
                 constructor: None,
+                constructor_extras: None,
+                named_constructors: vec![],
+                static_fields: vec![],
+                static_methods: vec![],
+                is_library_globals: false,
                 annotations: vec![],
                 modifier: dartforge_syntax::ClassModifier::None,
                 kind: dartforge_syntax::ClassKind::Class,
