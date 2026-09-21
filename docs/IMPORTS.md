@@ -24,7 +24,8 @@ carregador; isso não significa que namespaces ou inicialização cíclica estej
 
 Não são suportados caminhos absolutos, escapes em URIs, query, fragmento e `deferred`.
 `package:`, `dart:core`, `show`, `hide`, `export`, prefixos `as`, imports condicionais,
-`library`, `part` e `part of` são suportados; as partes seguem
+metadados antes da primeira diretiva, as três formas de `library`, `part` e `part of`
+são suportados; as partes seguem
 [a documentação de partes](PARTS.md). Diretivas import depois de declarações são
 rejeitadas. Todos os casos fora do subconjunto produzem erro explícito, sem tentar
 resolver parcialmente a diretiva.
@@ -212,7 +213,10 @@ não usa prefixos, as alocações por compilação não se movem.
 
 Os testes usam diretórios temporários exclusivos e cobrem dependências aninhadas,
 diamantes, aliases, ciclos, ordem dos IDs, spans por arquivo, arquivos ausentes,
-diretivas não suportadas e uma cadeia carregada iterativamente.
+diretivas não suportadas e uma cadeia carregada iterativamente. As três formas de
+`library`, os metadados antes da primeira diretiva e as recusas que nomeiam a forma
+aceita estão em `library_directive_accepts_named_dotted_and_unnamed_forms` e
+`dotted_name_diagnostics_name_the_accepted_forms`.
 
 `crates/compiler/tests/prefixos.rs` fecha o contrato desta página de ponta a ponta,
 com mensagem **e** intervalo exatos em cada recusa, e um caso marcado

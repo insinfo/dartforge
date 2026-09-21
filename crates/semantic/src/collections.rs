@@ -845,11 +845,25 @@ impl<'a> Validator<'a> {
             self.value_expected(&args[0], Some(self.nullable(element)))?;
             return Ok(Type::Bool);
         }
+        // Membros acrescentados pelo núcleo de `dart:core`: eles ficam depois dos
+        // quatro acima porque estes têm inferência de callback própria, e antes do
+        // diagnóstico final porque é ele que esta tabela substitui.
+        if let Some(resultado) = self.nucleo_iteravel_metodo(receiver, element, name, args, span) {
+            return resultado;
+        }
         let result = match name {
             "where" | "any" => Type::Bool,
             "forEach" => Type::Void,
             "map" => Type::Inferred,
-            _ => return Err(Diagnostic::new("Unsupported collection method", span)),
+            _ => {
+                return Err(Diagnostic::new(
+                    format!(
+                        "'{}' declares no method '{name}' in this subset; the recognized members are listed in docs/NUCLEO.md"
+                        , self.nucleo_rotulo(receiver)
+                    ),
+                    span,
+                ));
+            }
         };
         if args.len() != 1 {
             return Err(Diagnostic::new(

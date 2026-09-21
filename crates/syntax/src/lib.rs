@@ -45,6 +45,78 @@ pub struct Token<'a> {
     pub kind: TokenKind<'a>,
     pub span: Span,
 }
+/// Identificadores de classe reservados às interfaces nominais de `dart:core`.
+///
+/// `Comparable`, `Iterator`, `Iterable` como interface e `Exception` são tipos
+/// **nominais**: uma classe do usuário os implementa e o tipo aparece em anotação.
+/// Eles não têm declaração em lugar nenhum — não existe fonte de `dart:core` neste
+/// projeto — e por isso precisam de um identificador de classe próprio.
+///
+/// A faixa fica no topo de `u32` porque os identificadores de classe são
+/// atribuídos pelo ligador a partir de zero, um por declaração do programa: para
+/// colidir com [`NUCLEO_PRIMEIRO`] um programa precisaria de quatro bilhões de
+/// classes, e o ligador já recusa com `excesso de classes` muito antes disso.
+///
+/// Um identificador desta faixa **não** aparece em `Program::classes`: nada é
+/// emitido por ele. Ele só ocupa `Class::interfaces` e `Type::Class`, os dois
+/// lugares que as tabelas do ligador consultam com `get` e não com indexação, de
+/// modo que um identificador sem declaração atravessa sem alterar nada. A análise
+/// semântica sintetiza as entradas correspondentes na própria tabela de classes.
+///
+/// # Exemplos
+/// ```
+/// use dartforge_syntax::{NUCLEO_COMPARABLE, nucleo_nome};
+/// assert_eq!(nucleo_nome(NUCLEO_COMPARABLE), Some("Comparable"));
+/// assert_eq!(nucleo_nome(0), None);
+/// ```
+pub const NUCLEO_COMPARABLE: u32 = u32::MAX;
+/// Identificador reservado de `Iterator<T>`; ver [`NUCLEO_COMPARABLE`].
+pub const NUCLEO_ITERATOR: u32 = u32::MAX - 1;
+/// Identificador reservado de `Exception`; ver [`NUCLEO_COMPARABLE`].
+pub const NUCLEO_EXCEPTION: u32 = u32::MAX - 2;
+/// Identificador reservado de `Iterable<T>` como interface; ver [`NUCLEO_COMPARABLE`].
+///
+/// É distinto de [`TypeShape::Iterable`], que é a sequência **estrutural** do
+/// subconjunto. Este identificador só aparece em `Class::interfaces`, quando uma
+/// classe do usuário declara `implements Iterable<T>`.
+pub const NUCLEO_ITERABLE: u32 = u32::MAX - 3;
+/// Identificador reservado de `StringBuffer`; ver [`NUCLEO_COMPARABLE`].
+pub const NUCLEO_STRING_BUFFER: u32 = u32::MAX - 4;
+/// Menor identificador da faixa reservada; nada abaixo dela é de `dart:core`.
+pub const NUCLEO_PRIMEIRO: u32 = u32::MAX - 15;
+
+/// Nome Dart de um identificador reservado, ou `None` para um id comum.
+///
+/// # Exemplos
+/// ```
+/// use dartforge_syntax::{NUCLEO_EXCEPTION, nucleo_nome};
+/// assert_eq!(nucleo_nome(NUCLEO_EXCEPTION), Some("Exception"));
+/// ```
+#[must_use]
+pub const fn nucleo_nome(id: u32) -> Option<&'static str> {
+    match id {
+        NUCLEO_COMPARABLE => Some("Comparable"),
+        NUCLEO_ITERATOR => Some("Iterator"),
+        NUCLEO_EXCEPTION => Some("Exception"),
+        NUCLEO_ITERABLE => Some("Iterable"),
+        NUCLEO_STRING_BUFFER => Some("StringBuffer"),
+        _ => None,
+    }
+}
+
+/// Diz se o identificador pertence à faixa reservada de `dart:core`.
+///
+/// # Exemplos
+/// ```
+/// use dartforge_syntax::{NUCLEO_ITERATOR, e_nucleo};
+/// assert!(e_nucleo(NUCLEO_ITERATOR));
+/// assert!(!e_nucleo(7));
+/// ```
+#[must_use]
+pub const fn e_nucleo(id: u32) -> bool {
+    id >= NUCLEO_PRIMEIRO
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Tipo primitivo ou ausência de valor reconhecido neste subconjunto.
 pub enum Type {

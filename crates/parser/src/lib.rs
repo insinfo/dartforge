@@ -65,7 +65,61 @@ pub fn parse<'a>(tokens: &[Token<'a>], source_len: usize) -> Result<Program<'a>,
     // A unidade isolada reserva o ID seguinte para a declaração sintética que
     // agrupa as variáveis de topo; nenhum nome de usuário pode alcançá-lo.
     let globals_id = u32::try_from(class_ids.len()).ok();
-    let mut program = parse_unit_with_globals(tokens, source_len, class_ids, globals_id)?;
+    let program = parse_unit_with_globals(tokens, source_len, class_ids, globals_id)?;
+    extract_main(program, source_len)
+}
+
+/// Analisa um programa completo relatando **todos** os diagnósticos de sintaxe.
+///
+/// Devolve `Some(programa)` **somente** quando a lista de diagnósticos sai
+/// vazia: um parse recuperado descartou declarações e não descreve mais o
+/// arquivo, então entregá-lo a um emissor produziria código que não corresponde
+/// à fonte. A recuperação existe para continuar a *relatar*, nunca para deixar
+/// passar.
+///
+/// Os diagnósticos saem ordenados por span — início, depois fim — e sem
+/// repetições exatas, de modo que contagens em testes não dependam da ordem em
+/// que o parser tropeçou.
+///
+/// # Exemplos
+///
+///     let fonte = "void a() { int ; } void b() { int ; }";
+///     let tokens = dartforge_lexer::lex(fonte).unwrap();
+///     let (programa, erros) = dartforge_parser::parse_with_recovery(&tokens, fonte.len());
+///     assert!(programa.is_none());
+///     assert_eq!(erros.len(), 2);
+///     assert!(erros[0].span.start < erros[1].span.start);
+pub fn parse_with_recovery<'a>(
+    tokens: &[Token<'a>],
+    source_len: usize,
+) -> (Option<Program<'a>>, Vec<Diagnostic>) {
+    // O índice de classes vira ambiente de melhor esforço: ele existe para que
+    // `Tipo` usado antes da declaração seja reconhecido, e recusar o arquivo
+    // inteiro porque *um* cabeçalho está quebrado devolveria um diagnóstico só,
+    // que é exatamente o que esta rota existe para evitar.
+    let class_ids = index_classes_inner(tokens, true).unwrap_or_default();
+    let globals_id = u32::try_from(class_ids.len()).ok();
+    let (program, diagnostics) =
+        parse_unit_collecting(tokens, source_len, class_ids, globals_id, &[], true);
+    let Some(program) = program else {
+        return (None, diagnostics);
+    };
+    match extract_main(program, source_len) {
+        Ok(program) => (Some(program), diagnostics),
+        Err(error) => (None, vec![error]),
+    }
+}
+
+/// Move o corpo de `main` para `statements` e valida a assinatura da entrada.
+///
+/// Separado de [`parse`] porque [`parse_with_recovery`] precisa da mesma
+/// validação, mas só pode aplicá-la quando nenhum diagnóstico de sintaxe saiu:
+/// a declaração descartada pela recuperação pode ter sido justamente `main`, e
+/// aí "entrada ausente" seria ruído derivado do erro anterior.
+fn extract_main<'a>(
+    mut program: Program<'a>,
+    source_len: usize,
+) -> Result<Program<'a>, Diagnostic> {
     let mut main = None;
     let mut functions = Vec::new();
     for function in program.functions {
@@ -196,6 +250,33 @@ pub fn parse_unit_with_prefixed_classes<'a>(
     parse_unit_inner(tokens, source_len, class_ids, None, prefixed_classes)
 }
 
+/// Analisa uma unidade de biblioteca relatando **todos** os diagnósticos.
+///
+/// Mesma semântica de [`parse_with_recovery`], sem exigir `main`: serve tanto ao
+/// aferidor de corpus, que mede arquivo por arquivo, quanto ao adaptador de
+/// editor. `Some(programa)` só aparece com a lista de diagnósticos vazia.
+///
+/// # Exemplos
+///
+///     let fonte = "class A { int ; } class B { int ; }";
+///     let tokens = dartforge_lexer::lex(fonte).unwrap();
+///     let (unidade, erros) = dartforge_parser::parse_unit_with_recovery(
+///         &tokens,
+///         fonte.len(),
+///         Default::default(),
+///         None,
+///     );
+///     assert!(unidade.is_none());
+///     assert_eq!(erros.len(), 2);
+pub fn parse_unit_with_recovery<'a>(
+    tokens: &[Token<'a>],
+    source_len: usize,
+    class_ids: std::collections::BTreeMap<&'a str, u32>,
+    globals_id: Option<u32>,
+) -> (Option<Program<'a>>, Vec<Diagnostic>) {
+    parse_unit_collecting(tokens, source_len, class_ids, globals_id, &[], true)
+}
+
 /// Corpo comum das entradas públicas de análise de unidade.
 fn parse_unit_inner<'a>(
     tokens: &[Token<'a>],
@@ -204,6 +285,51 @@ fn parse_unit_inner<'a>(
     globals_id: Option<u32>,
     prefixed_classes: &[(&'a str, &'a str, u32)],
 ) -> Result<Program<'a>, Diagnostic> {
+    let (program, diagnostics) = parse_unit_collecting(
+        tokens,
+        source_len,
+        class_ids,
+        globals_id,
+        prefixed_classes,
+        false,
+    );
+    match program {
+        Some(program) => Ok(program),
+        None => Err(diagnostics
+            .into_iter()
+            .next()
+            .expect("análise sem programa devolve ao menos um diagnóstico")),
+    }
+}
+
+/// Declarações coletadas de uma unidade, agrupadas para a leitura por declaração.
+///
+/// Existe porque a recuperação precisa ler uma declaração de cada vez: sem um
+/// destino único, a função que lê uma declaração teria quatro parâmetros
+/// mutáveis e o laço de recuperação não caberia num `match`.
+#[derive(Default)]
+struct UnitParts<'a> {
+    classes: Vec<Class<'a>>,
+    extensions: Vec<Extension<'a>>,
+    functions: Vec<Function<'a>>,
+    globals: Vec<StaticField<'a>>,
+}
+
+/// Corpo compartilhado pelas rotas estrita e com recuperação.
+///
+/// Com `recover` desligado a função para no primeiro diagnóstico, que é o
+/// comportamento histórico e o caminho quente de toda compilação. Ligado, ela
+/// sincroniza na próxima fronteira de declaração e continua lendo, e então
+/// **nunca** devolve um programa: a lista de diagnósticos não vazia é a única
+/// resposta possível.
+fn parse_unit_collecting<'a>(
+    tokens: &[Token<'a>],
+    source_len: usize,
+    class_ids: std::collections::BTreeMap<&'a str, u32>,
+    globals_id: Option<u32>,
+    prefixed_classes: &[(&'a str, &'a str, u32)],
+    recover: bool,
+) -> (Option<Program<'a>>, Vec<Diagnostic>) {
     let mut cursor = Cursor {
         tokens,
         index: 0,
@@ -223,48 +349,38 @@ fn parse_unit_inner<'a>(
         in_type_test: false,
         inferred_constants: std::collections::BTreeMap::new(),
     };
-    let mut classes = Vec::new();
-    let mut extensions = Vec::new();
-    let mut functions = Vec::new();
-    let mut globals: Vec<StaticField<'a>> = Vec::new();
+    let mut parts = UnitParts::default();
+    let mut collected = Collected::new(recover);
     while cursor.peek().is_some() {
-        let declaration_index = skip_metadata(tokens, cursor.index)?;
-        let declaration_kind = tokens.get(declaration_index).map(|token| token.kind);
-        if declaration_kind == Some(TokenKind::Word("macro")) {
-            return Err(
-                cursor.error("macro declarations and generated annotations are not supported")
-            );
-        }
-        if starts_nominal(tokens, declaration_index) {
-            classes.push(cursor.class()?);
-        } else if declaration_kind == Some(TokenKind::Word("typedef")) {
-            cursor.typedef_decl()?;
-        } else if starts_global_variable(tokens, declaration_index) {
-            let global = cursor.global_variable()?;
-            if globals_id.is_none() {
-                return Err(Diagnostic::new(
-                    "top-level variables require a single compilation unit in this subset",
-                    global.span,
-                ));
+        let start = cursor.index;
+        match top_level_declaration(&mut cursor, &mut parts, globals_id) {
+            Ok(()) => {
+                // Uma leitura bem-sucedida sempre consome token. A guarda existe
+                // para que um defeito futuro apareça como declaração descartada
+                // em vez de laço infinito.
+                if cursor.index == start {
+                    cursor.index += 1;
+                }
             }
-            globals.push(global);
-        } else if declaration_kind == Some(TokenKind::Word("extension")) {
-            if cursor.peek() == Some(TokenKind::Symbol('@')) {
-                return Err(cursor.error("annotations on extensions are not supported yet"));
+            Err(error) => {
+                collected.record(error);
+                if !recover {
+                    return (None, collected.into_sorted());
+                }
+                if collected.saturated() {
+                    break;
+                }
+                let resumed = resynchronize(&mut cursor, start);
+                collected.advance_frontier(resumed);
             }
-            if tokens.get(declaration_index + 1).map(|token| token.kind)
-                == Some(TokenKind::Word("type"))
-            {
-                cursor.extension_type(&mut extensions, &mut functions)?;
-                continue;
-            }
-            let id =
-                u32::try_from(extensions.len()).map_err(|_| cursor.error("too many extensions"))?;
-            extensions.push(cursor.extension(id)?);
-        } else {
-            functions.push(cursor.function()?);
         }
     }
+    let UnitParts {
+        mut classes,
+        extensions,
+        functions,
+        globals,
+    } = parts;
     if !globals.is_empty() {
         let span = globals[0].span;
         classes.push(globals_class(
@@ -282,8 +398,229 @@ fn parse_unit_inner<'a>(
         functions,
         statements: Vec::new(),
     };
-    validate_metadata_bindings(&program, &cursor.class_ids)?;
-    Ok(program)
+    // A validação de metadados olha o programa inteiro, então só faz sentido
+    // sobre um programa inteiro: num parse recuperado ela acusaria sombras de
+    // declarações que a recuperação descartou.
+    if collected.clean() {
+        if let Err(error) = validate_metadata_bindings(&program, &cursor.class_ids) {
+            return (None, vec![error]);
+        }
+        return (Some(program), Vec::new());
+    }
+    let items = collected.into_sorted();
+    debug_assert!(
+        !items.is_empty(),
+        "uma leitura que falhou precisa relatar ao menos um diagnóstico"
+    );
+    (None, items)
+}
+
+/// Lê uma única declaração de topo, avançando o cursor até o fim dela.
+///
+/// Extraída do laço de [`parse_unit_collecting`] para que a recuperação tenha um
+/// ponto único onde capturar o diagnóstico e recomeçar.
+fn top_level_declaration<'a>(
+    cursor: &mut Cursor<'_, 'a>,
+    parts: &mut UnitParts<'a>,
+    globals_id: Option<u32>,
+) -> Result<(), Diagnostic> {
+    let tokens = cursor.tokens;
+    let declaration_index = skip_metadata(tokens, cursor.index)?;
+    let declaration_kind = tokens.get(declaration_index).map(|token| token.kind);
+    if declaration_kind == Some(TokenKind::Word("macro")) {
+        return Err(cursor.error("macro declarations and generated annotations are not supported"));
+    }
+    if starts_nominal(tokens, declaration_index) {
+        let class = cursor.class()?;
+        parts.classes.push(class);
+    } else if declaration_kind == Some(TokenKind::Word("typedef")) {
+        cursor.typedef_decl()?;
+    } else if starts_global_variable(tokens, declaration_index) {
+        let global = cursor.global_variable()?;
+        if globals_id.is_none() {
+            return Err(Diagnostic::new(
+                "top-level variables require a single compilation unit in this subset",
+                global.span,
+            ));
+        }
+        parts.globals.push(global);
+    } else if declaration_kind == Some(TokenKind::Word("extension")) {
+        if cursor.peek() == Some(TokenKind::Symbol('@')) {
+            return Err(cursor.error("annotations on extensions are not supported yet"));
+        }
+        if tokens.get(declaration_index + 1).map(|token| token.kind) == Some(TokenKind::Word("type"))
+        {
+            return cursor.extension_type(&mut parts.extensions, &mut parts.functions);
+        }
+        let id =
+            u32::try_from(parts.extensions.len()).map_err(|_| cursor.error("too many extensions"))?;
+        let extension = cursor.extension(id)?;
+        parts.extensions.push(extension);
+    } else {
+        let function = cursor.function()?;
+        parts.functions.push(function);
+    }
+    Ok(())
+}
+
+/// Teto de diagnósticos relatados por unidade.
+///
+/// Um arquivo com dezenas de erros independentes é raro; um arquivo truncado no
+/// meio é comum, e nele cada declaração restante vira lixo. O teto impede que
+/// um único acidente vire centenas de linhas de relatório, e é o mesmo tipo de
+/// limite que qualquer compilador maduro aplica.
+const MAX_DIAGNOSTICS: usize = 64;
+
+/// Coletor de diagnósticos de uma unidade, com supressão de ruído derivado.
+struct Collected {
+    items: Vec<Diagnostic>,
+    /// Byte da fonte até onde a unidade já foi relatada.
+    ///
+    /// Depois de sincronizar, a região percorrida está *contabilizada*: um
+    /// diagnóstico posterior que aponte para dentro dela é consequência do erro
+    /// já relatado, não um erro novo. Vários diagnósticos do parser usam o span
+    /// do começo da declaração como recuo, então essa suposição não é teórica.
+    /// A fronteira só cresce, o que mantém a supressão previsível.
+    frontier: usize,
+    limit: usize,
+    /// Algum erro ocorreu, mesmo que suprimido como ruído derivado.
+    ///
+    /// Separado de `items` porque supressão e sucesso não são a mesma coisa: a
+    /// lista pode sair curta, e ainda assim o programa lido está incompleto e não
+    /// pode ser entregue a emissor nenhum.
+    failed: bool,
+}
+
+impl Collected {
+    /// Cria o coletor; sem recuperação o limite é um só diagnóstico.
+    fn new(recover: bool) -> Self {
+        Self {
+            items: Vec::new(),
+            frontier: 0,
+            limit: if recover { MAX_DIAGNOSTICS } else { 1 },
+            failed: false,
+        }
+    }
+
+    /// Guarda um diagnóstico, descartando os derivados de região já relatada.
+    fn record(&mut self, diagnostic: Diagnostic) {
+        self.failed = true;
+        if self.items.len() >= self.limit || diagnostic.span.start < self.frontier {
+            return;
+        }
+        self.items.push(diagnostic);
+    }
+
+    /// O teto de diagnósticos foi alcançado e não vale seguir lendo.
+    fn saturated(&self) -> bool {
+        self.items.len() >= self.limit
+    }
+
+    /// A leitura chegou ao fim sem erro algum, suprimido ou não.
+    fn clean(&self) -> bool {
+        !self.failed && self.items.is_empty()
+    }
+
+    /// Estende a região já relatada até o byte de retomada da leitura.
+    fn advance_frontier(&mut self, byte: usize) {
+        self.frontier = self.frontier.max(byte);
+    }
+
+    /// Ordena por span e remove repetições exatas.
+    ///
+    /// A ordem por `(início, fim)` é o contrato público: testes de corpus
+    /// afirmam contagens e posições, e a ordem em que o parser tropeçou é um
+    /// detalhe de implementação que mudaria a cada ajuste de recuperação.
+    fn into_sorted(mut self) -> Vec<Diagnostic> {
+        self.items
+            .sort_by_key(|diagnostic| (diagnostic.span.start, diagnostic.span.end));
+        self.items.dedup();
+        self.items
+    }
+}
+
+/// Avança o cursor até a próxima fronteira plausível de declaração de topo.
+///
+/// Devolve o byte da fonte onde a leitura recomeça, que é o fim da região
+/// considerada já relatada. O avanço é **estritamente positivo** em relação a
+/// `cursor.index` e a `start`: sem isso o laço de recuperação não terminaria.
+fn resynchronize(cursor: &mut Cursor<'_, '_>, start: usize) -> usize {
+    let minimum = cursor.index.max(start) + 1;
+    let target = declaration_end(cursor.tokens, start)
+        .filter(|end| *end >= minimum)
+        .unwrap_or_else(|| next_boundary(cursor.tokens, minimum));
+    cursor.index = target.max(minimum).min(cursor.tokens.len());
+    // Reinicia os orçamentos de expressão: eles são por declaração, e carregar o
+    // consumo da declaração quebrada faria a próxima ser recusada por limite.
+    cursor.expr_nodes = 0;
+    cursor.active_primaries = 0;
+    cursor.expression_frames = 0;
+    cursor.closure_depth = 0;
+    cursor.type_parameters.clear();
+    cursor.class_type_parameters.clear();
+    cursor.class_type_bounds.clear();
+    cursor.guard_start = None;
+    cursor.in_type_test = false;
+    cursor
+        .tokens
+        .get(cursor.index)
+        .map_or(cursor.source_len, |token| token.span.start)
+}
+
+/// Índice do token seguinte ao fim da declaração de topo iniciada em `start`.
+///
+/// Usa só delimitadores, sem gramática: uma declaração de topo termina no `;` de
+/// nível zero ou no `}` que fecha o seu primeiro bloco. É a fronteira exata, e
+/// por isso a preferida — pular a declaração inteira não deixa resto nenhum para
+/// a próxima leitura tropeçar.
+///
+/// Devolve `None` quando os delimitadores não fecham, caso em que não existe
+/// fronteira confiável e quem chama recorre a [`next_boundary`].
+fn declaration_end(tokens: &[Token<'_>], start: usize) -> Option<usize> {
+    let mut open: Vec<char> = Vec::new();
+    for (index, token) in tokens.iter().enumerate().skip(start) {
+        match token.kind {
+            TokenKind::Symbol(';') if open.is_empty() => return Some(index + 1),
+            TokenKind::Symbol(delimiter @ ('(' | '[' | '{')) => open.push(delimiter),
+            TokenKind::Symbol(delimiter @ (')' | ']' | '}')) => {
+                let expected = match delimiter {
+                    ')' => '(',
+                    ']' => '[',
+                    _ => '{',
+                };
+                if open.pop() != Some(expected) {
+                    return None;
+                }
+                if delimiter == '}' && open.is_empty() {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Primeiro índice a partir de `from` que pode iniciar uma declaração de topo.
+///
+/// Recurso de última instância, usado quando os delimitadores não fecham e por
+/// isso nenhuma contagem de profundidade é confiável. Consome o próprio `}` ou
+/// `;`, porque eles encerram a região arruinada; nas palavras-chave para antes,
+/// para que a declaração seguinte seja lida por inteiro.
+fn next_boundary(tokens: &[Token<'_>], from: usize) -> usize {
+    let mut index = from;
+    while let Some(token) = tokens.get(index) {
+        match token.kind {
+            TokenKind::Symbol('}' | ';') => return index + 1,
+            TokenKind::Symbol('@') => return index,
+            TokenKind::Word(
+                "class" | "mixin" | "enum" | "extension" | "typedef" | "abstract" | "sealed"
+                | "base" | "interface" | "external" | "void" | "final" | "const" | "late" | "var",
+            ) => return index,
+            _ => index += 1,
+        }
+    }
+    tokens.len()
 }
 
 /// Rejeita metadados conhecidos cujo nome não designa inequivocamente o builtin.
@@ -424,128 +761,202 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
     let mut declarations = UnitDeclarations::default();
     let mut index = 0;
     while tokens.get(index).is_some() {
-        index = skip_metadata(tokens, index)?;
-        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("external")) {
-            index += 1;
-        }
-        let first = tokens.get(index).ok_or_else(|| {
-            Diagnostic::new(
-                "expected declaration after metadata",
-                tokens.last().unwrap().span,
-            )
-        })?;
-        if first.kind == TokenKind::Word("extension") {
-            return Err(Diagnostic::new(
-                "extensions in library import graphs are not supported yet",
-                first.span,
-            ));
-        }
+        index = index_one_declaration(tokens, index, &mut declarations)?;
+    }
+    Ok(declarations)
+}
 
-        if first.kind == TokenKind::Word("typedef")
-            || starts_global_variable(tokens, index)
-            || (matches!(
-                first.kind,
-                TokenKind::Word("const" | "final" | "var" | "late")
-            ) && !starts_nominal(tokens, index))
-        {
-            index = skip_until_semicolon(tokens, index, first.span)?;
-            continue;
-        }
-
-        let is_class = starts_nominal(tokens, index);
-        if is_class {
-            index = nominal_header(tokens, index)?.name_index;
-        } else {
-            index += 1;
-        }
-
-        if !matches!(first.kind, TokenKind::Word(_) | TokenKind::Symbol('(')) {
-            return Err(Diagnostic::new(
-                "expected top-level declaration",
-                first.span,
-            ));
-        }
-        if !is_class {
-            if first.kind == TokenKind::Symbol('(') {
-                index = skip_delimited(tokens, index - 1, '(', ')', first.span)?;
-            }
-            // Tipo de retorno alcançado por prefixo de import: `p.Tipo nome(...)`.
-            // O índice de declarações não resolve tipos, então basta saltar o
-            // nome qualificado para achar o nome declarado.
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.'))
-                && matches!(
-                    tokens.get(index + 1).map(|t| t.kind),
-                    Some(TokenKind::Word(_))
-                )
-            {
-                index += 2;
-            }
-            index = skip_type_arguments(tokens, index, first.span)?;
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
-                index += 1;
-            }
-            while tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("Function")) {
-                index = skip_delimited(tokens, index + 1, '(', ')', first.span)?;
-            }
-            if matches!(
-                tokens.get(index).map(|t| t.kind),
-                Some(TokenKind::Word("get" | "set"))
-            ) {
-                index += 1;
-            }
-        }
-        let name_token = tokens
-            .get(index)
-            .ok_or_else(|| Diagnostic::new("expected declaration name", first.span))?;
-        let TokenKind::Word(name) = name_token.kind else {
-            return Err(Diagnostic::new(
-                "expected declaration name",
-                name_token.span,
-            ));
+/// Indexa os nomes de topo de uma unidade sem nunca falhar, por melhor esforço.
+///
+/// A rota com recuperação precisa de um ambiente nominal, não de um veredito: um
+/// cabeçalho que este varredor não entende é um erro que a leitura formal da
+/// declaração relata com span próprio e mensagem melhor. Abortar aqui devolveria
+/// um diagnóstico só para o arquivo inteiro, que é exatamente o que a
+/// recuperação existe para evitar. Os nomes já reconhecidos são preservados, e a
+/// varredura recomeça na próxima fronteira de declaração.
+///
+/// # Exemplos
+///
+///     let tokens = dartforge_lexer::lex("class { } int valor() { return 1; }").unwrap();
+///     let nomes = dartforge_parser::index_unit_tolerant(&tokens);
+///     assert_eq!(nomes.functions[0].name, "valor");
+pub fn index_unit_tolerant<'a>(tokens: &[Token<'a>]) -> UnitDeclarations<'a> {
+    let mut declarations = UnitDeclarations::default();
+    let mut index = 0;
+    while tokens.get(index).is_some() {
+        let minimum = index + 1;
+        index = match index_one_declaration(tokens, index, &mut declarations) {
+            // Progresso obrigatório: um varredor que devolvesse o próprio índice
+            // transformaria este laço em laço infinito.
+            Ok(next) => next.max(minimum),
+            Err(_) => declaration_end(tokens, index)
+                .filter(|end| *end >= minimum)
+                .unwrap_or_else(|| next_boundary(tokens, minimum))
+                .max(minimum),
         };
+    }
+    declarations
+}
+
+/// Indexa uma única declaração de topo e devolve o índice do token seguinte.
+///
+/// Extraída do laço de [`index_unit`] para que [`index_unit_tolerant`] possa
+/// capturar o erro de uma declaração e seguir para a próxima.
+fn index_one_declaration<'a>(
+    tokens: &[Token<'a>],
+    mut index: usize,
+    declarations: &mut UnitDeclarations<'a>,
+) -> Result<usize, Diagnostic> {
+    index = skip_metadata(tokens, index)?;
+    if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Word("external")) {
         index += 1;
-        let item = TopLevelName {
-            name,
-            span: name_token.span,
-        };
-        if is_class {
-            declarations.classes.push(item);
-            index = skip_type_arguments(tokens, index, first.span)?;
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("extends")) {
+    }
+    let first = tokens.get(index).ok_or_else(|| {
+        Diagnostic::new(
+            "expected declaration after metadata",
+            tokens.last().unwrap().span,
+        )
+    })?;
+    if first.kind == TokenKind::Word("extension") {
+        return Err(Diagnostic::new(
+            "extensions in library import graphs are not supported yet",
+            first.span,
+        ));
+    }
+
+    if first.kind == TokenKind::Word("typedef")
+        || starts_global_variable(tokens, index)
+        || (matches!(
+            first.kind,
+            TokenKind::Word("const" | "final" | "var" | "late")
+        ) && !starts_nominal(tokens, index))
+    {
+        index = skip_until_semicolon(tokens, index, first.span)?;
+        return Ok(index);
+    }
+
+    let is_class = starts_nominal(tokens, index);
+    if is_class {
+        index = nominal_header(tokens, index)?.name_index;
+    } else {
+        index += 1;
+    }
+
+    if !matches!(first.kind, TokenKind::Word(_) | TokenKind::Symbol('(')) {
+        return Err(Diagnostic::new(
+            "expected top-level declaration",
+            first.span,
+        ));
+    }
+    if !is_class {
+        if first.kind == TokenKind::Symbol('(') {
+            index = skip_delimited(tokens, index - 1, '(', ')', first.span)?;
+        }
+        // Tipo de retorno alcançado por prefixo de import: `p.Tipo nome(...)`.
+        // O índice de declarações não resolve tipos, então basta saltar o
+        // nome qualificado para achar o nome declarado.
+        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.'))
+            && matches!(
+                tokens.get(index + 1).map(|t| t.kind),
+                Some(TokenKind::Word(_))
+            )
+        {
+            index += 2;
+        }
+        index = skip_type_arguments(tokens, index, first.span)?;
+        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("?")) {
+            index += 1;
+        }
+        while tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("Function")) {
+            index = skip_delimited(tokens, index + 1, '(', ')', first.span)?;
+        }
+        if matches!(
+            tokens.get(index).map(|t| t.kind),
+            Some(TokenKind::Word("get" | "set"))
+        ) {
+            index += 1;
+        }
+    }
+    let name_token = tokens
+        .get(index)
+        .ok_or_else(|| Diagnostic::new("expected declaration name", first.span))?;
+    let TokenKind::Word(name) = name_token.kind else {
+        return Err(Diagnostic::new(
+            "expected declaration name",
+            name_token.span,
+        ));
+    };
+    index += 1;
+    let item = TopLevelName {
+        name,
+        span: name_token.span,
+    };
+    if is_class {
+        declarations.classes.push(item);
+        index = skip_type_arguments(tokens, index, first.span)?;
+        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("extends")) {
+            index += 1;
+            if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                return Err(Diagnostic::new("expected superclass name", first.span));
+            }
+            index += 1;
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
                 index += 1;
                 if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
-                    return Err(Diagnostic::new("expected superclass name", first.span));
+                    return Err(Diagnostic::new(
+                        "expected qualified superclass name",
+                        first.span,
+                    ));
+                }
+                index += 1;
+            }
+            index = skip_type_arguments(tokens, index, first.span)?;
+        }
+        // `mixin M on Base`: o índice só precisa atravessar a cláusula;
+        // quem resolve a restrição é a leitura formal da declaração.
+        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("on")) {
+            index += 1;
+            loop {
+                if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                    return Err(Diagnostic::new(
+                        "expected mixin constraint name",
+                        first.span,
+                    ));
                 }
                 index += 1;
                 if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
                     index += 1;
                     if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
                         return Err(Diagnostic::new(
-                            "expected qualified superclass name",
+                            "expected qualified mixin constraint name",
                             first.span,
                         ));
                     }
                     index += 1;
                 }
                 index = skip_type_arguments(tokens, index, first.span)?;
+                if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
+                    break;
+                }
+                index += 1;
             }
-            // `mixin M on Base`: o índice só precisa atravessar a cláusula;
-            // quem resolve a restrição é a leitura formal da declaração.
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word("on")) {
+        }
+        for clause in ["with", "implements"] {
+            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word(clause)) {
                 index += 1;
                 loop {
                     if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
-                        return Err(Diagnostic::new(
-                            "expected mixin constraint name",
-                            first.span,
-                        ));
+                        return Err(Diagnostic::new("expected interface name", first.span));
                     }
                     index += 1;
                     if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
                         index += 1;
-                        if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
+                        if !matches!(
+                            tokens.get(index).map(|t| t.kind),
+                            Some(TokenKind::Word(_))
+                        ) {
                             return Err(Diagnostic::new(
-                                "expected qualified mixin constraint name",
+                                "expected qualified interface name",
                                 first.span,
                             ));
                         }
@@ -558,64 +969,35 @@ pub fn index_unit<'a>(tokens: &[Token<'a>]) -> Result<UnitDeclarations<'a>, Diag
                     index += 1;
                 }
             }
-            for clause in ["with", "implements"] {
-                if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Word(clause)) {
-                    index += 1;
-                    loop {
-                        if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
-                            return Err(Diagnostic::new("expected interface name", first.span));
-                        }
-                        index += 1;
-                        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
-                            index += 1;
-                            if !matches!(
-                                tokens.get(index).map(|t| t.kind),
-                                Some(TokenKind::Word(_))
-                            ) {
-                                return Err(Diagnostic::new(
-                                    "expected qualified interface name",
-                                    first.span,
-                                ));
-                            }
-                            index += 1;
-                        }
-                        index = skip_type_arguments(tokens, index, first.span)?;
-                        if tokens.get(index).map(|t| t.kind) != Some(TokenKind::Symbol(',')) {
-                            break;
-                        }
-                        index += 1;
-                    }
-                }
-            }
-            if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=")) {
-                index = skip_until_semicolon(tokens, index, first.span)?;
-                continue;
-            }
-        } else {
-            declarations.functions.push(item);
-            index = skip_type_arguments(tokens, index, first.span)?;
-            index = skip_delimited(tokens, index, '(', ')', first.span)?;
-            if matches!(
-                tokens.get(index).map(|token| token.kind),
-                Some(TokenKind::Word("async" | "sync"))
-            ) {
+        }
+        if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=")) {
+            index = skip_until_semicolon(tokens, index, first.span)?;
+            return Ok(index);
+        }
+    } else {
+        declarations.functions.push(item);
+        index = skip_type_arguments(tokens, index, first.span)?;
+        index = skip_delimited(tokens, index, '(', ')', first.span)?;
+        if matches!(
+            tokens.get(index).map(|token| token.kind),
+            Some(TokenKind::Word("async" | "sync"))
+        ) {
+            index += 1;
+            if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Operator("*")) {
                 index += 1;
-                if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Operator("*")) {
-                    index += 1;
-                }
-            }
-            if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol(';')) {
-                index += 1;
-                continue;
             }
         }
-        if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
-            index = skip_until_semicolon(tokens, index, first.span)?;
-        } else {
-            index = skip_delimited(tokens, index, '{', '}', first.span)?;
+        if tokens.get(index).map(|token| token.kind) == Some(TokenKind::Symbol(';')) {
+            index += 1;
+            return Ok(index);
         }
     }
-    Ok(declarations)
+    if !is_class && tokens.get(index).map(|t| t.kind) == Some(TokenKind::Operator("=>")) {
+        index = skip_until_semicolon(tokens, index, first.span)?;
+    } else {
+        index = skip_delimited(tokens, index, '{', '}', first.span)?;
+    }
+    Ok(index)
 }
 
 /// Avança sobre delimitadores balanceados sem recorrer nem copiar tokens.
@@ -675,6 +1057,73 @@ fn skip_until_semicolon(
         index += 1;
     }
     Err(Diagnostic::new("expected semicolon", fallback))
+}
+
+/// Razão pela qual um nome de `dart:core` não é modelado, ou `None`.
+///
+/// A recusa nomeada existe porque o diagnóstico genérico de tipo não diz **por
+/// que** o nome falta nem o que usar no lugar. Cada texto abaixo segue o padrão
+/// da recusa de `dynamic`: o que o nome exigiria, o que isso custaria e a
+/// alternativa que já funciona no subconjunto.
+fn nucleo_sem_modelo(nome: &str) -> Option<&'static str> {
+    match nome {
+        // `Error` parece o par de `Exception`, mas não é: em Dart ele declara
+        // `StackTrace? get stackTrace`, e `implements Error` sem esse getter é
+        // erro de compilação até no SDK (conferido com `dart analyze`).
+        "Error" => Some(
+            "Error is unsupported: Dart's Error declares 'StackTrace? get stackTrace', and this subset has no StackTrace type to satisfy it — 'implements Error' without that getter is a compile error in the SDK too; use 'implements Exception', which declares no members, and 'on YourType catch (e)' to recover it",
+        ),
+        "StackTrace" => Some(
+            "StackTrace is unsupported: the subset has no portable stack representation, and the JavaScript 'Error.stack' is neither specified nor comparable to Dart's; 'catch (e, s)' still binds the trace as an opaque Object",
+        ),
+        "MapEntry" => Some(
+            "MapEntry<K, V> is unsupported: it would need a nominal generic type carrying both arguments, and this subset erases class type arguments; iterate 'keys' and index the map, or call 'forEach((k, v) { ... })'",
+        ),
+        "DateTime" => Some(
+            "DateTime is unsupported: the subset has no calendar, no time zone database and no microsecond clock, and mapping it to the JavaScript Date would silently lose both the microseconds and the UTC/local distinction; keep the instant as an int of milliseconds",
+        ),
+        "Duration" => None,
+        "RegExp" | "Pattern" => Some(
+            "RegExp and Pattern are unsupported: Dart regular expressions and JavaScript ones differ in Unicode handling and in named groups, so reusing the JavaScript engine would change behaviour without saying so; String.contains, indexOf, startsWith, split and replaceAll take a plain String in this subset",
+        ),
+        "Stopwatch" => Some(
+            "Stopwatch is unsupported: its resolution and frequency are platform-defined and the subset has no clock intrinsic; measure outside the compiled program",
+        ),
+        "Uri" => Some(
+            "Uri is unsupported: parsing and normalizing URIs is a library of its own, not a core type mapping; keep the URI as a String",
+        ),
+        "Symbol" => Some(
+            "Symbol is unsupported: it only has a use under reflection, which this subset refuses along with dynamic dispatch",
+        ),
+        "Type" => Some(
+            "Type is unsupported: producing it would require 'runtimeType', which forces every class to carry its Dart name into the emitted JavaScript; use 'is' or 'as' to branch on the concrete type",
+        ),
+        "BigInt" => Some(
+            "BigInt is unsupported: the subset's int is the JavaScript Number, and mixing the two would make overflow depend on which type a value happened to have",
+        ),
+        "Runes" => Some(
+            "Runes is unsupported: use 'codeUnits' for UTF-16 code units, which is what String.length and codeUnitAt already count",
+        ),
+        "Iterable" | "Comparable" | "Iterator" | "Exception" | "StringBuffer" | "Comparator" => {
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Identificador reservado da interface de `dart:core` com este nome.
+///
+/// Serve à lista `implements`: `class C implements Exception` não tem nenhum
+/// `Exception` declarado para consultar, e é este par nome → identificador que o
+/// resolve. A validação do contrato de cada interface é da análise semântica.
+fn nucleo_interface(nome: &str) -> Option<u32> {
+    match nome {
+        "Comparable" => Some(dartforge_syntax::NUCLEO_COMPARABLE),
+        "Iterator" => Some(dartforge_syntax::NUCLEO_ITERATOR),
+        "Exception" => Some(dartforge_syntax::NUCLEO_EXCEPTION),
+        "Iterable" => Some(dartforge_syntax::NUCLEO_ITERABLE),
+        _ => None,
+    }
 }
 
 /// Avança sobre argumentos ou parâmetros de tipo balanceados `<...>`.
@@ -888,18 +1337,55 @@ impl<'a> Cursor<'_, 'a> {
             }
             Some(TokenKind::Word("Map")) => {
                 self.index += 1;
-                self.expect(TokenKind::Operator("<"))?;
-                let key = self.type_at(false, depth + 1)?;
-                self.expect(TokenKind::Symbol(','))?;
-                let value = self.type_at(false, depth + 1)?;
-                self.expect(TokenKind::Operator(">"))?;
-                self.intern(TypeShape::Map { key, value })
+                // `Map` cru é `Map<dynamic, dynamic>` em Dart, e `dynamic` está
+                // fora deste subconjunto. `Map<Object?, Object?>` é a leitura
+                // **mais restrita** que o comporta: exige `as` onde o Dart
+                // dispensaria e não aceita nada que ele recuse. São 41
+                // ocorrências no corpus medido, todas em anotação de tipo.
+                if self.peek() != Some(TokenKind::Operator("<")) {
+                    self.intern(TypeShape::Map {
+                        key: Type::NullableObject,
+                        value: Type::NullableObject,
+                    })
+                } else {
+                    self.index += 1;
+                    let key = self.type_at(false, depth + 1)?;
+                    self.expect(TokenKind::Symbol(','))?;
+                    let value = self.type_at(false, depth + 1)?;
+                    self.expect(TokenKind::Operator(">"))?;
+                    self.intern(TypeShape::Map { key, value })
+                }
+            }
+            // `Comparator<T>` é o `typedef int Comparator<T>(T a, T b)` do SDK:
+            // um tipo de função, e não um tipo nominal. Resolver aqui dá ao
+            // subconjunto o nome sem nenhuma máquina nova.
+            Some(TokenKind::Word("Comparator")) if !self.class_ids.contains_key("Comparator") => {
+                self.index += 1;
+                let elemento = if self.peek() == Some(TokenKind::Operator("<")) {
+                    self.index += 1;
+                    let escrito = self.type_at(false, depth + 1)?;
+                    self.expect(TokenKind::Operator(">"))?;
+                    escrito
+                } else {
+                    Type::NullableObject
+                };
+                self.intern(TypeShape::Function {
+                    result: Type::Int,
+                    parameters: vec![elemento, elemento],
+                })
             }
             Some(TokenKind::Word("List" | "Set" | "Iterable" | "Future")) => {
                 self.index += 1;
-                self.expect(TokenKind::Operator("<"))?;
-                let element = self.type_at(word == Some(TokenKind::Word("Future")), depth + 1)?;
-                self.expect(TokenKind::Operator(">"))?;
+                // Forma crua, pelo mesmo raciocínio de `Map` acima.
+                let element = if self.peek() == Some(TokenKind::Operator("<")) {
+                    self.index += 1;
+                    let escrito =
+                        self.type_at(word == Some(TokenKind::Word("Future")), depth + 1)?;
+                    self.expect(TokenKind::Operator(">"))?;
+                    escrito
+                } else {
+                    Type::NullableObject
+                };
                 self.intern(if word == Some(TokenKind::Word("List")) {
                     TypeShape::List(element)
                 } else if word == Some(TokenKind::Word("Set")) {
@@ -909,6 +1395,34 @@ impl<'a> Cursor<'_, 'a> {
                 } else {
                     TypeShape::Iterable(element)
                 })
+            }
+            // Interfaces nominais de `dart:core`. Elas não têm declaração em
+            // parte alguma e usam a faixa reservada de `dartforge_syntax`; os
+            // argumentos de tipo escritos são descartados no fim da função, pelo
+            // mesmo apagamento que vale para classe genérica do usuário. A
+            // guarda por `class_ids` faz uma classe homônima do programa ter
+            // precedência, como já acontece com `Timer`.
+            Some(TokenKind::Word("Comparable")) if !self.class_ids.contains_key("Comparable") => {
+                Type::Class(dartforge_syntax::NUCLEO_COMPARABLE)
+            }
+            Some(TokenKind::Word("Iterator")) if !self.class_ids.contains_key("Iterator") => {
+                Type::Class(dartforge_syntax::NUCLEO_ITERATOR)
+            }
+            Some(TokenKind::Word("Exception")) if !self.class_ids.contains_key("Exception") => {
+                Type::Class(dartforge_syntax::NUCLEO_EXCEPTION)
+            }
+            Some(TokenKind::Word("StringBuffer"))
+                if !self.class_ids.contains_key("StringBuffer") =>
+            {
+                Type::Class(dartforge_syntax::NUCLEO_STRING_BUFFER)
+            }
+            // Nomes de `dart:core` que o subconjunto não modela. A mensagem diz a
+            // razão e a alternativa em vez de repetir "tipo não suportado": é o
+            // mesmo padrão da recusa de `dynamic`.
+            Some(TokenKind::Word(nome))
+                if nucleo_sem_modelo(nome).is_some() && !self.class_ids.contains_key(nome) =>
+            {
+                return Err(self.error(nucleo_sem_modelo(nome).expect("razão conferida")));
             }
             Some(TokenKind::Word(name)) if self.type_parameters.contains(&name) => Type::Parameter(
                 self.type_parameters
@@ -940,13 +1454,15 @@ impl<'a> Cursor<'_, 'a> {
             }
             _ => return Err(self.error("expected an explicitly supported type")),
         };
-        if !matches!(
+        // `Comparator` só consome o nome no braço próprio, que uma classe
+        // homônima do programa desvia: a condição repete a mesma guarda para não
+        // avançar duas vezes num caso e nenhuma no outro.
+        let consumiu_nome = matches!(
             word,
-            Some(
-                TokenKind::Word("List" | "Set" | "Iterable" | "Map" | "Future")
-                    | TokenKind::Symbol('(')
-            )
-        ) {
+            Some(TokenKind::Word("List" | "Set" | "Iterable" | "Map" | "Future") | TokenKind::Symbol('('))
+        ) || (word == Some(TokenKind::Word("Comparator"))
+            && !self.class_ids.contains_key("Comparator"));
+        if !consumiu_nome {
             self.index += 1;
         }
         // Argumentos de classe genérica têm erasure: `C<int>` valida e descarta,
@@ -1215,12 +1731,15 @@ impl<'a> Cursor<'_, 'a> {
         if self.take(TokenKind::Word("implements")) {
             loop {
                 let name = self.name()?;
-                interfaces.push(
-                    *self
-                        .class_ids
-                        .get(name)
+                // Uma interface de `dart:core` não tem declaração para
+                // consultar: `class C implements Exception` resolve pela faixa
+                // reservada. A classe homônima do programa vem primeiro, porque
+                // é ela que `class_ids` registra.
+                interfaces.push(match self.class_ids.get(name) {
+                    Some(id) => *id,
+                    None => nucleo_interface(name)
                         .ok_or_else(|| self.error("unknown interface"))?,
-                );
+                });
                 self.discard_type_arguments();
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
@@ -1593,12 +2112,15 @@ impl<'a> Cursor<'_, 'a> {
         if self.take(TokenKind::Word("implements")) {
             loop {
                 let name = self.name()?;
-                interfaces.push(
-                    *self
-                        .class_ids
-                        .get(name)
+                // Uma interface de `dart:core` não tem declaração para
+                // consultar: `class C implements Exception` resolve pela faixa
+                // reservada. A classe homônima do programa vem primeiro, porque
+                // é ela que `class_ids` registra.
+                interfaces.push(match self.class_ids.get(name) {
+                    Some(id) => *id,
+                    None => nucleo_interface(name)
                         .ok_or_else(|| self.error("unknown interface"))?,
-                );
+                });
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
                 }
@@ -5749,6 +6271,20 @@ fn globals_class<'a>(id: u32, static_fields: Vec<StaticField<'a>>, span: Span) -
 fn index_classes<'a>(
     tokens: &[Token<'a>],
 ) -> Result<std::collections::BTreeMap<&'a str, u32>, Diagnostic> {
+    index_classes_inner(tokens, false)
+}
+
+/// Corpo do índice nominal, com ou sem tolerância a cabeçalhos quebrados.
+///
+/// `tolerant` serve à rota com recuperação, onde este índice é só um ambiente de
+/// melhor esforço: um `class` sem nome é um erro que a leitura formal da
+/// declaração relata com span próprio, e abortar aqui devolveria um diagnóstico
+/// só para o arquivo inteiro. Com tolerância a entrada malformada é ignorada, a
+/// primeira ocorrência de um nome repetido é a que vale, e a função nunca falha.
+fn index_classes_inner<'a>(
+    tokens: &[Token<'a>],
+    tolerant: bool,
+) -> Result<std::collections::BTreeMap<&'a str, u32>, Diagnostic> {
     let mut result = std::collections::BTreeMap::new();
     let mut depth = 0usize;
     for (index, token) in tokens.iter().enumerate() {
@@ -5759,17 +6295,35 @@ fn index_classes<'a>(
                 if depth == 0
                     && tokens.get(index + 1).map(|t| t.kind) == Some(TokenKind::Word("class")) => {}
             TokenKind::Word("class" | "enum" | "mixin") if depth == 0 => {
-                let next = tokens
-                    .get(index + 1)
-                    .ok_or_else(|| Diagnostic::new("expected class name", token.span))?;
+                let Some(next) = tokens.get(index + 1) else {
+                    if tolerant {
+                        continue;
+                    }
+                    return Err(Diagnostic::new("expected class name", token.span));
+                };
                 let TokenKind::Word(name) = next.kind else {
+                    if tolerant {
+                        continue;
+                    }
                     return Err(Diagnostic::new("expected class name", next.span));
                 };
                 if reserved(name) {
+                    if tolerant {
+                        continue;
+                    }
                     return Err(Diagnostic::new("unsupported class name", next.span));
                 }
-                let id = u32::try_from(result.len())
-                    .map_err(|_| Diagnostic::new("too many classes", token.span))?;
+                if tolerant && result.contains_key(name) {
+                    // Nome repetido: vale a primeira ocorrência. Quem relata a
+                    // duplicidade é a leitura formal, com o span da segunda.
+                    continue;
+                }
+                let Ok(id) = u32::try_from(result.len()) else {
+                    if tolerant {
+                        continue;
+                    }
+                    return Err(Diagnostic::new("too many classes", token.span));
+                };
                 if result.insert(name, id).is_some() {
                     return Err(Diagnostic::new("duplicate class name", next.span));
                 }

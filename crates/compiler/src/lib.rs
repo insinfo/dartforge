@@ -220,6 +220,97 @@ pub fn compile_unit_diagnostics(source: &str) -> Result<(), Diagnostic> {
         .map(|_| ())
 }
 
+/// Analisa uma unidade isolada relatando **todos** os diagnósticos de sintaxe.
+///
+/// Mesma medida de [`compile_unit_diagnostics`], sem a limitação que a tornava
+/// enganosa: parar no primeiro erro de cada arquivo faz o aferidor de corpus
+/// subestimar lacunas sistematicamente, porque corrigir a primeira só revela a
+/// segunda e o total de aceitos não se move. Lista vazia continua significando
+/// que a unidade passou pela sintaxe inteira; ela **não** significa que a
+/// unidade compila, porque aqui não há análise semântica.
+///
+/// O índice de declarações roda em modo tolerante e não contribui diagnóstico
+/// algum: ele é um ambiente nominal de melhor esforço, e cada problema que ele
+/// veria a leitura formal da declaração relata com span próprio e mensagem
+/// melhor. Isso também remove da medição a recusa de `extension` que só valia
+/// para grafos de bibliotecas, e que no modo unidade era uma falha falsa.
+///
+/// Léxico e versão de linguagem continuam devolvendo um diagnóstico só: sem
+/// tokens confiáveis não há fronteira de declaração em que sincronizar.
+///
+/// # Exemplos
+/// ```
+/// let fonte = "class Ponto { final int x; Ponto(this.x); }";
+/// assert!(dartforge_compiler::compile_unit_all_diagnostics(fonte).is_empty());
+/// let com_erros = "void a() { int ; } void b() { int ; }";
+/// assert_eq!(dartforge_compiler::compile_unit_all_diagnostics(com_erros).len(), 2);
+/// ```
+pub fn compile_unit_all_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let prefix = match dartforge_packages::directive_prefix_end(source) {
+        Ok(prefix) => prefix,
+        Err(erro) => return vec![erro],
+    };
+    if let Err(erro) = dartforge_packages::validate_language_version(&source[..prefix]) {
+        return vec![erro];
+    }
+    let tokens = match dartforge_lexer::lex(source) {
+        Ok(tokens) => tokens,
+        Err(erro) => return vec![erro],
+    };
+    let corpo: Vec<_> = tokens
+        .into_iter()
+        .filter(|token| token.span.start >= prefix)
+        .collect();
+    let declaracoes = dartforge_parser::index_unit_tolerant(&corpo);
+    let ambiente: std::collections::BTreeMap<&str, u32> = declaracoes
+        .classes
+        .iter()
+        .enumerate()
+        .map(|(indice, item)| (item.name, indice as u32))
+        .collect();
+    let globals_id = u32::try_from(ambiente.len()).ok();
+    dartforge_parser::parse_unit_with_recovery(&corpo, source.len(), ambiente, globals_id).1
+}
+
+/// Relata todos os diagnósticos de sintaxe de um programa e, se houver nenhum,
+/// o primeiro diagnóstico das fases seguintes.
+///
+/// Rota de leitura para ferramentas de edição: um editor que mostra um erro por
+/// arquivo é inútil. A recuperação existe apenas no parser, então a lista fica
+/// longa enquanto a sintaxe está quebrada e volta a ter no máximo um elemento
+/// quando o que falha é macro, mixin, semântica ou emissão.
+///
+/// Recuperar não é engolir: lista não vazia significa compilação reprovada, e
+/// [`compile`] continua sendo a única rota que produz código.
+///
+/// # Exemplos
+/// ```
+/// assert!(dartforge_compiler::compile_diagnostics("void main() {}").is_empty());
+/// let tres = "void a() { int ; } void b() { int ; } void main() { int ; }";
+/// assert_eq!(dartforge_compiler::compile_diagnostics(tres).len(), 3);
+/// ```
+pub fn compile_diagnostics(source: &str) -> Vec<Diagnostic> {
+    if let Err(erro) = dartforge_packages::validate_language_version(source) {
+        return vec![erro];
+    }
+    let tokens = match dartforge_lexer::lex(source) {
+        Ok(tokens) => tokens,
+        Err(erro) => return vec![erro],
+    };
+    let sintaxe = dartforge_parser::parse_with_recovery(&tokens, source.len()).1;
+    if !sintaxe.is_empty() {
+        return sintaxe;
+    }
+    // Sintaxe limpa: as fases restantes ainda param no primeiro diagnóstico, e a
+    // rota comum é reexecutada por inteiro em vez de duplicar o pipeline aqui.
+    // O custo é uma segunda tokenização e análise, aceitável numa rota de
+    // ferramenta e não paga por nenhuma compilação.
+    match compile(source) {
+        Ok(_) => Vec::new(),
+        Err(erro) => vec![erro],
+    }
+}
+
 /// Relatório de custo de uma solicitação, separando descoberta de front-end.
 ///
 /// `load_ns` cobre descoberta do grafo, leitura de arquivos e resolução de

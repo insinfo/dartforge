@@ -673,3 +673,158 @@ trava do Cargo.
 As duas granularidades continuam sendo requisitos distintos e ambos necessários:
 **granularidade do trabalho**, não reanalisar bibliotecas não afetadas, e
 **granularidade da saída**, um arquivo por biblioteca Dart.
+
+## Regra de projeto — equivalência semântica com o Dart oficial
+
+**O DartForge pode tornar código Dart padrão mais rápido, dividir workers
+automaticamente e introduzir otimizações, mas não pode fazer um programa
+semanticamente diferente do mesmo código compilado pelo Dart oficial.**
+
+Essa regra é o que separa um compilador alternativo de um dialeto incompatível.
+Um programador precisa poder trocar `forge compile` por `dart compile js` e
+obter o mesmo comportamento — diferente apenas em desempenho e tamanho, nunca em
+semântica.
+
+### A consequência prática, com um exemplo concreto
+
+Uma anotação **não pode** mudar onde o código executa. Considere:
+
+```dart
+@worker
+Future<void> executar() async { contador++; }
+```
+
+Se o DartForge transformasse a chamada em execução num Worker e o dart2js a
+executasse na thread principal, o mesmo programa teria duas semânticas: o
+`contador` global chegaria a 1 num caso e continuaria 0 no outro, porque o
+Worker tem memória isolada. Isso produz defeitos que só aparecem ao trocar de
+compilador — exatamente o tipo de armadilha que esta regra existe para impedir.
+
+Por isso **declaração e execução ficam separadas**:
+
+```dart
+@WorkerEntrypoint()
+Future<PdfResult> processarPdf(PdfJob job) async { ... }
+
+final resultado = await WorkerIsolate.run(processarPdf, job);
+```
+
+A anotação diz apenas *"esta função pode ser compilada como entrypoint de
+worker"*. Quem determina a semântica de isolate é a chamada de API, que é a
+mesma em todos os compiladores. Não há ambiguidade.
+
+### Onde o DartForge pode ser melhor sem divergir
+
+O ganho legítimo é de **compilação**, não de semântica: conhecendo a AST e o
+grafo de dependências, o DartForge pode gerar um chunk de worker contendo apenas
+o runtime mínimo e o fecho transitivo da função — em vez do modelo do Dart 1,
+onde cada Worker carregava praticamente o programa inteiro. A biblioteca
+portátil roda igual em dart2js e DDC; o que muda é o tamanho do que foi enviado.
+
+### Nada de sintaxe nova
+
+Nenhuma palavra-chave própria. `worker function f()` quebraria dart2js, DDC,
+analyzer, IDE e `dart format` de uma vez, criando um fork da linguagem. Anotação
+comum é metadata Dart válida que qualquer compilador aceita e ignora.
+
+## Meta de projeto — cadeia de ferramentas própria, sem memória gerenciada
+
+O Dart tem analyzer, compilador e servidor de linguagem escritos em Dart. A
+consequência é medida em gigabytes: uma aplicação web compilada com `webdev`
+chega com facilidade a 8 GB e trava a máquina. Temos obrigação de fazer melhor, e
+o meio é construir **tudo do zero em Rust**: compilador, analisador, servidor LSP
+e extensão de editor.
+
+### A causa é o modelo de dados, não a velocidade da linguagem
+
+Registrar isso importa porque decide o que fazemos diferente. O AOT do Dart está a
+um fator pequeno de nativo; os 8 GB não vêm de throughput. Vêm de o element/AST
+model ser um **grafo de objetos alocados individualmente**: cada nó com cabeçalho,
+ponteiro para o element, ponteiro para o `staticType`, ponteiros para tokens, e
+cada identificador como `String` própria. Milhões deles.
+
+O que trava a máquina é o coletor, não o processamento. Um live set de vários GB é
+o pior caso para um coletor geracional: nada morre, então toda coleção maior
+percorre o grafo inteiro.
+
+O corolário nos obriga: **uma implementação em Rust que refizesse o mesmo grafo de
+ponteiros com `Rc<RefCell<…>>` também usaria gigabytes.** Não ganhamos por
+escolher Rust — ganhamos por escolher arena, interning e índices. Rust apenas
+torna essa escolha disponível. Quem tratar "é Rust" como garantia perde a meta.
+
+Estado real hoje: o AST empresta `&'a str` da fonte em 54 pontos, então nunca
+copia string de identificador — já é estruturalmente melhor que o analyzer no eixo
+dominante. Interning/`SymbolId` e arena **não começaram**, bloqueados exatamente
+nesses pontos de empréstimo. É o item que decide se a vantagem é real ou anedota.
+
+### Precisão obrigatória: "sem coletor de lixo" vale para a ferramenta, não para o programa
+
+O compilador, o analisador e o LSP não têm coletor. O **programa compilado tem**,
+e é obrigado a ter: Dart tem coletor, e a regra de equivalência semântica exige
+que o alvo o tenha também. `crates/runtime` já implementa um (`heap.rs:415`
+`collect`, protocolo de raízes em `runtime_main.rs`); no alvo JavaScript o coletor
+é o do motor.
+
+Sem essa distinção registrada, alguém "otimiza" removendo o coletor do runtime e
+quebra ciclos e finalizadores.
+
+### Precisão obrigatória: a extensão do VS Code não pode ser Rust
+
+O host de extensões do VS Code executa JavaScript. A forma correta, e a que o
+rust-analyzer usa, é **cliente TypeScript fino** que só localiza e inicia o
+binário (`vscode-languageclient`), com toda a lógica no **servidor Rust**.
+Tentar "tudo em Rust" literalmente aqui gasta esforço contra a plataforma.
+
+### O LSP é a peça mais difícil das quatro, por razão estrutural
+
+Um compilador em lote monta a arena e joga tudo fora. Um LSP mantém modelo
+**vivo e mutável** entre teclas, responde consultas e não pode bloquear — e é
+justamente aí que arena incomoda: não se libera uma declaração de dentro de uma
+arena. Foi essa pressão que produziu o desenho do analyzer do Dart.
+
+A resposta conhecida não é "recompilar rápido": é computação incremental sob
+demanda com memoização de consultas e interning, o desenho do **rust-analyzer** —
+LSP de uma linguagem mais difícil que Dart, em Rust, com memória
+incomparavelmente menor. É a prova de existência da meta, e está clonado em
+`references/rust-analyzer`.
+
+Duas lacunas concretas a atacar antes de qualquer transporte JSON-RPC:
+
+1. `dartforge_compiler::compile` devolve `Result<String, Diagnostic>` — **um**
+   erro. `crates/lsp/src/lib.rs` já expõe `diagnose() -> Vec<Diagnostic>`, mas o
+   vetor nunca pode ter mais de um elemento. Um LSP precisa de **todos** os erros.
+2. Logo, **recuperação de erro no parser é pré-requisito** do LSP, não recurso
+   posterior. Sem ela o editor mostra um erro por arquivo.
+
+`crates/lsp` tem 22 linhas e documenta honestamente que não tem transporte,
+JSON-RPC nem sincronização de documentos. Não existe extensão de editor ainda.
+
+### Evidência de campo: o crescimento é monotônico, não um pico
+
+Medição relatada em projeto real (`new_sali`, apenas o front-end):
+
+* `webdev` chega a **~10 GB** durante a compilação;
+* o **LSP do Dart vai a ~6 GB**;
+* e o decisivo: **edições sucessivas fazem a memória só subir**, até ser preciso
+  matar todos os processos Dart e reabrir.
+
+Crescimento monotônico sob edição repetida não é "modelo grande em memória" — é
+retenção. Cada edição deveria tornar inalcançável o estado da edição anterior. Se
+não torna, alguma estrutura viva guarda referência ao modelo antigo: cache sem
+teto, contexto de análise por versão que nunca é descartado, ou grafo de build
+retendo saídas antigas.
+
+Isso muda o que a nossa meta precisa **provar**, e o teste é diferente do
+benchmark de compilação fria:
+
+> Aplicar N edições sucessivas no mesmo arquivo e afirmar que `live_bytes` volta
+> a um platô, em vez de crescer com N.
+
+`crates/instrument` (`CountingAllocator`, `live_bytes`, `peak_bytes`) já mede
+exatamente isso; falta o teste que o afirma. Sem ele, "usa menos memória" é
+anedota — e é justamente a propriedade cuja ausência trava a máquina do usuário.
+
+Nota de execução: `cargo bench -p dartforge-compiler --bench incremental`
+terminou com código 101 e sem saída nesta tentativa. O número de memória do
+DartForge **ainda não foi medido**; o benchmark precisa ser consertado antes de
+qualquer comparação ser afirmada.

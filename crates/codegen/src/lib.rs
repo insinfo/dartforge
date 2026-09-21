@@ -39,6 +39,7 @@ mod colecoes;
 mod constructors;
 mod features;
 mod fluxo;
+mod nucleo;
 mod strings;
 mod types;
 
@@ -47,6 +48,12 @@ struct Output<'a> {
     text: String,
     resolution: &'a dartforge_syntax::Resolution,
     collections: bool,
+    /// Auxiliares de `dart:core` que a emissão realmente pediu.
+    ///
+    /// Emitir a biblioteca inteira custaria bytes em todo programa; este conjunto
+    /// mantém o custo proporcional ao uso. Vazio no programa que não chama membro
+    /// de biblioteca algum, e um `BTreeSet` vazio não aloca.
+    nucleo: std::collections::BTreeSet<&'static str>,
     /// Alguma interpolação precisou converter um valor que não é String.
     strings_used: bool,
     runtime_types_used: bool,
@@ -147,6 +154,7 @@ pub fn emit(module: &Module<'_>) -> String {
     let mut output = Output {
         text: String::from("// Saída do subconjunto DartForge\n"),
         resolution: &module.resolution,
+        nucleo: std::collections::BTreeSet::new(),
         modulo_used: false,
         strings_used: false,
         async_used: module.main_is_async
@@ -305,6 +313,18 @@ pub fn emit(module: &Module<'_>) -> String {
         output.push_str("const $dartforgeConstInstances = new Map();
 function $dartforgeConstInstance(key, proto, fields) { let found = $dartforgeConstInstances.get(key); if (found === undefined) { found = Object.freeze(Object.assign(Object.create(proto), fields)); $dartforgeConstInstances.set(key, found); } return found; }
 ");
+    }
+    // Os auxiliares do núcleo saem depois do corpo, como os demais, e só os que
+    // a emissão pediu. `codeUnits` e `split` devolvem `List`, então pedem também
+    // o runtime de coleções — inserido no topo, antes de qualquer uso.
+    let nucleo_runtime = nucleo::runtime(&output);
+    if !nucleo_runtime.is_empty() {
+        output.push_str(&nucleo_runtime);
+    }
+    if nucleo::precisa_de_colecoes(&output) && !output.collections {
+        output.collections = true;
+        output.runtime_types_used = true;
+        output.text.insert_str(0, include_str!("core.js"));
     }
     if output.shift_used {
         output.push_str(colecoes::BITWISE_RUNTIME);
@@ -1818,9 +1838,17 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 output.late_used = true;
                 output.push_str("$dartforgeLateRead(");
             }
-            expression(receiver, output);
-            output.push('.');
-            identifier(name, output);
+            // Membro de tipo escalar de `dart:core`: o tipo estático do receptor
+            // — regravado pela análise com o limite genérico resolvido — escolhe
+            // a forma emitida. `s.length` sai como propriedade e `s.isEmpty` como
+            // comparação de comprimento, sem inventar `$df_isEmpty` numa String.
+            let escalar = static_type(receiver, output)
+                .is_some_and(|ty| nucleo::membro(receiver, name, ty, output));
+            if !escalar {
+                expression(receiver, output);
+                output.push('.');
+                identifier(name, output);
+            }
             if tardia {
                 late_tail("Field", name, output);
             }
@@ -1846,12 +1874,24 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
                 output.push(')');
                 return;
             }
+            // A tabela do núcleo vem antes do despacho por propriedade, na mesma
+            // ordem em que a análise resolveu: membro de biblioteca tem
+            // precedência sobre extension, e uma String não tem `$df_substring`.
+            if static_type(receiver, output)
+                .is_some_and(|ty| nucleo::metodo(receiver, name, arguments, ty, output))
+            {
+                return;
+            }
             expression(receiver, output);
             output.push('.');
             identifier(name, output);
             output.push('(');
             argument_list(arguments, ", ", output);
-            if *name == "map" && types::collection_element(value, output).is_some() {
+            // `map` e `expand` trocam o tipo do elemento, então o descritor do
+            // resultado vai junto: sem ele o `is`/`as` sobre a sequência
+            // devolvida veria o elemento da origem.
+            if matches!(*name, "map" | "expand") && types::collection_element(value, output).is_some()
+            {
                 if !arguments.is_empty() {
                     output.push(',');
                 }

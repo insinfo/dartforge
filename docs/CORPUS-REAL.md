@@ -19,12 +19,12 @@ priorizar nada. O que segue é a medição refeita.
 Quatro pacotes do pub.dev, de domínios diferentes, porque um corpus de um único
 pacote de geração de PDF mede o estilo daquele pacote e não a linguagem:
 
-| Pacote | Versão | Domínio | Arquivos `.dart` |
-| --- | --- | --- | --- |
-| `pdf` | 3.13.1 | geração de documentos | 179 |
-| `intl` | 0.20.3 | internacionalização | 91 |
-| `collection` | 1.19.1 | estruturas de dados | 49 |
-| `http` | 1.6.0 | rede | 48 |
+| Pacote | Versão | Domínio | `.dart` | em `lib/` | pontos de entrada com `main` |
+| --- | --- | --- | --- | --- | --- |
+| `pdf` | 3.13.1 | geração de documentos | 179 | 136 | 1 em `example/`, 41 em `test/` |
+| `intl` | 0.20.3 | internacionalização | 91 | 47 | 1 em `example/`, 31 em `test/`, 1 em `tool/` |
+| `collection` | 1.19.1 | estruturas de dados | 49 | 29 | 20 em `test/`, e **nenhum** `example/` |
+| `http` | 1.6.0 | rede | 48 | 27 | 2 em `example/`, 16 em `test/` |
 
 Baixados por `scripts/corpus.sh --com-dependencias` para `references/pub/`, que o
 Git ignora — o corpus é grande e cada pacote tem licença própria. As
@@ -37,31 +37,62 @@ Baixar as dependências custou pouco — um comando e alguns megabytes — e é 
 de downloads ausentes. A decisão foi baixá-las e não medi-las.
 
 O teste **não exige sucesso**. Um compilador em construção falha em código de
-produção, e isso não é notícia. O que ele afirma é que todo arquivo **termina**,
-com sucesso ou com diagnóstico: sem pânico e sem laço infinito. Essa é a
-propriedade que pode regredir sem ninguém notar, e a asserção é uma igualdade
-por pacote — aceitos + diagnósticos classificados + arquivos não-UTF-8 tem de
-fechar com o número de arquivos.
+produção, e isso não é notícia. O que ele afirma é que toda unidade medida
+**termina**, com sucesso ou com diagnóstico: sem pânico e sem laço infinito. Essa
+é a propriedade que pode regredir sem ninguém notar, e a asserção é uma igualdade
+— aceitos + diagnósticos classificados + arquivos não-UTF-8 tem de fechar com o
+número de unidades. Ela é verificada por ponto de entrada no modo grafo e por
+arquivo no modo unidade, que é o modo que cobre **todo** arquivo do pacote,
+inclusive os que nenhum programa alcança.
+
+## O alvo é o projeto que consome a biblioteca, não a biblioteca
+
+Uma biblioteca Dart **não declara `main`** — e nem o SDK do Dart compila uma
+biblioteca isolada, pelo mesmo motivo. Compilar `lib/**` como se fosse programa
+pede algo que não existe. A rodada anterior contornava isso contando
+`entrada exige void main()` como sucesso, o que media a chegada ao ligador e não
+a compilação de nada; `expected void main() entrypoint` aparecia na lista de
+lacunas, onde nunca deveria ter estado.
+
+O que se compila de um pacote é o **projeto que o consome**: os arquivos de
+`example/`, `bin/`, `test/` ou `tool/` que declaram `main` e importam a biblioteca
+por `package:`. Deles o grafo puxa `lib/` pelos imports, e a biblioteca é
+exercitada como um consumidor real a exercita — o que não é alcançável não entra
+na conta, que é o comportamento correto e também o mais honesto. Um arquivo é
+ponto de entrada porque **declara `main`**, não porque está numa pasta.
+
+`main` ausente passa a ser classificado como **artefato**, com a mensagem própria
+"arquivo sem main de topo tomado por ponto de entrada": se ainda aparecer, é
+identificação errada da entrada, nunca recurso de linguagem que falta.
 
 ## Dois modos, porque um só mentiria
 
 O aferidor `crates/compiler/tests/corpus_real.rs` tem dois modos, ambos
 selecionáveis por `DARTFORGE_CORPUS_MODO`:
 
-* **grafo** — cada arquivo é compilado como ponto de entrada por
-  `compile_path_with_report`, com `package_config.json` resolvendo `package:`.
-  O front-end roda sobre o **fechamento transitivo** do arquivo, então os nomes
-  declarados em outros arquivos do pacote resolvem de verdade. É este o número
-  que responde "quantos arquivos o compilador aceita". Uma biblioteca não declara
-  `main`, e o ligador termina em `entrada exige void main()` depois de lexar,
-  indexar, resolver namespaces, analisar sintática e semanticamente **todas** as
-  unidades: esse desfecho conta como aceito, porque só a ligação do executável
-  faltou.
+* **grafo** — cada ponto de entrada real é compilado por
+  `compile_path_with_units`, com `package_config.json` resolvendo `package:`. O
+  front-end roda sobre o **fechamento transitivo** do programa, então os nomes
+  declarados em outros arquivos do pacote resolvem de verdade. Ele responde a
+  duas perguntas que são diferentes e por isso saem em números separados:
+  **quantos projetos compilam de ponta a ponta** — a métrica que diz se o
+  compilador compila código de produção — e **quantos arquivos de `lib/` o grafo
+  atravessa sem diagnóstico** — a que mostra a cobertura de linguagem.
+  As entradas de `test/` vão em grupo próprio e nunca somadas às de `example/`:
+  elas importam `package:test`, dependência de desenvolvimento que o corpus não
+  baixa por padrão, e a mistura daria uma média que não descreve nenhuma das
+  duas.
 * **unidade** — cada arquivo é analisado isoladamente, só até a sintaxe, por
   `compile_unit_diagnostics`. Não afirma nada sobre o programa e responde a uma
   única pergunta: quanto da *sintaxe* de produção o parser cobre. Era o único
   modo até aqui, e é o que produzia números contaminados quando lido como
-  "arquivos que compilam".
+  "arquivos que compilam". Continua disponível porque é a única medida que
+  exercita todo arquivo do pacote.
+
+O modo grafo distingue ainda **onde** a entrada parou: na carga do grafo — uma
+diretiva que o carregador recusou, e aí nenhum arquivo de `lib/` foi atravessado —
+ou no front-end. Somar as duas sugeriria obstáculo de linguagem onde o obstáculo
+é de biblioteca.
 
 ## Três categorias, classificadas por span
 
@@ -80,12 +111,20 @@ A categoria vem do **span** — o texto exato que o diagnóstico aponta — e de
 aquele nome é declarado no corpus, que o teste indexa de todos os pacotes
 presentes. A regra é esta ordem:
 
-1. uma URI de biblioteca no span identifica a dependência sem ambiguidade;
-2. um nome declarado **no próprio arquivo** é lacuna: nada externo o explica;
-3. um nome declarado em outro arquivo do mesmo pacote, ou em outro pacote do
+1. `main` ausente é artefato: ponto de entrada mal identificado, e o span dessa
+   mensagem é `0..0`, de modo que ler o trecho apontado daria o começo do arquivo;
+2. uma URI de biblioteca no span identifica a dependência sem ambiguidade;
+3. um nome declarado **no próprio arquivo** é lacuna: nada externo o explica;
+4. um nome declarado em outro arquivo do mesmo pacote, ou em outro pacote do
    corpus, é artefato;
-4. um nome de `dart:core` é lacuna; de outra biblioteca `dart:` ausente, externa;
-5. o que não é nem URI nem nome procurado é lacuna do compilador.
+5. um nome de `dart:core` ou de `dart:async` é lacuna — as duas bibliotecas já
+   existem para o carregador, então o que falta ali é membro, não biblioteca;
+6. um nome de biblioteca `dart:` ausente é externa;
+7. um nome que não existe em arquivo nenhum do disco, num arquivo que importa
+   biblioteca ausente, é externa — é a única inferência que não enxerga o nome
+   declarado, e ela se apoia nas diretivas do próprio arquivo, que o relatório
+   imprime como evidência;
+8. o que não é nem URI nem nome procurado é lacuna do compilador.
 
 A mensagem ainda decide se o compilador estava **procurando um nome** — só ela
 sabe disso —, mas nunca decide a categoria. Era exatamente esse o erro da rodada

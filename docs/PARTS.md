@@ -12,7 +12,12 @@ junta as declarações de pai e partes em um único namespace, conforme
   todos os `import`/`export`, na ordem exigida pela gramática do Dart 3.6.2.
 - `part of 'pai.dart';` (URI relativa resolvida para o arquivo pai) e
   `part of nome.da.biblioteca;`, aceito quando o pai declara `library nome.da.biblioteca;`.
-  A diretiva `part of` deve ser a primeira do arquivo.
+  A diretiva `part of` deve ser a primeira do arquivo, tirando metadados antes dela.
+  O nome pontuado é gramática de diretiva, não expressão: `a.b.c` é uma sequência de
+  identificadores que forma uma única string, e nenhum segmento é um nome a resolver.
+  Só o pai que declara `library` **com nome** pode ser alvo da forma por nome; um pai
+  com `library;` sem nome só é alcançável por `part of 'pai.dart';`. As três formas de
+  `library` estão em [IMPORTS.md](IMPORTS.md).
 - As declarações de topo da parte pertencem à biblioteca pai: funções, classes, enums e
   mixins entram no mesmo namespace, são renomeadas com o ID da biblioteca (`$lib<ID>$nome`)
   e colidem com homônimos do pai ou de outra parte (`símbolo top-level duplicado`).
@@ -49,6 +54,8 @@ junta as declarações de pai e partes em um único namespace, conforme
   depois do Dart 3.6.2, não são aceitas.
 - `part of` por nome exige `library` idêntico, sem normalização de espaços ou maiúsculas;
   nomes de biblioteca não entram em nenhum namespace e servem apenas para essa verificação.
+  Um pai com `library;` sem nome não registra nome nenhum: `part of qualquer.coisa;` para
+  ele é recusado por não corresponder, e não por a forma sem nome ser inferior.
 - Uma parte não pode ser entrada de compilação nem ser importada; use a biblioteca.
 - O comando `dartforge graph` ainda imprime somente imports e exports de cada unidade.
 - Um arquivo que declara `library` sem nenhum `import`, `export` ou `part` cai na rota de

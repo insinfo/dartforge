@@ -323,6 +323,42 @@ profundidade, inclusive as seções de cascata — passaram a usar o próprio
 `MAX_EXPR_NODES`, de modo que a afirmação acompanha a constante em vez de
 repetir um número solto.
 
+## Desempenho: alocações idênticas, tempo com ruído
+
+`cargo bench -p dartforge-compiler --bench incremental`, antes e depois, na mesma
+máquina e no mesmo dia. O "antes" foi obtido revertendo **apenas** os arquivos
+deste trabalho para o commit anterior (`crates/parser/src/lib.rs`,
+`crates/semantic/src/{lib,constructors}.rs`, `crates/codegen/src/{constructors,lib,types}.rs`,
+`crates/optimizer/src/lib.rs`), rodando o benchmark e restaurando-os: o "antes" e
+o "depois" diferem exatamente por esta mudança, e por nada mais.
+
+| Cenário | Alocações antes | Alocações depois | Mediana antes | Mediana depois |
+| --- | --- | --- | --- | --- |
+| frio | 16.727 | **16.727** | 4,845 ms | 4,544 ms |
+| sem edição (acerto de cache) | 124 | **124** | 0,817 ms | 0,462 ms |
+| acerto em disco | 87 | **87** | 0,634 ms | 0,672 ms |
+| edição de comentário | 15.815 | **15.815** | 6,831 ms | 20,888 ms |
+| edição de corpo | 15.813 | **15.813** | 5,197 ms | 5,343 ms |
+| edição de assinatura | 15.826 | **15.826** | 5,284 ms | 5,168 ms |
+| edição de constante | 15.815 | **15.815** | 6,282 ms | 5,652 ms |
+| edição de import | 16.584 | **16.584** | 6,816 ms | 7,826 ms |
+| forma plano (frio) | 16.726 | **16.726** | 5,858 ms | 6,286 ms |
+| forma profundo (frio) | 16.924 | **16.924** | 6,410 ms | 6,085 ms |
+| forma classes (frio) | 22.010 | **22.010** | 6,913 ms | 6,301 ms |
+
+**As alocações por compilação são idênticas nos onze cenários** — e o pico de
+bytes vivos também, byte a byte. Não há regressão a justificar, e a razão é
+estrutural: o corpus do benchmark não escreve `mixin on`, `assert` em lista de
+inicialização, redirecionador nem `const` sem anotação, então o código novo não
+é executado; o que ele executa a mais é um `Option::or` por classe na montagem da
+tabela semântica, que não aloca.
+
+Os tempos oscilam nos dois sentidos — a mediana fria caiu, a de "edição de
+comentário" triplicou — porque três agentes compilavam em paralelo na mesma
+máquina durante as medições. É exatamente o motivo pelo qual
+[DESEMPENHO.md](DESEMPENHO.md) mede alocações: elas não dependem da carga, e a
+igualdade acima é a afirmação que vale.
+
 ## O que os números não mudam
 
 Fechar estas lacunas **não** move muito o total de arquivos aceitos do corpus, e

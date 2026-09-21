@@ -43,6 +43,51 @@ class $dartforgeIterable {
   $df_any(test) { for (const x of this) if (test(x)) return true; return false; }
   $df_toList() { return new $dartforgeList([...this], this.elementType); }
   $df_contains(value) { for (const x of this) if (x === value) return true; return false; }
+  // Membros do núcleo de dart:core. Ficam aqui, na classe base, porque List e
+  // Set herdam de Iterable e a semântica Dart é a mesma nas três; as
+  // especializações que dependem do armazenamento estão nas subclasses.
+  get $df_single() {
+    const it = this[Symbol.iterator]();
+    const first = it.next();
+    if (first.done) throw new Error('Bad state: No element');
+    if (!it.next().done) throw new Error('Bad state: Too many elements');
+    return first.value;
+  }
+  $df_toString() { return $dartforgeFormat(this); }
+  // join escreve cada elemento pelo toString dele; a análise já recusou
+  // elemento sem representação textual, então $dartforgeString nunca cai no
+  // "[object Object]" do JavaScript.
+  $df_join(separator = '') {
+    let texto = '', primeiro = true;
+    for (const x of this) { if (!primeiro) texto += separator; texto += $dartforgeString(x); primeiro = false; }
+    return texto;
+  }
+  $df_elementAt(index) {
+    if (!Number.isInteger(index) || index < 0) throw new RangeError('RangeError (index): Invalid value: Not in inclusive range 0..: ' + index);
+    let i = 0;
+    for (const x of this) { if (i === index) return x; i++; }
+    throw new RangeError('RangeError (length): Invalid value: Not in inclusive range 0..' + (i - 1) + ': ' + index);
+  }
+  // skip e take são preguiçosos, como no SDK: nada é materializado até iterar,
+  // e pedir mais do que existe não é erro (devolve o que houver).
+  $df_skip(count) { const source = this; return new $dartforgeIterable(function* () { let i = 0; for (const x of source) { if (i++ >= count) yield x; } }, null, this.elementType); }
+  $df_take(count) { const source = this; return new $dartforgeIterable(function* () { let i = 0; for (const x of source) { if (i++ >= count) return; yield x; } }, null, this.elementType); }
+  $df_toSet() { return new $dartforgeSet([...this], this.elementType); }
+  $df_every(test) { for (const x of this) if (!test(x)) return false; return true; }
+  $df_firstWhere(test) { for (const x of this) if (test(x)) return x; throw new Error('Bad state: No element'); }
+  $df_reduce(combine) {
+    const it = this[Symbol.iterator]();
+    const first = it.next();
+    if (first.done) throw new Error('Bad state: No element');
+    let acc = first.value;
+    for (let item = it.next(); !item.done; item = it.next()) acc = combine(acc, item.value);
+    return acc;
+  }
+  $df_fold(initial, combine) { let acc = initial; for (const x of this) acc = combine(acc, x); return acc; }
+  $df_expand(convert, resultType) {
+    const source = this;
+    return new $dartforgeIterable(function* () { for (const x of source) yield* convert(x); }, null, resultType);
+  }
 }
 // Map não chama o conversor ao consultar length/isEmpty e transforma apenas last ao consultá-lo.
 class $dartforgeMapped extends $dartforgeIterable {
@@ -72,6 +117,36 @@ class $dartforgeList extends $dartforgeIterable {
     const n = this.values.length;
     for (let i = 0; i < n; i++) { action(this.values[i]); if (this.values.length !== n) throw new Error('Concurrent modification during iteration'); }
   }
+  // List tem armazenamento indexado, então estes membros não precisam iterar.
+  get $df_reversed() { const values = this.values; return new $dartforgeIterable(function* () { for (let i = values.length - 1; i >= 0; i--) yield values[i]; }, () => values.length, this.elementType); }
+  $df_elementAt(index) { return $dartforgeIndex(this, index); }
+  $df_addAll(other) { for (const x of other) { $dartforgeCast(x, this.elementType); this.values.push(x); } }
+  // Identidade, não `==`: é a mesma política já documentada para chaves de Map
+  // e elementos de Set neste subconjunto (docs/OBJETO.md).
+  $df_indexOf(value, start = 0) { return this.values.indexOf(value, start); }
+  $df_remove(value) { const at = this.values.indexOf(value); if (at < 0) return false; this.values.splice(at, 1); return true; }
+  $df_removeAt(index) { if (!Number.isInteger(index) || index < 0 || index >= this.values.length) throw new RangeError('RangeError (index): Invalid value: Not in inclusive range 0..' + (this.values.length - 1) + ': ' + index); return this.values.splice(index, 1)[0]; }
+  $df_insert(index, value) { if (!Number.isInteger(index) || index < 0 || index > this.values.length) throw new RangeError('RangeError (index): Invalid value: Not in inclusive range 0..' + this.values.length + ': ' + index); $dartforgeCast(value, this.elementType); this.values.splice(index, 0, value); }
+  $df_clear() { this.values.length = 0; }
+  $df_sublist(start, end = null) {
+    const fim = end === null ? this.values.length : end;
+    if (!Number.isInteger(start) || start < 0 || start > fim) throw new RangeError('RangeError (start): Invalid value: Not in inclusive range 0..' + fim + ': ' + start);
+    if (!Number.isInteger(fim) || fim > this.values.length) throw new RangeError('RangeError (end): Invalid value: Not in inclusive range ' + start + '..' + this.values.length + ': ' + fim);
+    return new $dartforgeList(this.values.slice(start, fim), this.elementType);
+  }
+  // Ordena no lugar, como o SDK. Sem comparador a ordem é a de `compareTo`,
+  // que a análise semântica já provou existir para o tipo do elemento.
+  // O `sort` do JavaScript é estável desde ES2019; o do Dart não promete
+  // estabilidade, então esta implementação é mais forte, nunca mais fraca.
+  $df_sort(compare) { this.values.sort(compare === undefined ? $dartforgeDefaultCompare : compare); }
+}
+// `Comparable.compare` do SDK: delega ao compareTo do próprio valor. Números e
+// cadeias usam a ordem do alvo web já conferida contra o oráculo; uma instância
+// usa o `int compareTo(...)` que ela declara.
+function $dartforgeDefaultCompare(a, b) {
+  if (typeof a === 'string') return a < b ? -1 : (a > b ? 1 : 0);
+  if (typeof a === 'number') { if (Number.isNaN(a)) return Number.isNaN(b) ? 0 : 1; if (Number.isNaN(b)) return -1; return a < b ? -1 : (a > b ? 1 : 0); }
+  return a.$df_compareTo(b);
 }
 // Set conserva ordem de inserção, como o LinkedHashSet padrão do Dart, e
 // compara elementos por identidade — a mesma política já adotada por Map.
@@ -93,6 +168,9 @@ class $dartforgeSet extends $dartforgeIterable {
   $df_add(value) { $dartforgeCast(value, this.elementType); const had = this.store.has(value); this.store.add(value); return !had; }
   $df_contains(value) { return this.store.has(value); }
   $df_toList() { return new $dartforgeList([...this.store], this.elementType); }
+  $df_addAll(other) { for (const x of other) { $dartforgeCast(x, this.elementType); this.store.add(x); } }
+  $df_remove(value) { return this.store.delete(value); }
+  $df_clear() { this.store.clear(); }
 }
 // Map conserva ordem de inserção e evita propriedades especiais de objetos JavaScript.
 class $dartforgeMap {
@@ -103,6 +181,29 @@ class $dartforgeMap {
     $dartforgeTyped(this, ['map', keyType, valueType]);
   }
   get $df_length() { return this.values.size; }
+  get $df_isEmpty() { return this.values.size === 0; }
+  get $df_isNotEmpty() { return this.values.size !== 0; }
+  // A ordem de keys e values é a de inserção: o Map do JavaScript a preserva e
+  // é a mesma do LinkedHashMap que o Dart usa para `{}`.
+  get $df_keys() { const store = this.values; return new $dartforgeIterable(function* () { yield* store.keys(); }, () => store.size, this.keyType); }
+  get $df_values() { const store = this.values; return new $dartforgeIterable(function* () { yield* store.values(); }, () => store.size, this.valueType); }
+  $df_toString() { return $dartforgeFormat(this); }
+  $df_containsKey(key) { return this.values.has(key); }
+  $df_containsValue(value) { for (const v of this.values.values()) if (v === value) return true; return false; }
+  // Devolve o valor removido, ou null quando a chave não existia.
+  $df_remove(key) { if (!this.values.has(key)) return null; const found = this.values.get(key); this.values.delete(key); return found; }
+  $df_clear() { this.values.clear(); }
+  // A fábrica só é chamada quando a chave falta, e a inserção mantém a ordem.
+  $df_putIfAbsent(key, factory) {
+    if (this.values.has(key)) return this.values.get(key);
+    const value = factory();
+    $dartforgeCast(key, this.keyType);
+    $dartforgeCast(value, this.valueType);
+    this.values.set(key, value);
+    return value;
+  }
+  $df_addAll(other) { for (const [k, v] of other.values) { $dartforgeCast(k, this.keyType); $dartforgeCast(v, this.valueType); this.values.set(k, v); } }
+  $df_forEach(action) { for (const [k, v] of [...this.values]) action(k, v); }
 }
 function $dartforgeIndex(list, index) {
   if (list instanceof $dartforgeMap) return list.values.has(index) ? list.values.get(index) : null;

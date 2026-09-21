@@ -189,5 +189,21 @@
     "checkout": "shallow depth 1, default branch, árvore completa",
     "compiled": false,
     "note": "Referência do experimento de backend por montador (crates/asmjit-jit). Lida para avaliar o emissor UJIT (asmjit/ujit) — a Universal JIT API — e o custo de FFI com C++. A implementação adotada foi dynasm-rs; o levantamento está em docs/ASMJIT.md."
+  },
+  {
+    "name": "dart-sdk-1.24.3",
+    "url": "https://github.com/dart-lang/sdk",
+    "commit": "0b0b41ef25358dd77d63b4d02718287c26f8e408",
+    "commitDate": "2017-12-13T15:06:42+01:00",
+    "downloaded": "2026-09-21T00:00:00-03:00",
+    "archived": false,
+    "targetTag": "1.24.3",
+    "license": "BSD-3-Clause com componentes licenciados separadamente; ver LICENSE",
+    "licenseFile": "LICENSE",
+    "licenseHolder": "Copyright 2012, the Dart project authors",
+    "cloneMode": "fetch de refs/tags/1.24.3; árvore sem checkout de sdk/ e pkg/",
+    "targetReadMethod": "git -C references/dart-sdk-1.24.3 show HEAD:<path>; checkout inalterado",
+    "compiled": false,
+    "note": "Última release da série Dart 1, a última em que dart:isolate e dart:mirrors funcionavam na Web. Consultada para o desenho de isolates na Web: sdk/lib/_internal/js_runtime/lib/{isolate_helper,isolate_serialization,isolate_patch,js_mirrors,mirrors_patch}.dart e pkg/compiler/lib/src/js_emitter/startup_emitter/fragment_emitter.dart. O levantamento está em docs/ISOLATES-WEB.md. Nenhum código foi copiado para os fontes MIT."
   }
 ]

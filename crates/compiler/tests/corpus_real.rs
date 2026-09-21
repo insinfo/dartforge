@@ -325,7 +325,16 @@ fn nomes_declarados(fonte: &str) -> Vec<String> {
         while palavra.is_some_and(|p| MODIFICADORES.contains(&p)) {
             palavra = palavras.next();
         }
-        let Some(cabeca) = palavra else { continue };
+        let Some(mut cabeca) = palavra else { continue };
+        // `abstract mixin class BaseClient implements Client` declara a classe
+        // `BaseClient`: nessa forma `mixin` é modificador e quem nomeia a
+        // declaração é `class`. Sem este passo o índice registrava `class` como
+        // nome e `BaseClient` aparecia como nome inexistente no corpus — seis
+        // diagnósticos contados como lacuna que são nome de outro arquivo.
+        if cabeca == "mixin" && palavras.clone().next() == Some("class") {
+            palavras.next();
+            cabeca = "class";
+        }
         if matches!(cabeca, "import" | "export" | "library" | "part" | "return") {
             continue;
         }
@@ -420,6 +429,28 @@ const CORE: &[&str] = &[
     "identityHashCode",
 ];
 
+/// Nomes de `dart:async` que o subconjunto ainda não modela.
+///
+/// `dart:async` já existe para o carregador, ao contrário de `dart:io` ou
+/// `dart:convert`: um nome dela que não resolve é membro que falta numa
+/// biblioteca presente, não biblioteca a escrever do zero. A categoria é lacuna,
+/// e a distinção muda a estimativa de custo, não a categoria.
+const ASYNC: &[&str] = &[
+    "Completer",
+    "EventSink",
+    "FutureOr",
+    "StreamConsumer",
+    "StreamController",
+    "StreamIterator",
+    "StreamSink",
+    "StreamSubscription",
+    "StreamTransformer",
+    "StreamView",
+    "Zone",
+    "scheduleMicrotask",
+    "unawaited",
+];
+
 /// Bibliotecas `dart:` que o carregador ainda não implementa, e o que declaram.
 ///
 /// A tabela não é exaustiva: cobre o que código de produção usa com frequência.
@@ -499,23 +530,6 @@ const SDK: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "dart:async",
-        &[
-            "Completer",
-            "EventSink",
-            "FutureOr",
-            "StreamConsumer",
-            "StreamController",
-            "StreamIterator",
-            "StreamSink",
-            "StreamSubscription",
-            "StreamTransformer",
-            "Zone",
-            "scheduleMicrotask",
-            "unawaited",
-        ],
-    ),
-    (
         "dart:io",
         &[
             "Directory",
@@ -539,6 +553,7 @@ const SDK: &[(&str, &[&str])] = &[
         "dart:collection",
         &[
             "DoubleLinkedQueue",
+            "DoubleLinkedQueueEntry",
             "HashMap",
             "HashSet",
             "IterableBase",
@@ -559,7 +574,9 @@ const SDK: &[(&str, &[&str])] = &[
             "SplayTreeMap",
             "SplayTreeSet",
             "UnmodifiableListView",
+            "UnmodifiableMapBase",
             "UnmodifiableMapView",
+            "UnmodifiableSetView",
         ],
     ),
     (
@@ -722,6 +739,36 @@ impl Falha<'_> {
         identificador_anterior(self.fonte, self.inicio)
     }
 
+    /// Biblioteca ausente que o próprio arquivo importa, se houver.
+    ///
+    /// Um nome que não existe em arquivo nenhum do disco, num arquivo que importa
+    /// biblioteca ausente, é quase certamente declarado nela — `StreamChannel`
+    /// num arquivo que importa `package:stream_channel` é o caso típico. É a
+    /// única inferência do classificador que não enxerga o nome declarado, e ela
+    /// se justifica por vir das **diretivas do próprio arquivo**: o relatório
+    /// imprime qual biblioteca sustentou a decisão, para conferência.
+    fn biblioteca_ausente(&self, presentes: &BTreeSet<String>) -> Option<String> {
+        for linha in self.fonte.lines() {
+            if !linha.starts_with("import ") && !linha.starts_with("export ") {
+                continue;
+            }
+            let Some(uri) = uri_no_span(linha) else {
+                continue;
+            };
+            if let Some(biblioteca) = uri.strip_prefix("dart:") {
+                if !matches!(biblioteca, "core" | "async" | "ffi") {
+                    return Some(format!("dart:{biblioteca}"));
+                }
+            } else if let Some(resto) = uri.strip_prefix("package:") {
+                let pacote = resto.split('/').next().unwrap_or(resto);
+                if !presentes.contains(pacote) {
+                    return Some(format!("package:{pacote}"));
+                }
+            }
+        }
+        None
+    }
+
     /// O arquivo declara este nome sem anotação de tipo?
     ///
     /// `final _nodes = <XmlNode>[];` produz `expected an explicitly supported
@@ -867,11 +914,25 @@ fn classificar(falha: &Falha<'_>, indice: &Indice, presentes: &BTreeSet<String>)
             evidencia: format!("{nome} (dart:core)"),
         };
     }
+    if ASYNC.contains(&nome) {
+        return Classe {
+            categoria: Categoria::Lacuna,
+            motivo: "nome de dart:async que o subconjunto não modela",
+            evidencia: format!("{nome} (dart:async)"),
+        };
+    }
     if let Some(biblioteca) = biblioteca_sdk(nome) {
         return Classe {
             categoria: Categoria::Externa,
             motivo: "nome de biblioteca dart: não implementada",
             evidencia: format!("{nome} ({biblioteca})"),
+        };
+    }
+    if let Some(biblioteca) = falha.biblioteca_ausente(presentes) {
+        return Classe {
+            categoria: Categoria::Externa,
+            motivo: "nome ausente do disco num arquivo que importa biblioteca ausente",
+            evidencia: format!("{nome} (o arquivo importa {biblioteca})"),
         };
     }
     Classe {
@@ -987,6 +1048,14 @@ struct Contagem {
     ilegiveis: usize,
     /// `(categoria, forma, motivo)` → ocorrências, evidência e arquivo exemplo.
     falhas: BTreeMap<(Categoria, String, &'static str), (usize, String, String)>,
+    /// Entradas que falharam já na carga do grafo, antes do front-end.
+    ///
+    /// A distinção decide de quem é o trabalho. Uma entrada que morre na carga
+    /// não exercitou análise alguma: o carregador recusou uma diretiva — `dart:`
+    /// que não existe, `package:` que não está no disco — e nenhum arquivo de
+    /// `lib/` foi atravessado. Somá-la às falhas de front-end sugeriria que o
+    /// obstáculo é de linguagem quando é de biblioteca.
+    falhas_na_carga: usize,
     /// Arquivos de `lib/` que algum fechamento transitivo alcançou.
     alcancados: BTreeSet<PathBuf>,
     /// Arquivos de `lib/` que algum diagnóstico apontou.
@@ -1027,6 +1096,7 @@ impl Contagem {
     fn absorver(&mut self, outra: &Contagem) {
         self.aceitos += outra.aceitos;
         self.ilegiveis += outra.ilegiveis;
+        self.falhas_na_carga += outra.falhas_na_carga;
         self.alcancados.extend(outra.alcancados.iter().cloned());
         self.apontados.extend(outra.apontados.iter().cloned());
         for (chave, (quantas, evidencia, exemplo)) in &outra.falhas {
@@ -1081,6 +1151,11 @@ fn medir_grafo(
     for entrada in entradas {
         let (unidades, resultado) =
             dartforge_compiler::compile_path_with_units(entrada, CompileOptions::default());
+        // Lista vazia significa que a carga do grafo falhou: nenhuma unidade foi
+        // aceita, nem a própria entrada.
+        if unidades.is_empty() && resultado.is_err() {
+            contagem.falhas_na_carga += 1;
+        }
         for unidade in &unidades {
             let unidade = canonico(unidade);
             if biblioteca.contains(&unidade) {
@@ -1255,11 +1330,14 @@ fn relatar_grafo(medidos: &[&Pacote], indice: &Indice, presentes: &BTreeSet<Stri
             );
             println!(
                 "  {}/: {} entradas, {} compiladas de ponta a ponta ({:.1}%), \
+                 {} interrompidas na carga do grafo e {} no front-end, \
                  lacuna {} / externa {} / artefato {}",
                 grupo.pasta,
                 grupo.arquivos.len(),
                 contagem.aceitos,
                 100.0 * contagem.aceitos as f64 / grupo.arquivos.len() as f64,
+                contagem.falhas_na_carga,
+                contagem.falhas_totais() - contagem.falhas_na_carga,
                 contagem.na_categoria(Categoria::Lacuna),
                 contagem.na_categoria(Categoria::Externa),
                 contagem.na_categoria(Categoria::Artefato),
@@ -1282,6 +1360,15 @@ fn relatar_grafo(medidos: &[&Pacote], indice: &Indice, presentes: &BTreeSet<Stri
             pacote.biblioteca.len(),
             acumulado.apontados.len(),
         );
+        if acumulado.alcancados.is_empty() && acumulado.falhas_na_carga > 0 {
+            // Sem carga não há travessia, e um zero aqui não mede linguagem
+            // alguma: mede que o carregador parou antes. Dizer isso na própria
+            // linha evita que o zero seja lido como cobertura nula.
+            println!(
+                "    nenhuma entrada passou da carga do grafo: este zero mede o \
+                 carregador, não a cobertura de linguagem"
+            );
+        }
         lib_total += pacote.biblioteca.len();
         lib_alcancados += acumulado.alcancados.len();
         lib_atravessados += atravessados;
@@ -1289,9 +1376,11 @@ fn relatar_grafo(medidos: &[&Pacote], indice: &Indice, presentes: &BTreeSet<Stri
     for (pasta, contagem) in &por_pasta {
         let entradas = contagem.aceitos + contagem.falhas_totais();
         println!(
-            "\ntotal de entradas em {pasta}/: {entradas}, {} compiladas de ponta a ponta ({:.1}%)",
+            "\ntotal de entradas em {pasta}/: {entradas}, {} compiladas de ponta a ponta ({:.1}%), \
+             {} interrompidas na carga do grafo",
             contagem.aceitos,
-            100.0 * contagem.aceitos as f64 / entradas as f64
+            100.0 * contagem.aceitos as f64 / entradas as f64,
+            contagem.falhas_na_carga
         );
         imprimir(contagem, Categoria::Lacuna, 20);
         imprimir(contagem, Categoria::Externa, 10);

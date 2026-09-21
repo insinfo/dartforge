@@ -3204,22 +3204,44 @@ impl<'a> Validator<'a> {
                         )),
                     };
                 }
-                if matches!(self.shape(receiver_type), Some(TypeShape::Map { .. })) {
+                if let Some(TypeShape::Map { key, value }) = self.shape(receiver_type) {
+                    if let Some(resultado) =
+                        self.nucleo_mapa_membro(key, value, name, expression.span)
+                    {
+                        return resultado;
+                    }
                     return match *name {
                         "length" => Ok(Type::Int),
-                        _ => Err(Diagnostic::new("Unsupported Map property", expression.span)),
+                        _ => Err(Diagnostic::new(
+                            format!(
+                                "'{}' declares no member '{name}' in this subset; the recognized members are listed in docs/NUCLEO.md",
+                                self.nucleo_rotulo(receiver_type)
+                            ),
+                            expression.span,
+                        )),
                     };
                 }
                 if matches!(self.shape(receiver_type), Some(TypeShape::Record { .. })) {
                     return self.record_field(receiver_type, name, expression.span);
                 }
                 if let Some(element) = self.element(receiver_type) {
+                    if let Some(resultado) = self.nucleo_iteravel_membro(
+                        receiver_type,
+                        element,
+                        name,
+                        expression.span,
+                    ) {
+                        return resultado;
+                    }
                     return match *name {
                         "length" => Ok(Type::Int),
                         "isEmpty" | "isNotEmpty" => Ok(Type::Bool),
                         "first" | "last" => Ok(element),
                         _ => Err(Diagnostic::new(
-                            "Unsupported collection property",
+                            format!(
+                                "'{}' declares no member '{name}' in this subset; the recognized members are listed in docs/NUCLEO.md",
+                                self.nucleo_rotulo(receiver_type)
+                            ),
                             expression.span,
                         )),
                     };
@@ -3274,6 +3296,29 @@ impl<'a> Validator<'a> {
                 }
                 if self.element(receiver_type).is_some() {
                     return self.collection_call(receiver_type, name, arguments, expression.span);
+                }
+                // Chamada de método em `Map`. Antes deste ponto nenhuma existia:
+                // o mapa caía na resolução nominal e terminava em classe
+                // desconhecida, embora `containsKey` seja o 12º membro mais usado
+                // no corpus medido.
+                if let Some(TypeShape::Map { key, value }) = self.shape(receiver_type) {
+                    if let Some(resultado) = self.nucleo_mapa_metodo(
+                        receiver_type,
+                        key,
+                        value,
+                        name,
+                        arguments,
+                        expression.span,
+                    ) {
+                        return resultado;
+                    }
+                    return Err(Diagnostic::new(
+                        format!(
+                            "'{}' declares no method '{name}' in this subset; the recognized members are listed in docs/NUCLEO.md",
+                            self.nucleo_rotulo(receiver_type)
+                        ),
+                        expression.span,
+                    ));
                 }
                 if is_nullable(receiver_type) || matches!(receiver_type, Type::Null | Type::Void) {
                     return Err(Diagnostic::new(

@@ -66,3 +66,87 @@ Próximos marcos: consultas declarativas com dependências registradas, registro
 macros por URI/nome, introspecção entre bibliotecas, trabalhador isolado, orçamento
 de recursos e suporte a macros escritas em Dart. O benchmark deve separar tempo
 de transporte, execução da macro, análise da expansão e recompilação da aplicação.
+
+## Reflexão estática: o que herdar da proposta de macros
+
+A proposta de macros do Dart é o melhor modelo disponível para **reflexão gerada
+em compilação**, e vale separar o que dela serve do que não serve.
+
+O que serve é o modelo de fases e as regras de ordenação. O que não serve é a
+arquitetura de hospedagem — e ela é justamente a parte que existe como código no
+protótipo clonado em `references/dart-macros`.
+
+### A hospedagem é o custo, e nós não precisamos dela
+
+O protótipo não é a especificação: é `_macro_host`, `_macro_client`,
+`_macro_server` e `macro_service`, com `handshake.g.dart`, `message_grouper.dart`
+para enquadrar mensagens e 1.949 linhas de schema JSON de protocolo. Macro de
+usuário é programa Dart completo, executado em isolate ou processo separado, que
+introspecta o programa **por RPC** durante a compilação.
+
+Esse é o custo que o relato de janeiro de 2025 aponta, e ele colide de frente com
+o objetivo número um do DartForge. Uma consulta de introspecção que atravessa
+serialização, socket e desserialização não cabe no orçamento de compilação
+incremental que se quer defender contra o DDC.
+
+A reflexão que precisamos não exige nada disso. Ninguém precisa escrever a macro
+de reflexão: ela é sempre a mesma. Então ela é código Rust do compilador, em
+processo, como a JsonCodable incorporada já é — **herdando o contrato de fases e
+descartando o transporte**.
+
+### A assimetria que torna reflexão mais difícil que serialização
+
+`@JsonCodable` numa classe gera código *para aquela classe*. Reflexão recebe
+perguntas *por nome, em execução*: `invoke('foo')`, onde `'foo'` pode ser
+calculado. O gerador sabe sobre quais declarações emitir descritores; não sabe
+quais nomes o programa vai pedir.
+
+Daí a consequência que não dá para esconder atrás de API boa: **o conjunto
+reflexível tem de ser declarado, não inferido**. É por isso que
+`package:reflectable` exige capacidades explícitas na anotação em vez de
+reflexão total. Não é limitação de implementação; é o preço de conviver com
+tremor de árvore.
+
+### Três regras da especificação que são ganho de incrementalidade
+
+1. **Ordem lexicográfica, não ordem de fonte**, nos resultados de introspecção. A
+   especificação diz isso explicitamente e dá o motivo: reordenar membros não
+   deve obrigar a regerar. É propriedade de invalidação de cache, exatamente a
+   nossa preocupação — a chave do plano ordena os campos, não os copia na ordem
+   escrita.
+2. **`OmittedTypeAnnotation` e inferência só na fase 3.** Um descritor precisa do
+   tipo do campo, e `final x = f();` não tem tipo escrito. A regra da
+   especificação — pode-se *emitir* o tipo omitido como token opaco antes, mas só
+   se pode *ler* o tipo inferido na fase 3 — determina onde o texto de tipo do
+   descritor é materializado. Antes disso ele não existe.
+3. **É erro adicionar declaração que sombreie identificador já resolvido.** Isso
+   evita re-resolução. Para nós: nomes de descritor vivem em namespace reservado
+   que não pode sombrear nada.
+
+A regra de aciclicidade (macro não se aplica na biblioteca onde é definida) sai
+de graça, porque o gerador é do compilador e não da biblioteca compilada.
+
+### A regra de equivalência semântica decide a forma da anotação
+
+Se `@Reflectable` fosse anotação exclusiva do DartForge, o mesmo fonte deixaria
+de **compilar** no dart2js. Isso viola a regra de equivalência semântica na forma
+mais dura possível: não é comportamento diferente, é build quebrado.
+
+A saída é a mesma do desenho de isolates: a anotação vem de pacote pub normal que
+**também** traz um builder `build_runner`. Sob dart2js e DDC, `build_runner` gera
+os descritores como parte; sob DartForge, o compilador gera a mesma API
+nativamente, em processo, sem etapa de build. Mesmo programa, mesma semântica —
+um dos dois só constrói mais rápido.
+
+`package:reflectable` já tem exatamente essa forma. Então o alvo é a API dele, e
+não uma inventada aqui: compatibilidade vem de mirar o que existe.
+
+### O que continua impossível, e o diagnóstico que isso exige
+
+Reflexão estática não é `dart:mirrors`. Mirrors responde sobre código que ninguém
+declarou reflexível, e qualquer sistema dirigido por anotação é fechado por
+construção. `MirrorSystem.findLibrary` e refletir objeto arbitrário não anotado
+não podem funcionar junto com tremor de árvore — não é questão de esforço.
+
+Logo `import 'dart:mirrors'` recebe diagnóstico próprio, que nomeia o substituto
+em vez de só recusar.
