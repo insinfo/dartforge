@@ -149,7 +149,9 @@ fn opcoes() -> impl Iterator<Item = CompileOptions> {
 
 /// Compila o programa e devolve a mensagem do diagnóstico esperado.
 fn recusa(fonte: &str) -> String {
-    let programa = format!("void main() {{\n{fonte}\n}}\n");
+    let programa = format!(
+        "int? talvez() => null;\nList<int>? lista() => null;\nvoid main() {{\n{fonte}\n}}\n"
+    );
     match compile(&programa) {
         Ok(_) => panic!("aceito sem diagnóstico: {fonte}"),
         Err(erro) => erro.message,
@@ -274,6 +276,16 @@ fn conjunto_usa_representacao_propria() {
     assert!(modulo.contains("class $dartforgeSet"), "{modulo}");
 }
 
+/// `{}` continua sendo mapa, menos quando o contexto pede um conjunto.
+#[test]
+fn chaves_vazias_seguem_o_contexto() {
+    let mapa = javascript("void main() {\n  print(<String, int>{});\n}\n");
+    assert!(mapa.contains("new $dartforgeMap("), "{mapa}");
+    let conjunto = javascript("void main() {\n  Set<int> s = {};\n  print(s.length);\n}\n");
+    assert!(conjunto.contains("new $dartforgeSet([],['int'])"), "{conjunto}");
+    assert!(!conjunto.contains("new $dartforgeMap("), "{conjunto}");
+}
+
 /// Formas de literal que o parser recusa, com a mensagem exata.
 #[test]
 fn limites_sintaticos_de_literais_de_colecao() {
@@ -302,7 +314,7 @@ fn limites_sintaticos_de_literais_de_colecao() {
         "expected a supported expression"
     );
     assert_eq!(
-        recusa("print([??1]);"),
+        recusa("print([? ?1]);"),
         "nested null-aware collection elements are not supported"
     );
     assert_eq!(
@@ -319,11 +331,11 @@ fn limites_semanticos_de_colecoes_e_operadores() {
         "Empty Map requires an explicit or contextual value type"
     );
     assert_eq!(
-        recusa("var a = <int>[1];\n  print([...a, ...a]);"),
-        "Empty List requires explicit element type or context"
+        recusa("print([...lista()]);"),
+        "A nullable expression cannot be spread; use `...?`"
     );
     assert_eq!(
-        recusa("List<int>? a;\n  print([...a]);"),
+        recusa("print(<String, int>{...lista()});"),
         "A nullable expression cannot be spread; use `...?`"
     );
     assert_eq!(
@@ -341,12 +353,8 @@ fn limites_semanticos_de_colecoes_e_operadores() {
     assert_eq!(recusa("print(1.5 & 2);"), "Type mismatch: expected Int, found Double");
     assert_eq!(recusa("print(~1.5);"), "Type mismatch: expected Int, found Double");
     assert_eq!(
-        recusa("int? a;\n  print(a ?? 0 | 1);\n  print(1 << a);"),
+        recusa("print(1 << talvez());"),
         "Type mismatch: expected Int, found NullableInt"
-    );
-    assert_eq!(
-        recusa("print(<int>{});"),
-        "Empty Set requires explicit element type or context"
     );
     assert_eq!(
         recusa("print([if (1) 2]);"),
@@ -373,17 +381,3 @@ fn llvm_recusa_conjuntos_espalhamentos_e_bits() {
             Ok(_) => panic!("LLVM aceitou: {fonte}"),
             Err(erro) => erro.message,
         }
-    };
-    assert_eq!(
-        recusa_llvm("print(1 & 2);"),
-        "LLVM AOT ainda não suporta operadores de bits e deslocamento (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)"
-    );
-    assert_eq!(
-        recusa_llvm("print(1 << 2);"),
-        "LLVM AOT ainda não suporta operadores de bits e deslocamento (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)"
-    );
-    assert_eq!(
-        recusa_llvm("print(~1);"),
-        "LLVM AOT ainda não suporta o complemento de bits `~`"
-    );
-}

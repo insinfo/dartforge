@@ -25,6 +25,18 @@ impl<'a> Validator<'a> {
         span: Span,
     ) -> Result<Type, Diagnostic> {
         let context = expected.and_then(|t| self.shape(self.without_null(t)));
+        // Oráculo Dart 3.6.2/3.13.4: `{}` é o mapa vazio, exceto quando o
+        // contexto pede um conjunto — `Set<int> s = {}` declara um `Set`.
+        // O parser não conhece o contexto, então a correção acontece aqui e
+        // a emissão consulta o tipo resolvido para escolher a representação.
+        if entries.is_empty()
+            && key_type.is_none()
+            && value_type.is_none()
+            && let Some(TypeShape::Set(element)) = context
+        {
+            self.check_type_name(element, span)?;
+            return Ok(self.intern(TypeShape::Set(element)));
+        }
         let (ck, cv) = if let Some(TypeShape::Map { key, value }) = context {
             (Some(key), Some(value))
         } else {

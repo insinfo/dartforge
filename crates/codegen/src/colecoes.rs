@@ -190,7 +190,7 @@ fn append(
             expression(condition, output);
             output.push_str(") { ");
             append(then_element, accumulator, map, depth, output);
-            output.push_str("}");
+            output.push('}');
             if let Some(other) = else_element {
                 output.push_str(" else { ");
                 append(other, accumulator, map, depth, output);

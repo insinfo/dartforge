@@ -1990,11 +1990,10 @@ impl<'a> Validator<'a> {
             Type::Class(id) | Type::NullableClass(id) => id,
             _ => return None,
         };
+        let name = self.classes.get(&id)?.name;
         Some(Diagnostic::new(
             format!(
-                "Class '{}' declares no 'String toString()'; this subset does not emit \"Instance of '{}'\"",
-                self.classes.get(&id)?.name,
-                self.classes.get(&id)?.name
+                "Class '{name}' declares no 'String toString()'; this subset does not emit \"Instance of '{name}'\""
             ),
             span,
         ))

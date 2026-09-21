@@ -1920,6 +1920,15 @@ impl<'a> Cursor<'_, 'a> {
             if prefix.is_some() {
                 return Err(self.error("prefixed metadata other than Native is not supported"));
             }
+            if ignorable_metadata(name) {
+                // Metadado sem efeito em geração de código: consome e descarta.
+                // Aferido em código de produção, 65% dos arquivos do pacote `pdf`
+                // param aqui, e nenhuma dessas anotações muda o programa emitido.
+                if self.take(TokenKind::Symbol('(')) {
+                    self.expect(TokenKind::Symbol(')'))?;
+                }
+                continue;
+            }
             let kind = match name {
                 "override" => AnnotationKind::Override,
                 "deprecated" => AnnotationKind::Deprecated { message: None },
@@ -1940,7 +1949,14 @@ impl<'a> Cursor<'_, 'a> {
                     self.expect(TokenKind::Symbol(')'))?;
                     AnnotationKind::DataClass
                 },
-                _ => return Err(self.error("unsupported annotation; supported metadata: override, deprecated, Deprecated, JsonCodable, DataClass and Native")),
+                // `pragma` dirige o compilador: tolerá-la em silêncio seria
+                // prometer honrar uma diretiva que não é lida. Erro próprio.
+                "pragma" => {
+                    return Err(self.error(
+                        "@pragma directs the compiler and cannot be ignored; it is not implemented",
+                    ));
+                }
+                _ => return Err(self.error("unsupported annotation; supported metadata: override, deprecated, Deprecated, JsonCodable, DataClass, Native and the semantics-free annotations of package:meta")),
             };
             annotations.push(Annotation {
                 kind,
@@ -4814,6 +4830,41 @@ fn skip_metadata(tokens: &[Token<'_>], mut index: usize) -> Result<usize, Diagno
     }
     Ok(index)
 }
+/// Anotações que documentam intenção sem alterar o programa emitido.
+///
+/// São os metadados de `package:meta` e equivalentes: o compilador e o analisador
+/// as usam para avisar o programador, e nenhuma delas muda a semântica nem a
+/// geração de código. Aceitá-las é o que permite compilar código Dart de
+/// produção, onde elas aparecem em dois terços dos arquivos.
+///
+/// A lista é deliberadamente fechada. Tolerar **qualquer** anotação desconhecida
+/// esconderia o caso oposto — uma anotação que o compilador precisa honrar,
+/// como `@pragma`, que continua com diagnóstico próprio. Aceitar em silêncio
+/// algo que dirige o compilador é pior do que rejeitar.
+fn ignorable_metadata(name: &str) -> bool {
+    matches!(
+        name,
+        "immutable"
+            | "protected"
+            | "mustCallSuper"
+            | "visibleForTesting"
+            | "visibleForOverriding"
+            | "experimental"
+            | "internal"
+            | "nonVirtual"
+            | "useResult"
+            | "doNotStore"
+            | "doNotSubmit"
+            | "alwaysThrows"
+            | "literal"
+            | "optionalTypeArgs"
+            | "awaitNotRequired"
+            | "redeclare"
+            | "reopen"
+            | "widgetFactory"
+    )
+}
+
 /// Parâmetro da lista primária antes de virar campo e parâmetro de construtor.
 struct PrimaryParameter<'a> {
     name: &'a str,

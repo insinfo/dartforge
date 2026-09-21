@@ -38,9 +38,7 @@ impl<'a> Validator<'a> {
             // um ancestral declara `String toString()`. Sem isso o Dart
             // imprimiria `Instance of 'Nome'`, texto que este subconjunto
             // escolheu recusar em vez de emitir — ver docs/OBJETO.md.
-            Type::Class(id) | Type::NullableClass(id) => {
-                self.method(id, "toString").is_some()
-            }
+            Type::Class(id) | Type::NullableClass(id) => self.method(id, "toString").is_some(),
             _ => false,
         }
     }

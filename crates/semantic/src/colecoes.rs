@@ -22,7 +22,7 @@ impl<'a> Validator<'a> {
     ) -> Result<Type, Diagnostic> {
         let context = element_type.or_else(|| expected.and_then(|t| self.element(t)));
         if let Some(t) = element_type {
-            self.check_type_name(*&t, span)?;
+            self.check_type_name(t, span)?;
         }
         let mut inferred = context;
         for value in elements {
@@ -124,12 +124,6 @@ impl<'a> Validator<'a> {
         null_aware: bool,
         span: Span,
     ) -> Result<Type, Diagnostic> {
-        if actual == Type::Null && !null_aware {
-            return Err(Diagnostic::new(
-                "A nullable expression cannot be spread; use `...?`",
-                span,
-            ));
-        }
         if self.may_be_null(actual) && !null_aware {
             return Err(Diagnostic::new(
                 "A nullable expression cannot be spread; use `...?`",

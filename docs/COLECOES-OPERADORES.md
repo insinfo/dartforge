@@ -52,7 +52,8 @@ A decisão é **sintática**, nesta ordem:
 | --- | --- |
 | `<K, V>{...}` | mapa |
 | `<T>{...}` | conjunto |
-| `{}` sem argumentos de tipo | **mapa vazio** |
+| `{}` com contexto `Set<T>` | conjunto vazio |
+| `{}` sem argumentos de tipo e sem contexto de conjunto | **mapa vazio** |
 | primeiro elemento decisivo é `chave: valor` | mapa |
 | primeiro elemento decisivo é um valor solto | conjunto |
 | só espalhamentos, sem argumentos de tipo | recusado |
@@ -209,39 +210,39 @@ dois SDKs e no dart2js.
 
 Sintaxe:
 
-| Mensagem | Quando |
-| --- | --- |
-| `set literals do not accept \`key: value\` entries` | `{1, 'a': 2}` |
-| `map literals require \`key: value\` entries` | `{'a': 1, 2}` |
-| `a literal built only from spreads needs explicit <T> or <K, V> type arguments` | `{...a}` |
-| `if and for elements in map literals require explicit <K, V> type arguments` | `{if (c) 'a': 1}` |
-| `await for in collection literals is not supported` | `[for await (...) x]` |
-| `nested null-aware collection elements are not supported` | `[??x]` |
-| `list literals require exactly one type argument` | `<int, int>[1]` |
+```
+set literals do not accept `key: value` entries              {1, 'a': 2}
+map literals require `key: value` entries                    {'a': 1, 2}
+a literal built only from spreads needs explicit <T> or <K, V> type arguments   {...a}
+if and for elements in map literals require explicit <K, V> type arguments      {if (c) 'a': 1}
+await for in collection literals is not supported            [for await (...) x]
+nested null-aware collection elements are not supported      [??x]
+list literals require exactly one type argument              <int, int>[1]
+```
 
 Semântica:
 
-| Mensagem | Quando |
-| --- | --- |
-| `Empty Set requires explicit element type or context` | `<T>{}` sem contexto |
-| `Unsupported set element type` | elemento `void` ou não resolvido |
-| `A nullable expression cannot be spread; use \`...?\`` | `...` sobre anulável |
-| `Spread requires a List, Set or Iterable` | `[...1]` |
-| `Spread in a map requires a Map` | `<String, int>{...lista}` |
-| `Null-aware access requires a nullable receiver` | `lista?.length` |
-| `Null-aware access on a null-only value is unsupported` | `null?.x` |
-| `This element form is valid only inside a collection literal` | forma de elemento fora de literal |
-| `Unsupported for header in a collection literal` | cabeçalho fora das duas formas |
-| `Type mismatch: expected Int, found ...` | operando não `int` em bits/deslocamento |
+```
+Empty Set requires explicit element type or context          <T>{} sem contexto
+Unsupported set element type                                 elemento void ou não resolvido
+A nullable expression cannot be spread; use `...?`           ... sobre anulável
+Spread requires a List, Set or Iterable                      [...1]
+Spread in a map requires a Map                               <String, int>{...lista}
+Null-aware access requires a nullable receiver               lista?.length
+Null-aware access on a null-only value is unsupported        null?.x
+This element form is valid only inside a collection literal  forma de elemento fora de literal
+Unsupported for header in a collection literal               cabeçalho fora das duas formas
+Type mismatch: expected Int, found ...                       operando não int em bits/deslocamento
+```
 
 LLVM (recusa na validação da HIR, antes do driver):
 
-| Mensagem |
-| --- |
-| `LLVM AOT ainda não suporta conjuntos e elementos \`...\`/\`if\`/\`for\` de coleção` |
-| `LLVM AOT ainda não suporta o acesso null-aware \`?.\`` |
-| `LLVM AOT ainda não suporta operadores de bits e deslocamento (\`&\`, \`\|\`, \`^\`, \`~\`, \`<<\`, \`>>\`, \`>>>\`)` |
-| `LLVM AOT ainda não suporta o complemento de bits \`~\`` |
+```
+LLVM AOT ainda não suporta conjuntos e elementos `...`/`if`/`for` de coleção
+LLVM AOT ainda não suporta o acesso null-aware `?.`
+LLVM AOT ainda não suporta operadores de bits e deslocamento (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)
+LLVM AOT ainda não suporta o complemento de bits `~`
+```
 
 ## O que continua fora
 
@@ -260,5 +261,4 @@ O caminho comum não mudou de forma: um literal sem espalhamento e sem `if`/`for
 continua saindo como `new $dartforgeList([...], T)` e não passa por construtor
 imperativo. A decisão é um `any` sobre um slice emprestado, sem alocação por nó
 nem por elemento. As cópias do `Validator` acontecem apenas onde o fluxo se
-ramifica de verdade — um `if` de coleção e o cabeçalho de um `for` de coleção —
-na mesma disciplina descrita em [DESEMPENHO.md](DESEMPENHO.md).
+ramifica de verdade — um `if` de coleção e o cabeçalho de um `for` de col

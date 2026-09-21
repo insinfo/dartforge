@@ -586,3 +586,44 @@ fração pequena do total — a mesma aritmética que já orientou o incremento 
 
 Frontend incremental → JavaScript modular → protocolo de recarga no navegador.
 ORC não entra nesse caminho.
+
+### Decisão: o backend consome a HIR, não assembly escrito à mão
+
+Três bibliotecas de geração de código foram avaliadas como backend de JIT —
+Cranelift, asmkit-rs e dynasm-rs — além do LLVM ORCv2. A decisão de arquitetura
+é anterior à escolha da biblioteca:
+
+**O caminho principal gera código a partir da HIR.** Escrever o emissor como
+macros de assembly foi descartado como fundação por quatro motivos específicos
+do Dart:
+
+1. Genéricos reificados, checagens de null safety, raízes e safepoints de GC e
+   propagação de exceções são lowering de verdade. Escrevê-los em assembly
+   multiplica o trabalho pelo número de arquiteturas.
+2. x64 e aarch64 são ambos necessários. Uma IR gera os dois; assembly à mão
+   exige dois emissores mantidos em paralelo, e cada recurso novo do Dart entra
+   duas vezes.
+3. Hot reload precisa representar exceções atravessando chamadas. Cranelift tem
+   `try_call`/`try_call_indirect`; em assembly puro isso vira ABI manual.
+4. A HIR já existe e é onde as decisões da linguagem estão. Ignorá-la
+   descartaria a camada que separa o significado do Dart da forma da CPU.
+
+**Assembly escrito à mão tem um lugar, e não é esse.** Stubs e trampolins do
+hot reload — entrada estável que salta por ponteiro atualizável, stub de
+compilação preguiçosa, patching de chamadas — são fragmentos pequenos, fixos e
+específicos de arquitetura. É exatamente onde escrever o assembly ganha de
+descrevê-lo numa IR. Um tier 0 no modelo template JIT, com forma fixa por
+operação, é otimização posterior legítima, não fundação.
+
+**Os múltiplos de velocidade de geração não se transferem para o ciclo.** Os
+fatores citados na literatura comparam geração de código isolada. O que decide
+o hot reload são as oito etapas do ciclo. Este projeto já mediu a mesma
+aritmética morder: a compilação fria é 5,17 ms e acelerar o parser em 10×
+reduziria o total em 6%. Se a geração nativa for 15% do ciclo de recarga,
+trocar por um backend 20× mais rápido leva o ciclo a 85%, não a 5%. O relatório
+de recarga por etapa vem antes da escolha do backend.
+
+**libtcc resolve outro problema.** Ele compila C, então usá-lo significaria
+gerar código C a partir da HIR — transpilação, não backend. Rápido e simples,
+ao custo de perder controle sobre ABI, integração com o GC e depuração, e de
+exigir uma toolchain C em execução.

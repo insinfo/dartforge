@@ -34,6 +34,11 @@ Funções de topo com parâmetros e retorno escalares e o corpo de `main`:
 A ordem de avaliação é a do Dart: operando esquerdo antes do direito, argumentos
 na ordem escrita, e o direito de `&&`/`||` só quando necessário.
 
+A API pública tem quatro itens: `compilar(&Module)`, `compilar_com(&Module,
+Otimizacao)`, `ProgramaCompilado` (com `executar`, `executar_capturando` e
+`medicoes`) e `Medicoes`. O crate **não** está ligado ao driver nem ao CLI: ele
+existe para o experimento e para servir de oráculo nos testes.
+
 ### O runtime
 
 O JIT não liga nada. Ele registra no `JITBuilder` os nomes
@@ -145,7 +150,124 @@ cargo run --release --example experimento -p dartforge-cranelift-jit
 com `DARTFORGE_CLANG` apontando para um `clang` (o eixo 2 precisa dele para
 construir o lado AOT). Perfil `release` padrão do workspace.
 
-<!-- EIXO12 -->
+## Eixo 1 — tempo de geração de código em memória
+
+Da HIR até código executável, sem front-end. 20 amostras após 3 aquecimentos,
+perfil `release`.
+
+| programa | tradução p50 (ms) | tradução p95 | geração p50 (ms) | geração p95 | total p50 (ms) | total p95 | instruções CLIF | bytes de código |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| trivial (opt=none) | 0,002 | 0,003 | 0,035 | 0,044 | 0,040 | 0,050 | 3 | 32 |
+| trivial (opt=speed) | 0,002 | 0,003 | 0,039 | 0,045 | 0,043 | 0,049 | 3 | 32 |
+| fib(32) (opt=none) | 0,011 | 0,012 | 0,097 | 0,122 | 0,110 | 0,134 | 17 | 132 |
+| fib(32) (opt=speed) | 0,011 | 0,013 | 0,125 | 0,168 | 0,138 | 0,181 | 17 | 132 |
+| somatorio(1e8) (opt=none) | 0,011 | 0,017 | 0,092 | 0,135 | 0,106 | 0,148 | 15 | 97 |
+| somatorio(1e8) (opt=speed) | 0,012 | 0,015 | 0,123 | 0,156 | 0,137 | 0,171 | 15 | 97 |
+| dez-funcoes (opt=none) | 0,053 | 0,061 | 0,404 | 0,466 | 0,464 | 0,533 | 65 | 472 |
+| dez-funcoes (opt=speed) | 0,059 | 0,109 | 0,605 | 1,509 | 0,662 | 1,602 | 65 | 488 |
+
+`total` inclui a criação do `JITModule` — que detecta o ISA do host — e por isso
+é maior que a soma das duas fases. Ele é o número que o driver sentiria.
+
+Três leituras:
+
+* **A geração de código domina a tradução em 8× a 10×.** Traduzir HIR para CLIF
+  é percorrer uma árvore; gerar código é regalloc e emissão. Otimizar o
+  tradutor não moveria o total.
+* **`opt_level = "speed"` custa de 10% a 50% a mais de geração e, nesta fatia,
+  quase não muda o código**: os bytes emitidos são idênticos em três dos quatro
+  programas e crescem 3% no quarto. Programas escalares pequenos não dão ao
+  otimizador o que otimizar.
+* **As instruções CLIF são estáveis entre as duas configurações** — elas contam
+  o que a tradução produziu, antes de qualquer transformação. É esse o número a
+  observar quando o tempo oscilar.
+
+### Eixo 1b — para comparar: a emissão de LLVM IR textual
+
+O backend AOT, sobre exatamente a mesma HIR:
+
+| programa | emissão p50 (ms) | p95 | bytes de IR |
+| --- | --- | --- | --- |
+| trivial | 0,001 | 0,001 | 870 |
+| fib(32) | 0,010 | 0,011 | 1.356 |
+| somatorio(1e8) | 0,012 | 0,017 | 1.480 |
+| dez-funcoes | 0,063 | 0,168 | 3.655 |
+
+**Esta tabela não diz que o LLVM é mais rápido.** Ela mede outra coisa: emitir
+IR textual é formatar texto, e a geração de código acontece depois — no Clang,
+no caminho AOT, ou no `lookup` do ORC, no caminho JIT. A comparação certa é
+emissão de IR contra a **tradução** do Cranelift (0,001 vs 0,002 ms no trivial;
+0,063 vs 0,053 ms em dez-funcoes): as duas são da mesma ordem, o que faz
+sentido, porque as duas percorrem a mesma HIR.
+
+O número que faltaria para fechar o eixo 1 é o `lookup` do ORCv2, que é onde o
+LLVM gera código de máquina em memória. Ele pertence a `crates/jit` e não pode
+ser medido daqui — ver [JIT.md](JIT.md), que já o instrumenta como `lookup_ns`.
+
+## Eixo 2 — tempo de execução do código gerado
+
+O JIT executa **no processo do compilador**; o AOT executa num processo próprio.
+Os números do AOT abaixo são de processo inteiro, e incluem a inicialização.
+
+| programa | caminho | p50 (ms) | p95 (ms) |
+| --- | --- | --- | --- |
+| trivial | Cranelift JIT (`opt_level=none`) | < 0,001 | < 0,001 |
+| trivial | Cranelift JIT (`opt_level=speed`) | < 0,001 | < 0,001 |
+| trivial | LLVM AOT `-O0` (processo inteiro) | 17,494 | 19,943 |
+| trivial | LLVM AOT `-O2` (processo inteiro) | 17,892 | 98,733 |
+| somatorio(1e8) | Cranelift JIT (`opt_level=none`) | 89,608 | 100,128 |
+| somatorio(1e8) | Cranelift JIT (`opt_level=speed`) | 92,238 | 95,517 |
+| somatorio(1e8) | LLVM AOT `-O0` (processo inteiro) | 99,199 | 145,816 |
+| somatorio(1e8) | LLVM AOT `-O2` (processo inteiro) | 25,791 | 35,523 |
+| fib(32) | Cranelift JIT (`opt_level=none`) | 29,061 | 43,861 |
+| fib(32) | Cranelift JIT (`opt_level=speed`) | 27,293 | 28,431 |
+| fib(32) | LLVM AOT `-O0` (processo inteiro) | 36,540 | 38,584 |
+| fib(32) | LLVM AOT `-O2` (processo inteiro) | 34,311 | 44,732 |
+
+O programa `trivial` serve de linha de base: **~17,5 ms é o custo de iniciar um
+processo AOT** nesta máquina, e ele está dentro de toda linha AOT. Descontado,
+sobra o trabalho de verdade:
+
+| programa | Cranelift `none` | Cranelift `speed` | AOT `-O0` (menos 17,5 ms) | AOT `-O2` (menos 17,5 ms) |
+| --- | --- | --- | --- | --- |
+| somatorio(1e8) | 89,6 ms | 92,2 ms | ~81,7 ms | ~8,3 ms |
+| fib(32) | 29,1 ms | 27,3 ms | ~19,0 ms | ~16,8 ms |
+
+Conclusões, com as ressalvas que elas exigem:
+
+* **Cranelift com `opt_level` padrão fica na mesma ordem de grandeza que
+  `clang -O0`**: empata no laço aritmético e perde ~1,5× no programa dominado
+  por chamadas. É o esperado de um gerador que não otimiza.
+* **`opt_level = "speed"` quase não ajuda nesta fatia**: melhora 6% em fib e
+  piora 3% em somatório (dentro do ruído), ao custo de 10–50% a mais de geração.
+  Para um perfil de desenvolvimento, o padrão `none` é a escolha certa.
+* **O `-O2` do somatório não é comparável.** 8,3 ms para 10⁸ iterações é rápido
+  demais para um laço executado: o LLVM reduziu o somatório à forma fechada.
+  Comparar esse número com os outros seria comparar programas diferentes. É por
+  isso que ele está aqui marcado, e não usado como conclusão.
+* **A p95 de `trivial -O2` (98,7 ms contra p50 de 17,9 ms)** é ruído da máquina,
+  não do código: outro agente compilando. Deixei o número como saiu.
+
+### O que o eixo 2 realmente mostra: o tempo até executar
+
+Somando o que cada caminho precisa fazer antes da primeira linha de saída:
+
+| caminho | geração de código | inicialização | total até executar |
+| --- | --- | --- | --- |
+| Cranelift JIT | 0,04–0,66 ms | nenhuma (mesmo processo) | **0,04–0,66 ms** |
+| LLVM AOT | Clang + rustc + linker: **1,4 s a 22 s** nesta sessão | ~17,5 ms | **segundos** |
+
+O intervalo do AOT é enorme porque a máquina estava disputada: para o mesmo
+programa trivial, o `clang` levou de 592 ms a 14,2 s e o `rustc`+linker de
+695 ms a 19,4 s em execuções diferentes. Mesmo tomando os melhores tempos, a
+diferença é de **três a quatro ordens de grandeza**.
+
+**Mas esta comparação é contra o AOT, não contra o ORCv2.** O caminho ORCv2 não
+invoca Clang nem o linker: ele materializa o IR em memória. A diferença real
+entre os dois JITs está entre `0,04–0,66 ms` (Cranelift) e o `lookup_ns` de
+`crates/jit`, que este experimento não mede. Apresentar os segundos do AOT como
+se fossem o custo do ORCv2 seria desonesto, e por isso está dito aqui.
+
 
 ## Eixo 3 — custo de construir o próprio compilador
 
@@ -418,9 +540,11 @@ fundamentalmente diferente".
    custo real do caminho ORCv2 está no `lookup` do ORC, que materializa o módulo,
    e esse número pertence a `crates/jit`, não a este experimento.
 2. **Execução.** Com `opt_level` padrão (`none`), o código do Cranelift fica na
-   mesma ordem de grandeza do de `clang -O0`; com `opt_level = "speed"` ele
-   melhora, e continua muito atrás de `clang -O2`. Para um perfil de
-   **desenvolvimento** isso é secundário: o que importa é o tempo até rodar.
+   mesma ordem de grandeza do de `clang -O0` — empata no laço aritmético, perde
+   ~1,5x no programa dominado por chamadas. Ligar `opt_level = "speed"` quase
+   não muda nada nesta fatia e custa 10-50% a mais de geração. Para um perfil de
+   **desenvolvimento** isso é secundário: o que importa é o tempo até rodar, e
+   aí o JIT em memória ganha de qualquer caminho que passe por Clang e linker.
 3. **Custo de build.** Aqui o Cranelift ganha de forma decisiva. Zero bytes
    baixados fora do `crates.io` contra 822 MiB comprimidos e 3,9 GB extraídos;
    `cargo build` contra um caminho absoluto versionado em `.cargo/config.toml`

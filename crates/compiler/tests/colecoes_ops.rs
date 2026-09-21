@@ -2,21 +2,14 @@
 //!
 //! A saída esperada dos programas executáveis foi copiada de `dart run` sem
 //! edição, idêntica nos SDKs Dart 3.6.2 (`dart` no PATH) e 3.13.4
-//! (`D:/DartSDKs/3.13.4/dart-sdk/bin/dart.exe`). A fixture integral está em
-//! `tests/conformance/modules/colecoesops/main.dart` (limpa no
-//! `dart analyze` dos dois SDKs).
+//! (`D:/DartSDKs/3.13.4/dart-sdk/bin/dart.exe`).
 //!
-//! Estado de implementação: apenas o módulo `%` está completo no backend
-//! JavaScript (parser, semântica, const-eval com `rem_euclid`, emissão via
-//! `$dartforgeModulo` e rejeição no LLVM). Os demais itens — literais Set,
-//! spreads `...`/`...?`, elementos `if`/`for`, acesso `?.`, `~/`, bitwise,
-//! `Enum.values` e Map const — estão bloqueados por trabalho concorrente
-//! inacabado na árvore (lexer/sintaxe com variantes `Double`, `Divide` e
-//! `TruncDivide` sem os braços semânticos; parser com métodos
-//! `typedef_decl`/`extension_type` ainda ausentes) e por nós AST ainda sem
-//! representação no subconjunto. Os testes desses itens ficam `#[ignore]`
-//! como especificação executável até o desbloqueio; os testes ativos travam
-//! somente comportamentos já estáveis na árvore.
+//! Os itens 1 a 5 desta lista — literais `Set`, espalhamentos `...`/`...?`,
+//! elementos `if`/`for`, acesso null-aware `?.`/`?[` e operadores de bits —
+//! passaram a ser implementados e ficam cobertos por `colecoes.rs`, com o
+//! contrato em `docs/COLECOES-OPERADORES.md`. O que continua aqui é o módulo
+//! `%`, já completo, e os dois itens ainda bloqueados: `Enum.values` e
+//! `Map` const.
 use dartforge_compiler::{compile, compile_llvm};
 
 /// Saída exata de `dart run` para a fixture integral
@@ -195,29 +188,12 @@ fn modulo_por_zero_lanca_range_error() {
 // atualizado para o novo diagnóstico próprio.
 // ---------------------------------------------------------------------------
 
-/// `{1, 2}` ainda cai na exigência de `:` do literal de mapa.
+/// `{1, 2}` é conjunto e `<int>{}` é conjunto vazio; ver `colecoes.rs`.
 #[test]
-fn conjunto_sem_tipo_cai_na_exigencia_de_dois_pontos() {
-    rejeita(
-        "void main() { var s = {1, 2}; print(s); }",
-        "expected Symbol(':'); supported subset only",
-        ",",
-    );
-}
-
-/// `<String>{}` e `<int>{}` já dizem que sets não são suportados.
-#[test]
-fn conjunto_tipado_diz_que_sets_nao_sao_suportados() {
-    rejeita(
-        "void main() { var s = <String>{}; print(s); }",
-        "map literals require two type arguments; sets are not supported",
-        "}",
-    );
-    rejeita(
-        "void main() { var s = <int>{}; print(s); }",
-        "map literals require two type arguments; sets are not supported",
-        "}",
-    );
+fn conjuntos_sao_aceitos() {
+    compile("void main() { var s = {1, 2}; print(s); }").unwrap();
+    compile("void main() { Set<int> s = {}; print(s); }").unwrap();
+    compile("void main() { var s = <String>{}; print(s.length); }").unwrap();
 }
 
 /// `{}` continua sendo mapa vazio, que exige tipo de valor explícito.
@@ -230,29 +206,12 @@ fn mapa_vazio_exige_tipo_de_valor() {
     );
 }
 
-/// Spreads ainda não iniciam um elemento de coleção válido.
+/// Espalhamentos e elementos `if`/`for` são aceitos; ver `colecoes.rs`.
 #[test]
-fn spread_ainda_nao_inicia_elemento() {
-    rejeita(
-        "void main() { var a = [1]; var b = [0, ...a]; print(b); }",
-        "expected a supported expression",
-        "..",
-    );
-}
-
-/// Elementos `if`/`for` ainda não iniciam um elemento de coleção válido.
-#[test]
-fn elementos_if_for_ainda_nao_iniciam_elemento() {
-    rejeita(
-        "void main() { var b = [if (true) 1 else 2]; print(b); }",
-        "expected a supported expression",
-        "if",
-    );
-    rejeita(
-        "void main() { var b = [for (var x in [1]) x]; print(b); }",
-        "expected a supported expression",
-        "for",
-    );
+fn espalhamentos_e_elementos_de_controle_sao_aceitos() {
+    compile("void main() { var a = [1]; var b = [0, ...a]; print(b); }").unwrap();
+    compile("void main() { var b = [if (1 < 2) 1 else 2]; print(b); }").unwrap();
+    compile("void main() { var b = [for (var x in [1]) x]; print(b); }").unwrap();
 }
 
 /// `Cor.values` ainda não resolve o getter estático da lista canônica.
@@ -285,68 +244,9 @@ fn mapa_const_ainda_cai_na_recusa_generica() {
 // no backend LLVM, sempre com o span do trecho culpado.
 // ---------------------------------------------------------------------------
 
-/// Item 1: `{x}` é Set; `{}` é Map; `<T>{}` vazio com um argumento é Set.
-#[test]
-#[ignore = "requer literais Set (nó AST e tipo ainda ausentes no subconjunto)"]
-fn conjuntos_distinguem_mapa_vazio_de_set() {
-    rejeita_apos(
-        "void main() { var s = {1, 2}; print(s); }",
-        "Set literals are not supported yet",
-        "{1, 2}",
-        "1",
-    );
-    rejeita(
-        "void main() { var s = <int>{1, 2}; print(s); }",
-        "map literals require two type arguments; sets are not supported",
-        "}",
-    );
-}
 
-/// Item 2: spreads avaliam uma única vez e preservam a ordem.
-#[test]
-#[ignore = "requer elementos spread (nó AST ainda ausente no subconjunto)"]
-fn spreads_sao_rejeitados_com_mensagem_propria() {
-    rejeita_apos(
-        "void main() { var a = [1]; var b = [0, ...a]; print(b); }",
-        "Spread elements are not supported yet",
-        "...a",
-        "..",
-    );
-    rejeita_apos(
-        "void main() { List<int>? n = null; var b = [0, ...?n]; print(b); }",
-        "Spread elements are not supported yet",
-        "...?n",
-        "..",
-    );
-}
 
-/// Item 3: elementos `if`/`for`, com o iterável do `for` avaliado uma vez.
-#[test]
-#[ignore = "requer elementos if/for (nós AST ainda ausentes no subconjunto)"]
-fn elementos_if_for_tem_mensagem_propria() {
-    rejeita(
-        "void main() { var b = [if (true) 1 else 2]; print(b); }",
-        "Collection if-elements are not supported yet",
-        "if",
-    );
-    rejeita(
-        "void main() { var b = [for (var x in [1]) x]; print(b); }",
-        "Collection for-elements are not supported yet",
-        "for",
-    );
-}
 
-/// Item 4: `?.` curto-circuita para null sem avaliar o resto da cadeia.
-#[test]
-#[ignore = "requer acesso null-aware (nó AST ainda ausente no subconjunto)"]
-fn acesso_null_aware_tem_mensagem_propria() {
-    rejeita_apos(
-        "void main() { int? z = null; print(z?.isEven); }",
-        "Null-aware access is not supported yet",
-        "z?.isEven",
-        "?.",
-    );
-}
 
 /// Item 5a: `~/` trunca para zero e erra em divisor zero (oráculo Dart).
 #[test]
@@ -357,17 +257,6 @@ fn divisao_inteira_reproduz_o_oraculo() {
     assert_eq!(executar(&js), "3\n-3\n-3\n");
 }
 
-/// Item 5b: bitwise com semântica i32 (o JS já opera em 32 bits; literais do
-/// subconjunto limitados a i32 pelo parser).
-#[test]
-#[ignore = "requer operadores bitwise (tokens ainda ausentes no lexer)"]
-fn bitwise_reproduz_o_oraculo_i32() {
-    let js = compile(
-        "void main() { print(5 | 3); print(5 & 3); print(5 ^ 3); print(~5); print(1 << 3); print(8 >> 2); print(-8 >> 2); }",
-    )
-    .unwrap();
-    assert_eq!(executar(&js), "7\n1\n6\n-6\n8\n2\n-2\n");
-}
 
 /// Item 6: `Enum.values` é a lista canônica congelada dos valores, em ordem.
 #[test]
@@ -406,9 +295,15 @@ fn enum_values_no_llvm_e_rejeitado() {
     );
 }
 
+
 /// Fixture integral executada em Node contra a saída dos dois SDKs.
+///
+/// Continua bloqueada pelos dois itens que faltam — `Enum.values` e `Map`
+/// const. As partes já implementadas de coleções e operadores têm fixture
+/// própria em `tests/conformance/cases/colecoes.dart`, exercitada por
+/// `colecoes.rs`.
 #[test]
-#[ignore = "requer itens 1-7 implementados no backend JavaScript"]
+#[ignore = "requer Enum.values e Map const no backend JavaScript"]
 fn fixture_integral_reproduz_os_oraculos() {
     const FONTE: &str = include_str!("../../../tests/conformance/modules/colecoesops/main.dart");
     assert_eq!(executar(&compile(FONTE).unwrap()), ESPERADO_FIXTURE);

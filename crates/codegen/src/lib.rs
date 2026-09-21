@@ -1356,6 +1356,22 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
         ExprKind::NullAwareElement(_) => {
             panic!("AST inválida: elemento null-aware fora de literal de coleção")
         }
+        // `{}` com contexto de conjunto resolve para `Set` na análise; o
+        // literal continua sendo `Map` na AST e só a emissão muda de forma.
+        ExprKind::Map { entries, .. }
+            if entries.is_empty()
+                && matches!(
+                    output.resolution.expr_types.get(&(value.span.start, value.span.end)),
+                    Some(Type::Applied(id)) if matches!(
+                        output.resolution.types[*id as usize],
+                        dartforge_syntax::TypeShape::Set(_)
+                    )
+                ) =>
+        {
+            output.push_str("new $dartforgeSet([],");
+            types::descriptor(types::element_type(value, output), output);
+            output.push(')');
+        }
         ExprKind::Map { entries, .. } => {
             output.push_str("new $dartforgeMap(");
             if colecoes::entries_need_builder(entries) {

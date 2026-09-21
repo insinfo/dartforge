@@ -56,9 +56,15 @@ programas com mais de uma biblioteca. `Function::is_setter()` e
 | setter com aridade diferente de um posicional | `a setter takes exactly one required positional parameter` |
 | `set x(int v);` sem corpo | `abstract setters and operator declarations are not supported yet` |
 | setter `async` | `setters and operator == cannot be async in this subset` |
-| getter ou setter de topo | `top-level getters are not supported yet` / `top-level setters are not supported yet` |
-| getter ou setter estático | `static getters are not supported yet` |
-| getter ou setter em extension | `extension getters are not supported yet` |
+| getter de topo | `top-level getters are not supported yet` |
+| setter de topo | `top-level setters are not supported yet` |
+| getter estático | `static getters are not supported yet` |
+| getter em extension | `extension getters are not supported yet` |
+
+Setters continuam restritos a membros de instância de classe e de mixin. Fora
+daí a declaração não chega a ser reconhecida como acessor: `set` não é um tipo,
+então o parser recusa antes, com a mensagem de tipo inválido. Ampliar isso para
+estáticos, topo e extensions é trabalho separado e não está feito.
 
 Getter e setter precisam declarar **o mesmo tipo**. O Dart aceita a relação de
 subtipo entre os dois; este subconjunto exige igualdade porque a promoção de
@@ -196,6 +202,10 @@ código que também roda na VM do Dart; ele **não** muda o comportamento das
 coleções deste subconjunto. Uma tabela hash própria, que respeite `==` e
 `hashCode`, é trabalho separado e não está feita.
 
+A divergência está fixada em teste — `map_keys_compare_by_identity_not_by_the_declared_equality`
+em `crates/compiler/tests/objeto.rs` — justamente para que ela não passe
+despercebida: o programa acima imprime `1` nos dois SDKs do oráculo e `2` aqui.
+
 ## `toString`
 
 ```dart
@@ -236,8 +246,8 @@ compila em vez de imprimir algo plausível e errado.
 
 A consequência aparece com polimorfismo: se `Base` não declara `toString` e
 `Derivada` declara, `print(baseRef)` é recusado mesmo que o objeto em tempo de
-execução saiba se imprimir. Declarar `toString` na base — abstrato não, porque
-assinaturas abstratas de acessor não estão no subconjunto — resolve.
+execução saiba se imprimir. Declarar `toString` também na base resolve, e o
+despacho continua escolhendo o da derivada.
 
 ## `dynamic`
 

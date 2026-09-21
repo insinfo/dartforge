@@ -1,0 +1,28 @@
+[package]
+name = "dartforge-asmjit-jit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+# Adota as lints do workspace: `unsafe_code = "deny"` obriga cada uso a aparecer
+# num `#[allow(unsafe_code)]` pontual. Todo o `unsafe` deste crate está em
+# `src/execucao.rs`, que é onde a memória executável é escrita e chamada.
+[lints]
+workspace = true
+[dependencies]
+dartforge-hir = { path = "../hir" }
+dartforge-syntax = { path = "../syntax" }
+dartforge-diagnostics = { path = "../diagnostics" }
+# Montador de tempo de compilação: `dynasm!` é macro procedural, e o que sobra
+# em tempo de execução são só os operandos variáveis. `dynasmrt` reexporta a
+# macro, então uma única dependência direta basta. A comparação com a AsmJit em
+# C++ e com o porte `asmkit-rs`, e os números que levaram a esta escolha, estão
+# em docs/ASMJIT.md. Licença MPL-2.0, copyleft fraco por arquivo: consumir sem
+# modificar não afeta a licença MIT do DartForge.
+dynasmrt = "5.1.0"
+[dev-dependencies]
+dartforge-lexer = { path = "../lexer" }
+dartforge-parser = { path = "../parser" }
+dartforge-semantic = { path = "../semantic" }
+dartforge-llvm = { path = "../llvm" }
+dartforge-native = { path = "../native" }

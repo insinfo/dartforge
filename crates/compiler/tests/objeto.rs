@@ -25,7 +25,9 @@ fn execute(source: &str) -> String {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    String::from_utf8(result.stdout).unwrap().replace("\r\n", "\n")
+    String::from_utf8(result.stdout)
+        .unwrap()
+        .replace("\r\n", "\n")
 }
 
 /// Confere mensagem e intervalo exatos de um programa rejeitado.
@@ -38,7 +40,11 @@ fn rejeita(source: &str, message: &str, span: Span) {
 /// Calcula o intervalo de um trecho único da fonte, em bytes.
 fn trecho(source: &str, needle: &str) -> Span {
     let start = source.find(needle).expect(needle);
-    assert_eq!(source.rfind(needle), Some(start), "trecho ambíguo: {needle}");
+    assert_eq!(
+        source.rfind(needle),
+        Some(start),
+        "trecho ambíguo: {needle}"
+    );
     Span {
         start,
         end: start + needle.len(),
@@ -65,14 +71,20 @@ fn declared_equality_replaces_reference_comparison() {
     );
     let js = javascript(&source);
     assert!(js.contains("$dartforgeEquals("), "{js}");
-    assert!(js.contains("$df$eq(other)") || js.contains("$df$eq($df_other)"), "{js}");
+    assert!(
+        js.contains("$df$eq(other)") || js.contains("$df$eq($df_other)"),
+        "{js}"
+    );
 }
 
 /// Programa sem operador declarado não ganha runtime nem muda a emissão de `==`.
 #[test]
 fn equality_without_a_declared_operator_stays_a_strict_comparison() {
     let js = javascript("void main() { var a=1; var b=2; print(a==b); }");
-    assert!(js.contains("(1 === 2)") || js.contains("($df_a === $df_b)"), "{js}");
+    assert!(
+        js.contains("(1 === 2)") || js.contains("($df_a === $df_b)"),
+        "{js}"
+    );
     assert!(!js.contains("$dartforgeEquals"), "{js}");
 }
 
@@ -254,6 +266,27 @@ fn equal_objects_share_the_declared_hash_code() {
     assert_eq!(execute(&source), "true\ntrue\n");
 }
 
+/// `Map` deste subconjunto compara chaves por identidade, não por `==`/`hashCode`.
+///
+/// Divergência deliberada e documentada em `docs/OBJETO.md`: o Dart 3.6.2 e o
+/// 3.13.4 imprimem `1` para este programa, porque a tabela hash usa `==` e
+/// `hashCode`; aqui a chave é comparada por identidade e as duas entradas
+/// coexistem. O teste existe para que a divergência não passe despercebida.
+#[test]
+#[ignore = "requer Node.js no PATH"]
+fn map_keys_compare_by_identity_not_by_the_declared_equality() {
+    let source = format!(
+        "{PONTO}void main() {{
+  var tabela = <Point, int>{{}};
+  tabela[Point(1, 2)] = 1;
+  tabela[Point(1, 2)] = 2;
+  print(tabela.length);
+}}"
+    );
+    // Dart imprime "1\n"; o subconjunto imprime "2\n".
+    assert_eq!(execute(&source), "2\n");
+}
+
 /// Instância sem `toString` declarado é recusada, e não impressa como Dart faz.
 #[test]
 fn an_instance_without_to_string_is_rejected_instead_of_printed() {
@@ -330,6 +363,43 @@ void main() { print(C().v); }
         source,
         "A getter and its setter must declare the same type",
         trecho(source, "set v(String novo) { _v = 1; }"),
+    );
+}
+
+/// Setter em conflito com campo ou com método comum de mesmo nome.
+#[test]
+fn a_setter_cannot_share_a_field_or_method_name() {
+    let campo = "
+class C { int v = 1; set v(int n) { v = n; } }
+void main() { print(1); }
+";
+    rejeita(
+        campo,
+        "Duplicate setter or conflicting field",
+        trecho(campo, "set v(int n) { v = n; }"),
+    );
+    let metodo = "
+class C { int _v = 1; void v(int n) { _v = n; } set v(int n) { _v = n; } }
+void main() { print(1); }
+";
+    rejeita(
+        metodo,
+        "Duplicate class member: a setter cannot share a method name",
+        trecho(metodo, "set v(int n) { _v = n; }"),
+    );
+}
+
+/// Enums não declaram acessor, operador nem protocolo Object neste subconjunto.
+#[test]
+fn enums_reject_the_object_protocol_and_accessors() {
+    let source = "
+enum Cor { vermelho, azul; String toString() { return 'cor'; } }
+void main() { print(1); }
+";
+    rejeita(
+        source,
+        "Enums cannot declare setters, operator ==, toString or hashCode in this subset",
+        trecho(source, "String toString() { return 'cor'; }"),
     );
 }
 
