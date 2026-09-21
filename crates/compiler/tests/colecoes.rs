@@ -381,3 +381,17 @@ fn llvm_recusa_conjuntos_espalhamentos_e_bits() {
             Ok(_) => panic!("LLVM aceitou: {fonte}"),
             Err(erro) => erro.message,
         }
+    };
+    assert_eq!(
+        recusa_llvm("print(1 & 2);"),
+        "LLVM AOT ainda não suporta operadores de bits e deslocamento (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)"
+    );
+    assert_eq!(
+        recusa_llvm("print(1 << 2);"),
+        "LLVM AOT ainda não suporta operadores de bits e deslocamento (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)"
+    );
+    assert_eq!(
+        recusa_llvm("print(~1);"),
+        "LLVM AOT ainda não suporta o complemento de bits `~`"
+    );
+}

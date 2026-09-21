@@ -64,6 +64,11 @@ forma dependeria do tipo estático do operando. Dart resolve esse caso pela
 inferência; aqui ele é recusado com pedido de anotação, para não aceitar
 silenciosamente uma semântica que o emissor não escolheu.
 
+A única forma decidida depois da sintaxe é `{}` vazio: `Set<int> s = {}` é um
+conjunto em Dart, e aqui o parser produz um literal de mapa que a análise
+converte para `Set` quando o contexto pede. A emissão consulta o tipo resolvido
+e escolhe a representação — `new $dartforgeSet([], T)`, não `new $dartforgeMap`.
+
 ## Espalhamentos
 
 ```dart
@@ -261,4 +266,5 @@ O caminho comum não mudou de forma: um literal sem espalhamento e sem `if`/`for
 continua saindo como `new $dartforgeList([...], T)` e não passa por construtor
 imperativo. A decisão é um `any` sobre um slice emprestado, sem alocação por nó
 nem por elemento. As cópias do `Validator` acontecem apenas onde o fluxo se
-ramifica de verdade — um `if` de coleção e o cabeçalho de um `for` de col
+ramifica de verdade — um `if` de coleção e o cabeçalho de um `for` de coleção —
+na mesma disciplina descrita em [DESEMPENHO.md](DESEMPENHO.md).
