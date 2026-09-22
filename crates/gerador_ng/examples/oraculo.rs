@@ -11,7 +11,7 @@
 //! ```
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::gerado::{Construtor, do_build_runner};
-use dartforge_gerador_ng::{Placar, caminho_do_template, gerar_em};
+use dartforge_gerador_ng::{Pacote, Placar, caminho_do_template, gerar_em};
 use dartforge_intern::Interner;
 use std::path::PathBuf;
 
@@ -39,7 +39,19 @@ fn main() -> std::process::ExitCode {
     let mut placar = Placar::default();
     let dirs: Vec<PathBuf> =
         ["lib", "web", "test"].iter().map(|d| raiz.join(d)).filter(|d| d.is_dir()).collect();
-    gerar_em(&dirs, &mut interner, &mut c, &mut placar);
+    let nome = cfg
+        .packages
+        .iter()
+        .find(|(_, p)| {
+            p.root_uri
+                .to_file_path()
+                .is_ok_and(|d| dartforge_elements::config::sem_verbatim(d) == raiz)
+        })
+        .map(|(n, _)| n.clone())
+        .unwrap_or_else(|| raiz.file_name().unwrap_or_default().to_string_lossy().to_string());
+    let pacote = Pacote { nome, raiz: raiz.clone() };
+    println!("pacote: {}", pacote.nome);
+    gerar_em(&pacote, &dirs, &mut interner, &mut c, &mut placar);
     let nossa = match c.concluir(1) {
         Ok(g) => g,
         Err(erros) => {

@@ -17,6 +17,8 @@
 //! continua vindo do `build_runner`. A aplicação funciona em todos os passos e
 //! o placar diz exatamente onde estamos.
 pub mod componente;
+pub mod html;
+pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
 use dartforge_frontend::ast;
@@ -31,7 +33,8 @@ pub const CABECALHO: &str = "// ************************************************
 /// O que uma biblioteca tem de interessante para o gerador.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Achados {
-    pub componentes: Vec<String>,
+    /// `@Component` lidos por inteiro — é deles que sai a visão.
+    pub componentes: Vec<componente::Componente>,
     pub diretivas: Vec<String>,
     pub pipes: Vec<String>,
     /// `@GenerateInjector` em qualquer declaração de topo.
@@ -64,7 +67,7 @@ fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> String {
 }
 
 /// Varre as declarações de topo de uma unidade já analisada.
-pub fn achar(analisada: &Parsed, interner: &Interner) -> Achados {
+pub fn achar(analisada: &Parsed, fonte: &str, interner: &Interner) -> Achados {
     let mut achados = Achados::default();
     for &id in &analisada.unit.declarations {
         let decl = analisada.ast.decl(id);
@@ -79,7 +82,13 @@ pub fn achar(analisada: &Parsed, interner: &Interner) -> Achados {
         };
         for a in decl.metadata.iter() {
             match nome_da_anotacao(a, interner).as_str() {
-                "Component" => achados.componentes.push(alvo.clone()),
+                "Component" => {
+                    if let ast::DeclKind::Class(classe) = &decl.kind {
+                        achados.componentes.push(componente::ler_componente(
+                            analisada, fonte, interner, classe, a,
+                        ));
+                    }
+                }
                 "Directive" => achados.diretivas.push(alvo.clone()),
                 "Pipe" => achados.pipes.push(alvo.clone()),
                 "GenerateInjector" => achados.injetores.push(alvo.clone()),
@@ -119,8 +128,27 @@ pub fn caminho_do_template(fonte: &Path) -> PathBuf {
     fonte.with_file_name(format!("{base}.template.dart"))
 }
 
+/// O pacote sendo gerado: o nome vale para as URIs `asset:` que o ngdart usa
+/// nas mensagens de modo de desenvolvimento.
+pub struct Pacote {
+    pub nome: String,
+    pub raiz: PathBuf,
+}
+
+impl Pacote {
+    /// Caminho de um arquivo dentro do pacote, com barras: `lib/src/x/f.dart`.
+    fn relativo(&self, arquivo: &Path) -> String {
+        arquivo
+            .strip_prefix(&self.raiz)
+            .unwrap_or(arquivo)
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/")
+    }
+}
+
 /// Gera o que sabe gerar para os `.dart` de `diretorios`, acumulando em `c`.
 pub fn gerar_em(
+    pacote: &Pacote,
     diretorios: &[PathBuf],
     interner: &mut Interner,
     c: &mut Construtor,
@@ -147,18 +175,63 @@ pub fn gerar_em(
                 };
                 let tokens = dartforge_frontend::lexer::lex(&fonte);
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
-                let achados = achar(&analisada, interner);
-                if !achados.trivial() {
-                    // Visões ainda não: fica com o build_runner.
-                    placar.pendentes.push(p);
-                    continue;
-                }
-                let destino = caminho_do_template(&p);
-                c.por(destino, template_trivial(&nome), "ngdart", vec![p]);
+                let achados = achar(&analisada, &fonte, interner);
+                let (texto, entradas) = match gerar_arquivo(pacote, &p, &nome, &achados) {
+                    Some(x) => x,
+                    None => {
+                        // Forma que o gerador ainda não cobre: fica com o
+                        // build_runner, e a aplicação compila do mesmo jeito.
+                        placar.pendentes.push(p);
+                        continue;
+                    }
+                };
+                c.por(caminho_do_template(&p), texto, "ngdart", entradas);
                 placar.gerados += 1;
             }
         }
     }
+}
+
+/// Conteúdo do `.template.dart` de um arquivo, quando sabemos gerá-lo, com os
+/// arquivos que o alimentam (o `.dart` e o `.html` do template).
+fn gerar_arquivo(
+    pacote: &Pacote,
+    fonte: &Path,
+    nome_do_arquivo: &str,
+    achados: &Achados,
+) -> Option<(String, Vec<PathBuf>)> {
+    if achados.trivial() {
+        return Some((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
+    }
+    // Um componente só, sem diretiva, pipe nem injetor no mesmo arquivo: é a
+    // forma que o emissor de visões cobre hoje.
+    if achados.componentes.len() != 1
+        || !achados.diretivas.is_empty()
+        || !achados.pipes.is_empty()
+        || !achados.injetores.is_empty()
+    {
+        return None;
+    }
+    let comp = &achados.componentes[0];
+    let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
+        (Some(t), _) => (t.clone(), None),
+        (None, Some(url)) => {
+            let caminho = fonte.parent()?.join(url);
+            (std::fs::read_to_string(&caminho).ok()?, Some(caminho))
+        }
+        (None, None) => (String::new(), None),
+    };
+    let relativo = pacote.relativo(fonte);
+    let local = visao::Local {
+        pacote: &pacote.nome,
+        relativo: &relativo,
+        arquivo: nome_do_arquivo,
+    };
+    let nos = html::analisar(&template);
+    let texto = visao::template_de_componente(comp, &local, &nos)?;
+    let mut entradas = vec![fonte.to_path_buf()];
+    entradas.extend(arquivo_html);
+    Some((texto, entradas))
 }
 
 /// Gera para um pacote inteiro (`lib/`, `web/`, `test/`), completando o que
@@ -169,15 +242,18 @@ pub fn gerar_em(
 /// que o gerador aprende, um arquivo sai do apoio e entra no nosso, e a
 /// aplicação continua compilando o tempo todo.
 pub fn gerar_com_apoio(
-    raiz: &Path,
+    pacote: &Pacote,
     interner: &mut Interner,
     apoio: Option<&Geracao>,
 ) -> (Arc<Geracao>, Placar) {
     let mut c = Construtor::nova();
     let mut placar = Placar::default();
-    let dirs: Vec<PathBuf> =
-        ["lib", "web", "test"].iter().map(|d| raiz.join(d)).filter(|d| d.is_dir()).collect();
-    gerar_em(&dirs, interner, &mut c, &mut placar);
+    let dirs: Vec<PathBuf> = ["lib", "web", "test"]
+        .iter()
+        .map(|d| pacote.raiz.join(d))
+        .filter(|d| d.is_dir())
+        .collect();
+    gerar_em(pacote, &dirs, interner, &mut c, &mut placar);
     if let Some(apoio) = apoio {
         // O apoio entra só onde não geramos: pendentes deste pacote e tudo o
         // que é de fora dele.
@@ -205,7 +281,7 @@ mod testes {
         let mut i = Interner::new();
         let t = dartforge_frontend::lexer::lex(fonte);
         let u = dartforge_frontend::parser::parse_lexed(fonte, t, &mut i);
-        achar(&u, &i)
+        achar(&u, fonte, &i)
     }
 
     #[test]
@@ -216,9 +292,10 @@ mod testes {
     #[test]
     fn acha_componente_com_e_sem_prefixo() {
         let a = achados_de("@Component(selector: 'x')\nclass XComp {}\n");
-        assert_eq!(a.componentes, vec!["XComp".to_string()]);
+        assert_eq!(a.componentes[0].classe, "XComp");
+        assert_eq!(a.componentes[0].seletor, "x");
         let b = achados_de("@ng.Component(selector: 'x')\nclass YComp {}\n");
-        assert_eq!(b.componentes, vec!["YComp".to_string()]);
+        assert_eq!(b.componentes[0].classe, "YComp");
     }
 
     #[test]
