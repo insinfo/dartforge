@@ -520,7 +520,9 @@ impl<'a> OutlineResolver<'a> {
                 if let Some(parameters) = &ast_func.parameters {
                     for p in parameters.iter() {
                         let p_name = p.name.as_ref().map(|n| n.sym);
-                        let p_ty = if let Some(ast_ty) = p.ty {
+                        let p_ty = if p.function_parameters.is_some() {
+                            self.resolve_function_typed_parameter(unit, p, func.library, &scope)
+                        } else if let Some(ast_ty) = p.ty {
                             self.resolve_annotation(unit, ast_ty, func.library, &scope)
                         } else {
                             // Tenta override inference se for método de instância
@@ -588,8 +590,12 @@ impl<'a> OutlineResolver<'a> {
 
                 for p in ctor.parameters.iter() {
                     let p_name = p.name.as_ref().map(|n| n.sym);
-                    let p_ty = if let Some(ast_ty) = p.ty {
+                    let p_ty = if p.function_parameters.is_some() {
+                        self.resolve_function_typed_parameter(unit, p, func.library, &scope)
+                    } else if let Some(ast_ty) = p.ty {
                         self.resolve_annotation(unit, ast_ty, func.library, &scope)
+                    } else if p.this_ {
+                        self.field_type_for_this_param(func, p_name).unwrap_or(self.core.dynamic_)
                     } else {
                         self.core.dynamic_
                     };
@@ -1136,6 +1142,58 @@ impl<'a> OutlineResolver<'a> {
         }
     }
 
+    /// Parâmetro na forma antiga `R nome(P p)`: um tipo de função com retorno `p.ty`.
+    fn resolve_function_typed_parameter(
+        &mut self,
+        unit_id: UnitId,
+        p: &ast::Parameter,
+        library: LibraryId,
+        scope: &HashMap<SymbolId, TypeParamId>,
+    ) -> TypeId {
+        let mut local_scope = scope.clone();
+        let mut local_params = Vec::new();
+        for tp in p.function_type_params.iter() {
+            let pid = self.table.alloc_type_param(
+                tp.name.sym,
+                TypeParamOwner::GenericFunctionType,
+                self.core.object_nullable,
+                Variance::Unspecified,
+            );
+            local_params.push(pid);
+            local_scope.insert(tp.name.sym, pid);
+        }
+        let ret = match p.ty {
+            Some(t) => self.resolve_annotation(unit_id, t, library, &local_scope),
+            None => self.core.dynamic_,
+        };
+        let params: &[ast::Parameter] = p.function_parameters.as_deref().unwrap_or(&[]);
+        let (pos, opt, named) = self.resolve_ast_parameter_types(unit_id, params, library, &local_scope);
+        self.table.intern(Type::Function {
+            type_params: local_params.into_boxed_slice(),
+            ret,
+            positional: pos.into_boxed_slice(),
+            optional: opt.into_boxed_slice(),
+            named: named.into_boxed_slice(),
+            nullable: false,
+        })
+    }
+
+    /// Tipo do campo para um parâmetro `this.x` sem anotação.
+    fn field_type_for_this_param(&mut self, func: &FunctionElement, name: Option<SymbolId>) -> Option<TypeId> {
+        let class = func.class?;
+        let name = name?;
+        let cls = self.program.class(class);
+        let vid = cls.fields.iter().copied().find(|v| self.program.variable(*v).name == name)?;
+        let v = self.program.variable(vid);
+        let VariableRef::Field { unit, member, index } = v.node else { return None };
+        let mem = self.program.unit(unit).ast.member(member);
+        let MemberKind::Field(list) = &mem.kind else { return None };
+        let _ = index;
+        let t = list.ty?;
+        let scope = self.get_enclosing_type_param_scope(Some(class), None);
+        Some(self.resolve_annotation(unit, t, v.library, &scope))
+    }
+
     fn resolve_ast_parameter_types(
         &mut self,
         unit_id: UnitId,
@@ -1148,7 +1206,9 @@ impl<'a> OutlineResolver<'a> {
         let mut named = Vec::new();
 
         for p in parameters.iter() {
-            let p_ty = if let Some(ast_ty) = p.ty {
+            let p_ty = if p.function_parameters.is_some() {
+                self.resolve_function_typed_parameter(unit_id, p, library, scope)
+            } else if let Some(ast_ty) = p.ty {
                 self.resolve_annotation(unit_id, ast_ty, library, scope)
             } else {
                 self.core.dynamic_

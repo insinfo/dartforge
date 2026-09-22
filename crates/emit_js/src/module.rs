@@ -110,9 +110,9 @@ pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
             main_async = lib_main_is_async(ctx, lid);
         }
     }
+    let _ = main_async;
     let entrada = format!(
-        "import {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} }} from './{entry_path}';\n{}\n",
-        if main_async { format!("await {entry_ident}.main();") } else { format!("{entry_ident}.main();") }
+        "process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
     Ok(Emitido { modulos, entrada })
 }
@@ -1103,6 +1103,9 @@ fn native_member_names(ctx: &Ctx, c: ClassId) -> HashSet<String> {
     let mut names = HashSet::new();
     let mut seen: HashSet<u32> = HashSet::new();
     let mut queue = vec![c];
+    if let Some(o) = ctx.object {
+        queue.push(o);
+    }
     while let Some(k) = queue.pop() {
         if !seen.insert(k.0) {
             continue;
