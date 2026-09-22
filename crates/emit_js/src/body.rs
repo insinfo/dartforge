@@ -4,7 +4,7 @@ use crate::ctx::{Ctx, Member, MemberKind};
 use crate::js::{self, Js, Writer, P_ASSIGN, P_COMMA, P_COND, P_PRIMARY, P_UNARY, P_YIELD};
 use crate::module::ModState;
 use crate::ty::{Ty, TyParam};
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId, UnitId, VariableId};
+use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast::{self, Ast, ExprId, FunctionBody, StmtId, StmtKind};
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
@@ -86,6 +86,9 @@ pub struct FnEmitter<'m, 'a> {
     pub pattern_assign: bool,
     /// Dentro de uma expressão constante (instanciações implícitas viram `dart.const`).
     pub in_const: bool,
+    /// Argumentos de uma chamada de interop JS: funções passam por
+    /// `dart.assertInterop` (salvo `allowInterop(...)` direto).
+    pub interop_args: bool,
     /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
     pub case_labels: Vec<(String, String, String)>,
 }
@@ -126,6 +129,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             forced_ext: None,
             pattern_assign: false,
             in_const: false,
+            interop_args: false,
             case_labels: Vec::new(),
         }
     }
@@ -266,6 +270,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.m.private_sym(self.ctx, lib, name)
     }
 
+    /// `_assertInterop` do DDC: função passada a JS sem `allowInterop` direto
+    /// vira `dart.assertInterop(f)` (falha em tempo de execução se não embrulhada).
+    pub fn assert_interop(&self, js: Js, ty: &Ty) -> Js {
+        let is_fn = matches!(ty, Ty::Fn { .. }) || ty.class().is_some_and(|c| Some(c) == self.ctx.function_);
+        if is_fn && !js.code.starts_with("js_util.allowInterop(") {
+            return Js::prim(format!("dart.assertInterop({})", js.code));
+        }
+        js
+    }
+
+    /// `dart.jsInteropNullCheck(e)` quando o membro de interop é não anulável.
+    pub fn js_null_check(&self, js: Js, mk: &MemberKind) -> Js {
+        if self.ctx.js_null_checkable(mk) {
+            return Js::prim(format!("dart.jsInteropNullCheck({})", js.code));
+        }
+        js
+    }
+
     /// Alvo JS de atribuição para um nome não-local (campo via `this`, topo).
     pub fn emit_assign_to_name(&mut self, sym: SymbolId) -> (String, Ty) {
         let n = self.name(sym).to_string();
@@ -274,6 +296,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let this_ty = self.ctx.this_ty(m.class);
                 let access = self.member_access(&this_ty, &n, true);
                 (format!("this{access}"), self.ctx.member_ty(&m))
+            }
+            crate::expr::IdentTarget::Element(Element::Function(fid)) if self.ctx.is_js_member(fid) => {
+                let f = self.ctx.program.function(fid);
+                (self.ctx.js_static_ref(None, f.library, &MemberKind::Setter(fid), &n), Ty::Dynamic)
             }
             crate::expr::IdentTarget::Element(Element::Variable(vid)) => {
                 let var = self.ctx.program.variable(vid);
@@ -325,13 +351,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let f = self.ctx.program.function(fid);
                 let lib = f.library;
                 let n = self.name(f.name);
-                let js = format!("{}{}", self.lib_var(lib), js::prop_access(&top_level_name(n)));
                 let ty = self.ctx.fn_ty(fid);
+                if self.ctx.is_js_member(fid) {
+                    let mk = match f.kind {
+                        FunctionKind::Getter => MemberKind::Getter(fid),
+                        FunctionKind::Setter => MemberKind::Setter(fid),
+                        _ => MemberKind::Method(fid),
+                    };
+                    return Some((self.ctx.js_static_ref(None, lib, &mk, n), ty));
+                }
+                let js = format!("{}{}", self.lib_var(lib), js::prop_access(&top_level_name(n)));
                 Some((js, ty))
             }
             Element::Variable(vid) => {
                 let v = self.ctx.program.variable(vid);
                 let n = self.name(v.name);
+                if self.ctx.is_js_var(vid) {
+                    return Some((self.ctx.js_static_ref(None, v.library, &MemberKind::Field(vid), n), self.ctx.var_ty(vid)));
+                }
                 let js = format!("{}{}", self.lib_var(v.library), js::prop_access(&top_level_name(n)));
                 Some((js, self.ctx.var_ty(vid)))
             }

@@ -508,15 +508,26 @@ fn get_or_create_library(
 }
 
 /// URI canônica de um caminho **já canonizado** pelo chamador: `package:x/y.dart`
-/// quando está dentro do `packageUri` de um pacote, senão `file:///…`.
+/// quando está dentro do `packageUri` de um pacote ou dos gerados do
+/// `build_runner` (`<projeto>/.dart_tool/build/generated/<pacote>/lib/<rel>`),
+/// senão `file:///…`.
 ///
-/// Não chama `canonicalize`: os diretórios dos pacotes vêm prontos de
-/// [`PackageConfig::package_dirs`] e o caminho chega canônico (entrada, parte
-/// ou import relativo, cada um canonizado uma vez por quem o descobriu).
+/// Não chama `canonicalize`: os diretórios dos pacotes e a raiz de gerados
+/// vêm prontos de [`PackageConfig`] (canonizados uma vez na carga) e o
+/// caminho chega canônico (entrada, parte ou import relativo, cada um
+/// canonizado uma vez por quem o descobriu).
 fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> String {
-    // No Windows `canonicalize` devolve `\\?\C:\…`; os diretórios dos pacotes
+    // No Windows `canonicalize` devolve `\?\C:\…`; os diretórios dos pacotes
     // estão sem o prefixo, então o caminho também fica sem ele.
     let canonical = crate::config::sem_verbatim(canonical.to_path_buf());
+    if let Some(gen_root) = &package_config.generated_root {
+        if let Ok(rel) = canonical.strip_prefix(gen_root) {
+            let parts: Vec<String> = rel.iter().map(|c| c.to_string_lossy().into_owned()).collect();
+            if parts.len() >= 3 && parts[1] == "lib" {
+                return format!("package:{}/{}", parts[0], parts[2..].join("/"));
+            }
+        }
+    }
     for (name, dir) in &package_config.package_dirs {
         if let Ok(rel) = canonical.strip_prefix(dir) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
@@ -555,7 +566,33 @@ fn resolve_directive_target(
         let file_path = package_config.resolve_package_uri(uri_str)?;
         Ok((uri_str.to_string(), Some(file_path)))
     } else {
-        // Relativo ao arquivo base
+        // Relativo ao arquivo base. Se o base está num pacote (real ou gerado),
+        // resolve pela URI `package:` para que gerados e originais se encontrem.
+        if let Some(bp) = base_path {
+            let base_uri = canonical_file_uri(bp, package_config);
+            if let Some(rest) = base_uri.strip_prefix("package:") {
+                // `package:` não é hierárquica para o `url`: junta-se à mão.
+                let mut segs: Vec<&str> = rest.split('/').collect();
+                segs.pop();
+                for part in uri_str.split('/') {
+                    match part {
+                        "." | "" => {}
+                        ".." => {
+                            segs.pop();
+                        }
+                        p => segs.push(p),
+                    }
+                }
+                if segs.len() >= 2 {
+                    let joined = format!("package:{}", segs.join("/"));
+                    if let Ok(file_path) = package_config.resolve_package_uri(&joined) {
+                        if file_path.is_file() {
+                            return Ok((joined, Some(file_path)));
+                        }
+                    }
+                }
+            }
+        }
         let base = base_path.and_then(|p| p.parent()).unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
         let canonical = std::fs::canonicalize(&target_path)
