@@ -88,6 +88,27 @@ executa.
   (funções estáticas do módulo), `const` canonicalizado (`dart.const`,
   tabela `CT`).
 
+## Granularidade dos módulos (decisão 2026-09-22)
+
+Um módulo do contrato DDC pode conter várias bibliotecas (o `dart_sdk.js`
+tem 36: `var core = Object.create(dart.library)` …). Então a granularidade
+do JS entregue ao navegador é **política do emissor**, separada da
+granularidade do cache (por biblioteca) e da do bundle de produção (chunks
+do linker). Política de desenvolvimento, na linha do `SmallModulesFor` do
+Scala.js:
+
+* bibliotecas do **projeto** (pacote com `rootUri` local ou arquivos fora
+  de pacote): um módulo por biblioteca — é o que muda a cada edição;
+* pacotes do **pub cache**: um módulo por pacote (`packages/intl.js`),
+  contendo todas as bibliotecas do pacote — são estáveis;
+* `dart_sdk.js`: um só.
+
+O `new_sali/core` com `package:test` tem 2.100 bibliotecas; com esta
+política o navegador recebe ~1 módulo do projeto + ~40 de pacotes + o SDK.
+`LibraryId → arquivo` deixa de ser propriedade do compilador: o emissor
+recebe um mapa biblioteca → módulo e escreve um `import`/`export` por
+módulo, não por biblioteca.
+
 ## Harness diferencial e corpus
 
 `crates/diferencial` (`cargo run -p dartforge-diferencial`) roda cada programa de
