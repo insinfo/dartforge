@@ -876,6 +876,46 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     let _ = has_equals;
 
+    // Encaminhadores para `noSuchMethod` em classes concretas com membros abstratos.
+    if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) {
+        m.use_sdk("_internal");
+        m.use_sdk("core");
+        let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
+        for (name, mk) in ctx.unimplemented_abstract(c) {
+            if name == "noSuchMethod" || name.starts_with('_') {
+                continue;
+            }
+            let sym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&name));
+            match mk {
+                crate::ctx::MemberKind::Method(fid) => {
+                    let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
+                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || ret.mentions_params() { String::new() } else { format!("{}[_as]", se.rti(&ret)) };
+                    let jsname = js_member_name(&name);
+                    cw.line(&format!("{}(...args) {{ return {cast}(dart.noSuchMethod(this, new core._Invocation.method({sym}, null, args, null))); }}", js::prop_key(&jsname)));
+                    method_sigs.push((jsname.clone(), ctx.fn_ty(fid)));
+                    if natives.contains(&name) {
+                        ext_methods.push(jsname);
+                    }
+                }
+                crate::ctx::MemberKind::Getter(fid) => {
+                    let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
+                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || ret.mentions_params() { String::new() } else { format!("{}[_as]", se.rti(&ret)) };
+                    cw.line(&format!("get {}() {{ return {cast}(dart.noSuchMethod(this, new core._Invocation.getter({sym}))); }}", js::prop_key(&name)));
+                    getter_sigs.push((name.clone(), ret));
+                    if natives.contains(&name) {
+                        ext_accessors.push(name.clone());
+                    }
+                }
+                crate::ctx::MemberKind::Setter(_) => {
+                    let ssym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&format!("{name}=")));
+                    cw.line(&format!("set {}(v) {{ dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", js::prop_key(&name)));
+                }
+                crate::ctx::MemberKind::Field(_) => {}
+            }
+        }
+        let _ = &mut se;
+    }
+
     // Tearoffs de construtores (`C.new == C.new`).
     if !is_mixin {
         for (&csym, &cfid) in &class.constructors {

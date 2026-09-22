@@ -456,7 +456,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if let IdentTarget::Element(Element::Class(c)) = self.resolve_ident(id.sym) {
                         let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                         let cname = if name == "new" { "" } else { name };
-                        return Some(self.emit_constructor_call(c, targs, true, cname, arguments, expected, false));
+                        let is_const = self.in_const;
+                        return Some(self.emit_constructor_call(c, targs, true, cname, arguments, expected, is_const));
                     }
                 }
                 None
@@ -477,7 +478,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let cname = if name == "new" { "" } else { name };
         let key = if cname.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(cname) };
         if key.is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k)) {
-            return Some(self.emit_constructor_call(c, vec![], false, cname, arguments, expected, false));
+            let is_const = self.in_const;
+            return Some(self.emit_constructor_call(c, vec![], false, cname, arguments, expected, is_const));
         }
         None
     }
@@ -548,7 +550,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         return (js, self.ctx.this_ty(c));
                     }
                 }
-                self.emit_constructor_call(c, vec![], false, "", arguments, expected, false)
+                let is_const = self.in_const;
+                self.emit_constructor_call(c, vec![], false, "", arguments, expected, is_const)
             }
             Element::Extension(ext) => {
                 // `Ext(x)` — valor para acesso explícito a membros da extensão.
@@ -562,7 +565,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Element::Typedef(td) => {
                 let data = &self.ctx.outline.typedefs[td.0 as usize];
                 if let Ty::Iface { class, args, .. } = self.ctx.ty_of(data.target_type) {
-                    return self.emit_constructor_call(class, args.clone(), !args.is_empty(), "", arguments, expected, false);
+                    let is_const = self.in_const;
+                    return self.emit_constructor_call(class, args.clone(), !args.is_empty(), "", arguments, expected, is_const);
                 }
                 (Js::prim("null"), Ty::Dynamic)
             }

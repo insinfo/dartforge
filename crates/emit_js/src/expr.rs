@@ -77,6 +77,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 cur = self.ctx.superclass_of(k);
             }
+            let class = self.ctx.program.class(c);
+            if class.kind == ClassKind::Enum {
+                if let Some(&vid) = class.enum_constants.iter().find(|v| self.ctx.program.variable(**v).name == sym) {
+                    return IdentTarget::Static(c, MemberKind::Field(vid));
+                }
+            }
             if !self.is_static && self.ctx.program.lookup(self.lib, sym).is_none() {
                 if self.find_extension_member(&self.ctx.this_ty(c), n, false).is_some() {
                     return IdentTarget::ThisExt;

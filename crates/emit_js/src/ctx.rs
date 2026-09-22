@@ -668,10 +668,108 @@ impl<'a> Ctx<'a> {
 
     pub fn var_ty(&self, vid: VariableId) -> Ty {
         let v = &self.outline.variables[vid.0 as usize];
+        let var = self.program.variable(vid);
+        if let dartforge_elements::model::VariableRef::EnumConstant { .. } = var.node {
+            if let Some(c) = var.class {
+                return Ty::iface(c);
+            }
+        }
         match v.declared_type.or(v.inferred) {
             Some(t) => self.ty_of(t),
             None => Ty::Dynamic,
         }
+    }
+
+    /// Membro concreto (não abstrato) na cadeia de superclasses e mixins.
+    pub fn has_concrete_member(&self, c: ClassId, name: &str, setter: bool) -> bool {
+        let mut seen = HashSet::new();
+        let mut queue = vec![c];
+        while let Some(k) = queue.pop() {
+            if !seen.insert(k) {
+                continue;
+            }
+            if let Some(mk) = self.declared_member(k, name, setter) {
+                let abstract_ = match mk {
+                    MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => self.program.function(f).abstract_,
+                    MemberKind::Field(v) => self.program.variable(v).external && false,
+                };
+                if !abstract_ {
+                    return true;
+                }
+            }
+            let class = self.program.class(k);
+            queue.extend(class.mixin_classes.iter().copied());
+            if let Some(s) = class.supertype_class {
+                queue.push(s);
+            }
+        }
+        false
+    }
+
+    /// Classe (própria ou herdada, sem contar Object) que declara `noSuchMethod`.
+    pub fn has_user_nsm(&self, c: ClassId) -> bool {
+        let mut cur = Some(c);
+        while let Some(k) = cur {
+            if Some(k) == self.object {
+                return false;
+            }
+            if self.declared_member(k, "noSuchMethod", false).is_some() {
+                return true;
+            }
+            let class = self.program.class(k);
+            for &mx in &class.mixin_classes {
+                if self.declared_member(mx, "noSuchMethod", false).is_some() {
+                    return true;
+                }
+            }
+            cur = class.supertype_class;
+        }
+        false
+    }
+
+    /// Membros abstratos (nome, kind) alcançáveis pelos supertipos que não têm implementação concreta.
+    pub fn unimplemented_abstract(&self, c: ClassId) -> Vec<(String, MemberKind)> {
+        let mut out: Vec<(String, MemberKind)> = Vec::new();
+        let mut seen = HashSet::new();
+        let mut queue = vec![c];
+        while let Some(k) = queue.pop() {
+            if !seen.insert(k) || Some(k) == self.object {
+                continue;
+            }
+            let class = self.program.class(k);
+            for (&sym, &fid) in &class.instance_members {
+                let f = self.program.function(fid);
+                if !f.abstract_ {
+                    continue;
+                }
+                let key = self.interner.resolve(sym).to_string();
+                let (name, setter) = match key.strip_suffix("_=") {
+                    Some(n) => (n.to_string(), true),
+                    None => (key.clone(), false),
+                };
+                if out.iter().any(|(n, mk)| *n == name && matches!(mk, MemberKind::Setter(_)) == setter) {
+                    continue;
+                }
+                if self.has_concrete_member(c, &name, setter) {
+                    continue;
+                }
+                let mk = match f.kind {
+                    FunctionKind::Getter => MemberKind::Getter(fid),
+                    FunctionKind::Setter => MemberKind::Setter(fid),
+                    FunctionKind::ImplicitAccessor => {
+                        if setter { MemberKind::Setter(fid) } else { MemberKind::Getter(fid) }
+                    }
+                    _ => MemberKind::Method(fid),
+                };
+                out.push((name, mk));
+            }
+            for s in &self.class_supers[k.0 as usize] {
+                if let Some(sc) = s.class() {
+                    queue.push(sc);
+                }
+            }
+        }
+        out
     }
 
     pub fn fn_ty(&self, fid: FunctionElementId) -> Ty {
