@@ -100,13 +100,29 @@ impl SdkCache {
         format!("{h:016x}")
     }
 
-    /// Caminho do arquivo de cache: `DARTFORGE_CACHE_DIR` ou `target/dartforge`.
+    /// Diretório do cache: `DARTFORGE_CACHE_DIR`; senão o `target/` de onde o
+    /// executável corre (`target/release/dartforge.exe`, testes em
+    /// `target/debug/deps/`) mais `dartforge/`; senão `target/dartforge` no
+    /// diretório atual.
+    pub fn diretorio() -> PathBuf {
+        if let Some(d) = std::env::var_os("DARTFORGE_CACHE_DIR") {
+            return PathBuf::from(d);
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            let mut p = exe.as_path();
+            while let Some(parent) = p.parent() {
+                if parent.file_name().is_some_and(|n| n == "target") {
+                    return parent.join("dartforge");
+                }
+                p = parent;
+            }
+        }
+        PathBuf::from("target").join("dartforge")
+    }
+
+    /// Caminho do arquivo de cache para este SDK e seção.
     pub fn caminho(sdk: &SdkLayout, target: &str) -> PathBuf {
-        let dir = match std::env::var_os("DARTFORGE_CACHE_DIR") {
-            Some(d) => PathBuf::from(d),
-            None => PathBuf::from("target").join("dartforge"),
-        };
-        dir.join(format!("sdk-{}.bin", Self::hash(sdk, target)))
+        Self::diretorio().join(format!("sdk-{}.bin", Self::hash(sdk, target)))
     }
 
     /// Lê e decodifica o cabeçalho de `caminho`; `None` se não existe ou não decodifica.
