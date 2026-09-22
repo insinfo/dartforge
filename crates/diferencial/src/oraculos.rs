@@ -30,7 +30,17 @@ pub struct Ambiente {
 impl Ambiente {
     /// Detecta tudo a partir do diretório do crate; gera `dart_sdk.js` se faltar.
     pub fn detectar() -> Ambiente {
-        let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap_or_else(|_| PathBuf::from("."));
+        // Com `target/` compartilhado entre worktrees, o `CARGO_MANIFEST_DIR`
+        // embutido aponta para a árvore que compilou este binário por último,
+        // não para a árvore de quem o está executando. A raiz é o diretório
+        // corrente quando ele tem o corpus (é o que `cargo run` faz), senão o
+        // caminho embutido.
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let raiz = if cwd.join("corpus/js").is_dir() {
+            cwd
+        } else {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap_or_else(|_| PathBuf::from("."))
+        };
         let raiz = sem_prefixo_verbatim(raiz);
         let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("C:/tools/dartsdk-3.6.2"));
         let dart_sdk_js = raiz.join("runtime/ddc/dart_sdk.js");
@@ -44,12 +54,13 @@ impl Ambiente {
         let target = std::env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| raiz.join("target"));
         let dartforge_bin = std::env::var("DARTFORGE_BIN").ok().map(PathBuf::from).or_else(|| {
             let exe = if cfg!(windows) { "dartforge.exe" } else { "dartforge" };
-            let candidatos = [target.join("release").join(exe), target.join("debug").join(exe)];
-            candidatos
-                .iter()
-                .filter(|p| p.is_file())
-                .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
-                .cloned()
+            // Pelo mesmo motivo, o `dartforge` certo é o que está ao lado deste
+            // executável (mesmo `target/<perfil>/`), antes de qualquer outro.
+            let ao_lado = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe)));
+            let mut candidatos: Vec<PathBuf> = ao_lado.into_iter().collect();
+            candidatos.push(target.join("release").join(exe));
+            candidatos.push(target.join("debug").join(exe));
+            candidatos.into_iter().find(|p| p.is_file())
         });
         let mut path_extra = Vec::new();
         for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"D:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
