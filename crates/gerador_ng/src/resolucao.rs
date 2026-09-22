@@ -41,6 +41,35 @@ impl<'a> Resolvedor<'a> {
         Self { program, interner, por_caminho }
     }
 
+    /// Cada biblioteca carregada: URI, árvore, unidade, fonte e caminho.
+    ///
+    /// É daqui que sai o índice de componentes de **todos** os pacotes — sem
+    /// isto, um `<li-select>` do limitless_ui seria só uma tag desconhecida.
+    pub fn bibliotecas(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &'a str,
+            &'a dartforge_frontend::ast::Ast,
+            &'a dartforge_frontend::ast::CompilationUnit,
+            &'a str,
+            Option<&'a Path>,
+        ),
+    > + '_ {
+        self.program.units.iter().filter_map(move |u| {
+            let lib = self.program.library(u.library);
+            if lib.is_sdk {
+                return None;
+            }
+            Some((lib.uri.as_str(), &u.ast, &u.unit, u.source.as_str(), u.path.as_deref()))
+        })
+    }
+
+    /// O interner da carga, para ler os nomes das árvores acima.
+    pub fn interner(&self) -> &'a Interner {
+        self.interner
+    }
+
     /// Biblioteca do arquivo, se ele foi carregado.
     pub fn biblioteca(&self, arquivo: &Path) -> Option<LibraryId> {
         self.por_caminho.get(&dartforge_elements::gerado::chave(arquivo)).copied()

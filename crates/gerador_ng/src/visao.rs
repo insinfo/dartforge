@@ -104,6 +104,8 @@ pub enum Motivo {
     EstiloEmLinha,
     /// Arquivo `.html` do `templateUrl` não encontrado.
     TemplateAusente,
+    /// `@Input`/`@Output` num componente filho.
+    LigacaoEmFilho,
     /// Atributo ou ligação que pertence a uma diretiva do ecossistema
     /// (`ngClass`, `ngModel`…), não ao DOM.
     Diretiva,
@@ -131,6 +133,7 @@ impl Motivo {
             Motivo::Projecao => "<ng-content>",
             Motivo::EstiloEmLinha => "style em linha",
             Motivo::TemplateAusente => "template não encontrado",
+            Motivo::LigacaoEmFilho => "ligação em componente filho",
             Motivo::Diretiva => "ligação de diretiva",
             Motivo::NaoEntendido => "forma do componente não entendida",
         }
@@ -146,6 +149,7 @@ pub fn motivos(
     local: &Local,
     nos: &[No],
     resolvedor: Option<&dyn Resolucao>,
+    filhos: &std::collections::HashMap<String, Filho>,
 ) -> std::collections::BTreeSet<Motivo> {
     let mut fora = std::collections::BTreeSet::new();
     if c.nao_entendido.is_some() {
@@ -157,11 +161,15 @@ pub fn motivos(
     if let Some(m) = falta_para_construir(c, local, resolvedor) {
         fora.insert(m);
     }
-    motivos_dos_nos(nos, &mut fora);
+    motivos_dos_nos(nos, filhos, &mut fora);
     fora
 }
 
-fn motivos_dos_nos(nos: &[No], fora: &mut std::collections::BTreeSet<Motivo>) {
+fn motivos_dos_nos(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    fora: &mut std::collections::BTreeSet<Motivo>,
+) {
     for no in nos {
         match no {
             No::Comentario(_) | No::Texto(_) => {}
@@ -172,8 +180,21 @@ fn motivos_dos_nos(nos: &[No], fora: &mut std::collections::BTreeSet<Motivo>) {
                 fora.insert(Motivo::Projecao);
             }
             No::Elemento(e) => {
-                if !dom::tag_html(&e.nome) {
+                let e_filho = filhos.contains_key(&e.nome);
+                if !dom::tag_html(&e.nome) && !e_filho {
                     fora.insert(Motivo::ComponenteNoTemplate);
+                } else if e_filho {
+                    // Componente conhecido: o que falta é ligar `@Input` e
+                    // `@Output` nele.
+                    if !e.propriedades.is_empty()
+                        || !e.eventos.is_empty()
+                        || !e.bananas.is_empty()
+                        || !e.referencias.is_empty()
+                        || e.estrela.is_some()
+                        || !e.atributos.is_empty()
+                    {
+                        fora.insert(Motivo::LigacaoEmFilho);
+                    }
                 } else if !e.propriedades.is_empty()
                     || !e.eventos.is_empty()
                     || !e.bananas.is_empty()
@@ -188,7 +209,7 @@ fn motivos_dos_nos(nos: &[No], fora: &mut std::collections::BTreeSet<Motivo>) {
                 if e.atributos.iter().any(|a| a.nome == "style") {
                     fora.insert(Motivo::EstiloEmLinha);
                 }
-                motivos_dos_nos(&e.filhos, fora);
+                motivos_dos_nos(&e.filhos, filhos, fora);
             }
         }
     }
@@ -394,7 +415,7 @@ impl Corpo<'_> {
             || !e.atributos.is_empty()
         {
             // Ligação em componente filho (`@Input`/`@Output`) ainda não.
-            return Err(Motivo::Ligacao);
+            return Err(Motivo::LigacaoEmFilho);
         }
         let n = self.proximo;
         self.proximo += 1;

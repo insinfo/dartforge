@@ -265,9 +265,29 @@ pub fn compilar_com_relatorio(
                 let raiz = c.origin.as_ref()?.parent()?.parent()?.to_path_buf();
                 let nome = nome_do_pacote(&c, &raiz);
                 let pacote = dartforge_gerador_ng::Pacote { nome, raiz };
+                // Fase 1: carregar o projeto sem os gerados, só para o
+                // gerador ter banco semântico — é o equivalente ao
+                // `BuildStep.resolver` do `package:build`. A carga é
+                // tolerante, então os `.template.dart` que faltam viram
+                // diagnóstico e o resto do programa fica de pé.
+                let t_fase1 = Instant::now();
+                let mut nomes_fase1 = Interner::new();
+                let (programa, _) = dartforge_elements::load::load_lenient(
+                    entrada,
+                    &sdk,
+                    packages,
+                    &mut nomes_fase1,
+                );
+                let resolvedor =
+                    dartforge_gerador_ng::resolucao::Resolvedor::novo(&programa, &nomes_fase1);
+                rel.fase("gerador: carga de resolução", t_fase1);
                 let mut nomes = Interner::new();
-                let (g, placar) =
-                    dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut nomes, Some(&apoio));
+                let (g, placar) = dartforge_gerador_ng::gerar_com_apoio(
+                    &pacote,
+                    &mut nomes,
+                    Some(&apoio),
+                    Some(&resolvedor),
+                );
                 rel.gerador_ng = Some((placar.gerados, placar.examinados));
                 Some(g)
             })

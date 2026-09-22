@@ -169,8 +169,10 @@ pub fn gerar_em(
     interner: &mut Interner,
     c: &mut Construtor,
     placar: &mut Placar,
-    resolvedor: Option<&dyn resolucao::Resolucao>,
+    programa: Option<&resolucao::Resolvedor>,
 ) {
+    let resolvedor = programa.map(|r| r as &dyn resolucao::Resolucao);
+    let resolvedor = resolvedor.as_deref();
     // Duas passadas: a primeira lê e analisa tudo, a segunda gera. É a
     // primeira que monta o índice de componentes do pacote — sem ele não dá
     // para saber que `<a02-texto-estatico>` é um componente e qual classe o
@@ -203,7 +205,7 @@ pub fn gerar_em(
         }
     }
 
-    let indice = Indice::montar(pacote, &arquivos);
+    let indice = Indice::montar(pacote, &arquivos, programa);
 
     for (p, nome, achados) in &arquivos {
         let (texto, entradas) =
@@ -219,7 +221,7 @@ pub fn gerar_em(
                         }
                     }
                     placar.conjuntos.push(motivos_do_arquivo(
-                        pacote, p, achados, motivo, resolvedor,
+                        pacote, p, achados, motivo, resolvedor, &indice,
                     ));
                     placar.pendentes.push(p.clone());
                     continue;
@@ -245,41 +247,31 @@ pub struct Indice {
 }
 
 impl Indice {
-    fn montar(pacote: &Pacote, arquivos: &[(PathBuf, String, Achados)]) -> Self {
+    fn montar(
+        pacote: &Pacote,
+        arquivos: &[(PathBuf, String, Achados)],
+        programa: Option<&resolucao::Resolvedor>,
+    ) -> Self {
         let mut por_classe = std::collections::HashMap::new();
+        // Com o programa carregado, o índice cobre todos os pacotes: um
+        // `<li-select>` do limitless_ui é tão componente quanto um do próprio
+        // projeto. Sem ele, só o que a varredura de arquivos viu.
+        if let Some(r) = programa {
+            let interner = r.interner();
+            for (uri, arvore, unidade, fonte, caminho) in r.bibliotecas() {
+                let achados = achar(arvore, unidade, fonte, interner);
+                for comp in &achados.componentes {
+                    indexar(&mut por_classe, uri, comp, caminho);
+                }
+            }
+        }
         for (caminho, _nome, achados) in arquivos {
             let Some(uri) = uri_de_biblioteca(pacote, caminho) else { continue };
             for comp in &achados.componentes {
                 if comp.seletor.is_empty() {
                     continue;
                 }
-                let projeta = comp
-                    .template_url
-                    .as_ref()
-                    .and_then(|u| caminho.parent().map(|d| d.join(u)))
-                    .and_then(|c| std::fs::read_to_string(c).ok())
-                    .map(|t| html::tem_projecao(&html::analisar(&t)))
-                    .unwrap_or_else(|| {
-                        comp.template
-                            .as_ref()
-                            .map(|t| html::tem_projecao(&html::analisar(t)))
-                            .unwrap_or(false)
-                    });
-                por_classe.insert(
-                    (uri.clone(), comp.classe.clone()),
-                    visao::Filho {
-                        classe: comp.classe.clone(),
-                        seletor: comp.seletor.clone(),
-                        uri_dart: uri.clone(),
-                        uri_template: uri.replace(".dart", ".template.dart"),
-                        projeta,
-                        entradas: comp
-                            .membros
-                            .iter()
-                            .map(|(n, m)| (n.clone(), m.clone()))
-                            .collect(),
-                    },
-                );
+                indexar(&mut por_classe, &uri, comp, Some(caminho));
             }
         }
         let mut por_nome: std::collections::HashMap<String, Vec<visao::Filho>> =
@@ -313,6 +305,39 @@ impl Indice {
         }
         saida
     }
+}
+
+/// Põe um componente no índice, com o que o emissor precisa dele.
+fn indexar(
+    por_classe: &mut std::collections::HashMap<(String, String), visao::Filho>,
+    uri: &str,
+    comp: &componente::Componente,
+    caminho: Option<&Path>,
+) {
+    if comp.seletor.is_empty() {
+        return;
+    }
+    // Se o filho projeta conteúdo, quem o usa chama `createAndProject`.
+    let projeta = match (&comp.template, &comp.template_url) {
+        (Some(t), _) => html::tem_projecao(&html::analisar(t)),
+        (None, Some(u)) => caminho
+            .and_then(|c| c.parent().map(|d| d.join(u)))
+            .and_then(|c| std::fs::read_to_string(c).ok())
+            .map(|t| html::tem_projecao(&html::analisar(&t)))
+            .unwrap_or(false),
+        (None, None) => false,
+    };
+    por_classe.insert(
+        (uri.to_string(), comp.classe.clone()),
+        visao::Filho {
+            classe: comp.classe.clone(),
+            seletor: comp.seletor.clone(),
+            uri_dart: uri.to_string(),
+            uri_template: uri.replace(".dart", ".template.dart"),
+            projeta,
+            entradas: comp.membros.clone(),
+        },
+    );
 }
 
 /// URI `package:` de um arquivo do pacote, quando ele está em `lib/`.
@@ -397,6 +422,7 @@ fn motivos_do_arquivo(
     achados: &Achados,
     primeiro: Motivo,
     resolvedor: Option<&dyn resolucao::Resolucao>,
+    indice: &Indice,
 ) -> std::collections::BTreeSet<Motivo> {
     let mut fora = std::collections::BTreeSet::new();
     fora.insert(primeiro);
@@ -422,7 +448,8 @@ fn motivos_do_arquivo(
         raiz: &pacote.raiz,
         url_do_template: url_do_template(pacote, fonte, comp),
     };
-    fora.extend(visao::motivos(comp, &local, &html::analisar(&template), resolvedor));
+    let filhos = indice.filhos_de(comp, fonte, resolvedor);
+    fora.extend(visao::motivos(comp, &local, &html::analisar(&template), resolvedor, &filhos));
     fora
 }
 
@@ -437,7 +464,7 @@ pub fn gerar_com_apoio(
     pacote: &Pacote,
     interner: &mut Interner,
     apoio: Option<&Geracao>,
-    resolvedor: Option<&dyn resolucao::Resolucao>,
+    programa: Option<&resolucao::Resolvedor>,
 ) -> (Arc<Geracao>, Placar) {
     let mut c = Construtor::nova();
     let mut placar = Placar::default();
@@ -446,7 +473,7 @@ pub fn gerar_com_apoio(
         .map(|d| pacote.raiz.join(d))
         .filter(|d| d.is_dir())
         .collect();
-    gerar_em(pacote, &dirs, interner, &mut c, &mut placar, resolvedor);
+    gerar_em(pacote, &dirs, interner, &mut c, &mut placar, programa);
     if let Some(apoio) = apoio {
         // O apoio entra só onde não geramos: pendentes deste pacote e tudo o
         // que é de fora dele.
