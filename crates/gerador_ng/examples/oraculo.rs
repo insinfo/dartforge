@@ -87,6 +87,23 @@ fn main() -> std::process::ExitCode {
     println!("    diferentes:        {diferentes}");
     println!("    sem oficial:       {sem_oficial}");
     println!("  pendentes: {} ({pendentes_com_oficial} com oficial)", placar.pendentes.len());
+    // Quantos arquivos cada forma aparece, e quantos ela destrava sozinha.
+    let mut aparece: std::collections::BTreeMap<_, usize> = Default::default();
+    let mut sozinha: std::collections::BTreeMap<_, usize> = Default::default();
+    for conjunto in &placar.conjuntos {
+        for m in conjunto {
+            *aparece.entry(*m).or_default() += 1;
+        }
+        if conjunto.len() == 1 {
+            *sozinha.entry(*conjunto.iter().next().unwrap()).or_default() += 1;
+        }
+    }
+    println!("  motivos (aparece / destrava sozinha):");
+    let mut linhas: Vec<_> = aparece.iter().map(|(m, n)| (*n, *m)).collect();
+    linhas.sort_by(|a, b| b.0.cmp(&a.0));
+    for (n, m) in linhas {
+        println!("    {n:4} / {:4}  {}", sozinha.get(&m).copied().unwrap_or(0), m.texto());
+    }
     if listar {
         for d in divergentes.iter().take(20) {
             println!("  != {d}");

@@ -347,16 +347,21 @@ fn reduzir_espacos(nos: Vec<No>) -> Vec<No> {
         let colapsa_esq = anterior_e_colapsavel;
         let colapsa_dir = colapsa_ao_lado(nos.get(i + 1));
         if colapsa_esq && colapsa_dir && texto.trim().is_empty() && !texto.contains(NBSP) {
-            // Texto só de espaços entre dois nós de bloco: some, e o vizinho à
-            // esquerda para o próximo continua sendo o que já estava.
+            // Texto só de espaços entre dois nós de bloco: some.
+            anterior_e_colapsavel = true;
             continue;
         }
         match colapsar(texto, colapsa_esq, colapsa_dir) {
             Some(t) => {
-                anterior_e_colapsavel = true; // texto não segura espaço
+                // Nó de texto é `StandaloneTemplateAst`: segura o espaço do
+                // vizinho, como qualquer outro nó que não seja elemento de
+                // bloco.
+                anterior_e_colapsavel = false;
                 saida.push(No::Texto(t));
             }
-            None => continue,
+            // Texto removido: para o vizinho seguinte é como se não houvesse
+            // nada à esquerda (`prevNode = null` no ngast).
+            None => anterior_e_colapsavel = true,
         }
     }
     saida
@@ -399,8 +404,10 @@ fn colapsa_ao_lado(no: Option<&No>) -> bool {
         Some(No::Elemento(e)) => !e.em_linha(),
         Some(No::Interpolacao(_)) => false,
         Some(No::Conteudo { .. }) => false,
-        Some(No::Texto(_)) => true,
-        Some(No::Comentario(_)) => true,
+        // Texto e comentário são nós do template como qualquer outro
+        // (`StandaloneTemplateAst`): o espaço ao lado deles é significativo.
+        Some(No::Texto(_)) => false,
+        Some(No::Comentario(_)) => false,
     }
 }
 
@@ -460,6 +467,26 @@ mod testes {
         assert_eq!(n.len(), 2);
         let No::Elemento(br) = &n[0] else { panic!("{n:?}") };
         assert!(br.filhos.is_empty());
+    }
+
+    /// Template real do `NoDataComponent`: entre `<img>` (elemento de linha) e
+    /// o comentário sobra um espaço, e todo o resto do espaço em branco some.
+    /// O compilador oficial emite ali exatamente um `appendText(_el_0, ' ')`.
+    #[test]
+    fn espaco_do_no_data_igual_ao_oficial() {
+        let n = analisar(
+            "<div class=\"c\">\n      <img src=\"a.svg\">  \n     <!-- x -->\n    <div>{{m}}</div>\n</div>",
+        );
+        let No::Elemento(div) = &n[0] else { panic!("{n:?}") };
+        let textos: Vec<&String> = div
+            .filhos
+            .iter()
+            .filter_map(|f| match f {
+                No::Texto(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(textos, vec![&" ".to_string()], "{:?}", div.filhos);
     }
 
     /// Regra do ngast: `<div>\n  <span>x</span>\n</div>` colapsa para

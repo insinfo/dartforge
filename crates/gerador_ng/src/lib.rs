@@ -17,10 +17,12 @@
 //! continua vindo do `build_runner`. A aplicação funciona em todos os passos e
 //! o placar diz exatamente onde estamos.
 pub mod componente;
+pub mod dom;
 pub mod html;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
+use visao::Motivo;
 use dartforge_frontend::ast;
 use dartforge_frontend::parser::Parsed;
 use dartforge_intern::Interner;
@@ -113,6 +115,11 @@ pub struct Placar {
     pub gerados: usize,
     /// Deixados para quem souber gerar (hoje, o `build_runner`).
     pub pendentes: Vec<PathBuf>,
+    /// Quantos pendentes por motivo — o mapa que ordena o trabalho.
+    pub motivos: std::collections::BTreeMap<Motivo, usize>,
+    /// Conjunto completo de motivos de cada pendente. É por ele que se sabe
+    /// quantos arquivos uma forma nova destrava de verdade.
+    pub conjuntos: Vec<std::collections::BTreeSet<Motivo>>,
 }
 
 impl Placar {
@@ -177,10 +184,12 @@ pub fn gerar_em(
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
                 let achados = achar(&analisada, &fonte, interner);
                 let (texto, entradas) = match gerar_arquivo(pacote, &p, &nome, &achados) {
-                    Some(x) => x,
-                    None => {
+                    Ok(x) => x,
+                    Err(motivo) => {
                         // Forma que o gerador ainda não cobre: fica com o
                         // build_runner, e a aplicação compila do mesmo jeito.
+                        *placar.motivos.entry(motivo).or_default() += 1;
+                        placar.conjuntos.push(motivos_do_arquivo(&p, &achados, motivo));
                         placar.pendentes.push(p);
                         continue;
                     }
@@ -199,25 +208,26 @@ fn gerar_arquivo(
     fonte: &Path,
     nome_do_arquivo: &str,
     achados: &Achados,
-) -> Option<(String, Vec<PathBuf>)> {
+) -> Result<(String, Vec<PathBuf>), Motivo> {
     if achados.trivial() {
-        return Some((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
+        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
     }
-    // Um componente só, sem diretiva, pipe nem injetor no mesmo arquivo: é a
-    // forma que o emissor de visões cobre hoje.
-    if achados.componentes.len() != 1
-        || !achados.diretivas.is_empty()
-        || !achados.pipes.is_empty()
-        || !achados.injetores.is_empty()
-    {
-        return None;
+    if !achados.injetores.is_empty() {
+        return Err(Motivo::Injetor);
+    }
+    if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
+        return Err(Motivo::DiretivaOuPipe);
+    }
+    if achados.componentes.len() != 1 {
+        return Err(Motivo::VariosComponentes);
     }
     let comp = &achados.componentes[0];
     let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
         (Some(t), _) => (t.clone(), None),
         (None, Some(url)) => {
-            let caminho = fonte.parent()?.join(url);
-            (std::fs::read_to_string(&caminho).ok()?, Some(caminho))
+            let caminho = fonte.parent().ok_or(Motivo::TemplateAusente)?.join(url);
+            let texto = std::fs::read_to_string(&caminho).map_err(|_| Motivo::TemplateAusente)?;
+            (texto, Some(caminho))
         }
         (None, None) => (String::new(), None),
     };
@@ -231,7 +241,31 @@ fn gerar_arquivo(
     let texto = visao::template_de_componente(comp, &local, &nos)?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
-    Some((texto, entradas))
+    Ok((texto, entradas))
+}
+
+/// Conjunto de motivos de um arquivo pendente, para o placar.
+fn motivos_do_arquivo(
+    fonte: &Path,
+    achados: &Achados,
+    primeiro: Motivo,
+) -> std::collections::BTreeSet<Motivo> {
+    let mut fora = std::collections::BTreeSet::new();
+    fora.insert(primeiro);
+    if achados.componentes.len() != 1 {
+        return fora;
+    }
+    let comp = &achados.componentes[0];
+    let template = match (&comp.template, &comp.template_url) {
+        (Some(t), _) => t.clone(),
+        (None, Some(url)) => match fonte.parent().map(|d| d.join(url)) {
+            Some(c) => std::fs::read_to_string(c).unwrap_or_default(),
+            None => String::new(),
+        },
+        (None, None) => String::new(),
+    };
+    fora.extend(visao::motivos(comp, &html::analisar(&template)));
+    fora
 }
 
 /// Gera para um pacote inteiro (`lib/`, `web/`, `test/`), completando o que
