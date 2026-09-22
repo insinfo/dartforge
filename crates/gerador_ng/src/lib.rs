@@ -58,7 +58,7 @@ impl Achados {
 /// `@Component.new` contam todos como `Component`. O prefixo de biblioteca vem
 /// em minúscula por convenção e a classe em maiúscula; é o que distingue
 /// `p.Component` de `Component.new`.
-fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> String {
+pub(crate) fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> String {
     for parte in &a.name {
         let texto = interner.resolve(parte.sym);
         if texto.starts_with(char::is_uppercase) {
@@ -125,6 +125,9 @@ pub struct Placar {
     /// Conjunto completo de motivos de cada pendente. É por ele que se sabe
     /// quantos arquivos uma forma nova destrava de verdade.
     pub conjuntos: Vec<std::collections::BTreeSet<Motivo>>,
+    /// Quantas vezes cada forma não entendida aparece (`@HostListener`,
+    /// `@ViewChild`, ciclo de vida…).
+    pub nao_entendidos: std::collections::BTreeMap<String, usize>,
 }
 
 impl Placar {
@@ -196,6 +199,11 @@ pub fn gerar_em(
                         // Forma que o gerador ainda não cobre: fica com o
                         // build_runner, e a aplicação compila do mesmo jeito.
                         *placar.motivos.entry(motivo).or_default() += 1;
+                        for c in &achados.componentes {
+                            if let Some(forma) = &c.nao_entendido {
+                                *placar.nao_entendidos.entry(forma.clone()).or_default() += 1;
+                            }
+                        }
                         placar.conjuntos.push(motivos_do_arquivo(
                             pacote, &p, &achados, motivo, resolvedor,
                         ));
@@ -232,6 +240,9 @@ fn gerar_arquivo(
         return Err(Motivo::VariosComponentes);
     }
     let comp = &achados.componentes[0];
+    if comp.nao_entendido.is_some() {
+        return Err(Motivo::NaoEntendido);
+    }
     let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
         (Some(t), _) => (t.clone(), None),
         (None, Some(url)) => {

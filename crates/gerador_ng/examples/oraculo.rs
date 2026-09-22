@@ -130,6 +130,14 @@ fn main() -> std::process::ExitCode {
     for (n, m) in linhas {
         println!("    {n:4} / {:4}  {}", sozinha.get(&m).copied().unwrap_or(0), m.texto());
     }
+    if !placar.nao_entendidos.is_empty() {
+        println!("  formas não entendidas:");
+        let mut v: Vec<_> = placar.nao_entendidos.iter().map(|(k, n)| (*n, k)).collect();
+        v.sort_by(|a, b| b.0.cmp(&a.0));
+        for (n, forma) in v.iter().take(12) {
+            println!("    {n:4}  {forma}");
+        }
+    }
     // Diagnóstico da resolução: sem isto não se sabe se a injeção falha por
     // falta de forma ou porque o arquivo nem está no programa carregado.
     let mut fora_do_programa = 0usize;

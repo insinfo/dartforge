@@ -27,6 +27,11 @@ pub struct Componente {
     /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
     /// para instanciar o componente.
     pub parametros: Vec<Parametro>,
+    /// Anotação de membro que muda a visão e o gerador ainda não trata
+    /// (`@HostListener`, `@ViewChild`…), ou argumento de `@Component` fora do
+    /// que ele entende. Enquanto houver uma, o arquivo não é nosso: gerar
+    /// ignorando isso dá saída **errada**, não incompleta.
+    pub nao_entendido: Option<String>,
     /// Cada campo e getter da classe. O emissor precisa disto para escolher
     /// entre `interpolateString`, `interpolate` e `updateTextWithPrimitive`,
     /// que o oficial decide pelo tipo estático da expressão do template e por
@@ -117,7 +122,84 @@ pub fn ler_componente(
     }
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
+    c.nao_entendido = o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao);
     c
+}
+
+/// Argumentos de `@Component` cujo efeito o gerador conhece.
+const ARGUMENTOS_CONHECIDOS: &[&str] = &[
+    "selector",
+    "template",
+    "templateUrl",
+    "styleUrls",
+    "styles",
+    "changeDetection",
+    "directives",
+    "exports",
+];
+
+/// Anotações de membro que mudam a visão gerada.
+const ANOTACOES_DE_MEMBRO: &[&str] = &[
+    "HostListener",
+    "HostBinding",
+    "ViewChild",
+    "ViewChildren",
+    "ContentChild",
+    "ContentChildren",
+];
+
+/// Interfaces de ciclo de vida do ngdart: implementá-las faz o oficial
+/// emitir chamadas na visão. (As do ngrouter — `OnActivate`, `CanDeactivate` —
+/// não mexem na visão.)
+const CICLO_DE_VIDA: &[&str] = &[
+    "OnInit",
+    "OnDestroy",
+    "DoCheck",
+    "AfterChanges",
+    "AfterContentInit",
+    "AfterContentChecked",
+    "AfterViewInit",
+    "AfterViewChecked",
+];
+
+/// O que neste componente o gerador ainda não sabe traduzir. Recusar é
+/// obrigatório: gerar sem isso produz um arquivo **errado**.
+fn o_que_nao_entendemos(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    anotacao: &ast::Annotation,
+) -> Option<String> {
+    if let Some(args) = &anotacao.arguments {
+        for a in args.args.iter() {
+            let nome = match a.name.as_ref() {
+                Some(n) => interner.resolve(n.sym),
+                None => return Some("argumento posicional em @Component".into()),
+            };
+            if !ARGUMENTOS_CONHECIDOS.contains(&nome) {
+                return Some(format!("@Component(.., {nome}: ..)"));
+            }
+        }
+    }
+    for t in classe.implements.iter().chain(classe.with.iter()) {
+        let s = arvore.ty(*t).span;
+        let texto = fonte.get(s.start as usize..s.end as usize).unwrap_or("");
+        let simples = texto.split(['<', '.']).next_back().unwrap_or(texto).trim();
+        if CICLO_DE_VIDA.contains(&simples) {
+            return Some(format!("ciclo de vida {simples}"));
+        }
+    }
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        for a in membro.metadata.iter() {
+            let nome = crate::nome_da_anotacao(a, interner);
+            if ANOTACOES_DE_MEMBRO.contains(&nome.as_str()) {
+                return Some(format!("@{nome}"));
+            }
+        }
+    }
+    None
 }
 
 /// Parâmetros do construtor gerador (o sem nome). Sem construtor declarado, a

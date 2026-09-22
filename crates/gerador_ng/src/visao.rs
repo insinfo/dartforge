@@ -103,6 +103,10 @@ pub enum Motivo {
     EstiloEmLinha,
     /// Arquivo `.html` do `templateUrl` não encontrado.
     TemplateAusente,
+    /// Forma do componente que o gerador não sabe traduzir e, por isso,
+    /// recusa — `@HostListener`, `@ViewChild`, ciclo de vida, argumento
+    /// desconhecido de `@Component`.
+    NaoEntendido,
 }
 
 impl Motivo {
@@ -123,6 +127,7 @@ impl Motivo {
             Motivo::Projecao => "<ng-content>",
             Motivo::EstiloEmLinha => "style em linha",
             Motivo::TemplateAusente => "template não encontrado",
+            Motivo::NaoEntendido => "forma do componente não entendida",
         }
     }
 }
@@ -138,6 +143,9 @@ pub fn motivos(
     resolvedor: Option<&dyn Resolucao>,
 ) -> std::collections::BTreeSet<Motivo> {
     let mut fora = std::collections::BTreeSet::new();
+    if c.nao_entendido.is_some() {
+        fora.insert(Motivo::NaoEntendido);
+    }
     if !c.style_urls.is_empty() || !c.styles.is_empty() {
         fora.insert(Motivo::Estilos);
     }
