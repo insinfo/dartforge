@@ -248,12 +248,28 @@ fn gerar_arquivo(
         arquivo: nome_do_arquivo,
         caminho: fonte,
         raiz: &pacote.raiz,
+        url_do_template: url_do_template(pacote, fonte, comp),
     };
     let nos = html::analisar(&template);
     let texto = visao::template_de_componente(comp, &local, &nos, resolvedor)?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
     Ok((texto, entradas))
+}
+
+/// URI `package:` do arquivo do template — o que o oficial escreve no
+/// comentário `REF` de cada ligação. Só para componentes em `lib/` com
+/// `templateUrl`; com template escrito na anotação a referência é outra.
+fn url_do_template(
+    pacote: &Pacote,
+    fonte: &Path,
+    comp: &componente::Componente,
+) -> Option<String> {
+    let url = comp.template_url.as_ref()?;
+    let html = fonte.parent()?.join(url);
+    let rel = pacote.relativo(&html);
+    let dentro_de_lib = rel.strip_prefix("lib/")?;
+    Some(format!("package:{}/{dentro_de_lib}", pacote.nome))
 }
 
 /// Conjunto de motivos de um arquivo pendente, para o placar.
@@ -286,6 +302,7 @@ fn motivos_do_arquivo(
         arquivo: &nome,
         caminho: fonte,
         raiz: &pacote.raiz,
+        url_do_template: url_do_template(pacote, fonte, comp),
     };
     fora.extend(visao::motivos(comp, &local, &html::analisar(&template), resolvedor));
     fora

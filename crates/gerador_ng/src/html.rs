@@ -32,8 +32,10 @@ const NBSP: char = '\u{00A0}';
 pub enum No {
     Elemento(Elemento),
     Texto(String),
-    /// `{{ expressão }}`.
-    Interpolacao(String),
+    /// `{{ expressão }}`, com o intervalo em bytes da forma inteira
+    /// (`{{` a `}}`) no arquivo do template — é o que vai no comentário
+    /// `/* REF:url:inicio:fim */` que o oficial escreve.
+    Interpolacao { expr: String, inicio: usize, fim: usize },
     Comentario(String),
     /// `<ng-content select="...">`.
     Conteudo { seletor: Option<String> },
@@ -186,7 +188,12 @@ impl<'a> Parser<'a> {
             resto = &resto[pos + 2..];
             match resto.find("}}") {
                 Some(f) => {
-                    saida.push(No::Interpolacao(resto[..f].trim().to_string()));
+                    let ini = resto.as_ptr() as usize - self.fonte.as_ptr() as usize - 2;
+                    saida.push(No::Interpolacao {
+                        expr: resto[..f].trim().to_string(),
+                        inicio: ini,
+                        fim: ini + 2 + f + 2,
+                    });
                     resto = &resto[f + 2..];
                 }
                 None => {
@@ -402,7 +409,7 @@ fn colapsa_ao_lado(no: Option<&No>) -> bool {
     match no {
         None => true,
         Some(No::Elemento(e)) => !e.em_linha(),
-        Some(No::Interpolacao(_)) => false,
+        Some(No::Interpolacao { .. }) => false,
         Some(No::Conteudo { .. }) => false,
         // Texto e comentário são nós do template como qualquer outro
         // (`StandaloneTemplateAst`): o espaço ao lado deles é significativo.
@@ -457,7 +464,11 @@ mod testes {
     fn interpolacao_separa_o_texto() {
         assert_eq!(
             analisar("a{{ b }}c"),
-            vec![No::Texto("a".into()), No::Interpolacao("b".into()), No::Texto("c".into())]
+            vec![
+                No::Texto("a".into()),
+                No::Interpolacao { expr: "b".into(), inicio: 1, fim: 8 },
+                No::Texto("c".into())
+            ]
         );
     }
 

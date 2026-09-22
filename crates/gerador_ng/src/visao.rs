@@ -66,6 +66,8 @@ const DOM_HELPERS: &str = "package:ngdart/src/runtime/dom_helpers.dart";
 const HOST_VIEW: &str = "package:ngdart/src/core/linker/views/host_view.dart";
 const ANGULAR: &str = "package:ngdart/angular.dart";
 const DI_ERRORS: &str = "package:ngdart/src/di/errors.dart";
+const TEXT_BINDING: &str = "package:ngdart/src/runtime/text_binding.dart";
+const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
 /// é isso que diz qual forma vale a pena aprender em seguida.
@@ -150,7 +152,7 @@ fn motivos_dos_nos(nos: &[No], fora: &mut std::collections::BTreeSet<Motivo>) {
     for no in nos {
         match no {
             No::Comentario(_) | No::Texto(_) => {}
-            No::Interpolacao(_) => {
+            No::Interpolacao { .. } => {
                 fora.insert(Motivo::Interpolacao);
             }
             No::Conteudo { .. } => {
@@ -192,6 +194,10 @@ pub struct Local<'a> {
     pub caminho: &'a Path,
     /// Raiz do pacote, para mapear URIs `file:` do próprio projeto.
     pub raiz: &'a Path,
+    /// URI `package:` do arquivo `.html` do template, quando há um. É para
+    /// onde aponta o comentário `/* REF:url:inicio:fim */` que o oficial
+    /// escreve em cada ligação.
+    pub url_do_template: Option<String>,
 }
 
 impl Local<'_> {
@@ -205,6 +211,19 @@ impl Local<'_> {
 /// Corpo do `build()` de uma visão, montado enquanto se anda pelo template.
 struct Corpo<'a> {
     linhas: Vec<String>,
+    /// Declarações de campo da visão (as ligações de texto), que saem no
+    /// começo da classe — antes do `_componentStyles`, como no oficial.
+    campos: Vec<String>,
+    /// Corpo do `detectChangesInternal`.
+    deteccao: Vec<String>,
+    /// Prefixo do `text_binding.dart`, alocado antes do resto quando o
+    /// template tem interpolação (a ordem dos imports segue a ordem em que o
+    /// oficial escreve o arquivo, e os campos vêm primeiro).
+    tb: Option<String>,
+    /// URI `package:` do arquivo do template, para o comentário `REF`.
+    url_do_template: Option<String>,
+    /// Tipos dos membros do componente, para escolher `interpolateString`.
+    membros: &'a std::collections::HashMap<String, String>,
     /// Próximo índice de nó. Vale para elementos e textos juntos, em ordem de
     /// documento; comentário não consome índice porque some antes.
     proximo: u32,
@@ -217,6 +236,43 @@ struct Corpo<'a> {
 impl Corpo<'_> {
     fn dom(&mut self) -> String {
         self.imp.alias(DOM_HELPERS)
+    }
+
+    /// Emite a ligação de texto de `{{ … }}`: o campo `TextBinding`, o
+    /// `append` no `build()` e a atualização no `detectChangesInternal`.
+    fn interpolacao(
+        &mut self,
+        expr: &str,
+        inicio: usize,
+        fim: usize,
+        pai: &str,
+    ) -> Result<(), Motivo> {
+        let (Some(tb), Some(url)) = (self.tb.clone(), self.url_do_template.clone()) else {
+            return Err(Motivo::Interpolacao);
+        };
+        // Só o acesso direto a um membro do componente. O oficial aceita
+        // expressão qualquer, mas cada forma tem a sua conversão e a sua
+        // verificação de tipo; uma de cada vez.
+        if !expr.chars().all(|c| c.is_alphanumeric() || c == '_') || expr.is_empty() {
+            return Err(Motivo::Interpolacao);
+        }
+        let Some(tipo) = self.membros.get(expr) else { return Err(Motivo::Interpolacao) };
+        // `expressionsAreString` no `expression_converter.dart` do ngcompiler:
+        // a escolha entre `interpolateString` e `interpolate` é pelo tipo
+        // estático da expressão.
+        if tipo != "String" {
+            return Err(Motivo::Interpolacao);
+        }
+        let n = self.proximo;
+        self.proximo += 1;
+        self.campos
+            .push(format!("  final {tb}.TextBinding _textBinding_{n} = {tb}.TextBinding();"));
+        self.linhas.push(format!("    {pai}.append(this._textBinding_{n}.element);"));
+        let interp = self.imp.alias(INTERPOLATE);
+        self.deteccao.push(format!(
+            "    this._textBinding_{n}.updateText({interp}.interpolateString0(_ctx.{expr})) /* REF:{url}:{inicio}:{fim} */;"
+        ));
+        Ok(())
     }
 
     /// Emite os nós filhos de `pai`. Devolve `None` na primeira forma que o
@@ -293,12 +349,23 @@ impl Corpo<'_> {
                     }
                     self.nos(&e.filhos, &format!("_el_{n}"))?;
                 }
-                No::Interpolacao(_) => return Err(Motivo::Interpolacao),
+                No::Interpolacao { expr, inicio, fim } => {
+                    self.interpolacao(expr, *inicio, *fim, pai)?
+                }
                 No::Conteudo { .. } => return Err(Motivo::Projecao),
             }
         }
         Ok(())
     }
+}
+
+/// O template tem `{{ … }}` em algum lugar?
+fn tem_interpolacao(nos: &[No]) -> bool {
+    nos.iter().any(|n| match n {
+        No::Interpolacao { .. } => true,
+        No::Elemento(e) => tem_interpolacao(&e.filhos),
+        _ => false,
+    })
 }
 
 /// Literal Dart de uma string, com aspas simples.
@@ -342,6 +409,9 @@ pub fn template_de_componente(
     let mut imp = Importacoes::default();
     let vista = imp.alias(COMPONENT_VIEW);
     let proprio = imp.alias(local.arquivo);
+    // Os campos da visão saem antes de tudo na classe, então os seus imports
+    // são alocados antes: é o que faz a numeração bater com a do oficial.
+    let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
     let estilos = imp.alias(STYLE_ENCAPSULATION);
     let view = imp.alias(VIEW);
     let cd = imp.alias(CHANGE_DETECTION);
@@ -352,6 +422,11 @@ pub fn template_de_componente(
 
     let mut corpo = Corpo {
         linhas: Vec::new(),
+        campos: Vec::new(),
+        deteccao: Vec::new(),
+        tb,
+        url_do_template: local.url_do_template.clone(),
+        membros: &c.membros,
         proximo: 0,
         tem_doc: false,
         imp: &mut imp,
@@ -361,6 +436,28 @@ pub fn template_de_componente(
     let linhas = corpo.linhas.join("\n");
     let corpo_build =
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
+    let campos = if corpo.campos.is_empty() {
+        String::new()
+    } else {
+        format!("{}
+", corpo.campos.join("
+"))
+    };
+    let deteccao = if corpo.deteccao.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "
+  @override
+  void detectChangesInternal() {{
+    final _ctx = this.ctx;
+{}
+  }}
+",
+            corpo.deteccao.join("
+")
+        )
+    };
 
     imp.sem_alias(ANGULAR);
     let hosp = imp.alias(HOST_VIEW);
@@ -382,7 +479,7 @@ pub fn template_de_componente(
 final List<Object> styles${x} = const [];
 
 class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
-  static {estilos}.ComponentStyles? _componentStyles;
+{campos}  static {estilos}.ComponentStyles? _componentStyles;
   View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{estado}) {{
     this.initComponentStyles();
     this.rootElement = {util}.unsafeCast({html}.document.createElement('{seletor}'));
@@ -395,7 +492,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
   void build() {{
     final parentRenderNode = this.initViewRoot();{corpo_build}
   }}
-
+{deteccao}
   static void _debugClearComponentStyles() {{
     _componentStyles = null;
   }}
@@ -542,6 +639,7 @@ mod testes {
             arquivo: "form_feedback_component.dart",
             caminho: Path::new("x.dart"),
             raiz: Path::new(""),
+            url_do_template: None,
         }
     }
 
@@ -591,6 +689,7 @@ mod testes {
             arquivo: "callback_component.dart",
             caminho: Path::new("callback_component.dart"),
             raiz: Path::new(""),
+            url_do_template: None,
         };
         let nos = crate::html::analisar("<div>Processando login...</div>");
         let saida = template_de_componente(&c, &local, &nos, None).expect("gera");
@@ -647,6 +746,7 @@ mod testes {
             arquivo: "callback_component.dart",
             caminho: Path::new("callback_component.dart"),
             raiz: Path::new(""),
+            url_do_template: None,
         };
         let tabela = Tabela(&[
             ("OidcService", "package:new_sali_frontend/src/shared/services/oidc_service.dart"),

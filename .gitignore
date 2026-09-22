@@ -27,3 +27,9 @@ runtime/ddc/dart_sdk.js.map
 
 # worktrees de subagentes
 .claude/worktrees/
+
+# Corpus do ngdart: o oráculo commitado é `corpus/ngdart/oraculo/`; o que o
+# build_runner deixa (81 MB, 2.305 artefatos) se regenera com
+# scripts/corpus-ngdart.ps1.
+/corpus/ngdart/.dart_tool/
+/corpus/ngdart/.packages

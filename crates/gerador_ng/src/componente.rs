@@ -27,6 +27,10 @@ pub struct Componente {
     /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
     /// para instanciar o componente.
     pub parametros: Vec<Parametro>,
+    /// Tipo declarado de cada campo e getter da classe. O emissor precisa
+    /// disto para escolher entre `interpolateString` e `interpolate`, que o
+    /// oficial decide pelo tipo estático da expressão do template.
+    pub membros: std::collections::HashMap<String, String>,
 }
 
 /// Um parâmetro do construtor do componente.
@@ -101,6 +105,7 @@ pub fn ler_componente(
         }
     }
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
+    c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
     c
 }
 
@@ -149,6 +154,30 @@ fn parametros_do_construtor(
 fn texto_do_tipo(arvore: &ast::Ast, fonte: &str, t: ast::TypeId) -> String {
     let s = arvore.ty(t).span;
     fonte.get(s.start as usize..s.end as usize).unwrap_or("").to_string()
+}
+
+/// Tipo de cada campo e getter da classe, para o emissor saber o tipo
+/// estático de `{{ nome }}`.
+fn tipos_dos_membros(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> std::collections::HashMap<String, String> {
+    let mut saida = tipos_dos_campos(arvore, fonte, interner, classe);
+    for &id in &classe.members {
+        let ast::MemberKind::Method(f) = &arvore.member(id).kind else { continue };
+        let funcao = arvore.function(*f);
+        if !matches!(funcao.kind, ast::FunctionKind::Getter) {
+            continue;
+        }
+        let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else { continue };
+        saida.insert(
+            interner.resolve(nome.sym).to_string(),
+            texto_do_tipo(arvore, fonte, t),
+        );
+    }
+    saida
 }
 
 /// Tipo de cada campo da classe, para resolver os parâmetros `this.x`.
