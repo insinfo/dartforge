@@ -22,8 +22,11 @@ pub struct Componente {
     pub styles: Vec<String>,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
-    /// Texto-fonte de `directives:`, ainda sem resolver.
-    pub diretivas: Option<String>,
+    /// Nomes escritos em `directives:`, na ordem. Listas embutidas
+    /// (`coreDirectives`) entram como o próprio nome e não resolvem para
+    /// classe nenhuma — o que basta para o gerador recusar o que depende
+    /// delas.
+    pub diretivas: Vec<String>,
     /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
     /// para instanciar o componente.
     pub parametros: Vec<Parametro>,
@@ -133,6 +136,21 @@ fn lista_de_textos(arvore: &ast::Ast, id: ast::ExprId) -> Vec<String> {
         .collect()
 }
 
+/// Identificadores escritos numa lista literal (`directives: [A, B]`).
+fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> Vec<String> {
+    let ast::ExprKind::List { elements, .. } = &arvore.expr(id).kind else { return Vec::new() };
+    elements
+        .iter()
+        .filter_map(|e| match e {
+            ast::CollectionElement::Expression(x) => match &arvore.expr(*x).kind {
+                ast::ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
 /// `ChangeDetectionStrategy.OnPush` — o que muda o estado inicial da visão.
 fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
     let span = arvore.expr(id).span;
@@ -161,10 +179,7 @@ pub fn ler_componente(
                 "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
                 "styles" => c.styles = lista_de_textos(arvore, a.value),
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
-                "directives" => {
-                    let s = arvore.expr(a.value).span;
-                    c.diretivas = fonte.get(s.start as usize..s.end as usize).map(str::to_string);
-                }
+                "directives" => c.diretivas = nomes_da_lista(arvore, interner, a.value),
                 _ => {}
             }
         }

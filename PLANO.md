@@ -1029,6 +1029,12 @@ variáveis e comentários — e **recusar** o resto, como o gerador já faz com
 o que não entende. Um `@mixin` que aparecer vira pendência explícita, não
 saída errada.
 
+Nos projetos do proprietário **nenhum componente traz `.css` escrito à
+mão**: o que existe ao lado do componente é sempre `.scss`, e o `.css` do
+`styleUrls` é a saída do `sass_builder`. O CSS global (Limitless, fontes,
+ícones) entra pelo `index.html` como arquivo estático — o servidor já o
+serve, não há nada a compilar ali.
+
 A segunda etapa é o `shadow_css.dart` do ngcompiler (691 linhas): cada
 seletor ganha `._ngcontent-%ID%` no último composto e o CSS sai
 minificado (`.c { color: red; }` vira `.c._ngcontent-%ID%{color:red}`), com
