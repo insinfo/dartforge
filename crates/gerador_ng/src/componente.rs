@@ -118,19 +118,54 @@ fn parametros_do_construtor(
         if ctor.name.is_some() {
             continue; // construtor nomeado não é o que a visão usa
         }
+        let campos = tipos_dos_campos(arvore, fonte, interner, classe);
         return ctor
             .parameters
             .iter()
-            .map(|p| Parametro {
-                tipo: p.ty.map(|t| {
-                    let s = arvore.ty(t).span;
-                    fonte.get(s.start as usize..s.end as usize).unwrap_or("").to_string()
-                }),
-                nome: p.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default(),
-                nomeado: matches!(p.kind, ast::ParameterKind::Named),
-                anotado: !p.metadata.is_empty(),
+            .map(|p| {
+                let nome =
+                    p.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default();
+                // `C(this.x)` não escreve tipo nenhum: o tipo do parâmetro é o
+                // do campo. É assim que quase todo componente ngdart recebe as
+                // suas dependências, e sem isto a injeção não sai.
+                let tipo = match p.ty {
+                    Some(t) => Some(texto_do_tipo(arvore, fonte, t)),
+                    None if p.this_ || p.super_ => campos.get(&nome).cloned(),
+                    None => None,
+                };
+                Parametro {
+                    tipo,
+                    nome,
+                    nomeado: matches!(p.kind, ast::ParameterKind::Named),
+                    anotado: !p.metadata.is_empty(),
+                }
             })
             .collect();
     }
     Vec::new()
+}
+
+/// Texto-fonte de um tipo, como escrito.
+fn texto_do_tipo(arvore: &ast::Ast, fonte: &str, t: ast::TypeId) -> String {
+    let s = arvore.ty(t).span;
+    fonte.get(s.start as usize..s.end as usize).unwrap_or("").to_string()
+}
+
+/// Tipo de cada campo da classe, para resolver os parâmetros `this.x`.
+fn tipos_dos_campos(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> std::collections::HashMap<String, String> {
+    let mut saida = std::collections::HashMap::new();
+    for &id in &classe.members {
+        let ast::MemberKind::Field(lista) = &arvore.member(id).kind else { continue };
+        let Some(t) = lista.ty else { continue };
+        let tipo = texto_do_tipo(arvore, fonte, t);
+        for v in lista.variables.iter() {
+            saida.insert(interner.resolve(v.name.sym).to_string(), tipo.clone());
+        }
+    }
+    saida
 }

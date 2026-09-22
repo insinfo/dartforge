@@ -130,6 +130,22 @@ fn main() -> std::process::ExitCode {
     for (n, m) in linhas {
         println!("    {n:4} / {:4}  {}", sozinha.get(&m).copied().unwrap_or(0), m.texto());
     }
+    // Diagnóstico da resolução: sem isto não se sabe se a injeção falha por
+    // falta de forma ou porque o arquivo nem está no programa carregado.
+    let mut fora_do_programa = 0usize;
+    let mut sem_resolver: Vec<String> = Vec::new();
+    for p in &placar.pendentes {
+        if resolvedor.biblioteca(p).is_none() {
+            fora_do_programa += 1;
+            if sem_resolver.len() < 5 {
+                sem_resolver.push(format!("fora do programa: {}", p.display()));
+            }
+        }
+    }
+    println!("  pendentes fora do programa carregado: {fora_do_programa}");
+    for l in &sem_resolver {
+        println!("    {l}");
+    }
     if listar {
         for d in divergentes.iter().take(20) {
             println!("  != {d}");

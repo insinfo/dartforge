@@ -79,8 +79,16 @@ pub enum Motivo {
     VariosComponentes,
     /// `styleUrls`/`styles`: mexem em `styles$X` e ligam o shim de estilo.
     Estilos,
-    /// Construtor que pede injeção de dependência.
-    Injecao,
+    /// Parâmetro anotado (`@Optional`, `@Inject(…)`, `@Attribute`…).
+    InjecaoAnotada,
+    /// Parâmetro nomeado no construtor.
+    InjecaoNomeada,
+    /// Token genérico (`List<X>`, `OpaqueToken<String>`).
+    InjecaoGenerica,
+    /// Parâmetro sem tipo escrito.
+    InjecaoSemTipo,
+    /// O banco semântico não achou a biblioteca que declara o tipo.
+    InjecaoNaoResolvida,
     /// `[x]`, `(x)`, `[(x)]`, `#ref` ou `*ngIf` no template.
     Ligacao,
     /// `{{ … }}` no template.
@@ -102,7 +110,11 @@ impl Motivo {
             Motivo::Injetor => "@GenerateInjector",
             Motivo::VariosComponentes => "vários componentes no arquivo",
             Motivo::Estilos => "folha de estilo",
-            Motivo::Injecao => "injeção no construtor",
+            Motivo::InjecaoAnotada => "injeção: parâmetro anotado",
+            Motivo::InjecaoNomeada => "injeção: parâmetro nomeado",
+            Motivo::InjecaoGenerica => "injeção: token genérico",
+            Motivo::InjecaoSemTipo => "injeção: parâmetro sem tipo",
+            Motivo::InjecaoNaoResolvida => "injeção: tipo não resolvido",
             Motivo::Ligacao => "ligação no template",
             Motivo::Interpolacao => "interpolação",
             Motivo::ComponenteNoTemplate => "componente no template",
@@ -127,8 +139,8 @@ pub fn motivos(
     if !c.style_urls.is_empty() || !c.styles.is_empty() {
         fora.insert(Motivo::Estilos);
     }
-    if !pode_construir(c, local, resolvedor) {
-        fora.insert(Motivo::Injecao);
+    if let Some(m) = falta_para_construir(c, local, resolvedor) {
+        fora.insert(m);
     }
     motivos_dos_nos(nos, &mut fora);
     fora
@@ -323,8 +335,8 @@ pub fn template_de_componente(
     }
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
-    if !pode_construir(c, local, resolvedor) {
-        return Err(Motivo::Injecao);
+    if let Some(m) = falta_para_construir(c, local, resolvedor) {
+        return Err(m);
     }
 
     let mut imp = Importacoes::default();
@@ -353,7 +365,7 @@ pub fn template_de_componente(
     imp.sem_alias(ANGULAR);
     let hosp = imp.alias(HOST_VIEW);
     let construcao = construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
-        .ok_or(Motivo::Injecao)?;
+        .ok_or(Motivo::InjecaoNaoResolvida)?;
 
     let x = &c.classe;
     let seletor = &c.seletor;
@@ -488,21 +500,34 @@ fn e_elemento(tipo: Option<&str>) -> bool {
     matches!(tipo.map(|t| t.rsplit('.').next().unwrap_or(t)), Some("Element" | "HtmlElement"))
 }
 
-/// A construção é possível? (a tabela de imports não é tocada aqui)
-fn pode_construir(c: &Componente, local: &Local, resolvedor: Option<&dyn Resolucao>) -> bool {
-    c.parametros.iter().all(|p| {
+/// O que impede a construção, se algo impede. A tabela de imports não é
+/// tocada aqui — isto só olha.
+fn falta_para_construir(
+    c: &Componente,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<Motivo> {
+    for p in &c.parametros {
         if e_elemento(p.tipo.as_deref()) {
-            return true;
+            continue;
         }
-        if p.anotado || p.nomeado {
-            return false;
+        if p.anotado {
+            return Some(Motivo::InjecaoAnotada);
         }
-        let Some(tipo) = p.tipo.as_deref() else { return false };
+        if p.nomeado {
+            return Some(Motivo::InjecaoNomeada);
+        }
+        let Some(tipo) = p.tipo.as_deref() else {
+            return Some(Motivo::InjecaoSemTipo);
+        };
         if tipo.contains('<') {
-            return false;
+            return Some(Motivo::InjecaoGenerica);
         }
-        resolvedor.is_some_and(|r| r.uri_do_tipo(local.caminho, tipo).is_some())
-    })
+        if !resolvedor.is_some_and(|r| r.uri_do_tipo(local.caminho, tipo).is_some()) {
+            return Some(Motivo::InjecaoNaoResolvida);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -599,7 +624,10 @@ mod testes {
             ..Default::default()
         };
         // Sem banco semântico não há como saber que biblioteca declara o tipo.
-        assert_eq!(template_de_componente(&c, &local(), &[], None), Err(Motivo::Injecao));
+        assert_eq!(
+            template_de_componente(&c, &local(), &[], None),
+            Err(Motivo::InjecaoNaoResolvida)
+        );
     }
 
     /// Bytes exatos do `CallbackComponent` oficial, agora **com** a injeção:
