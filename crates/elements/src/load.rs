@@ -469,8 +469,25 @@ fn get_or_create_library(
 fn canonical_file_uri(path: &Path, package_config: &PackageConfig) -> String {
     // Tenta mapear caminho local para package:x/y.dart se estiver dentro de um pacote
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // No Windows `canonicalize` devolve `\?\C:\…`; o `package_uri` não tem o
+    // prefixo, e o `strip_prefix` abaixo falharia — tira-se o prefixo verbatim.
+    let canonical = {
+        let s = canonical.to_string_lossy();
+        match s.strip_prefix(r"\\?\") {
+            Some(r) => PathBuf::from(r),
+            None => canonical.clone(),
+        }
+    };
     for pkg in package_config.packages.values() {
         if let Ok(pkg_path) = pkg.package_uri.to_file_path() {
+            let pkg_path = std::fs::canonicalize(&pkg_path).unwrap_or(pkg_path);
+            let pkg_path = {
+                let s = pkg_path.to_string_lossy();
+                match s.strip_prefix(r"\\?\") {
+                    Some(r) => PathBuf::from(r),
+                    None => pkg_path.clone(),
+                }
+            };
             if let Ok(rel) = canonical.strip_prefix(&pkg_path) {
                 let rel_str = rel.to_string_lossy().replace('\\', "/");
                 return format!("package:{}/{}", pkg.name, rel_str);

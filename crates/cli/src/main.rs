@@ -618,7 +618,14 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
         }
     }
     let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
-    let emitido = dartforge_emit_js::compilar(&input, sdk.as_deref(), packages.as_deref())?;
+    // Corpos profundos (cadeias longas de `+`, árvores de widgets) recursam fundo: pilha própria.
+    let (i2, s2, p2) = (input.clone(), sdk.clone(), packages.clone());
+    let emitido = std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || dartforge_emit_js::compilar(&i2, s2.as_deref(), p2.as_deref()))
+        .map_err(|e| e.to_string())?
+        .join()
+        .map_err(|_| "a compilação abortou")??;
     dartforge_emit_js::escrever(&emitido, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
     println!("{} -> {} ({} módulos)", input.display(), out.display(), emitido.modulos.len());
     Ok(())

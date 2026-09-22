@@ -77,6 +77,18 @@ pub fn compilar(
             eprintln!("aviso: {d}");
         }
         eprintln!("({avisos} aviso(s) de tipos; DARTFORGE_AVISOS=N mostra mais)");
+        if std::env::var("DARTFORGE_AVISOS_RESUMO").is_ok() {
+            // Mensagens mais frequentes (sem a posição).
+            let mut contagem: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for d in outline_diags.iter().chain(body_diags.iter()) {
+                *contagem.entry(d.message.clone()).or_default() += 1;
+            }
+            let mut v: Vec<(String, usize)> = contagem.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1));
+            for (m, n) in v.iter().take(30) {
+                eprintln!("{n:6}  {m}");
+            }
+        }
     }
     emitir_programa(&program, &interner, &table, &core, &outline, &bodies)
         .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
