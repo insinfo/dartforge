@@ -263,7 +263,7 @@ pub fn compilar_com_relatorio(
                     filtro_de_pacotes().as_ref(),
                 );
                 let raiz = c.origin.as_ref()?.parent()?.parent()?.to_path_buf();
-                let nome = nome_do_pacote(&c, &raiz);
+                let nome = dartforge_gerador_ng::nome_do_pacote(&raiz)?;
                 let pacote = dartforge_gerador_ng::Pacote { nome, raiz };
                 // Fase 1: carregar o projeto sem os gerados, só para o
                 // gerador ter banco semântico — é o equivalente ao

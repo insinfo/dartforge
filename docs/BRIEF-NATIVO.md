@@ -10,8 +10,17 @@ não encostar.
 ## 0. Regras inegociáveis
 
 1. **Worktree própria.** Não trabalhe em `D:/Projects/dartforge` direto.
+   A worktree `D:/Projects/dartforge-nativo` **já existe**, na branch
+   `nativo-excecoes-aot`, com um commit de preservação (`wip: estado
+   intermediário do backend nativo`) do agente anterior: harness
+   diferencial com `--nativo`, mexidas em `hir`/`llvm`/`lower` e no
+   runtime. **Esse estado não compila** —
+   `crates/emit_native/src/lower/mod.rs` tem delimitador aberto na linha
+   258. Comece por ler esse diff (`git show HEAD`), decidir o que
+   aproveitar e deixar o crate compilando outra vez; não recomece do zero
+   sem olhar.
    ```
-   git worktree add -b nativo-<seu-tema> D:/Projects/dartforge-nativo main
+   cd D:/Projects/dartforge-nativo && git log --oneline -3 && git show --stat HEAD
    ```
    Commite lá, rebaseie e integre em `main` por fast-forward só quando
    compilar. Isto não é burocracia: com dois agentes na mesma árvore, um
@@ -30,11 +39,16 @@ não encostar.
    acrescente**; mudança de representação some com o trabalho de quem está
    lendo a mesma estrutura.
 
-3. **Princípio 9 — funcionar primeiro.** Não gaste um minuto com
+3. **Estudar antes de implementar.** Não descubra regra por tentativa e
+   erro: leia a referência, entenda o algoritmo, escreva o plano, e só
+   então escreva código. Compilar é **confirmação**, não método de
+   descoberta — cada ciclo custa minutos e memória da máquina.
+
+4. **Princípio 9 — funcionar primeiro.** Não gaste um minuto com
    formatação, estilo ou reorganização estética. O que conta é programa
    real compilando e executando com a saída certa.
 
-4. **Princípio 10 — referência antes de código.** Antes de implementar uma
+5. **Princípio 10 — referência antes de código.** Antes de implementar uma
    forma, leia como o Dart oficial a define e como a VM a implementa. Nada
    de tentativa e erro: compilar, rodar e ver o que deu é **confirmação**,
    não método de descoberta. Referências no disco:
@@ -45,12 +59,12 @@ não encostar.
    - `docs/AOT-REFERENCIAS.md`, `docs/AOT-NULL-SAFETY.md`,
      `docs/ABI-FFI-WASM.md`, `docs/GENERICS-REIFIED-REFERENCIAS.md`
 
-5. **Regra governante: tudo nosso, compatível com o ecossistema.** A VM
+6. **Regra governante: tudo nosso, compatível com o ecossistema.** A VM
    oficial **não faz parte do produto**. O `dart` oficial existe só como
    **oráculo** (`dart run --enable-asserts x.dart` dá a saída de
    referência). Nada de "chamar a VM para resolver isso".
 
-6. **Commite e empurre com frequência.** Trabalho não commitado é trabalho
+7. **Commite e empurre com frequência.** Trabalho não commitado é trabalho
    que some.
 
 ---

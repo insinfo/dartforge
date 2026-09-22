@@ -358,6 +358,27 @@ fn indexar(
     );
 }
 
+/// Nome do pacote, lido do `pubspec.yaml` da raiz.
+///
+/// É a fonte autoritativa: o nome da pasta não serve (`limitless_ui/example`
+/// declara `name: limitless_ui_example`) e comparar `rootUri` do
+/// `package_config.json` com a raiz falha por barra final e canonicalização.
+pub fn nome_do_pacote(raiz: &Path) -> Option<String> {
+    let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).ok()?;
+    for linha in texto.lines() {
+        // `name:` no primeiro nível, sem indentação.
+        let Some(valor) = linha.strip_prefix("name:") else { continue };
+        if linha.starts_with(char::is_whitespace) {
+            continue;
+        }
+        let nome = valor.trim().trim_matches(['\'', '"']).trim();
+        if !nome.is_empty() {
+            return Some(nome.to_string());
+        }
+    }
+    None
+}
+
 /// URI `package:` de um arquivo do pacote, quando ele está em `lib/`.
 fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
     let rel = pacote.relativo(caminho);
