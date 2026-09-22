@@ -138,11 +138,20 @@ básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
 * `crates/gerador_ng` — o compilador do ngdart em Rust, com os 284 arquivos
   do `build_runner` de oráculo
   (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
-  Hoje: **126 de 300 arquivos gerados por nós, 115 iguais byte a byte, 0
-  diferentes**. Cobre a biblioteca sem nada de Angular e o componente de
-  template estático (elementos HTML, texto, atributos), sem folha de
-  estilo, ligação nem injeção. `DARTFORGE_GERADOS=ng` compila com ele, e o
-  que falta continua vindo do `build_runner`.
+  Hoje: **127 de 300 arquivos gerados por nós, 116 iguais byte a byte, 0
+  diferentes**. Cobre:
+  - biblioteca sem nada de Angular (o arquivo trivial);
+  - componente de template estático — elementos HTML, texto e atributos,
+    com as regras do oficial (`appendDiv`/`appendSpan`/`appendElement<T>`,
+    atributos em ordem alfabética, `updateChildClass`);
+  - **injeção no construtor**, resolvida pelo banco semântico: carga em
+    duas fases (carregar sem os gerados, gerar, recarregar com a geração),
+    `injectorGet` por token e `debugInjectorWrap` sob `isDevMode`, com o
+    import da biblioteca que **declara** o tipo e o caminho pela regra do
+    `getImportModulePath` do ngcompiler.
+
+  `DARTFORGE_GERADOS=ng` compila com ele, e o que falta continua vindo do
+  `build_runner`.
 
 ---
 
@@ -157,21 +166,34 @@ conjunto completo, não só o primeiro:
 
 | forma | aparece em | destrava sozinha |
 |---|---|---|
-| ligação (`[x]`, `(x)`, `[(x)]`, `#ref`, `*ngIf`) | 151 | 0 |
+| ligação (`[x]`, `(x)`, `[(x)]`, `#ref`, `*ngIf`) | 151 | 2 |
 | folha de estilo (`styleUrls`) | 138 | 1 |
-| injeção no construtor | 137 | 1 |
 | componente/diretiva no template | 119 | 3 |
 | interpolação `{{ }}` | 110 | 1 |
 | `style` em linha | 34 | 0 |
 | `@Directive`/`@Pipe` no arquivo | 10 | 9 |
+| `<ng-content>` | 5 | 2 |
+| injeção (tipo não resolvido) | 3 | 0 |
 
-Quase nada destrava com uma forma só: daqui para a frente é o compilador
-de visões inteiro. E ele precisa do banco semântico — resolver o token de
-injeção até a biblioteca que o **declara** (`package:ngrouter/src/router/router.dart`,
-não `package:ngrouter/ngrouter.dart`) e casar seletores de diretiva não se
-faz lendo um arquivo por vez. O caminho é a carga em duas fases: carregar
-o projeto sem os gerados (a carga é tolerante), gerar com o outline em
-mãos, recarregar com a geração.
+A injeção saiu da lista: era o maior bloqueio (137 arquivos) e caiu para 3
+quando o gerador passou a ler o tipo do campo nos parâmetros `this.x` —
+que é como quase todo componente ngdart recebe as dependências.
+
+O que falta, em ordem do que aparece mais:
+
+1. **Interpolação e detecção de mudança** — `{{ }}` vira `TextBinding` com
+   `detectChangesInternal` e `checkBinding`; é a base de toda ligação.
+2. **Ligações de propriedade e evento** — `[x]`, `(x)`, `[(x)]`, `#ref`.
+3. **Diretivas e componentes no template** — casar seletor, instanciar a
+   visão-filha, passar `@Input`/`@Output`. Precisa resolver a lista
+   `directives:` da anotação pelo banco semântico.
+4. **`*ngIf`/`*ngFor`** — visões embutidas e `ViewContainer`.
+5. **Folha de estilo** — gerar também o `<x>.css.shim.dart` (o
+   compilador de folhas com `_ngcontent-%ID%`) e os `addShimC`/`addShimE`.
+6. **`<ng-content>`** — projeção.
+
+Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
+arquivo oficial correspondente serve de teste byte a byte.
 
 ### 2.1 Correção (ordem de prioridade)
 
