@@ -39,6 +39,11 @@ pub struct Componente {
     /// que o oficial decide pelo tipo estático da expressão do template e por
     /// ela ser mutável ou não.
     pub membros: std::collections::HashMap<String, Membro>,
+    /// Métodos da classe, separados dos campos: um método só pode aparecer
+    /// como alvo de chamada (`titulo()`), e o seu tipo é o do retorno. Se
+    /// entrassem no mesmo mapa, `{{ titulo }}` (tearoff) seria interpolado
+    /// como se fosse o valor de retorno.
+    pub metodos: std::collections::HashMap<String, String>,
 }
 
 /// Ganchos de ciclo de vida do ngdart implementados pelo componente. Cada um
@@ -166,6 +171,7 @@ pub fn ler_componente(
     }
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
+    c.metodos = tipos_dos_metodos(arvore, fonte, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
     c.nao_entendido = o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao);
     c
@@ -329,6 +335,30 @@ fn tipos_dos_membros(
             }
             _ => {}
         }
+    }
+    saida
+}
+
+/// Retorno de cada método da classe.
+fn tipos_dos_metodos(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> std::collections::HashMap<String, String> {
+    let mut saida = std::collections::HashMap::new();
+    for &id in &classe.members {
+        let ast::MemberKind::Method(f) = &arvore.member(id).kind else { continue };
+        let funcao = arvore.function(*f);
+        if !matches!(funcao.kind, ast::FunctionKind::Function) {
+            continue;
+        }
+        let Some(nome) = funcao.name else { continue };
+        let tipo = match funcao.return_type {
+            Some(t) => texto_do_tipo(arvore, fonte, t),
+            None => "dynamic".to_string(),
+        };
+        saida.insert(interner.resolve(nome.sym).to_string(), tipo);
     }
     saida
 }

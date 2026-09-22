@@ -38,6 +38,9 @@ import 'package:corpus_ngdart/src/c01_ligacao_e_texto.template.dart' as c01;
 import 'package:corpus_ngdart/src/c02_evento_e_ligacao.template.dart' as c02;
 import 'package:corpus_ngdart/src/c03_dois_elementos_ligados.template.dart' as c03;
 import 'package:corpus_ngdart/src/c04_evento_com_argumento.template.dart' as c04;
+import 'package:corpus_ngdart/src/c05_expressoes.template.dart' as c05;
+import 'package:corpus_ngdart/src/c06_interpolacao_em_cadeia.template.dart' as c06;
+import 'package:corpus_ngdart/src/c07_atributo_interpolado.template.dart' as c07;
 
 void main() {
   print([
@@ -78,5 +81,8 @@ void main() {
     c02.C02EventoELigacaoNgFactory,
     c03.C03DoisElementosLigadosNgFactory,
     c04.C04EventoComArgumentoNgFactory,
+    c05.C05ExpressoesNgFactory,
+    c06.C06InterpolacaoEmCadeiaNgFactory,
+    c07.C07AtributoInterpoladoNgFactory,
   ].length);
 }

@@ -238,6 +238,13 @@ struct Corpo<'a> {
     url_do_template: Option<String>,
     /// Tipos dos membros do componente, para escolher `interpolateString`.
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
+    /// Métodos da classe, válidos só como alvo de chamada.
+    metodos: &'a std::collections::HashMap<String, String>,
+    /// Para analisar as expressões do template, que são expressões Dart.
+    nomes: &'a mut dartforge_intern::Interner,
+    /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
+    /// alguma ligação imutável é escrita só na primeira checagem.
+    usa_primeira_checagem: bool,
     /// Próximo índice de nó. Vale para elementos e textos juntos, em ordem de
     /// documento; comentário não consome índice porque some antes.
     proximo: u32,
@@ -258,52 +265,58 @@ impl Corpo<'_> {
         self.imp.alias(DOM_HELPERS)
     }
 
-    /// Acesso a um membro do componente, como o oficial escreve: `_ctx.nome`.
-    /// Só a forma direta; o resto tem conversão própria e ainda não entra.
-    fn acesso(&self, expr: &str) -> Result<String, Motivo> {
-        let limpo = expr.trim();
-        if limpo.is_empty() || !limpo.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(Motivo::Ligacao);
-        }
-        if !self.membros.contains_key(limpo) {
-            return Err(Motivo::Ligacao);
-        }
-        Ok(format!("_ctx.{limpo}"))
-    }
-
     /// `[x]="e"`: valor novo, `checkBinding` contra o anterior e a ação sobre
     /// o elemento. O nome da ligação e a URI do template vão na verificação
     /// para a mensagem de "expressão mudou depois da checagem".
     fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
         let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
-        let valor = self.acesso(&l.valor)?;
+        let convertida = crate::expr::converter_com_metodos(&l.valor, self.membros, self.metodos, self.nomes)?;
+        let expr = l.valor.trim();
+        let (ini, fim) = (l.inicio, l.fim);
+        // Valor que não muda é escrito uma vez, na primeira checagem, sem
+        // `checkBinding` e sem campo de valor anterior (`isImmutable`).
+        if convertida.imutavel {
+            let acao = self.acao(l, alvo, &convertida.texto)?;
+            self.usa_primeira_checagem = true;
+            self.deteccao.push(format!(
+                "    if (firstCheck) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n    }}"
+            ));
+            return Ok(());
+        }
         let k = self.proxima_ligacao;
         self.proxima_ligacao += 1;
         self.campos_expr.push(format!("  Object? _expr_{k};"));
+        let acao = self.acao(l, alvo, &format!("currVal_{k}"))?;
+        let chk = self.imp.alias(CHECK_BINDING);
+        let valor = convertida.texto;
+        self.deteccao.push(format!(
+            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
+        ));
+        Ok(())
+    }
+
+    /// O que a ligação faz com o elemento, pelo prefixo do nome.
+    fn acao(
+        &mut self,
+        l: &crate::html::Ligacao,
+        alvo: &str,
+        valor: &str,
+    ) -> Result<String, Motivo> {
         let dom = self.dom();
-        let acao = if let Some(classe) = l.nome.strip_prefix("class.") {
-            format!("{dom}.updateClassBinding({alvo}, '{classe}', currVal_{k})")
+        Ok(if l.nome == "class" {
+            format!("this.updateChildClass({alvo}, {valor})")
+        } else if let Some(classe) = l.nome.strip_prefix("class.") {
+            format!("{dom}.updateClassBinding({alvo}, '{classe}', {valor})")
         } else if let Some(attr) = l.nome.strip_prefix("attr.") {
-            format!("{dom}.updateAttribute({alvo}, '{attr}', currVal_{k})")
+            format!("{dom}.updateAttribute({alvo}, '{attr}', {valor})")
         } else if let Some(estilo) = l.nome.strip_prefix("style.") {
-            format!("{alvo}.style.setProperty('{estilo}', currVal_{k})")
+            format!("{alvo}.style.setProperty('{estilo}', {valor})")
         } else if l.nome.contains('.') {
             return Err(Motivo::Ligacao);
         } else {
             let prop = &l.nome;
-            format!("{dom}.setProperty({alvo}, '{prop}', currVal_{k})")
-        };
-        let chk = self.imp.alias(CHECK_BINDING);
-        let expr = l.valor.trim();
-        let (ini, fim) = (l.inicio, l.fim);
-        self.deteccao.push(format!(
-            "    final currVal_{k} = {valor};
-    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{
-      {acao} /* REF:{url}:{ini}:{fim} */;
-      this._expr_{k} = currVal_{k};
-    }}"
-        ));
-        Ok(())
+            format!("{dom}.setProperty({alvo}, '{prop}', {valor})")
+        })
     }
 
     /// `(e)="metodo()"` ou `(e)="metodo($event)"`: o oficial passa o método
@@ -318,7 +331,8 @@ impl Corpo<'_> {
             "$event" => 1,
             _ => return Err(Motivo::Ligacao),
         };
-        let metodo = self.acesso(nome)?;
+        let metodo = crate::expr::converter_com_metodos(nome.trim(), self.membros, self.metodos, self.nomes)?
+            .texto;
         self.usa_ctx_no_build = true;
         let evento = &l.nome;
         self.linhas.push(format!(
@@ -339,13 +353,15 @@ impl Corpo<'_> {
         let (Some(tb), Some(url)) = (self.tb.clone(), self.url_do_template.clone()) else {
             return Err(Motivo::Interpolacao);
         };
-        // Só o acesso direto a um membro do componente. O oficial aceita
-        // expressão qualquer, mas cada forma tem a sua conversão e a sua
-        // verificação de tipo; uma de cada vez.
-        if !expr.chars().all(|c| c.is_alphanumeric() || c == '_') || expr.is_empty() {
-            return Err(Motivo::Interpolacao);
-        }
-        let Some(membro) = self.membros.get(expr) else { return Err(Motivo::Interpolacao) };
+        let convertida = crate::expr::converter_com_metodos(expr, self.membros, self.metodos, self.nomes)
+            .map_err(|_| Motivo::Interpolacao)?;
+        // Sem o tipo estático não dá para escolher entre `interpolateString`,
+        // `interpolate` e `updateTextWithPrimitive` — e escolher errado muda o
+        // que o programa faz.
+        let Some(tipo) = convertida.tipo.clone() else { return Err(Motivo::Interpolacao) };
+        let membro = crate::componente::Membro { tipo, imutavel: convertida.imutavel };
+        let membro = &membro;
+        let acesso = convertida.texto;
         let n = self.proximo;
         self.proximo += 1;
         let nu = membro.tipo.trim_end_matches('?').to_string();
@@ -355,7 +371,7 @@ impl Corpo<'_> {
         let interpolar = |imp: &mut Importacoes| {
             let alias = imp.alias(INTERPOLATE);
             let f = if nu == "String" { "interpolateString0" } else { "interpolate0" };
-            format!("{alias}.{f}(_ctx.{expr})")
+            format!("{alias}.{f}({acesso})")
         };
         if membro.imutavel {
             // Valor que não muda não tem ligação: o texto é calculado uma vez,
@@ -371,7 +387,7 @@ impl Corpo<'_> {
             .push(format!("  final {tb}.TextBinding _textBinding_{n} = {tb}.TextBinding();"));
         self.linhas.push(format!("    {pai}.append(this._textBinding_{n}.element);"));
         let atualizacao = if primitivo(&nu) {
-            format!("updateTextWithPrimitive(_ctx.{expr})")
+            format!("updateTextWithPrimitive({acesso})")
         } else {
             format!("updateText({})", interpolar(self.imp))
         };
@@ -620,6 +636,7 @@ pub fn template_de_componente(
     local: &Local,
     nos: &[No],
     resolvedor: Option<&dyn Resolucao>,
+    nomes: &mut dartforge_intern::Interner,
 ) -> Result<String, Motivo> {
     if !c.style_urls.is_empty() || !c.styles.is_empty() {
         return Err(Motivo::Estilos); // mudam `styles$X` e ligam o shim
@@ -656,9 +673,12 @@ pub fn template_de_componente(
         campos_el: Vec::new(),
         proxima_ligacao: 0,
         deteccao: Vec::new(),
+        nomes,
+        usa_primeira_checagem: false,
         tb,
         url_do_template: local.url_do_template.clone(),
         membros: &c.membros,
+        metodos: &c.metodos,
         proximo: 0,
         tem_doc: false,
         usa_ctx_no_build: false,
@@ -685,12 +705,18 @@ pub fn template_de_componente(
     let deteccao = if corpo.deteccao.is_empty() {
         String::new()
     } else {
+        let primeira = if corpo.usa_primeira_checagem {
+            "    bool firstCheck = this.firstCheck;
+"
+        } else {
+            ""
+        };
         format!(
             "
   @override
   void detectChangesInternal() {{
     final _ctx = this.ctx;
-{}
+{primeira}{}
   }}
 ",
             corpo.deteccao.join("
@@ -877,6 +903,7 @@ fn falta_para_construir(
 mod testes {
     use super::*;
     use crate::componente::Parametro;
+    use dartforge_intern::Interner;
 
     fn local() -> Local<'static> {
         Local {
@@ -912,7 +939,13 @@ mod testes {
             seletor: "form-feedback-comp".into(),
             ..Default::default()
         };
-        let saida = template_de_componente(&c, &local(), &[No::Comentario("{{message}}".into())], None)
+        let saida = template_de_componente(
+            &c,
+            &local(),
+            &[No::Comentario("{{message}}".into())],
+            None,
+            &mut Interner::new(),
+        )
             .expect("gera");
         let esperado = include_str!("../testes/form_feedback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
@@ -938,7 +971,7 @@ mod testes {
             url_do_template: None,
         };
         let nos = crate::html::analisar("<div>Processando login...</div>");
-        let saida = template_de_componente(&c, &local, &nos, None).expect("gera");
+        let saida = template_de_componente(&c, &local, &nos, None, &mut Interner::new()).expect("gera");
         let esperado = include_str!("../testes/callback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
@@ -947,7 +980,7 @@ mod testes {
     fn ligacao_ainda_nao_gera() {
         let c = Componente { classe: "X".into(), seletor: "x".into(), ..Default::default() };
         let nos = crate::html::analisar("<div [hidden]=\"a\"></div>");
-        assert_eq!(template_de_componente(&c, &local(), &nos, None), Err(Motivo::Ligacao));
+        assert_eq!(template_de_componente(&c, &local(), &nos, None, &mut Interner::new()), Err(Motivo::Ligacao));
     }
 
     #[test]
@@ -955,7 +988,7 @@ mod testes {
         let c = Componente { classe: "X".into(), seletor: "x".into(), ..Default::default() };
         let nos = crate::html::analisar("<outro-comp></outro-comp>");
         assert_eq!(
-            template_de_componente(&c, &local(), &nos, None),
+            template_de_componente(&c, &local(), &nos, None, &mut Interner::new()),
             Err(Motivo::ComponenteNoTemplate)
         );
     }
@@ -970,7 +1003,7 @@ mod testes {
         };
         // Sem banco semântico não há como saber que biblioteca declara o tipo.
         assert_eq!(
-            template_de_componente(&c, &local(), &[], None),
+            template_de_componente(&c, &local(), &[], None, &mut Interner::new()),
             Err(Motivo::InjecaoNaoResolvida)
         );
     }
@@ -1000,7 +1033,7 @@ mod testes {
         ]);
         let nos = crate::html::analisar("<div>Processando login...</div>");
         let saida =
-            template_de_componente(&c, &local, &nos, Some(&tabela)).expect("gera");
+            template_de_componente(&c, &local, &nos, Some(&tabela), &mut Interner::new()).expect("gera");
         let esperado = include_str!("../testes/callback_com_injecao.template.dart");
         assert_eq!(saida, esperado.replace("
 ", "

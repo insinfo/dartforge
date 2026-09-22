@@ -18,6 +18,7 @@
 //! o placar diz exatamente onde estamos.
 pub mod componente;
 pub mod dom;
+pub mod expr;
 pub mod html;
 pub mod resolucao;
 pub mod visao;
@@ -193,7 +194,7 @@ pub fn gerar_em(
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
                 let achados = achar(&analisada.ast, &analisada.unit, &fonte, interner);
                 let (texto, entradas) =
-                    match gerar_arquivo(pacote, &p, &nome, &achados, resolvedor) {
+                    match gerar_arquivo(pacote, &p, &nome, &achados, resolvedor, interner) {
                     Ok(x) => x,
                     Err(motivo) => {
                         // Forma que o gerador ainda não cobre: fica com o
@@ -226,6 +227,7 @@ fn gerar_arquivo(
     nome_do_arquivo: &str,
     achados: &Achados,
     resolvedor: Option<&dyn resolucao::Resolucao>,
+    nomes: &mut Interner,
 ) -> Result<(String, Vec<PathBuf>), Motivo> {
     if achados.trivial() {
         return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
@@ -262,7 +264,7 @@ fn gerar_arquivo(
         url_do_template: url_do_template(pacote, fonte, comp),
     };
     let nos = html::analisar(&template);
-    let texto = visao::template_de_componente(comp, &local, &nos, resolvedor)?;
+    let texto = visao::template_de_componente(comp, &local, &nos, resolvedor, nomes)?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
     Ok((texto, entradas))
