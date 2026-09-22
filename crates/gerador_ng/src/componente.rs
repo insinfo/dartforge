@@ -42,6 +42,8 @@ pub struct Componente {
     /// que o oficial decide pelo tipo estático da expressão do template e por
     /// ela ser mutável ou não.
     pub membros: std::collections::HashMap<String, Membro>,
+    /// `@Input`s: nome da ligação no template -> campo que recebe o valor.
+    pub entradas: std::collections::HashMap<String, String>,
     /// Métodos da classe, separados dos campos: um método só pode aparecer
     /// como alvo de chamada (`titulo()`), e o seu tipo é o do retorno. Se
     /// entrassem no mesmo mapa, `{{ titulo }}` (tearoff) seria interpolado
@@ -187,6 +189,7 @@ pub fn ler_componente(
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
     c.metodos = tipos_dos_metodos(arvore, fonte, interner, classe);
+    c.entradas = entradas_da_classe(arvore, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
     c.nao_entendido = o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao);
     c
@@ -349,6 +352,53 @@ fn tipos_dos_membros(
                 );
             }
             _ => {}
+        }
+    }
+    saida
+}
+
+/// `@Input()` de cada campo ou setter: o nome no template (o apelido, se
+/// houver) para o nome do membro.
+fn entradas_da_classe(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> std::collections::HashMap<String, String> {
+    let mut saida = std::collections::HashMap::new();
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        let Some(a) = membro
+            .metadata
+            .iter()
+            .find(|a| crate::nome_da_anotacao(a, interner) == "Input")
+        else {
+            continue;
+        };
+        let apelido = a.arguments.as_ref().and_then(|args| {
+            args.args.first().and_then(|arg| match &arvore.expr(arg.value).kind {
+                ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+                _ => None,
+            })
+        });
+        let nomes: Vec<String> = match &membro.kind {
+            ast::MemberKind::Field(lista) => lista
+                .variables
+                .iter()
+                .map(|v| interner.resolve(v.name.sym).to_string())
+                .collect(),
+            ast::MemberKind::Method(f) => {
+                let funcao = arvore.function(*f);
+                match (funcao.kind, funcao.name) {
+                    (ast::FunctionKind::Setter, Some(n)) => {
+                        vec![interner.resolve(n.sym).to_string()]
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        };
+        for nome in nomes {
+            saida.insert(apelido.clone().unwrap_or_else(|| nome.clone()), nome);
         }
     }
     saida

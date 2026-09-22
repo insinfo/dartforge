@@ -40,6 +40,19 @@ try {
     $utf8 = New-Object System.Text.UTF8Encoding $false
     [IO.File]::WriteAllText((Join-Path $raiz 'web\main.dart'), ($linhas -join "`n") + "`n", $utf8)
 
+    # 1b. a biblioteca que reexporta todos os casos, para o teste carregar o
+    # pacote inteiro numa entrada só.
+    $exports = @(
+        '/// Biblioteca do corpus: existe para a carga alcançar todos os casos numa',
+        '/// entrada só — é por ela que o teste monta o banco semântico.',
+        'library corpus_ngdart;',
+        ''
+    )
+    foreach ($caso in $casos) {
+        $exports += "export 'src/$([IO.Path]::GetFileNameWithoutExtension($caso.Name)).dart';"
+    }
+    [IO.File]::WriteAllText((Join-Path $raiz 'lib\corpus_ngdart.dart'), ($exports -join "`n") + "`n", $utf8)
+
     # 2. o compilador oficial.
     dart pub get --offline
     dart run build_runner build --delete-conflicting-outputs

@@ -10,7 +10,7 @@
 //! O caminho do import é montado pela regra do `getImportModulePath` do
 //! `ngcompiler` (`output/path_util.dart`): mesmo pacote e mesma pasta de
 //! primeiro nível viram caminho relativo; o resto vira `package:`.
-use dartforge_elements::model::{Element, LibraryId, Program};
+use dartforge_elements::model::{ClassId, Element, LibraryId, Program};
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +20,15 @@ use std::path::{Path, PathBuf};
 pub trait Resolucao {
     /// URI da biblioteca que declara `nome` no escopo de `arquivo`.
     fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String>;
+
+    /// Tipo declarado de `membro` na classe `tipo`, e se ele é imutável.
+    ///
+    /// É o que permite interpolar `{{ item.nome }}`: sem saber que `nome` é
+    /// `String`, não dá para escolher entre `interpolateString`,
+    /// `interpolate` e `updateTextWithPrimitive`.
+    fn tipo_do_membro(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<(String, bool)> {
+        None
+    }
 }
 
 pub struct Resolvedor<'a> {
@@ -177,6 +186,78 @@ fn relativo(modulo: &str, importado: &str) -> String {
 impl Resolucao for Resolvedor<'_> {
     fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String> {
         self.procurar(arquivo, nome).map(str::to_string)
+    }
+
+    fn tipo_do_membro(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<(String, bool)> {
+        let classe = self.classe(arquivo, tipo)?;
+        self.membro_da_classe(classe, membro)
+    }
+}
+
+impl<'a> Resolvedor<'a> {
+    /// A classe que o nome `tipo` designa no escopo de `arquivo`.
+    fn classe(&self, arquivo: &Path, tipo: &str) -> Option<ClassId> {
+        let lib = self.biblioteca(arquivo)?;
+        let biblioteca = self.program.library(lib);
+        let simples = tipo.trim_end_matches('?');
+        let (prefixo, simples) = match simples.split_once('.') {
+            Some((p, t)) => (Some(p), t),
+            None => (None, simples),
+        };
+        let sym = self.interner.lookup(simples)?;
+        let espaco = match prefixo {
+            None => &biblioteca.scope,
+            Some(p) => biblioteca.prefixes.get(&self.interner.lookup(p)?)?,
+        };
+        match espaco.get(&sym)?.getter? {
+            Element::Class(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// Tipo declarado de um membro de instância, subindo pela superclasse
+    /// quando a classe não o declara — que é onde ficam os campos herdados.
+    fn membro_da_classe(&self, classe: ClassId, membro: &str) -> Option<(String, bool)> {
+        let sym = self.interner.lookup(membro)?;
+        let mut atual = Some(classe);
+        while let Some(id) = atual {
+            let c = self.program.class(id);
+            if let Some(&fid) = c.instance_members.get(&sym) {
+                return self.tipo_da_funcao(fid);
+            }
+            atual = c.supertype_class;
+        }
+        None
+    }
+
+    /// O tipo que um acessor devolve: de um campo, o tipo escrito no campo;
+    /// de um getter, o retorno declarado.
+    fn tipo_da_funcao(&self, fid: dartforge_elements::model::FunctionElementId) -> Option<(String, bool)> {
+        let f = self.program.function(fid);
+        if let Some(vid) = f.variable {
+            let v = self.program.variable(vid);
+            if let dartforge_elements::model::VariableRef::Field { unit, member, .. } = v.node {
+                let u = self.program.unit(unit);
+                let dartforge_frontend::ast::MemberKind::Field(lista) = &u.ast.member(member).kind
+                else {
+                    return None;
+                };
+                let t = lista.ty?;
+                let s = u.ast.ty(t).span;
+                let texto = u.source.get(s.start as usize..s.end as usize)?;
+                return Some((texto.to_string(), v.final_ || v.const_));
+            }
+            return None;
+        }
+        let dartforge_elements::model::FunctionRef::Function { unit, function } = f.node else {
+            return None;
+        };
+        let u = self.program.unit(unit);
+        let funcao = u.ast.function(function);
+        let t = funcao.return_type?;
+        let s = u.ast.ty(t).span;
+        // Getter é sempre imutável para a regra `isImmutable`.
+        Some((u.source.get(s.start as usize..s.end as usize)?.to_string(), true))
     }
 }
 

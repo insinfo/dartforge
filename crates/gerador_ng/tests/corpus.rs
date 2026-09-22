@@ -7,6 +7,9 @@
 //!
 //! O oráculo se regenera com `scripts/corpus-ngdart.ps1` (roda o
 //! `build_runner` oficial uma vez).
+use dartforge_elements::load::load_lenient;
+use dartforge_elements::sdk::SdkLayout;
+use dartforge_gerador_ng::resolucao::Resolvedor;
 use dartforge_gerador_ng::{Pacote, Placar, caminho_do_template, gerar_em};
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
@@ -25,10 +28,31 @@ fn o_que_geramos_e_igual_ao_oficial() {
         return;
     }
     let pacote = Pacote { nome: "corpus_ngdart".into(), raiz: raiz.clone() };
+    // O teste roda o mesmo caminho da produção: carrega o projeto e gera com
+    // banco semântico. Sem ele, casos como `{{ item.nome }}` — que precisam do
+    // tipo de um membro noutra classe — ficariam fora da verificação.
+    let entrada = raiz.join("lib").join("corpus_ngdart.dart");
+    let cfg = raiz.join(".dart_tool").join("package_config.json");
+    let sdk_dir =
+        SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+    let Ok(sdk) = SdkLayout::load(&sdk_dir, "dartdevc") else {
+        eprintln!("SDK indisponível; o corpus não foi verificado");
+        return;
+    };
+    let mut nomes = Interner::new();
+    let (programa, _) = load_lenient(&entrada, &sdk, Some(&cfg), &mut nomes);
+    let resolvedor = Resolvedor::novo(&programa, &nomes);
     let mut interner = Interner::new();
     let mut c = dartforge_elements::gerado::Construtor::nova();
     let mut placar = Placar::default();
-    gerar_em(&pacote, &[raiz.join("lib")], &mut interner, &mut c, &mut placar, None);
+    gerar_em(
+        &pacote,
+        &[raiz.join("lib")],
+        &mut interner,
+        &mut c,
+        &mut placar,
+        Some(&resolvedor),
+    );
     let nossa = c.concluir(1).expect("geração");
 
     let mut conferidos = 0usize;

@@ -68,6 +68,7 @@ const ANGULAR: &str = "package:ngdart/angular.dart";
 const DI_ERRORS: &str = "package:ngdart/src/di/errors.dart";
 const TEXT_BINDING: &str = "package:ngdart/src/runtime/text_binding.dart";
 const CHECK_BINDING: &str = "package:ngdart/src/runtime/check_binding.dart";
+const DEVTOOLS: &str = "package:ngdart/src/devtools.dart";
 const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
@@ -184,14 +185,15 @@ fn motivos_dos_nos(
                 if !dom::tag_html(&e.nome) && !e_filho {
                     fora.insert(Motivo::ComponenteNoTemplate);
                 } else if e_filho {
-                    // Componente conhecido: o que falta é ligar `@Input` e
-                    // `@Output` nele.
-                    if !e.propriedades.is_empty()
-                        || !e.eventos.is_empty()
+                    // Componente conhecido: falta o que não for `@Input`
+                    // declarado por ele.
+                    let f = &filhos[&e.nome];
+                    if !e.eventos.is_empty()
                         || !e.bananas.is_empty()
                         || !e.referencias.is_empty()
                         || e.estrela.is_some()
                         || !e.atributos.is_empty()
+                        || e.propriedades.iter().any(|l| !f.entradas.contains_key(&l.nome))
                     {
                         fora.insert(Motivo::LigacaoEmFilho);
                     }
@@ -226,8 +228,8 @@ pub struct Filho {
     pub uri_template: String,
     /// Tem `<ng-content>`: muda `create` para `createAndProject`.
     pub projeta: bool,
-    /// Campos e getters do filho, para as ligações de `@Input`.
-    pub entradas: std::collections::HashMap<String, crate::componente::Membro>,
+    /// `@Input`s do filho: nome no template -> campo que recebe o valor.
+    pub entradas: std::collections::HashMap<String, String>,
 }
 
 /// O que o emissor precisa saber de onde o componente mora.
@@ -289,6 +291,8 @@ struct Corpo<'a> {
     vistas_filhas: Vec<String>,
     /// Asset deste arquivo, para calcular os caminhos de import dos filhos.
     asset: String,
+    /// Banco semântico e o arquivo, para tipar cadeias como `item.nome`.
+    tipos: Option<(&'a dyn Resolucao, &'a Path)>,
     /// Para analisar as expressões do template, que são expressões Dart.
     nomes: &'a mut dartforge_intern::Interner,
     /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
@@ -322,7 +326,7 @@ impl Corpo<'_> {
     /// para a mensagem de "expressão mudou depois da checagem".
     fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
         let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
-        let convertida = crate::expr::converter_com_metodos(&l.valor, self.membros, self.metodos, self.nomes)?;
+        let convertida = crate::expr::converter_com_metodos(&l.valor, self.membros, self.metodos, self.nomes, self.tipos)?;
         let expr = l.valor.trim();
         let (ini, fim) = (l.inicio, l.fim);
         // Valor que não muda é escrito uma vez, na primeira checagem, sem
@@ -385,7 +389,7 @@ impl Corpo<'_> {
             "$event" => 1,
             _ => return Err(Motivo::Ligacao),
         };
-        let metodo = crate::expr::converter_com_metodos(nome.trim(), self.membros, self.metodos, self.nomes)?
+        let metodo = crate::expr::converter_com_metodos(nome.trim(), self.membros, self.metodos, self.nomes, self.tipos)?
             .texto;
         self.usa_ctx_no_build = true;
         let evento = &l.nome;
@@ -407,14 +411,14 @@ impl Corpo<'_> {
         filho: &Filho,
         pai: &str,
     ) -> Result<(), Motivo> {
-        if !e.propriedades.is_empty()
-            || !e.eventos.is_empty()
+        if !e.eventos.is_empty()
             || !e.bananas.is_empty()
             || !e.referencias.is_empty()
             || e.estrela.is_some()
             || !e.atributos.is_empty()
         {
-            // Ligação em componente filho (`@Input`/`@Output`) ainda não.
+            // `@Output`, `[(x)]`, `#ref` e atributo estático em filho: ainda
+            // não.
             return Err(Motivo::LigacaoEmFilho);
         }
         let n = self.proximo;
@@ -437,6 +441,9 @@ impl Corpo<'_> {
         self.linhas.push(format!("    final _el_{n} = this.{campo_vista}.rootElement;"));
         self.linhas.push(format!("    {pai}.append(_el_{n});"));
         self.linhas.push(format!("    this.{campo_inst} = {vd}.{classe}();"));
+        for l in &e.propriedades {
+            self.entrada_do_filho(l, filho, &campo_inst)?;
+        }
         if filho.projeta {
             // Conteúdo projetado: os nós são criados soltos e entregues ao
             // filho, que decide onde encaixá-los.
@@ -470,6 +477,39 @@ impl Corpo<'_> {
         Ok(())
     }
 
+    /// `[titulo]="valor"` num componente filho: o valor entra no campo que o
+    /// `@Input` aponta, e o devtools registra a entrada em modo de
+    /// desenvolvimento.
+    fn entrada_do_filho(
+        &mut self,
+        l: &crate::html::Ligacao,
+        filho: &Filho,
+        campo_inst: &str,
+    ) -> Result<(), Motivo> {
+        let Some(url) = self.url_do_template.clone() else { return Err(Motivo::LigacaoEmFilho) };
+        let Some(campo) = filho.entradas.get(&l.nome).cloned() else {
+            // Nome que o filho não declara como `@Input`: pode ser diretiva.
+            return Err(Motivo::LigacaoEmFilho);
+        };
+        let convertida =
+            crate::expr::converter_com_metodos(&l.valor, self.membros, self.metodos, self.nomes, self.tipos)
+                .map_err(|_| Motivo::LigacaoEmFilho)?;
+        let k = self.proxima_ligacao;
+        self.proxima_ligacao += 1;
+        self.campos_expr.push(format!("  Object? _expr_{k};"));
+        let chk = self.imp.alias(CHECK_BINDING);
+        let dev = self.imp.alias(DEVTOOLS);
+        let expr = l.valor.trim();
+        let (ini, fim) = (l.inicio, l.fim);
+        let valor = convertida.texto;
+        let nome = &l.nome;
+        self.usa_ctx_na_deteccao = true;
+        self.deteccao.push(format!(
+            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', currVal_{k});\n      }}\n      this.{campo_inst}.{campo} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
+        ));
+        Ok(())
+    }
+
     /// Emite a ligação de texto de `{{ … }}`: o campo `TextBinding`, o
     /// `append` no `build()` e a atualização no `detectChangesInternal`.
     fn interpolacao(
@@ -482,7 +522,7 @@ impl Corpo<'_> {
         let (Some(tb), Some(url)) = (self.tb.clone(), self.url_do_template.clone()) else {
             return Err(Motivo::Interpolacao);
         };
-        let convertida = crate::expr::converter_com_metodos(expr, self.membros, self.metodos, self.nomes)
+        let convertida = crate::expr::converter_com_metodos(expr, self.membros, self.metodos, self.nomes, self.tipos)
             .map_err(|_| Motivo::Interpolacao)?;
         // Sem o tipo estático não dá para escolher entre `interpolateString`,
         // `interpolate` e `updateTextWithPrimitive` — e escolher errado muda o
@@ -745,9 +785,14 @@ fn primitivo(tipo: &str) -> bool {
 }
 
 /// Algum elemento tem ligação de propriedade e, portanto, vira campo?
-fn tem_elemento_ligado(nos: &[No]) -> bool {
+fn tem_elemento_ligado(nos: &[No], filhos: &std::collections::HashMap<String, Filho>) -> bool {
     nos.iter().any(|n| match n {
-        No::Elemento(e) => !e.propriedades.is_empty() || tem_elemento_ligado(&e.filhos),
+        // Componente filho não vira campo de elemento: quem guarda a raiz
+        // dele é a visão-filha.
+        No::Elemento(e) if !filhos.contains_key(&e.nome) => {
+            !e.propriedades.is_empty() || tem_elemento_ligado(&e.filhos, filhos)
+        }
+        No::Elemento(e) => tem_elemento_ligado(&e.filhos, filhos),
         _ => false,
     })
 }
@@ -846,7 +891,7 @@ pub fn template_de_componente(
             imp.alias(&caminho);
         }
     }
-    if tem_elemento_ligado(nos) {
+    if tem_elemento_ligado(nos, filhos) {
         imp.alias("dart:html");
     }
     let estilos = imp.alias(STYLE_ENCAPSULATION);
@@ -864,6 +909,7 @@ pub fn template_de_componente(
         vistas_filhas: Vec::new(),
         filhos,
         asset: local.asset(),
+        tipos: resolvedor.map(|r| (r, local.caminho)),
         campos_expr: Vec::new(),
         campos_el: Vec::new(),
         proxima_ligacao: 0,

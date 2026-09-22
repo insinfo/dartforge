@@ -9,7 +9,9 @@
 //! O que o `expression_converter.dart` escreve e este módulo reproduz:
 //! `_ctx.item.nome`, `_ctx.titulo()`, `(!_ctx.item.ativo)`, `'fixo'`.
 use crate::componente::Membro;
+use crate::resolucao::Resolucao;
 use crate::visao::Motivo;
+use std::path::Path;
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::collections::HashMap;
@@ -38,7 +40,7 @@ pub fn converter(
     membros: &HashMap<String, Membro>,
     interner: &mut Interner,
 ) -> Result<Convertida, Motivo> {
-    converter_com_metodos(expressao, membros, &HashMap::new(), interner)
+    converter_com_metodos(expressao, membros, &HashMap::new(), interner, None)
 }
 
 /// Como [`converter`], sabendo também os métodos da classe — que só valem
@@ -48,6 +50,7 @@ pub fn converter_com_metodos(
     membros: &HashMap<String, Membro>,
     metodos: &HashMap<String, String>,
     interner: &mut Interner,
+    tipos: Option<(&dyn Resolucao, &Path)>,
 ) -> Result<Convertida, Motivo> {
     // Um `var` de topo é o menor contexto em que o parser aceita uma
     // expressão qualquer.
@@ -62,7 +65,7 @@ pub fn converter_com_metodos(
     };
     let Some(v) = lista.variables.first() else { return Err(Motivo::Ligacao) };
     let Some(inicial) = v.initializer else { return Err(Motivo::Ligacao) };
-    let c = Conversor { ast: &analisada.ast, fonte: &fonte, interner, membros, metodos };
+    let c = Conversor { ast: &analisada.ast, fonte: &fonte, interner, membros, metodos, tipos };
     c.expr(inicial, true)
 }
 
@@ -72,6 +75,9 @@ struct Conversor<'a> {
     interner: &'a Interner,
     membros: &'a HashMap<String, Membro>,
     metodos: &'a HashMap<String, String>,
+    /// Banco semântico e o arquivo em que a expressão foi escrita, para
+    /// perguntar o tipo de um membro que está noutra classe.
+    tipos: Option<(&'a dyn Resolucao, &'a Path)>,
 }
 
 impl Conversor<'_> {
@@ -121,12 +127,16 @@ impl Conversor<'_> {
                 let alvo = self.expr(*target, raiz)?;
                 let nome = self.interner.resolve(name.sym);
                 let ponto = if *null_aware { "?." } else { "." };
+                // O tipo do fim da cadeia está noutra classe: é o banco
+                // semântico que responde, como o analyzer responde ao oficial.
+                let achado = match (&alvo.tipo, self.tipos) {
+                    (Some(t), Some((r, arquivo))) => r.tipo_do_membro(arquivo, t, nome),
+                    _ => None,
+                };
                 Ok(Convertida {
                     texto: format!("{}{ponto}{nome}", alvo.texto),
-                    // O tipo do fim da cadeia sairia de outra classe; quem
-                    // precisa dele (a interpolação) recusa quando não tem.
-                    imutavel: false,
-                    tipo: None,
+                    imutavel: achado.as_ref().map(|(_, i)| *i).unwrap_or(false),
+                    tipo: achado.map(|(t, _)| t),
                 })
             }
             ast::ExprKind::Call { target, arguments } => {

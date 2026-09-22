@@ -335,7 +335,7 @@ fn indexar(
             uri_dart: uri.to_string(),
             uri_template: uri.replace(".dart", ".template.dart"),
             projeta,
-            entradas: comp.membros.clone(),
+            entradas: comp.entradas.clone(),
         },
     );
 }
