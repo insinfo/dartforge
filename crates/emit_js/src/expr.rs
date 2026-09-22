@@ -1770,7 +1770,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
         let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
-        if !self.ctx.requires_rti(c) {
+        // O tearoff estático existe quando a classe não tem parâmetros próprios
+        // (ele mesmo passa o `rti` da classe ao construtor).
+        if self.ctx.class_params[c.0 as usize].is_empty() {
             let rti = self.rti(&ty);
             return Some((Js::prim(format!("dart.fn({}[{}], {rti})", self.class_ref(c), js::string_literal(&format!("_#{cname}#tearOff")))), ty));
         }
@@ -2678,6 +2680,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         expected: Option<&Ty>,
         is_const: bool,
     ) -> (Js, Ty) {
+        // `bool/int/String.fromEnvironment` e `bool.hasEnvironment` (construtores
+        // `const factory external`): constantes de ambiente, avaliadas na
+        // compilação — é o que a CFE faz e o que o `dart_sdk.js` exige, pois os
+        // construtores lançam `UnsupportedError` em tempo de execução.
+        if ctor_name == "fromEnvironment" {
+            if let Some(r) = self.constante_de_ambiente(class, arguments) {
+                return r;
+            }
+        }
+        if ctor_name == "hasEnvironment" && Some(class) == self.ctx.bool_ {
+            // Sem `-D` na linha de comando, nenhuma variável está declarada.
+            return (Js::prim("false"), self.ctx.t_bool());
+        }
         let cls = self.ctx.program.class(class);
         let key = if ctor_name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(ctor_name) };
         let fid = key.and_then(|k| cls.constructors.get(&k).copied());
@@ -2735,6 +2750,39 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.finish_ctor_call(class, targs, fid, ctor_name, arg_js, is_const)
     }
 
+    /// Valor de `const bool/int/String.fromEnvironment(nome, defaultValue: v)`.
+    /// Sem `-D` na linha de comando, o valor é sempre o `defaultValue`
+    /// (`false`, `0` e `""` quando omitido, como manda a especificação).
+    pub fn constante_de_ambiente(&mut self, class: ClassId, arguments: &ast::Arguments) -> Option<(Js, Ty)> {
+        let (padrao, ty) = if Some(class) == self.ctx.bool_ {
+            ("false".to_string(), self.ctx.t_bool())
+        } else if Some(class) == self.ctx.int_ {
+            ("0".to_string(), self.ctx.t_int())
+        } else if Some(class) == self.ctx.string_ {
+            ("\"\"".to_string(), self.ctx.t_string())
+        } else {
+            return None;
+        };
+        let default_arg = arguments
+            .args
+            .iter()
+            .find(|a| a.name.as_ref().is_some_and(|n| self.name(n.sym) == "defaultValue"))
+            .map(|a| a.value);
+        let Some(arg) = default_arg else {
+            return Some((Js::prim(padrao), ty));
+        };
+        let (js, jty) = self.emit_expr(arg, Some(&ty));
+        // Só dobra quando o padrão já é um literal; qualquer outra forma cai no
+        // caminho normal (e o programa não é válido em Dart de qualquer modo).
+        let literal = matches!(js.code.as_str(), "true" | "false")
+            || js.code.starts_with('"')
+            || js.code.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-');
+        if literal && !js.code.is_empty() {
+            return Some((js, jty));
+        }
+        None
+    }
+
     fn finish_ctor_call(&mut self, class: ClassId, targs: Vec<Ty>, fid: Option<dartforge_elements::model::FunctionElementId>, ctor_name: &str, mut arg_js: Vec<String>, is_const: bool) -> (Js, Ty) {
         let ty = Ty::Iface { class, args: targs.clone(), nullable: false };
         let cls = self.ctx.program.class(class);
@@ -2752,7 +2800,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 fun.external || fun.kind == FunctionKind::SyntheticConstructor
             });
             if external {
-                if jc.anonymous {
+                // Literal de objeto: `@anonymous` (package:js) e construtor
+                // `external` de extension type só com parâmetros nomeados
+                // (`dart:js_interop`, compiler.dart:6948) — `{a: 1, b: 2}`.
+                let so_nomeados = fid.is_some_and(|f| {
+                    let ps = &self.ctx.outline.functions[f.0 as usize].parameters;
+                    !ps.is_empty() && ps.iter().all(|p| p.kind == ast::ParameterKind::Named)
+                });
+                if jc.anonymous || so_nomeados {
                     let obj = arg_js.last().filter(|a| a.starts_with('{')).cloned().unwrap_or_else(|| "{}".to_string());
                     return (Js::prim(obj), ty);
                 }

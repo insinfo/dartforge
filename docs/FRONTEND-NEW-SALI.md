@@ -54,87 +54,67 @@ Modos de comparação:
 
 | # | passo | DartForge | dartdevc oficial |
 |---|-------|-----------|------------------|
-| 1 | carga inicial `/` | monta `my-app` → `router-outlet` → `pre-login-page` | igual |
-| 2 | clique no carrossel (Slide 3) | slide ativo 0 → 2 | igual |
-| 3 | `/login?error_code=GOVBR_BRONZE` | alerta renderizado, **mas os dois `{{…}}` saem vazios** | alerta com título e mensagem |
-| 4 | submeter "Entrar" | pedido de autorização OIDC com PKCE, bloqueado | igual |
+| 1 | carga inicial `/` | `my-app` -> `router-outlet` -> `pre-login-page`, 378 chars | igual |
+| 2 | clique no carrossel (Slide 3) | slide ativo 0 -> 2 | igual |
+| 3 | `/login?error_code=GOVBR_BRONZE` | alerta com titulo e mensagem, 685 chars | igual |
+| 4 | submeter "Entrar" | autorizacao OIDC com PKCE, bloqueada | igual |
 | 5 | rota `/sobre` | `sobre-page` montada | igual |
 | 6 | rota `/sessao-expirou` | `session-expired-comp` montada | igual |
-| 7 | `/restrito/home` sem sessão | a guarda devolve a `/login` | igual |
+| 7 | `/restrito/home` sem sessao | a guarda devolve a `/login` | igual |
 | 8 | volta a `/login` | `pre-login-page` montada | igual |
-| 9 | clique em link interno | a página pública não tem `<a href="/…">` | igual |
-| 10 | `/callback?code=inválido` | tenta **só** `POST /oauth2/logout` | tenta `POST /oauth2/token` e depois `/oauth2/logout` |
-| 11 | sessão forjada → `/restrito/home` | `HomePage@ngOnInit` roda, mas os componentes falham com `Unsupported operation: bool.fromEnvironment…`; **nenhuma chamada à API** | mesmos componentes pedem `…/administracao/menu/12345`, `…/permissoes/user/logado/todas`, `…/usuario-preferencias/me`, `…/acoes/favoritas/cgm/12345` e tratam a conexão recusada |
+| 9 | clique em link interno | a pagina publica nao tem `<a href="/...">` | igual |
+| 10 | `/callback?code=invalido` | `POST /oauth2/token` e depois `/oauth2/logout` | igual |
+| 11 | sessao forjada -> `/restrito/home` | pede os 5 endpoints da API e trata a conexao recusada | igual |
 
-Nos dois compiladores: **11 passos, 0 erros não tratados**. As divergências
-estão no que a aplicação consegue fazer, não em exceções soltas.
+**11 passos, 0 erros da aplicacao nos dois compiladores, e os 11 passos batem
+componente a componente** (mesmos componentes montados, mesmo tamanho de texto,
+mesmos alertas, mesmos `print` da aplicacao). Os 7 pedidos externos bloqueados
+sao exatamente os mesmos: `/oauth2/token`, `/oauth2/logout`,
+`/api/v1/administracao/menu/12345`,
+`/api/v1/administracao/permissoes/user/logado/todas`,
+`/api/v1/administracao/usuario-preferencias/me`,
+`/api/v1/protocolo/acoes/favoritas/cgm/12345`,
+`/api/v1/protocolo/notificacoes/last/12345`.
 
-Sobre o passo 4: a aplicação não tem formulário de usuário/senha — o login é
-OIDC (servidor de identidade em `localhost:3350`) e o único controle do
-formulário é o botão `#submit`. "Credenciais inválidas" é o `error_code` que o
-IdP devolve na query, que é o caminho do passo 3.
+Sobre o passo 4: a aplicacao nao tem formulario de usuario/senha — o login e
+OIDC (servidor de identidade em `localhost:3350`) e o unico controle do
+formulario e o botao `#submit`. "Credenciais invalidas" e o `error_code` que o
+IdP devolve na query, que e o caminho do passo 3.
 
-## Fila para o emissor (revelada pelo fluxo, não corrigida)
+## O que foi corrigido no emissor (fila de 2026-09-22, fechada)
 
-### 1. `const bool.fromEnvironment` avaliado em tempo de execução
+1. **`@JSName` na simbolizacao de membro nativo** (`_isSymbolizedMember`,
+   compiler.dart:3311): membro nativo que e campo ou `external` so acede
+   propriedade direta quando **nao** e null-checkable **e nao** foi renomeado;
+   o nome vem da anotacao lida do outline (mapa por membro da hierarquia
+   nativa), nao de lista. `Node.text` (`@JSName('textContent')`) volta a ser
+   `dartx`, e com isso a interpolacao `{{...}}` do ngdart aparece no DOM e os
+   estilos de componente sao aplicados. Corpus `211_membros_nativos_renomeados`
+   (via `dart:_native_typed_data`: `lengthInBytes`/`offsetInBytes`/
+   `elementSizeInBytes`), que roda na VM e no Node.
+2. **Constantes de ambiente na compilacao**: `const bool/int/String.fromEnvironment`
+   e `bool.hasEnvironment` sao avaliadas ao compilar (sem `-D`, valem o
+   `defaultValue`) e o ramo morto de um `if` com condicao constante nao e
+   emitido, como o dartdevc faz. Com isso `package:http` cria o `BrowserClient`
+   e as chamadas HTTP saem. Corpus `210_constantes_de_ambiente`.
+3. **Interop de `dart:js_interop`** (revelada pela correcao 2, que destravou o
+   caminho HTTP): tipos de extensao de interop (package:web, `dart:js_interop`)
+   deixam de ser apagados no tipo — construtor `external` vira
+   `new dart.global.X(...)`, construtor so com nomeados vira literal de objeto
+   (compiler.dart:6948) e os membros `external` viram propriedade direta —,
+   enquanto nas **receitas rti** o apagamento passa a ser para o tipo de
+   representacao (`JSArray<JSString>` -> `_interceptors|JSArray<core|Object?>`,
+   `JSString` -> `core|String`), que e o que o DDC emite. A interop e calculada
+   antes da hierarquia, para `implements JSAny` valer nas extensoes do SDK
+   (`toDart`, `toJS`, `jsify`, `dartify`). Corpus
+   `213_interop_de_tipos_de_extensao` (`diverge-ddc`).
+4. **`rti` de classe com superclasse generica**: a factory recebe `_ti` sempre
+   que a classe *ou uma superclasse* e generica (antes so com parametros
+   proprios) e o tearoff estatico passa o rti ao construtor — era o que
+   quebrava `ByteStream.fromBytes` do `package:http`. Corpus
+   `212_rti_de_superclasse_generica`.
 
-* **Construto**: `package:http/src/browser_client.dart:28` (e
-  `io_client.dart:15`): `if (const bool.fromEnvironment('no_default_http_client')) { throw StateError(…); }`
-* **dartdevc** (`.dart_tool/build/generated/http/lib/http.ddc.js:1389`): avalia a
-  constante de ambiente na compilação (ausente → `false`) e some com o `if`:
-  `createClient = function createClient() { ; return new browser_client.BrowserClient.new(); };`
-* **DartForge**: emite `if (dart.const(core.bool.fromEnvironment("no_default_http_client")))`,
-  e o `dart_sdk.js` lança de propósito nesse construtor
-  (`bool.fromEnvironment can only be used as a const constructor`, dart_sdk.js:125824).
-* **Efeito**: `createClient()` sempre lança → **nenhuma chamada HTTP acontece**;
-  `MainMenuComponent@loadMenus`, `ListNotificationComp@load`,
-  `AcaoFavoritaComp@loadFavoritos` e a troca de código do OIDC morrem aí.
-* **O que falta**: avaliar `const bool/int/String.fromEnvironment` e
-  `bool.hasEnvironment` na compilação (sem `-D`, o valor é o `defaultValue`), como
-  a CFE faz, em vez de emitir a chamada.
-* **Reprodução mínima** (sem `dart:html`; `dart run` imprime
-  `false/true/7/padrão/false`, o DartForge lança na primeira linha) — vira
-  programa de corpus junto com a correção:
-
-      const bool depuracao = bool.fromEnvironment('modo_depuracao');
-      void main() {
-        if (const bool.fromEnvironment('sem_cliente')) print('nunca');
-        print(depuracao);
-        print(const bool.fromEnvironment('x', defaultValue: true));
-        print(const int.fromEnvironment('n', defaultValue: 7));
-        print(const String.fromEnvironment('s', defaultValue: 'padrão'));
-        print(const bool.hasEnvironment('nao_existe'));
-      }
-
-### 2. `@JSName` em membro nativo é ignorado (nome JS errado)
-
-* **Construto**: `package:ngdart/src/runtime/text_binding.dart:28`
-  (`element.text = newValue`, onde `element` é um `Text` de `dart:html`) e
-  `package:ngdart/src/core/linker/style_encapsulation.dart:170`
-  (`final styleElement = StyleElement()..text = styles;`).
-* **Regra na referência**: `compiler.dart:3311` `_isSymbolizedMember` — num
-  receptor nativo, o membro encaminhado que é campo ou `external` só escapa do
-  símbolo `dartx` quando **não** é null-checkable **e não é renomeado**:
-
-      if (_isNullCheckableNative(member!)) return true;
-      var jsName = _annotationName(member, isJSName);
-      return jsName != null && jsName != name;   // renomeado → simbolizado
-
-  `Node.text` é `external` com `@JSName('textContent')`
-  (`html_dart2js.dart:23486/23489`), portanto **simbolizado**; o `dart_sdk.js`
-  implementa `get [S.$text]() { return this.textContent; }` e
-  `set [S.$text](value) { this.textContent = value; }` (dart_sdk.js:66597-66602).
-* **DartForge**: `Ctx::is_ext_member` (patch da regra `_isSymbolizedMember`)
-  ainda não olha o `@JSName`, então emite `this.element.text = newValue` —
-  escreve numa propriedade JS inexistente, sem erro.
-* **Efeito**: toda interpolação `{{…}}` do ngdart é silenciosamente perdida
-  (passo 3) e os estilos dos componentes não são aplicados (`StyleElement.text`).
-  `dart:html` tem **614** membros com `@JSName`, então a classe de falhas é
-  ampla (`innerHtml`, `_getContext`, `_toDataUrl`…).
-* **O que falta**: no cálculo de `is_ext_member`, simbolizar quando o membro
-  nativo tem `@JSName('x')` com `x != nome`.
-* Programa mínimo de corpus: precisa de `dart:html` (o harness roda em Node);
-  dá para cobrir com um `@Native`/`@JSName` próprio num programa de teste.
+Harness apos as correcoes: **212/212**.
 
 ## Achados de ambiente/programa (não são do emissor)
 

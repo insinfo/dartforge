@@ -108,6 +108,15 @@ pub struct Ctx<'a> {
     pub fn_js: HashMap<FunctionElementId, Option<String>>,
     /// Variáveis (campos, topo) com `@JS(...)` explícito.
     pub var_js: HashMap<VariableId, Option<String>>,
+    /// `dart:_interceptors::JSObject`: alvo do apagamento dos tipos de extensão
+    /// de interop nas receitas rti (é o que o DDC emite).
+    pub js_object_ic: Option<ClassId>,
+    /// Tipos de extensão de interop mantidos (não apagados para a
+    /// representação): os de `dart:js_interop` e os de bibliotecas `@JS()`.
+    pub interop_ext_types: HashSet<ClassId>,
+    /// `@JSName('x')` de membros de classes nativas: o nome JS difere do nome
+    /// Dart, e o DDC simboliza esses membros (`_isSymbolizedMember`).
+    pub js_names: HashMap<u32, String>,
     /// Memória da busca de membro: `(classe inicial, nome, setter)` →
     /// `(classe declarante, espécie)`. A busca percorre a hierarquia e o que
     /// ela encontra depende só do grafo de classes, não dos argumentos de
@@ -210,14 +219,21 @@ impl<'a> Ctx<'a> {
             js_libs: HashMap::new(),
             fn_js: HashMap::new(),
             var_js: HashMap::new(),
+            js_object_ic: find_class("dart:_interceptors", "JSObject"),
+            interop_ext_types: HashSet::new(),
+            js_names: HashMap::new(),
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
         };
+        // A interop vem antes da hierarquia: os tipos de extensão de interop
+        // não são apagados, e os supertipos (`implements JSAny`) precisam
+        // disso para as extensões do SDK se aplicarem ao receptor certo.
+        ctx.compute_js_interop();
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
         ctx.compute_groups();
-        ctx.compute_js_interop();
+        ctx.compute_js_names();
         ctx
     }
 
@@ -372,14 +388,124 @@ impl<'a> Ctx<'a> {
                 info.anonymous = d.metadata.iter().any(|a| self.ann_is(a, "anonymous"));
                 info.static_interop = d.metadata.iter().any(|a| self.ann_is(a, "staticInterop"));
             }
+            // `dart:js_interop`/package:web: `extension type X._(JSObject _)`
+            // numa biblioteca `@JS()`, com membros `external` — é interop pelo
+            // mesmo `usesJSInterop` do DDC (anotação na biblioteca basta para
+            // membros `external`, e os de um extension type nunca têm classe).
+            if info.is_none() && c.kind == ClassKind::ExtensionType && js_libs.contains_key(&c.library) {
+                info = Some(JsClass { name: None, anonymous: false, static_interop: true });
+            }
             if let Some(info) = info {
                 js_classes.insert(ClassId(i as u32), info);
             }
         }
+        // Tipos de extensão de `dart:js_interop` (JSPromise, JSString, JSAny…):
+        // não são emitidos por nós, mas o tipo precisa sobreviver para os
+        // membros de extensão do SDK (`toDart`, `toJS`) serem os certos.
+        let mut ext_tipos: HashSet<ClassId> = js_classes
+            .keys()
+            .copied()
+            .filter(|c| self.program.class(*c).kind == ClassKind::ExtensionType)
+            .collect();
+        for (i, c) in self.program.classes.iter().enumerate() {
+            if c.kind != ClassKind::ExtensionType {
+                continue;
+            }
+            let uri = self.program.library(c.library).uri.as_str();
+            if uri == "dart:js_interop" || uri == "dart:js_interop_unsafe" {
+                ext_tipos.insert(ClassId(i as u32));
+            }
+        }
+        self.interop_ext_types = ext_tipos;
         self.js_classes = js_classes;
         self.js_libs = js_libs;
         self.fn_js = fn_js;
         self.var_js = var_js;
+    }
+
+    /// Anotação `@JSName('x')` (de `dart:_js_helper`): o nome JS do membro nativo.
+    fn ann_js_name(&self, unit: UnitId, a: &ast::Annotation) -> Option<String> {
+        let last = a.name.last()?;
+        if self.interner.resolve(last.sym) != "JSName" {
+            return None;
+        }
+        let args = a.arguments.as_ref()?;
+        let first = args.args.first()?;
+        match &self.program.unit(unit).ast.expr(first.value).kind {
+            ast::ExprKind::String(lit) => lit.constant_value().map(|v| v.to_string_lossy()),
+            _ => None,
+        }
+    }
+
+    /// Mapa `membro → nome JS` para as classes da hierarquia nativa. É lido da
+    /// anotação `@JSName` do outline (não de uma lista de nomes): em `dart:html`
+    /// são 614 membros, e a regra vale para qualquer classe `@Native`.
+    fn compute_js_names(&mut self) {
+        let mut map: HashMap<u32, String> = HashMap::new();
+        let classes: Vec<ClassId> = self.ext_set.iter().copied().collect();
+        for c in classes {
+            let class = self.program.class(c);
+            let Some(decl) = class.decl else { continue };
+            let unit = self.program.unit(decl.unit);
+            let d = unit.ast.decl(decl.decl);
+            let members: &[ast::MemberId] = match &d.kind {
+                DeclKindRef::Class(cd) => &cd.members,
+                DeclKindRef::Mixin(md) => &md.members,
+                _ => continue,
+            };
+            // Nome JS por função do AST (métodos, getters, setters) e por
+            // declaração de campo (os acessores implícitos herdam o nome).
+            let mut por_funcao: HashMap<u32, String> = HashMap::new();
+            let mut por_campo: HashMap<u32, String> = HashMap::new();
+            for &mid in members {
+                let mem = unit.ast.member(mid);
+                let Some(nome) = mem.metadata.iter().find_map(|a| self.ann_js_name(decl.unit, a)) else { continue };
+                match &mem.kind {
+                    ast::MemberKind::Method(fid) => {
+                        por_funcao.insert(fid.0, nome);
+                    }
+                    ast::MemberKind::Field(_) => {
+                        por_campo.insert(mid.0, nome);
+                    }
+                    ast::MemberKind::Constructor(_) => {}
+                }
+            }
+            if por_funcao.is_empty() && por_campo.is_empty() {
+                continue;
+            }
+            for &fid in class.instance_members.values().chain(class.static_members.values()) {
+                let f = self.program.function(fid);
+                if let dartforge_elements::model::FunctionRef::Function { function, .. } = f.node {
+                    if let Some(n) = por_funcao.get(&function.0) {
+                        map.insert(fid.0, n.clone());
+                        continue;
+                    }
+                }
+                if let Some(v) = f.variable {
+                    if let dartforge_elements::model::VariableRef::Field { member, .. } = self.program.variable(v).node {
+                        if let Some(n) = por_campo.get(&member.0) {
+                            map.insert(fid.0, n.clone());
+                        }
+                    }
+                }
+            }
+        }
+        self.js_names = map;
+    }
+
+    /// Tipo de representação de um tipo de extensão, com os argumentos
+    /// substituídos: `JSArray<JSString>` → `_interceptors.JSArray<Object?>`,
+    /// `JSString` → `String`, `JSObject` → `_interceptors.JSObject`. É o que o
+    /// DDC usa nas receitas rti (os tipos de extensão são apagados).
+    pub fn erase_ext(&self, class: ClassId, args: &[Ty]) -> Option<Ty> {
+        let rep = self.program.class(class).representation?;
+        let v = &self.outline.variables[rep.0 as usize];
+        let t = v.declared_type.or(v.inferred)?;
+        let mut map = HashMap::new();
+        for (p, a) in self.class_params.get(class.0 as usize)?.iter().zip(args.iter()) {
+            map.insert(p.id, a.clone());
+        }
+        Some(self.ty_of(t).subst_prop(&map))
     }
 
     pub fn is_js_class(&self, c: ClassId) -> bool {
@@ -791,7 +917,13 @@ impl<'a> Ctx<'a> {
             }
             Type::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(self.ty_of(*arg)), nullable: *nullable },
             Type::ExtensionType { decl, args, nullable } => {
-                // Apaga para o tipo de representação.
+                // Interop (`@JS`): mantém o tipo, para os membros `external`
+                // virarem propriedades do objeto JS; os demais são apagados
+                // para o tipo de representação.
+                if self.interop_ext_types.contains(decl) {
+                    let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
+                    return Ty::Iface { class: *decl, args, nullable: *nullable };
+                }
                 let class = self.program.class(*decl);
                 if let Some(rep) = class.representation {
                     let v = &self.outline.variables[rep.0 as usize];
@@ -1493,11 +1625,13 @@ impl<'a> Ctx<'a> {
             },
             _ => return false,
         };
-        // Receptor de tipo nativo (`_isSymbolizedMember` do DDC): o membro
-        // encaminhado (público) que é campo ou `external`/`native` acede a
-        // propriedade JS direta, salvo se é `external` numa biblioteca web com
-        // retorno não anulável (simbolizado com `checkNativeNonNull`); os demais
-        // (com corpo Dart) são símbolos `dartx`.
+        // Receptor de tipo nativo (`_isSymbolizedMember`, compiler.dart:3311):
+        // o membro encaminhado (público) que é campo ou `external`/`native`
+        // acede a propriedade JS direta, exceto (a) quando é `external` numa
+        // biblioteca web com retorno não anulável — precisa do
+        // `checkNativeNonNull` da definição — e (b) quando `@JSName('x')` o
+        // renomeia (`x != nome`), porque aí o nome Dart não existe no objeto JS.
+        // Membros com corpo Dart são sempre símbolos `dartx`.
         let impl_class = if Some(class) == self.int_ || Some(class) == self.double_ || Some(class) == self.num_ {
             self.jsnumber
         } else if Some(class) == self.bool_ {
@@ -1511,19 +1645,20 @@ impl<'a> Ctx<'a> {
         if let Some(nc) = native_class {
             return match self.native_forwarded_member(nc, name, setter) {
                 Some((fid, is_field)) => {
-                    if is_field {
-                        false
-                    } else {
-                        let f = self.program.function(fid);
-                        let external = f.external || self.has_native_body(fid);
-                        if !external {
-                            true
-                        } else {
-                            let web = self.is_web_library(f.library);
-                            let ret = self.ty_of(self.outline.functions[fid.0 as usize].return_type);
-                            web && !ret.is_nullable()
+                    let f = self.program.function(fid);
+                    let external = f.external || self.has_native_body(fid);
+                    if !is_field && !external {
+                        return true; // corpo Dart: sempre simbolizado
+                    }
+                    // `_isNullCheckableNative`: só procedimentos `external` de
+                    // biblioteca web com retorno potencialmente não anulável.
+                    if !is_field && external && self.is_web_library(f.library) {
+                        let ret = self.ty_of(self.outline.functions[fid.0 as usize].return_type);
+                        if !ret.is_nullable() {
+                            return true;
                         }
                     }
+                    self.js_names.get(&fid.0).is_some_and(|j| j != name)
                 }
                 None => true,
             };

@@ -169,9 +169,10 @@ diferem da forma literal do `dartdevc` mas respeitam o contrato do runtime:
 * **Namespaces**: a variável do módulo é `L$<ident>` exportada como `<ident>`
   (`export { L$main as main }`); imports entre módulos são relativos ao diretório
   do módulo (`packages/x/y.js` importa `../../dart_sdk.js`).
-* Construtores recebem `_ti` sempre que a classe **ou uma superclasse** é
-  genérica (regra do DDC); tearoffs de construtor são estáticos `_#nome#tearOff`
-  para a igualdade `C.new == C.new`.
+* Construtores **e factories** recebem `_ti` sempre que a classe **ou uma
+  superclasse** é genérica (regra do DDC); tearoffs de construtor são estáticos
+  `_#nome#tearOff` para a igualdade `C.new == C.new`, e é o tearoff que passa o
+  rti ao construtor.
 * Tipos estáticos: o emissor tem inferência própria (`crates/emit_js/src/ty.rs`,
   `ctx.rs`), usando o `OutlineTypes` para assinaturas e caindo em despacho
   dinâmico (`dart.dsend/dload/dput/dcall`) quando o tipo é desconhecido — sempre
@@ -181,7 +182,23 @@ diferem da forma literal do `dartdevc` mas respeitam o contrato do runtime:
   `web_audio`, `web_gl`) o membro público encaminhado que é campo ou
   `external`/`native` é propriedade JS direta (`sessionStorage.length`), salvo
   quando é `external` numa biblioteca web com retorno não anulável; os membros
-  com corpo Dart (`sessionStorage[]` → `_get`) são símbolos `dartx`.
+  com corpo Dart (`sessionStorage[]` → `_get`) são símbolos `dartx`; e o membro
+  renomeado por `@JSName('x')` (`x != nome`) é sempre simbolizado, porque o nome
+  Dart não existe no objeto JS (`Node.text` → `textContent`; são 614 membros só
+  em `dart:html`).
+* **Constantes de ambiente**: `const bool/int/String.fromEnvironment` e
+  `bool.hasEnvironment` são avaliadas na compilação (sem `-D`, valem o
+  `defaultValue`), e um `if` com condição constante emite só o ramo vivo — é o
+  que a CFE entrega ao dartdevc, e o `dart_sdk.js` lança de propósito se o
+  construtor rodar (`bool.fromEnvironment can only be used as a const constructor`).
+* **Interop de `dart:js_interop`** (tipos de extensão, package:web): o tipo de
+  extensão de interop não é apagado na resolução de membros — construtor
+  `external` é `new dart.global.X(...)`, construtor só com nomeados é literal de
+  objeto (`_emitObjectLiteral`, compiler.dart:6948) e os membros `external` são
+  propriedade direta —, mas nas **receitas rti** ele é apagado para o tipo de
+  representação (`JSArray<JSString>` → `_interceptors|JSArray<core|Object?>`,
+  `JSString` → `core|String`, `JSObject` → `_interceptors|JSObject`), que é o
+  que o DDC emite em `as`/`is` e nos argumentos de tipo.
 * **Interop JS (`package:js`)**, regras de `js_interop.dart` e `compiler.dart`
   (`_emitJSInteropClassNonExternalMembers`, `visitConstructorInvocation`,
   `_emitJSInterop`, `_assertInterop`, `_isNullCheckableJsInterop`,

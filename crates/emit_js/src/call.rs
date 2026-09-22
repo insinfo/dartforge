@@ -556,6 +556,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     pub fn emit_static_call(&mut self, c: ClassId, name: &str, mk: MemberKind, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+        // Constante de ambiente chamada como estático (`X.fromEnvironment(...)`
+        // sem `const`): o valor é o mesmo, avaliado na compilação.
+        if name == "fromEnvironment" {
+            if let Some(r) = self.constante_de_ambiente(c, arguments) {
+                return r;
+            }
+        }
         if self.ctx.is_js_class(c) && self.ctx.is_js_member_kind(&mk) {
             let js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, name);
             return match mk {
@@ -626,9 +633,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
             }
             Element::Class(c) => {
-                // Extension type: `E(x)` é o valor representado.
+                // Extension type: `E(x)` é o valor representado (nos de
+                // interop, `X(...)` é o construtor JS).
                 let class = self.ctx.program.class(c);
-                if class.kind == dartforge_elements::model::ClassKind::ExtensionType {
+                if class.kind == dartforge_elements::model::ClassKind::ExtensionType && !self.ctx.is_js_class(c) {
                     if let Some(a) = arguments.args.first() {
                         let (js, _) = self.emit_expr(a.value, None);
                         return (js, self.ctx.this_ty(c));
