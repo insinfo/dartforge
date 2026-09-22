@@ -995,7 +995,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         } else {
             emit_super_call_default(ctx, m, c, &mut body);
         }
-        let params = if is_enum { "t$index, t$name".to_string() } else if generic { "_ti".to_string() } else { String::new() };
+        let params = if is_enum && generic { "t$index, t$name, _ti".to_string() } else if is_enum { "t$index, t$name".to_string() } else if generic { "_ti".to_string() } else { String::new() };
         w.line(&format!("({cref}.{jsname} = function({params}) {{"));
         w.push_raw(&body.out);
         w.line(&format!("}}).prototype = {cref}.prototype;"));
@@ -1126,15 +1126,16 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     args.push(nm);
                 }
             }
-            let jsname = if ctor_name.is_empty() { "new".to_string() } else { ctor_name };
-            let targs = if !ec.type_args.is_empty() || generic {
-                let tys: Vec<Ty> = ec.type_args.iter().map(|t| e.resolve_type(*t)).collect();
+            let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(&ctor_name) };
+            if generic {
+                let mut tys: Vec<Ty> = ec.type_args.iter().map(|t| e.resolve_type(*t)).collect();
+                while tys.len() < ctx.class_params[c.0 as usize].len() {
+                    tys.push(Ty::Dynamic);
+                }
                 let t = Ty::Iface { class: c, args: tys, nullable: false };
-                format!("{}, ", e.rti(&t))
-            } else {
-                String::new()
-            };
-            lazy.push(format!("get {}() {{ return dart.const(new {cref}.{jsname}({targs}{})); }}", js::prop_key(&static_member_name(&n)), args.join(", ")));
+                args.insert(2, e.rti(&t));
+            }
+            lazy.push(format!("get {}() {{ return dart.const(new {cref}.{jsname}({})); }}", js::prop_key(&static_member_name(&n)), args.join(", ")));
         }
         let rti = e.rti(&Ty::iface(c));
         lazy.insert(0, format!("get values() {{ return dart.constList({rti}, [{}]); }}", names.join(", ")));
@@ -1272,7 +1273,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         let app = format!("{}$mixin{}", ctx.class_name(c), i);
         w.line(&format!("const {app} = class {app} extends {base} {{}};"));
         // Construtores encaminhadores para a superclasse.
-        let ctor_names: Vec<String> = match base_class {
+        let mut ctor_names: Vec<String> = match base_class {
             Some(b) if Some(b) != ctx.object => ctx
                 .program
                 .class(b)
@@ -1286,6 +1287,9 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
                 .collect(),
             _ => vec!["new".into()],
         };
+        if ctor_names.is_empty() {
+            ctor_names.push("new".into());
+        }
         for n in ctor_names {
             let n = if n == "new" { n } else { static_member_name(&n) };
             if base == "core.Object" {
@@ -1331,12 +1335,15 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
 fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Writer) {
     let class = ctx.program.class(c);
     let sup = match class.supertype_class {
-        Some(s) if Some(s) != ctx.object => s,
-        _ => return,
+        Some(s) if Some(s) != ctx.object => Some(s),
+        _ => None,
     };
+    if sup.is_none() && class.mixin_classes.is_empty() {
+        return;
+    }
     let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
-    let sref = tmp.class_ref(sup);
-    let sgeneric = !ctx.class_params[sup.0 as usize].is_empty();
+    let sref = sup.map(|s| tmp.class_ref(s)).unwrap_or_else(|| "core.Object".to_string());
+    let sgeneric = sup.is_some_and(|s| !ctx.class_params[s.0 as usize].is_empty());
     let base = mixin_base_ref(ctx, c, &sref);
     if sgeneric {
         body.line(&format!("{base}.new.call(this, null);"));
@@ -1368,7 +1375,8 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     if is_enum {
         params.push("t$index".into());
         params.push("t$name".into());
-    } else if generic {
+    }
+    if generic {
         params.push("_ti".into());
     }
     if !pjs.is_empty() {
@@ -1398,7 +1406,8 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
         if is_enum {
             all.push("t$index".into());
             all.push("t$name".into());
-        } else if generic {
+        }
+        if generic {
             all.push("null".into());
         }
         all.extend(arg_js);
@@ -1491,6 +1500,9 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
         if is_enum {
             m.use_sdk("core");
             super_call = Some("core._Enum.new.call(this, t$index, t$name);".into());
+        } else if class.supertype_class.is_none_or(|s| Some(s) == ctx.object) && !class.mixin_classes.is_empty() {
+            let base = mixin_base_ref(ctx, c, "core.Object");
+            super_call = Some(format!("{base}.new.call(this);"));
         } else if let Some(s) = class.supertype_class {
             if Some(s) != ctx.object {
                 let sref = e.class_ref(s);

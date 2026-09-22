@@ -1032,7 +1032,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, _e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
         match self.resolve_ident(sym) {
-            IdentTarget::Local(js, ty) => (Js::prim(js), ty),
+            IdentTarget::Local(js, ty) => {
+                if let Some(l) = self.lookup_local(sym).cloned() {
+                    if let Some(init) = &l.lazy_init {
+                        return (Js::new(format!("{js} === void 0 ? {js} = {init} : {js}", ), P_COND).paren(), ty);
+                    }
+                    if l.late_check {
+                        return (Js::new(format!("{js} === void 0 ? dart.throwLateInitializationError({}) : {js}", js::string_literal(&n)), P_COND).paren(), ty);
+                    }
+                }
+                (Js::prim(js), ty)
+            }
             IdentTarget::ThisMember(m) => self.emit_member_get(&Js::prim("this"), &self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic), &n, Some(m)),
             IdentTarget::Static(c, mk) => self.emit_static_get(c, &n, mk),
             IdentTarget::Element(el) => self.emit_element_get(el, &n),
@@ -1850,15 +1860,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, _) = self.emit_assign_to(target, &v, &vty);
                 (js, vty)
             }
-            AssignOp::Compound(BinaryOp::IfNull) => {
-                let tty = self.target_ty(target);
-                let (cur, cty) = self.emit_expr(target, None);
-                let t = self.temp();
-                let (v, vty) = self.emit_expr(value, tty.as_ref());
-                let (assign, _) = self.emit_assign_to(target, &v, &vty);
-                let ty = self.ctx.lub(&cty.non_null(), &vty);
-                (Js::new(format!("{t} = {}, {t} == null ? {} : {t}", cur.code, assign.at(P_COND)), P_COMMA).paren(), ty)
-            }
+            AssignOp::Compound(BinaryOp::IfNull) => self.emit_compound(target, BinaryOp::IfNull, Some(value), None, true),
             AssignOp::Compound(bop) => self.emit_compound(target, bop, Some(value), None, true),
         }
     }
@@ -2177,6 +2179,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         };
         let prefix_parts: Vec<String> = std::mem::take(&mut self.pending_prefix);
+        if bop == BinaryOp::IfNull {
+            let (v, vty) = match value {
+                Some(e) => self.emit_expr(e, Some(&read_ty.non_null())),
+                None => (Js::prim("null"), Ty::Null),
+            };
+            let t = self.temp();
+            let assign = write(self, &v);
+            let ty = self.ctx.lub(&read_ty.non_null(), &vty);
+            let mut parts = prefix_parts;
+            parts.push(format!("{t} = {}", read.code));
+            parts.push(format!("{t} == null ? {} : {t}", assign.at(P_COND)));
+            return (Js::new(parts.join(", "), P_COMMA).paren(), ty);
+        }
         let (v, vty) = match (value, literal) {
             (Some(e), _) => self.emit_expr(e, None),
             (None, Some(n)) => (Js::prim(n.to_string()), self.ctx.t_int()),

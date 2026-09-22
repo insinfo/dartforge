@@ -14,6 +14,10 @@ use std::collections::HashMap;
 pub struct Local {
     pub js: String,
     pub ty: Ty,
+    /// `late x = init`: inicializador avaliado na primeira leitura.
+    pub lazy_init: Option<String>,
+    /// `late x;` não anulável: leitura verifica inicialização.
+    pub late_check: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,11 +150,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn declare(&mut self, sym: SymbolId, ty: Ty) -> String {
         let base = js::ident(self.name(sym));
         let js = base;
-        self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty });
+        self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false });
         js
     }
     pub fn declare_js(&mut self, sym: SymbolId, js: String, ty: Ty) {
-        self.scopes.last_mut().expect("escopo").insert(sym, Local { js, ty });
+        self.scopes.last_mut().expect("escopo").insert(sym, Local { js, ty, lazy_init: None, late_check: false });
     }
     pub fn lookup_local(&self, sym: SymbolId) -> Option<&Local> {
         for s in self.scopes.iter().rev() {
@@ -1153,12 +1157,26 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         None => ty,
                     };
                     let jsn = self.declare(v.name.sym, ty);
-                    self.w.line(&format!("let {jsn} = {};", js.code));
+                    if list.late {
+                        self.w.line(&format!("let {jsn} = void 0;"));
+                        if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
+                            l.lazy_init = Some(js.at(crate::js::P_ASSIGN + 1));
+                        }
+                    } else {
+                        self.w.line(&format!("let {jsn} = {};", js.code));
+                    }
                 }
                 None => {
                     let ty = declared.clone().unwrap_or(Ty::Dynamic);
-                    let jsn = self.declare(v.name.sym, ty);
-                    self.w.line(&format!("let {jsn} = null;"));
+                    let jsn = self.declare(v.name.sym, ty.clone());
+                    if list.late && !ty.is_nullable() {
+                        self.w.line(&format!("let {jsn} = void 0;"));
+                        if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
+                            l.late_check = true;
+                        }
+                    } else {
+                        self.w.line(&format!("let {jsn} = null;"));
+                    }
                 }
             }
         }
