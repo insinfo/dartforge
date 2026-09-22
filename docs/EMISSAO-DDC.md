@@ -128,3 +128,30 @@ arquivo para mostrar, quando falhar, a forma que o oráculo do contrato
 emitiu. Depois: pontos de entrada do corpus pub e, por fim, o `new_sali`.
 Memória e tempo da emissão medidos no `new_sali` com o mesmo exemplo de
 `memoria.rs` das fases anteriores.
+
+## Estado da emissão (crates/emit_js, 2026-09-22)
+
+`dartforge-diferencial`: **202/202** do corpus; `cargo test -p dartforge-emit-js`
+tem um programa por item da entrega (`tests/programas/p1..p7`). Decisões que
+diferem da forma literal do `dartdevc` mas respeitam o contrato do runtime:
+
+* **async/async*/sync***: o `dart_sdk.js` do 3.6.2 já não exporta `dart.async`;
+  o `dartdevc` lança uma máquina de estados. O DartForge emite um **gerador JS**
+  (`function*`, `await` → `yield`) dirigido pelos mesmos helpers
+  (`async._asyncStartSync/_asyncAwait/_asyncReturn/_asyncRethrow`,
+  `_makeAsyncStarStreamController/_asyncStarHelper/_IterationMarker`,
+  `_makeSyncStarIterable` com o protocolo `(iterator, código, erro) → 0|1|2|3`).
+  IIFEs dentro de geradores viram `yield* (function*(){…}).call(this)`.
+* **Constantes**: sem tabela `CT`/`C`; objetos, listas, mapas e conjuntos const
+  são canonicalizados pelo runtime (`dart.const(new C.x(...))`, `dart.constList`…);
+  records const usam o cache `L.$C(chave, () => …)` do módulo.
+* **Namespaces**: a variável do módulo é `L$<ident>` exportada como `<ident>`
+  (`export { L$main as main }`); imports entre módulos são relativos ao diretório
+  do módulo (`packages/x/y.js` importa `../../dart_sdk.js`).
+* Construtores recebem `_ti` sempre que a classe **ou uma superclasse** é
+  genérica (regra do DDC); tearoffs de construtor são estáticos `_#nome#tearOff`
+  para a igualdade `C.new == C.new`.
+* Tipos estáticos: o emissor tem inferência própria (`crates/emit_js/src/ty.rs`,
+  `ctx.rs`), usando o `OutlineTypes` para assinaturas e caindo em despacho
+  dinâmico (`dart.dsend/dload/dput/dcall`) quando o tipo é desconhecido — sempre
+  correto, só menos direto.
