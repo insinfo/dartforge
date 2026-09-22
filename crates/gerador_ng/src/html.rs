@@ -48,6 +48,10 @@ pub struct Ligacao {
     pub nome: String,
     /// Expressão Dart entre aspas, como escrita.
     pub valor: String,
+    /// Intervalo em bytes do atributo inteiro no template (do nome ao fim do
+    /// valor), que é o que vai no comentário `/* REF:url:inicio:fim */`.
+    pub inicio: usize,
+    pub fim: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -233,8 +237,9 @@ impl<'a> Parser<'a> {
                 sozinho = true;
                 break;
             }
+            let inicio = self.i;
             let Some((nome, valor)) = self.ler_atributo() else { break };
-            classificar(&mut el, &mut seletor_do_conteudo, nome, valor);
+            classificar(&mut el, &mut seletor_do_conteudo, nome, valor, inicio, self.i);
         }
         let vazio = VAZIOS.contains(&el.nome.to_ascii_lowercase().as_str());
         if !sozinho && !vazio {
@@ -299,8 +304,15 @@ impl<'a> Parser<'a> {
 }
 
 /// Põe o atributo lido na lista certa do elemento.
-fn classificar(el: &mut Elemento, conteudo: &mut Option<String>, nome: String, valor: String) {
-    let l = Ligacao { nome: String::new(), valor: valor.clone() };
+fn classificar(
+    el: &mut Elemento,
+    conteudo: &mut Option<String>,
+    nome: String,
+    valor: String,
+    inicio: usize,
+    fim: usize,
+) {
+    let l = Ligacao { nome: String::new(), valor: valor.clone(), inicio, fim };
     if let Some(interno) = nome.strip_prefix("[(").and_then(|n| n.strip_suffix(")]")) {
         el.bananas.push(Ligacao { nome: interno.to_string(), ..l });
     } else if let Some(interno) = nome.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
@@ -317,7 +329,7 @@ fn classificar(el: &mut Elemento, conteudo: &mut Option<String>, nome: String, v
         if el.nome.eq_ignore_ascii_case("ng-content") && nome == "select" {
             *conteudo = Some(valor.clone());
         }
-        el.atributos.push(Ligacao { nome, valor });
+        el.atributos.push(Ligacao { nome, valor, inicio, fim });
     }
 }
 

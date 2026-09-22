@@ -220,9 +220,14 @@ impl Local<'_> {
 /// Corpo do `build()` de uma visão, montado enquanto se anda pelo template.
 struct Corpo<'a> {
     linhas: Vec<String>,
-    /// Declarações de campo da visão (as ligações de texto), que saem no
-    /// começo da classe — antes do `_componentStyles`, como no oficial.
+    /// Campos `TextBinding`, que saem primeiro na classe.
     campos: Vec<String>,
+    /// Campos `Object? _expr_k` das ligações, na ordem em que aparecem.
+    campos_expr: Vec<String>,
+    /// Campos `late final T _el_n` dos elementos com ligação.
+    campos_el: Vec<String>,
+    /// Próximo índice de ligação (`_expr_k`, `currVal_k`).
+    proxima_ligacao: u32,
     /// Corpo do `detectChangesInternal`.
     deteccao: Vec<String>,
     /// Prefixo do `text_binding.dart`, alocado antes do resto quando o
@@ -251,6 +256,75 @@ struct Corpo<'a> {
 impl Corpo<'_> {
     fn dom(&mut self) -> String {
         self.imp.alias(DOM_HELPERS)
+    }
+
+    /// Acesso a um membro do componente, como o oficial escreve: `_ctx.nome`.
+    /// Só a forma direta; o resto tem conversão própria e ainda não entra.
+    fn acesso(&self, expr: &str) -> Result<String, Motivo> {
+        let limpo = expr.trim();
+        if limpo.is_empty() || !limpo.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(Motivo::Ligacao);
+        }
+        if !self.membros.contains_key(limpo) {
+            return Err(Motivo::Ligacao);
+        }
+        Ok(format!("_ctx.{limpo}"))
+    }
+
+    /// `[x]="e"`: valor novo, `checkBinding` contra o anterior e a ação sobre
+    /// o elemento. O nome da ligação e a URI do template vão na verificação
+    /// para a mensagem de "expressão mudou depois da checagem".
+    fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
+        let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
+        let valor = self.acesso(&l.valor)?;
+        let k = self.proxima_ligacao;
+        self.proxima_ligacao += 1;
+        self.campos_expr.push(format!("  Object? _expr_{k};"));
+        let dom = self.dom();
+        let acao = if let Some(classe) = l.nome.strip_prefix("class.") {
+            format!("{dom}.updateClassBinding({alvo}, '{classe}', currVal_{k})")
+        } else if let Some(attr) = l.nome.strip_prefix("attr.") {
+            format!("{dom}.updateAttribute({alvo}, '{attr}', currVal_{k})")
+        } else if let Some(estilo) = l.nome.strip_prefix("style.") {
+            format!("{alvo}.style.setProperty('{estilo}', currVal_{k})")
+        } else if l.nome.contains('.') {
+            return Err(Motivo::Ligacao);
+        } else {
+            let prop = &l.nome;
+            format!("{dom}.setProperty({alvo}, '{prop}', currVal_{k})")
+        };
+        let chk = self.imp.alias(CHECK_BINDING);
+        let expr = l.valor.trim();
+        let (ini, fim) = (l.inicio, l.fim);
+        self.deteccao.push(format!(
+            "    final currVal_{k} = {valor};
+    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{
+      {acao} /* REF:{url}:{ini}:{fim} */;
+      this._expr_{k} = currVal_{k};
+    }}"
+        ));
+        Ok(())
+    }
+
+    /// `(e)="metodo()"` ou `(e)="metodo($event)"`: o oficial passa o método
+    /// por referência a `eventHandlerN`, onde N é quantos argumentos o
+    /// template escreveu.
+    fn evento(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
+        let texto = l.valor.trim();
+        let Some((nome, resto)) = texto.split_once('(') else { return Err(Motivo::Ligacao) };
+        let Some(args) = resto.strip_suffix(')') else { return Err(Motivo::Ligacao) };
+        let aridade = match args.trim() {
+            "" => 0,
+            "$event" => 1,
+            _ => return Err(Motivo::Ligacao),
+        };
+        let metodo = self.acesso(nome)?;
+        self.usa_ctx_no_build = true;
+        let evento = &l.nome;
+        self.linhas.push(format!(
+            "    {alvo}.addEventListener('{evento}', this.eventHandler{aridade}({metodo}));"
+        ));
+        Ok(())
     }
 
     /// Emite a ligação de texto de `{{ … }}`: o campo `TextBinding`, o
@@ -323,19 +397,12 @@ impl Corpo<'_> {
                     ));
                 }
                 No::Elemento(e) => {
-                    if !e.propriedades.is_empty()
-                        || !e.eventos.is_empty()
-                        || !e.bananas.is_empty()
-                        || !e.referencias.is_empty()
-                        || e.estrela.is_some()
-                        || !dom::tag_html(&e.nome)
-                    {
-                        // Ligação, referência, `*ngIf` ou componente: ainda não.
-                        return Err(if dom::tag_html(&e.nome) {
-                            Motivo::Ligacao
-                        } else {
-                            Motivo::ComponenteNoTemplate
-                        });
+                    if !dom::tag_html(&e.nome) {
+                        return Err(Motivo::ComponenteNoTemplate);
+                    }
+                    if !e.bananas.is_empty() || !e.referencias.is_empty() || e.estrela.is_some() {
+                        // `[(x)]`, `#ref` e `*ngIf` ainda não.
+                        return Err(Motivo::Ligacao);
                     }
                     if e.atributos.iter().any(|a| a.valor.contains("{{")) {
                         return Err(Motivo::Interpolacao);
@@ -360,7 +427,20 @@ impl Corpo<'_> {
                             )
                         }
                     };
-                    self.linhas.push(format!("    final _el_{n} = {criacao};"));
+                    // Elemento com ligação de propriedade vira campo da
+                    // visão: o `detectChangesInternal` precisa dele depois do
+                    // `build()`. Evento sozinho não exige campo.
+                    let tipo = dom::tipo_da_tag(&tag);
+                    let alvo = if e.propriedades.is_empty() {
+                        self.linhas.push(format!("    final _el_{n} = {criacao};"));
+                        format!("_el_{n}")
+                    } else {
+                        let html = self.html.clone();
+                        self.campos_el
+                            .push(format!("  late final {html}.{tipo} _el_{n};"));
+                        self.linhas.push(format!("    this._el_{n} = {criacao};"));
+                        format!("this._el_{n}")
+                    };
                     // Atributos saem em ordem alfabética (`_toSortedBindings`).
                     let mut atributos = e.atributos.clone();
                     atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
@@ -368,18 +448,28 @@ impl Corpo<'_> {
                         let valor = literal(&a.valor);
                         if a.nome == "class" {
                             self.linhas
-                                .push(format!("    this.updateChildClass(_el_{n}, {valor});"));
+                                .push(format!("    this.updateChildClass({alvo}, {valor});"));
                         } else if a.nome == "style" {
                             return Err(Motivo::EstiloEmLinha);
                         } else {
                             let dom = self.dom();
                             let nome = &a.nome;
                             self.linhas.push(format!(
-                                "    {dom}.setAttribute(_el_{n}, '{nome}', {valor});"
+                                "    {dom}.setAttribute({alvo}, '{nome}', {valor});"
                             ));
                         }
                     }
-                    self.nos(&e.filhos, &format!("_el_{n}"))?;
+                    // As ligações são numeradas em ordem de documento — a do
+                    // pai antes das dos filhos —, então são registradas antes
+                    // de descer. Os eventos saem no `build()` depois dos
+                    // filhos, que é onde o oficial os escreve.
+                    for l in &e.propriedades {
+                        self.propriedade(l, &alvo)?;
+                    }
+                    self.nos(&e.filhos, &alvo)?;
+                    for l in &e.eventos {
+                        self.evento(l, &alvo)?;
+                    }
                 }
                 No::Interpolacao { expr, inicio, fim } => {
                     self.interpolacao(expr, *inicio, *fim, pai)?
@@ -485,6 +575,14 @@ fn primitivo(tipo: &str) -> bool {
     matches!(tipo, "bool" | "num" | "double" | "int")
 }
 
+/// Algum elemento tem ligação de propriedade e, portanto, vira campo?
+fn tem_elemento_ligado(nos: &[No]) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) => !e.propriedades.is_empty() || tem_elemento_ligado(&e.filhos),
+        _ => false,
+    })
+}
+
 /// O template tem `{{ … }}` em algum lugar?
 fn tem_interpolacao(nos: &[No]) -> bool {
     nos.iter().any(|n| match n {
@@ -538,6 +636,11 @@ pub fn template_de_componente(
     // Os campos da visão saem antes de tudo na classe, então os seus imports
     // são alocados antes: é o que faz a numeração bater com a do oficial.
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
+    // Elemento com ligação vira campo `late final T _el_n`, e o tipo vem de
+    // `dart:html`: então o import entra aqui, antes do resto.
+    if tem_elemento_ligado(nos) {
+        imp.alias("dart:html");
+    }
     let estilos = imp.alias(STYLE_ENCAPSULATION);
     let view = imp.alias(VIEW);
     let cd = imp.alias(CHANGE_DETECTION);
@@ -549,6 +652,9 @@ pub fn template_de_componente(
     let mut corpo = Corpo {
         linhas: Vec::new(),
         campos: Vec::new(),
+        campos_expr: Vec::new(),
+        campos_el: Vec::new(),
+        proxima_ligacao: 0,
         deteccao: Vec::new(),
         tb,
         url_do_template: local.url_do_template.clone(),
@@ -567,13 +673,15 @@ pub fn template_de_componente(
     let linhas = corpo.linhas.join("\n");
     let corpo_build =
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
-    let campos = if corpo.campos.is_empty() {
-        String::new()
-    } else {
-        format!("{}
-", corpo.campos.join("
-"))
-    };
+    // Ordem dos campos na classe, como o oficial escreve: ligações de texto,
+    // depois os valores anteriores das ligações, depois os elementos.
+    let mut todos = corpo.campos.clone();
+    todos.extend(corpo.campos_expr.clone());
+    todos.extend(corpo.campos_el.clone());
+    let campos =
+        if todos.is_empty() { String::new() } else { format!("{}
+", todos.join("
+")) };
     let deteccao = if corpo.deteccao.is_empty() {
         String::new()
     } else {
