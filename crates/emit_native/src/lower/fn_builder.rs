@@ -45,6 +45,44 @@ pub struct FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// Inicializador de uma variável/campo declarado no AST.
+    ///
+    /// O `VariableElement` não guarda a expressão; ela mora no AST da unidade
+    /// que declarou a variável (`VariableRef`). Só devolvemos a expressão
+    /// quando a unidade é a mesma que este builder está baixando, porque
+    /// `lower_expr` recebe o `ast` corrente — uma `ExprId` de outra unidade
+    /// indexaria a árvore errada e produziria código silenciosamente errado.
+    pub fn variable_initializer(
+        &self,
+        var_id: dartforge_elements::model::VariableId,
+    ) -> Option<dartforge_frontend::ast::ExprId> {
+        use dartforge_elements::model::VariableRef;
+        use dartforge_frontend::ast::{DeclKind, MemberKind};
+        let v_elem = &self.ctx.program.variables[var_id.0 as usize];
+        match v_elem.node {
+            VariableRef::Field { unit, member, index } => {
+                if unit != self.unit_id {
+                    return None;
+                }
+                let ast = &self.ctx.program.unit(unit).ast;
+                match &ast.member(member).kind {
+                    MemberKind::Field(list) => list.variables.get(index)?.initializer,
+                    _ => None,
+                }
+            }
+            VariableRef::TopLevel { unit, decl, index } => {
+                if unit != self.unit_id {
+                    return None;
+                }
+                let ast = &self.ctx.program.unit(unit).ast;
+                match &ast.decl(decl).kind {
+                    DeclKind::Variables(list) => list.variables.get(index)?.initializer,
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
     pub fn new(
         ctx: &'c Context<'a>,
         unit_id: dartforge_elements::model::UnitId,
@@ -1903,7 +1941,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             if let MemberRef::Variable(var_id) = member {
                                 let v_elem = &self.ctx.program.variables[var_id.0 as usize];
                                 if v_elem.late {
-                                    if let Some(init_id) = v_elem.initializer {
+                                    if let Some(init_id) = self.variable_initializer(*var_id) {
                                         let is_null = self.emit(
                                             Instruction::ICmp(
                                                 ICmpOp::Eq,

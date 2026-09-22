@@ -234,6 +234,8 @@ pub fn lower_program(ctx: &Context) -> Module {
             }
             _ => {}
         }
+    }
+
     // Propaga to_string_symbol para subclasses que não o sobrescreveram
     for c_idx in 0..ctx.program.classes.len() {
         let class_id = (c_idx + 1) as u32;
