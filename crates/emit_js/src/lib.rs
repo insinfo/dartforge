@@ -69,7 +69,7 @@ pub fn compilar(
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
     let (bodies, body_diags) =
-        dartforge_types::infer_user_bodies(&program, &interner, &mut table, &core, &mut outline);
+        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     let avisos = outline_diags.len() + body_diags.len();
     if avisos > 0 {
         let limite = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);

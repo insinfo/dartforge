@@ -122,8 +122,10 @@ pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
         }
     }
     let _ = main_async;
+    // O `dart_sdk.js` do DDC é o do navegador: `self` é o global (Node só tem `globalThis`).
+    modulos.push(("preambulo.js".to_string(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".to_string()));
     let entrada = format!(
-        "process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
+        "process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
     Ok(Emitido { modulos, entrada })
 }
@@ -1070,7 +1072,8 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
 
     // Construtores generativos.
     let mut ctor_names: Vec<String> = Vec::new();
-    if ctor_members.is_empty() && !is_mixin {
+    let has_synthetic = class.constructors.values().any(|f| ctx.program.function(*f).kind == FunctionKind::SyntheticConstructor);
+    if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) {
         // Construtor sintético.
         let jsname = "new";
         ctor_names.push(jsname.into());

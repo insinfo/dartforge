@@ -62,7 +62,7 @@ fn tipos(entry: &std::path::Path) {
     let mut table = dartforge_types::TypeTable::new();
     let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (_bodies, diags) = dartforge_types::infer_user_bodies(&program, &interner, &mut table, &core, &mut outline);
+    let (_bodies, diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     for (i, v) in program.variables.iter().enumerate() {
         if program.library(v.library).is_sdk { continue; }
         let d = &outline.variables[i];

@@ -31,8 +31,6 @@ pub struct BodyInferrer<'a> {
     pub body_types: BodyTypes,
     /// Rastreio de variáveis declaradas para o join de análise de fluxo: `LocalId -> TypeId`
     pub local_declared_types: HashMap<LocalId, TypeId>,
-    /// Pular corpos das bibliotecas `dart:` (só o outline é necessário para emitir contra o `dart_sdk.js`).
-    pub skip_sdk: bool,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -60,7 +58,6 @@ impl<'a> BodyInferrer<'a> {
                 units: units_body_types,
             },
             local_declared_types: HashMap::new(),
-            skip_sdk: false,
         }
     }
 
@@ -88,9 +85,6 @@ impl<'a> BodyInferrer<'a> {
     fn infer_variable_initializers(&mut self) {
         for i in 0..self.program.variables.len() {
             let var_elem = &self.program.variables[i];
-            if self.skip_sdk && self.program.library(var_elem.library).is_sdk {
-                continue;
-            }
             let declared_ty = self.outline.variables[i].declared_type;
 
             match var_elem.node {
@@ -175,9 +169,6 @@ impl<'a> BodyInferrer<'a> {
     fn infer_functions(&mut self) {
         for i in 0..self.program.functions.len() {
             let func_elem = &self.program.functions[i];
-            if self.skip_sdk && self.program.library(func_elem.library).is_sdk {
-                continue;
-            }
             let func_data = self.outline.functions[i].clone();
 
             match func_elem.node {
