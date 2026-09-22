@@ -556,7 +556,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let t = self.type_of(*value);
                     if let Some(it) = self.ctx.iterable_.and_then(|i| self.ctx.as_super(&t.non_null(), i)) {
                         tys.push(it.args().first().cloned().unwrap_or(Ty::Dynamic));
-                    } else {
+                    } else if !matches!(t, Ty::Null) {
                         tys.push(Ty::Dynamic);
                     }
                 }

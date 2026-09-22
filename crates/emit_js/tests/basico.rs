@@ -9,7 +9,7 @@ fn programas_dir() -> PathBuf {
 }
 
 fn dart_run(arquivo: &Path) -> String {
-    let out = Command::new("dart").arg("run").arg(arquivo).output().expect("dart no PATH");
+    let out = Command::new("dart").arg("run").arg("--enable-asserts").arg(arquivo).output().expect("dart no PATH");
     assert!(out.status.success(), "dart run falhou em {}: {}", arquivo.display(), String::from_utf8_lossy(&out.stderr));
     String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n")
 }
@@ -86,4 +86,8 @@ fn p7_padroes() {
 #[test]
 fn p7_bibliotecas() {
     verifica("p7_bibliotecas/main");
+}
+#[test]
+fn p3_genericas() {
+    verifica("p3_genericas");
 }

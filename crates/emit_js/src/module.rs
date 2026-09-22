@@ -194,9 +194,17 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
         m.note_class(c);
         emit_class(ctx, &m, c, &mut body);
     }
-    // Funções de topo e de extensão.
+    // Funções de topo e de extensão; acessores de topo agrupados por nome.
+    let mut accessors: Vec<(String, String)> = Vec::new();
     for fid in functions {
-        emit_top_function(ctx, &m, fid, &mut body);
+        emit_top_function(ctx, &m, fid, &mut body, &mut accessors);
+    }
+    if !accessors.is_empty() {
+        let lvar = &ctx.libs[lib.0 as usize].js_var;
+        body.line(&format!("dart.copyProperties({lvar}, {{"));
+        let texts: Vec<String> = accessors.iter().map(|(_, t)| indent(t)).collect();
+        body.push_raw(&texts.join(",\n"));
+        body.push_raw("\n});\n");
     }
     // Variáveis de topo.
     emit_top_variables(ctx, &m, &variables, &mut body);
@@ -494,7 +502,7 @@ fn finish_body(e: &mut FnEmitter) -> String {
     body
 }
 
-fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Writer) {
+fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Writer, accessors: &mut Vec<(String, String)>) {
     let f = ctx.program.function(fid);
     let lvar = &ctx.libs[f.library.0 as usize].js_var;
     let name = ctx.name(f.name);
@@ -504,13 +512,9 @@ fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Wr
     }
     match f.kind {
         FunctionKind::Getter | FunctionKind::Setter => {
-            // Acessores de topo: `dart.copyProperties(L, { get x() {...} })`.
+            // Acessores de topo: `dart.copyProperties(L, { get x() {...}, set x(v) {...} })`.
             let (text, _) = function_text(ctx, m, fid, Some(&format!("{} {}", if f.kind == FunctionKind::Getter { "get" } else { "set" }, js::prop_key(name))), None, true, None);
-            w.line(&format!("dart.copyProperties({lvar}, {{"));
-            for line in text.lines() {
-                w.line(&format!("  {line}"));
-            }
-            w.line("});");
+            accessors.push((name.to_string(), text));
         }
         _ => {
             let (text, _) = function_text(ctx, m, fid, Some(&format!("function {}", js::ident(name))), None, true, None);
