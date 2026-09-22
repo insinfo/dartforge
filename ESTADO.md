@@ -1,0 +1,203 @@
+# Estado do DartForge — 2026-09-22
+
+O que **funciona hoje, verificado por execução**, e o que **falta**, nesta
+ordem. Tudo aqui é medido; nada é estimativa salvo onde está escrito
+"estimado". Os números são do `main` deste commit, na máquina do
+proprietário (8 núcleos, 8 GB).
+
+Alvos reais usados como critério:
+* `C:/MyDartProjects/new_sali` — ngdart 8.0.0-dev.4 (frontend) + angel3
+  (backend) + core, 1.258 arquivos, 8,5 MiB de Dart;
+* `references/limitless_ui` — biblioteca de componentes ngdart do
+  proprietário, com `example/` (24 componentes) e suíte e2e em puppeteer.
+
+---
+
+## 1. O que funciona
+
+### 1.1 Front-end (análise) — `crates/frontend`, `elements`, `types`
+
+| Fase | Estado | Evidência |
+| --- | --- | --- |
+| Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
+| Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
+| Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** | 120.055 expressões do SDK em 155 ms; 40/40 negativos do `analyzer`; ~17 mil avisos no `new_sali/core` (ver §2.1) |
+
+### 1.2 Emissão JavaScript — `crates/emit_js`
+
+Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial
+(`runtime/ddc/dart_sdk.js`, gerado de `ddc_platform.dill` por
+`scripts/gerar-dart-sdk.ps1`). O `dartdevc` é o oráculo do contrato.
+
+* **Corpus diferencial: 212/212.** Cada programa é executado em `dart run
+  --enable-asserts`, em `dartdevc`+Node e no DartForge+Node; stdout e
+  código de saída comparados **byte a byte**. `cargo run -p
+  dartforge-diferencial`.
+* **`new_sali/core`: 7 de 14 testes reais** (`package:test`) rodam no Node
+  com a mesma saída da VM. Os outros 7 dependem de `dart:io` (leitura de
+  arquivo, fontes de PDF) — impossível no navegador por definição; é alvo
+  do backend nativo.
+* **`new_sali/frontend` (ngdart + `dart:html` + `package:js`): a aplicação
+  roda no navegador.** 616 módulos; `node --check` 616/616; no Edge
+  headless os **11 passos do fluxo** (carga, carrossel, erro do IdP,
+  submeter login, rotas públicas, guarda de rota, callback OIDC, sessão
+  forjada) ficaram **idênticos à saída oficial do `build_web_compilers`**,
+  inclusive as 7 chamadas HTTP que a aplicação faz. `scripts/servir.ps1
+  -Fluxo` (dirige o Edge por CDP, separa erro da aplicação de erro de
+  ambiente).
+
+Construtos cobertos: classes (construtores de todo tipo, `const`
+canonicalizado, estáticos, operadores, mixins, enums com membros,
+genéricas, `noSuchMethod`, `late`), coleções e literais tipados com rti,
+exceções, `async`/`await`/`async*`/`sync*`/`await for`, `dynamic` por
+`dsend`, records e padrões, extensions, `typedef`, bibliotecas múltiplas
+com prefixos/`show`/`hide`/`part`, interop (`package:js`,
+`dart:js_interop`, `@JSName`, `@anonymous`), `dart:html`.
+
+### 1.3 Latência e memória — `crates/dev`
+
+`dartforge dev` mantém a sessão viva e recompila o mínimo.
+
+| Cenário (`new_sali/core`, 2.302 unidades, 352 módulos) | Tempo |
+| --- | --- |
+| compilação completa (`compile-js`, 2ª vez) | **1,72 s** |
+| **edição de corpo** (sessão viva) | **227 ms** — 1 unidade reanalisada, 1 módulo escrito |
+| edição de API pública | 288 ms — 82 bibliotecas reemitidas, 3 módulos |
+
+`new_sali/frontend`: primeira 9,5 s; edição de corpo **335 ms**.
+
+**Memória — a propriedade que o LSP do Dart não tem**: teste de platô com
+20 edições sucessivas, `live_bytes` **+0,00 MB** (core 204,63 MB, pico
+278 MB; frontend 438,15 MB, pico 568 MB). No mesmo projeto o `webdev`
+chega a ~10 GB e o LSP do Dart a ~6 GB, crescendo a cada edição.
+
+Trajetória medida no mesmo arquivo do `core` ao longo do dia: 12,4 s →
+4,6 → 2,87 → 1,72 s (completa); 1,70 s → 227 ms (incremental).
+
+### 1.4 LSP — `crates/lsp` + `editors/vscode`
+
+Transporte JSON-RPC por stdio escrito aqui, `didChange` **incremental**
+com conversão UTF-16 correta, `$/cancelRequest`, `publishDiagnostics` pelo
+parser novo, `DocumentStore` como dono por documento. Extensão VS Code
+(cliente TypeScript fino). Medição no `new_sali`, mesma sequência de 1.462
+mensagens: **DartForge pico 21,3 MiB / platô 19,0 MiB; `dart
+language-server` pico 640,5 MiB / platô 633,7 MiB**.
+
+### 1.5 Backend nativo — `crates/emit_native` (feature `nativo`)
+
+Trilha nova → HIR própria → LLVM IR → Clang → executável, com o runtime
+Rust (GC por tracing). `dartforge compile-native` (compile com
+`cargo build -p dartforge-cli --features nativo`). Estado do corpus
+nativo no fim da sessão: ~6/202 (strings, classes, interpolação, coleções
+básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
+
+### 1.6 Infraestrutura
+
+* `crates/diferencial` — harness paralelo com cache dos oráculos;
+  `corpus/js/` com 212 programas verificados na VM.
+* `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
+* `scripts/` — `gerar-dart-sdk.ps1`, `servir.ps1`/`fluxo.mjs` (Edge por
+  CDP), `medir-lsp.ps1`.
+* Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
+  ler, contra ~105 ms de reanálise).
+
+---
+
+## 2. O que falta
+
+### 2.1 Correção (ordem de prioridade)
+
+1. **~17 mil avisos de tipos** no `new_sali/core` e ~85 mil no `frontend`.
+   Não impedem a execução (o emissor recua para despacho dinâmico, que é
+   sempre correto), mas cada aviso é uma inferência que não aconteceu —
+   custa tamanho e velocidade no JS. Os dez grupos mais frequentes estão
+   listados em `docs/FRONTEND-NEW-SALI.md`; os maiores são argumento
+   incompatível `dynamic`→`int`, `num`→`double`, condição sem tipo `bool`
+   e nome indefinido em cadeias longas de genéricos.
+2. **Suíte e2e do `limitless_ui`** (puppeteer, 24 componentes): não
+   executada ainda contra a nossa saída. É o próximo critério de aceite —
+   comportamento, não só montagem.
+3. **`new_sali/backend`** (angel3): não compila; usa `dart:io`,
+   `dart:isolate`, `dart:ffi`. Alvo do backend nativo.
+4. Divergências web×VM declaradas (7 programas do corpus): são do próprio
+   DDC (bits de 32 bits, `1.0` imprimindo `1`, `-0.0`), não defeitos.
+
+### 2.2 Latência (o caminho está medido, não é chute)
+
+1. **`Program` e outline reconstruídos a cada compilação** — 160 ms no
+   core, 277 ms no frontend, 55–83% do que resta numa edição. Precisa de
+   **ids estáveis por biblioteca** (arenas de elementos por biblioteca)
+   para reaproveitar o outline das bibliotecas intactas. Com isso a edição
+   de corpo cai para a faixa de 60–80 ms (estimado a partir das fases já
+   medidas).
+2. **Camada de texto da emissão**: 9,76 M alocações por compilação
+   completa, ~7,3 M delas em `String` por nó de expressão. A correção é o
+   **buffer único por módulo** (`emit_expr` escreve direto e devolve a
+   faixa, em vez de devolver `Js`). Estimado: −6 M alocações.
+3. Emissão paralela por módulo (hoje é série).
+
+### 2.3 Modo de produção
+
+Nada feito. O modo atual é o de desenvolvimento (um módulo por biblioteca,
+sem otimização global). Falta, na ordem do PLANO: alcance por símbolos
+(tree shaking), inferência global de tipos, desvirtualização,
+especialização, `const` propagado, minificação, code splitting (com
+`deferred` virando `import()`), e o agrupamento em poucos chunks. A
+referência é dart2js e Scala.js; a qualidade-alvo do JS emitido é a do
+ReScript.
+
+### 2.4 LSP
+
+Falta tudo além de diagnósticos: hover, ir para definição, referências,
+completion, rename, code actions — e a semântica (`crates/types`) por trás
+do `trait Analisador`, que hoje só tem a implementação sintática.
+
+### 2.5 Backend nativo
+
+~196 dos 202 programas do corpus. Falta a maior parte: exceções, `async` e
+event loop, genéricos reificados, `dart:io`, isolates, o `dart:core` da
+seção `vm` a partir da fonte, e o cache de objetos (o Clang/link domina o
+tempo).
+
+### 2.6 ngdart
+
+O compilador de templates próprio (Fase 5 do PLANO) não existe. Hoje
+dependemos dos `.template.dart` que o `build_runner` gera; o carregador já
+os sobrepõe (`PackageConfig::generated_root`). Enquanto isso, compilar um
+projeto ngdart exige `dart run build_runner build` uma vez.
+
+---
+
+## 3. Como verificar tudo isto
+
+```powershell
+pwsh scripts/gerar-dart-sdk.ps1              # dart_sdk.js (3 s, uma vez)
+cargo build --release -p dartforge-cli -p dartforge-diferencial
+cargo run --release -p dartforge-diferencial # 212/212
+
+# projeto real
+cargo run --release -p dartforge-cli -- compile-js `
+  C:/MyDartProjects/new_sali/frontend/web/main.dart -o saida `
+  --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json
+pwsh scripts/servir.ps1 -Dir saida -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
+
+# sessão residente
+cargo run --release -p dartforge-cli -- dev <entrada.dart> -o saida --packages <cfg>
+```
+
+## 4. Organização do repositório
+
+* **Trilha nova (em uso)**: `frontend` → `elements` → `types` →
+  `emit_js` | `emit_native`, mais `dev`, `lsp`, `intern`, `diagnostics`,
+  `instrument`, `diferencial`, `cli`.
+* **Trilha velha (só o que o `crates/jit` ainda usa)**: `lexer`, `syntax`,
+  `parser`, `semantic`, `hir`, `codegen`, `linker`, `optimizer`,
+  `packages`, `compiler`, `macros`. Sai quando o backend nativo novo
+  substituir o caminho antigo. O restante (`web`, `ngdart`, `asmjit-jit`)
+  já foi removido do `main`.
+* **Branch `experimento-inicial`**: preserva a árvore inteira antes da
+  limpeza, incluindo tudo o que foi removido.
+* Decisões e contratos: `PLANO.md` (governante), `docs/EMISSAO-DDC.md`,
+  `docs/FRONTEND-ARQUITETURA.md`, `docs/NATIVO.md`, `docs/LSP.md`,
+  `docs/FRONTEND-NEW-SALI.md`, `docs/CONTRATO-DDC.md`.
