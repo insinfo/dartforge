@@ -87,12 +87,15 @@ fn fechar_todos_devolve_ao_nivel_inicial() {
     assert!(docs.is_empty());
     let depois = dartforge_instrument::live_bytes();
     // O `HashMap` vazio conserva a capacidade alocada: para K entradas o
-    // hashbrown reserva a próxima potência de dois acima de K/0,875 buckets
-    // de 56 bytes (chave `String` + entrada), 1.792 bytes com K = 16. O que
-    // não pode sobrar é o texto dos documentos, que domina o custo e é medido
-    // pela afirmação final após o `drop`.
+    // hashbrown reserva a próxima potência de dois acima de K/0,875 buckets.
+    // Cada entrada agora custa texto + tabela de linhas + versão (o servidor
+    // anuncia sincronização incremental e precisa da tabela por documento),
+    // ~80 bytes por bucket contra ~56 da versão só-texto: 32 buckets dão
+    // ~2,5 KiB com K = 16, orçados em K*192. O que não pode sobrar é o texto
+    // dos documentos, que domina o custo e é medido pela afirmação final
+    // após o `drop`.
     assert!(
-        depois <= antes.saturating_add(K * 128),
+        depois <= antes.saturating_add(K * 192),
         "fechar não liberou os documentos: antes {antes}, depois {depois}"
     );
     drop(docs);
