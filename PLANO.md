@@ -884,11 +884,25 @@ do `sass_builder` idem. Ver [BUILD-RUST.md](docs/BUILD-RUST.md).
 ## Regra governante — compatibilidade obrigatória com o ecossistema Dart
 
 **Registrada em 2026-09-22 por instrução do proprietário.** O compilador,
-a VM, o analisador e o LSP do DartForge têm de ser compatíveis com o
-ecossistema: `json_serializable`, `freezed`, `drift`, `mockito`,
-`source_gen`, `build`, `analyzer`, `build_runner` e os demais pacotes que
-os projetos reais usam. **Um projeto que compila com a toolchain oficial
-tem de compilar com a nossa.** Não construímos um fork incompatível.
+o runtime, o analisador e o LSP são **nossos** — a VM oficial não faz
+parte do produto — e têm de ser **compatíveis com o ecossistema**:
+`json_serializable`, `freezed`, `drift`, `mockito`, `source_gen`,
+`build`, `analyzer`, `build_runner` e os demais pacotes que os projetos
+reais usam. **Um projeto que compila com a toolchain oficial tem de
+compilar com a nossa.** Não construímos um fork incompatível, e também
+não dependemos da implementação oficial para funcionar.
+
+O `dart` oficial tem **um** papel e só ele: oráculo de verificação, como
+`dart run` já é para o compilador JavaScript (213 programas comparados
+byte a byte). Oráculo é o que se compara, não o que se embute.
+
+Consequência direta para o backend nativo: executar um builder do
+ecossistema é **compilar e executar esse builder com a nossa pilha**.
+O alvo dominante é o `package:analyzer` — 438 arquivos, 227.252 linhas,
+usando `dart:io`, `dart:isolate`, `dart:ffi`, `dart:typed_data`,
+`dart:collection`, `dart:async`, `dart:convert` e `dart:_internal`.
+Compilá-lo e rodá-lo é o teste de maturidade da implementação, e é o que
+ordena as prioridades do `crates/emit_native` (hoje ~6/202 do corpus).
 
 É a mesma regra da meta governante da linguagem ("qualquer projeto Dart
 3.6 válido"), estendida às ferramentas, e ela tem três consequências
@@ -898,10 +912,11 @@ duras:
    (`json_serializable`, `ngdart`, `sass`) é aceleração, e só entra
    quando produzir saída **byte a byte igual** à do builder oficial no
    corpus de compatibilidade. Sem isso, executa-se o builder Dart.
-2. **Executar builders na VM oficial não é concessão**, é o que garante
-   que nenhum projeto fique de fora enquanto a nossa pilha cresce. A
-   troca da VM/analyzer pelos nossos é ganho de velocidade, verificado
-   pelo mesmo corpus.
+2. **Os builders rodam no nosso runtime.** Enquanto ele não alcançar um
+   builder, a limitação é declarada e o projeto roda `dart run
+   build_runner` à parte, como hoje com os `.template.dart` do ngdart —
+   limitação conhecida, não arquitetura: nada no desenho depende do
+   `dart`.
 3. **`corpus/builders/`** — um projeto por gerador do ecossistema, com a
    saída do `build_runner` oficial gravada como referência — vem **antes**
    do motor. Sem ele, "compatível" é opinião, não medição.

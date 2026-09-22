@@ -196,12 +196,15 @@ de bookkeeping são do `build_web_compilers`** — o compilador que já
 substituímos. Nos dois projetos do proprietário sobram três builders
 (`ngdart`, `i18n`, `sass_builder`).
 
-**Regra governante (PLANO.md): compatibilidade obrigatória com o
-ecossistema.** `json_serializable`, `freezed`, `drift`, `mockito`,
-`source_gen` e os demais têm de funcionar — o motor executa qualquer
-builder do ecossistema num worker Dart persistente desde a primeira fase,
-e geradores nativos só entram com saída byte a byte igual, verificada por
-um corpus de compatibilidade (`corpus/builders/`) que ainda não existe.
+**Regra governante (PLANO.md): tudo nosso, compatível com o
+ecossistema.** A VM oficial não faz parte do produto; `json_serializable`,
+`freezed`, `drift`, `mockito`, `source_gen` e os demais têm de funcionar
+**no nosso runtime**. Isso ordena as prioridades do backend nativo: o
+alvo dominante é compilar e executar o `package:analyzer` (438 arquivos,
+227.252 linhas, `dart:io`/`isolate`/`ffi`/`typed_data`), de onde esses
+geradores dependem. Geradores nativos em Rust são aceleração opcional,
+com saída byte a byte igual verificada por `corpus/builders/` (ainda não
+existe). O `dart` oficial fica só como oráculo de comparação.
 
 ---
 

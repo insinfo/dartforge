@@ -41,22 +41,42 @@ sass_builder  1 factory   .scss → .css
 Esses dois projetos não usam `json_serializable`, `freezed`, `drift` nem
 `mockito` — mas isso **não** autoriza a deixar o ecossistema de fora.
 
-> **Regra governante (proprietário, 2026-09-22): compatibilidade
-> obrigatória com o ecossistema.** O nosso compilador, a nossa VM, o
-> nosso analisador e o nosso LSP têm de funcionar com os pacotes que o
-> ecossistema Dart usa — `json_serializable`, `freezed`, `drift`,
-> `mockito`, `source_gen`, `build`, `analyzer` e os demais. Um projeto
-> real que compila com a toolchain oficial tem de compilar com a nossa.
-> Não construímos um fork incompatível do Dart.
+> **Regra governante (proprietário, 2026-09-22): tudo nosso, compatível
+> com o ecossistema.** O compilador, o runtime, o analisador e o LSP são
+> nossos — a VM oficial **não faz parte do produto**. E têm de ser
+> compatíveis com o ecossistema: `json_serializable`, `freezed`, `drift`,
+> `mockito`, `source_gen`, `build`, `analyzer` e os demais pacotes que os
+> projetos reais usam. Um projeto que compila com a toolchain oficial tem
+> de compilar com a nossa. Não construímos um fork incompatível, e também
+> não dependemos da implementação oficial para funcionar.
 
-É a mesma regra que governa a linguagem ("qualquer projeto Dart 3.6
-válido"), aplicada às ferramentas. A consequência prática está na §3: a
-compatibilidade vem **na Fase 1**, porque o worker executa os builders do
-ecossistema como Dart de verdade, com o `package:analyzer` de verdade. Os
-geradores nativos das fases seguintes são **aceleração opcional**, nunca
-substituição obrigatória: cada um só entra se produzir saída **idêntica**
-à do builder oficial, e o motor cai de volta no builder Dart sempre que
-não houver gerador nativo ou a saída divergir.
+O `dart` oficial continua tendo **um** papel, e só ele: **oráculo de
+verificação**, como `dart run` é hoje o oráculo do compilador JavaScript
+(213 programas comparados byte a byte). Oráculo é o que se compara, não o
+que se embute.
+
+Isso torna o alvo maior e o torna explícito: **rodar um builder do
+ecossistema é compilar e executar esse builder com a nossa pilha**. O que
+isso exige, medido nos pacotes instalados nesta máquina:
+
+| Pacote | Arquivos | Linhas | O que puxa |
+| --- | ---: | ---: | --- |
+| `package:build` | 21 | 1.904 | `dart:async`, `dart:convert` |
+| `package:source_gen` | 14 | 2.116 | `build`, `analyzer` |
+| `package:mockito` (gerador) | 10 | 4.447 | `analyzer`, `build` |
+| `package:build_runner` | 36 | 4.779 | `dart:io`, `dart:isolate` |
+| **`package:analyzer`** | **438** | **227.252** | `dart:io` (11), `dart:isolate` (2), `dart:ffi` (1), `dart:typed_data` (35), `dart:collection` (31), `dart:async` (15), `dart:convert` (12), `dart:math` (13), `dart:_internal` |
+
+O `analyzer` é o alvo dominante: 227 mil linhas de Dart exercitando quase
+toda a plataforma. Compilá-lo e executá-lo **é** o teste de maturidade da
+nossa implementação, e é o que define a prioridade do backend nativo
+(hoje em ~6/202 do corpus básico). Não há atalho honesto: ou o nosso
+runtime roda isso, ou não somos compatíveis com o ecossistema.
+
+Os geradores nativos em Rust continuam sendo **aceleração opcional**: só
+entram com saída **byte a byte igual** à do builder oficial, e o motor
+executa o builder de verdade sempre que não houver gerador nativo ou a
+saída divergir.
 
 ## 2. Arquitetura
 
@@ -86,10 +106,12 @@ os geradores passam a ler esse banco em vez de refazer a análise.
 
 ## 3. Fases, em ordem de valor medido
 
-### Fase 1 — motor em Rust, builders Dart por worker persistente
+### Fase 1 — motor em Rust (grafo, cache, agendamento)
 
-Entrega o grafo, o cache e o agendamento; os builders continuam sendo os
-do ecossistema, mas sem pagar a inicialização a cada build.
+Entrega a parte que não depende de executar Dart: leitura do
+`build.yaml`, grafo de assets e de builders, impressão digital,
+observação do sistema de arquivos, paralelismo. É a orquestração que o
+`build_runner` faz, independente de qual runtime executa os builders.
 
 * `crates/build`: leitura de `build.yaml` (targets, `builders:`,
   `generate_for`, `include`/`exclude`), grafo de assets e de builders,
@@ -98,16 +120,17 @@ do ecossistema, mas sem pagar a inicialização a cada build.
   `blake3(fonte + versão do builder + opções + dependências semânticas)`.
   Igual ⇒ não executa nada. É a mesma disciplina do `crates/dev`, que já
   provou valer (edição de corpo: 1 unidade reanalisada, 1 módulo escrito).
-* **Worker Dart persistente**: um processo `dart` vivo enquanto o
-  `dartforge dev` estiver rodando, com os builders já carregados, falando
-  por linhas JSON no stdin/stdout (`executar <builder> <asset>` →
-  `saída <caminho> <hash>`). Sem `dart` novo por build.
-* **Qualquer builder do ecossistema roda aqui**, sem alteração: o worker
-  é Dart de verdade, carrega `package:build`, `package:source_gen` e o
-  `package:analyzer` como o `build_runner` faz. É isto que cumpre a regra
-  de compatibilidade desde a primeira fase.
-* `build_web_compilers` é a única exceção, e por substituição, não por
-  incompatibilidade: a compilação para JavaScript é nossa.
+* **Worker persistente, no nosso runtime**: o builder é compilado uma vez
+  (AOT, resultado em cache por `blake3(fontes + versões + versão do
+  DartForge + ABI)`) e fica vivo enquanto o `dartforge dev` rodar,
+  falando com o motor por linhas JSON (`executar <builder> <asset>` →
+  `saída <caminho> <hash>`). Sem inicialização por build e sem VM oficial.
+* `build_web_compilers` não é executado: a compilação para JavaScript é
+  nossa, por substituição.
+* **Enquanto o nosso runtime não executar um builder**, a limitação é
+  declarada e o projeto roda `dart run build_runner` à parte, uma vez,
+  como já acontece hoje com os `.template.dart` do ngdart. É **limitação
+  conhecida, não arquitetura**: nada no desenho depende do `dart`.
 
 Aceite, em duas partes:
 1. **Projetos do proprietário**: `new_sali/frontend` e
@@ -169,30 +192,32 @@ chama `buildStep.resolver.libraryFor(...)` e recebe `LibraryElement`,
 uma camada de compatibilidade que **imite a API do analyzer** — objetos
 Dart no worker cujos métodos consultam o Rust por IPC.
 
-É trabalhoso, e **é obrigatório** pela regra de compatibilidade — o que
-não é obrigatório é a ordem: enquanto ele não existir, o worker Dart da
-Fase 1 já roda esses builders com o `analyzer` oficial, então nenhum
-projeto fica de fora. A Fase 3 troca o analyzer pelo nosso banco para
-ganhar velocidade e deixar de analisar o programa duas vezes, com o
-corpus de compatibilidade como rede: se um `ClassElement` nosso divergir
-do oficial num gerador real, o teste acusa.
+É trabalhoso e é o que tira as 227 mil linhas do `analyzer` do caminho
+quente: os objetos que o gerador recebe executam no nosso runtime e
+consultam o nosso banco em vez de reanalisar o programa. O corpus de
+compatibilidade é a rede: se um `ClassElement` nosso divergir do oficial
+num gerador real, o teste acusa.
 
-### Fase 4 — compilar os próprios builders com o DartForge nativo
+### Fase 4 — executar os builders do ecossistema no nosso runtime
 
-O marco técnico proposto ("compilar `package:analyzer` +
-`package:source_gen` + `json_serializable` com o DartForge e executá-los
-em LLVM") é atraente e **fica por último**, por uma razão medida: o
-backend nativo está em ~6/202 do corpus básico; o `package:analyzer`
-sozinho passa de 200 mil linhas de Dart e usa `dart:io`, `dart:isolate`,
-`dart:mirrors`-adjacentes e todo o `dart:async`. É um alvo de outra
-ordem de grandeza, e **não está no caminho crítico**: pelas Fases 1 e 2,
-os três builders que os projetos reais usam já estão resolvidos sem ele.
+**É requisito, não ambição opcional**, pela regra governante. O caminho,
+em degraus verificáveis, cada um com corpus próprio:
 
-Quando o backend nativo amadurecer, isto vira o teste de maturidade
-definitivo da implementação da linguagem — e aí o worker Dart deixa de
-precisar da VM oficial. Até lá, usar a VM oficial no worker **não é
-concessão**: é o que garante que nenhum projeto real fique de fora
-enquanto a nossa pilha cresce.
+1. `dart:async` com event loop, `dart:convert`, `dart:collection`,
+   `dart:typed_data`, `dart:math` — já exercitados pelos 213 programas do
+   corpus; o backend nativo precisa alcançá-los (hoje ~6/202).
+2. `dart:io` (arquivo, diretório, processo, `Platform`) e `dart:isolate`:
+   o `build_runner` e o `analyzer` dependem dos dois.
+3. Compilar e executar `package:build` + `package:source_gen` (4 mil
+   linhas somadas) com um gerador trivial escrito por nós.
+4. Compilar e executar **`package:analyzer`** (227 mil linhas) — o marco.
+   A partir dele, `json_serializable`, `freezed`, `drift` e `mockito`
+   rodam por consequência, porque é dele que dependem.
+5. Trocar o `analyzer` pelo nosso banco (Fase 3) e deixar de analisar o
+   programa duas vezes.
+
+O `dart` oficial nunca entra no produto: só como oráculo, comparando
+saída byte a byte, como já fazemos com `dart run` no compilador JS.
 
 ## 4. O que descartar explicitamente
 
@@ -219,5 +244,6 @@ enquanto a nossa pilha cresce.
 4. `ngdart` nativo = Fase 5 do PLANO, com o e2e do `limitless_ui` (26/26)
    como critério.
 5. `json_serializable` nativo, com igualdade byte a byte no corpus.
-6. Fase 3 (resolver sobre o nosso banco) — obrigatória, medida pelo mesmo
-   corpus; depois a Fase 4.
+6. Fase 4 em degraus (`dart:io` → `dart:isolate` → `package:build` +
+   `source_gen` → `package:analyzer`), que é o que tira a VM oficial do
+   caminho, e a Fase 3 quando o resolver próprio valer a pena.
