@@ -10,8 +10,6 @@ workspace = true
 dartforge-abi = { path = "../abi", optional = true }
 dartforge-native = { path = "../native", optional = true }
 dartforge-jit = { path = "../jit", optional = true }
-dartforge-compiler = { path = "../compiler" }
-dartforge-packages = { path = "../packages" }
 dartforge-emit-js = { path = "../emit_js" }
 dartforge-dev = { path = "../dev" }
 serde_json = "1"

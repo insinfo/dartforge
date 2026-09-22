@@ -7,7 +7,6 @@ publish = false
 [lints]
 workspace = true
 [dependencies]
-dartforge-compiler = { path = "../compiler" }
 dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }

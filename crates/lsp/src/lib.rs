@@ -6,9 +6,7 @@
 //! `mem_docs.rs`; fila com cancelamento como em `op_queue.rs`; conversão
 //! UTF-16 como em `lsp/utils.rs` (aqui em [`utf16`]).
 //!
-//! Dois analisadores convivem, por regra de coexistência com os outros
-//! agentes: [`diagnose`] usa o compilador do subconjunto antigo e serve só
-//! aos testes legados; o servidor diagnostica pelo parser novo
+//! O servidor diagnostica pelo parser novo
 //! (`dartforge_frontend::parser::parse`) através do [`trait Analisador`],
 //! cuja implementação sintática de hoje ([`AnalisadorSintatico`]) será
 //! trocada pela semântica (`crates/types`) sem tocar no transporte.
@@ -23,36 +21,6 @@ use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
 
-/// Analisa o texto e retorna **todos** os diagnósticos que o pipeline encontra.
-///
-/// O parser recupera de erros em fronteiras de declaração, então um arquivo com
-/// três declarações quebradas rende três diagnósticos, ordenados por span
-/// (início, depois fim). Um editor que mostrasse um erro por arquivo obrigaria a
-/// recompilar a cada correção para descobrir o próximo, o que é inútil.
-///
-/// As fases posteriores à sintaxe — macros, mixins, semântica, emissão — ainda
-/// param no primeiro erro, e por isso a lista volta a ter no máximo um elemento
-/// assim que a sintaxe do arquivo está correta.
-///
-/// A lista vazia indica que o programa pertence ao subconjunto aceito pelo compilador.
-/// Isso não equivale a uma análise completa de toda a linguagem Dart.
-///
-/// Rota legada: usa o compilador do subconjunto antigo e **não** serve para
-/// arquivos reais (recusaria quase todo arquivo válido com erros que não são
-/// erros). O servidor usa [`AnalisadorSintatico`]; esta função fica para os
-/// testes antigos.
-///
-/// # Exemplos
-///
-/// ```
-/// assert!(dartforge_lsp::diagnose("void main() {}").is_empty());
-/// assert_eq!(dartforge_lsp::diagnose("void main() { print(desconhecido); }").len(), 1);
-/// let tres = "void a() { int ; } void b() { int ; } void main() { int ; }";
-/// assert_eq!(dartforge_lsp::diagnose(tres).len(), 3);
-/// ```
-pub fn diagnose(source: &str) -> Vec<Diagnostic> {
-    dartforge_compiler::compile_diagnostics(source)
-}
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,12 +195,15 @@ impl DocumentStore {
         self.documentos.is_empty()
     }
 
-    /// Diagnostica o texto vigente com a rota multi-erro do compilador.
+    /// Diagnostica o texto vigente pelo parser novo.
     ///
-    /// Lista vazia quando o documento está fechado ou pertence ao subconjunto;
-    /// nunca retém o resultado, que é transitório do chamador.
+    /// Lista vazia quando o documento está fechado; nunca retém o resultado,
+    /// que é transitório do chamador.
     pub fn diagnose_open(&self, uri: &str) -> Vec<Diagnostic> {
-        self.get(uri).map_or_else(Vec::new, diagnose)
+        match self.get(uri) {
+            Some(texto) => AnalisadorSintatico::new().diagnosticar(uri, texto),
+            None => Vec::new(),
+        }
     }
 }
 
@@ -256,7 +227,7 @@ pub trait Analisador {
 /// Cada chamada interna num [`dartforge_intern::Interner`] novo e o descarta
 /// com a árvore: só os diagnósticos (mensagem + span) atravessam a chamada.
 /// Aceita 100% do SDK, do corpus pub e do `new_sali`; arquivos válidos não
-/// geram diagnósticos, ao contrário da rota legada [`diagnose`].
+/// geram diagnósticos.
 ///
 /// ```
 /// use dartforge_lsp::{Analisador, AnalisadorSintatico};
