@@ -145,6 +145,12 @@ impl Ty {
             Ty::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(arg.subst(map)), nullable: *nullable },
         }
     }
+    /// Como [`Ty::subst`], consumindo o tipo: com mapa vazio devolve o
+    /// próprio valor em vez de clonar a árvore inteira.
+    pub fn subst_prop(self, map: &HashMap<u32, Ty>) -> Ty {
+        if map.is_empty() { self } else { self.subst(map) }
+    }
+
     /// Coleta ids de parâmetros de tipo usados.
     pub fn collect_params(&self, out: &mut Vec<u32>) {
         match self {

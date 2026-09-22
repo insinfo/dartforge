@@ -1390,7 +1390,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let e = self.ctx.program.extension(ext);
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
-        let ty = self.ctx.fn_ty(fid).subst(&subst);
+        let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
         let targs: Vec<String> = self.ctx.outline.extensions[ext.0 as usize]
             .type_params
             .iter()
@@ -1757,7 +1757,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         for (p, a) in params.iter().zip(targs.iter()) {
             subst.insert(p.id, a.clone());
         }
-        let ty = self.ctx.fn_ty(fid).subst(&subst);
+        let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
         let inst = Ty::Iface { class: c, args: targs.clone(), nullable: false };
         let ty = match ty {
             Ty::Fn { pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: Box::new(inst.clone()), pos, opt, named, nullable },
@@ -1855,7 +1855,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let e = self.ctx.program.extension(ext);
                     let lib_var = self.lib_var(e.library);
                     let ext_name = self.extension_js_name(ext);
-                    let ty = match self.ctx.fn_ty(fid).subst(&subst) {
+                    let ty = match self.ctx.fn_ty(fid).subst_prop(&subst) {
                         Ty::Fn { ret, .. } => (*ret).clone(),
                         _ => Ty::Dynamic,
                     };
@@ -1906,7 +1906,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             let e = self.ctx.program.extension(ext);
                             let lib_var = self.lib_var(e.library);
                             let ext_name = self.extension_js_name(ext);
-                            let ret = match self.ctx.fn_ty(fid).subst(&subst) {
+                            let ret = match self.ctx.fn_ty(fid).subst_prop(&subst) {
                                 Ty::Fn { ret, .. } => (*ret).clone(),
                                 _ => Ty::Dynamic,
                             };
@@ -2032,7 +2032,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             let e = ctx.program.extension(ext);
                             let lib_var = self.lib_var(e.library);
                             let ext_name = self.extension_js_name(ext);
-                            let ret = match ctx.fn_ty(fid).subst(&subst) {
+                            let ret = match ctx.fn_ty(fid).subst_prop(&subst) {
                                 Ty::Fn { ret, .. } => (*ret).clone(),
                                 _ => Ty::Dynamic,
                             };

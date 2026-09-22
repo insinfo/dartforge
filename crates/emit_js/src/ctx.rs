@@ -119,6 +119,9 @@ pub struct Ctx<'a> {
     /// expressão não dependem do ambiente em execução. 132 mil chamadas,
     /// 1,78 M alocações.
     pub rti_memo: RefCell<HashMap<Ty, String>>,
+    /// Memória de `as_super`: `(classe, alvo)` → o alvo escrito em função
+    /// dos parâmetros da classe. 78 mil chamadas, 525 mil alocações.
+    super_memo: RefCell<HashMap<(ClassId, ClassId), Option<Ty>>>,
 }
 
 /// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
@@ -209,6 +212,7 @@ impl<'a> Ctx<'a> {
             var_js: HashMap::new(),
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
+            super_memo: RefCell::new(HashMap::new()),
         };
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
@@ -807,7 +811,7 @@ impl<'a> Ctx<'a> {
                         for (p, a) in params.iter().zip(args.iter()) {
                             map.insert(p.id, self.ty_of(*a));
                         }
-                        let t = self.ty_of(t).subst(&map);
+                        let t = self.ty_of(t).subst_prop(&map);
                         return if *nullable { t.with_nullable(true) } else { t };
                     }
                 }
@@ -954,14 +958,62 @@ impl<'a> Ctx<'a> {
     }
 
     /// `ty` visto como instância da classe `target` (`List<int>` → `Iterable<int>`).
+    ///
+    /// O caminho na hierarquia depende só das duas classes: a resposta é
+    /// calculada uma vez em função dos parâmetros de `class` (memória
+    /// `(classe, alvo)`) e depois instanciada com os argumentos de `ty`.
     pub fn as_super(&self, ty: &Ty, target: ClassId) -> Option<Ty> {
-        let ty = self.resolve_param_bound(ty);
-        let Ty::Iface { class, .. } = &ty else { return None };
+        let resolvido;
+        let ty: &Ty = if matches!(ty, Ty::Param { .. }) {
+            resolvido = self.resolve_param_bound(ty);
+            &resolvido
+        } else {
+            ty
+        };
+        let Ty::Iface { class, args, .. } = ty else { return None };
         if *class == target {
             return Some(ty.clone());
         }
+        let generico = match self.super_memo.borrow().get(&(*class, target)) {
+            Some(g) => Some(g.clone()),
+            None => None,
+        };
+        let generico = match generico {
+            Some(g) => g,
+            None => {
+                let g = self.as_super_generico(*class, target);
+                self.super_memo.borrow_mut().insert((*class, target), g.clone());
+                g
+            }
+        };
+        let g = generico?;
+        let params = &self.class_params[class.0 as usize];
+        if params.is_empty() {
+            return Some(g);
+        }
+        let mut map = HashMap::new();
+        for (p, a) in params.iter().zip(args.iter()) {
+            map.insert(p.id, a.clone());
+        }
+        for p in params.iter().skip(args.len()) {
+            map.insert(p.id, Ty::Dynamic);
+        }
+        Some(g.subst_prop(&map))
+    }
+
+    /// `target` visto a partir de `class`, escrito em função dos parâmetros
+    /// de `class` (`List<E>` → `Iterable<E>`); `None` se não é supertipo.
+    fn as_super_generico(&self, class: ClassId, target: ClassId) -> Option<Ty> {
+        let proprio = Ty::Iface {
+            class,
+            args: self.class_params[class.0 as usize]
+                .iter()
+                .map(|p| Ty::Param { id: p.id, name: p.name.clone(), nullable: false })
+                .collect(),
+            nullable: false,
+        };
         let mut seen = HashSet::new();
-        let mut queue = vec![ty.clone()];
+        let mut queue = vec![proprio];
         while let Some(t) = queue.pop() {
             for s in self.direct_supers(&t) {
                 if let Some(c) = s.class() {
@@ -1164,6 +1216,11 @@ impl<'a> Ctx<'a> {
                 .unwrap_or(Ty::Dynamic),
             MemberKind::Field(vid) => self.var_ty(vid),
         };
+        // `subst` com mapa vazio clona a árvore inteira de novo; `raw` já é
+        // nosso (a maioria dos membros vem de classe sem parâmetros de tipo).
+        if m.subst.is_empty() {
+            return raw;
+        }
         raw.subst(&m.subst)
     }
 

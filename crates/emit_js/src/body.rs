@@ -439,7 +439,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                                 for (p, a) in self.ctx.class_params[c.0 as usize].iter().zip(args.iter()) {
                                     map.insert(p.id, a.clone());
                                 }
-                                let t = self.ctx.var_ty(rep).subst(&map);
+                                let t = self.ctx.var_ty(rep).subst_prop(&map);
                                 return if nullable { t.with_nullable(true) } else { t };
                             }
                         }
@@ -461,7 +461,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         for (p, a) in data.type_params.iter().zip(args.iter()) {
                             map.insert(p.0, a.clone());
                         }
-                        let t = self.ctx.ty_of(data.target_type).subst(&map);
+                        let t = self.ctx.ty_of(data.target_type).subst_prop(&map);
                         if nullable { t.with_nullable(true) } else { t }
                     }
                     _ => Ty::Dynamic,
