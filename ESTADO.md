@@ -176,12 +176,20 @@ event loop, genéricos reificados, `dart:io`, isolates, o `dart:core` da
 seção `vm` a partir da fonte, e o cache de objetos (o Clang/link domina o
 tempo).
 
-### 2.6 ngdart
+### 2.6 ngdart e geração de código
 
 O compilador de templates próprio (Fase 5 do PLANO) não existe. Hoje
 dependemos dos `.template.dart` que o `build_runner` gera; o carregador já
 os sobrepõe (`PackageConfig::generated_root`). Enquanto isso, compilar um
-projeto ngdart exige `dart run build_runner build` uma vez.
+projeto ngdart exige `dart run build_runner build` uma vez (2m59s no
+`new_sali/frontend`).
+
+Plano para substituir o `build_runner` por um motor em Rust:
+`docs/BUILD-RUST.md`. O dado que o orienta: dos 9.879 artefatos que o
+`build_runner` gera nesse projeto, **934 `.ddc.js`/`.ddc.dill` e ~7.980
+de bookkeeping são do `build_web_compilers`** — o compilador que já
+substituímos. Sobram três builders reais nos projetos do proprietário
+(`ngdart`, `i18n`, `sass_builder`); nenhum `json_serializable`/`freezed`.
 
 ---
 

@@ -853,6 +853,21 @@ Meta observável no `new_sali` (80 mil linhas): alterar um método privado
 → parse de 1 biblioteca, tipos de 1 biblioteca, 1 `.mjs` reescrito,
 dezenas de ms — medido pelo mesmo harness de `crates/instrument`.
 
+## Geração de código em Rust — `dartforge build`
+
+Plano e medições em [BUILD-RUST.md](docs/BUILD-RUST.md) (2026-09-22). O
+`build_runner` sai do ciclo de desenvolvimento em fases: motor em Rust
+(grafo, impressão digital, agendamento) com worker Dart persistente para
+os builders do ecossistema; depois geradores nativos lendo o banco
+semântico que o `dartforge dev` já mantém vivo. Medido no
+`new_sali/frontend`: dos 9.879 artefatos do `build_runner`, ~8.900 são do
+`build_web_compilers`, que **não executamos** — a compilação para
+JavaScript é nossa. Restam três builders reais nos projetos do
+proprietário: `ngdart` (que é a Fase 5 deste plano), `i18n` e
+`sass_builder`. Compilar `package:analyzer` com o backend nativo para
+rodar builders em LLVM é o marco final, não o primeiro passo: o backend
+nativo está em ~6/202 do corpus básico.
+
 ## Regra de projeto — equivalência semântica com o Dart oficial
 
 **O DartForge pode tornar código Dart padrão mais rápido, dividir workers
