@@ -1720,13 +1720,29 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     }
 }
 
-/// Nome JS de membro: `[]` → `_get`, `[]=` → `_set`, `==` → `_equals`, `unary-` → `_negate`.
+/// Nome JS de membro: `[]` → `_get`, `[]=` → `_set`, `==` → `_equals`,
+/// `unary-` → `_negate`, e `constructor`/`prototype` → `_constructor`/
+/// `_prototype`.
+///
+/// É a `memberNameForDartMember` do DDC (`compiler/js_names.dart:411`).
+/// Os dois últimos são obrigatórios e não cosméticos: `get constructor()`
+/// dentro de uma `class` é erro de sintaxe em JavaScript ("Class
+/// constructor may not be an accessor"), e `prototype` colidiria com o do
+/// próprio objeto. Um campo Dart chamado `constructor` existe em código
+/// real — `package:json_annotation` tem um.
 pub fn js_member_name(name: &str) -> String {
+    js_member_name_ext(name, false)
+}
+
+/// Como [`js_member_name`], mas `external` mantém o nome cru: ali o membro
+/// JS é intencional (o DDC usa a mesma regra, com `isExternal`).
+pub fn js_member_name_ext(name: &str, external: bool) -> String {
     match name {
         "[]" => "_get".into(),
         "[]=" => "_set".into(),
         "==" => "_equals".into(),
         "unary-" => "_negate".into(),
+        "constructor" | "prototype" if !external => format!("_{name}"),
         _ => name.to_string(),
     }
 }

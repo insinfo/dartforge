@@ -1,0 +1,10 @@
+name: corpus_json_serializable
+description: Projeto mínimo que exercita json_serializable; a saída do build_runner oficial é a referência.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  json_annotation: ^4.9.0
+dev_dependencies:
+  build_runner: ^2.4.15
+  json_serializable: ^6.9.0

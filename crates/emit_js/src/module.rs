@@ -860,7 +860,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             continue;
         }
         if let Some(sym) = &f.storage {
-            let key = if f.name.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, &f.name)) } else { js::prop_key(&f.name) };
+            let key = if f.name.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, &f.name)) } else { js::prop_key(&crate::body::js_member_name(&f.name)) };
             if f.late {
                 m.use_sdk("_internal");
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
@@ -892,7 +892,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             } else {
                 crate::linha!(cw, "get {key}() {{ return this[{sym}]; }}");
                 if f.final_ {
-                    cw.line(&format!("set {key}(value) {{ super{} = value; }}", if f.name.starts_with('_') { format!("[{sym}]") } else { js::prop_access(&f.name) }));
+                    cw.line(&format!("set {key}(value) {{ super{} = value; }}", if f.name.starts_with('_') { format!("[{sym}]") } else { js::prop_access(&crate::body::js_member_name(&f.name)) }));
                 } else {
                     crate::linha!(cw, "set {key}(value) {{ this[{sym}] = value; }}");
                 }
@@ -1102,7 +1102,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let has_super_setter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, true)).is_some()
                 || ctx.mixins_of(c).iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, true).is_some());
             if has_super_setter {
-                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(n) };
+                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(&crate::body::js_member_name(n)) };
                 let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
                 extra.push(format!("set {key}(value) {{ super{acc} = value; }}"));
             }
@@ -1114,7 +1114,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let has_super_getter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, false)).is_some()
                 || ctx.mixins_of(c).iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, false).is_some());
             if has_super_getter {
-                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(n) };
+                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(&crate::body::js_member_name(n)) };
                 let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
                 extra.push(format!("get {key}() {{ return super{acc}; }}"));
             }
@@ -1234,7 +1234,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             .map(|f| {
                 let key = match &f.storage {
                     Some(s) if f.name.starts_with('_') || f.late => format!("[{s}]"),
-                    _ => js::prop_key(&f.name),
+                    _ => js::prop_key(&crate::body::js_member_name(&f.name)),
                 };
                 let ty = if f.late { f.ty.with_nullable(true) } else { f.ty.clone() };
                 format!("{key}: {{type: _ti => {}, isConst: false, isFinal: {}}}", se.rti(&ty), f.final_ && !f.late)
@@ -1552,7 +1552,7 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
         }
         let target = match &f.storage {
             Some(s) => format!("this[{s}]"),
-            None => format!("this{}", js::prop_access(&f.name)),
+            None => format!("this{}", js::prop_access(&crate::body::js_member_name(&f.name))),
         };
         match f.init {
             Some(i) if !f.late => {

@@ -1321,7 +1321,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => {}
         }
         if recv_ty.is_dynamic() && member.is_none() {
-            return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(name))), Ty::Dynamic);
+            return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(&crate::body::js_member_name(name)))), Ty::Dynamic);
         }
         let Some(m) = member else {
             // Extensão?
@@ -1343,7 +1343,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (Js::prim(format!("{}{}", recv.at(P_PRIMARY), js::prop_access(name))), t.clone());
                 }
             }
-            return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(name))), Ty::Dynamic);
+            return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(&crate::body::js_member_name(name)))), Ty::Dynamic);
         };
         let ty = self.ctx.member_ty(&m);
         let access = self.member_access(recv_ty, name, false);
@@ -2018,7 +2018,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => {
                 let name = binop_name(op);
                 if lt.is_dynamic() {
-                    return (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(name), r.code)), Ty::Dynamic);
+                    return (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(&crate::body::js_member_name(name)), r.code)), Ty::Dynamic);
                 }
                 match ctx.lookup_member(lt, name, false) {
                     Some(m) => {
@@ -2043,7 +2043,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             args.push(r.code.clone());
                             return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|{name}")), args.join(", "))), ret);
                         }
-                        (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(name), r.code)), Ty::Dynamic)
+                        (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(&crate::body::js_member_name(name)), r.code)), Ty::Dynamic)
                     }
                 }
             }
@@ -2342,7 +2342,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     } else if let Ty::Record { .. } = recv_ty {
                         Js::new(format!("{}{} = {}", recv_js.at(P_PRIMARY), js::prop_access(&n), v.at(P_ASSIGN)), P_ASSIGN)
                     } else {
-                        Js::prim(format!("dart.dput({}, {}, {})", recv_js.code, js::string_literal(&n), v.code))
+                        Js::prim(format!("dart.dput({}, {}, {})", recv_js.code, js::string_literal(&crate::body::js_member_name(&n)), v.code))
                     }
                 } else {
                     let access = self.member_access(&recv_ty, &n, true);
