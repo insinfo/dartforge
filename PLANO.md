@@ -1001,6 +1001,40 @@ para ler anotações, e disso já temos banco semântico. Do `ngcompiler`
 expressão Dart e já temos o parser. Sobra o que importa:
 `view_compiler` (7.518) e `template_parser` (2.153).
 
+## Folhas de estilo do ngdart — Sass e o shim (medido em 2026-09-22)
+
+O caminho do estilo num projeto ngdart real tem **duas** etapas, e as duas
+são nossas:
+
+```
+x.scss --(sass_builder)--> x.css --(ngdart stylesheet_compiler)--> x.css.shim.dart
+```
+
+`styleUrls: ['x.css']` aponta para um `.css` que **não existe no disco**: o
+`sass_builder` o gera do `.scss`. No `new_sali/frontend` são 139 `.scss` em
+`lib/` contra 140 `styleUrls` apontando para `.css`; o `limitless_ui` tem
+107 `.scss`. Sem Sass, 138 dos 173 arquivos pendentes do gerador não têm
+como ser gerados.
+
+**O Sass que esses projetos usam é um subconjunto pequeno.** Contagem nos
+139 `.scss` do new_sali:
+
+| recurso | arquivos |
+|---|---|
+| `@use`, `@import`, `@mixin`, `@include`, `@extend`, `@function`, `@each`, `@for`, `@if`, `map-get`, `%placeholder` | **0** |
+| aninhamento com `&`, `:host`, variáveis `$x`, comentários `//` | quase todos |
+
+Ou seja: não é portar o `dart-sass`, é implementar aninhamento, `&`,
+variáveis e comentários — e **recusar** o resto, como o gerador já faz com
+o que não entende. Um `@mixin` que aparecer vira pendência explícita, não
+saída errada.
+
+A segunda etapa é o `shadow_css.dart` do ngcompiler (691 linhas): cada
+seletor ganha `._ngcontent-%ID%` no último composto e o CSS sai
+minificado (`.c { color: red; }` vira `.c._ngcontent-%ID%{color:red}`), com
+`ComponentStyles.scoped` no lugar de `unscoped` e um `addShimC` por
+elemento.
+
 ## Regra de projeto — equivalência semântica com o Dart oficial
 
 **O DartForge pode tornar código Dart padrão mais rápido, dividir workers
