@@ -18,6 +18,8 @@ pub struct Local {
     pub lazy_init: Option<String>,
     /// `late x;` não anulável: leitura verifica inicialização.
     pub late_check: bool,
+    /// `late final x;`: só uma atribuição.
+    pub late_final: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,11 +152,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn declare(&mut self, sym: SymbolId, ty: Ty) -> String {
         let base = js::ident(self.name(sym));
         let js = base;
-        self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false });
+        self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false, late_final: false });
         js
     }
     pub fn declare_js(&mut self, sym: SymbolId, js: String, ty: Ty) {
-        self.scopes.last_mut().expect("escopo").insert(sym, Local { js, ty, lazy_init: None, late_check: false });
+        self.scopes.last_mut().expect("escopo").insert(sym, Local { js, ty, lazy_init: None, late_check: false, late_final: false });
     }
     pub fn lookup_local(&self, sym: SymbolId) -> Option<&Local> {
         for s in self.scopes.iter().rev() {
@@ -1169,10 +1171,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 None => {
                     let ty = declared.clone().unwrap_or(Ty::Dynamic);
                     let jsn = self.declare(v.name.sym, ty.clone());
-                    if list.late && !ty.is_nullable() {
+                    if list.late {
                         self.w.line(&format!("let {jsn} = void 0;"));
                         if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
-                            l.late_check = true;
+                            l.late_check = !ty.is_nullable();
+                            l.late_final = list.final_;
                         }
                     } else {
                         self.w.line(&format!("let {jsn} = null;"));

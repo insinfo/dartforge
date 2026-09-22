@@ -1910,6 +1910,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let name = self.name(n.sym).to_string();
                 match self.resolve_ident(n.sym) {
                     IdentTarget::Local(js, lty) => {
+                        if let Some(l) = self.lookup_local(n.sym).cloned() {
+                            if l.late_final {
+                                self.m.use_sdk("_internal");
+                                return (Js::new(format!("{js} === void 0 ? {js} = {} : dart.throw(new _internal.LateError.localAI({}))", v.at(P_ASSIGN), js::string_literal(&name)), P_COND).paren(), lty);
+                            }
+                        }
                         // Promoção por atribuição: local `dynamic`/nullable recebe tipo do valor quando compatível.
                         if lty.is_nullable() && !lty.is_dynamic() && self.ctx.is_subtype(vty, &lty) && !vty.is_dynamic() && !matches!(vty, Ty::Null) {
                             self.set_local_ty(n.sym, vty.clone());
@@ -2279,7 +2285,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let ctor_name = constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
         let explicit_args = !self.explicit_type_args(ty).is_empty();
         let class_args = if explicit_args { args.clone() } else { vec![] };
-        self.emit_constructor_call(*class, class_args, explicit_args, &ctor_name, arguments, expected, is_const)
+        let saved = self.in_const;
+        if is_const {
+            self.in_const = true;
+        }
+        let r = self.emit_constructor_call(*class, class_args, explicit_args, &ctor_name, arguments, expected, is_const);
+        self.in_const = saved;
+        r
     }
 
     fn explicit_type_args(&self, t: ast::TypeId) -> Vec<ast::TypeId> {

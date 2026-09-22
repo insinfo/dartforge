@@ -990,8 +990,8 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
         emit_field_inits(ctx, m, c, &fields, &HashSet::new(), &mut body);
         if is_enum {
-            let sup = format!("core._Enum.new.call(this, t$index, t$name);");
-            body.line(&sup);
+            let base = mixin_base_ref(ctx, c, "core._Enum");
+            body.line(&format!("{base}.new.call(this, t$index, t$name);"));
         } else {
             emit_super_call_default(ctx, m, c, &mut body);
         }
@@ -1009,7 +1009,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let text = emit_constructor(ctx, m, c, unit, ctor, &fields, generic, is_enum);
         w.line(&format!("({cref}.{jsname} = {text}).prototype = {cref}.prototype;"));
     }
-    if is_mixin {
+    if is_mixin || class.modifiers.mixin {
         let mut body = Writer::default();
         body.indent = 1;
         emit_field_inits(ctx, m, c, &fields, &HashSet::new(), &mut body);
@@ -1252,21 +1252,21 @@ fn native_member_names(ctx: &Ctx, c: ClassId) -> HashSet<String> {
 /// Referência JS à superclasse (com aplicação de mixins emitida antes).
 fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String {
     let class = ctx.program.class(c);
-    if class.kind == ClassKind::Enum {
+    let (mut base, base_class) = if class.kind == ClassKind::Enum {
         m.use_sdk("core");
-        return "core._Enum".to_string();
-    }
-    let mut base = match class.supertype_class {
-        Some(s) if Some(s) != ctx.object => {
-            let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
-            tmp.class_ref(s)
-        }
-        _ => {
-            m.use_sdk("core");
-            "core.Object".to_string()
+        ("core._Enum".to_string(), ctx.underscore_enum)
+    } else {
+        match class.supertype_class {
+            Some(s) if Some(s) != ctx.object => {
+                let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
+                (tmp.class_ref(s), Some(s))
+            }
+            _ => {
+                m.use_sdk("core");
+                ("core.Object".to_string(), None)
+            }
         }
     };
-    let base_class = class.supertype_class;
     for (i, &mx) in class.mixin_classes.iter().enumerate() {
         let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
         let mref = tmp.class_ref(mx);
@@ -1499,7 +1499,8 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     if super_call.is_none() {
         if is_enum {
             m.use_sdk("core");
-            super_call = Some("core._Enum.new.call(this, t$index, t$name);".into());
+            let base = mixin_base_ref(ctx, c, "core._Enum");
+            super_call = Some(format!("{base}.new.call(this, t$index, t$name);"));
         } else if class.supertype_class.is_none_or(|s| Some(s) == ctx.object) && !class.mixin_classes.is_empty() {
             let base = mixin_base_ref(ctx, c, "core.Object");
             super_call = Some(format!("{base}.new.call(this);"));
