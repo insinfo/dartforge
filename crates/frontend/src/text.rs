@@ -16,7 +16,7 @@
 use std::fmt;
 
 /// Texto de string Dart em WTF-8. Imutável; construído pelo lexer.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DartStr(Box<[u8]>);
 
 /// Acumula unidades UTF-16 e escalares em WTF-8, fundindo pares de

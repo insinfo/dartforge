@@ -4,7 +4,7 @@
 ///
 /// Adaptadores de editor devem converter esses offsets para a codificação do protocolo,
 /// por exemplo unidades UTF-16 no LSP.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Span {
     /// Primeiro byte incluído.
     pub start: usize,
@@ -13,7 +13,7 @@ pub struct Span {
 }
 
 /// Erro acompanhado da localização correspondente no código de origem.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Diagnostic {
     /// Explicação legível do problema.
     pub message: String,

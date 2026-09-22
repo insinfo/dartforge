@@ -32,7 +32,7 @@ use std::collections::HashMap;
 /// `Option<Name>` custem o mesmo que o valor sem `Option`: a árvore tem
 /// milhares de nomes opcionais (argumento nomeado, construtor nomeado,
 /// parâmetro sem nome), e o nicho economiza 8 bytes em cada um.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct SymbolId(std::num::NonZeroU32);
 
 impl SymbolId {
@@ -125,6 +125,12 @@ impl Interner {
     /// Nomes distintos retidos por esta arena.
     pub fn len(&self) -> usize {
         self.textos.len()
+    }
+
+    /// Textos na ordem dos índices (`textos()[id.as_u32()]`), para
+    /// reconstruir uma arena com os mesmos ids (cache do SDK).
+    pub fn textos(&self) -> impl Iterator<Item = &str> {
+        self.textos.iter().map(|t| &**t)
     }
 
     /// Verdadeiro quando nenhum nome foi internado.

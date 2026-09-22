@@ -51,6 +51,8 @@ pub struct Relatorio {
     pub avisos_outline: usize,
     pub avisos_corpos: usize,
     pub modulos: usize,
+    /// `"lido"`, `"construído"` ou `""` (desligado/indisponível).
+    pub sdk_cache: &'static str,
 }
 
 impl Relatorio {
@@ -69,8 +71,9 @@ impl Relatorio {
         }
         out.push_str(&format!("{:<24}{:>9.1} ms\n", "total", total.as_secs_f64() * 1000.0));
         out.push_str(&format!(
-            "unidades: {} SDK + {} usuário/pacotes; {} bibliotecas; {} módulos; avisos: {} outline + {} corpos\n",
-            self.unidades_sdk, self.unidades_usuario, self.bibliotecas, self.modulos, self.avisos_outline, self.avisos_corpos
+            "unidades: {} SDK + {} usuário/pacotes; {} bibliotecas; {} módulos; avisos: {} outline + {} corpos; cache do SDK: {}\n",
+            self.unidades_sdk, self.unidades_usuario, self.bibliotecas, self.modulos, self.avisos_outline, self.avisos_corpos,
+            if self.sdk_cache.is_empty() { "não usado" } else { self.sdk_cache }
         ));
         out
     }
@@ -93,7 +96,6 @@ pub fn compilar_com_relatorio(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<(Emitido, Relatorio), String> {
-    use dartforge_elements::load::load_lenient;
     use dartforge_elements::sdk::SdkLayout;
     use std::time::Instant;
     let mut rel = Relatorio::default();
@@ -104,9 +106,28 @@ pub fn compilar_com_relatorio(
     };
     let sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     rel.fase("layout do SDK", t);
+    // Cache do SDK analisado (`target/dartforge/sdk-<hash>.bin`); a primeira
+    // compilação o constrói. `DARTFORGE_SDK_CACHE=0` desliga.
+    let t = Instant::now();
+    let cache = if std::env::var("DARTFORGE_SDK_CACHE").is_ok_and(|v| v == "0") {
+        None
+    } else {
+        match dartforge_elements::SdkCache::abrir_ou_construir(&sdk, "dartdevc") {
+            Ok((c, aberto)) => {
+                rel.sdk_cache = if aberto { "lido" } else { "construído" };
+                Some(c)
+            }
+            Err(e) => {
+                eprintln!("aviso: cache do SDK indisponível ({e}); lendo o SDK dos arquivos");
+                None
+            }
+        }
+    };
+    rel.fase("cache do SDK", t);
     let t = Instant::now();
     let mut interner = Interner::new();
-    let (program, elements_diags) = load_lenient(entrada, &sdk, packages, &mut interner);
+    let (program, elements_diags) =
+        dartforge_elements::load::load_lenient_com_cache(entrada, &sdk, packages, &mut interner, cache);
     rel.fase("carregar programa", t);
     // Partes do SDK têm URI `file:///…/lib/core/int.dart`; o que decide é a biblioteca.
     rel.unidades_sdk = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();

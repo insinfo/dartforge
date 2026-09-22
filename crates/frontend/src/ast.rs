@@ -17,7 +17,7 @@ use dartforge_intern::SymbolId;
 macro_rules! id {
     ($(#[$doc:meta])* $name:ident) => {
         $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
         pub struct $name(pub u32);
     };
 }
@@ -39,7 +39,7 @@ id!(/// Índice em [`Ast::functions`] (assinatura + corpo compartilhados por
     FunctionId);
 
 /// Arenas de uma unidade de compilação.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Ast {
     pub exprs: Vec<Expr>,
     pub stmts: Vec<Stmt>,
@@ -114,7 +114,7 @@ impl Ast {
 }
 
 /// Identificador com posição.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Name {
     pub sym: SymbolId,
     pub span: Span,
@@ -125,7 +125,7 @@ pub struct Name {
 // ---------------------------------------------------------------------------
 
 /// `libraryDefinition` ou `partDeclaration`: um arquivo `.dart`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct CompilationUnit {
     pub script_tag: Option<Span>,
     pub directives: Vec<Directive>,
@@ -133,7 +133,7 @@ pub struct CompilationUnit {
 }
 
 /// Anotação `@nome`, `@nome.membro`, `@p.Nome<T>.ctor(args)`.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Annotation {
     pub span: Span,
     /// `nome`, `p.nome` ou `p.Nome.ctor` — até três partes, na ordem escrita.
@@ -142,14 +142,14 @@ pub struct Annotation {
     pub arguments: Option<Arguments>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Directive {
     pub span: Span,
     pub metadata: Vec<Annotation>,
     pub kind: DirectiveKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum DirectiveKind {
     /// `library;` ou `library a.b.c;`
     Library { name: Vec<Name> },
@@ -177,7 +177,7 @@ pub enum DirectiveKind {
 }
 
 /// `if (dart.library.io == 'x') 'uri'`
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Configuration {
     pub span: Span,
     pub test: Vec<Name>,
@@ -185,7 +185,7 @@ pub struct Configuration {
     pub uri: StringLit,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Combinator {
     Show(Vec<Name>),
     Hide(Vec<Name>),
@@ -195,14 +195,14 @@ pub enum Combinator {
 // Declarações de topo e membros
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Decl {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: DeclKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum DeclKind {
     Class(ClassDecl),
     Mixin(MixinDecl),
@@ -217,7 +217,7 @@ pub enum DeclKind {
 }
 
 /// Modificadores de classe (Dart 3).
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct ClassModifiers {
     pub abstract_: bool,
     pub base: bool,
@@ -228,7 +228,7 @@ pub struct ClassModifiers {
     pub mixin: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ClassDecl {
     pub modifiers: ClassModifiers,
     pub name: Name,
@@ -241,7 +241,7 @@ pub struct ClassDecl {
     pub members: Vec<MemberId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MixinDecl {
     pub base: bool,
     pub name: Name,
@@ -251,7 +251,7 @@ pub struct MixinDecl {
     pub members: Vec<MemberId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct EnumDecl {
     pub name: Name,
     pub type_params: Box<[TypeParameter]>,
@@ -262,7 +262,7 @@ pub struct EnumDecl {
 }
 
 /// `@meta nome<T>.ctor(args)` dentro de um `enum`.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct EnumConstant {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
@@ -272,7 +272,7 @@ pub struct EnumConstant {
     pub arguments: Option<Arguments>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExtensionDecl {
     pub name: Option<Name>,
     pub type_params: Box<[TypeParameter]>,
@@ -280,7 +280,7 @@ pub struct ExtensionDecl {
     pub members: Vec<MemberId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExtensionTypeDecl {
     pub const_: bool,
     pub name: Name,
@@ -294,14 +294,14 @@ pub struct ExtensionTypeDecl {
     pub members: Vec<MemberId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypedefDecl {
     pub name: Name,
     pub type_params: Box<[TypeParameter]>,
     pub kind: TypedefKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum TypedefKind {
     /// `typedef F<T> = int Function(T);` — qualquer tipo.
     Alias(TypeId),
@@ -313,7 +313,7 @@ pub enum TypedefKind {
 }
 
 /// `T extends Bound` numa lista `<...>`, com metadata.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypeParameter {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
@@ -322,7 +322,7 @@ pub struct TypeParameter {
 }
 
 /// Lista `tipo a = 1, b;` com os modificadores comuns.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct VariableList {
     pub external: bool,
     pub static_: bool,
@@ -337,20 +337,20 @@ pub struct VariableList {
     pub variables: Box<[Variable]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Variable {
     pub name: Name,
     pub initializer: Option<ExprId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Member {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: MemberKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum MemberKind {
     Field(VariableList),
     /// Método, getter, setter ou operador; `static`/`abstract` na função.
@@ -358,7 +358,7 @@ pub enum MemberKind {
     Constructor(Constructor),
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Constructor {
     pub external: bool,
     pub const_: bool,
@@ -376,14 +376,14 @@ pub struct Constructor {
 }
 
 /// Alvo de `factory C() = Outra.nome;`
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RedirectTarget {
     pub span: Span,
     pub ty: TypeId,
     pub constructor: Option<Name>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Initializer {
     /// `this.x = e` ou `x = e`.
     Field {
@@ -417,7 +417,7 @@ pub enum Initializer {
 // ---------------------------------------------------------------------------
 
 /// Assinatura e corpo compartilhados por todas as formas de função.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Function {
     pub span: Span,
     pub external: bool,
@@ -435,7 +435,7 @@ pub struct Function {
     pub body: FunctionBody,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FunctionKind {
     Function,
     Getter,
@@ -444,7 +444,7 @@ pub enum FunctionKind {
     Operator,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum AsyncModifier {
     #[default]
     None,
@@ -453,7 +453,7 @@ pub enum AsyncModifier {
     SyncStar,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum FunctionBody {
     /// `{ ... }`
     Block(StmtId),
@@ -465,7 +465,7 @@ pub enum FunctionBody {
     Native(Option<StringLit>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ParameterKind {
     /// Posicional obrigatório.
     Required,
@@ -475,7 +475,7 @@ pub enum ParameterKind {
     Named,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Parameter {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
@@ -503,7 +503,7 @@ pub struct Parameter {
 // Tipos
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypeAnnotation {
     pub span: Span,
     /// `?` final.
@@ -511,7 +511,7 @@ pub struct TypeAnnotation {
     pub kind: TypeKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum TypeKind {
     /// `nome`, `p.nome`, com argumentos: inclui `dynamic`, `void` **não**,
     /// `Function` cru, `Never`, `Object`.
@@ -539,13 +539,13 @@ pub enum TypeKind {
 // Statements
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Stmt {
     pub span: Span,
     pub kind: StmtKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum StmtKind {
     Block(Box<[StmtId]>),
     /// `late final int x = 1, y;` local.
@@ -616,13 +616,13 @@ pub enum StmtKind {
     Empty,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum ForInit {
     Variables(VariableList),
     Expression(ExprId),
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum ForInTarget {
     /// `for (int x in e)` / `for (var x in e)` / `for (final x in e)`.
     Declared {
@@ -638,7 +638,7 @@ pub enum ForInTarget {
     Expression(ExprId),
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SwitchCase {
     pub span: Span,
     pub labels: Box<[Name]>,
@@ -648,7 +648,7 @@ pub struct SwitchCase {
     pub body: Box<[StmtId]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct CatchClause {
     pub span: Span,
     /// `on T`
@@ -663,7 +663,7 @@ pub struct CatchClause {
 // Expressões
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Expr {
     pub span: Span,
     pub kind: ExprKind,
@@ -673,14 +673,14 @@ pub struct Expr {
 ///
 /// Cada elemento de `parts` é um literal sintático (`'a' 'b'` produz dois);
 /// cada literal é uma sequência de trechos e interpolações.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StringLit {
     pub span: Span,
     /// Tamanho exato (`Box<[T]>`): a maioria dos literais tem um trecho só.
     pub parts: Box<[StringPart]>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StringPart {
     /// Trecho literal, **já decodificado** (escapes resolvidos); `raw` vem sem
     /// alteração. [`DartStr`] e não `str` porque `'\uD800'` é literal válido.
@@ -708,7 +708,7 @@ impl StringLit {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arguments {
     pub span: Span,
     /// `Box<[T]>` e não `Vec`: capacidade exata (o `Vec` dobrava — 4 slots
@@ -718,13 +718,13 @@ pub struct Arguments {
     pub args: Box<[Argument]>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Argument {
     pub name: Option<Name>,
     pub value: ExprId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -749,7 +749,7 @@ pub enum BinaryOp {
     IfNull,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UnaryOp {
     Neg,
     Not,
@@ -763,7 +763,7 @@ pub enum UnaryOp {
 }
 
 /// Operador composto de atribuição; `None` é `=`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AssignOp {
     Assign,
     Compound(BinaryOp),
@@ -773,7 +773,7 @@ pub enum AssignOp {
 /// estruturas auxiliares grandes ficam em `Box`: o tamanho de `Expr` é o do
 /// maior variante vezes o número de expressões (397 mil no `new_sali`), e
 /// cada 8 bytes aqui são 3 MiB lá. Leitura igual à de `Vec`.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum ExprKind {
     Int(Span),
     Double(Span),
@@ -898,13 +898,13 @@ pub enum ExprKind {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CreationKeyword {
     New,
     Const,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SwitchExprCase {
     pub span: Span,
     pub pattern: PatternId,
@@ -913,7 +913,7 @@ pub struct SwitchExprCase {
 }
 
 /// Elemento de literal de lista/conjunto/mapa.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum CollectionElement {
     Expression(ExprId),
     /// `?e` (elementos null-aware, Dart 3.8): entra só quando não é nulo.
@@ -958,13 +958,13 @@ pub enum CollectionElement {
 // Padrões
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Pattern {
     pub span: Span,
     pub kind: PatternKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum PatternKind {
     /// `_` ou `int _`
     Wildcard {
@@ -1018,14 +1018,14 @@ pub enum PatternKind {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum ListPatternElement {
     Pattern(PatternId),
     /// `...` ou `...p`
     Rest(Option<PatternId>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MapPatternEntry {
     pub key: ExprId,
     pub value: PatternId,
@@ -1033,7 +1033,7 @@ pub struct MapPatternEntry {
 
 /// Campo de padrão de record/objeto. `name` ausente é posicional; `:x` é um
 /// campo com nome inferido do padrão de variável.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct PatternField {
     pub span: Span,
     pub name: Option<Name>,

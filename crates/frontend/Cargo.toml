@@ -9,5 +9,6 @@ workspace = true
 [dependencies]
 dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-intern = { path = "../intern" }
+serde = { version = "1", features = ["derive"] }
 [dev-dependencies]
 dartforge-instrument = { path = "../instrument" }

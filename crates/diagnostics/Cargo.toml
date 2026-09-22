@@ -7,3 +7,4 @@ publish = false
 [lints]
 workspace = true
 [dependencies]
+serde = { version = "1", features = ["derive"] }

@@ -61,7 +61,27 @@ pub fn load_lenient(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
 ) -> (Program, Vec<Diagnostic>) {
+    load_lenient_com_cache(entry, sdk, package_config_path, interner, None)
+}
+
+/// Como [`load_lenient`], tirando as unidades das bibliotecas `dart:` de
+/// `cache` em vez de ler e analisar os arquivos do SDK.
+///
+/// O cache só é usado se os seus símbolos couberem em `interner` com os
+/// mesmos ids (interner vazio, ou já preparado por este mesmo cache); caso
+/// contrário a carga segue pelos arquivos.
+pub fn load_lenient_com_cache(
+    entry: &Path,
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    cache: Option<crate::sdk_cache::SdkCache>,
+) -> (Program, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
+    let mut cache = cache.filter(|c| c.preparar_interner(interner));
+    // Bibliotecas cujas partes já vieram do cache (a diretiva `part` não
+    // deve recarregá-las).
+    let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
 
     // 1. Carrega o package_config.json
     let package_config = if let Some(p) = package_config_path {
@@ -132,7 +152,23 @@ pub fn load_lenient(
         // Determina os arquivos da biblioteca (origem + patches se for SDK)
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
-            if let Some(sdk_lib) = sdk.library(lib_name) {
+            let do_cache = cache.as_mut().and_then(|c| c.retirar(lib_name));
+            if let Some(unidades) = do_cache {
+                for u in unidades {
+                    let unit_id = UnitId(program.units.len() as u32);
+                    program.units.push(Unit {
+                        uri: u.uri,
+                        path: Some(u.path),
+                        source: u.source,
+                        ast: u.ast,
+                        unit: u.unit,
+                        library: lib_id,
+                        role: u.role,
+                    });
+                    program.libraries[lib_id.0 as usize].units.push(unit_id);
+                }
+                libs_do_cache.insert(lib_id);
+            } else if let Some(sdk_lib) = sdk.library(lib_name) {
                 // Unidade principal
                 let main_unit = load_unit(
                     &sdk_lib.path,
@@ -270,6 +306,10 @@ pub fn load_lenient(
                         }
                     }
                     DirectiveAction::Part { uri } => {
+                        if libs_do_cache.contains(&lib_id) {
+                            // Partes já vieram do cache, verificadas ao construí-lo.
+                            continue;
+                        }
                         let Some(base_path) = &unit_path else {
                             continue;
                         };
