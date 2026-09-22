@@ -145,7 +145,7 @@ fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
                 visit(ctx, s, set, done, out);
             }
         }
-        for &m in &class.mixin_classes {
+        for &m in &ctx.mixins_of(c) {
             if set.contains(&m) {
                 visit(ctx, m, set, done, out);
             }
@@ -578,6 +578,9 @@ fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &
     if let Some(t) = this_ty {
         params_js.push("$this".into());
         e.extension_this = Some(t.clone());
+        if let Some(sym) = ctx.sym("this") {
+            e.declare_js(sym, "$this".into(), t.clone());
+        }
     }
     let ps: &[ast::Parameter] = af.parameters.as_deref().unwrap_or(&[]);
     let (pjs, prologue) = e.declare_params(ps, Some(&sig_ty));
@@ -707,7 +710,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         // Membros viram funções estáticas… (não suportado além do básico).
         return;
     }
-    let generic = !ctx.class_params[c.0 as usize].is_empty();
+    let generic = ctx.requires_rti(c);
     let d = ctx.program.unit(unit).ast.decl(decl.decl);
     let (members, enum_constants): (Vec<ast::MemberId>, Vec<&ast::EnumConstant>) = match &d.kind {
         DeclKind::Class(cd) => (cd.members.clone(), vec![]),
@@ -918,6 +921,17 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     let _ = has_equals;
 
+    // `[Symbol.iterator]` para classes Iterable cuja superclasse não é Iterable.
+    if !is_mixin {
+        if let Some(it) = ctx.iterable_ {
+            let declares_iterator = ctx.sym("iterator").is_some_and(|s| class.instance_members.contains_key(&s));
+            let super_is_iterable = ctx.superclass_of(c).is_some_and(|sc| ctx.is_subclass(sc, it) && Some(sc) != ctx.object);
+            if declares_iterator && ctx.is_subclass(c, it) && !super_is_iterable {
+                cw.line(&format!("[Symbol.iterator]() {{ return new dart.JsIterator(this[{}]); }}", m.dartx("iterator")));
+            }
+        }
+    }
+
     // Encaminhadores para `noSuchMethod` em classes concretas com membros abstratos.
     if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) {
         m.use_sdk("_internal");
@@ -982,7 +996,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 continue;
             }
             let has_super_setter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, true)).is_some()
-                || class.mixin_classes.iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, true).is_some());
+                || ctx.mixins_of(c).iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, true).is_some());
             if has_super_setter {
                 let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(n) };
                 let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
@@ -994,7 +1008,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 continue;
             }
             let has_super_getter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, false)).is_some()
-                || class.mixin_classes.iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, false).is_some());
+                || ctx.mixins_of(c).iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, false).is_some());
             if has_super_getter {
                 let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(n) };
                 let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
@@ -1062,7 +1076,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Recursos rti: a própria classe e as interfaces implementadas (transitivas).
     let mut recipes: Vec<String> = vec![ctx.class_recipe(c)];
     let mut iseen: HashSet<u32> = HashSet::new();
-    let mut iqueue: Vec<ClassId> = class.interface_classes.clone();
+    let mut iqueue: Vec<ClassId> = ctx.interfaces_of(c);
     if is_mixin {
         iqueue.extend(class.on_classes.iter().copied());
     }
@@ -1308,7 +1322,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             }
         }
     };
-    for (i, &mx) in class.mixin_classes.iter().enumerate() {
+    for (i, &mx) in ctx.mixins_of(c).iter().enumerate() {
         let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
         let mref = tmp.class_ref(mx);
         let app = format!("{}$mixin{}", ctx.class_name(c), i);
@@ -1334,9 +1348,9 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         for n in ctor_names {
             let n = if n == "new" { n } else { static_member_name(&n) };
             if base == "core.Object" {
-                w.line(&format!("({app}.{n} = function() {{ {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
+                w.line(&format!("({app}.{n} = function() {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
             } else {
-                w.line(&format!("({app}.{n} = function(...args) {{ {base}.{n}.apply(this, args); {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
+                w.line(&format!("({app}.{n} = function(...args) {{ {base}.{n}.apply(this, args); if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
             }
         }
         w.line(&format!("dart.applyMixin({app}, {mref});"));
@@ -1379,12 +1393,12 @@ fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Write
         Some(s) if Some(s) != ctx.object => Some(s),
         _ => None,
     };
-    if sup.is_none() && class.mixin_classes.is_empty() {
+    if sup.is_none() && ctx.mixins_of(c).is_empty() {
         return;
     }
     let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
     let sref = sup.map(|s| tmp.class_ref(s)).unwrap_or_else(|| "core.Object".to_string());
-    let sgeneric = sup.is_some_and(|s| !ctx.class_params[s.0 as usize].is_empty());
+    let sgeneric = sup.is_some_and(|s| ctx.requires_rti(s));
     let base = mixin_base_ref(ctx, c, &sref);
     if sgeneric {
         body.line(&format!("{base}.new.call(this, null);"));
@@ -1396,10 +1410,10 @@ fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Write
 /// Se a classe tem mixins, o construtor da superclasse imediata é o da última aplicação.
 fn mixin_base_ref(ctx: &Ctx, c: ClassId, sref: &str) -> String {
     let class = ctx.program.class(c);
-    if class.mixin_classes.is_empty() {
+    if ctx.mixins_of(c).is_empty() {
         sref.to_string()
     } else {
-        format!("{}$mixin{}", ctx.class_name(c), class.mixin_classes.len() - 1)
+        format!("{}$mixin{}", ctx.class_name(c), ctx.mixins_of(c).len() - 1)
     }
 }
 
@@ -1525,7 +1539,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                         if is_enum {
                             all.push("t$index".into());
                             all.push("t$name".into());
-                        } else if !ctx.class_params[s.0 as usize].is_empty() {
+                        } else if ctx.requires_rti(s) {
                             all.push("null".into());
                         }
                         all.extend(arg_js);
@@ -1542,7 +1556,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
             m.use_sdk("core");
             let base = mixin_base_ref(ctx, c, "core._Enum");
             super_call = Some(format!("{base}.new.call(this, t$index, t$name);"));
-        } else if ctx.superclass_of(c).is_none_or(|s| Some(s) == ctx.object) && !class.mixin_classes.is_empty() {
+        } else if ctx.superclass_of(c).is_none_or(|s| Some(s) == ctx.object) && !ctx.mixins_of(c).is_empty() {
             let base = mixin_base_ref(ctx, c, "core.Object");
             super_call = Some(format!("{base}.new.call(this);"));
         } else if let Some(s) = ctx.superclass_of(c) {
@@ -1566,7 +1580,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                     }
                 }
                 let mut all: Vec<String> = vec!["this".into()];
-                if !ctx.class_params[s.0 as usize].is_empty() {
+                if ctx.requires_rti(s) {
                     all.push("null".into());
                 }
                 all.extend(super_params);
@@ -1575,7 +1589,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                     let ssym = ctx.empty_sym;
                     if let Some(sfid) = ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied()) {
                         let n_pos = ctx.outline.functions[sfid.0 as usize].parameters.iter().filter(|p| p.kind != ast::ParameterKind::Named).count();
-                        while all.len() - 1 - (if ctx.class_params[s.0 as usize].is_empty() { 0 } else { 1 }) < n_pos {
+                        while all.len() - 1 - (if ctx.requires_rti(s) { 1 } else { 0 }) < n_pos {
                             all.push("void 0".into());
                         }
                     }

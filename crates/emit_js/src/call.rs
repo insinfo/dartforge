@@ -431,6 +431,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match &t.kind {
             ExprKind::Identifier(id) => match self.resolve_ident(id.sym) {
                 IdentTarget::Prefix(p) => {
+                    if name == "loadLibrary" {
+                        self.m.use_sdk("async");
+                        let t = self.ctx.t_future(Ty::Void);
+                        let rti = self.rti(&t);
+                        return Some((Js::prim(format!("async.Future.value({rti}, null)")), t));
+                    }
                     let sym = self.ctx.sym(name)?;
                     let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                     let el = b.getter?;
@@ -454,6 +460,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
                             return self.static_call_on_class(c, name, arguments, expected);
+                        }
+                    }
+                }
+                None
+            }
+            ExprKind::TypeArguments { target: t2, type_args } if matches!(&self.expr(*t2).kind, ExprKind::Property { .. }) => {
+                // `p.C<int>.named(args)`
+                if let ExprKind::Property { target: t3, name: n3, .. } = &self.expr(*t2).kind {
+                    if let ExprKind::Identifier(id) = &self.expr(*t3).kind {
+                        if let IdentTarget::Prefix(p) = self.resolve_ident(id.sym) {
+                            let sym = self.ctx.sym(self.name(n3.sym))?;
+                            let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
+                            if let Some(Element::Class(c)) = b.getter {
+                                let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                                let cname = if name == "new" { "" } else { name };
+                                let is_const = self.in_const;
+                                return Some(self.emit_constructor_call(c, targs, true, cname, arguments, expected, is_const));
+                            }
                         }
                     }
                 }

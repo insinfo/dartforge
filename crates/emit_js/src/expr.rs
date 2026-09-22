@@ -260,6 +260,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::List { const_, type_args, elements } => self.emit_list_literal(*const_, type_args, elements, expected),
             ExprKind::SetOrMap { const_, type_args, elements } => self.emit_set_or_map(*const_, type_args, elements, expected),
+            ExprKind::Record { positional, named, const_ } if *const_ && positional.len() == 1 && named.is_empty() => {
+                let saved = self.in_const;
+                self.in_const = true;
+                let r = self.emit_expr(positional[0], expected);
+                self.in_const = saved;
+                r
+            }
             ExprKind::Record { positional, named, .. } => self.emit_record(positional, named),
             ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
                 self.emit_instance_creation(*keyword, *ty, constructor.as_ref(), arguments, expected)
@@ -1516,6 +1523,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match &t.kind {
             ExprKind::Identifier(id) => match self.resolve_ident(id.sym) {
                 IdentTarget::Prefix(p) => {
+                    if name == "loadLibrary" {
+                        return None;
+                    }
                     let sym = self.ctx.sym(name)?;
                     let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                     let el = b.getter.or(b.setter)?;
@@ -1594,12 +1604,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
         let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
-        if params.is_empty() {
+        if !self.ctx.requires_rti(c) {
             let rti = self.rti(&ty);
             return Some((Js::prim(format!("dart.fn({}[{}], {rti})", self.class_ref(c), js::string_literal(&format!("_#{cname}#tearOff")))), ty));
         }
         let mut args = params_js.clone();
-        if !params.is_empty() {
+        if self.ctx.requires_rti(c) {
             args.insert(0, self.rti(&inst));
         }
         let call = if f.factory {
@@ -2456,13 +2466,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let cls_ref = self.class_ref(class);
         let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(ctor_name) };
         let is_factory = fid.is_some_and(|f| self.ctx.program.function(f).factory);
-        let generic = !self.ctx.class_params[class.0 as usize].is_empty();
+        let generic = self.ctx.requires_rti(class);
         // Redirecionamento de factory `= Outra`: resolve o alvo.
         if is_factory {
             if let Some(target) = self.factory_redirect_target(fid.unwrap()) {
                 let (tclass, tname, is_target_factory) = target;
                 let tref = self.class_ref(tclass);
-                let tgeneric = !self.ctx.class_params[tclass.0 as usize].is_empty();
+                let tgeneric = self.ctx.requires_rti(tclass);
                 if tgeneric {
                     let tt = if self.ctx.class_params[tclass.0 as usize].len() == targs.len() { Some(Ty::Iface { class: tclass, args: targs.clone(), nullable: false }) } else { None };
                     arg_js.insert(0, self.rti(&tt.unwrap_or(ty.clone())));

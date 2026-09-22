@@ -687,6 +687,53 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Mixins da classe pelo outline de tipos (expande typedefs), senão pelo nome.
+    pub fn mixins_of(&self, c: ClassId) -> Vec<ClassId> {
+        let data = &self.outline.classes[c.0 as usize];
+        let mut out = Vec::new();
+        for &t in data.mixins.iter() {
+            if let Some(mc) = self.ty_of(t).class() {
+                out.push(mc);
+            }
+        }
+        if out.is_empty() {
+            out = self.program.class(c).mixin_classes.clone();
+        }
+        out
+    }
+
+    /// Interfaces da classe pelo outline.
+    pub fn interfaces_of(&self, c: ClassId) -> Vec<ClassId> {
+        let data = &self.outline.classes[c.0 as usize];
+        let mut out = Vec::new();
+        for &t in data.interfaces.iter() {
+            if let Some(ic) = self.ty_of(t).class() {
+                out.push(ic);
+            }
+        }
+        if out.is_empty() {
+            out = self.program.class(c).interface_classes.clone();
+        }
+        out
+    }
+
+    /// A classe (ou uma superclasse) é genérica: o construtor recebe `_ti`.
+    pub fn requires_rti(&self, c: ClassId) -> bool {
+        let mut cur = Some(c);
+        let mut guard = 0;
+        while let Some(k) = cur {
+            if !self.class_params[k.0 as usize].is_empty() {
+                return true;
+            }
+            cur = self.superclass_of(k);
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        false
+    }
+
     /// Membro concreto (não abstrato) na cadeia de superclasses e mixins.
     pub fn has_concrete_member(&self, c: ClassId, name: &str, setter: bool) -> bool {
         let mut seen = HashSet::new();
