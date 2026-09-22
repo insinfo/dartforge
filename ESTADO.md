@@ -118,9 +118,60 @@ básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
 * Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
   ler, contra ~105 ms de reanálise).
 
+### 1.7 `dartforge serve` e o gerador do ngdart
+
+* `dartforge serve <entrada> -o <dir> [--web <dir>] [--porta N]` — servidor
+  HTTP próprio, cliente de recarga injetado na resposta do `index.html` (o
+  arquivo no disco não é tocado) e canal WebSocket (RFC 6455) como o
+  auto-refresh do webdev. Protocolo versionado em JSON (`ola`,
+  `recarregar`, `erro`), separado do transporte. Verificado no
+  `new_sali/frontend` com Edge headless por CDP
+  (`scripts/verificar-recarga.mjs`): editar um componente recarrega o
+  navegador em **1,5 s**, contra **1m20s** do `build_runner` para a mesma
+  edição.
+* Fontes geradas em memória (`crates/elements/src/gerado.rs`): os
+  `.template.dart` do ngdart podem vir de uma tabela indexada pelo caminho
+  natural, sem passar pelo disco. Geração imutável e trocada inteira — o
+  navegador nunca vê meio estado. `DARTFORGE_GERADOS=build_runner` prova o
+  encanamento: 284 templates lidos da memória dão 616 módulos byte a byte
+  iguais aos da compilação que lê do disco.
+* `crates/gerador_ng` — o compilador do ngdart em Rust, com os 284 arquivos
+  do `build_runner` de oráculo
+  (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
+  Hoje: **126 de 300 arquivos gerados por nós, 115 iguais byte a byte, 0
+  diferentes**. Cobre a biblioteca sem nada de Angular e o componente de
+  template estático (elementos HTML, texto, atributos), sem folha de
+  estilo, ligação nem injeção. `DARTFORGE_GERADOS=ng` compila com ele, e o
+  que falta continua vindo do `build_runner`.
+
 ---
 
 ## 2. O que falta
+
+### 2.0 O compilador de visões do ngdart
+
+Sem ele, `dartforge serve` ainda depende de o `build_runner` ter rodado
+uma vez no projeto (os 174 arquivos pendentes vêm do disco). Medido no
+new_sali/frontend, os motivos por que cada pendente não é nosso — com o
+conjunto completo, não só o primeiro:
+
+| forma | aparece em | destrava sozinha |
+|---|---|---|
+| ligação (`[x]`, `(x)`, `[(x)]`, `#ref`, `*ngIf`) | 151 | 0 |
+| folha de estilo (`styleUrls`) | 138 | 1 |
+| injeção no construtor | 137 | 1 |
+| componente/diretiva no template | 119 | 3 |
+| interpolação `{{ }}` | 110 | 1 |
+| `style` em linha | 34 | 0 |
+| `@Directive`/`@Pipe` no arquivo | 10 | 9 |
+
+Quase nada destrava com uma forma só: daqui para a frente é o compilador
+de visões inteiro. E ele precisa do banco semântico — resolver o token de
+injeção até a biblioteca que o **declara** (`package:ngrouter/src/router/router.dart`,
+não `package:ngrouter/ngrouter.dart`) e casar seletores de diretiva não se
+faz lendo um arquivo por vez. O caminho é a carga em duas fases: carregar
+o projeto sem os gerados (a carga é tolerante), gerar com o outline em
+mãos, recarregar com a geração.
 
 ### 2.1 Correção (ordem de prioridade)
 
