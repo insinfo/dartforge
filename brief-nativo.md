@@ -138,3 +138,5 @@ verificado com o N/202 na mensagem. Na resposta final: N/202, quais dos 7
 testes do core rodam, tempos, e o hash.
 
 Nota de eficiência (proprietário): quando o passo seguinte é executar o binário, use `cargo build` direto — `cargo check` seguido de `build` tipa duas vezes e não reaproveita nada. `check` só quando for corrigir erros sem executar. Faça `git merge main` para receber `.cargo/config.toml` com `target/` compartilhado (D:/Projects/dartforge/target): a máquina tem 8 GB e os builds das worktrees se enfileiram em vez de recompilar tudo.
+
+**Princípio 10 (proprietário, 2026-09-22):** referência antes de código — localize a regra na referência (DDC/dartdevc, CONTRATO-DDC.md, especificação/CFE, runtime/lib/*.cc, analyzer), leia o código próprio envolvido inteiro, corrija todas as ocorrências de uma vez e compile uma vez para confirmar. Tentativa-e-erro compilando/executando para descobrir o que fazer é proibido.
