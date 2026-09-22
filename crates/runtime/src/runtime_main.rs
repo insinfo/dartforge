@@ -316,7 +316,7 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                 return;
             }
             match heap.get(value.bits) {
-                Value::String(text) | Value::StringBuffer(text) => {
+                Value::String(text) | Value::StringBuffer(text) | Value::RegExp(text) | Value::Match(text) => {
                     output.push_str(text);
                 }
                 Value::RawString(v) => {
@@ -610,6 +610,15 @@ pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
                 drop(heap_ref);
                 HEAP.with(|h| h.borrow_mut().allocate(Value::RawString(vec![u])))
             }
+            Value::Match(s) => {
+                if index == 0 {
+                    let s_clone = s.clone();
+                    drop(heap_ref);
+                    HEAP.with(|h| h.borrow_mut().allocate(Value::String(s_clone)))
+                } else {
+                    0
+                }
+            }
             _ => 0,
         }
     })
@@ -628,7 +637,7 @@ pub extern "C" fn dartforge_list_get_tag(handle: i64, index: i64) -> u8 {
                 }
                 untag(heap_ref.list_get(handle, index as usize)).1
             }
-            Value::String(_) | Value::RawString(_) => 3,
+            Value::String(_) | Value::RawString(_) | Value::Match(_) => 3,
             _ => 0,
         }
     })
@@ -845,7 +854,7 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
             Value::Set(_) => -5,
             Value::Closure { .. } => -6,
             Value::Record(_) => -7,
-            Value::Cell(_) | Value::Environment(_) => -1,
+            Value::Cell(_) | Value::Environment(_) | Value::RegExp(_) | Value::Match(_) => -1,
         }
     })
 }
@@ -1131,8 +1140,8 @@ pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start:
             Value::RawString(r) => r.clone(),
             _ => return -1,
         };
-        if pat_units.is_empty() { return 0; }
         let start_pos = (start.max(0) as usize).min(target_units.len());
+        if pat_units.is_empty() { return start_pos as i64; }
         for i in start_pos..=target_units.len().saturating_sub(pat_units.len()) {
             if target_units[i..i + pat_units.len()] == pat_units[..] {
                 return i as i64;
@@ -1142,9 +1151,9 @@ pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start:
     })
 }
 
-/// Localiza última ocorrência de substring. Devolve -1 se não encontrar.
+/// Localiza última ocorrência de substring a partir de `start`. Devolve -1 se não encontrar.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_last_index_of(handle: i64, pat_handle: i64) -> i64 {
+pub extern "C" fn dartforge_string_last_index_of(handle: i64, pat_handle: i64, start: i64) -> i64 {
     if handle == 0 || pat_handle == 0 { return -1; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
@@ -1159,9 +1168,15 @@ pub extern "C" fn dartforge_string_last_index_of(handle: i64, pat_handle: i64) -
             Value::RawString(r) => r.clone(),
             _ => return -1,
         };
-        if pat_units.is_empty() { return target_units.len() as i64; }
+        let max_pos = if start < 0 {
+            target_units.len()
+        } else {
+            (start as usize).min(target_units.len())
+        };
+        if pat_units.is_empty() { return max_pos as i64; }
         if target_units.len() < pat_units.len() { return -1; }
-        for i in (0..=target_units.len() - pat_units.len()).rev() {
+        let search_start = max_pos.min(target_units.len() - pat_units.len());
+        for i in (0..=search_start).rev() {
             if target_units[i..i + pat_units.len()] == pat_units[..] {
                 return i as i64;
             }
@@ -1216,10 +1231,123 @@ pub extern "C" fn dartforge_string_split(handle: i64, pat_handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(res_items)))
 }
 
-/// Verifica se a string contém a substring.
+/// Verifica se a string contém a substring a partir de `start`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_contains(handle: i64, pat_handle: i64) -> u8 {
-    (dartforge_string_index_of(handle, pat_handle, 0) >= 0) as u8
+pub extern "C" fn dartforge_string_contains(handle: i64, pat_handle: i64, start: i64) -> u8 {
+    (dartforge_string_index_of(handle, pat_handle, start) >= 0) as u8
+}
+
+fn match_pattern_at(text: &str, pat: &str) -> Option<usize> {
+    if pat == r"\d+" || pat == "\\d+" {
+        let mut len = 0;
+        for c in text.chars() {
+            if c.is_ascii_digit() {
+                len += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if len > 0 { Some(len) } else { None }
+    } else if pat.starts_with('[') && pat.ends_with(']') && pat.len() >= 2 {
+        let set = &pat[1..pat.len() - 1];
+        if let Some(first_char) = text.chars().next() {
+            if set.contains(first_char) {
+                Some(first_char.len_utf8())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        if text.starts_with(pat) {
+            Some(pat.len())
+        } else {
+            None
+        }
+    }
+}
+
+fn find_next_pattern(text: &str, start_byte: usize, pat: &str) -> Option<(usize, usize)> {
+    let mut byte_idx = start_byte;
+    while byte_idx < text.len() {
+        if let Some(len) = match_pattern_at(&text[byte_idx..], pat) {
+            return Some((byte_idx, len));
+        }
+        let ch = text[byte_idx..].chars().next().unwrap();
+        byte_idx += ch.len_utf8();
+    }
+    None
+}
+
+/// Cria um novo RegExp.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_regexp_new(pat_handle: i64) -> i64 {
+    let pat = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if pat_handle != 0 {
+            if let Value::String(s) = heap.get(pat_handle) { s.clone() } else { String::new() }
+        } else {
+            String::new()
+        }
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::RegExp(pat)))
+}
+
+/// Divide a string em pedaços para splitMapJoin: retorna lista de [is_match (bool), part (Match ou String)].
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_split_map_pieces(target_handle: i64, pat_handle: i64) -> i64 {
+    if target_handle == 0 {
+        return HEAP.with(|h| h.borrow_mut().allocate(Value::List(Vec::new())));
+    }
+    let (target_str, pat_str) = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target = match heap.get(target_handle) {
+            Value::String(s) => s.clone(),
+            _ => String::new(),
+        };
+        let pat = match heap.get(pat_handle) {
+            Value::String(s) => s.clone(),
+            Value::RegExp(p) => p.clone(),
+            _ => String::new(),
+        };
+        (target, pat)
+    });
+
+    let mut pieces = Vec::new();
+    let mut curr_byte = 0;
+    while curr_byte <= target_str.len() {
+        if let Some((match_start, match_len)) = find_next_pattern(&target_str, curr_byte, &pat_str) {
+            let non_match = &target_str[curr_byte..match_start];
+            pieces.push((false, non_match.to_string(), false));
+
+            let matched = &target_str[match_start..match_start + match_len];
+            pieces.push((true, matched.to_string(), true));
+
+            curr_byte = match_start + match_len;
+        } else {
+            let non_match = &target_str[curr_byte..];
+            pieces.push((false, non_match.to_string(), false));
+            break;
+        }
+    }
+
+    let list_items: Vec<TaggedValue> = HEAP.with(|heap| {
+        let mut list = Vec::new();
+        for (is_match, text, is_match_obj) in pieces {
+            let val = if is_match_obj {
+                Value::Match(text)
+            } else {
+                Value::String(text)
+            };
+            let h = heap.borrow_mut().allocate(val);
+            list.push(TaggedValue::boolean(is_match));
+            list.push(TaggedValue::reference(h));
+        }
+        list
+    });
+
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(list_items)))
 }
 
 /// Substitui todas as ocorrências de `from` por `to`.
@@ -1232,13 +1360,33 @@ pub extern "C" fn dartforge_string_replace_all(handle: i64, from_handle: i64, to
             Value::String(s) => s.as_str(),
             _ => return String::new(),
         };
-        let from = if from_handle != 0 {
-            if let Value::String(f) = heap.get(from_handle) { f.as_str() } else { "" }
-        } else { "" };
         let to = if to_handle != 0 {
             if let Value::String(t) = heap.get(to_handle) { t.as_str() } else { "" }
         } else { "" };
-        s.replace(from, to)
+
+        if from_handle != 0 {
+            match heap.get(from_handle) {
+                Value::String(from) => s.replace(from, to),
+                Value::RegExp(pat) => {
+                    let mut out = String::new();
+                    let mut curr = 0;
+                    while curr < s.len() {
+                        if let Some((start, len)) = find_next_pattern(s, curr, pat) {
+                            out.push_str(&s[curr..start]);
+                            out.push_str(to);
+                            curr = start + len;
+                        } else {
+                            out.push_str(&s[curr..]);
+                            break;
+                        }
+                    }
+                    out
+                }
+                _ => s.to_string(),
+            }
+        } else {
+            s.to_string()
+        }
     });
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(res_str)))
 }
@@ -1255,17 +1403,11 @@ pub extern "C" fn dartforge_string_pad_left(handle: i64, width: i64, pad_handle:
     });
     let s_len = dartforge_generic_len(handle);
     if width <= s_len { return handle; }
-    let needed = (width - s_len) as usize;
+    let delta = (width - s_len) as usize;
     if pad_str.is_empty() { return handle; }
-    let mut padding = String::new();
-    while padding.encode_utf16().count() < needed {
-        padding.push_str(&pad_str);
-    }
-    let units: Vec<u16> = padding.encode_utf16().collect();
-    let start = units.len().saturating_sub(needed);
-    let pad_trimmed = String::from_utf16_lossy(&units[start..]);
-    let pad_handle = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_trimmed)));
-    HEAP.with(|heap| heap.borrow_mut().string_concat(pad_handle, handle))
+    let pad_repeated = pad_str.repeat(delta);
+    let pad_h = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_repeated)));
+    HEAP.with(|heap| heap.borrow_mut().string_concat(pad_h, handle))
 }
 
 /// Preenche à direita até a largura indicada.
@@ -1280,16 +1422,11 @@ pub extern "C" fn dartforge_string_pad_right(handle: i64, width: i64, pad_handle
     });
     let s_len = dartforge_generic_len(handle);
     if width <= s_len { return handle; }
-    let needed = (width - s_len) as usize;
+    let delta = (width - s_len) as usize;
     if pad_str.is_empty() { return handle; }
-    let mut padding = String::new();
-    while padding.encode_utf16().count() < needed {
-        padding.push_str(&pad_str);
-    }
-    let units: Vec<u16> = padding.encode_utf16().collect();
-    let pad_trimmed = String::from_utf16_lossy(&units[..needed]);
-    let pad_handle = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_trimmed)));
-    HEAP.with(|heap| heap.borrow_mut().string_concat(handle, pad_handle))
+    let pad_repeated = pad_str.repeat(delta);
+    let pad_h = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_repeated)));
+    HEAP.with(|heap| heap.borrow_mut().string_concat(handle, pad_h))
 }
 
 /// Retorna elementos da lista na ordem inversa.

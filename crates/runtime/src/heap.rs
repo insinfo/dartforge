@@ -84,6 +84,8 @@ pub enum Value {
     String(String),
     RawString(Vec<u16>),
     StringBuffer(String),
+    RegExp(String),
+    Match(String),
     Object {
         class_id: i64,
         fields: Vec<(i64, bool)>,
@@ -115,7 +117,7 @@ impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
     fn estimated_bytes(&self) -> usize {
         let payload = match self {
-            Self::String(text) | Self::StringBuffer(text) => text.capacity(),
+            Self::String(text) | Self::StringBuffer(text) | Self::RegExp(text) | Self::Match(text) => text.capacity(),
             Self::RawString(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
             Self::Object { fields, .. } => fields
                 .capacity()
@@ -138,7 +140,7 @@ impl Value {
     /// Igualdade de chaves de `Map`/`Set` segundo `==` observável de Dart.
     fn trace(&self, pending: &mut Vec<i64>) {
         match self {
-            Self::String(_) | Self::RawString(_) | Self::StringBuffer(_) => {}
+            Self::String(_) | Self::RawString(_) | Self::StringBuffer(_) | Self::RegExp(_) | Self::Match(_) => {}
             Self::Object { fields, .. } => pending.extend(
                 fields
                     .iter()

@@ -151,9 +151,9 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_string_from_char_code(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_from_char_codes(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_index_of(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_last_index_of(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_last_index_of(i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_split(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_contains(i64, i64)\n");
+        self.out.push_str("declare i8 @dartforge_string_contains(i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_replace_all(i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_pad_left(i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_pad_right(i64, i64, i64)\n");
@@ -168,7 +168,9 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_string_replace_range(i64, i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_list_reversed(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_buffer_new()\n");
-        self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n\n");
+        self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_regexp_new(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_split_map_pieces(i64, i64)\n\n");
     }
 
     fn emit_string_constants(&mut self) {
