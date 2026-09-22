@@ -77,6 +77,7 @@ impl Relatorio {
             ("  outline: supertipos", c.outline_supertipos),
             ("outline (tipos)", self.outline),
             ("inferência de corpos", self.corpos),
+            ("  emissão: contexto", self.emissao_contexto),
             ("emissão", self.emissao),
             ("hashes", self.hashes),
             ("escrita", self.escrita),
@@ -103,6 +104,9 @@ impl Relatorio {
 
 /// Sessão residente: mantém vivo entre compilações o que não mudou.
 pub struct Sessao {
+    /// Texto já emitido por classe e por biblioteca, reusado entre
+    /// compilações (ver `emitir_modulos_com_cache`).
+    fragmentos: std::cell::RefCell<dartforge_emit_js::module::CacheFragmentos>,
     entrada: PathBuf,
     sdk: SdkLayout,
     packages: Option<PathBuf>,
@@ -139,6 +143,7 @@ impl Sessao {
         };
         let sdk = SdkLayout::load(&dir, "dartdevc")?;
         Ok(Sessao {
+            fragmentos: Default::default(),
             entrada: entrada.to_path_buf(),
             sdk,
             packages: packages.map(|p| p.to_path_buf()),
@@ -252,15 +257,22 @@ impl Sessao {
         let mut emitido = match afetadas {
             // Primeira compilação (ou mudança de grafo): emite tudo.
             None => {
-                let e = dartforge_emit_js::emitir_programa(&program, &self.interner, &table, &core, &outline, &bodies)
+                self.fragmentos.borrow_mut().limpar();
+                let e = dartforge_emit_js::emitir_programa_com_cache(&program, &self.interner, &table, &core, &outline, &bodies, Some(&self.fragmentos))
                     .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
                 rel.bibliotecas_reemitidas = usize::MAX;
                 e
             }
             Some(libs) => {
                 rel.bibliotecas_reemitidas = libs.len();
-                let (e, contexto) = dartforge_emit_js::emitir_modulos(
-                    &program, &self.interner, &table, &core, &outline, &bodies, &libs,
+                // Os fragmentos das bibliotecas alteradas saem do cache; o
+                // resto do módulo é reusado como texto.
+                {
+                    let ctx_tmp = dartforge_emit_js::ctx::Ctx::new(&program, &self.interner, &table, &core, &outline, &bodies);
+                    self.fragmentos.borrow_mut().invalidar(&ctx_tmp, &libs);
+                }
+                let (e, contexto) = dartforge_emit_js::emitir_modulos_com_cache(
+                    &program, &self.interner, &table, &core, &outline, &bodies, &libs, Some(&self.fragmentos),
                 )
                 .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
                 rel.emissao_contexto = contexto;

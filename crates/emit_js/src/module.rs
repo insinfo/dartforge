@@ -63,6 +63,91 @@ impl ModState {
     pub fn note_class(&self, c: ClassId) {
         self.noted_classes.borrow_mut().insert(c.0);
     }
+
+    /// Estado vazio com o mesmo módulo e grupo, para emitir um fragmento
+    /// isolado (uma classe, o resto de uma biblioteca) e guardá-lo em cache.
+    pub fn derivado(&self) -> ModState {
+        let mut m = ModState::new(self.lib);
+        m.group = self.group.clone();
+        m
+    }
+
+    /// Funde o que um fragmento acumulou. Todos os campos são conjuntos de
+    /// inserção pura, e os nomes gerados derivam só do nome de origem
+    /// (`dartx_var`, `$P_<lib>_<nome>`), então a fusão é comutativa — é isso
+    /// que torna o cache por fragmento correto.
+    pub fn fundir(&self, outro: &ModState) {
+        self.sdk_used.borrow_mut().extend(outro.sdk_used.borrow().iter().cloned());
+        self.user_imports.borrow_mut().extend(outro.user_imports.borrow().iter().copied());
+        self.dartx_used.borrow_mut().extend(outro.dartx_used.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.private_syms.borrow_mut().extend(outro.private_syms.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.noted_classes.borrow_mut().extend(outro.noted_classes.borrow().iter().copied());
+    }
+}
+
+/// Fragmento de módulo já emitido: o texto e o que ele acumulou no
+/// [`ModState`]. Guardado entre compilações pela sessão (`crates/dev`) para
+/// que uma edição reemita só as classes da biblioteca alterada.
+pub struct Fragmento {
+    pub texto: String,
+    pub sdk_used: BTreeSet<String>,
+    pub user_imports: BTreeSet<u32>,
+    pub dartx_used: BTreeMap<String, String>,
+    pub private_syms: BTreeMap<String, (u32, String)>,
+    pub noted_classes: BTreeSet<u32>,
+}
+
+impl Fragmento {
+    fn de(texto: String, m: &ModState) -> Fragmento {
+        Fragmento {
+            texto,
+            sdk_used: m.sdk_used.borrow().clone(),
+            user_imports: m.user_imports.borrow().clone(),
+            dartx_used: m.dartx_used.borrow().clone(),
+            private_syms: m.private_syms.borrow().clone(),
+            noted_classes: m.noted_classes.borrow().clone(),
+        }
+    }
+    fn aplicar(&self, m: &ModState) {
+        m.sdk_used.borrow_mut().extend(self.sdk_used.iter().cloned());
+        m.user_imports.borrow_mut().extend(self.user_imports.iter().copied());
+        m.dartx_used.borrow_mut().extend(self.dartx_used.iter().map(|(k, v)| (k.clone(), v.clone())));
+        m.private_syms.borrow_mut().extend(self.private_syms.iter().map(|(k, v)| (k.clone(), v.clone())));
+        m.noted_classes.borrow_mut().extend(self.noted_classes.iter().copied());
+    }
+}
+
+/// Chave de um fragmento: uma classe ou o resto de uma biblioteca.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Chave {
+    Classe(u32),
+    Resto(u32),
+}
+
+/// Cache de fragmentos entre compilações, dono da sessão.
+#[derive(Default)]
+pub struct CacheFragmentos {
+    pub(crate) mapa: HashMap<Chave, Fragmento>,
+}
+
+impl CacheFragmentos {
+    /// Descarta os fragmentos das bibliotecas dadas (as que mudaram).
+    pub fn invalidar(&mut self, ctx: &Ctx, libs: &[LibraryId]) {
+        let alvo: HashSet<u32> = libs.iter().map(|l| l.0).collect();
+        self.mapa.retain(|k, _| match k {
+            Chave::Resto(l) => !alvo.contains(l),
+            Chave::Classe(c) => !alvo.contains(&ctx.program.classes[*c as usize].library.0),
+        });
+    }
+    pub fn limpar(&mut self) {
+        self.mapa.clear();
+    }
+    pub fn len(&self) -> usize {
+        self.mapa.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.mapa.is_empty()
+    }
 }
 
 fn js_safe(name: &str) -> String {
@@ -106,6 +191,15 @@ pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
 /// Os módulos pulados não entram em `Emitido::modulos`; quem chama junta com
 /// o que já tinha.
 pub fn emitir_filtrado(ctx: &Ctx, so: Option<&HashSet<u32>>) -> Result<Emitido, Vec<Diagnostic>> {
+    emitir_com_cache(ctx, so, None)
+}
+
+/// Como [`emitir_filtrado`], reusando os fragmentos já emitidos.
+pub fn emitir_com_cache(
+    ctx: &Ctx,
+    so: Option<&HashSet<u32>>,
+    cache: Option<&RefCell<CacheFragmentos>>,
+) -> Result<Emitido, Vec<Diagnostic>> {
     let mut modulos = Vec::new();
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
@@ -123,7 +217,7 @@ pub fn emitir_filtrado(ctx: &Ctx, so: Option<&HashSet<u32>>) -> Result<Emitido, 
         }
         let emitir_este = so.is_none_or(|s| group.iter().any(|g| s.contains(&g.0)));
         if emitir_este {
-            let text = emit_group(ctx, &group);
+            let text = emit_group(ctx, &group, cache);
             modulos.push((info.module_path.clone(), text));
         }
         for &g in &group {
@@ -184,7 +278,7 @@ fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
     out
 }
 
-fn emit_group(ctx: &Ctx, group: &[LibraryId]) -> String {
+fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<CacheFragmentos>>) -> String {
     let lib = group[0];
     let mut m = ModState::new(lib);
     m.group = group.to_vec();
@@ -199,17 +293,74 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId]) -> String {
             classes.push(ClassId(i as u32));
         }
     }
+    // `DARTFORGE_CRONO=1` imprime o custo por módulo (ordem, classes, resto,
+    // regras) e quantos fragmentos vieram do cache — foi assim que se achou
+    // que uma edição reemitia 1.343 classes de um módulo de 345 bibliotecas.
+    let cron = std::env::var("DARTFORGE_CRONO").is_ok();
+    let t0 = std::time::Instant::now();
     let ordered = order_classes(ctx, &classes);
+    let t_ord = t0.elapsed();
+    let t1 = std::time::Instant::now();
+    let n_classes = ordered.len();
+    let mut reusados = 0usize;
+    // Cada classe é emitida isoladamente e guardada: o estado do módulo é
+    // acumulação pura e os nomes gerados não dependem da ordem, então reusar
+    // o texto de uma classe intacta dá o mesmo módulo.
     for c in ordered {
         m.note_class(c);
-        emit_class(ctx, &m, c, &mut body);
+        if let Some(cache) = cache.as_deref() {
+            if let Some(f) = cache.borrow().mapa.get(&Chave::Classe(c.0)) {
+                f.aplicar(&m);
+                body.push_raw(&f.texto);
+                reusados += 1;
+                continue;
+            }
+        }
+        let mf = m.derivado();
+        let mut w = Writer::default();
+        mf.note_class(c);
+        emit_class(ctx, &mf, c, &mut w);
+        let texto = w.out;
+        m.fundir(&mf);
+        body.push_raw(&texto);
+        if let Some(cache) = cache.as_deref() {
+            cache.borrow_mut().mapa.insert(Chave::Classe(c.0), Fragmento::de(texto, &mf));
+        }
     }
+    let t_cls = t1.elapsed();
+    let t2 = std::time::Instant::now();
     for &glib in group {
-        emit_library_rest(ctx, &m, glib, &mut body);
+        if let Some(cache) = cache.as_deref() {
+            if let Some(f) = cache.borrow().mapa.get(&Chave::Resto(glib.0)) {
+                f.aplicar(&m);
+                body.push_raw(&f.texto);
+                reusados += 1;
+                continue;
+            }
+        }
+        let mf = m.derivado();
+        let mut w = Writer::default();
+        emit_library_rest(ctx, &mf, glib, &mut w);
+        let texto = w.out;
+        m.fundir(&mf);
+        body.push_raw(&texto);
+        if let Some(cache) = cache.as_deref() {
+            cache.borrow_mut().mapa.insert(Chave::Resto(glib.0), Fragmento::de(texto, &mf));
+        }
     }
+    let t_rest = t2.elapsed();
 
     // Regras rti das classes do módulo (e referenciadas).
+    let t3 = std::time::Instant::now();
     let rules = emit_rules(ctx, &m);
+    let t_rules = t3.elapsed();
+    if cron {
+        eprintln!(
+            "[crono] {} libs={} classes={} reusados={reusados} ordem={:.1}ms classes={:.1}ms resto={:.1}ms regras={:.1}ms",
+            info.module_path, group.len(), n_classes,
+            t_ord.as_secs_f64()*1e3, t_cls.as_secs_f64()*1e3, t_rest.as_secs_f64()*1e3, t_rules.as_secs_f64()*1e3
+        );
+    }
 
     // Prelúdio.
     let mut out = String::new();

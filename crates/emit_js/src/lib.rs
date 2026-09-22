@@ -34,8 +34,22 @@ pub fn emitir_programa(
     outline: &OutlineTypes,
     bodies: &BodyTypes,
 ) -> Result<Emitido, Vec<Diagnostic>> {
+    emitir_programa_com_cache(program, interner, table, core, outline, bodies, None)
+}
+
+/// Como [`emitir_programa`], guardando os fragmentos emitidos para que a
+/// próxima compilação reuse o que não mudou.
+pub fn emitir_programa_com_cache(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    bodies: &BodyTypes,
+    cache: Option<&std::cell::RefCell<module::CacheFragmentos>>,
+) -> Result<Emitido, Vec<Diagnostic>> {
     let ctx = ctx::Ctx::new(program, interner, table, core, outline, bodies);
-    module::emitir(&ctx)
+    module::emitir_com_cache(&ctx, None, cache)
 }
 
 /// Emite só os módulos que contêm alguma das bibliotecas dadas, para a sessão
@@ -54,11 +68,29 @@ pub fn emitir_modulos(
     bodies: &BodyTypes,
     bibliotecas: &[dartforge_elements::model::LibraryId],
 ) -> Result<(Emitido, std::time::Duration), Vec<Diagnostic>> {
+    emitir_modulos_com_cache(program, interner, table, core, outline, bodies, bibliotecas, None)
+}
+
+/// Como [`emitir_modulos`], reusando os fragmentos (texto por classe e por
+/// biblioteca) já emitidos. A sessão invalida os das bibliotecas alteradas
+/// antes de chamar: é o que faz uma edição reemitir uma classe em vez das
+/// 1.343 de um módulo com 345 bibliotecas em ciclo.
+#[allow(clippy::too_many_arguments)]
+pub fn emitir_modulos_com_cache(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    bodies: &BodyTypes,
+    bibliotecas: &[dartforge_elements::model::LibraryId],
+    cache: Option<&std::cell::RefCell<module::CacheFragmentos>>,
+) -> Result<(Emitido, std::time::Duration), Vec<Diagnostic>> {
     let t = std::time::Instant::now();
     let ctx = ctx::Ctx::new(program, interner, table, core, outline, bodies);
     let contexto = t.elapsed();
     let so: std::collections::HashSet<u32> = bibliotecas.iter().map(|l| l.0).collect();
-    module::emitir_filtrado(&ctx, Some(&so)).map(|e| (e, contexto))
+    module::emitir_com_cache(&ctx, Some(&so), cache).map(|e| (e, contexto))
 }
 
 /// Tempos por fase e contagens de uma compilação (`dartforge compile-js --timings`).
