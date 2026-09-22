@@ -1217,6 +1217,28 @@ comando antes e depois. A medição encontrou e corrigiu uma recusa real do
 parser (record nomeado dentro de `<...>` em função local), o que confirma
 que o projeto do proprietário é corpus de aceite, não só de memória.
 
+Sequência medida em 2026-09-21/22, sem mudar a API de leitura da AST
+(quem consome `iter`/`len`/índice não muda de código): `shrink_to_fit` das
+arenas ao fim do parse, 132 → 103 MiB (29 MiB eram folga do `Vec`
+dobrando); `Box<Arguments>` em `Call`/`InstanceCreation`, `Expr` 120 → 72
+bytes, 103 → 88; `Box<[T]>` de tamanho exato em `Arguments` e `StringLit`
+via rascunho compartilhado no parser (uma alocação por lista), 88 → 81;
+`SymbolId` com nicho (`NonZeroU32`) — `Option<Name>` 32 → 24 — e as listas
+de `ExprKind` em `Box<[T]>`, `Expr` 72 → 56, 81 → 72; as 49 listas de alto
+volume da AST em `Box<[T]>`, `Stmt` 96 → 88, `Member` 240 → 216, 72 →
+**62,75 MiB (7,4× a fonte), 212 ms**. Pendente com ganho estimado: `Span`
+de `usize` para `u32` (8 bytes por nó e por `Name`, ~6–8 MiB) exige tocar
+~250 sítios inclusive na trilha antiga — fica para quando ela for removida;
+`CollectionElement` de 88 bytes; `Parameter` de 136.
+
+Regra de trabalho aprendida a custo: com três agentes na mesma árvore, um
+estado intermediário que não compila é revertido por quem "conserta o
+build" com `git checkout` — foi assim que uma conversão inteira sumiu às
+23:49. Mudanças de representação do front-end são feitas numa **worktree
+própria** (`git worktree add -b <ramo> D:/Projects/dartforge-frontend main`),
+commitadas lá, rebaseadas e integradas em `main` por fast-forward só quando
+compilam com todos os consumidores.
+
 Estado em 2026-09-21: **desbloqueado** — a causa era `nucleo_rotulo` privado
 (E0624) num módulo que o bench usa. Primeira medição (25 unidades, ~38 KiB de
 fontes): cenário `assinatura` 4,86 ms de mediana (p95 5,62 ms), 15.834
