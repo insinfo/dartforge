@@ -193,8 +193,15 @@ Plano para substituir o `build_runner` por um motor em Rust:
 `docs/BUILD-RUST.md`. O dado que o orienta: dos 9.879 artefatos que o
 `build_runner` gera nesse projeto, **934 `.ddc.js`/`.ddc.dill` e ~7.980
 de bookkeeping são do `build_web_compilers`** — o compilador que já
-substituímos. Sobram três builders reais nos projetos do proprietário
-(`ngdart`, `i18n`, `sass_builder`); nenhum `json_serializable`/`freezed`.
+substituímos. Nos dois projetos do proprietário sobram três builders
+(`ngdart`, `i18n`, `sass_builder`).
+
+**Regra governante (PLANO.md): compatibilidade obrigatória com o
+ecossistema.** `json_serializable`, `freezed`, `drift`, `mockito`,
+`source_gen` e os demais têm de funcionar — o motor executa qualquer
+builder do ecossistema num worker Dart persistente desde a primeira fase,
+e geradores nativos só entram com saída byte a byte igual, verificada por
+um corpus de compatibilidade (`corpus/builders/`) que ainda não existe.
 
 ---
 

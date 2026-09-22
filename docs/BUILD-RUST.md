@@ -38,10 +38,25 @@ i18n          1 factory   mensagens traduzidas
 sass_builder  1 factory   .scss → .css
 ```
 
-Não há `json_serializable`, `freezed`, `drift` ou `mockito` nesses
-projetos. Isso reordena o plano: a compatibilidade genérica com o
-ecossistema `source_gen` é **desejável**, mas não é o caminho crítico —
-o caminho crítico é o `ngdart`.
+Esses dois projetos não usam `json_serializable`, `freezed`, `drift` nem
+`mockito` — mas isso **não** autoriza a deixar o ecossistema de fora.
+
+> **Regra governante (proprietário, 2026-09-22): compatibilidade
+> obrigatória com o ecossistema.** O nosso compilador, a nossa VM, o
+> nosso analisador e o nosso LSP têm de funcionar com os pacotes que o
+> ecossistema Dart usa — `json_serializable`, `freezed`, `drift`,
+> `mockito`, `source_gen`, `build`, `analyzer` e os demais. Um projeto
+> real que compila com a toolchain oficial tem de compilar com a nossa.
+> Não construímos um fork incompatível do Dart.
+
+É a mesma regra que governa a linguagem ("qualquer projeto Dart 3.6
+válido"), aplicada às ferramentas. A consequência prática está na §3: a
+compatibilidade vem **na Fase 1**, porque o worker executa os builders do
+ecossistema como Dart de verdade, com o `package:analyzer` de verdade. Os
+geradores nativos das fases seguintes são **aceleração opcional**, nunca
+substituição obrigatória: cada um só entra se produzir saída **idêntica**
+à do builder oficial, e o motor cai de volta no builder Dart sempre que
+não houver gerador nativo ou a saída divergir.
 
 ## 2. Arquitetura
 
@@ -87,14 +102,33 @@ do ecossistema, mas sem pagar a inicialização a cada build.
   `dartforge dev` estiver rodando, com os builders já carregados, falando
   por linhas JSON no stdin/stdout (`executar <builder> <asset>` →
   `saída <caminho> <hash>`). Sem `dart` novo por build.
-* `build_web_compilers` **não é executado**: a compilação para JavaScript
-  é nossa. O worker só roda `ngdart`, `i18n`, `sass_builder` e o que o
-  `build.yaml` do projeto pedir.
+* **Qualquer builder do ecossistema roda aqui**, sem alteração: o worker
+  é Dart de verdade, carrega `package:build`, `package:source_gen` e o
+  `package:analyzer` como o `build_runner` faz. É isto que cumpre a regra
+  de compatibilidade desde a primeira fase.
+* `build_web_compilers` é a única exceção, e por substituição, não por
+  incompatibilidade: a compilação para JavaScript é nossa.
 
-Aceite: `new_sali/frontend` e `limitless_ui/example` geram os mesmos
-`.template.dart`/`.css` que o `build_runner` gera (comparação byte a
-byte), e uma edição de um componente regenera **só** o template dele.
-Meta: abaixo de 500 ms por edição, contra os 2m59s de build completo.
+Aceite, em duas partes:
+1. **Projetos do proprietário**: `new_sali/frontend` e
+   `limitless_ui/example` geram os mesmos `.template.dart`/`.css` que o
+   `build_runner` gera (byte a byte), e editar um componente regenera
+   **só** o template dele. Meta: abaixo de 500 ms por edição, contra os
+   2m59s de build completo.
+2. **Corpus de compatibilidade do ecossistema** (`corpus/builders/`): um
+   projeto pequeno por gerador — `json_serializable`, `freezed`,
+   `drift`, `mockito`, `built_value`, `riverpod_generator`,
+   `go_router_builder` —, cada um com `pubspec.yaml`, `build.yaml` e
+   código que exercite o gerador. Critério: a saída do `dartforge build`
+   é **byte a byte igual** à do `dart run build_runner build`, e o
+   programa gerado compila e executa igual pelos dois caminhos. É o
+   `crates/diferencial` aplicado à geração de código.
+
+Nota de campo: o `mockito` 5.4.5 quebra com o `analyzer` 7.x (o gerador
+de mocks usa tipos internos do analyzer) — está anotado nos `pubspec` de
+três projetos do proprietário. O corpus precisa fixar a versão que
+funciona, e essa incompatibilidade **é do ecossistema**, não nossa; o
+nosso papel é reproduzir o mesmo resultado que a toolchain oficial dá.
 
 ### Fase 2 — geradores nativos para o que esses projetos usam
 
@@ -119,9 +153,13 @@ pub trait Gerador {
    ao do `ngdart` é o passo intermediário verificável (o `limitless_ui`
    tem suíte e2e: 26/26 é o critério).
 3. **`i18n`** — pequeno, mecânico.
-4. **`json_serializable`** — não usado nesses projetos, mas é o exemplo
-   canônico do ecossistema; vale como prova de que a API de geradores
-   serve para terceiros.
+4. **`json_serializable`** e depois `freezed` — os mais usados do
+   ecossistema. Aqui a regra de compatibilidade é dura: o gerador nativo
+   só substitui o oficial quando a saída for **byte a byte igual** no
+   corpus de compatibilidade; qualquer divergência é defeito nosso e o
+   motor volta a executar o builder Dart. `drift` e `mockito`, que
+   dependem fundo do `analyzer`, ficam no caminho do worker até a Fase 3
+   estar madura.
 
 ### Fase 3 — `BuildStep.resolver` servido pelo nosso banco semântico
 
@@ -131,8 +169,13 @@ chama `buildStep.resolver.libraryFor(...)` e recebe `LibraryElement`,
 uma camada de compatibilidade que **imite a API do analyzer** — objetos
 Dart no worker cujos métodos consultam o Rust por IPC.
 
-É trabalhoso e só se paga quando houver builders do ecossistema no
-caminho crítico. Fica registrado como desenho, não como próximo passo.
+É trabalhoso, e **é obrigatório** pela regra de compatibilidade — o que
+não é obrigatório é a ordem: enquanto ele não existir, o worker Dart da
+Fase 1 já roda esses builders com o `analyzer` oficial, então nenhum
+projeto fica de fora. A Fase 3 troca o analyzer pelo nosso banco para
+ganhar velocidade e deixar de analisar o programa duas vezes, com o
+corpus de compatibilidade como rede: se um `ClassElement` nosso divergir
+do oficial num gerador real, o teste acusa.
 
 ### Fase 4 — compilar os próprios builders com o DartForge nativo
 
@@ -147,7 +190,9 @@ os três builders que os projetos reais usam já estão resolvidos sem ele.
 
 Quando o backend nativo amadurecer, isto vira o teste de maturidade
 definitivo da implementação da linguagem — e aí o worker Dart deixa de
-precisar da VM oficial.
+precisar da VM oficial. Até lá, usar a VM oficial no worker **não é
+concessão**: é o que garante que nenhum projeto real fique de fora
+enquanto a nossa pilha cresce.
 
 ## 4. O que descartar explicitamente
 
@@ -157,15 +202,22 @@ precisar da VM oficial.
   por `blake3(fontes + versões + versão do DartForge + ABI)`.
 * **Não** reimplementar o `build_web_compilers`: ele é o compilador que
   estamos substituindo.
-* **Não** prometer compatibilidade com "todo builder do pub". A promessa
-  é: os builders do projeto rodam (Fase 1), e os que importam ficam
-  nativos (Fase 2).
+* **Não** transformar gerador nativo em obrigação: ele é atalho medido,
+  com saída idêntica verificada; sem isso, executa-se o builder oficial.
+  A promessa é compatibilidade com o ecossistema inteiro, e velocidade
+  onde ela for demonstrável.
 
 ## 5. Ordem de execução recomendada
 
-1. Fase 1 sem geradores nativos (motor + worker), medida nos dois
-   projetos reais.
-2. `sass_builder` nativo (prova o desenho de gerador).
-3. `ngdart` nativo = Fase 5 do PLANO, com o e2e do `limitless_ui` (26/26)
-   como critério de aceite.
-4. Reavaliar Fase 3 e Fase 4 com números na mão.
+1. **Corpus de compatibilidade** (`corpus/builders/`) antes do motor: um
+   projeto por gerador do ecossistema, com a saída do `build_runner`
+   oficial gravada como referência. Sem ele, "compatível" é opinião.
+2. Fase 1 (motor + worker), medida nos dois projetos reais **e** verde no
+   corpus de compatibilidade.
+3. `sass_builder` nativo (prova o desenho de gerador, sem tocar no
+   ecossistema).
+4. `ngdart` nativo = Fase 5 do PLANO, com o e2e do `limitless_ui` (26/26)
+   como critério.
+5. `json_serializable` nativo, com igualdade byte a byte no corpus.
+6. Fase 3 (resolver sobre o nosso banco) — obrigatória, medida pelo mesmo
+   corpus; depois a Fase 4.

@@ -881,6 +881,33 @@ DartForge substitui. Os 773 `*.template.dart` do ngdart ainda vêm do
 `build_runner` (uma vez, enquanto a Fase 5 não existir); os 192 `.css`
 do `sass_builder` idem. Ver [BUILD-RUST.md](docs/BUILD-RUST.md).
 
+## Regra governante — compatibilidade obrigatória com o ecossistema Dart
+
+**Registrada em 2026-09-22 por instrução do proprietário.** O compilador,
+a VM, o analisador e o LSP do DartForge têm de ser compatíveis com o
+ecossistema: `json_serializable`, `freezed`, `drift`, `mockito`,
+`source_gen`, `build`, `analyzer`, `build_runner` e os demais pacotes que
+os projetos reais usam. **Um projeto que compila com a toolchain oficial
+tem de compilar com a nossa.** Não construímos um fork incompatível.
+
+É a mesma regra da meta governante da linguagem ("qualquer projeto Dart
+3.6 válido"), estendida às ferramentas, e ela tem três consequências
+duras:
+
+1. **Nenhum gerador nativo é obrigatório.** Um gerador em Rust
+   (`json_serializable`, `ngdart`, `sass`) é aceleração, e só entra
+   quando produzir saída **byte a byte igual** à do builder oficial no
+   corpus de compatibilidade. Sem isso, executa-se o builder Dart.
+2. **Executar builders na VM oficial não é concessão**, é o que garante
+   que nenhum projeto fique de fora enquanto a nossa pilha cresce. A
+   troca da VM/analyzer pelos nossos é ganho de velocidade, verificado
+   pelo mesmo corpus.
+3. **`corpus/builders/`** — um projeto por gerador do ecossistema, com a
+   saída do `build_runner` oficial gravada como referência — vem **antes**
+   do motor. Sem ele, "compatível" é opinião, não medição.
+
+Plano e fases: [BUILD-RUST.md](docs/BUILD-RUST.md).
+
 ## Geração de código em Rust — `dartforge build`
 
 Plano e medições em [BUILD-RUST.md](docs/BUILD-RUST.md) (2026-09-22). O
