@@ -197,7 +197,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if is_closure(self, a.value) {
                 continue;
             }
-            let expected = param_of[i].as_ref().map(|p| p.subst(subst)).filter(|p| !mentions_any(p, free));
+            let is_literal = matches!(
+                self.expr(a.value).kind,
+                ExprKind::List { .. } | ExprKind::SetOrMap { .. } | ExprKind::Record { .. } | ExprKind::Int(_) | ExprKind::Double(_)
+            );
+            let expected = param_of[i].as_ref().map(|p| p.subst(subst)).and_then(|p| {
+                if !mentions_any(&p, free) {
+                    Some(p)
+                } else if is_literal {
+                    None
+                } else {
+                    // Parâmetros ainda livres viram dynamic (só para coerções de função).
+                    let mut m = HashMap::new();
+                    for f in free {
+                        m.insert(*f, Ty::Dynamic);
+                    }
+                    Some(p.subst(&m))
+                }
+            });
             let (js, ty) = self.emit_expr(a.value, expected.as_ref());
             if let Some(p) = &param_of[i] {
                 if !free.is_empty() {

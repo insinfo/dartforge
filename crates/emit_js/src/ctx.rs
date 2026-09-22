@@ -561,6 +561,9 @@ impl<'a> Ctx<'a> {
             return None;
         };
         let f = self.program.function(fid);
+        if class.kind == ClassKind::Enum && name == "name" && matches!(f.node, dartforge_elements::model::FunctionRef::None) {
+            return None;
+        }
         Some(match f.kind {
             FunctionKind::ImplicitAccessor => {
                 if setter {

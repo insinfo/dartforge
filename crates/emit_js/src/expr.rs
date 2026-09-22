@@ -1248,10 +1248,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn match_type(&self, pattern: &Ty, actual: &Ty, params: &[u32], subst: &mut HashMap<u32, Ty>) -> bool {
         match pattern {
             Ty::Param { id, .. } if params.contains(id) => {
+                if matches!(actual, Ty::Dynamic | Ty::Never) {
+                    return true;
+                }
                 if let Some(prev) = subst.get(id) {
                     let l = self.ctx.lub(prev, actual);
                     subst.insert(*id, l);
-                } else if !matches!(actual, Ty::Never) {
+                } else {
                     subst.insert(*id, actual.non_null_if(pattern.is_nullable()));
                 }
                 true
@@ -1450,6 +1453,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
         let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
+        if params.is_empty() {
+            let rti = self.rti(&ty);
+            return Some((Js::prim(format!("dart.fn({}[{}], {rti})", self.class_ref(c), js::string_literal(&format!("_#{cname}#tearOff")))), ty));
+        }
         let mut args = params_js.clone();
         if !params.is_empty() {
             args.insert(0, self.rti(&inst));
@@ -1487,6 +1494,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let class = self.ctx.program.class(c);
         let key = if name == "new" { self.ctx.empty_sym } else { self.ctx.sym(name) };
         if let Some(sym) = key {
+            if class.constructors.contains_key(&sym) {
+                let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
+                return self.ctor_tearoff(c, targs, name);
+            }
             if let Some(&fid) = class.constructors.get(&sym) {
                 let ty = self.ctx.fn_ty(fid);
                 let (pos_n, ..) = match &ty {

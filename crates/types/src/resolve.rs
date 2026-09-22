@@ -669,6 +669,29 @@ impl<'a> OutlineResolver<'a> {
                         });
                         (sig, self.core.void_, Box::new([param]), Box::new([]))
                     }
+                } else if func.kind == FunctionKind::Getter {
+                    // Getters sintéticos de enum: `values`, `index`, `name`.
+                    let name = self.interner.resolve(func.name);
+                    let ret = if name == "values" {
+                        let elem = self.instantiate_self_class(func.class);
+                        match self.core.list_class {
+                            Some(l) => self.table.intern(Type::Interface { class: l, args: Box::new([elem]), nullable: false }),
+                            None => self.core.dynamic_,
+                        }
+                    } else if name == "index" {
+                        self.core.int
+                    } else {
+                        self.core.string
+                    };
+                    let sig = self.table.intern(Type::Function {
+                        type_params: Box::new([]),
+                        ret,
+                        positional: Box::new([]),
+                        optional: Box::new([]),
+                        named: Box::new([]),
+                        nullable: false,
+                    });
+                    (sig, ret, Box::new([]), Box::new([]))
                 } else {
                     // Construtor sintético padrão
                     let ret_ty = self.instantiate_self_class(func.class);

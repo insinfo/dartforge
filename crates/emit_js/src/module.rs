@@ -876,6 +876,21 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     let _ = has_equals;
 
+    // Tearoffs de construtores (`C.new == C.new`).
+    if !is_mixin {
+        for (&csym, &cfid) in &class.constructors {
+            let cf = ctx.program.function(cfid);
+            let cn = ctx.name(csym);
+            let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
+            let generic_c = !ctx.class_params[c.0 as usize].is_empty();
+            if generic_c {
+                continue;
+            }
+            let call = if cf.factory { format!("{cref}.{jsname}(...args)") } else { format!("new {cref}.{jsname}(...args)") };
+            cw.line(&format!("static [{}](...args) {{ return {call}; }}", js::string_literal(&format!("_#{jsname}#tearOff"))));
+        }
+    }
+
     // Declaração da classe.
     let head = if is_mixin {
         format!("{cref} = class {cname} extends core.Object {{}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{", cname, cname)
