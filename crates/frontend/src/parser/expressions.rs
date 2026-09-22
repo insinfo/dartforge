@@ -409,7 +409,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             start,
             ExprKind::Cascade {
                 target,
-                sections,
+                sections: sections.into_boxed_slice(),
                 null_aware,
             },
         ))
@@ -652,7 +652,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                             start,
                             ExprKind::TypeArguments {
                                 target: expr,
-                                type_args,
+                                type_args: type_args.into_boxed_slice(),
                             },
                         );
                     }
@@ -878,8 +878,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             start,
             ExprKind::List {
                 const_,
-                type_args,
-                elements,
+                type_args: type_args.into_boxed_slice(),
+                elements: elements.into_boxed_slice(),
             },
         ))
     }
@@ -897,8 +897,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             start,
             ExprKind::SetOrMap {
                 const_,
-                type_args,
-                elements,
+                type_args: type_args.into_boxed_slice(),
+                elements: elements.into_boxed_slice(),
             },
         ))
     }
@@ -1041,8 +1041,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 start,
                 ExprKind::Record {
                     const_,
-                    positional,
-                    named,
+                    positional: positional.into_boxed_slice(),
+                    named: named.into_boxed_slice(),
                 },
             ));
         }
@@ -1156,7 +1156,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         self.expect_op(Op::RBrace)?;
-        Ok(self.push(start, ExprKind::Switch { value, cases }))
+        Ok(self.push(
+            start,
+            ExprKind::Switch {
+                value,
+                cases: cases.into_boxed_slice(),
+            },
+        ))
     }
 
     /// `#nome`, `#a.b.c`, `#void`, `#+`, `#[]=`, `#>>>`…
@@ -1221,7 +1227,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             _ => return Err(self.error("esperava um nome ou operador após '#'")),
         }
-        Ok(self.push(start, ExprKind::Symbol(names)))
+        Ok(self.push(start, ExprKind::Symbol(names.into_boxed_slice())))
     }
 
     // -- Strings ------------------------------------------------------------

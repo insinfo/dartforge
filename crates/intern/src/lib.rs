@@ -27,13 +27,28 @@ use std::collections::HashMap;
 /// Só é significativo dentro do [`Interner`] que o produziu. Comparar IDs de
 /// arenas diferentes é erro lógico — por isso não há ordem total entre arenas,
 /// apenas igualdade dentro do mesmo espaço de nomes por construção.
+///
+/// Guardado como `NonZeroU32` (índice + 1) para que `Option<SymbolId>` e
+/// `Option<Name>` custem o mesmo que o valor sem `Option`: a árvore tem
+/// milhares de nomes opcionais (argumento nomeado, construtor nomeado,
+/// parâmetro sem nome), e o nicho economiza 8 bytes em cada um.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SymbolId(u32);
+pub struct SymbolId(std::num::NonZeroU32);
 
 impl SymbolId {
-    /// Devolve o índice numérico bruto do símbolo dentro da sua arena.
+    /// Devolve o índice numérico bruto do símbolo dentro da sua arena
+    /// (a partir de zero).
     pub const fn as_u32(self) -> u32 {
-        self.0
+        self.0.get() - 1
+    }
+
+    /// Constrói a partir do índice na arena; só o [`Interner`] chama.
+    const fn from_index(index: u32) -> Self {
+        // `index + 1` nunca é zero enquanto a arena couber em `u32`.
+        match std::num::NonZeroU32::new(index.wrapping_add(1)) {
+            Some(n) => SymbolId(n),
+            None => panic!("arena de nomes esgotou o espaço de u32"),
+        }
     }
 }
 
@@ -81,7 +96,7 @@ impl Interner {
         if let Some(id) = self.ids.get(texto) {
             return *id;
         }
-        let id = SymbolId(self.textos.len() as u32);
+        let id = SymbolId::from_index(self.textos.len() as u32);
         let guardado: Box<str> = texto.into();
         self.payload_bytes = self.payload_bytes.saturating_add(guardado.len());
         self.textos.push(guardado.clone());
@@ -104,7 +119,7 @@ impl Interner {
     /// assert_eq!(arena.resolve(id), "x");
     /// ```
     pub fn resolve(&self, id: SymbolId) -> &str {
-        &self.textos[id.0 as usize]
+        &self.textos[id.as_u32() as usize]
     }
 
     /// Nomes distintos retidos por esta arena.

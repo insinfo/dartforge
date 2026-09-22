@@ -143,7 +143,7 @@ fn main() {
                                 })
                                 .sum::<usize>(),
                     ),
-                    ExprKind::Symbol(v) => ("Symbol", v.capacity() * size_of::<Name>()),
+                    ExprKind::Symbol(v) => ("Symbol", v.len() * size_of::<Name>()),
                     ExprKind::Identifier(_) => ("Identifier", 0),
                     ExprKind::This => ("This", 0),
                     ExprKind::Super => ("Super", 0),
@@ -154,8 +154,7 @@ fn main() {
                         ..
                     } => (
                         "List",
-                        type_args.capacity() * 4
-                            + elements.capacity() * size_of::<CollectionElement>(),
+                        type_args.len() * 4 + elements.len() * size_of::<CollectionElement>(),
                     ),
                     ExprKind::SetOrMap {
                         type_args,
@@ -163,14 +162,13 @@ fn main() {
                         ..
                     } => (
                         "SetOrMap",
-                        type_args.capacity() * 4
-                            + elements.capacity() * size_of::<CollectionElement>(),
+                        type_args.len() * 4 + elements.len() * size_of::<CollectionElement>(),
                     ),
                     ExprKind::Record {
                         positional, named, ..
                     } => (
                         "Record",
-                        positional.capacity() * 4 + named.capacity() * size_of::<(Name, ExprId)>(),
+                        positional.len() * 4 + named.len() * size_of::<(Name, ExprId)>(),
                     ),
                     ExprKind::InstanceCreation { arguments, .. } => (
                         "InstanceCreation",
@@ -188,7 +186,7 @@ fn main() {
                             + arguments.type_args.len() * 4,
                     ),
                     ExprKind::TypeArguments { type_args, .. } => {
-                        ("TypeArguments", type_args.capacity() * 4)
+                        ("TypeArguments", type_args.len() * 4)
                     }
                     ExprKind::Unary { .. } => ("Unary", 0),
                     ExprKind::Binary { .. } => ("Binary", 0),
@@ -197,13 +195,13 @@ fn main() {
                     ExprKind::As { .. } => ("As", 0),
                     ExprKind::Assign { .. } => ("Assign", 0),
                     ExprKind::PatternAssign { .. } => ("PatternAssign", 0),
-                    ExprKind::Cascade { sections, .. } => ("Cascade", sections.capacity() * 4),
+                    ExprKind::Cascade { sections, .. } => ("Cascade", sections.len() * 4),
                     ExprKind::CascadeTarget => ("CascadeTarget", 0),
                     ExprKind::Await(_) => ("Await", 0),
                     ExprKind::Throw(_) => ("Throw", 0),
                     ExprKind::Rethrow => ("Rethrow", 0),
                     ExprKind::Switch { cases, .. } => {
-                        ("Switch", cases.capacity() * size_of::<SwitchExprCase>())
+                        ("Switch", cases.len() * size_of::<SwitchExprCase>())
                     }
                 };
                 let entrada = hist.entry(nome).or_default();

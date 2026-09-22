@@ -769,6 +769,10 @@ pub enum AssignOp {
     Compound(BinaryOp),
 }
 
+/// Listas dentro das variantes são `Box<[T]>` (tamanho exato, 16 bytes) e
+/// estruturas auxiliares grandes ficam em `Box`: o tamanho de `Expr` é o do
+/// maior variante vezes o número de expressões (397 mil no `new_sali`), e
+/// cada 8 bytes aqui são 3 MiB lá. Leitura igual à de `Vec`.
 #[derive(Debug)]
 pub enum ExprKind {
     Int(Span),
@@ -777,7 +781,7 @@ pub enum ExprKind {
     Null,
     String(StringLit),
     /// `#nome`, `#a.b.c`, `#+`, `#void`.
-    Symbol(Vec<Name>),
+    Symbol(Box<[Name]>),
     Identifier(Name),
     This,
     /// `super` só aparece como alvo de `.`, `[]`, operador ou chamada.
@@ -787,21 +791,21 @@ pub enum ExprKind {
     /// `<T>[a, b, ...c, if (x) d, for (...) e]`
     List {
         const_: bool,
-        type_args: Vec<TypeId>,
-        elements: Vec<CollectionElement>,
+        type_args: Box<[TypeId]>,
+        elements: Box<[CollectionElement]>,
     },
     /// `<K, V>{k: v}` ou `<T>{a, b}`; sem argumentos de tipo a forma é
     /// decidida pelos elementos (`{}` vazio é mapa).
     SetOrMap {
         const_: bool,
-        type_args: Vec<TypeId>,
-        elements: Vec<CollectionElement>,
+        type_args: Box<[TypeId]>,
+        elements: Box<[CollectionElement]>,
     },
     /// `(a, b, nome: c)`
     Record {
         const_: bool,
-        positional: Vec<ExprId>,
-        named: Vec<(Name, ExprId)>,
+        positional: Box<[ExprId]>,
+        named: Box<[(Name, ExprId)]>,
     },
     /// `new T<A>.nome(args)` / `const T(args)`; `new`/`const` explícitos.
     InstanceCreation {
@@ -837,7 +841,7 @@ pub enum ExprKind {
     /// `e<T>` — instanciação explícita de tearoff ou tipo genérico.
     TypeArguments {
         target: ExprId,
-        type_args: Vec<TypeId>,
+        type_args: Box<[TypeId]>,
     },
     Unary {
         op: UnaryOp,
@@ -879,7 +883,7 @@ pub enum ExprKind {
     /// primeira seção.
     Cascade {
         target: ExprId,
-        sections: Vec<ExprId>,
+        sections: Box<[ExprId]>,
         null_aware: bool,
     },
     /// Receptor implícito de uma seção de cascata (`..a` → `CascadeTarget.a`).
@@ -890,7 +894,7 @@ pub enum ExprKind {
     /// `switch (e) { p when g => v, _ => w }`
     Switch {
         value: ExprId,
-        cases: Vec<SwitchExprCase>,
+        cases: Box<[SwitchExprCase]>,
     },
 }
 
