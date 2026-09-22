@@ -176,4 +176,27 @@ impl Ty {
         self.collect_params(&mut v);
         !v.is_empty()
     }
+
+    /// Verdadeiro se **nenhum** `Ty::Param` aparece na árvore, inclusive os
+    /// ligados por um tipo de função. Não aloca (ao contrário de
+    /// [`Ty::mentions_params`]) e é conservador: serve para decidir se o
+    /// resultado de uma conversão depende do ambiente de tipos em execução.
+    pub fn sem_parametros(&self) -> bool {
+        match self {
+            Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => true,
+            Ty::Param { .. } => false,
+            Ty::Iface { args, .. } => args.iter().all(|a| a.sem_parametros()),
+            Ty::Fn { type_params, ret, pos, opt, named, .. } => {
+                type_params.is_empty()
+                    && ret.sem_parametros()
+                    && pos.iter().all(|a| a.sem_parametros())
+                    && opt.iter().all(|a| a.sem_parametros())
+                    && named.iter().all(|(_, t, _)| t.sem_parametros())
+            }
+            Ty::Record { pos, named, .. } => {
+                pos.iter().all(|a| a.sem_parametros()) && named.iter().all(|(_, t)| t.sem_parametros())
+            }
+            Ty::FutureOr { arg, .. } => arg.sem_parametros(),
+        }
+    }
 }

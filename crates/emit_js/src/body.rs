@@ -663,6 +663,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Expressão JS que avalia para o rti de `t` no ambiente atual.
     pub fn rti(&self, t: &Ty) -> String {
+        // Tipo fechado (sem `Ty::Param`): a receita não menciona o ambiente
+        // (`used_fn`/`used_class` só são marcados no ramo `Ty::Param`), então
+        // a expressão é a mesma em qualquer ponto do programa e fica na
+        // memória do `Ctx`. As classes usadas ainda são registradas no módulo.
+        if t.sem_parametros() {
+            if let Some(s) = self.ctx.rti_memo.borrow().get(t) {
+                self.register_recipe_classes(t);
+                return s.clone();
+            }
+            let s = self.rti_calc(t);
+            self.ctx.rti_memo.borrow_mut().insert(t.clone(), s.clone());
+            return s;
+        }
+        self.rti_calc(t)
+    }
+
+    fn rti_calc(&self, t: &Ty) -> String {
         let mut unbound = Vec::new();
         let mut used_fn = Vec::new();
         let mut used_class = false;

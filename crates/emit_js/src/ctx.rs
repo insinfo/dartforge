@@ -108,6 +108,17 @@ pub struct Ctx<'a> {
     pub fn_js: HashMap<FunctionElementId, Option<String>>,
     /// Variáveis (campos, topo) com `@JS(...)` explícito.
     pub var_js: HashMap<VariableId, Option<String>>,
+    /// Memória da busca de membro: `(classe inicial, nome, setter)` →
+    /// `(classe declarante, espécie)`. A busca percorre a hierarquia e o que
+    /// ela encontra depende só do grafo de classes, não dos argumentos de
+    /// tipo do receptor — por isso pode ser guardada. Medido no `new_sali`:
+    /// 316 mil buscas custavam 1,84 M alocações (fila, conjunto de visitados
+    /// e supertipos instanciados a cada chamada).
+    membro_memo: RefCell<HashMap<(ClassId, SymbolId, bool), Option<(ClassId, MemberKind)>>>,
+    /// Memória do rti de tipos fechados (sem `Ty::Param`): receita e
+    /// expressão não dependem do ambiente em execução. 132 mil chamadas,
+    /// 1,78 M alocações.
+    pub rti_memo: RefCell<HashMap<Ty, String>>,
 }
 
 /// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
@@ -196,6 +207,8 @@ impl<'a> Ctx<'a> {
             js_libs: HashMap::new(),
             fn_js: HashMap::new(),
             var_js: HashMap::new(),
+            membro_memo: RefCell::new(HashMap::new()),
+            rti_memo: RefCell::new(HashMap::new()),
         };
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
@@ -1056,9 +1069,16 @@ impl<'a> Ctx<'a> {
 
     /// Procura membro de instância em `ty` e supertipos (BFS), com substituição.
     pub fn lookup_member(&self, ty: &Ty, name: &str, setter: bool) -> Option<Member> {
-        let ty = self.resolve_param_bound(ty);
-        let start = match &ty {
-            Ty::Iface { .. } => ty.clone(),
+        // `resolve_param_bound` clona; só um `Ty::Param` precisa dela.
+        let resolvido;
+        let ty: &Ty = if matches!(ty, Ty::Param { .. }) {
+            resolvido = self.resolve_param_bound(ty);
+            &resolvido
+        } else {
+            ty
+        };
+        let inicial: Ty = match ty {
+            Ty::Iface { class, .. } => Ty::iface(*class),
             Ty::Fn { .. } | Ty::Record { .. } | Ty::Never | Ty::Dynamic | Ty::Void => {
                 if matches!(ty, Ty::Fn { .. }) && name == "call" {
                     return None;
@@ -1068,6 +1088,32 @@ impl<'a> Ctx<'a> {
             Ty::Null => self.null_.map(Ty::iface).or(self.object.map(Ty::iface))?,
             Ty::FutureOr { .. } => self.object.map(Ty::iface)?,
             Ty::Param { .. } => self.object.map(Ty::iface)?,
+        };
+        let classe_inicial = inicial.class()?;
+        // Consulta a memória: a classe declarante e a espécie do membro são as
+        // mesmas para qualquer instanciação da classe inicial. Quando a classe
+        // declarante não tem parâmetros de tipo, a substituição é vazia e o
+        // resultado sai sem percorrer nada.
+        let chave = self.interner.lookup(name).map(|sym| (classe_inicial, sym, setter));
+        if let Some(k) = chave {
+            if let Some(achado) = self.membro_memo.borrow().get(&k) {
+                match achado {
+                    None => return None,
+                    Some((c, kind)) if self.class_params[c.0 as usize].is_empty() => {
+                        return Some(Member { class: *c, kind: *kind, subst: HashMap::new() });
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        let guardar = |achado: Option<(ClassId, MemberKind)>| {
+            if let Some(k) = chave {
+                self.membro_memo.borrow_mut().insert(k, achado);
+            }
+        };
+        let start = match ty {
+            Ty::Iface { .. } => ty.clone(),
+            _ => inicial,
         };
         let mut seen = HashSet::new();
         let mut queue = std::collections::VecDeque::new();
@@ -1086,6 +1132,7 @@ impl<'a> Ctx<'a> {
                 for p in params.iter().skip(args.len()) {
                     subst.insert(p.id, Ty::Dynamic);
                 }
+                guardar(Some((*class, kind)));
                 return Some(Member { class: *class, kind, subst });
             }
             for s in self.direct_supers(&t) {
@@ -1096,10 +1143,12 @@ impl<'a> Ctx<'a> {
         if let Some(o) = self.object {
             if !seen.contains(&o) {
                 if let Some(kind) = self.declared_member(o, name, setter) {
+                    guardar(Some((o, kind)));
                     return Some(Member { class: o, kind, subst: HashMap::new() });
                 }
             }
         }
+        guardar(None);
         None
     }
 
