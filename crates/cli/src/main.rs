@@ -84,6 +84,9 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
         emitido.modulos.len(),
         escritos
     );
+    if let Some((gerados, examinados)) = relatorio.gerador_ng {
+        println!("gerador ngdart: {gerados}/{examinados} arquivos gerados por nós");
+    }
     if timings {
         print!("{}", relatorio.texto());
     }

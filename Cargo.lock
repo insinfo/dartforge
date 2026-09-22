@@ -374,6 +374,7 @@ dependencies = [
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
+ "dartforge-gerador-ng",
  "dartforge-instrument",
  "dartforge-intern",
  "dartforge-types",
@@ -404,6 +405,15 @@ dependencies = [
  "dartforge-instrument",
  "dartforge-intern",
  "serde",
+]
+
+[[package]]
+name = "dartforge-gerador-ng"
+version = "0.1.0"
+dependencies = [
+ "dartforge-elements",
+ "dartforge-frontend",
+ "dartforge-intern",
 ]
 
 [[package]]

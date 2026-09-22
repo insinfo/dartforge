@@ -13,6 +13,7 @@ dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-intern = { path = "../intern" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-elements = { path = "../elements" }
+dartforge-gerador-ng = { path = "../gerador_ng" }
 dartforge-types = { path = "../types" }
 
 [dev-dependencies]

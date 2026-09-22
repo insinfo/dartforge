@@ -105,6 +105,8 @@ pub struct Relatorio {
     pub bibliotecas: usize,
     /// Fontes Dart vindas da geração em memória, não do disco.
     pub fontes_geradas: usize,
+    /// `(gerados por nós, examinados)` quando o gerador do ngdart correu.
+    pub gerador_ng: Option<(usize, usize)>,
     pub avisos_outline: usize,
     pub avisos_corpos: usize,
     pub modulos: usize,
@@ -175,6 +177,26 @@ pub fn compilar(
 }
 
 /// Como [`compilar`], devolvendo também o [`Relatorio`] de tempos por fase.
+/// `package_config.json` do projeto, pelo caminho dado ou descoberto a partir
+/// da entrada.
+fn configuracao_de_pacotes(
+    entrada: &std::path::Path,
+    packages: Option<&std::path::Path>,
+) -> Option<dartforge_elements::config::PackageConfig> {
+    packages
+        .map(|p| p.to_path_buf())
+        .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada))
+        .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok())
+}
+
+/// `DARTFORGE_GERADOS_PKGS=a,b` restringe a geração a esses pacotes — serve
+/// para comparar com o disco sem mudar mais nada.
+fn filtro_de_pacotes() -> Option<std::collections::HashSet<String>> {
+    std::env::var("DARTFORGE_GERADOS_PKGS")
+        .ok()
+        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+}
+
 pub fn compilar_com_relatorio(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
@@ -214,18 +236,35 @@ pub fn compilar_com_relatorio(
     // geração a partir do que o `build_runner` já escreveu — é como se verifica
     // que ler de memória dá exatamente o mesmo JS que ler do disco, antes de
     // trocar quem produz as strings.
-    let gerados = match std::env::var("DARTFORGE_GERADOS").ok().as_deref() {
+    let modo = std::env::var("DARTFORGE_GERADOS").ok();
+    let gerados = match modo.as_deref() {
+        Some("ng") => {
+            // Nosso gerador do ngdart, com o build_runner de apoio no que ele
+            // ainda não sabe gerar. A aplicação compila em todos os passos.
+            let cfg = configuracao_de_pacotes(entrada, packages);
+            cfg.and_then(|c| {
+                let apoio = dartforge_elements::gerado::do_build_runner(
+                    &c,
+                    ".template.dart",
+                    filtro_de_pacotes().as_ref(),
+                );
+                let raiz = c.origin.as_ref()?.parent()?.parent()?.to_path_buf();
+                let mut nomes = Interner::new();
+                let (g, placar) =
+                    dartforge_gerador_ng::gerar_com_apoio(&raiz, &mut nomes, Some(&apoio));
+                rel.gerador_ng = Some((placar.gerados, placar.examinados));
+                Some(g)
+            })
+        }
         Some("build_runner") => {
-            let cfg = packages
-                .map(|p| p.to_path_buf())
-                .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada))
-                .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
-            // `DARTFORGE_GERADOS_PKGS=a,b` restringe a geração a esses
-            // pacotes, para comparar com o disco sem mudar mais nada.
-            let filtro: Option<std::collections::HashSet<String>> = std::env::var("DARTFORGE_GERADOS_PKGS")
-                .ok()
-                .map(|v| v.split(',').map(|s| s.trim().to_string()).collect());
-            cfg.map(|c| dartforge_elements::gerado::do_build_runner(&c, ".template.dart", filtro.as_ref()))
+            let cfg = configuracao_de_pacotes(entrada, packages);
+            cfg.map(|c| {
+                dartforge_elements::gerado::do_build_runner(
+                    &c,
+                    ".template.dart",
+                    filtro_de_pacotes().as_ref(),
+                )
+            })
         }
         _ => None,
     };

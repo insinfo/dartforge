@@ -89,6 +89,10 @@ impl Construtor {
         );
     }
 
+    pub fn contem(&self, caminho: &Path) -> bool {
+        self.fontes.contains_key(&chave(caminho))
+    }
+
     pub fn erro(&mut self, mensagem: String) {
         self.erros.push(mensagem);
     }
