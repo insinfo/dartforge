@@ -829,6 +829,16 @@ linha de ReScript (interfaces `.resi` com hash), Scala.js
    especialização, minificação). O caminho de desenvolvimento nunca
    recebe otimização de programa inteiro.
 
+Referências fixadas para os dois modos (2026-09-22): **dev** copia a forma
+do DDC (`references/dart-sdk/pkg/dev_compiler/lib/src/kernel/compiler.dart`
+é o emissor de referência; a saída do `dartdevc` é o oráculo). **prod**
+estuda o dart2js (`references/dart-sdk/pkg/compiler`: inferência global de
+tipos, alcance, especialização) e o Scala.js (IR + linker + otimizador
+global), com o ReScript como padrão de "como o JS final deve parecer":
+`class Point { sum() { return this.x + this.y } }`, não
+`runtime.add$int(this.x$1, this.y$1)`. Nenhuma otimização de produção
+entra no caminho de desenvolvimento.
+
 Meta observável no `new_sali` (80 mil linhas): alterar um método privado
 → parse de 1 biblioteca, tipos de 1 biblioteca, 1 `.mjs` reescrito,
 dezenas de ms — medido pelo mesmo harness de `crates/instrument`.
