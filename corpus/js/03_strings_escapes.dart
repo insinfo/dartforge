@@ -1,0 +1,48 @@
+// Escapes em strings: \n \t \\ \' \" \$ é \u{1F600} \x41, aspas simples e duplas.
+void main() {
+  print('linha1\nlinha2');
+  print('tab\tseparado');
+  print('barra\\invertida');
+  print('aspa \'simples\'');
+  print("aspa \"dupla\"");
+  print('aspa "dupla" em simples');
+  print("aspa 'simples' em dupla");
+  print('cifrao \$x');
+  print('e-agudo é');
+  print('café');
+  print('emoji \u{1F600}');
+  print('\u{1F600}'.length);
+  print('\x41\x42\x43');
+  print('A');
+  print('\u{41}');
+  print('\u{1D11E}'.length);
+  print('é'.codeUnitAt(0));
+  print('\x41'.codeUnitAt(0));
+  print('a\bb'.length);
+  print('a\fb'.length);
+  print('a\vb'.length);
+  print('a\vb'.codeUnitAt(1));
+  print('a\fb'.codeUnitAt(1));
+  print('a\bb'.codeUnitAt(1));
+  print('\n'.length);
+  print('\\n'.length);
+  print('\\n');
+  print('\t'.codeUnitAt(0));
+  print('\$'.codeUnitAt(0));
+  print('\'\'');
+  print("\"\"");
+  print('é' == 'é');
+  print('\u{1F600}' == '😀');
+  print('mistura \t\\\n fim');
+  print('\u{0}'.length);
+  print('\u{10FFFF}'.length);
+  print('\u{10FFFF}'.runes.first);
+  print('\u{1F600}'.codeUnits);
+  print('\x7A\x7a');
+  print('éé');
+  print('a\\\\b');
+  print('a\\\\b'.length);
+  print('\\\$');
+  print('\\${1 + 1}');
+  print('\\\${1 + 1}');
+}
