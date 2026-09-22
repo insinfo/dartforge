@@ -76,6 +76,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let (js, ty) = self.static_extension_call(ext, &n, arguments, expected).unwrap_or((Js::prim("null"), Ty::Dynamic));
                         (js, ty, vec![])
                     }
+                    IdentTarget::ExtField(ext) => {
+                        let e = self.ctx.program.extension(ext);
+                        let lib_var = self.lib_var(e.library);
+                        let ext_name = self.extension_js_name(ext);
+                        let ty = e.fields.iter().find(|v| self.ctx.program.variable(**v).name == id.sym).map(|v| self.ctx.var_ty(*v)).unwrap_or(Ty::Dynamic);
+                        let f = Js::prim(format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{n}"))));
+                        let (r, rt) = self.emit_fn_value_call(&f, &ty, arguments, expected);
+                        (r, rt, vec![])
+                    }
                     IdentTarget::TypeParam(_) | IdentTarget::Prefix(_) | IdentTarget::Unknown => {
                         let (args, _, _) = self.emit_args_plain(arguments);
                         (Js::prim(format!("dart.dcall({}, [{}])", js::ident(&n), args.join(", "))), Ty::Dynamic, vec![])

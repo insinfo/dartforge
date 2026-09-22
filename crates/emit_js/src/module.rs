@@ -249,7 +249,8 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
     for s in ["dart", "dart_rti", "core", "dartx"] {
         sdk.insert(s.to_string());
     }
-    let sdk_list: Vec<String> = sdk.iter().map(|s| if s == "html" || s == "svg" { format!("{s}") } else { s.clone() }).collect();
+    sdk.insert("async".to_string());
+    let sdk_list: Vec<String> = sdk.iter().cloned().collect();
     out.push_str(&format!("import {{ {} }} from './dart_sdk.js';\n", sdk_list.join(", ")));
     for &ul in m.user_imports.borrow().iter() {
         let uinfo = &ctx.libs[ul as usize];
@@ -264,9 +265,6 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
     }
     out.push_str("var _is = dart.privateName(dart_rti, \"_is\");\nvar _as = dart.privateName(dart_rti, \"_as\");\nvar _eval = dart.privateName(dart_rti, \"_eval\");\nvar _bind = dart.privateName(dart_rti, \"_bind\");\n");
     out.push_str("var _current = dart.privateName(async, \"_current\");\nvar _datum = dart.privateName(async, \"_datum\");\nvar _yieldStar = dart.privateName(async, \"_yieldStar\");\n");
-    if !sdk.contains("async") {
-        out = out.replace("import { ", "import { async, ");
-    }
     for (var, (l, name)) in m.private_syms.borrow().iter() {
         let lv = &ctx.libs[*l as usize].js_var;
         out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
