@@ -27,6 +27,8 @@ pub enum IdentTarget {
     TypeParam(Ty),
     /// Membro do receptor implícito `$this` de uma extensão.
     ExtThisMember(Member),
+    /// Membro de extensão aplicável a `this`.
+    ThisExt,
     /// Membro de instância da própria extensão (chamado com `$this`).
     ExtMember(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
     ExtStatic(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
@@ -74,6 +76,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return IdentTarget::Static(k, mk);
                 }
                 cur = self.ctx.superclass_of(k);
+            }
+            if !self.is_static && self.ctx.program.lookup(self.lib, sym).is_none() {
+                if self.find_extension_member(&self.ctx.this_ty(c), n, false).is_some() {
+                    return IdentTarget::ThisExt;
+                }
             }
         }
         if let Some(b) = self.ctx.program.lookup(self.lib, sym) {
@@ -212,7 +219,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (Js::prim("this"), ty)
             }
             ExprKind::Super => {
-                let ty = self.class.and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned()).unwrap_or(Ty::Dynamic);
+                let ty = self.super_ty();
                 (Js::prim("super"), ty)
             }
             ExprKind::Parenthesized(inner) => {
@@ -726,14 +733,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else if elements.is_empty() {
             !expected.is_some_and(|t| t.non_null().class() == self.ctx.set_ || self.ctx.set_.is_some_and(|s| self.ctx.as_super(&t.non_null(), s).is_some() && t.non_null().class() != self.ctx.map_))
         } else {
-            elements.iter().any(|e| match e {
-                CollectionElement::MapEntry { .. } => true,
-                CollectionElement::Spread { value, .. } => {
-                    let t = self.type_of(*value);
-                    self.ctx.map_.is_some_and(|m| self.ctx.as_super(&t.non_null(), m).is_some())
-                }
-                _ => false,
-            }) && !elements.iter().any(|e| matches!(e, CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_)))
+            let mut any_map = false;
+            let mut any_set = false;
+            for e in elements {
+                self.classify_element(e, &mut any_map, &mut any_set);
+            }
+            any_map && !any_set
         };
         if is_map {
             let (kt, vt) = if type_args.len() == 2 {
@@ -822,6 +827,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.w.line(&format!("return {t};"));
         let body = std::mem::replace(&mut self.w, saved_w).out;
         (self.iife(&body), set_ty)
+    }
+
+    /// Marca se o elemento indica mapa (entrada) ou conjunto (expressão).
+    fn classify_element(&mut self, e: &CollectionElement, any_map: &mut bool, any_set: &mut bool) {
+        match e {
+            CollectionElement::MapEntry { .. } => *any_map = true,
+            CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => *any_set = true,
+            CollectionElement::Spread { value, .. } => {
+                let t = self.type_of(*value);
+                if self.ctx.map_.is_some_and(|m| self.ctx.as_super(&t.non_null(), m).is_some()) {
+                    *any_map = true;
+                } else if !t.is_dynamic() {
+                    *any_set = true;
+                }
+            }
+            CollectionElement::If { then, else_, .. } => {
+                self.classify_element(then, any_map, any_set);
+                if let Some(e) = else_ {
+                    self.classify_element(e, any_map, any_set);
+                }
+            }
+            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                self.classify_element(body, any_map, any_set);
+            }
+        }
     }
 
     fn infer_map_tys(&mut self, elements: &[CollectionElement]) -> (Ty, Ty) {
@@ -984,6 +1014,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             IdentTarget::ExtThisMember(_) => {
                 let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
                 self.emit_member_get(&Js::prim("$this"), &t, &n, None)
+            }
+            IdentTarget::ThisExt => {
+                let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
+                self.emit_member_get(&Js::prim("this"), &t, &n, None)
             }
             IdentTarget::ExtMember(ext, _) | IdentTarget::ExtStatic(ext, _) => {
                 let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
@@ -1325,7 +1359,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (r.0, r.1, vec![]);
                 }
                 if let ExprKind::Super = self.expr(*target).kind {
-                    let sup_ty = self.class.and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned()).unwrap_or(Ty::Dynamic);
+                    let sup_ty = self.super_ty();
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
                     let ty = m.as_ref().map(|m| self.ctx.member_ty(m)).unwrap_or(Ty::Dynamic);
                     let access = self.member_access(&sup_ty, &n, false);
@@ -1363,6 +1397,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (js, ty, vec![])
             }
         }
+    }
+
+    /// Tipo da superclasse (Object quando não há `extends`).
+    pub fn super_ty(&self) -> Ty {
+        self.class
+            .and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned())
+            .filter(|t| matches!(t, Ty::Iface { .. }))
+            .or_else(|| self.ctx.object.map(Ty::iface))
+            .unwrap_or(Ty::Dynamic)
     }
 
     pub fn super_ref(&self) -> String {
@@ -1853,6 +1896,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&this_ty, &name, true);
                         (Js::new(format!("this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), self.ctx.member_ty(&m2))
                     }
+                    IdentTarget::ThisExt => {
+                        let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
+                        if let Some((ext, _, _)) = self.find_extension_member(&t, &name, true) {
+                            let e = self.ctx.program.extension(ext);
+                            let lib_var = self.lib_var(e.library);
+                            let ext_name = self.extension_js_name(ext);
+                            return (Js::prim(format!("{lib_var}[{}](this, {})", js::string_literal(&format!("{ext_name}|set#{name}")), v.code)), vty.clone());
+                        }
+                        (Js::prim("null"), Ty::Dynamic)
+                    }
                     IdentTarget::ExtThisMember(_) | IdentTarget::ExtMember(..) | IdentTarget::ExtStatic(..) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
                         if let Some((ext, _, _)) = self.find_extension_member(&t, &name, true) {
@@ -1892,7 +1945,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.class.and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned()).unwrap_or(Ty::Dynamic);
+                    let sup_ty = self.super_ty();
                     let access = self.member_access(&sup_ty, &n, true);
                     return (Js::new(format!("{}{access} = {}", self.super_ref(), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
@@ -2038,7 +2091,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let sjs2 = sjs.clone();
                     (Js::prim(sjs), rt, Box::new(move |_s: &mut Self, v: &Js| Js::new(format!("{sjs2} = {}", v.at(P_ASSIGN)), P_ASSIGN)))
                 } else if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.class.and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned()).unwrap_or(Ty::Dynamic);
+                    let sup_ty = self.super_ty();
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
                     let rt = m.map(|m| self.ctx.member_ty(&m)).unwrap_or(Ty::Dynamic);
                     let get = self.member_access(&sup_ty, &n, false);

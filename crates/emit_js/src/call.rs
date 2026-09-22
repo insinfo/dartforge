@@ -20,7 +20,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (r.0, r.1, vec![]);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.class.and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned()).unwrap_or(Ty::Dynamic);
+                    let sup_ty = self.super_ty();
                     let (js, ty) = self.emit_method_call(&Js::prim(self.super_ref()), &sup_ty, &n, arguments, expected, true);
                     return (js, ty, vec![]);
                 }
@@ -59,6 +59,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     IdentTarget::ExtThisMember(_) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
                         let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false);
+                        (js, ty, vec![])
+                    }
+                    IdentTarget::ThisExt => {
+                        let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
+                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &t, &n, arguments, expected, false);
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtMember(ext, fid) => {

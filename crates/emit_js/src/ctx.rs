@@ -188,6 +188,10 @@ impl<'a> Ctx<'a> {
             let mut s = Vec::new();
             if let Some(t) = data.supertype {
                 s.push(self.ty_of(t));
+            } else if self.program.classes[i].kind == ClassKind::Enum {
+                if let Some(e) = self.underscore_enum {
+                    s.push(Ty::iface(e));
+                }
             }
             for &t in data.mixins.iter() {
                 s.push(self.ty_of(t));
@@ -547,8 +551,8 @@ impl<'a> Ctx<'a> {
     pub fn declared_member(&self, c: ClassId, name: &str, setter: bool) -> Option<MemberKind> {
         let class = self.program.class(c);
         let key = if setter { format!("{name}_=") } else { name.to_string() };
-        let sym = self.interner.lookup(&key)?;
-        let Some(&fid) = class.instance_members.get(&sym) else {
+        let found = self.interner.lookup(&key).and_then(|sym| class.instance_members.get(&sym).copied());
+        let Some(fid) = found else {
             if setter {
                 // `late final` sem inicializador aceita uma atribuição.
                 let fsym = self.interner.lookup(name)?;

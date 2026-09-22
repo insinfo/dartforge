@@ -891,6 +891,40 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
     }
 
+    // Getter só (ou setter só) sobrepondo campo/acessor herdado: emite o par que falta.
+    {
+        let this_ty = ctx.this_ty(c);
+        let mut extra: Vec<String> = Vec::new();
+        for (n, _) in &getter_sigs {
+            if setter_sigs.iter().any(|(m, _)| m == n) || fields.iter().any(|f| f.name == *n) {
+                continue;
+            }
+            let has_super_setter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, true)).is_some()
+                || class.mixin_classes.iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, true).is_some());
+            if has_super_setter {
+                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(n) };
+                let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
+                extra.push(format!("set {key}(value) {{ super{acc} = value; }}"));
+            }
+        }
+        for (n, _) in &setter_sigs {
+            if getter_sigs.iter().any(|(m, _)| m == n) || fields.iter().any(|f| f.name == *n) {
+                continue;
+            }
+            let has_super_getter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, false)).is_some()
+                || class.mixin_classes.iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, false).is_some());
+            if has_super_getter {
+                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(n) };
+                let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
+                extra.push(format!("get {key}() {{ return super{acc}; }}"));
+            }
+        }
+        let _ = this_ty;
+        for x in extra {
+            cw.line(&x);
+        }
+    }
+
     // Declaração da classe.
     let head = if is_mixin {
         format!("{cref} = class {cname} extends core.Object {{}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{", cname, cname)
@@ -1190,7 +1224,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             "core.Object".to_string()
         }
     };
-    let mut base_class = class.supertype_class;
+    let base_class = class.supertype_class;
     for (i, &mx) in class.mixin_classes.iter().enumerate() {
         let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
         let mref = tmp.class_ref(mx);
@@ -1212,6 +1246,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             _ => vec!["new".into()],
         };
         for n in ctor_names {
+            let n = if n == "new" { n } else { static_member_name(&n) };
             if base == "core.Object" {
                 w.line(&format!("({app}.{n} = function() {{ {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
             } else {
@@ -1220,8 +1255,6 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         }
         w.line(&format!("dart.applyMixin({app}, {mref});"));
         base = app;
-        let _ = &mut base_class;
-        base_class = Some(mx);
     }
     base
 }
@@ -1427,7 +1460,12 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                     let Some(n) = p.name else { continue };
                     let jsn = e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(ctx.name(n.sym)));
                     if p.kind == ast::ParameterKind::Named {
-                        super_named.push(format!("{}: {jsn}", js::prop_key(ctx.name(n.sym))));
+                        let key = js::prop_key(ctx.name(n.sym));
+                        if p.default_value.is_none() && !p.required {
+                            super_named.push(format!("...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})", js::string_literal(ctx.name(n.sym))));
+                        } else {
+                            super_named.push(format!("{key}: {jsn}"));
+                        }
                     } else {
                         super_params.push(jsn);
                     }
