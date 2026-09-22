@@ -193,7 +193,7 @@ class Cdp {
     return this.eventos
       .slice(marco)
       .filter((e) => e.method === 'Runtime.consoleAPICalled' && (e.params.type === 'log' || e.params.type === 'debug' || e.params.type === 'info'))
-      .map((e) => e.params.args.map((a) => a.description || a.value).join(' ').replace(/\s+/g, ' ').slice(0, 160))
+      .map((e) => e.params.args.map((a) => a.description || a.value).join(' ').replace(/\s+/g, ' ').slice(0, 700))
       .filter(Boolean);
   }
   drenar(marco) {
@@ -503,7 +503,7 @@ async function main() {
       linhas.push('  sem erros');
     }
     if (p.ambiente?.length) linhas.push(`  ambiente: ${p.ambiente.length} recurso(s) 404`);
-    for (const r of (p.registros || []).slice(0, 6)) linhas.push(`  print: ${r}`);
+    for (const r of (p.registros || []).slice(0, 6)) linhas.push(`  print: ${r.slice(0, 700)}`);
   }
   linhas.push(`\n${relatorio.rotulo}: ${relatorio.passos.length} passos, ${comErro} com erro; 404 do servidor: ${relatorio.naoEncontrados.length}`);
   if (relatorio.externasBloqueadas?.length) linhas.push(`  externas bloqueadas: ${relatorio.externasBloqueadas.filter((u) => u.startsWith('http')).join(' ')}`);
