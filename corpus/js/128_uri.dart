@@ -1,0 +1,173 @@
+// Uri: parse e componentes, construtor nomeado, resolve, replace, encode/decodeComponent, encodeFull, dataFromString e toString.
+import 'dart:convert';
+
+void main() {
+  var u = Uri.parse('https://user:pw@example.com:8080/a/b%20c/d.html?x=1&y=dois%20tres&x=2#frag');
+  print(u);
+  print(u.scheme);
+  print(u.host);
+  print(u.port);
+  print(u.userInfo);
+  print(u.authority);
+  print(u.path);
+  print(u.pathSegments);
+  print(u.query);
+  print(u.queryParameters);
+  print(u.queryParametersAll);
+  print(u.fragment);
+  print(u.hasScheme);
+  print(u.hasAuthority);
+  print(u.hasPort);
+  print(u.hasQuery);
+  print(u.hasFragment);
+  print(u.hasEmptyPath);
+  print(u.hasAbsolutePath);
+  print(u.isAbsolute);
+  print(u.origin);
+
+  var s = Uri.parse('http://example.com');
+  print(s);
+  print(s.port);
+  print(s.path);
+  print(s.pathSegments);
+  print(s.query);
+  print(s.queryParameters);
+  print(s.hasEmptyPath);
+  print(Uri.parse('https://example.com:443/').port);
+  print(Uri.parse('https://example.com:443/').toString());
+  print(Uri.parse('http://example.com:80/').toString());
+  print(Uri.parse('HTTP://EXAMPLE.com/Path').toString());
+  print(Uri.parse('http://example.com/a/./b/../c').toString());
+  print(Uri.parse('/apenas/caminho').toString());
+  print(Uri.parse('/apenas/caminho').isAbsolute);
+  print(Uri.parse('relativo/x?q=1').path);
+  print(Uri.parse('relativo/x?q=1').query);
+  print(Uri.parse('mailto:a@b.com').scheme);
+  print(Uri.parse('mailto:a@b.com').path);
+  print(Uri.parse('file:///tmp/x.txt').path);
+  print(Uri.parse('file:///tmp/x.txt').host.isEmpty);
+  print(Uri.parse('urn:isbn:123').path);
+  print(Uri.parse('?só=query').queryParameters);
+  print(Uri.parse('#só-frag').fragment);
+  print(Uri.parse('').toString().isEmpty);
+  print(Uri.parse('http://[::1]:8/').host);
+  print(Uri.parse('http://[::1]:8/').port);
+  print(Uri.parse('http://exemplo.com/a b').toString());
+  print(Uri.parse('http://exemplo.com/?q=a b&r=ç').toString());
+  print(Uri.parse('http://exemplo.com/?q=a+b').queryParameters['q']);
+  print(Uri.parse('http://exemplo.com/?q=a%2Bb').queryParameters['q']);
+  print(Uri.parse('http://exemplo.com/?a&b=').queryParameters);
+  print(Uri.parse('http://exemplo.com/?a=1&a=2').queryParametersAll['a']);
+  try {
+    Uri.parse('http://exem ple.com/');
+  } catch (e) {
+    print('lançou ${e is FormatException}');
+  }
+  print(Uri.tryParse('http://exem ple.com/'));
+  print(Uri.tryParse('http://ok.com/'));
+
+  var c = Uri(scheme: 'https', host: 'h.com', port: 9, path: '/p/q', queryParameters: {'a': '1', 'b': 'x y'}, fragment: 'f');
+  print(c);
+  print(c.query);
+  print(Uri(scheme: 'http', host: 'h.com', pathSegments: ['a b', 'c/d']));
+  print(Uri(scheme: 'http', host: 'h.com', path: 'sem-barra'));
+  print(Uri(path: 'so/caminho'));
+  print(Uri(scheme: 'http', host: 'h.com', queryParameters: {'k': ['v1', 'v2']}));
+  print(Uri(scheme: 'http', host: 'h.com', query: 'raw=a b'));
+  print(Uri(host: 'h.com'));
+  print(Uri(scheme: 'http', host: 'h.com', userInfo: 'u:p'));
+  print(Uri(scheme: 'http', host: 'H.COM').host);
+  print(Uri.http('h.com', '/p', {'q': '1'}));
+  print(Uri.https('h.com', 'p'));
+  print(Uri.https('h.com', '/a b', {'x': 'ç'}));
+  print(Uri.http('h.com:8080', '/'));
+  print(Uri.file('/tmp/a b.txt', windows: false));
+  print(Uri.file('/tmp/a b.txt', windows: false).toFilePath(windows: false));
+  print(Uri.file('C:\\dir\\x.txt', windows: true));
+  print(Uri.file('C:\\dir\\x.txt', windows: true).toFilePath(windows: true));
+  print(Uri.directory('/tmp/d', windows: false));
+
+  var base = Uri.parse('http://h.com/a/b/c?x=1#f');
+  print(base.resolve('d'));
+  print(base.resolve('./d'));
+  print(base.resolve('../d'));
+  print(base.resolve('../../../d'));
+  print(base.resolve('/d'));
+  print(base.resolve('?y=2'));
+  print(base.resolve('#g'));
+  print(base.resolve(''));
+  print(base.resolve('//outro.com/z'));
+  print(base.resolve('ftp://x.com/'));
+  print(base.resolveUri(Uri(path: 'e')));
+  print(base.resolve('.'));
+  print(base.resolve('..'));
+  print(Uri.parse('http://h.com').resolve('p'));
+  print(Uri.parse('http://h.com/a/').resolve('p'));
+  print(base.replace(scheme: 'https'));
+  print(base.replace(host: 'novo.com', port: 81));
+  print(base.replace(path: '/novo'));
+  print(base.replace(query: 'z=9'));
+  print(base.replace(queryParameters: {'k': 'v'}));
+  print(base.replace(fragment: ''));
+  print(base.replace(fragment: 'novo'));
+  print(base.replace(pathSegments: ['x', 'y']));
+  print(base.removeFragment());
+  print(base.replace(userInfo: 'u'));
+  print(base.normalizePath());
+  print(Uri.parse('http://h.com/a/../b/./c').normalizePath());
+
+  print(Uri.encodeComponent('a b&c=d/e?f#g'));
+  print(Uri.encodeComponent('ção'));
+  print(Uri.encodeComponent('-_.!~*\'()'));
+  print(Uri.encodeComponent(''));
+  print(Uri.decodeComponent('a%20b%26c'));
+  print(Uri.decodeComponent('%C3%A7%C3%A3o'));
+  print(Uri.decodeComponent('a+b'));
+  print(Uri.encodeQueryComponent('a b+c'));
+  print(Uri.decodeQueryComponent('a+b%2Bc'));
+  print(Uri.encodeFull('http://h.com/a b/c?q=x y#f g'));
+  print(Uri.decodeFull('http://h.com/a%20b/c?q=x%20y'));
+  print(Uri.encodeFull('ção'));
+  print(Uri.decodeFull('%C3%A7'));
+  print(Uri.splitQueryString('a=1&b=x+y&c'));
+  print(Uri.splitQueryString('a=%C3%A7'));
+  try {
+    Uri.decodeComponent('%ZZ');
+  } catch (e) {
+    print('lançou ${e is ArgumentError || e is FormatException}');
+  }
+  print(Uri.parseIPv4Address('192.168.0.1'));
+  print(Uri.parseIPv6Address('::1'));
+  print(Uri.parseIPv6Address('2001:db8::ff00:42:8329').length);
+
+  var data = Uri.dataFromString('olá, mundo', encoding: utf8);
+  print(data);
+  print(data.scheme);
+  print(data.data!.contentText);
+  print(data.data!.mimeType);
+  print(data.data!.charset);
+  print(data.data!.isBase64);
+  var data64 = Uri.dataFromString('hi', base64: true);
+  print(data64);
+  print(data64.data!.contentText);
+  print(data64.data!.contentAsBytes());
+  print(Uri.dataFromString('x', mimeType: 'text/html', encoding: null));
+  print(Uri.dataFromBytes([1, 2, 255]));
+  print(Uri.dataFromBytes([1, 2, 255]).data!.contentAsBytes());
+  print(Uri.parse('data:text/plain;charset=utf-8,a%20b').data!.contentText);
+  print(UriData.parse('data:,abc').contentText);
+  print(Uri.parse('http://h.com/x').data);
+
+  print(u == Uri.parse('https://user:pw@example.com:8080/a/b%20c/d.html?x=1&y=dois%20tres&x=2#frag'));
+  print(u == Uri.parse('https://example.com/'));
+  print(Uri.parse('http://H.com/') == Uri.parse('http://h.com/'));
+  print(Uri.parse('http://h.com/a%2fb').path);
+  print(Uri.parse('http://h.com/a%2fb').pathSegments);
+  print(Uri.parse('http://h.com/a%41b').path);
+  print(Uri.parse('http://h.com/a%41b').toString());
+  print(Uri.parse('http://h.com/').hashCode == Uri.parse('http://h.com/').hashCode);
+  print(Uri.parse('http://h.com/p?q#f').toString().length);
+  print(Uri.parse('http://h.com/x/y/z').pathSegments.last);
+  print(Uri.parse('http://h.com/x/y/').pathSegments);
+  print(Uri.parse('http://h.com/x/y/').pathSegments.length);
+}

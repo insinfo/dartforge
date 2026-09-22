@@ -88,6 +88,37 @@ executa.
   (funções estáticas do módulo), `const` canonicalizado (`dart.const`,
   tabela `CT`).
 
+## Harness diferencial e corpus
+
+`crates/diferencial` (`cargo run -p dartforge-diferencial`) roda cada programa de
+`corpus/js/` em três executores e compara stdout e código de saída byte a byte:
+
+* `dart run --enable-asserts` (semântica; asserts ligados porque o DDC os liga);
+* `dartdevc --modules=es6` + `node main.mjs` (contrato; o `main.mjs` importa o módulo,
+  chama `main()` e sai com 255 num erro não capturado, como a VM);
+* `dartforge compile-js arquivo -o dir` + `node dir/main.mjs`.
+
+Relatório: `ok`/`FALHA` por programa com a primeira linha divergente e os três stdouts
+lado a lado; no fim, N/total e as falhas agrupadas pela primeira linha do stderr do
+DartForge — é por esse agrupamento que se prioriza o emissor. Oráculos em cache por
+hash do conteúdo em `target/diferencial/cache/`; paralelo por núcleo.
+
+* `dartforge-diferencial verificar` — só os oráculos (o corpus tem de rodar na VM e bater
+  com o DDC; `// diverge-ddc: motivo` na linha 2 declara a exceção e faz do DDC a
+  referência do DartForge para aquele programa).
+* `dartforge-diferencial contrato` — regenera `docs/CONTRATO-DDC.md`: o Dart e o JS do
+  `dartdevc` de cada programa, sem o preâmbulo repetido. Consultar antes de emitir um
+  construto.
+* `cargo test -p dartforge-diferencial --test corpus -- --ignored --nocapture` — os dois
+  testes do corpus (VM válida em 100%; DDC = VM salvo divergências declaradas).
+
+Corpus: um construto por arquivo, `NN_tema.dart` (ou `NN_tema/main.dart` para várias
+bibliotecas), numerado por tema na ordem da lista acima; `140+` são os fixtures antigos
+convertidos. Regras para novos programas: saída determinística, sem `dart:io`, sem
+imprimir doubles inteiros (`1.0` na VM é `1` na web), `int` dentro de 2^53, bits só com
+operandos não negativos, sem `hashCode`/`runtimeType` de tipos do SDK, sem mensagens de
+erros do core.
+
 ## Critério de aceite
 
 `crates/emit_js/tests/diferencial.rs`: para cada `corpus/js/*.dart`, a

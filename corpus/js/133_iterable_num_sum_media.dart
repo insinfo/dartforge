@@ -1,0 +1,130 @@
+// fold/reduce em ints, média via toStringAsFixed, min/max via reduce e dart:math, Iterable<num> genérica e num em runtime.
+import 'dart:math' as math;
+
+num somaTudo(Iterable<num> xs) => xs.fold<num>(0, (a, b) => a + b);
+T maiorDe<T extends num>(Iterable<T> xs) => xs.reduce((a, b) => a > b ? a : b);
+T menorDe<T extends num>(Iterable<T> xs) => xs.reduce(math.min);
+String media(Iterable<num> xs) => (somaTudo(xs) / xs.length).toStringAsFixed(2);
+String descreve(num n) => n is int ? 'int:$n' : 'double:${n.toStringAsFixed(1)}';
+
+void main() {
+  var ints = [3, 7, 1, 9, 4];
+  print(ints.fold<int>(0, (a, b) => a + b));
+  print(ints.reduce((a, b) => a + b));
+  print(ints.fold<int>(1, (a, b) => a * b));
+  print(ints.reduce((a, b) => a * b));
+  print(ints.reduce((a, b) => a > b ? a : b));
+  print(ints.reduce((a, b) => a < b ? a : b));
+  print(ints.reduce(math.max));
+  print(ints.reduce(math.min));
+  print(ints.fold<int>(0, math.max));
+  print(ints.fold<int>(1 << 30, math.min));
+  print(media(ints));
+  print((ints.reduce((a, b) => a + b) / ints.length).toStringAsFixed(1));
+  print(ints.reduce((a, b) => a + b) ~/ ints.length);
+  print(ints.reduce((a, b) => a + b) % ints.length);
+  print([2, 4, 6].reduce((a, b) => a + b) / 3 == 4);
+  print([1, 2].reduce((a, b) => a + b) / 4);
+  print([1, 2, 3, 4].fold<int>(0, (a, b) => a + b) / 3);
+  print(ints.length);
+  print(ints.fold<String>('', (s, e) => '$s$e'));
+  print(ints.fold<List<int>>(<int>[], (l, e) => l..insert(0, e)));
+  print(ints.fold<int>(0, (a, b) => a + (b.isEven ? b : 0)));
+  print(ints.where((e) => e.isOdd).fold<int>(0, (a, b) => a + b));
+  print(ints.map((e) => e * e).reduce((a, b) => a + b));
+  print(ints.fold<int>(0, (a, b) => a + b * b));
+  print([1].reduce((a, b) => a + b));
+  print(<int>[].fold<int>(0, (a, b) => a + b));
+  try {
+    <int>[].reduce((a, b) => a + b);
+  } catch (e) {
+    print('lançou ${e is StateError}');
+  }
+
+  var dbls = [1.5, 2.25, 0.75, 3.25];
+  print(dbls.reduce((a, b) => a + b));
+  print(dbls.fold<double>(0.0, (a, b) => a + b));
+  print(media(dbls));
+  print(dbls.reduce(math.max));
+  print(dbls.reduce(math.min));
+  print(maiorDe<double>(dbls));
+  print(menorDe<double>(dbls));
+  print(maiorDe<int>(ints));
+  print(menorDe<int>(ints));
+  print(dbls.map((e) => e * 2).reduce((a, b) => a + b).toStringAsFixed(1));
+  print(dbls.fold<double>(1.0, (a, b) => a * b));
+
+  var nums = <num>[1, 2.25, 3, 0.25];
+  print(nums);
+  print(somaTudo(nums));
+  print(somaTudo(ints));
+  print(somaTudo(dbls));
+  print(somaTudo(nums) is int);
+  print(somaTudo(ints) is int);
+  print(somaTudo(dbls) is double);
+  print(media(nums));
+  print(nums.reduce((a, b) => a > b ? a : b));
+  print(nums.reduce((a, b) => a < b ? a : b));
+  print(nums.reduce(math.max));
+  print(nums.reduce(math.min));
+  print(maiorDe<num>(nums));
+  print(menorDe<num>(nums));
+  print(nums.map(descreve).toList());
+  print(nums.whereType<int>().toList());
+  print(nums.where((e) => e is int).length);
+  print(nums.map((e) => e.toInt()).toList());
+  print(nums.map((e) => e.round()).toList());
+  print(nums.map((e) => e * 2).map(descreve).toList());
+  print(nums.fold<num>(0, (a, b) => a + b) == 6.5);
+  print(nums.fold<int>(0, (a, b) => a + b.floor()));
+  print(nums.every((e) => e > 0));
+  print(nums.any((e) => e is double));
+  print(nums.cast<num>().first);
+  print(nums.first.runtimeType == int);
+  print(nums[1].runtimeType == double);
+  num n = 5;
+  print(descreve(n));
+  n = 5.5;
+  print(descreve(n));
+  n = n + 1;
+  print(descreve(n));
+  n = 2 * 3;
+  print(descreve(n));
+  n = 7 / 2;
+  print(descreve(n));
+  n = 7 ~/ 2;
+  print(descreve(n));
+  print(descreve(nums[0] + nums[1]));
+  print(descreve(nums[0] + nums[2]));
+  print(descreve(nums[1] * 2));
+  print(descreve(math.max(1, 2)));
+  print(descreve(math.max(1.5, 2)));
+  print(descreve(math.min(1.5, 2)));
+
+  Iterable<int> gerado = Iterable.generate(10, (i) => i + 1);
+  print(gerado.reduce((a, b) => a + b));
+  print(gerado.fold<int>(0, (a, b) => a + b));
+  print(media(gerado));
+  print(gerado.where((e) => e % 3 == 0).reduce((a, b) => a + b));
+  print(gerado.take(3).reduce((a, b) => a * b));
+  print(gerado.skip(7).reduce((a, b) => a * b));
+  print(gerado.map((e) => e / 4).where((e) => e != e.floorToDouble()).map((e) => e.toStringAsFixed(2)).toList());
+  var mapa = {'a': 10, 'b': 20, 'c': 30};
+  print(mapa.values.reduce((a, b) => a + b));
+  print(mapa.values.fold<int>(0, (a, b) => a + b) / mapa.length == 20);
+  print(media(mapa.values));
+  print(mapa.entries.fold<int>(0, (a, e) => a + e.value * e.key.length));
+  var conjunto = {1, 2, 3, 4};
+  print(conjunto.reduce((a, b) => a + b));
+  print(media(conjunto));
+  var matriz = [[1, 2], [3, 4], [5, 6]];
+  print(matriz.map((l) => l.reduce((a, b) => a + b)).toList());
+  print(matriz.expand((l) => l).reduce((a, b) => a + b));
+  print(matriz.fold<int>(0, (a, l) => a + l.length));
+  var variancia = () {
+    var m = ints.reduce((a, b) => a + b) / ints.length;
+    return ints.map((e) => (e - m) * (e - m)).reduce((a, b) => a + b) / ints.length;
+  }();
+  print(variancia.toStringAsFixed(3));
+  print(math.sqrt(variancia).toStringAsFixed(3));
+}

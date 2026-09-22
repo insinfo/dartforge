@@ -1,0 +1,158 @@
+// dart:typed_data: Uint8List/Int8List/Uint16List/Int32List, wrap por overflow, view/sublist, ByteData com Endian, buffer compartilhado, Float64List.
+import 'dart:typed_data';
+
+void main() {
+  var u8 = Uint8List(4);
+  print(u8);
+  print(u8.length);
+  u8[0] = 255;
+  u8[1] = 256;
+  u8[2] = 257;
+  u8[3] = -1;
+  print(u8);
+  var u8b = Uint8List.fromList([1, 2, 3, 300, 1000]);
+  print(u8b);
+  print(u8b.sublist(1, 3));
+  print(u8b.sublist(3));
+  print(u8b.reversed.toList());
+  print(u8b.map((e) => e * 2).toList());
+  print(u8b.where((e) => e > 2).toList());
+  print(u8b.indexOf(3));
+  print(u8b.contains(44));
+  print(u8b.elementSizeInBytes);
+  print(u8b.lengthInBytes);
+  print(u8b.first);
+  print(u8b.last);
+  print(u8b.isEmpty);
+  try {
+    u8b.add(1);
+  } catch (e) {
+    print('lançou ${e is UnsupportedError}');
+  }
+  try {
+    u8b[10];
+  } catch (e) {
+    print('lançou ${e is RangeError}');
+  }
+  u8b.setAll(0, [9, 8]);
+  print(u8b);
+  u8b.fillRange(2, 5, 7);
+  print(u8b);
+  u8b.setRange(0, 2, [5, 6, 7], 1);
+  print(u8b);
+  var s = u8b.sublist(0, 2);
+  s[0] = 100;
+  print(u8b[0]);
+  print(s);
+
+  var i8 = Int8List.fromList([127, 128, 129, -128, -129, 255, 256]);
+  print(i8);
+  var u16 = Uint16List.fromList([65535, 65536, 65537, -1]);
+  print(u16);
+  var i16 = Int16List.fromList([32767, 32768, -32769]);
+  print(i16);
+  var i32 = Int32List.fromList([2147483647, -2147483648, 5]);
+  print(i32);
+  print(i32.elementSizeInBytes);
+  var u32 = Uint32List.fromList([4294967295, 0, 7]);
+  print(u32);
+  print(u32.lengthInBytes);
+  var u8c = Uint8List.fromList([1, 2, 3]);
+  u8c[0] += 255;
+  print(u8c);
+  u8c[1] *= 200;
+  print(u8c);
+  print(Uint8ClampedList.fromList([300, -5, 100]));
+
+  var bd = ByteData(8);
+  print(bd.lengthInBytes);
+  bd.setInt32(0, 0x01020304);
+  print(bd.getUint8(0));
+  print(bd.getUint8(3));
+  print(bd.getInt32(0));
+  print(bd.getInt32(0, Endian.little));
+  bd.setInt32(4, -1);
+  print(bd.getInt32(4));
+  print(bd.getUint32(4));
+  print(bd.getUint16(4));
+  print(bd.getInt16(4));
+  bd.setUint16(0, 0xABCD, Endian.little);
+  print(bd.getUint8(0));
+  print(bd.getUint8(1));
+  print(bd.getUint16(0));
+  print(bd.getUint16(0, Endian.little));
+  bd.setInt8(0, -2);
+  print(bd.getInt8(0));
+  print(bd.getUint8(0));
+  bd.setFloat64(0, 2.5);
+  print(bd.getFloat64(0));
+  bd.setFloat32(0, 0.5);
+  print(bd.getFloat32(0));
+  bd.setFloat32(0, 0.1);
+  print(bd.getFloat32(0).toStringAsFixed(6));
+  print((bd.getFloat32(0) - 0.1).abs() < 1e-7);
+  print(bd.getFloat32(0) == 0.1);
+  bd.setUint32(0, 0xFFFFFFFF);
+  bd.setUint32(4, 1234567890);
+  print(bd.getUint32(0));
+  print(bd.getInt32(0));
+  print(bd.getUint32(4));
+  print(bd.getUint32(4, Endian.little));
+
+  var buf = Uint8List(8).buffer;
+  var a = Uint8List.view(buf);
+  var b = Uint16List.view(buf);
+  var c = Uint32List.view(buf, 4, 1);
+  a[0] = 1;
+  a[1] = 2;
+  print(b[0] == 0x0201 || b[0] == 0x0102);
+  print(Endian.host == Endian.little ? b[0] == 0x0201 : b[0] == 0x0102);
+  b[1] = 0xFFFF;
+  print(a[2]);
+  print(a[3]);
+  c[0] = 0x11223344;
+  print(a.sublist(4).toList()..sort());
+  print(a.buffer == buf);
+  print(b.buffer == buf);
+  print(c.offsetInBytes);
+  print(c.lengthInBytes);
+  var bd2 = ByteData.view(buf, 0, 4);
+  print(bd2.lengthInBytes);
+  print(bd2.getUint16(0, Endian.big) == 0x0102);
+  var sub = ByteData.sublistView(a, 2, 4);
+  print(sub.lengthInBytes);
+  print(sub.getUint8(0));
+  var bytes = Uint8List.sublistView(Uint16List.fromList([258]));
+  print(bytes.length);
+  print(bytes.toList()..sort());
+
+  var f64 = Float64List.fromList([0.5, 1.25, -2.5]);
+  print(f64);
+  print(f64[1]);
+  print(f64.length);
+  print(f64.lengthInBytes);
+  var f64b = Float64List(2);
+  f64b[0] = 3.5;
+  print(f64b[0]);
+  print(f64b[1] == 0);
+  var f32 = Float32List.fromList([0.5, 0.75]);
+  print(f32);
+  print(f32.elementSizeInBytes);
+  print(f64.map((e) => e * 2).map((e) => e.toStringAsFixed(1)).toList());
+  print(f64.reduce((x, y) => x + y));
+  print(Uint8List.fromList([1, 2]) + Uint8List.fromList([3]));
+  print(Uint8List.fromList([1, 2, 3]).map((e) => e.toRadixString(16)).join());
+  print(Int32List(3));
+  print(Uint8List.fromList([]).isEmpty);
+  print(Uint8List.fromList([5, 3, 1])..sort());
+  print(Uint8List.fromList([1, 2, 3]).toList() is List<int>);
+  print(Uint8List.fromList([1, 2, 3]).join(','));
+  var bl = BytesBuilder();
+  bl.addByte(1);
+  bl.add([2, 3]);
+  bl.addByte(300);
+  print(bl.length);
+  print(bl.toBytes());
+  print(bl.takeBytes());
+  print(bl.length);
+}
