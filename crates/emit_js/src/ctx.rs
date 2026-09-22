@@ -314,17 +314,18 @@ impl<'a> Ctx<'a> {
                 ret: Box::new(self.ty_of(*ret)),
                 pos: positional.iter().map(|a| self.ty_of(*a)).collect(),
                 opt: optional.iter().map(|a| self.ty_of(*a)).collect(),
-                named: named
-                    .iter()
-                    .map(|(n, t, r)| (self.interner.resolve(*n).to_string(), self.ty_of(*t), *r))
-                    .collect(),
+                named: {
+                    let mut v: Vec<(String, Ty, bool)> = named.iter().map(|(n, t, r)| (self.interner.resolve(*n).to_string(), self.ty_of(*t), *r)).collect();
+                    v.sort_by(|a, b| a.0.cmp(&b.0));
+                    v
+                },
                 nullable: *nullable,
             },
-            Type::Record { positional, named, nullable } => Ty::Record {
-                pos: positional.iter().map(|a| self.ty_of(*a)).collect(),
-                named: named.iter().map(|(n, t)| (self.interner.resolve(*n).to_string(), self.ty_of(*t))).collect(),
-                nullable: *nullable,
-            },
+            Type::Record { positional, named, nullable } => {
+                let mut named: Vec<(String, Ty)> = named.iter().map(|(n, t)| (self.interner.resolve(*n).to_string(), self.ty_of(*t))).collect();
+                named.sort_by(|a, b| a.0.cmp(&b.0));
+                Ty::Record { pos: positional.iter().map(|a| self.ty_of(*a)).collect(), named, nullable: *nullable }
+            }
             Type::TypeParameter { param, nullable } => {
                 let data = self.table.param(*param);
                 let name = self.interner.resolve(data.name).to_string();
@@ -544,6 +545,12 @@ impl<'a> Ctx<'a> {
 
     /// Cadeia de superclasses (extends) e mixins, da classe para cima.
     pub fn superclass_of(&self, c: ClassId) -> Option<ClassId> {
+        // Pelo outline de tipos (expande typedefs como `IterableBase`), senão pelo nome.
+        if let Some(t) = self.outline.classes[c.0 as usize].supertype {
+            if let Some(sc) = self.ty_of(t).class() {
+                return Some(sc);
+            }
+        }
         self.program.class(c).supertype_class
     }
 

@@ -59,6 +59,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if let Some(m) = self.ctx.lookup_member(&t, n, false) {
                 return IdentTarget::ExtThisMember(m);
             }
+            if let Ty::Record { pos, named, .. } = &t {
+                let is_field = n.strip_prefix('$').and_then(|x| x.parse::<usize>().ok()).is_some_and(|i| i >= 1 && i <= pos.len())
+                    || named.iter().any(|(k, _)| k == n);
+                if is_field {
+                    return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
+                }
+            }
             if self.find_extension_member(&t, n, false).is_some() {
                 return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
             }
@@ -1479,6 +1486,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Some(self.emit_element_get(el, name))
                 }
                 IdentTarget::Element(Element::Class(c)) => self.static_member_get(c, name),
+                IdentTarget::Element(Element::Extension(ext)) => {
+                    let e = self.ctx.program.extension(ext);
+                    let sym = self.ctx.sym(name)?;
+                    let ext_name = self.extension_js_name(ext);
+                    let lib_var = self.lib_var(e.library);
+                    if let Some(&vid) = e.fields.iter().find(|v| self.ctx.program.variable(**v).name == sym) {
+                        return Some((Js::prim(format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{name}")))), self.ctx.var_ty(vid)));
+                    }
+                    if let Some(&fid) = e.static_members.get(&sym) {
+                        let f = self.ctx.program.function(fid);
+                        let js = format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{name}")));
+                        if f.kind == FunctionKind::Getter {
+                            return Some((Js::prim(format!("{js}()")), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)));
+                        }
+                        let ty = self.ctx.fn_ty(fid);
+                        return Some((self.tearoff_static(&js, &ty), ty));
+                    }
+                    None
+                }
                 IdentTarget::TypeParam(_) => None,
                 _ => None,
             },

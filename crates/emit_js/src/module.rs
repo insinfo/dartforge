@@ -179,9 +179,14 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
             functions.push(FunctionElementId(i as u32));
         }
     }
+    let mut ext_variables: Vec<VariableId> = Vec::new();
     for (i, v) in ctx.program.variables.iter().enumerate() {
-        if v.library == lib && v.class.is_none() && v.extension.is_none() {
-            variables.push(VariableId(i as u32));
+        if v.library == lib && v.class.is_none() {
+            if v.extension.is_none() {
+                variables.push(VariableId(i as u32));
+            } else {
+                ext_variables.push(VariableId(i as u32));
+            }
         }
     }
     let ordered = order_classes(ctx, &classes);
@@ -195,6 +200,44 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
     }
     // Variáveis de topo.
     emit_top_variables(ctx, &m, &variables, &mut body);
+    // Estáticos de extensão: `L['Ext|nome']`.
+    if !ext_variables.is_empty() {
+        let mut lazy: Vec<String> = Vec::new();
+        for vid in ext_variables {
+            let v = ctx.program.variable(vid);
+            let Some(ext) = v.extension else { continue };
+            let e = ctx.program.extension(ext);
+            let tmp = FnEmitter::new(ctx, &m, e.decl.unit, None, true);
+            let ext_name = tmp.extension_js_name(ext);
+            let name = ctx.name(v.name);
+            let key = format!("{ext_name}|{name}");
+            let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
+            let mem = ctx.program.unit(fu).ast.member(member);
+            let MemberKind::Field(list) = &mem.kind else { continue };
+            let var = &list.variables[index];
+            let ty = ctx.var_ty(vid);
+            let mut e2 = FnEmitter::new(ctx, &m, fu, None, true);
+            e2.in_const = v.const_;
+            let init = match var.initializer {
+                Some(i) => {
+                    let (js, _) = e2.emit_expr(i, Some(&ty));
+                    let pre = if e2.temps.is_empty() { String::new() } else { format!("let {};\n", e2.temps.join(", ")) };
+                    format!("{pre}{}return {};", e2.w.out, js.code)
+                }
+                None => "return null;".to_string(),
+            };
+            let mut entry = format!("get [{}]() {{\n{}\n}}", js::string_literal(&key), indent(&init));
+            if !v.final_ && !v.const_ {
+                entry.push_str(&format!(",\nset [{}](value) {{}}", js::string_literal(&key)));
+            }
+            lazy.push(entry);
+        }
+        if !lazy.is_empty() {
+            body.line(&format!("dart.defineLazy({lvar}, {{"));
+            body.push_raw(&indent(&lazy.join(",\n")));
+            body.push_raw("\n});\n");
+        }
+    }
 
     // Regras rti das classes do módulo (e referenciadas).
     let rules = emit_rules(ctx, &m);
@@ -1256,7 +1299,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         m.use_sdk("core");
         ("core._Enum".to_string(), ctx.underscore_enum)
     } else {
-        match class.supertype_class {
+        match ctx.superclass_of(c) {
             Some(s) if Some(s) != ctx.object => {
                 let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
                 (tmp.class_ref(s), Some(s))
@@ -1334,7 +1377,7 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
 
 fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Writer) {
     let class = ctx.program.class(c);
-    let sup = match class.supertype_class {
+    let sup = match ctx.superclass_of(c) {
         Some(s) if Some(s) != ctx.object => Some(s),
         _ => None,
     };
@@ -1469,7 +1512,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 body.line(&format!("if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, \"\");"));
             }
             ast::Initializer::Super { constructor, arguments, .. } => {
-                let sup = class.supertype_class;
+                let sup = ctx.superclass_of(c);
                 if let Some(s) = sup {
                     if Some(s) != ctx.object {
                         let sname = constructor.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
@@ -1501,10 +1544,10 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
             m.use_sdk("core");
             let base = mixin_base_ref(ctx, c, "core._Enum");
             super_call = Some(format!("{base}.new.call(this, t$index, t$name);"));
-        } else if class.supertype_class.is_none_or(|s| Some(s) == ctx.object) && !class.mixin_classes.is_empty() {
+        } else if ctx.superclass_of(c).is_none_or(|s| Some(s) == ctx.object) && !class.mixin_classes.is_empty() {
             let base = mixin_base_ref(ctx, c, "core.Object");
             super_call = Some(format!("{base}.new.call(this);"));
-        } else if let Some(s) = class.supertype_class {
+        } else if let Some(s) = ctx.superclass_of(c) {
             if Some(s) != ctx.object {
                 let sref = e.class_ref(s);
                 let base = mixin_base_ref(ctx, c, &sref);
