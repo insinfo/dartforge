@@ -981,7 +981,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     await_,
                     init,
                     condition,
-                    updates,
+                    updates: updates.into_boxed_slice(),
                     body,
                 },
                 ForHeader::In { target, iterable } => CollectionElement::ForIn {
@@ -1083,8 +1083,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind: FunctionKind::Function,
             return_type: None,
             name: None,
-            type_params,
-            parameters: Some(parameters),
+            type_params: type_params.into_boxed_slice(),
+            parameters: Some(parameters.into_boxed_slice()),
             modifier,
             body,
         });
@@ -1108,7 +1108,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         let ty = self.ast.push_type(TypeAnnotation {
             span: self.span_from(type_start),
             nullable: false,
-            kind: TypeKind::Named { name, args },
+            kind: TypeKind::Named {
+                name: name.into_boxed_slice(),
+                args: args.into_boxed_slice(),
+            },
         });
         let constructor = if self.eat_op(Op::Dot) {
             Some(self.member_name()?)

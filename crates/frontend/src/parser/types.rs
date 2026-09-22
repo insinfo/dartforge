@@ -165,7 +165,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(self.ast.push_type(TypeAnnotation {
                 span,
                 nullable: false,
-                kind: TypeKind::Named { name, args },
+                kind: TypeKind::Named {
+                    name: name.into_boxed_slice(),
+                    args: args.into_boxed_slice(),
+                },
             }));
         }
         Err(self.error("esperava um tipo"))
@@ -182,8 +185,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             nullable: false,
             kind: TypeKind::Function {
                 return_type,
-                type_params,
-                parameters,
+                type_params: type_params.into_boxed_slice(),
+                parameters: parameters.into_boxed_slice(),
             },
         }))
     }
@@ -232,7 +235,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.ast.push_type(TypeAnnotation {
             span,
             nullable: false,
-            kind: TypeKind::Record { positional, named },
+            kind: TypeKind::Record {
+                positional: positional.into_boxed_slice(),
+                named: named.into_boxed_slice(),
+            },
         }))
     }
 
@@ -374,7 +380,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             };
             params.push(TypeParameter {
                 span: self.span_from(start),
-                metadata,
+                metadata: metadata.into_boxed_slice(),
                 name,
                 bound,
             });
@@ -519,7 +525,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
         Ok(Parameter {
             span: self.span_from(start),
-            metadata,
+            metadata: metadata.into_boxed_slice(),
             kind,
             required,
             covariant,
@@ -530,8 +536,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             this_,
             super_,
             name,
-            function_type_params,
-            function_parameters,
+            function_type_params: function_type_params.into_boxed_slice(),
+            function_parameters: function_parameters.map(Vec::into_boxed_slice),
             default_value,
         })
     }

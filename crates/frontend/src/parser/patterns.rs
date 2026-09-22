@@ -315,10 +315,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         let ty = self.ast.push_type(TypeAnnotation {
             span: self.span_from(start),
             nullable: false,
-            kind: TypeKind::Named { name, args },
+            kind: TypeKind::Named {
+                name: name.into_boxed_slice(),
+                args: args.into_boxed_slice(),
+            },
         });
         let fields = self.parse_pattern_fields()?;
-        Ok(self.push_pattern(start, PatternKind::Object { ty, fields }))
+        Ok(self.push_pattern(
+            start,
+            PatternKind::Object {
+                ty,
+                fields: fields.into_boxed_slice(),
+            },
+        ))
     }
 
     /// `(p)`, `()`, `(p,)`, `(a, b: p, :x)` ou `(int, int) nome`.
@@ -330,7 +339,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.expect_op(Op::LParen)?;
         if self.eat_op(Op::RParen) {
-            return Ok(self.push_pattern(start, PatternKind::Record { fields: Vec::new() }));
+            return Ok(self.push_pattern(
+                start,
+                PatternKind::Record {
+                    fields: Vec::new().into_boxed_slice(),
+                },
+            ));
         }
         let first = self.parse_pattern_field()?;
         if first.name.is_none() && self.at_op(Op::RParen) {
@@ -345,7 +359,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             fields.push(self.parse_pattern_field()?);
         }
         self.expect_op(Op::RParen)?;
-        Ok(self.push_pattern(start, PatternKind::Record { fields }))
+        Ok(self.push_pattern(
+            start,
+            PatternKind::Record {
+                fields: fields.into_boxed_slice(),
+            },
+        ))
     }
 
     /// `(campo, nome: p, :x)` de um padrão de objeto, com os parênteses.
@@ -437,8 +456,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_pattern(
             start,
             PatternKind::List {
-                type_args,
-                elements,
+                type_args: type_args.into_boxed_slice(),
+                elements: elements.into_boxed_slice(),
             },
         ))
     }
@@ -469,8 +488,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_pattern(
             start,
             PatternKind::Map {
-                type_args,
-                entries,
+                type_args: type_args.into_boxed_slice(),
+                entries: entries.into_boxed_slice(),
                 rest,
             },
         ))

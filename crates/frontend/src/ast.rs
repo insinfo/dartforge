@@ -198,7 +198,7 @@ pub enum Combinator {
 #[derive(Debug)]
 pub struct Decl {
     pub span: Span,
-    pub metadata: Vec<Annotation>,
+    pub metadata: Box<[Annotation]>,
     pub kind: DeclKind,
 }
 
@@ -232,10 +232,10 @@ pub struct ClassModifiers {
 pub struct ClassDecl {
     pub modifiers: ClassModifiers,
     pub name: Name,
-    pub type_params: Vec<TypeParameter>,
+    pub type_params: Box<[TypeParameter]>,
     pub extends: Option<TypeId>,
-    pub with: Vec<TypeId>,
-    pub implements: Vec<TypeId>,
+    pub with: Box<[TypeId]>,
+    pub implements: Box<[TypeId]>,
     /// `class C = S with M implements I;` — sem corpo.
     pub mixin_application: bool,
     pub members: Vec<MemberId>,
@@ -245,18 +245,18 @@ pub struct ClassDecl {
 pub struct MixinDecl {
     pub base: bool,
     pub name: Name,
-    pub type_params: Vec<TypeParameter>,
-    pub on: Vec<TypeId>,
-    pub implements: Vec<TypeId>,
+    pub type_params: Box<[TypeParameter]>,
+    pub on: Box<[TypeId]>,
+    pub implements: Box<[TypeId]>,
     pub members: Vec<MemberId>,
 }
 
 #[derive(Debug)]
 pub struct EnumDecl {
     pub name: Name,
-    pub type_params: Vec<TypeParameter>,
-    pub with: Vec<TypeId>,
-    pub implements: Vec<TypeId>,
+    pub type_params: Box<[TypeParameter]>,
+    pub with: Box<[TypeId]>,
+    pub implements: Box<[TypeId]>,
     pub constants: Vec<EnumConstant>,
     pub members: Vec<MemberId>,
 }
@@ -265,9 +265,9 @@ pub struct EnumDecl {
 #[derive(Debug)]
 pub struct EnumConstant {
     pub span: Span,
-    pub metadata: Vec<Annotation>,
+    pub metadata: Box<[Annotation]>,
     pub name: Name,
-    pub type_args: Vec<TypeId>,
+    pub type_args: Box<[TypeId]>,
     pub constructor: Option<Name>,
     pub arguments: Option<Arguments>,
 }
@@ -275,7 +275,7 @@ pub struct EnumConstant {
 #[derive(Debug)]
 pub struct ExtensionDecl {
     pub name: Option<Name>,
-    pub type_params: Vec<TypeParameter>,
+    pub type_params: Box<[TypeParameter]>,
     pub on: TypeId,
     pub members: Vec<MemberId>,
 }
@@ -284,20 +284,20 @@ pub struct ExtensionDecl {
 pub struct ExtensionTypeDecl {
     pub const_: bool,
     pub name: Name,
-    pub type_params: Vec<TypeParameter>,
+    pub type_params: Box<[TypeParameter]>,
     /// Nome do construtor primário: `extension type E.name(int x)`.
     pub constructor: Option<Name>,
-    pub representation_metadata: Vec<Annotation>,
+    pub representation_metadata: Box<[Annotation]>,
     pub representation_type: TypeId,
     pub representation_name: Name,
-    pub implements: Vec<TypeId>,
+    pub implements: Box<[TypeId]>,
     pub members: Vec<MemberId>,
 }
 
 #[derive(Debug)]
 pub struct TypedefDecl {
     pub name: Name,
-    pub type_params: Vec<TypeParameter>,
+    pub type_params: Box<[TypeParameter]>,
     pub kind: TypedefKind,
 }
 
@@ -308,7 +308,7 @@ pub enum TypedefKind {
     /// `typedef int F<T>(T x);` — forma antiga, só tipo de função.
     Legacy {
         return_type: Option<TypeId>,
-        parameters: Vec<Parameter>,
+        parameters: Box<[Parameter]>,
     },
 }
 
@@ -316,7 +316,7 @@ pub enum TypedefKind {
 #[derive(Debug)]
 pub struct TypeParameter {
     pub span: Span,
-    pub metadata: Vec<Annotation>,
+    pub metadata: Box<[Annotation]>,
     pub name: Name,
     pub bound: Option<TypeId>,
 }
@@ -334,7 +334,7 @@ pub struct VariableList {
     /// `var` foi escrito (então `ty` é `None`).
     pub var_: bool,
     pub ty: Option<TypeId>,
-    pub variables: Vec<Variable>,
+    pub variables: Box<[Variable]>,
 }
 
 #[derive(Debug)]
@@ -346,7 +346,7 @@ pub struct Variable {
 #[derive(Debug)]
 pub struct Member {
     pub span: Span,
-    pub metadata: Vec<Annotation>,
+    pub metadata: Box<[Annotation]>,
     pub kind: MemberKind,
 }
 
@@ -367,8 +367,8 @@ pub struct Constructor {
     pub class_name: Name,
     /// `named` em `C.named`; `None` para o construtor sem nome.
     pub name: Option<Name>,
-    pub parameters: Vec<Parameter>,
-    pub initializers: Vec<Initializer>,
+    pub parameters: Box<[Parameter]>,
+    pub initializers: Box<[Initializer]>,
     /// `= Outra<T>.ctor` (factory redirecionadora) ou `: this.x()` fica em
     /// `initializers` como [`Initializer::Redirect`].
     pub redirect: Option<RedirectTarget>,
@@ -428,9 +428,9 @@ pub struct Function {
     pub return_type: Option<TypeId>,
     /// `None` em expressões de função.
     pub name: Option<Name>,
-    pub type_params: Vec<TypeParameter>,
+    pub type_params: Box<[TypeParameter]>,
     /// Getters não têm lista (`None`); setters e demais têm.
-    pub parameters: Option<Vec<Parameter>>,
+    pub parameters: Option<Box<[Parameter]>>,
     pub modifier: AsyncModifier,
     pub body: FunctionBody,
 }
@@ -478,7 +478,7 @@ pub enum ParameterKind {
 #[derive(Debug)]
 pub struct Parameter {
     pub span: Span,
-    pub metadata: Vec<Annotation>,
+    pub metadata: Box<[Annotation]>,
     pub kind: ParameterKind,
     /// `required` (só em nomeados).
     pub required: bool,
@@ -494,8 +494,8 @@ pub struct Parameter {
     /// `None` só em parâmetros de tipo de função sem nome: `int Function(int)`.
     pub name: Option<Name>,
     /// Forma antiga `int f(int x)`: parâmetros de tipo e lista do parâmetro-função.
-    pub function_type_params: Vec<TypeParameter>,
-    pub function_parameters: Option<Vec<Parameter>>,
+    pub function_type_params: Box<[TypeParameter]>,
+    pub function_parameters: Option<Box<[Parameter]>>,
     pub default_value: Option<ExprId>,
 }
 
@@ -517,21 +517,21 @@ pub enum TypeKind {
     /// `Function` cru, `Never`, `Object`.
     Named {
         /// Uma ou duas partes (`p.Nome`).
-        name: Vec<Name>,
-        args: Vec<TypeId>,
+        name: Box<[Name]>,
+        args: Box<[TypeId]>,
     },
     /// `void`
     Void,
     /// `R Function<T>(P, {n})`
     Function {
         return_type: Option<TypeId>,
-        type_params: Vec<TypeParameter>,
-        parameters: Vec<Parameter>,
+        type_params: Box<[TypeParameter]>,
+        parameters: Box<[Parameter]>,
     },
     /// `(int, {String nome})`
     Record {
-        positional: Vec<TypeId>,
-        named: Vec<(Name, TypeId)>,
+        positional: Box<[TypeId]>,
+        named: Box<[(Name, TypeId)]>,
     },
 }
 
@@ -547,7 +547,7 @@ pub struct Stmt {
 
 #[derive(Debug)]
 pub enum StmtKind {
-    Block(Vec<StmtId>),
+    Block(Box<[StmtId]>),
     /// `late final int x = 1, y;` local.
     Variables(VariableList),
     /// `var (a, b) = e;` / `final [x, y] = e;`
@@ -571,7 +571,7 @@ pub enum StmtKind {
         await_: bool,
         init: Option<ForInit>,
         condition: Option<ExprId>,
-        updates: Vec<ExprId>,
+        updates: Box<[ExprId]>,
         body: StmtId,
     },
     ForIn {
@@ -591,7 +591,7 @@ pub enum StmtKind {
     },
     Switch {
         value: ExprId,
-        cases: Vec<SwitchCase>,
+        cases: Box<[SwitchCase]>,
     },
     Break(Option<Name>),
     Continue(Option<Name>),
@@ -602,11 +602,11 @@ pub enum StmtKind {
     },
     Try {
         body: StmtId,
-        catches: Vec<CatchClause>,
+        catches: Box<[CatchClause]>,
         finally_: Option<StmtId>,
     },
     Labeled {
-        labels: Vec<Name>,
+        labels: Box<[Name]>,
         body: StmtId,
     },
     Assert {
@@ -626,7 +626,7 @@ pub enum ForInit {
 pub enum ForInTarget {
     /// `for (int x in e)` / `for (var x in e)` / `for (final x in e)`.
     Declared {
-        metadata: Vec<Annotation>,
+        metadata: Box<[Annotation]>,
         final_: bool,
         var_: bool,
         ty: Option<TypeId>,
@@ -641,11 +641,11 @@ pub enum ForInTarget {
 #[derive(Debug)]
 pub struct SwitchCase {
     pub span: Span,
-    pub labels: Vec<Name>,
+    pub labels: Box<[Name]>,
     /// `case p when g:`; `None` para `default:`.
     pub pattern: Option<PatternId>,
     pub guard: Option<ExprId>,
-    pub body: Vec<StmtId>,
+    pub body: Box<[StmtId]>,
 }
 
 #[derive(Debug)]
@@ -943,7 +943,7 @@ pub enum CollectionElement {
         await_: bool,
         init: Option<ForInit>,
         condition: Option<ExprId>,
-        updates: Vec<ExprId>,
+        updates: Box<[ExprId]>,
         body: Box<CollectionElement>,
     },
     ForIn {
@@ -998,23 +998,23 @@ pub enum PatternKind {
     Parenthesized(PatternId),
     /// `<T>[a, b, ...rest]`
     List {
-        type_args: Vec<TypeId>,
-        elements: Vec<ListPatternElement>,
+        type_args: Box<[TypeId]>,
+        elements: Box<[ListPatternElement]>,
     },
     /// `<K, V>{k: p, ...}`
     Map {
-        type_args: Vec<TypeId>,
-        entries: Vec<MapPatternEntry>,
+        type_args: Box<[TypeId]>,
+        entries: Box<[MapPatternEntry]>,
         rest: bool,
     },
     /// `(a, nome: p, :x)`
     Record {
-        fields: Vec<PatternField>,
+        fields: Box<[PatternField]>,
     },
     /// `Nome<T>(campo: p, :x)`
     Object {
         ty: TypeId,
-        fields: Vec<PatternField>,
+        fields: Box<[PatternField]>,
     },
 }
 

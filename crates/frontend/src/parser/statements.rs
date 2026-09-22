@@ -62,7 +62,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Err(self.error("esperava '}' fechando o bloco"));
         }
         self.advance();
-        Ok(self.push_stmt(start, StmtKind::Block(stmts)))
+        Ok(self.push_stmt(start, StmtKind::Block(stmts.into_boxed_slice())))
     }
 
     /// `(init; cond; upd)` ou `(decl in e)`, com os parênteses, após `for`
@@ -121,7 +121,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.expect_op(Op::RParen)?;
                 return Ok(ForHeader::In {
                     target: ForInTarget::Declared {
-                        metadata,
+                        metadata: metadata.into_boxed_slice(),
                         final_,
                         var_,
                         ty,
@@ -148,7 +148,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 const_,
                 var_,
                 ty,
-                variables,
+                variables: variables.into_boxed_slice(),
             };
             return self.parse_classic_for_rest(Some(ForInit::Variables(list)));
         }
@@ -245,7 +245,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
             }
             let body = self.parse_statement()?;
-            return Ok(self.push_stmt(start, StmtKind::Labeled { labels, body }));
+            return Ok(self.push_stmt(
+                start,
+                StmtKind::Labeled {
+                    labels: labels.into_boxed_slice(),
+                    body,
+                },
+            ));
         }
 
         match self.kind() {
@@ -477,7 +483,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             const_,
             var_,
             ty,
-            variables: Vec::new(),
+            variables: Box::default(),
         };
         self.parse_variables_rest(start, list)
     }
@@ -517,21 +523,23 @@ impl<'s, 'i> Parser<'s, 'i> {
             const_: false,
             var_: false,
             ty: Some(ty),
-            variables: Vec::new(),
+            variables: Box::default(),
         };
         self.parse_variables_rest(start, list)
     }
 
     /// `nome (= e)? (, nome (= e)?)* ;` após os modificadores e o tipo.
     fn parse_variables_rest(&mut self, start: Span, mut list: VariableList) -> PResult<StmtId> {
+        let mut variables = Vec::new();
         loop {
             let name = self.expect_identifier()?;
             let initializer = self.parse_initializer_opt()?;
-            list.variables.push(Variable { name, initializer });
+            variables.push(Variable { name, initializer });
             if !self.eat_op(Op::Comma) {
                 break;
             }
         }
+        list.variables = variables.into_boxed_slice();
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Variables(list)))
     }
@@ -562,8 +570,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind: FunctionKind::Function,
             return_type,
             name: Some(name),
-            type_params,
-            parameters: Some(parameters),
+            type_params: type_params.into_boxed_slice(),
+            parameters: Some(parameters.into_boxed_slice()),
             modifier,
             body,
         };
@@ -618,7 +626,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 await_,
                 init,
                 condition,
-                updates,
+                updates: updates.into_boxed_slice(),
                 body,
             },
             ForHeader::In { target, iterable } => StmtKind::ForIn {
@@ -699,7 +707,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None => return Err(ParseError),
             },
         }
-        Ok(self.push_stmt(start, StmtKind::Switch { value, cases }))
+        Ok(self.push_stmt(
+            start,
+            StmtKind::Switch {
+                value,
+                cases: cases.into_boxed_slice(),
+            },
+        ))
     }
 
     fn parse_switch_cases(&mut self, cases: &mut Vec<SwitchCase>) -> PResult<()> {
@@ -728,10 +742,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             let body = self.parse_statement_list(true);
             cases.push(SwitchCase {
                 span: self.span_from(case_start),
-                labels,
+                labels: labels.into_boxed_slice(),
                 pattern,
                 guard,
-                body,
+                body: body.into_boxed_slice(),
             });
         }
         Ok(())
@@ -780,7 +794,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             start,
             StmtKind::Try {
                 body,
-                catches,
+                catches: catches.into_boxed_slice(),
                 finally_,
             },
         ))

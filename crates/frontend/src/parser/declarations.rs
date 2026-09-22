@@ -498,7 +498,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         Ok(self.ast.push_decl(Decl {
             span: self.span_from(start),
-            metadata,
+            metadata: metadata.into_boxed_slice(),
             kind,
         }))
     }
@@ -562,10 +562,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(ClassDecl {
                 modifiers,
                 name,
-                type_params,
+                type_params: type_params.into_boxed_slice(),
                 extends,
-                with,
-                implements,
+                with: with.into_boxed_slice(),
+                implements: implements.into_boxed_slice(),
                 mixin_application: true,
                 members: Vec::new(),
             });
@@ -585,10 +585,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(ClassDecl {
             modifiers,
             name,
-            type_params,
+            type_params: type_params.into_boxed_slice(),
             extends,
-            with,
-            implements,
+            with: with.into_boxed_slice(),
+            implements: implements.into_boxed_slice(),
             mixin_application: false,
             members,
         })
@@ -629,9 +629,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(MixinDecl {
             base,
             name,
-            type_params,
-            on,
-            implements,
+            type_params: type_params.into_boxed_slice(),
+            on: on.into_boxed_slice(),
+            implements: implements.into_boxed_slice(),
             members,
         })
     }
@@ -665,9 +665,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         Ok(EnumDecl {
             name,
-            type_params,
-            with,
-            implements,
+            type_params: type_params.into_boxed_slice(),
+            with: with.into_boxed_slice(),
+            implements: implements.into_boxed_slice(),
             constants,
             members,
         })
@@ -695,9 +695,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         Ok(EnumConstant {
             span: self.span_from(start),
-            metadata,
+            metadata: metadata.into_boxed_slice(),
             name,
-            type_args,
+            type_args: type_args.into_boxed_slice(),
             constructor,
             arguments,
         })
@@ -738,7 +738,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let members = self.parse_class_body(name_text)?;
         Ok(ExtensionDecl {
             name,
-            type_params,
+            type_params: type_params.into_boxed_slice(),
             on,
             members,
         })
@@ -769,12 +769,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(ExtensionTypeDecl {
             const_,
             name,
-            type_params,
+            type_params: type_params.into_boxed_slice(),
             constructor,
-            representation_metadata,
+            representation_metadata: representation_metadata.into_boxed_slice(),
             representation_type,
             representation_name,
-            implements,
+            implements: implements.into_boxed_slice(),
             members,
         })
     }
@@ -818,7 +818,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.expect_op(Op::Semicolon)?;
                 return Ok(TypedefDecl {
                     name,
-                    type_params,
+                    type_params: type_params.into_boxed_slice(),
                     kind: TypedefKind::Alias(ty),
                 });
             }
@@ -829,10 +829,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.expect_op(Op::Semicolon)?;
                 return Ok(TypedefDecl {
                     name,
-                    type_params,
+                    type_params: type_params.into_boxed_slice(),
                     kind: TypedefKind::Legacy {
                         return_type: None,
-                        parameters,
+                        parameters: parameters.into_boxed_slice(),
                     },
                 });
             }
@@ -844,10 +844,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_op(Op::Semicolon)?;
         Ok(TypedefDecl {
             name,
-            type_params,
+            type_params: type_params.into_boxed_slice(),
             kind: TypedefKind::Legacy {
                 return_type,
-                parameters,
+                parameters: parameters.into_boxed_slice(),
             },
         })
     }
@@ -1008,8 +1008,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 kind: FunctionKind::Function,
                 return_type: ty,
                 name: Some(name),
-                type_params,
-                parameters: Some(parameters),
+                type_params: type_params.into_boxed_slice(),
+                parameters: Some(parameters.into_boxed_slice()),
                 modifier,
                 body,
             });
@@ -1026,7 +1026,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             const_: mods.const_,
             var_: mods.var_,
             ty,
-            variables,
+            variables: variables.into_boxed_slice(),
         }))
     }
 
@@ -1058,8 +1058,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind,
             return_type,
             name: Some(name),
-            type_params: Vec::new(),
-            parameters,
+            type_params: Vec::new().into_boxed_slice(),
+            parameters: parameters.map(Vec::into_boxed_slice),
             modifier,
             body,
         }))
@@ -1138,7 +1138,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         Ok(self.ast.push_member(Member {
             span: self.span_from(start),
-            metadata,
+            metadata: metadata.into_boxed_slice(),
             kind,
         }))
     }
@@ -1202,8 +1202,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             factory,
             class_name,
             name,
-            parameters,
-            initializers,
+            parameters: parameters.into_boxed_slice(),
+            initializers: initializers.into_boxed_slice(),
             redirect,
             body,
         }))
