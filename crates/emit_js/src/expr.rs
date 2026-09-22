@@ -1373,9 +1373,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     continue;
                 }
             }
-            // Especificidade: prefere a extensão da própria biblioteca e `on` mais específico.
-            let score = if e.library == self.lib { 2 } else { 1 };
-            if best.as_ref().is_none_or(|b| score > b.3) {
+            // Especificidade: `on` mais específico vence; empate → biblioteca própria.
+            let score = if e.library == self.lib { 1 } else { 0 };
+            let better = match &best {
+                None => true,
+                Some((bext, _, bsubst, bscore)) => {
+                    let bon = self.ctx.ty_of(self.ctx.outline.extensions[bext.0 as usize].on).subst(bsubst);
+                    let a_more = self.ctx.is_subtype(&on_s, &bon) && !self.ctx.is_subtype(&bon, &on_s);
+                    let b_more = self.ctx.is_subtype(&bon, &on_s) && !self.ctx.is_subtype(&on_s, &bon);
+                    a_more || (!b_more && score > *bscore)
+                }
+            };
+            if better {
                 best = Some((ext, fid, subst, score));
             }
         }
@@ -1753,7 +1762,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&vty, "unary-", false);
                         (Js::prim(format!("{}{access}()", v.at(P_PRIMARY))), ret)
                     }
-                    None => (Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)), Ty::Dynamic),
+                    None => {
+                        if let Some((ext, fid, subst)) = self.find_extension_member(&vty, "unary-", false) {
+                            let e = self.ctx.program.extension(ext);
+                            let lib_var = self.lib_var(e.library);
+                            let ext_name = self.extension_js_name(ext);
+                            let ret = match self.ctx.fn_ty(fid).subst(&subst) {
+                                Ty::Fn { ret, .. } => (*ret).clone(),
+                                _ => Ty::Dynamic,
+                            };
+                            let mut args = self.ext_type_args(ext, &subst);
+                            args.push(v.code.clone());
+                            return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|unary-")), args.join(", "))), ret);
+                        }
+                        (Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)), Ty::Dynamic)
+                    }
                 }
             }
             UnaryOp::BitNot => {
@@ -2553,9 +2576,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let redirect = ctor.redirect.as_ref()?;
         // Resolve o tipo alvo no contexto da unidade do construtor.
         let sub = FnEmitter::new(self.ctx, self.m, unit, f.class, true);
-        let t = sub.resolve_type(redirect.ty);
+        let mut t = sub.resolve_type(redirect.ty);
+        let mut name = redirect.constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
+        // `= Classe.nome` chega como tipo com duas partes (`prefixo.Tipo`): se a
+        // primeira parte é uma classe, a segunda é o nome do construtor.
+        if !matches!(t, Ty::Iface { .. }) && redirect.constructor.is_none() {
+            if let ast::TypeKind::Named { name: parts, .. } = &sub.ast().ty(redirect.ty).kind {
+                if parts.len() == 2 {
+                    if let Some(b) = self.ctx.program.lookup(sub.lib, parts[0].sym) {
+                        if let Some(Element::Class(c)) = b.getter {
+                            t = Ty::iface(c);
+                            name = self.name(parts[1].sym).to_string();
+                        }
+                    }
+                }
+            }
+        }
         let Ty::Iface { class, .. } = t else { return None };
-        let name = redirect.constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
         let key = if name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(&name) };
         let tfid = key.and_then(|k| self.ctx.program.class(class).constructors.get(&k).copied());
         let is_factory = tfid.is_some_and(|x| self.ctx.program.function(x).factory);

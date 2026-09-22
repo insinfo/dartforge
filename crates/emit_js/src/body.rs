@@ -154,7 +154,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// entre escopos irmãos evitada: JS `let` tem escopo de bloco também).
     pub fn declare(&mut self, sym: SymbolId, ty: Ty) -> String {
         let base = js::ident(self.name(sym));
-        let js = base;
+        let in_use = |s: &Self, n: &str| s.scopes.iter().any(|sc| sc.values().any(|l| l.js == n));
+        let mut js = base.clone();
+        let mut n = 0;
+        while in_use(self, &js) {
+            n += 1;
+            js = format!("{base}${n}");
+        }
         self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false, late_final: false });
         js
     }
