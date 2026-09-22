@@ -229,6 +229,7 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
         out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
     }
     out.push_str("dart._checkModuleNullSafetyMode(true);\n");
+    out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
     out.push_str(&body.out);
     out.push_str(&rules);
     let uri = library.uri.clone();

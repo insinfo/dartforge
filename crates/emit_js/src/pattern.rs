@@ -24,6 +24,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 None => "true".into(),
             },
+            PatternKind::Variable { ty, name, final_, var_ } if !irrefutable && ty.is_none() && !*final_ && !*var_ && !matches!(self.resolve_ident(name.sym), crate::expr::IdentTarget::Local(..) | crate::expr::IdentTarget::Unknown) => {
+                // Identificador solto em contexto de casamento: padrão constante.
+                let (c, cty) = self.emit_identifier_value(name.sym);
+                self.emit_equals(&c, &cty, &v, vty).code
+            }
             PatternKind::Variable { ty, name, .. } => {
                 let (test, bty) = match ty {
                     Some(t) => {

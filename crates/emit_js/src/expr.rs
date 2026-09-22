@@ -121,6 +121,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Coerções implícitas: instanciação de tearoff genérico e `.call` de classe invocável.
     pub fn coerce_to(&mut self, js: Js, ty: Ty, expected: &Ty) -> (Js, Ty) {
+        if ty.is_dynamic() && !self.in_const {
+            let needs_cast = match expected {
+                Ty::Iface { class, nullable, .. } => !(Some(*class) == self.ctx.object && *nullable),
+                Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } => true,
+                _ => false,
+            };
+            if needs_cast && !expected.mentions_params() && js.code != "null" {
+                return (self.as_cast(&js, expected), expected.clone());
+            }
+            return (js, ty);
+        }
         let Ty::Fn { type_params: etps, .. } = expected else { return (js, ty) };
         if !etps.is_empty() {
             return (js, ty);
@@ -996,7 +1007,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         let mut values = pos_js.clone();
         values.extend(sorted_vals);
-        let code = format!("dart.recordLiteral({}, {}, {named_js}, [{}])", js::string_literal(&shape), pos_js.len(), values.join(", "));
+        let mut code = format!("dart.recordLiteral({}, {}, {named_js}, [{}])", js::string_literal(&shape), pos_js.len(), values.join(", "));
+        if self.in_const && prefix.is_empty() {
+            let lv = self.lib_var(self.lib);
+            code = format!("{lv}.$C({}, () => {code})", js::string_literal(&code));
+        }
         let ty = Ty::Record { pos: pos_ty, named: sorted.into_iter().map(|(n, _, t)| (n, t)).collect(), nullable: false };
         if prefix.is_empty() {
             (Js::prim(code), ty)
@@ -1008,6 +1023,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // -----------------------------------------------------------------------
     // Identificadores e acesso a membros
     // -----------------------------------------------------------------------
+
+    /// Valor de um identificador (sem nó de expressão).
+    pub fn emit_identifier_value(&mut self, sym: dartforge_intern::SymbolId) -> (Js, Ty) {
+        self.emit_identifier(sym, ExprId(u32::MAX))
+    }
 
     fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, _e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
@@ -2055,7 +2075,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     parts.push(format!("{tr} = {}", recv.code));
                     tr
                 };
-                let idx_js = if is_simple(&idx.code) {
+                let idx_js = if is_simple(&idx.code) && (is_simple(&v.code) || v.code.starts_with('"')) {
                     idx.code.clone()
                 } else {
                     let ti = self.temp();
@@ -2290,17 +2310,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             // Inferência: contexto esperado e argumentos.
             let free: Vec<u32> = params.iter().map(|p| p.id).collect();
             if let Some(e) = expected {
-                if let Some(sup) = self.ctx.as_super(&e.non_null(), class) {
-                    if let Ty::Iface { args, .. } = &sup {
-                        for (p, a) in params.iter().zip(args.iter()) {
-                            if !a.is_dynamic() && !a.mentions_params() {
-                                subst.insert(p.id, a.clone());
+                if let Some(ec) = e.non_null().class() {
+                    // `C<T..>` visto como o supertipo esperado, casado com o esperado.
+                    let this_ty = self.ctx.this_ty(class);
+                    if let Some(sup) = self.ctx.as_super(&this_ty, ec) {
+                        let mut tmp = HashMap::new();
+                        self.match_type(&sup, &e.non_null(), &free, &mut tmp);
+                        for (k, v) in tmp {
+                            if !v.is_dynamic() && !v.mentions_params() {
+                                subst.insert(k, v);
                             }
                         }
                     }
-                } else if let Some(e) = expected {
-                    // Expected type may be a supertype of the class (e.g. Iterable<int> for List).
-                    let _ = e;
                 }
             }
             let (arg_js, _arg_tys) = self.emit_args_infer(&ctor_fn, arguments, &free, &mut subst, expected);
