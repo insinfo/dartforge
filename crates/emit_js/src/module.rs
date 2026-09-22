@@ -96,6 +96,16 @@ pub fn dartx_var(name: &str) -> String {
 
 /// Emite todos os módulos do programa.
 pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
+    emitir_filtrado(ctx, None)
+}
+
+/// Como [`emitir`], emitindo o texto só dos módulos que contêm alguma das
+/// bibliotecas de `so` (sessão residente: o resto continua valendo do
+/// compilado anterior). `None` emite tudo.
+///
+/// Os módulos pulados não entram em `Emitido::modulos`; quem chama junta com
+/// o que já tinha.
+pub fn emitir_filtrado(ctx: &Ctx, so: Option<&HashSet<u32>>) -> Result<Emitido, Vec<Diagnostic>> {
     let mut modulos = Vec::new();
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
@@ -111,8 +121,11 @@ pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
         for g in &group {
             done.insert(g.0);
         }
-        let text = emit_group(ctx, &group);
-        modulos.push((info.module_path.clone(), text));
+        let emitir_este = so.is_none_or(|s| group.iter().any(|g| s.contains(&g.0)));
+        if emitir_este {
+            let text = emit_group(ctx, &group);
+            modulos.push((info.module_path.clone(), text));
+        }
         for &g in &group {
             if Some(g) == ctx.program.entry {
                 entry_ident = ctx.libs[g.0 as usize].ident.clone();

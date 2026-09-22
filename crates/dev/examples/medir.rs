@@ -57,7 +57,11 @@ fn main() {
     });
     let alvo = args.get(2).map(PathBuf::from).unwrap_or_else(|| entrada.clone());
     let edicoes: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(20);
-    let saida = PathBuf::from("target/dev-medir");
+    // `DARTFORGE_DEV_SAIDA` deixa o verificador apontar a sessão para o mesmo
+    // diretório que o `compile-js` completo escreveu.
+    let saida = std::env::var_os("DARTFORGE_DEV_SAIDA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/dev-medir"));
     if !entrada.exists() {
         eprintln!("entrada não existe: {}", entrada.display());
         return;
@@ -110,10 +114,13 @@ fn main() {
     linha("edição de corpo", &r);
     detalhe("carga da edição de corpo", &r);
     println!(
-        "   corpo alterado: {} | API alterada: {} (+{} dependentes)",
+        "   corpo alterado: {} | API alterada: {} (+{} dependentes) | bibliotecas reemitidas: {} | módulos reemitidos: {} | contexto da emissão {:.1} ms",
         r.corpo_alterado.len(),
         r.api_alterada.len(),
-        r.dependentes_invalidados
+        r.dependentes_invalidados,
+        r.bibliotecas_reemitidas,
+        r.modulos_reemitidos,
+        r.emissao_contexto.as_secs_f64() * 1000.0
     );
     let api_mudou_no_corpo = r.api_alterada.len();
     restaurar(&alvo, base);
@@ -125,9 +132,12 @@ fn main() {
     let r = sessao.compilar().expect("edição de API");
     linha("edição de API", &r);
     println!(
-        "   API alterada: {} biblioteca(s), {} dependente(s) invalidado(s)",
+        "   API alterada: {} biblioteca(s), {} dependente(s) invalidado(s) | bibliotecas reemitidas: {} | módulos reemitidos: {} | contexto da emissão {:.1} ms",
         r.api_alterada.len(),
-        r.dependentes_invalidados
+        r.dependentes_invalidados,
+        r.bibliotecas_reemitidas,
+        r.modulos_reemitidos,
+        r.emissao_contexto.as_secs_f64() * 1000.0
     );
     restaurar(&alvo, tamanho);
 

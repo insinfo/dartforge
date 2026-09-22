@@ -41,6 +41,12 @@ pub struct Relatorio {
     /// Dependentes invalidados por mudança de API.
     pub dependentes_invalidados: usize,
     pub modulos: usize,
+    /// Módulos cujo texto foi realmente gerado nesta compilação.
+    pub modulos_reemitidos: usize,
+    /// Bibliotecas reemitidas (`usize::MAX` = programa inteiro).
+    pub bibliotecas_reemitidas: usize,
+    /// Custo de montar o contexto de emissão (hierarquia, grupos, interop).
+    pub emissao_contexto: Duration,
     pub modulos_escritos: usize,
     pub avisos_tipos: usize,
     /// Primeira compilação da sessão (nada reaproveitado).
@@ -79,7 +85,7 @@ impl Relatorio {
         }
         s.push_str(&format!("{:<24}{:>9.1} ms\n", "total", ms(self.total())));
         s.push_str(&format!(
-            "unidades: {} reaproveitadas + {} reanalisadas; {} bibliotecas; corpo alterado: {}; API alterada: {} (+{} dependentes); módulos: {} ({} escritos); avisos: {}\n",
+            "unidades: {} reaproveitadas + {} reanalisadas; {} bibliotecas; corpo alterado: {}; API alterada: {} (+{} dependentes); módulos: {} ({} reemitidos, {} escritos); avisos: {}\n",
             self.unidades_reaproveitadas,
             self.unidades_reanalisadas,
             self.bibliotecas,
@@ -87,6 +93,7 @@ impl Relatorio {
             self.api_alterada.len(),
             self.dependentes_invalidados,
             self.modulos,
+            self.modulos_reemitidos,
             self.modulos_escritos,
             self.avisos_tipos
         ));
@@ -106,8 +113,13 @@ pub struct Sessao {
     unidades: CacheUnidades,
     /// `uri da biblioteca` → hashes da compilação anterior.
     hashes: HashMap<String, HashesBiblioteca>,
+    /// JS de cada módulo da última compilação (caminho → texto).
+    modulos: HashMap<String, String>,
     /// `uri` → uris que ela importa/exporta (para propagar mudança de API).
     dependentes: HashMap<String, Vec<String>>,
+    /// Arquivos invalidados desde a última compilação: só as bibliotecas que
+    /// os contêm precisam de hash novo.
+    sujos: std::collections::HashSet<PathBuf>,
     primeira: bool,
 }
 
@@ -135,7 +147,9 @@ impl Sessao {
             interner: Interner::new(),
             unidades: CacheUnidades::nova(),
             hashes: HashMap::new(),
+            modulos: HashMap::new(),
             dependentes: HashMap::new(),
+            sujos: std::collections::HashSet::new(),
             primeira: true,
         })
     }
@@ -172,6 +186,8 @@ impl Sessao {
         );
         self.unidades.invalidar(&p);
         self.unidades.invalidar(path);
+        self.sujos.insert(p);
+        self.sujos.insert(path.to_path_buf());
     }
 
     /// Compila (ou recompila) e escreve o que mudou.
@@ -216,24 +232,73 @@ impl Sessao {
             dartforge_types::resolve_outline(&program, &self.interner, &mut table, &core);
         rel.outline = t.elapsed();
 
+        // Os hashes vêm antes da inferência de corpos: são eles que dizem o
+        // que precisa ser reanalisado e reemitido.
         let t = Instant::now();
-        let (bodies, diags_corpos) =
-            dartforge_types::infer_program_bodies(&program, &self.interner, &mut table, &core, &mut outline);
+        let afetadas = self.comparar_hashes(&program, &mut rel);
+        rel.hashes = t.elapsed();
+
+        let t = Instant::now();
+        let (bodies, diags_corpos) = match &afetadas {
+            None => dartforge_types::infer_program_bodies(&program, &self.interner, &mut table, &core, &mut outline),
+            Some(libs) => dartforge_types::infer_bodies_das_bibliotecas(
+                &program, &self.interner, &mut table, &core, &mut outline, libs,
+            ),
+        };
         rel.corpos = t.elapsed();
         rel.avisos_tipos = diags_outline.len() + diags_corpos.len();
 
         let t = Instant::now();
-        let emitido = dartforge_emit_js::emitir_programa(&program, &self.interner, &table, &core, &outline, &bodies)
-            .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
+        let mut emitido = match afetadas {
+            // Primeira compilação (ou mudança de grafo): emite tudo.
+            None => {
+                let e = dartforge_emit_js::emitir_programa(&program, &self.interner, &table, &core, &outline, &bodies)
+                    .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
+                rel.bibliotecas_reemitidas = usize::MAX;
+                e
+            }
+            Some(libs) => {
+                rel.bibliotecas_reemitidas = libs.len();
+                let (e, contexto) = dartforge_emit_js::emitir_modulos(
+                    &program, &self.interner, &table, &core, &outline, &bodies, &libs,
+                )
+                .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
+                rel.emissao_contexto = contexto;
+                e
+            }
+        };
+        rel.modulos_reemitidos = emitido.modulos.len();
+        // O texto dos módulos não reemitidos continua valendo da compilação
+        // anterior. Dos reemitidos, só vão para o disco os que mudaram de
+        // texto — a comparação é com o que a sessão tem em memória, sem ler o
+        // arquivo (o módulo de um pacote grande tem megabytes).
+        let anteriores = std::mem::take(&mut self.modulos);
+        let mut mudados = Vec::new();
+        for (caminho, texto) in emitido.modulos.drain(..) {
+            let igual = anteriores.get(&caminho).is_some_and(|t| *t == texto);
+            if !igual {
+                mudados.push((caminho.clone(), texto.clone()));
+            }
+            self.modulos.insert(caminho, texto);
+        }
+        for (caminho, texto) in anteriores {
+            self.modulos.entry(caminho).or_insert(texto);
+        }
+        emitido.modulos = mudados;
         rel.emissao = t.elapsed();
-        rel.modulos = emitido.modulos.len();
+        rel.modulos = self.modulos.len();
 
+        // Escrita: só os módulos reemitidos podem ter texto diferente do que
+        // está no disco, então só eles vão para `escrever` (que ainda compara
+        // byte a byte antes de gravar). Comparar os 352 do `new_sali` a cada
+        // edição custava uma leitura por arquivo.
         let t = Instant::now();
-        self.comparar_hashes(&program, &mut rel);
-        rel.hashes = t.elapsed();
-
-        let t = Instant::now();
-        rel.modulos_escritos = dartforge_emit_js::escrever(&emitido, &self.saida, &self.dart_sdk_js)?;
+        // Na primeira compilação o diretório pode já ter saída de outra
+        // execução: aí vale comparar. Nas seguintes, a sessão já sabe que o
+        // texto mudou (comparou com o da compilação anterior, em memória).
+        let comparar = rel.primeira;
+        rel.modulos_escritos =
+            dartforge_emit_js::escrever_opcoes(&emitido, &self.saida, &self.dart_sdk_js, comparar)?;
         rel.escrita = t.elapsed();
 
         // As unidades voltam para o cache; o resto da compilação morre aqui.
@@ -245,27 +310,58 @@ impl Sessao {
         Ok(rel)
     }
 
-    /// Recalcula os dois hashes por biblioteca do usuário e preenche no
-    /// relatório o que mudou e quem depende disso.
-    fn comparar_hashes(&mut self, program: &Program, rel: &mut Relatorio) {
+    /// Recalcula os dois hashes por biblioteca do usuário, preenche no
+    /// relatório o que mudou e devolve **quais bibliotecas precisam ser
+    /// reemitidas**: as que mudaram de conteúdo e, por mudança de API, as
+    /// dependentes. `None` quer dizer "emitir tudo" — primeira compilação ou
+    /// biblioteca nova/apagada, em que o conjunto anterior não serve.
+    fn comparar_hashes(&mut self, program: &Program, rel: &mut Relatorio) -> Option<Vec<LibraryId>> {
+        let primeira = self.hashes.is_empty();
+        let mut ids: HashMap<String, LibraryId> = HashMap::with_capacity(program.libraries.len());
         let mut novos: HashMap<String, HashesBiblioteca> = HashMap::with_capacity(program.libraries.len());
         let mut api_alterada: Vec<String> = Vec::new();
+        let mut conteudo_alterado: Vec<String> = Vec::new();
+        let mut novas_ou_perdidas = false;
         for i in 0..program.libraries.len() {
             let lib = LibraryId(i as u32);
             let l = program.library(lib);
             if l.is_sdk || l.units.is_empty() {
                 continue;
             }
-            let h = hashes_da_biblioteca(program, lib);
-            if let Some(antigo) = self.hashes.get(&l.uri) {
-                if antigo.conteudo != h.conteudo {
-                    rel.corpo_alterado.push(l.uri.clone());
-                }
-                if antigo.api != h.api {
-                    api_alterada.push(l.uri.clone());
+            // Só as bibliotecas com algum arquivo sujo precisam de hash novo:
+            // o resto tem as mesmas árvores da compilação anterior. (Rehash
+            // de tudo custava 26 ms por edição no `new_sali/core`.)
+            let suja = primeira
+                || l.units.iter().any(|&u| {
+                    program.unit(u).path.as_ref().is_some_and(|p| self.sujos.contains(p))
+                });
+            if !suja {
+                if let Some(&antigo) = self.hashes.get(&l.uri) {
+                    ids.insert(l.uri.clone(), lib);
+                    novos.insert(l.uri.clone(), antigo);
+                    continue;
                 }
             }
+            let h = hashes_da_biblioteca(program, lib);
+            match self.hashes.get(&l.uri) {
+                Some(antigo) => {
+                    if antigo.conteudo != h.conteudo {
+                        rel.corpo_alterado.push(l.uri.clone());
+                        conteudo_alterado.push(l.uri.clone());
+                    }
+                    if antigo.api != h.api {
+                        api_alterada.push(l.uri.clone());
+                    }
+                }
+                // Biblioteca que não existia na compilação anterior.
+                None if !primeira => novas_ou_perdidas = true,
+                None => {}
+            }
+            ids.insert(l.uri.clone(), lib);
             novos.insert(l.uri.clone(), h);
+        }
+        if novos.len() != self.hashes.len() && !primeira {
+            novas_ou_perdidas = true;
         }
         // Grafo reverso: quem importa/exporta cada biblioteca.
         let mut dependentes: HashMap<String, Vec<String>> = HashMap::new();
@@ -297,8 +393,27 @@ impl Sessao {
             }
         }
         rel.dependentes_invalidados = invalidados.len();
-        rel.api_alterada = api_alterada;
         self.hashes = novos;
+        self.sujos.clear();
         self.dependentes = dependentes;
+
+        // Quem precisa ser reemitido: quem mudou de conteúdo (o JS sai do
+        // corpo) e quem depende de uma API alterada. Na primeira compilação,
+        // ou quando o conjunto de bibliotecas mudou, emite tudo.
+        let decisao = if primeira || novas_ou_perdidas || self.modulos.is_empty() {
+            None
+        } else {
+            let mut libs: Vec<LibraryId> = Vec::new();
+            for uri in conteudo_alterado.iter().chain(api_alterada.iter()).chain(invalidados.iter()) {
+                if let Some(&id) = ids.get(uri) {
+                    if !libs.contains(&id) {
+                        libs.push(id);
+                    }
+                }
+            }
+            Some(libs)
+        };
+        rel.api_alterada = api_alterada;
+        decisao
     }
 }

@@ -38,6 +38,29 @@ pub fn emitir_programa(
     module::emitir(&ctx)
 }
 
+/// Emite só os módulos que contêm alguma das bibliotecas dadas, para a sessão
+/// residente (`dartforge dev`): o JS de uma biblioteca que não mudou e cujas
+/// dependências não mudaram de API continua valendo.
+///
+/// `Emitido::modulos` traz apenas os módulos emitidos; `Emitido::entrada`
+/// (o `main.mjs`) vem sempre, porque é barato e depende só da entrada.
+/// Devolve também quanto custou montar o contexto de emissão.
+pub fn emitir_modulos(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    bodies: &BodyTypes,
+    bibliotecas: &[dartforge_elements::model::LibraryId],
+) -> Result<(Emitido, std::time::Duration), Vec<Diagnostic>> {
+    let t = std::time::Instant::now();
+    let ctx = ctx::Ctx::new(program, interner, table, core, outline, bodies);
+    let contexto = t.elapsed();
+    let so: std::collections::HashSet<u32> = bibliotecas.iter().map(|l| l.0).collect();
+    module::emitir_filtrado(&ctx, Some(&so)).map(|e| (e, contexto))
+}
+
 /// Tempos por fase e contagens de uma compilação (`dartforge compile-js --timings`).
 #[derive(Debug, Default, Clone)]
 pub struct Relatorio {
@@ -219,7 +242,11 @@ pub fn compilar_com_relatorio(
 
 /// Grava `texto` em `p` só se o conteúdo atual for diferente (timestamp
 /// intacto quando nada mudou: o Vite/HMR não recarrega). Devolve se gravou.
-fn gravar_se_mudou(p: &std::path::Path, texto: &str) -> Result<bool, String> {
+fn gravar_se_mudou(p: &std::path::Path, texto: &str, comparar: bool) -> Result<bool, String> {
+    if !comparar {
+        std::fs::write(p, texto).map_err(|e| format!("{}: {e}", p.display()))?;
+        return Ok(true);
+    }
     if let Ok(atual) = std::fs::read(p) {
         if atual == texto.as_bytes() {
             return Ok(false);
@@ -234,6 +261,20 @@ fn gravar_se_mudou(p: &std::path::Path, texto: &str) -> Result<bool, String> {
 /// Devolve quantos arquivos foram de fato gravados (os idênticos ao que já
 /// estava no disco não são reescritos).
 pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<usize, String> {
+    escrever_opcoes(emitido, dir, dart_sdk_js, true)
+}
+
+/// Como [`escrever`], podendo pular a comparação com o arquivo em disco.
+///
+/// A sessão residente (`dartforge dev`) já sabe, pelo texto da compilação
+/// anterior que mantém em memória, quais módulos mudaram: reler o arquivo
+/// para comparar custaria uma leitura de megabytes por módulo grande.
+pub fn escrever_opcoes(
+    emitido: &Emitido,
+    dir: &std::path::Path,
+    dart_sdk_js: &std::path::Path,
+    comparar: bool,
+) -> Result<usize, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut escritos = 0usize;
     for (path, text) in &emitido.modulos {
@@ -241,9 +282,9 @@ pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::pat
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        escritos += usize::from(gravar_se_mudou(&p, text)?);
+        escritos += usize::from(gravar_se_mudou(&p, text, comparar)?);
     }
-    escritos += usize::from(gravar_se_mudou(&dir.join("main.mjs"), &emitido.entrada)?);
+    escritos += usize::from(gravar_se_mudou(&dir.join("main.mjs"), &emitido.entrada, true)?);
     let dest = dir.join("dart_sdk.js");
     if !dest.exists() {
         std::fs::copy(dart_sdk_js, &dest)
