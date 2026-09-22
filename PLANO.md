@@ -3,7 +3,7 @@
 ## Objetivo e limites
 
 Construir em Rust um compilador Dart → JavaScript, analisador reutilizável, servidor LSP,
-compilador de templates ngdart 8 e ferramenta de desenvolvimento web.
+compilador de templates ngdart 8 e ferramenta de desenvolvimento web para substituir o webdev lento.
 Objetivos separados: baixa latência de compilação, menor memória/CPU, JavaScript pequeno e
 execução rápida no navegador. Melhorar um não implica melhorar os outros.
 
