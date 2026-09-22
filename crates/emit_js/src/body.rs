@@ -80,6 +80,8 @@ pub struct FnEmitter<'m, 'a> {
     pub pending_prefix: Vec<String>,
     pub extension_this: Option<Ty>,
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
+    /// Extensão aplicada explicitamente (`Ext(x).m`), consumida no próximo acesso.
+    pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
     /// Dentro de uma expressão constante (instanciações implícitas viram `dart.const`).
     pub in_const: bool,
     /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
@@ -119,6 +121,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             pending_prefix: Vec::new(),
             extension_this: None,
             current_extension: None,
+            forced_ext: None,
             in_const: false,
             case_labels: Vec::new(),
         }
@@ -911,8 +914,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 self.w.line(&format!("{t} = {};", vjs.code));
                 let mut binds = Vec::new();
                 let cond = self.pattern_cond(*pattern, &t, &vty, &mut binds, true);
-                for (sym, ty) in &binds {
-                    let jsn = self.declare(*sym, ty.clone());
+                for (_, _, jsn) in &binds {
                     self.w.line(&format!("let {jsn} = null;"));
                 }
                 if cond != "true" {
@@ -936,8 +938,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     self.push_scope();
                     let mut binds = Vec::new();
                     let cond = self.pattern_cond(*pat, &t, &vty, &mut binds, false);
-                    for (sym, ty) in &binds {
-                        let jsn = self.declare(*sym, ty.clone());
+                    for (_, _, jsn) in &binds {
                         self.w.line(&format!("let {jsn} = null;"));
                     }
                     let mut full = cond;
@@ -1330,8 +1331,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     pub fn emit_pattern_bind_stmt(&mut self, p: ast::PatternId, value_js: &str, vty: &Ty) {
         let mut binds = Vec::new();
         let cond = self.pattern_cond(p, value_js, vty, &mut binds, true);
-        for (sym, ty) in &binds {
-            let jsn = self.declare(*sym, ty.clone());
+        for (_, _, jsn) in &binds {
             self.w.line(&format!("let {jsn} = null;"));
         }
         if cond != "true" {
@@ -1466,8 +1466,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 }
                 alts.push(full);
             }
-            for (sym, ty) in &binds {
-                let jsn = self.declare(*sym, ty.clone());
+            for (_, _, jsn) in &binds {
                 self.w.line(&format!("let {jsn} = null;"));
             }
             let full = if alts.len() == 1 { alts.remove(0) } else { alts.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" || ") };

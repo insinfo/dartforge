@@ -9,7 +9,7 @@ use dartforge_intern::SymbolId;
 impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Condição JS que testa `value_js` (tipo `vty`) contra o padrão, ligando
     /// variáveis (`(x = v, true)`); `binds` recebe (símbolo, tipo) a declarar.
-    pub fn pattern_cond(&mut self, p: ast::PatternId, value_js: &str, vty: &Ty, binds: &mut Vec<(SymbolId, Ty)>, irrefutable: bool) -> String {
+    pub fn pattern_cond(&mut self, p: ast::PatternId, value_js: &str, vty: &Ty, binds: &mut Vec<(SymbolId, Ty, String)>, irrefutable: bool) -> String {
         let pat = self.ast().pattern(p);
         let v = Js::prim(value_js.to_string());
         match &pat.kind {
@@ -41,8 +41,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     None => (None, vty.clone()),
                 };
-                push_bind(binds, name.sym, bty);
-                let jsn = js::ident(self.name(name.sym));
+                let jsn = match binds.iter().find(|(s, _, _)| *s == name.sym) {
+                    Some((_, _, j)) => j.clone(),
+                    None => {
+                        let j = self.declare(name.sym, bty.clone());
+                        binds.push((name.sym, bty, j.clone()));
+                        j
+                    }
+                };
                 let assign = format!("({jsn} = {value_js}, true)");
                 match test {
                     Some(t) => format!("{} && {assign}", Js::new(t, P_PRIMARY).at(P_AND)),
@@ -249,11 +255,6 @@ fn is_inferred_named(_s: &FnEmitter, _f: &ast::PatternField) -> bool {
     false
 }
 
-fn push_bind(binds: &mut Vec<(SymbolId, Ty)>, sym: SymbolId, ty: Ty) {
-    if !binds.iter().any(|(s, _)| *s == sym) {
-        binds.push((sym, ty));
-    }
-}
 
 fn and(a: &str, b: &str) -> String {
     if a == "true" {

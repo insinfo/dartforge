@@ -670,8 +670,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.push_scope();
                     let mut binds = Vec::new();
                     let cond = self.pattern_cond(*pat, &t, &vty, &mut binds, false);
-                    for (sym, ty) in &binds {
-                        let jsn = self.declare(*sym, ty.clone());
+                    for (_, _, jsn) in &binds {
                         self.w.line(&format!("let {jsn} = null;"));
                     }
                     let mut full = cond;
@@ -1196,6 +1195,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// `recv.name` (getter, campo, ou tearoff de método).
     pub fn emit_member_get(&mut self, recv: &Js, recv_ty: &Ty, name: &str, member: Option<Member>) -> (Js, Ty) {
+        if self.forced_ext.is_some() {
+            if let Some(r) = self.try_extension_get(recv, recv_ty, name) {
+                return r;
+            }
+            self.forced_ext = None;
+        }
         let member = member.or_else(|| self.ctx.lookup_member(recv_ty, name, false));
         // Membros de Object com helpers.
         let recv_nn = recv_ty.non_null();
@@ -1268,7 +1273,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Getter de extensão aplicável.
     pub fn try_extension_get(&mut self, recv: &Js, recv_ty: &Ty, name: &str) -> Option<(Js, Ty)> {
-        let (ext, fid, subst) = self.find_extension_member(recv_ty, name, false)?;
+        let found = self.find_extension_member(recv_ty, name, false);
+        self.forced_ext = None;
+        let (ext, fid, subst) = found?;
         let f = self.ctx.program.function(fid);
         let e = self.ctx.program.extension(ext);
         let ext_name = self.extension_js_name(ext);
@@ -1351,6 +1358,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     ) -> Option<(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId, HashMap<u32, Ty>)> {
         let key = if setter { format!("{name}_=") } else { name.to_string() };
         let sym = self.ctx.sym(&key)?;
+        if let Some(forced) = self.forced_ext {
+            let e = self.ctx.program.extension(forced);
+            let fid = *e.instance_members.get(&sym)?;
+            let data = &self.ctx.outline.extensions[forced.0 as usize];
+            let on = self.ctx.ty_of(data.on);
+            let mut subst = HashMap::new();
+            let params: Vec<u32> = data.type_params.iter().map(|p| p.0).collect();
+            self.match_type(&on, recv_ty, &params, &mut subst);
+            return Some((forced, fid, subst));
+        }
         let recv_nn = if recv_ty.is_nullable() { recv_ty.clone() } else { recv_ty.clone() };
         let mut best: Option<(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId, HashMap<u32, Ty>, u32)> = None;
         for ext in self.ctx.visible_extensions(self.lib) {
@@ -1535,6 +1552,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Alvo de um seletor: se também for seletor, propaga guardas.
     pub fn emit_target(&mut self, target: ExprId) -> (Js, Ty, Vec<Guard>) {
         let t = self.expr(target);
+        // `Ext(x).membro`: aplicação explícita de extensão.
+        if let ExprKind::Call { target: ct, arguments } = &t.kind {
+            if let ExprKind::Identifier(id) = &self.expr(*ct).kind {
+                if let IdentTarget::Element(Element::Extension(ext)) = self.resolve_ident(id.sym) {
+                    if let Some(a) = arguments.args.first() {
+                        let (js, ty) = self.emit_expr(a.value, None);
+                        self.forced_ext = Some(ext);
+                        return (js, ty, vec![]);
+                    }
+                }
+            }
+        }
         match &t.kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => self.emit_selector(target, None),
             _ => {
@@ -2402,8 +2431,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.push_scope();
             let mut binds = Vec::new();
             let cond = self.pattern_cond(c.pattern, &t, &vty, &mut binds, false);
-            for (sym, ty) in &binds {
-                let jsn = self.declare(*sym, ty.clone());
+            for (_, _, jsn) in &binds {
                 self.w.line(&format!("let {jsn} = null;"));
             }
             let mut full = cond;

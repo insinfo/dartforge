@@ -320,6 +320,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => {}
         }
+        if self.forced_ext.is_some() {
+            if let Some(r) = self.try_extension_call(recv, &recv_nn, name, arguments, expected) {
+                return r;
+            }
+            self.forced_ext = None;
+        }
         if recv_ty.is_dynamic() {
             return self.emit_dsend(recv, name, arguments);
         }
@@ -382,7 +388,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     fn try_extension_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
-        let (ext, fid, subst) = self.find_extension_member(recv_ty, name, false)?;
+        let found = self.find_extension_member(recv_ty, name, false);
+        self.forced_ext = None;
+        let (ext, fid, subst) = found?;
         let f = self.ctx.program.function(fid);
         let e = self.ctx.program.extension(ext);
         let ext_name = self.extension_js_name(ext);
