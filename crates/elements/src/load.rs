@@ -615,8 +615,10 @@ fn load_unit(
     // invalidado pelo dono do cache; a carga não consulta o disco por isso).
     let mut unidades = unidades;
     if let Some(cache) = unidades.as_deref_mut() {
-        if let Some(mut u) = cache.tirar(path) {
-            if crate::unidades::serve(&u, uri, role) {
+        let tirada = cache.tirar(path);
+        if let Some(mut u) = tirada {
+            let ok = crate::unidades::serve(&u, uri, role);
+            if ok {
                 u.library = lib_id;
                 let unit_id = UnitId(program.units.len() as u32);
                 program.units.push(u);

@@ -92,14 +92,32 @@ fn main() {
     detalhe("carga da primeira", &r);
     let vivos_apos_primeira = dartforge_instrument::live_bytes();
 
-    // 1. Edição de corpo: função privada nova (não muda a API pública).
-    let tamanho = acrescentar(&alvo, "\nvoid _forjaCorpo0() { print('forja 0'); }\n").expect("edição");
+    // 1. Edição de corpo. Duas funções são acrescentadas e depois um
+    // `print` é inserido **no corpo da primeira**: é a edição real (uma
+    // tecla dentro de um método) e desloca tudo o que vem depois, que era
+    // onde o hash de API por faixa de texto escorregava.
+    let base = acrescentar(&alvo, "\nvoid _forjaA() { print('a'); }\nvoid _forjaB() { print('b'); }\n").expect("edição");
+    sessao.arquivo_mudou(&alvo);
+    sessao.compilar().expect("preparo da edição de corpo");
+    restaurar(&alvo, base);
+    let tamanho = acrescentar(
+        &alvo,
+        "\nvoid _forjaA() { print('a'); print('x'); }\nvoid _forjaB() { print('b'); }\n",
+    )
+    .expect("edição");
     sessao.arquivo_mudou(&alvo);
     let r = sessao.compilar().expect("edição de corpo");
     linha("edição de corpo", &r);
     detalhe("carga da edição de corpo", &r);
+    println!(
+        "   corpo alterado: {} | API alterada: {} (+{} dependentes)",
+        r.corpo_alterado.len(),
+        r.api_alterada.len(),
+        r.dependentes_invalidados
+    );
     let api_mudou_no_corpo = r.api_alterada.len();
-    restaurar(&alvo, tamanho);
+    restaurar(&alvo, base);
+    let _ = tamanho;
 
     // 2. Edição de API pública: função de topo pública nova.
     let tamanho = acrescentar(&alvo, "\nvoid forjaApi0() { print('api 0'); }\n").expect("edição");

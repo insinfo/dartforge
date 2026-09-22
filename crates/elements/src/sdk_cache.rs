@@ -93,6 +93,11 @@ impl SdkCache {
         };
         mix(&FORMATO.to_le_bytes());
         mix(target.as_bytes());
+        // A raiz entra na chave: as unidades guardadas trazem o caminho
+        // absoluto de cada arquivo, e dois SDKs com `libraries.json` igual em
+        // diretórios diferentes (um SDK simulado de teste, por exemplo)
+        // produziriam o mesmo hash com caminhos que não existem mais.
+        mix(sdk.root.to_string_lossy().as_bytes());
         mix(&std::fs::read(sdk.root.join("libraries.json")).unwrap_or_default());
         mix(&std::fs::read(sdk.root.join("../version")).unwrap_or_default());
         mix(include_str!("../../frontend/src/ast.rs").as_bytes());

@@ -197,7 +197,10 @@ impl Sessao {
         rel.carregar = t.elapsed();
         rel.carga_detalhe = program.tempos.clone();
         rel.unidades_reaproveitadas = program.tempos.unidades_reaproveitadas;
-        rel.unidades_reanalisadas = program.units.len() - rel.unidades_reaproveitadas;
+        // Reanalisadas = arquivos que a carga precisou ler e analisar de
+        // fato (o `Program` pode ter unidades que vieram do artefato do SDK,
+        // que não são nem uma coisa nem outra).
+        rel.unidades_reanalisadas = program.tempos.arquivos_lidos;
         rel.bibliotecas = program.libraries.len();
         if !diags.is_empty() {
             let msg = format!("{} erro(s) ao carregar: {}", diags.len(), diags[0]);
