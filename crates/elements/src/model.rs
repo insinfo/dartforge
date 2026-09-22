@@ -11,7 +11,7 @@
 //! `(UnitId, id na arena)`, nunca copiados.
 use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_intern::SymbolId;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 macro_rules! id {
@@ -238,8 +238,9 @@ pub struct ClassElement {
     /// separadas (`x` e `x=`), operadores pelo texto (`+`, `[]=`).
     pub instance_members: HashMap<SymbolId, FunctionElementId>,
     pub static_members: HashMap<SymbolId, FunctionElementId>,
-    /// Construtores por nome; o sem nome usa o símbolo vazio `""`.
-    pub constructors: HashMap<SymbolId, FunctionElementId>,
+    /// Construtores por nome; o sem nome usa o símbolo vazio `""`. `BTreeMap`
+    /// para a iteração ser determinística (a emissão percorre o mapa).
+    pub constructors: BTreeMap<SymbolId, FunctionElementId>,
     /// Campos de instância e estáticos, na ordem de declaração.
     pub fields: Vec<VariableId>,
     /// Constantes de um `enum`, na ordem.

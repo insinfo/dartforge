@@ -177,9 +177,22 @@ pub fn compilar_com_relatorio(
     Ok((emitido, rel))
 }
 
+/// Grava `texto` em `p` só se o conteúdo atual for diferente (timestamp
+/// intacto quando nada mudou: o Vite/HMR não recarrega). Devolve se gravou.
+fn gravar_se_mudou(p: &std::path::Path, texto: &str) -> Result<bool, String> {
+    if let Ok(atual) = std::fs::read(p) {
+        if atual == texto.as_bytes() {
+            return Ok(false);
+        }
+    }
+    std::fs::write(p, texto).map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(true)
+}
+
 /// Escreve os módulos e o `main.mjs` em `dir` e copia o `dart_sdk.js`.
 ///
-/// Devolve quantos arquivos foram de fato gravados.
+/// Devolve quantos arquivos foram de fato gravados (os idênticos ao que já
+/// estava no disco não são reescritos).
 pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<usize, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut escritos = 0usize;
@@ -188,11 +201,9 @@ pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::pat
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        std::fs::write(&p, text).map_err(|e| format!("{}: {e}", p.display()))?;
-        escritos += 1;
+        escritos += usize::from(gravar_se_mudou(&p, text)?);
     }
-    std::fs::write(dir.join("main.mjs"), &emitido.entrada).map_err(|e| format!("main.mjs: {e}"))?;
-    escritos += 1;
+    escritos += usize::from(gravar_se_mudou(&dir.join("main.mjs"), &emitido.entrada)?);
     let dest = dir.join("dart_sdk.js");
     if !dest.exists() {
         std::fs::copy(dart_sdk_js, &dest)
