@@ -15,3 +15,13 @@
 # que tem precedência sobre esta seção.
 [env]
 LLVM_SYS_221_PREFIX = "D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
+
+# `target/` compartilhado por todas as worktrees (agentes trabalham em
+# D:/Projects/dartforge-*/ e .claude/worktrees/*): a máquina tem 8 GB de RAM e
+# quatro árvores compilando o mesmo workspace em paralelo, cada uma com o seu
+# `target/`, é o que a deixa em disco. Com um diretório só, os builds se
+# enfileiram na trava do Cargo e nada é compilado mais de uma vez.
+# `jobs` limita o rustc em paralelo pelo mesmo motivo (8 núcleos, 8 GB).
+[build]
+target-dir = "D:/Projects/dartforge/target"
+jobs = 6
