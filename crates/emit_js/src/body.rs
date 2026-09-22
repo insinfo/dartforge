@@ -75,6 +75,8 @@ pub struct FnEmitter<'m, 'a> {
     pub is_closure_body: bool,
     pub rethrow_var: Vec<String>,
     pub pending_promotions: Vec<(SymbolId, Ty)>,
+    /// Promoções válidas quando a condição é falsa (`x is! T`).
+    pub negated_promotions: Vec<(SymbolId, Ty)>,
     pub pending_prefix: Vec<String>,
     pub extension_this: Option<Ty>,
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
@@ -113,6 +115,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             is_closure_body: false,
             rethrow_var: Vec::new(),
             pending_promotions: Vec::new(),
+            negated_promotions: Vec::new(),
             pending_prefix: Vec::new(),
             extension_this: None,
             current_extension: None,
@@ -948,18 +951,37 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     self.w.close("}");
                     return;
                 }
+                self.pending_promotions.clear();
+                self.negated_promotions.clear();
                 let (cjs, _) = self.emit_cond(*condition);
+                let promos = std::mem::take(&mut self.pending_promotions);
+                let neg_promos = std::mem::take(&mut self.negated_promotions);
                 self.w.open(&format!("if ({}) {{", cjs));
                 self.push_scope();
+                for (sym, t) in &promos {
+                    if let Some(loc) = self.lookup_local(*sym).cloned() {
+                        self.declare_js(*sym, loc.js, t.clone());
+                    }
+                }
                 self.emit_stmt(*then);
                 self.pop_scope();
                 self.w.close("}");
                 if let Some(e) = else_ {
                     self.w.open("else {");
                     self.push_scope();
+                    for (sym, t) in &neg_promos {
+                        if let Some(loc) = self.lookup_local(*sym).cloned() {
+                            self.declare_js(*sym, loc.js, t.clone());
+                        }
+                    }
                     self.emit_stmt(*e);
                     self.pop_scope();
                     self.w.close("}");
+                } else if self.stmt_ends_with_jump(*then) {
+                    // `if (x is! T) return;` promove `x` no resto do bloco.
+                    for (sym, t) in &neg_promos {
+                        self.set_local_ty(*sym, t.clone());
+                    }
                 }
             }
             StmtKind::While { condition, body } => {
@@ -1322,7 +1344,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let prim = self.ctx.is_js_primitive(&vty)
             || vty.class().is_some_and(|c| self.ctx.is_enum_class(c))
             || matches!(vty, Ty::Iface { class, .. } if Some(class) == self.ctx.type_);
-        if all_const && prim {
+        let no_guards = cases.iter().all(|c| c.guard.is_none());
+        if all_const && prim && no_guards {
             let label = self.fresh_label();
             let has_case_labels = cases.iter().any(|c| !c.labels.is_empty());
             self.switch_labels.push(None);
@@ -1412,39 +1435,57 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         self.w.line(&format!("{t} = {};", vjs.code));
         self.switch_labels.push(Some(label.clone()));
         self.w.open(&format!("{label}: {{"));
-        for c in cases {
+        let mut i = 0;
+        while i < cases.len() {
+            // Cases consecutivos sem corpo partilham o corpo seguinte.
+            let mut j = i;
+            while j + 1 < cases.len() && cases[j].body.is_empty() {
+                j += 1;
+            }
+            let group = &cases[i..=j];
+            let body_case = &cases[j];
             self.w.open("{");
             self.push_scope();
-            let cond = match c.pattern {
-                None => "true".to_string(),
-                Some(p) => {
-                    let mut binds = Vec::new();
-                    let cond = self.pattern_cond(p, &t, &vty, &mut binds, false);
-                    for (sym, ty) in &binds {
-                        let jsn = self.declare(*sym, ty.clone());
-                        self.w.line(&format!("let {jsn} = null;"));
-                    }
-                    cond
+            let mut alts: Vec<String> = Vec::new();
+            let mut binds = Vec::new();
+            for c in group {
+                let cond = match c.pattern {
+                    None => "true".to_string(),
+                    Some(p) => self.pattern_cond(p, &t, &vty, &mut binds, false),
+                };
+                let mut full = cond;
+                if let Some(g) = c.guard {
+                    let (gjs, _) = self.emit_expr(g, Some(&self.ctx.t_bool()));
+                    full = format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
                 }
-            };
-            let mut full = cond;
-            if let Some(g) = c.guard {
-                let (gjs, _) = self.emit_expr(g, Some(&self.ctx.t_bool()));
-                full = format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
+                alts.push(full);
             }
+            for (sym, ty) in &binds {
+                let jsn = self.declare(*sym, ty.clone());
+                self.w.line(&format!("let {jsn} = null;"));
+            }
+            let full = if alts.len() == 1 { alts.remove(0) } else { alts.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" || ") };
             self.w.open(&format!("if ({full}) {{"));
-            for &s in c.body.iter() {
+            for &s in body_case.body.iter() {
                 self.emit_stmt(s);
             }
-            if !self.ends_with_jump(&c.body) {
+            if !self.ends_with_jump(&body_case.body) {
                 self.w.line(&format!("break {label};"));
             }
             self.w.close("}");
             self.pop_scope();
             self.w.close("}");
+            i = j + 1;
         }
         self.w.close("}");
         self.switch_labels.pop();
+    }
+
+    pub fn stmt_ends_with_jump(&self, s: StmtId) -> bool {
+        match &self.ast().stmt(s).kind {
+            StmtKind::Block(b) => self.ends_with_jump(b),
+            _ => self.ends_with_jump(std::slice::from_ref(&s)),
+        }
     }
 
     fn ends_with_jump(&self, body: &[StmtId]) -> bool {

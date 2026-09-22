@@ -307,9 +307,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Unary { op, operand } => self.emit_unary(*op, *operand),
             ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected),
             ExprKind::Conditional { condition, then, else_ } => {
+                self.pending_promotions.clear();
+                self.negated_promotions.clear();
                 let (c, _) = self.emit_cond(*condition);
+                let promos = std::mem::take(&mut self.pending_promotions);
+                let neg = std::mem::take(&mut self.negated_promotions);
+                self.push_scope();
+                for (sym, t) in &promos {
+                    if let Some(loc) = self.lookup_local(*sym).cloned() {
+                        self.declare_js(*sym, loc.js, t.clone());
+                    }
+                }
                 let (a, at) = self.emit_expr(*then, expected);
+                self.pop_scope();
+                self.push_scope();
+                for (sym, t) in &neg {
+                    if let Some(loc) = self.lookup_local(*sym).cloned() {
+                        self.declare_js(*sym, loc.js, t.clone());
+                    }
+                }
                 let (b, bt) = self.emit_expr(*else_, expected);
+                self.pop_scope();
                 let ty = self.ctx.lub(&at, &bt);
                 (Js::new(format!("{c} ? {} : {}", a.at(P_COND), b.at(P_COND)), P_COND), ty)
             }
@@ -318,11 +336,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let t = self.resolve_type(*ty);
                 let test = self.is_test(&v, &t);
                 // Promoção de variável local.
-                if !*negated {
-                    if let ExprKind::Identifier(n) = &self.expr(*value).kind {
-                        if self.lookup_local(n.sym).is_some() && self.ctx.is_subtype(&t, &vty) {
-                            // Promove só dentro de condições; aqui registramos o tipo estreitado
-                            // para usos posteriores dentro do mesmo `if` (aproximação).
+                if let ExprKind::Identifier(n) = &self.expr(*value).kind {
+                    if self.lookup_local(n.sym).is_some() && (self.ctx.is_subtype(&t, &vty) || vty.is_dynamic()) {
+                        if *negated {
+                            self.negated_promotions.push((n.sym, t.clone()));
+                        } else {
                             self.pending_promotions.push((n.sym, t.clone()));
                         }
                     }
@@ -1711,6 +1729,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match op {
             UnaryOp::Not => {
                 let (c, _) = self.emit_cond(operand);
+                let p = std::mem::take(&mut self.pending_promotions);
+                let n = std::mem::take(&mut self.negated_promotions);
+                self.pending_promotions = n;
+                self.negated_promotions = p;
                 (Js::new(format!("!{}", Js::new(c, P_PRIMARY).at(P_UNARY)), P_UNARY), self.ctx.t_bool())
             }
             UnaryOp::Neg => {
@@ -1864,6 +1886,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
+    /// Registra promoção `x != null` / `x == null` para a variável `sym`.
+    pub fn note_null_promotion(&mut self, sym: dartforge_intern::SymbolId, ty: &Ty, negated: bool) {
+        if ty.is_nullable() && !ty.is_dynamic() {
+            let nn = ty.non_null();
+            if negated {
+                self.pending_promotions.push((sym, nn));
+            } else {
+                self.negated_promotions.push((sym, nn));
+            }
+        }
+    }
+
     pub fn emit_equals(&mut self, l: &Js, lt: &Ty, r: &Js, rt: &Ty) -> Js {
         let ctx = self.ctx;
         if matches!(lt, Ty::Null) || matches!(rt, Ty::Null) || l.code == "null" || r.code == "null" {
@@ -1913,6 +1947,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => {}
         }
         let (l, lt) = self.emit_expr(left, None);
+        if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+            if let (ExprKind::Identifier(n), ExprKind::Null) = (&self.expr(left).kind, &self.expr(right).kind) {
+                if self.lookup_local(n.sym).is_some() {
+                    self.note_null_promotion(n.sym, &lt, op == BinaryOp::NotEq);
+                }
+            }
+        }
         let r_expected: Option<Ty> = if self.ctx.is_num_like_nullable(&lt) || matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
             None
         } else {
@@ -2504,6 +2545,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Alvo de `factory C.x(...) = D.y;`.
     pub fn factory_redirect_target(&self, fid: dartforge_elements::model::FunctionElementId) -> Option<(ClassId, String, bool)> {
+        let fid = self.ctx.program.function(fid).patched_by.unwrap_or(fid);
         let f = self.ctx.program.function(fid);
         let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node else { return None };
         let m = self.ctx.program.unit(unit).ast.member(member);

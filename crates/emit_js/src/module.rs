@@ -1265,7 +1265,7 @@ fn fix_equals_param(text: &str) -> String {
 }
 
 fn sig_key(name: &str, e: &FnEmitter, c: ClassId) -> String {
-    if name.starts_with('_') {
+    if name.starts_with('_') && !matches!(name, "_equals" | "_get" | "_set" | "_negate") {
         e.decl_member_key(c, name)
     } else {
         js::prop_key(name)
