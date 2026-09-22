@@ -137,6 +137,8 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_string_len(i64)\n");
         self.out.push_str("declare i64 @dartforge_generic_len(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_code_unit_at(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_code_units(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_runes(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_to_upper(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_repeat(i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_list_join(i64, i64)\n");

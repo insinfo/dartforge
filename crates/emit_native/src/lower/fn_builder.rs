@@ -858,6 +858,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         },
                         Type::I64,
                     )
+                } else if prop_name == "first" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_list_get_bits".to_string(),
+                            args: vec![
+                                (target_op, Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                            ],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "codeUnits" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_string_code_units".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
+                } else if prop_name == "runes" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_string_runes".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
                 } else {
                     self.emit(Instruction::Const(Constant::Int(0)), Type::I64)
                 }
@@ -1039,6 +1069,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 ret_ty: Type::Ref,
                             },
                             Type::Ref,
+                        );
+                    } else if m_name == "codeUnitAt" {
+                        let idx_op = if let Some(first_arg) = arguments.args.first() {
+                            self.lower_expr(ast, first_arg.value)
+                        } else {
+                            Operand::Constant(Constant::Int(0))
+                        };
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_code_unit_at".to_string(),
+                                args: vec![(recv_op, Type::Ref), (idx_op, Type::I64)],
+                                ret_ty: Type::I64,
+                            },
+                            Type::I64,
                         );
                     } else if m_name == "toString" {
                         return self.emit(

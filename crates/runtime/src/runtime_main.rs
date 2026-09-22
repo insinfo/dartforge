@@ -920,6 +920,47 @@ pub extern "C" fn dartforge_string_code_unit_at(handle: i64, index: i64) -> i64 
     })
 }
 
+/// Retorna uma lista de code units UTF-16 como inteiros.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_code_units(handle: i64) -> i64 {
+    if handle == 0 {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::new())));
+    }
+    let code_units: Vec<TaggedValue> = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::String(s) = heap.get(handle) else { return Vec::new(); };
+        s.encode_utf16()
+            .map(|u| TaggedValue {
+                bits: u as i64,
+                tag: heap::ValueTag::Int,
+                is_ref: false,
+            })
+            .collect()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(code_units)))
+}
+
+/// Retorna uma lista de runes (Unicode scalar values / code points) como inteiros.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_runes(handle: i64) -> i64 {
+    if handle == 0 {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::new())));
+    }
+    let runes: Vec<TaggedValue> = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::String(s) = heap.get(handle) else { return Vec::new(); };
+        s.chars()
+            .map(|c| TaggedValue {
+                bits: c as u32 as i64,
+                tag: heap::ValueTag::Int,
+                is_ref: false,
+            })
+            .collect()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(runes)))
+}
+
+
 /// Retorna uma nova string convertida para maiúsculas.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_to_upper(handle: i64) -> i64 {
