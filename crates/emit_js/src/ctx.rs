@@ -180,38 +180,74 @@ impl<'a> Ctx<'a> {
         ctx
     }
 
-    /// Tarjan sobre imports+exports entre bibliotecas não-SDK; o módulo de um
-    /// grupo recebe o caminho da primeira biblioteca (menor id).
+    /// Granularidade dos módulos (docs/EMISSAO-DDC.md): bibliotecas do projeto
+    /// → um módulo por biblioteca; pacotes do pub cache → um módulo por pacote
+    /// (`packages/<nome>.js`). Ciclos de imports entre módulos são fundidos no
+    /// módulo da primeira biblioteca (classes em ciclo precisam de ordem única).
     fn compute_groups(&mut self) {
         let n = self.program.libraries.len();
         let is_user = |i: usize, s: &Self| !s.libs[i].is_sdk && !s.program.libraries[i].units.is_empty();
-        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for (i, lib) in self.program.libraries.iter().enumerate() {
+        // 1. Módulo inicial de cada biblioteca.
+        let mut key_of: Vec<Option<String>> = vec![None; n];
+        for i in 0..n {
             if !is_user(i, self) {
                 continue;
             }
-            for imp in &lib.imports {
-                let j = imp.library.0 as usize;
-                if is_user(j, self) && j != i {
-                    edges[i].push(j);
+            let lib = &self.program.libraries[i];
+            let in_pub_cache = lib
+                .units
+                .first()
+                .and_then(|u| self.program.unit(*u).path.as_ref())
+                .map(|p| {
+                    let s = p.to_string_lossy().replace('\\', "/").to_lowercase();
+                    s.contains("/pub/cache/") || s.contains("/.pub-cache/") || s.contains("/hosted/pub.dev/")
+                })
+                .unwrap_or(false);
+            let key = match lib.uri.strip_prefix("package:") {
+                Some(rest) if in_pub_cache => {
+                    let pkg = rest.split('/').next().unwrap_or(rest);
+                    format!("packages/{pkg}.js")
                 }
+                _ => self.libs[i].module_path.clone(),
+            };
+            self.libs[i].module_path = key.clone();
+            key_of[i] = Some(key);
+        }
+        // 2. Grafo de módulos.
+        let mut keys: Vec<String> = Vec::new();
+        let mut index_of: HashMap<String, usize> = HashMap::new();
+        for k in key_of.iter().flatten() {
+            if !index_of.contains_key(k) {
+                index_of.insert(k.clone(), keys.len());
+                keys.push(k.clone());
             }
-            for exp in &lib.exports {
-                let j = exp.library.0 as usize;
-                if is_user(j, self) && j != i {
-                    edges[i].push(j);
+        }
+        let m = keys.len();
+        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); m];
+        let mut members: Vec<Vec<usize>> = vec![Vec::new(); m];
+        for i in 0..n {
+            let Some(k) = &key_of[i] else { continue };
+            let a = index_of[k];
+            members[a].push(i);
+            let lib = &self.program.libraries[i];
+            for j in lib.imports.iter().map(|x| x.library.0 as usize).chain(lib.exports.iter().map(|x| x.library.0 as usize)) {
+                if let Some(kj) = &key_of[j] {
+                    let b = index_of[kj];
+                    if b != a && !edges[a].contains(&b) {
+                        edges[a].push(b);
+                    }
                 }
             }
         }
-        // Tarjan iterativo.
-        let mut index = vec![usize::MAX; n];
-        let mut low = vec![0usize; n];
-        let mut on_stack = vec![false; n];
+        // 3. Tarjan iterativo sobre os módulos.
+        let mut index = vec![usize::MAX; m];
+        let mut low = vec![0usize; m];
+        let mut on_stack = vec![false; m];
         let mut stack: Vec<usize> = Vec::new();
         let mut next_index = 0usize;
         let mut sccs: Vec<Vec<usize>> = Vec::new();
-        for start in 0..n {
-            if !is_user(start, self) || index[start] != usize::MAX {
+        for start in 0..m {
+            if index[start] != usize::MAX {
                 continue;
             }
             let mut call: Vec<(usize, usize)> = vec![(start, 0)];
@@ -248,20 +284,22 @@ impl<'a> Ctx<'a> {
                                 break;
                             }
                         }
-                        comp.sort();
                         sccs.push(comp);
                     }
                 }
             }
         }
+        // 4. Grupos finais: bibliotecas de cada componente, ordenadas por id.
         for comp in sccs {
-            if comp.len() < 2 {
+            let mut libs: Vec<usize> = comp.iter().flat_map(|&mi| members[mi].iter().copied()).collect();
+            libs.sort();
+            if libs.len() < 2 {
                 continue;
             }
-            let rep = comp[0];
-            let path = self.libs[rep].module_path.clone();
-            let group: Vec<LibraryId> = comp.iter().map(|&i| LibraryId(i as u32)).collect();
-            for &i in &comp {
+            // Caminho: o do módulo da primeira biblioteca (pacote → `packages/x.js`).
+            let path = key_of[libs[0]].clone().unwrap();
+            let group: Vec<LibraryId> = libs.iter().map(|&i| LibraryId(i as u32)).collect();
+            for &i in &libs {
                 self.libs[i].module_path = path.clone();
                 self.groups.insert(i as u32, group.clone());
             }
