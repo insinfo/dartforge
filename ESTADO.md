@@ -30,7 +30,7 @@ Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial
 (`runtime/ddc/dart_sdk.js`, gerado de `ddc_platform.dill` por
 `scripts/gerar-dart-sdk.ps1`). O `dartdevc` é o oráculo do contrato.
 
-* **Corpus diferencial: 212/212.** Cada programa é executado em `dart run
+* **Corpus diferencial: 213/213.** Cada programa é executado em `dart run
   --enable-asserts`, em `dartdevc`+Node e no DartForge+Node; stdout e
   código de saída comparados **byte a byte**. `cargo run -p
   dartforge-diferencial`.
@@ -38,6 +38,16 @@ Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial
   com a mesma saída da VM. Os outros 7 dependem de `dart:io` (leitura de
   arquivo, fontes de PDF) — impossível no navegador por definição; é alvo
   do backend nativo.
+* **`limitless_ui/example` (biblioteca de componentes ngdart do
+  proprietário, 24 componentes, 483 módulos): a suíte e2e em puppeteer
+  passa — **26/26**, o mesmo que a saída oficial do `dart2js`
+  (`build_web_compilers --release`), em 4m11s contra 3m33s. Uma sonda que
+  percorre as **53 rotas** da galeria recolhendo `onerror`/
+  `unhandledrejection`/`console.error` dá **52/53** nos dois lados (a rota
+  restante não tem o seletor que a sonda espera, e reprova igual no
+  oficial). Foi essa sonda, não a suíte, que encontrou o último defeito
+  corrigido (receita rti de tipo genérico cru: `raw|Caixa<@>`, nunca
+  `raw|Caixa`). `scripts/limitless-ui.ps1`, `docs/LIMITLESS-UI.md`.
 * **`new_sali/frontend` (ngdart + `dart:html` + `package:js`): a aplicação
   roda no navegador.** 616 módulos; `node --check` 616/616; no Edge
   headless os **11 passos do fluxo** (carga, carrossel, erro do IdP,
@@ -95,10 +105,11 @@ básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
 ### 1.6 Infraestrutura
 
 * `crates/diferencial` — harness paralelo com cache dos oráculos;
-  `corpus/js/` com 212 programas verificados na VM.
+  `corpus/js/` com 213 programas verificados na VM.
 * `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
 * `scripts/` — `gerar-dart-sdk.ps1`, `servir.ps1`/`fluxo.mjs` (Edge por
-  CDP), `medir-lsp.ps1`.
+  CDP), `limitless-ui.ps1` (`-Preparar`/`-Montar`/`-Servir`/`-E2e`),
+  `medir-lsp.ps1`.
 * Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
   ler, contra ~105 ms de reanálise).
 
@@ -115,12 +126,17 @@ básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
    listados em `docs/FRONTEND-NEW-SALI.md`; os maiores são argumento
    incompatível `dynamic`→`int`, `num`→`double`, condição sem tipo `bool`
    e nome indefinido em cadeias longas de genéricos.
-2. **Suíte e2e do `limitless_ui`** (puppeteer, 24 componentes): não
-   executada ainda contra a nossa saída. É o próximo critério de aceite —
-   comportamento, não só montagem.
-3. **`new_sali/backend`** (angel3): não compila; usa `dart:io`,
+2. **Escrita em disco** no `limitless_ui`: 233 s para 484 arquivos, contra
+   10,5 s de compilação. É I/O do Windows com antivírus, não compilador —
+   o `dartforge dev` já contorna (reescreveu 58 arquivos na recompilação),
+   mas o `compile-js` de projeto grande ainda sofre.
+3. **Tamanho do JS**: 48 MB (dev, sem tree shaking) contra 4,5 MB do
+   `main.dart.js` do dart2js em release. A comparação só será válida
+   contra o DDC em modo de desenvolvimento, ou depois do modo de produção
+   (§2.3). Medição pendente.
+4. **`new_sali/backend`** (angel3): não compila; usa `dart:io`,
    `dart:isolate`, `dart:ffi`. Alvo do backend nativo.
-4. Divergências web×VM declaradas (7 programas do corpus): são do próprio
+5. Divergências web×VM declaradas (7 programas do corpus): são do próprio
    DDC (bits de 32 bits, `1.0` imprimindo `1`, `-0.0`), não defeitos.
 
 ### 2.2 Latência (o caminho está medido, não é chute)
@@ -200,4 +216,9 @@ cargo run --release -p dartforge-cli -- dev <entrada.dart> -o saida --packages <
   limpeza, incluindo tudo o que foi removido.
 * Decisões e contratos: `PLANO.md` (governante), `docs/EMISSAO-DDC.md`,
   `docs/FRONTEND-ARQUITETURA.md`, `docs/NATIVO.md`, `docs/LSP.md`,
-  `docs/FRONTEND-NEW-SALI.md`, `docs/CONTRATO-DDC.md`.
+  `docs/FRONTEND-NEW-SALI.md`, `docs/LIMITLESS-UI.md`,
+  `docs/CONTRATO-DDC.md`.
+
+**Armadilha registrada**: não rodar `compile-js` enquanto o `build_runner`
+está rodando — o `--delete-conflicting-outputs` apaga a árvore de gerados
+e o carregador falha em dezenas de `.template.dart`.
