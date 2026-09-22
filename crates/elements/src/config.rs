@@ -18,6 +18,20 @@ pub struct PackageConfig {
     /// Caminho do arquivo lido, se houver.
     pub origin: Option<PathBuf>,
     pub packages: HashMap<String, PackageInfo>,
+    /// `(nome, diretório do packageUri canônico, sem o prefixo `\\?\`)`,
+    /// calculado uma vez na carga: mapear um caminho de arquivo para
+    /// `package:x/…` acontece milhares de vezes por programa e
+    /// `canonicalize` custa uma chamada ao sistema cada.
+    pub package_dirs: Vec<(String, PathBuf)>,
+}
+
+/// Tira o prefixo verbatim `\\?\` que `canonicalize` devolve no Windows, para
+/// que `strip_prefix` e comparações com caminhos comuns funcionem.
+pub fn sem_verbatim(p: PathBuf) -> PathBuf {
+    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(r) => PathBuf::from(r),
+        None => p,
+    }
 }
 
 impl PackageConfig {
@@ -122,9 +136,21 @@ impl PackageConfig {
             );
         }
 
+        let mut package_dirs: Vec<(String, PathBuf)> = packages
+            .values()
+            .filter_map(|pkg| {
+                let dir = pkg.package_uri.to_file_path().ok()?;
+                let dir = sem_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
+                Some((pkg.name.clone(), dir))
+            })
+            .collect();
+        // Diretório mais longo primeiro: um pacote dentro de outro casa o mais específico.
+        package_dirs.sort_by(|a, b| b.1.as_os_str().len().cmp(&a.1.as_os_str().len()).then(a.0.cmp(&b.0)));
+
         Ok(Self {
             origin: Some(path.to_path_buf()),
             packages,
+            package_dirs,
         })
     }
 

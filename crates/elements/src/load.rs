@@ -82,6 +82,7 @@ pub fn load_lenient_com_cache(
     // Bibliotecas cujas partes já vieram do cache (a diretiva `part` não
     // deve recarregá-las).
     let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
+    let mut memo_canonico: HashMap<PathBuf, PathBuf> = HashMap::new();
 
     // 1. Carrega o package_config.json
     let package_config = if let Some(p) = package_config_path {
@@ -330,7 +331,7 @@ pub fn load_lenient_com_cache(
                         );
 
                         if let Some(p_uid) = part_unit {
-                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
+                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics, &mut memo_canonico);
                             program.libraries[lib_id.0 as usize].units.push(p_uid);
                         }
                     }
@@ -506,37 +507,36 @@ fn get_or_create_library(
     }
 }
 
-fn canonical_file_uri(path: &Path, package_config: &PackageConfig) -> String {
-    // Tenta mapear caminho local para package:x/y.dart se estiver dentro de um pacote
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    // No Windows `canonicalize` devolve `\?\C:\…`; o `package_uri` não tem o
-    // prefixo, e o `strip_prefix` abaixo falharia — tira-se o prefixo verbatim.
-    let canonical = {
-        let s = canonical.to_string_lossy();
-        match s.strip_prefix(r"\\?\") {
-            Some(r) => PathBuf::from(r),
-            None => canonical.clone(),
-        }
-    };
-    for pkg in package_config.packages.values() {
-        if let Ok(pkg_path) = pkg.package_uri.to_file_path() {
-            let pkg_path = std::fs::canonicalize(&pkg_path).unwrap_or(pkg_path);
-            let pkg_path = {
-                let s = pkg_path.to_string_lossy();
-                match s.strip_prefix(r"\\?\") {
-                    Some(r) => PathBuf::from(r),
-                    None => pkg_path.clone(),
-                }
-            };
-            if let Ok(rel) = canonical.strip_prefix(&pkg_path) {
-                let rel_str = rel.to_string_lossy().replace('\\', "/");
-                return format!("package:{}/{}", pkg.name, rel_str);
-            }
+/// URI canônica de um caminho **já canonizado** pelo chamador: `package:x/y.dart`
+/// quando está dentro do `packageUri` de um pacote, senão `file:///…`.
+///
+/// Não chama `canonicalize`: os diretórios dos pacotes vêm prontos de
+/// [`PackageConfig::package_dirs`] e o caminho chega canônico (entrada, parte
+/// ou import relativo, cada um canonizado uma vez por quem o descobriu).
+fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> String {
+    // No Windows `canonicalize` devolve `\\?\C:\…`; os diretórios dos pacotes
+    // estão sem o prefixo, então o caminho também fica sem ele.
+    let canonical = crate::config::sem_verbatim(canonical.to_path_buf());
+    for (name, dir) in &package_config.package_dirs {
+        if let Ok(rel) = canonical.strip_prefix(dir) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            return format!("package:{name}/{rel_str}");
         }
     }
     Url::from_file_path(&canonical)
         .map(|u| u.to_string())
         .unwrap_or_else(|_| canonical.to_string_lossy().to_string())
+}
+
+/// `canonicalize` com memória: `verify_part_of` compara o mesmo caminho
+/// muitas vezes (uma por parte da biblioteca).
+fn canonico(memo: &mut HashMap<PathBuf, PathBuf>, p: &Path) -> PathBuf {
+    if let Some(c) = memo.get(p) {
+        return c.clone();
+    }
+    let c = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    memo.insert(p.to_path_buf(), c.clone());
+    c
 }
 
 fn resolve_directive_target(
@@ -606,6 +606,7 @@ fn verify_part_of(
     part_unit_id: UnitId,
     lib_id: LibraryId,
     diagnostics: &mut Vec<Diagnostic>,
+    memo: &mut HashMap<PathBuf, PathBuf>,
 ) {
     let part_unit = &program.units[part_unit_id.0 as usize];
     let parent_lib = &program.libraries[lib_id.0 as usize];
@@ -621,13 +622,10 @@ fn verify_part_of(
                             .parent()
                             .unwrap_or(Path::new("."))
                             .join(&parent_uri_str);
-                        let canonical_expected = std::fs::canonicalize(&expected_parent)
-                            .unwrap_or(expected_parent.clone());
+                        let canonical_expected = canonico(memo, &expected_parent);
                         let matches_any_unit = parent_lib.units.iter().any(|&u| {
                             if let Some(p) = &program.units[u.0 as usize].path {
-                                let canonical_p =
-                                    std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
-                                canonical_p == canonical_expected
+                                canonico(memo, p) == canonical_expected
                             } else {
                                 false
                             }
