@@ -333,6 +333,9 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
     let noted: Vec<u32> = m.noted_classes.borrow().iter().copied().collect();
     let mut seen: HashSet<u32> = HashSet::new();
     let mut queue: Vec<ClassId> = noted.into_iter().map(ClassId).collect();
+    // Tipos de interop (`liveInterfaceTypeRules`): cada um encaminha para
+    // `LegacyJavaScriptObject`, que os recebe como supertipos.
+    let mut interop: Vec<String> = Vec::new();
     while let Some(c) = queue.pop() {
         if !seen.insert(c.0) {
             continue;
@@ -342,6 +345,11 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
             continue;
         }
         if ctx.program.class(c).decl.is_none() {
+            continue;
+        }
+        if ctx.is_js_class(c) {
+            entries.push(format!("{}:\"_interceptors|LegacyJavaScriptObject\"", json_str(&ctx.class_recipe(c))));
+            interop.push(ctx.class_recipe(c));
             continue;
         }
         let class = ctx.program.class(c);
@@ -384,7 +392,19 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
         return String::new();
     }
     let json = format!("{{{}}}", entries.join(","));
-    format!("dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n", js::string_literal(&json))
+    let mut out = format!("dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n", js::string_literal(&json));
+    if !interop.is_empty() {
+        interop.sort();
+        m.use_sdk("_interceptors");
+        let update: Vec<String> = interop.iter().map(|r| format!("{}:[]", json_str(r))).collect();
+        out.push_str(&format!(
+            "dart_rti._Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse({}));\n",
+            js::string_literal(&format!("{{\"_interceptors|LegacyJavaScriptObject\":{{{}}}}}", update.join(",")))
+        ));
+        let names: Vec<String> = interop.iter().map(|r| js::string_literal(r)).collect();
+        out.push_str(&format!("dart.addRtiResources(_interceptors.LegacyJavaScriptObject, [\"_interceptors|LegacyJavaScriptObject\", {}]);\n", names.join(", ")));
+    }
+    out
 }
 
 fn json_str(s: &str) -> String {
@@ -539,6 +559,9 @@ fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Wr
     let f = ctx.program.function(fid);
     let lvar = &ctx.libs[f.library.0 as usize].js_var;
     let name = ctx.name(f.name);
+    if ctx.is_js_member(fid) {
+        return; // `external` de interop: acesso direto a `dart.global`
+    }
     if let Some(ext) = f.extension {
         emit_extension_function(ctx, m, fid, ext, w);
         return;
@@ -641,6 +664,9 @@ fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableI
     for &vid in vars {
         let v = ctx.program.variable(vid);
         let name = ctx.name(v.name);
+        if ctx.is_js_var(vid) {
+            continue;
+        }
         let VariableRef::TopLevel { unit, decl, index } = v.node else { continue };
         let d = ctx.program.unit(unit).ast.decl(decl);
         let DeclKind::Variables(list) = &d.kind else { continue };
@@ -746,6 +772,10 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let is_mixin = class.kind == ClassKind::Mixin;
     if class.kind == ClassKind::ExtensionType {
         // Membros viram funções estáticas… (não suportado além do básico).
+        return;
+    }
+    if ctx.is_js_class(c) {
+        emit_js_interop_class(ctx, m, c, w);
         return;
     }
     let generic = ctx.requires_rti(c);
@@ -1287,6 +1317,84 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         w.push_raw(&indent(&lazy.join(",\n")));
         w.push_raw("\n});\n");
     }
+}
+
+/// Classe `@JS` (`_emitJSInteropClassNonExternalMembers`): só as factories e
+/// os estáticos não `external`, mais os tearoffs de construtor
+/// (`_#nome#tearOff`: literal de objeto se `@anonymous`, senão `new dart.global.X`).
+fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
+    let class = ctx.program.class(c);
+    let Some(decl) = class.decl else { return };
+    let unit = decl.unit;
+    let lvar = ctx.libs[class.library.0 as usize].js_var.clone();
+    let cname = ctx.class_name(c).to_string();
+    let cref = format!("{lvar}.{cname}");
+    let d = ctx.program.unit(unit).ast.decl(decl.decl);
+    let members: Vec<ast::MemberId> = match &d.kind {
+        DeclKind::Class(cd) => cd.members.clone(),
+        _ => vec![],
+    };
+    let ast = &ctx.program.unit(unit).ast;
+    let anonymous = ctx.js_classes.get(&c).is_some_and(|j| j.anonymous);
+    let mut cw = Writer::default();
+    cw.indent = 1;
+    for &mid in &members {
+        let mem = ast.member(mid);
+        match &mem.kind {
+            MemberKind::Method(fid) => {
+                let af = ast.function(*fid);
+                if af.external || !af.static_ {
+                    continue;
+                }
+                let Some(fname) = af.name else { continue };
+                let name = ctx.name(fname.sym).to_string();
+                let key = if af.kind == ast::FunctionKind::Setter { format!("{name}_=") } else { name.clone() };
+                let Some(feid) = ctx.sym(&key).and_then(|s| class.static_members.get(&s).copied()) else { continue };
+                let sk = js::prop_key(&static_member_name(&name));
+                let head = match af.kind {
+                    ast::FunctionKind::Getter => format!("static get {sk}"),
+                    ast::FunctionKind::Setter => format!("static set {sk}"),
+                    _ => format!("static {sk}"),
+                };
+                let (text, _) = function_text(ctx, m, feid, Some(&head), Some(c), true, None);
+                for line in text.lines() {
+                    cw.line(line);
+                }
+            }
+            MemberKind::Constructor(ctor) => {
+                if ctor.factory && !ctor.external && ctor.redirect.is_none() {
+                    emit_factory(ctx, m, c, unit, ctor, mid, &mut cw);
+                }
+            }
+            MemberKind::Field(_) => {}
+        }
+    }
+    for (&csym, &cfid) in &class.constructors {
+        let cf = ctx.program.function(cfid);
+        let cn = ctx.name(csym);
+        let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
+        let external = cf.external || cf.kind == FunctionKind::SyntheticConstructor;
+        let call = if !external {
+            format!("{cref}.{jsname}(...args)")
+        } else if anonymous {
+            // Parâmetros nomeados viram propriedades do literal.
+            let names: Vec<String> = ctx.outline.functions[cfid.0 as usize]
+                .parameters
+                .iter()
+                .filter(|p| p.kind == ast::ParameterKind::Named)
+                .filter_map(|p| p.name.map(|n| ctx.name(n).to_string()))
+                .collect();
+            let props: Vec<String> = names.iter().map(|n| format!("{}: opts && {} in opts ? opts{} : null", js::prop_key(n), js::string_literal(n), js::prop_access(n))).collect();
+            cw.line(&format!("static [{}](opts) {{ return {{{}}}; }}", js::string_literal(&format!("_#{jsname}#tearOff")), props.join(", ")));
+            continue;
+        } else {
+            format!("new {}(...args)", ctx.js_class_global(c))
+        };
+        cw.line(&format!("static [{}](...args) {{ return {call}; }}", js::string_literal(&format!("_#{jsname}#tearOff"))));
+    }
+    w.line(&format!("{cref} = class {cname} {{"));
+    w.push_raw(&cw.out);
+    w.line("};");
 }
 
 fn fix_equals_param(text: &str) -> String {

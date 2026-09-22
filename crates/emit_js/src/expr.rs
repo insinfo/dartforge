@@ -1216,14 +1216,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, ty) = self.element_ref(el).expect("função");
                 // Tearoff de função de topo.
                 let f = self.ctx.program.function(fid);
+                if self.ctx.is_js_member(fid) {
+                    return match f.kind {
+                        FunctionKind::Getter => (self.js_null_check(Js::prim(js), &MemberKind::Getter(fid)), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
+                        FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
+                        _ => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&MemberKind::Method(fid)))), ty),
+                    };
+                }
                 match f.kind {
                     FunctionKind::Getter => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
                     FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
                     _ => (self.tearoff_static(&js, &ty), ty),
                 }
             }
-            Element::Variable(_) => {
+            Element::Variable(vid) => {
                 let (js, ty) = self.element_ref(el).expect("variável");
+                if self.ctx.is_js_var(vid) {
+                    return (self.js_null_check(Js::prim(js), &MemberKind::Field(vid)), ty);
+                }
                 (Js::prim(js), ty)
             }
             Element::Class(c) => {
@@ -1264,6 +1274,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     pub fn emit_static_get(&mut self, c: ClassId, n: &str, mk: MemberKind) -> (Js, Ty) {
+        if self.ctx.is_js_class(c) && self.ctx.is_js_member_kind(&mk) {
+            let js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, n);
+            return match mk {
+                MemberKind::Method(fid) => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&mk))), self.ctx.fn_ty(fid)),
+                MemberKind::Getter(fid) => (self.js_null_check(Js::prim(js), &mk), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
+                MemberKind::Setter(_) => (Js::prim(js), Ty::Dynamic),
+                MemberKind::Field(vid) => (self.js_null_check(Js::prim(js), &mk), self.ctx.var_ty(vid)),
+            };
+        }
         let cls = self.class_ref(c);
         let js = format!("{cls}{}", js::prop_access(&static_member_name(n)));
         match mk {
@@ -1329,6 +1348,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let ty = self.ctx.member_ty(&m);
         let access = self.member_access(recv_ty, name, false);
         let js = format!("{}{access}", recv.at(P_PRIMARY));
+        if self.ctx.is_js_member_kind(&m.kind) {
+            // Interop: propriedade direta; `tearoffInterop` para métodos.
+            return match m.kind {
+                MemberKind::Method(_) => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&m.kind))), ty),
+                _ => (self.js_null_check(Js::prim(js), &m.kind), ty),
+            };
+        }
         match m.kind {
             MemberKind::Method(_) => {
                 // Tearoff de método de instância.
@@ -2205,6 +2231,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let this_ty = self.ctx.this_ty(m.class);
                         let m2 = self.ctx.lookup_member(&this_ty, &name, true).unwrap_or(m);
                         let access = self.member_access(&this_ty, &name, true);
+                        let v = if self.ctx.is_js_member_kind(&m2.kind) { self.assert_interop(v.clone(), vty) } else { v.clone() };
                         (Js::new(format!("this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), self.ctx.member_ty(&m2))
                     }
                     IdentTarget::ThisExt => {
@@ -2240,15 +2267,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&t, &name, true);
                         (Js::new(format!("$this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
                     }
-                    IdentTarget::Static(c, _) => {
+                    IdentTarget::Static(c, mk) => {
+                        if self.ctx.is_js_class(c) {
+                            let smk = self.ctx.declared_static(c, &name, true).unwrap_or(mk);
+                            if self.ctx.is_js_member_kind(&smk) {
+                                let target_js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &smk, &name);
+                                let v = self.assert_interop(v.clone(), vty);
+                                return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
+                            }
+                        }
                         let cls = self.class_ref(c);
                         (Js::new(format!("{cls}{} = {}", js::prop_access(&static_member_name(&name)), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
                     }
                     IdentTarget::Element(el) => {
+                        let mut v = v.clone();
                         let js = match el {
+                            Element::Variable(vid) if self.ctx.is_js_var(vid) => {
+                                let var = self.ctx.program.variable(vid);
+                                v = self.assert_interop(v, vty);
+                                self.ctx.js_static_ref(None, var.library, &MemberKind::Field(vid), &name)
+                            }
                             Element::Variable(vid) => {
                                 let var = self.ctx.program.variable(vid);
                                 format!("{}{}", self.lib_var(var.library), js::prop_access(&name))
+                            }
+                            Element::Function(fid) if self.ctx.is_js_member(fid) => {
+                                let f = self.ctx.program.function(fid);
+                                v = self.assert_interop(v, vty);
+                                self.ctx.js_static_ref(None, f.library, &MemberKind::Setter(fid), &name)
                             }
                             Element::Function(fid) => {
                                 let f = self.ctx.program.function(fid);
@@ -2264,7 +2310,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
                 // Estático via classe/prefixo.
-                if let Some(target_js) = self.try_static_lvalue(*recv, &n) {
+                if let Some((target_js, interop)) = self.try_static_lvalue(*recv, &n) {
+                    let v = if interop { self.assert_interop(v.clone(), vty) } else { v.clone() };
                     return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
@@ -2297,6 +2344,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 } else {
                     let access = self.member_access(&recv_ty, &n, true);
+                    let interop = self.ctx.lookup_member(&recv_ty, &n, true).is_some_and(|m| self.ctx.is_js_member_kind(&m.kind));
+                    let v = if interop { self.assert_interop(v.clone(), vty) } else { v.clone() };
                     Js::new(format!("{}{access} = {}", recv_js.at(P_PRIMARY), v.at(P_ASSIGN)), P_ASSIGN)
                 };
                 (self.wrap_guards(js, guards), vty.clone())
@@ -2323,7 +2372,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    fn try_static_lvalue(&mut self, recv: ExprId, name: &str) -> Option<String> {
+    fn try_static_lvalue(&mut self, recv: ExprId, name: &str) -> Option<(String, bool)> {
         let t = self.expr(recv);
         match &t.kind {
             ExprKind::Identifier(id) => match self.resolve_ident(id.sym) {
@@ -2331,13 +2380,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let sym = self.ctx.sym(name)?;
                     let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                     match b.setter.or(b.getter)? {
+                        Element::Variable(vid) if self.ctx.is_js_var(vid) => {
+                            let var = self.ctx.program.variable(vid);
+                            Some((self.ctx.js_static_ref(None, var.library, &MemberKind::Field(vid), name), true))
+                        }
                         Element::Variable(vid) => {
                             let var = self.ctx.program.variable(vid);
-                            Some(format!("{}{}", self.lib_var(var.library), js::prop_access(name)))
+                            Some((format!("{}{}", self.lib_var(var.library), js::prop_access(name)), false))
+                        }
+                        Element::Function(fid) if self.ctx.is_js_member(fid) => {
+                            let f = self.ctx.program.function(fid);
+                            Some((self.ctx.js_static_ref(None, f.library, &MemberKind::Setter(fid), name), true))
                         }
                         Element::Function(fid) => {
                             let f = self.ctx.program.function(fid);
-                            Some(format!("{}{}", self.lib_var(f.library), js::prop_access(name)))
+                            Some((format!("{}{}", self.lib_var(f.library), js::prop_access(name)), false))
                         }
                         _ => None,
                     }
@@ -2345,8 +2402,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 IdentTarget::Element(Element::Class(c)) => {
                     let mut cur = Some(c);
                     while let Some(k) = cur {
-                        if self.ctx.declared_static(k, name, true).is_some() || self.ctx.declared_static(k, name, false).is_some() {
-                            return Some(format!("{}{}", self.class_ref(k), js::prop_access(&static_member_name(name))));
+                        if let Some(mk) = self.ctx.declared_static(k, name, true).or_else(|| self.ctx.declared_static(k, name, false)) {
+                            if self.ctx.is_js_class(k) && self.ctx.is_js_member_kind(&mk) {
+                                return Some((self.ctx.js_static_ref(Some(k), self.ctx.lib_of_class(k), &mk, name), true));
+                            }
+                            return Some((format!("{}{}", self.class_ref(k), js::prop_access(&static_member_name(name))), false));
                         }
                         cur = self.ctx.superclass_of(k);
                     }
@@ -2416,7 +2476,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
-                if let Some(sjs) = self.try_static_lvalue(*recv, &n) {
+                if let Some((sjs, _)) = self.try_static_lvalue(*recv, &n) {
                     let rt = self.type_of(target);
                     let sjs2 = sjs.clone();
                     (Js::prim(sjs), rt, Box::new(move |_s: &mut Self, v: &Js| Js::new(format!("{sjs2} = {}", v.at(P_ASSIGN)), P_ASSIGN)))
@@ -2657,7 +2717,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
             }
+            let saved_interop = self.interop_args;
+            self.interop_args = fid.is_some_and(|f| self.ctx.is_js_member(f));
             let (arg_js, _arg_tys) = self.emit_args_infer(&ctor_fn, arguments, &free, &mut subst, expected);
+            self.interop_args = saved_interop;
             for p in params {
                 let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
                 targs.push(t.clone());
@@ -2665,7 +2728,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             return self.finish_ctor_call(class, targs, fid, ctor_name, arg_js, is_const);
         }
+        let saved_interop = self.interop_args;
+        self.interop_args = fid.is_some_and(|f| self.ctx.is_js_member(f));
         let (arg_js, _) = self.emit_args_infer(&ctor_fn.subst(&subst), arguments, &[], &mut HashMap::new(), expected);
+        self.interop_args = saved_interop;
         self.finish_ctor_call(class, targs, fid, ctor_name, arg_js, is_const)
     }
 
@@ -2676,6 +2742,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(ctor_name) };
         let is_factory = fid.is_some_and(|f| self.ctx.program.function(f).factory);
         let generic = self.ctx.requires_rti(class);
+        // Interop JS (`visitConstructorInvocation`/`_emitJSInteropNew`): tipo
+        // `@anonymous` vira literal de objeto; construtor `external` (ou
+        // sintético) é `new dart.global.Nome(args)`, sem rti; factory não
+        // `external` fica na classe emitida.
+        if let Some(jc) = self.ctx.js_classes.get(&class) {
+            let external = fid.is_none_or(|f| {
+                let fun = self.ctx.program.function(f);
+                fun.external || fun.kind == FunctionKind::SyntheticConstructor
+            });
+            if external {
+                if jc.anonymous {
+                    let obj = arg_js.last().filter(|a| a.starts_with('{')).cloned().unwrap_or_else(|| "{}".to_string());
+                    return (Js::prim(obj), ty);
+                }
+                return (Js::prim(format!("new {}({})", self.ctx.js_class_global(class), arg_js.join(", "))), ty);
+            }
+        }
         // Redirecionamento de factory `= Outra`: resolve o alvo.
         if is_factory {
             if let Some(target) = self.factory_redirect_target(fid.unwrap()) {

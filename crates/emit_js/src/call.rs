@@ -177,6 +177,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Ty::Fn { pos, opt, named, ret, .. } => (pos.clone(), opt.clone(), named.clone(), (**ret).clone()),
             _ => (vec![], vec![], vec![], Ty::Dynamic),
         };
+        // Só os argumentos diretos desta chamada passam por `assertInterop`.
+        let interop = std::mem::replace(&mut self.interop_args, false);
         // Argumentos de tipo explícitos.
         if !arguments.type_args.is_empty() {
             for (p, t) in free.iter().zip(arguments.type_args.iter()) {
@@ -235,6 +237,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.match_type(p, &ty, free, subst);
                 }
             }
+            let js = if interop { self.assert_interop(js, &ty) } else { js };
             out[i] = Some(js.at(P_ASSIGN));
             tys[i] = ty;
         }
@@ -264,6 +267,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.match_type(p, &ty, free, subst);
                 }
             }
+            let js = if interop { self.assert_interop(js, &ty) } else { js };
             out[i] = Some(js.at(P_ASSIGN));
             tys[i] = ty;
         }
@@ -302,6 +306,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             pos_js.push(format!("{{{}}}", named_js.join(", ")));
         }
+        self.interop_args = interop;
         (pos_js, tys)
     }
 
@@ -340,6 +345,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let mty = self.ctx.member_ty(&m);
                 let access = self.member_access(&recv_nn, name, false);
                 match m.kind {
+                    MemberKind::Method(_) if self.ctx.is_js_member_kind(&m.kind) => {
+                        // Interop: sem argumentos de tipo, `assertInterop` nas funções,
+                        // `jsInteropNullCheck` no retorno não anulável.
+                        let saved = self.interop_args;
+                        self.interop_args = true;
+                        let (args, ret, _) = self.emit_args_for(&mty, arguments, expected);
+                        self.interop_args = saved;
+                        (self.js_null_check(Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), args.join(", "))), &m.kind), ret)
+                    }
                     MemberKind::Method(_) => {
                         let (args, ret, targs) = self.emit_args_for(&mty, arguments, expected);
                         let mut all = targs;
@@ -542,6 +556,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     pub fn emit_static_call(&mut self, c: ClassId, name: &str, mk: MemberKind, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+        if self.ctx.is_js_class(c) && self.ctx.is_js_member_kind(&mk) {
+            let js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, name);
+            return match mk {
+                MemberKind::Method(fid) => {
+                    let fty = self.ctx.fn_ty(fid);
+                    let saved = self.interop_args;
+                    self.interop_args = true;
+                    let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
+                    self.interop_args = saved;
+                    (self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &mk), ret)
+                }
+                MemberKind::Field(vid) => {
+                    let ty = self.ctx.var_ty(vid);
+                    self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
+                }
+                MemberKind::Getter(fid) => {
+                    let ty = self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type);
+                    self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
+                }
+                MemberKind::Setter(_) => (Js::prim("null"), Ty::Dynamic),
+            };
+        }
         let cls = self.class_ref(c);
         let js = format!("{cls}{}", js::prop_access(&static_member_name(name)));
         match mk {
@@ -573,6 +609,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return self.emit_fn_value_call(&g, &gty, arguments, expected);
                 }
                 let (js, fty) = self.element_ref(el).expect("função");
+                if self.ctx.is_js_member(fid) {
+                    let saved = self.interop_args;
+                    self.interop_args = true;
+                    let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
+                    self.interop_args = saved;
+                    return (self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &MemberKind::Method(fid)), ret);
+                }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
                 let mut all = targs;
                 all.extend(args);

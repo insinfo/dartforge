@@ -176,6 +176,29 @@ diferem da forma literal do `dartdevc` mas respeitam o contrato do runtime:
   `ctx.rs`), usando o `OutlineTypes` para assinaturas e caindo em despacho
   dinâmico (`dart.dsend/dload/dput/dcall`) quando o tipo é desconhecido — sempre
   correto, só menos direto.
+* **Membros de receptores nativos** (`_isSymbolizedMember` do DDC): numa classe
+  `@Native` (interceptors, typed data, `dart:html`, `svg`, `indexed_db`,
+  `web_audio`, `web_gl`) o membro público encaminhado que é campo ou
+  `external`/`native` é propriedade JS direta (`sessionStorage.length`), salvo
+  quando é `external` numa biblioteca web com retorno não anulável; os membros
+  com corpo Dart (`sessionStorage[]` → `_get`) são símbolos `dartx`.
+* **Interop JS (`package:js`)**, regras de `js_interop.dart` e `compiler.dart`
+  (`_emitJSInteropClassNonExternalMembers`, `visitConstructorInvocation`,
+  `_emitJSInterop`, `_assertInterop`, `_isNullCheckableJsInterop`,
+  `liveInterfaceTypeRules`): a classe `@JS` só emite as factories e os estáticos
+  não `external` mais os tearoffs `_#nome#tearOff`; `@anonymous` instancia por
+  literal de objeto `{a: 1}`; construtor `external` é `new dart.global.X(args)`
+  (com o prefixo `@JS('...')` da biblioteca); membros `external` de instância são
+  propriedades diretas (`o.a`, `o.m(args)`, sem argumentos de tipo), com
+  `dart.jsInteropNullCheck(...)` quando o tipo é não anulável e
+  `dart.tearoffInterop(o.m, bool)` no tearoff; estáticos e funções/getters de
+  topo `external` são `dart.global.<nome JS>`; funções passadas a JS levam
+  `dart.assertInterop(f)` salvo `allowInterop(...)` direto; nas regras rti cada
+  tipo de interop encaminha para `_interceptors|LegacyJavaScriptObject`
+  (`addRules` + `addOrUpdateRules` + `addRtiResources`). `@JS('x')` em membro de
+  instância é ignorado pelo DDC (e por nós). Corpus: `209_js_interop`
+  (`diverge-ddc`: a VM não executa `dart:js_util`; a referência é o DDC), com uma
+  cópia mínima de `package:js` em `js/lib/js.dart`.
 
 ## Granularidade dos módulos
 

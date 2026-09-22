@@ -8,6 +8,7 @@ use dartforge_elements::model::{
     UnitId, VariableId,
 };
 use dartforge_frontend::ast;
+use dartforge_frontend::ast::DeclKind as DeclKindRef;
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::resolved::BodyTypes;
@@ -99,6 +100,24 @@ pub struct Ctx<'a> {
     /// usuário: cada um vira um módulo JS (classes de bibliotecas em ciclo
     /// precisam de ordem única). Chave: id de cada membro → grupo ordenado.
     pub groups: HashMap<u32, Vec<LibraryId>>,
+    /// Classes `@JS` (package:js / dart:_js_annotations / dart:js_interop).
+    pub js_classes: HashMap<ClassId, JsClass>,
+    /// Bibliotecas com `@JS(...)` na diretiva `library`: prefixo JS.
+    pub js_libs: HashMap<LibraryId, Option<String>>,
+    /// Funções (de topo, métodos, construtores) com `@JS(...)` explícito.
+    pub fn_js: HashMap<FunctionElementId, Option<String>>,
+    /// Variáveis (campos, topo) com `@JS(...)` explícito.
+    pub var_js: HashMap<VariableId, Option<String>>,
+}
+
+/// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
+/// `isJSAnonymousType`, `isStaticInteropType`).
+#[derive(Clone, Debug, Default)]
+pub struct JsClass {
+    /// Nome em `@JS('nome')`; `None` usa o nome Dart.
+    pub name: Option<String>,
+    pub anonymous: bool,
+    pub static_interop: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -173,11 +192,283 @@ impl<'a> Ctx<'a> {
             next_param_id: RefCell::new(1 << 30),
             empty_sym: interner.lookup(""),
             groups: HashMap::new(),
+            js_classes: HashMap::new(),
+            js_libs: HashMap::new(),
+            fn_js: HashMap::new(),
+            var_js: HashMap::new(),
         };
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
         ctx.compute_groups();
+        ctx.compute_js_interop();
         ctx
+    }
+
+    // -----------------------------------------------------------------------
+    // Interop JS (package:js): `js_interop.dart` do DDC
+    // -----------------------------------------------------------------------
+
+    /// Anotação `@JS`/`@JS('nome')`: `Some(nome)`; outras: `None`.
+    fn ann_js(&self, unit: UnitId, a: &ast::Annotation) -> Option<Option<String>> {
+        let last = a.name.last()?;
+        if self.interner.resolve(last.sym) != "JS" || a.name.len() > 2 {
+            return None;
+        }
+        let name = a.arguments.as_ref().and_then(|args| {
+            let first = args.args.first()?;
+            match &self.program.unit(unit).ast.expr(first.value).kind {
+                ast::ExprKind::String(lit) => lit.constant_value().map(|v| v.to_string_lossy()),
+                _ => None,
+            }
+        });
+        Some(name)
+    }
+
+    fn ann_is(&self, a: &ast::Annotation, name: &str) -> bool {
+        a.name.last().is_some_and(|n| self.interner.resolve(n.sym) == name)
+    }
+
+    /// Classes, bibliotecas, funções e variáveis anotadas com `@JS` (fora do SDK).
+    fn compute_js_interop(&mut self) {
+        let mut fn_index: HashMap<(u32, u32), FunctionElementId> = HashMap::new();
+        let mut ctor_index: HashMap<(u32, u32), FunctionElementId> = HashMap::new();
+        for (i, f) in self.program.functions.iter().enumerate() {
+            match f.node {
+                dartforge_elements::model::FunctionRef::Function { unit, function } => {
+                    fn_index.insert((unit.0, function.0), FunctionElementId(i as u32));
+                }
+                dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                    ctor_index.insert((unit.0, member.0), FunctionElementId(i as u32));
+                }
+                _ => {}
+            }
+        }
+        let mut var_index: HashMap<(u32, u32, usize), VariableId> = HashMap::new();
+        for (i, v) in self.program.variables.iter().enumerate() {
+            match v.node {
+                dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } => {
+                    var_index.insert((unit.0, decl.0, index), VariableId(i as u32));
+                }
+                dartforge_elements::model::VariableRef::Field { unit, member, index } => {
+                    var_index.insert((unit.0, member.0 | (1 << 31), index), VariableId(i as u32));
+                }
+                _ => {}
+            }
+        }
+        let mut js_classes = HashMap::new();
+        let mut js_libs = HashMap::new();
+        let mut fn_js = HashMap::new();
+        let mut var_js = HashMap::new();
+        for (li, lib) in self.program.libraries.iter().enumerate() {
+            if self.libs[li].is_sdk {
+                continue;
+            }
+            let lib_id = LibraryId(li as u32);
+            for (ui, &uid) in lib.units.iter().enumerate() {
+                let unit = self.program.unit(uid);
+                if ui == 0 {
+                    for d in &unit.unit.directives {
+                        if let ast::DirectiveKind::Library { .. } = d.kind {
+                            for a in &d.metadata {
+                                if let Some(n) = self.ann_js(uid, a) {
+                                    js_libs.insert(lib_id, n);
+                                }
+                            }
+                        }
+                    }
+                }
+                for &did in &unit.unit.declarations {
+                    let d = unit.ast.decl(did);
+                    let members: &[ast::MemberId] = match &d.kind {
+                        DeclKindRef::Class(cd) => &cd.members,
+                        DeclKindRef::Mixin(md) => &md.members,
+                        DeclKindRef::Enum(ed) => &ed.members,
+                        DeclKindRef::Extension(ed) => &ed.members,
+                        DeclKindRef::ExtensionType(ed) => &ed.members,
+                        DeclKindRef::Function(fid) => {
+                            if let Some(&fe) = fn_index.get(&(uid.0, fid.0)) {
+                                for a in d.metadata.iter() {
+                                    if let Some(n) = self.ann_js(uid, a) {
+                                        fn_js.insert(fe, n);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        DeclKindRef::Variables(list) => {
+                            for (idx, _) in list.variables.iter().enumerate() {
+                                if let Some(&vid) = var_index.get(&(uid.0, did.0, idx)) {
+                                    for a in d.metadata.iter() {
+                                        if let Some(n) = self.ann_js(uid, a) {
+                                            var_js.insert(vid, n);
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        DeclKindRef::Typedef(_) => continue,
+                    };
+                    for &mid in members {
+                        let mem = unit.ast.member(mid);
+                        if mem.metadata.is_empty() {
+                            continue;
+                        }
+                        let js_name = mem.metadata.iter().find_map(|a| self.ann_js(uid, a));
+                        let Some(js_name) = js_name else { continue };
+                        match &mem.kind {
+                            ast::MemberKind::Method(fid) => {
+                                if let Some(&fe) = fn_index.get(&(uid.0, fid.0)) {
+                                    fn_js.insert(fe, js_name);
+                                }
+                            }
+                            ast::MemberKind::Constructor(_) => {
+                                if let Some(&fe) = ctor_index.get(&(uid.0, mid.0)) {
+                                    fn_js.insert(fe, js_name);
+                                }
+                            }
+                            ast::MemberKind::Field(list) => {
+                                for (idx, _) in list.variables.iter().enumerate() {
+                                    if let Some(&vid) = var_index.get(&(uid.0, mid.0 | (1 << 31), idx)) {
+                                        var_js.insert(vid, js_name.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (i, c) in self.program.classes.iter().enumerate() {
+            if self.libs[c.library.0 as usize].is_sdk {
+                continue;
+            }
+            let Some(decl) = c.decl else { continue };
+            let d = self.program.unit(decl.unit).ast.decl(decl.decl);
+            let mut info: Option<JsClass> = None;
+            for a in d.metadata.iter() {
+                if let Some(n) = self.ann_js(decl.unit, a) {
+                    info.get_or_insert_with(JsClass::default).name = n;
+                }
+            }
+            if let Some(info) = info.as_mut() {
+                info.anonymous = d.metadata.iter().any(|a| self.ann_is(a, "anonymous"));
+                info.static_interop = d.metadata.iter().any(|a| self.ann_is(a, "staticInterop"));
+            }
+            if let Some(info) = info {
+                js_classes.insert(ClassId(i as u32), info);
+            }
+        }
+        self.js_classes = js_classes;
+        self.js_libs = js_libs;
+        self.fn_js = fn_js;
+        self.var_js = var_js;
+    }
+
+    pub fn is_js_class(&self, c: ClassId) -> bool {
+        self.js_classes.contains_key(&c)
+    }
+
+    /// Membro `external` de interop (`isJsMember` do DDC): fora do SDK, com
+    /// `@JS` no próprio membro, na classe ou (topo) na biblioteca.
+    pub fn is_js_member(&self, fid: FunctionElementId) -> bool {
+        let f = self.program.function(fid);
+        if !f.external || self.libs[f.library.0 as usize].is_sdk {
+            return false;
+        }
+        if self.fn_js.contains_key(&fid) || f.variable.is_some_and(|v| self.var_js.contains_key(&v)) {
+            return true;
+        }
+        match f.class {
+            Some(c) => self.js_classes.contains_key(&c),
+            None => self.js_libs.contains_key(&f.library),
+        }
+    }
+
+    pub fn is_js_var(&self, vid: VariableId) -> bool {
+        let v = self.program.variable(vid);
+        if !v.external || self.libs[v.library.0 as usize].is_sdk {
+            return false;
+        }
+        if self.var_js.contains_key(&vid) {
+            return true;
+        }
+        match v.class {
+            Some(c) => self.js_classes.contains_key(&c),
+            None => self.js_libs.contains_key(&v.library),
+        }
+    }
+
+    pub fn is_js_member_kind(&self, mk: &MemberKind) -> bool {
+        match *mk {
+            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => self.is_js_member(f),
+            MemberKind::Field(v) => self.is_js_var(v),
+        }
+    }
+
+    /// `_isNullCheckableJsInterop`: membro de interop (não `@staticInterop`)
+    /// cujo tipo (retorno ou getter) é não anulável.
+    pub fn js_null_checkable(&self, mk: &MemberKind) -> bool {
+        if !self.is_js_member_kind(mk) {
+            return false;
+        }
+        let class = match *mk {
+            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => self.program.function(f).class,
+            MemberKind::Field(v) => self.program.variable(v).class,
+        };
+        if class.and_then(|c| self.js_classes.get(&c)).is_some_and(|j| j.static_interop) {
+            return false;
+        }
+        let ty = match *mk {
+            MemberKind::Method(f) | MemberKind::Getter(f) => self.ty_of(self.outline.functions[f.0 as usize].return_type),
+            MemberKind::Setter(_) => return false,
+            MemberKind::Field(v) => self.var_ty(v),
+        };
+        !ty.is_nullable()
+    }
+
+    /// `dart.global.<prefixo da biblioteca>.<partes>` (`_emitJSInteropForGlobal`).
+    pub fn js_global(&self, lib: LibraryId, name: &str) -> String {
+        let mut full = String::new();
+        if let Some(Some(p)) = self.js_libs.get(&lib) {
+            full.push_str(p);
+            full.push('.');
+        }
+        full.push_str(name);
+        let mut out = String::from("dart.global");
+        for part in full.split('.') {
+            out.push_str(&js::prop_access(part));
+        }
+        out
+    }
+
+    /// Nome JS global de uma classe de interop (`_jsNameWithoutGlobal`).
+    pub fn js_class_global(&self, c: ClassId) -> String {
+        let class = self.program.class(c);
+        let name = self.js_classes.get(&c).and_then(|j| j.name.clone()).unwrap_or_else(|| self.name(class.name).to_string());
+        self.js_global(class.library, &name)
+    }
+
+    /// Nome JS de um membro estático/topo `external` de interop
+    /// (`_emitJSInteropExternalStaticMemberName`): `@JS('x')` ou o nome Dart.
+    pub fn js_interop_member_name(&self, mk: &MemberKind, dart_name: &str) -> String {
+        let explicit = match *mk {
+            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
+                self.fn_js.get(&f).cloned().flatten().or_else(|| self.program.function(f).variable.and_then(|v| self.var_js.get(&v).cloned().flatten()))
+            }
+            MemberKind::Field(v) => self.var_js.get(&v).cloned().flatten(),
+        };
+        explicit.unwrap_or_else(|| dart_name.to_string())
+    }
+
+    /// Referência global de um membro estático `external` de classe de interop
+    /// ou de função/variável de topo de interop.
+    pub fn js_static_ref(&self, class: Option<ClassId>, lib: LibraryId, mk: &MemberKind, dart_name: &str) -> String {
+        let member = self.js_interop_member_name(mk, dart_name);
+        match class {
+            Some(c) => format!("{}{}", self.js_class_global(c), js::prop_access(&member)),
+            None => self.js_global(lib, &member),
+        }
     }
 
     /// Granularidade dos módulos (docs/EMISSAO-DDC.md): bibliotecas do projeto
@@ -873,6 +1164,9 @@ impl<'a> Ctx<'a> {
 
     /// A classe (ou uma superclasse) é genérica: o construtor recebe `_ti`.
     pub fn requires_rti(&self, c: ClassId) -> bool {
+        if self.js_classes.contains_key(&c) {
+            return false;
+        }
         let mut cur = Some(c);
         let mut guard = 0;
         while let Some(k) = cur {
@@ -886,6 +1180,54 @@ impl<'a> Ctx<'a> {
             }
         }
         false
+    }
+
+    /// Membro público encaminhado numa classe nativa: procura na classe e nas
+    /// superclasses (`getDispatchTarget`); `(função, é campo)`.
+    pub fn native_forwarded_member(&self, c: ClassId, name: &str, setter: bool) -> Option<(FunctionElementId, bool)> {
+        let mut cur = Some(c);
+        let mut guard = 0;
+        while let Some(k) = cur {
+            let class = self.program.class(k);
+            let key = if setter { format!("{name}_=") } else { name.to_string() };
+            if let Some(sym) = self.interner.lookup(&key) {
+                if let Some(&fid) = class.instance_members.get(&sym) {
+                    let f = self.program.function(fid);
+                    if !f.abstract_ {
+                        return Some((fid, f.kind == FunctionKind::ImplicitAccessor));
+                    }
+                }
+            }
+            for &mx in &class.mixin_classes {
+                if let Some(r) = self.native_forwarded_member(mx, name, setter) {
+                    return Some(r);
+                }
+            }
+            cur = class.supertype_class;
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        None
+    }
+
+    /// A função tem corpo `native;` (equivalente a `external` no SDK).
+    pub fn has_native_body(&self, fid: FunctionElementId) -> bool {
+        match self.program.function(fid).node {
+            dartforge_elements::model::FunctionRef::Function { unit, function } => {
+                matches!(self.program.unit(unit).ast.function(function).body, ast::FunctionBody::Native(_))
+            }
+            _ => false,
+        }
+    }
+
+    /// Biblioteca web do SDK (`_isWebLibrary` do DDC).
+    pub fn is_web_library(&self, lib: LibraryId) -> bool {
+        matches!(
+            self.program.library(lib).uri.as_str(),
+            "dart:html" | "dart:svg" | "dart:indexed_db" | "dart:web_audio" | "dart:web_gl" | "dart:web_sql" | "dart:html_common"
+        )
     }
 
     /// Membro concreto (não abstrato) na cadeia de superclasses e mixins.
@@ -1045,11 +1387,12 @@ impl<'a> Ctx<'a> {
             },
             _ => return false,
         };
-        // Receptor de tipo nativo: quase tudo é `dartx` (exceto `String.length`).
-        let impl_class = if Some(class) == self.int_
-            || Some(class) == self.double_
-            || Some(class) == self.num_
-        {
+        // Receptor de tipo nativo (`_isSymbolizedMember` do DDC): o membro
+        // encaminhado (público) que é campo ou `external`/`native` acede a
+        // propriedade JS direta, salvo se é `external` numa biblioteca web com
+        // retorno não anulável (simbolizado com `checkNativeNonNull`); os demais
+        // (com corpo Dart) são símbolos `dartx`.
+        let impl_class = if Some(class) == self.int_ || Some(class) == self.double_ || Some(class) == self.num_ {
             self.jsnumber
         } else if Some(class) == self.bool_ {
             self.jsbool
@@ -1058,15 +1401,26 @@ impl<'a> Ctx<'a> {
         } else {
             None
         };
-        if let Some(ic) = impl_class {
-            if Some(class) == self.string_ && name == "length" && !setter {
-                return false;
-            }
-            let _ = ic;
-            return true;
-        }
-        if self.native_set.contains(&class) {
-            return true;
+        let native_class = impl_class.or_else(|| self.native_set.contains(&class).then_some(class));
+        if let Some(nc) = native_class {
+            return match self.native_forwarded_member(nc, name, setter) {
+                Some((fid, is_field)) => {
+                    if is_field {
+                        false
+                    } else {
+                        let f = self.program.function(fid);
+                        let external = f.external || self.has_native_body(fid);
+                        if !external {
+                            true
+                        } else {
+                            let web = self.is_web_library(f.library);
+                            let ret = self.ty_of(self.outline.functions[fid.0 as usize].return_type);
+                            web && !ret.is_nullable()
+                        }
+                    }
+                }
+                None => true,
+            };
         }
         match self.lookup_member(&t, name, setter) {
             Some(m) => self.ext_set.contains(&m.class),
