@@ -938,6 +938,53 @@ proprietário: `ngdart` (que é a Fase 5 deste plano), `i18n` e
 rodar builders em LLVM é o marco final, não o primeiro passo: o backend
 nativo está em ~6/202 do corpus básico.
 
+## Gerador do ngdart — `.template.dart` sem `build_runner` (2026-09-22)
+
+A pergunta que fixou o desenho: como fazer `dartforge serve` compilar um
+projeto ngdart sem tocar no ngdart nem na aplicação. Resposta: gerar os
+mesmos `.template.dart` que o compilador oficial gera, **em memória**.
+
+**Fontes geradas virtuais.** `crates/elements/src/gerado.rs` guarda fontes
+Dart indexadas pelo *caminho natural* — `lib/src/x/foo.template.dart`, ao
+lado da fonte que as originou, que é exatamente o que
+`resolve_package_uri` já devolve para a URI importada. Com isso a resolução
+e o mapeamento de volta para `package:` não mudam em nada: só a leitura
+consulta a tabela antes do disco. Não se escreve nada em disco no ciclo de
+desenvolvimento — sem `.ng_placeholder`, sem observador vendo o próprio
+gerador escrever, sem reler o que acabamos de produzir.
+
+**Geração atômica.** Uma geração é imutável e trocada inteira; erro no
+gerador não publica nada e a anterior continua valendo. É isso que garante
+que o navegador nunca veja meio estado — módulo novo com template velho.
+
+**Escada de migração.** O que o gerador ainda não sabe gerar continua
+vindo do `build_runner`, e a aplicação compila em todos os passos. A cada
+forma nova que ele aprende, um arquivo sai do apoio e entra no nosso.
+`DARTFORGE_GERADOS=ng` liga o gerador; `=build_runner` monta a geração só
+com o que o `build_runner` escreveu, para separar encanamento de gerador.
+
+**Oráculo.** Os 284 `.template.dart` que o `build_runner` já escreveu no
+`new_sali/frontend` são o oráculo do gerador, como o `dartdevc` é o do
+emissor (`cargo run -p dartforge-gerador-ng --example oraculo`). O que vale
+é a ABI — mesmos símbolos públicos (`XNgFactory`, `createXFactory`,
+`ViewX0`) com a mesma semântica —, mas onde sair igual byte a byte,
+melhor: é verificação de graça.
+
+Estado em 2026-09-22: 123 dos 300 arquivos gerados por nós, 112 iguais
+byte a byte, 0 diferentes; compilação inteira do `new_sali/frontend` com o
+gerador ligado dá 616 módulos idênticos aos da que lê tudo do disco.
+
+**Por que portar em vez de executar o `ngcompiler` oficial.** Executá-lo
+exigiria rodar `package:analyzer` (438 arquivos, 227 mil linhas, com
+`dart:io`, `dart:isolate` e `dart:ffi`) sobre o backend nativo, que está em
+~6/202 do corpus. E não precisamos dele: o `ngcompiler` usa o analyzer só
+para ler anotações, e disso já temos banco semântico. Do `ngcompiler`
+(29 mil linhas), `angular_compiler` (3.231) e `source_gen` (2.762) somem,
+`compiler/output` (3.356, AST Dart de saída) some porque emitimos direto e
+`compiler/expression_parser` (1.620) some porque expressão de template é
+expressão Dart e já temos o parser. Sobra o que importa:
+`view_compiler` (7.518) e `template_parser` (2.153).
+
 ## Regra de projeto — equivalência semântica com o Dart oficial
 
 **O DartForge pode tornar código Dart padrão mais rápido, dividir workers

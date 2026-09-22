@@ -16,6 +16,8 @@
 //! O avanço é gradual e medido: o que ainda não sabemos gerar fica de fora e
 //! continua vindo do `build_runner`. A aplicação funciona em todos os passos e
 //! o placar diz exatamente onde estamos.
+pub mod componente;
+
 use dartforge_elements::gerado::{Construtor, Geracao};
 use dartforge_frontend::ast;
 use dartforge_frontend::parser::Parsed;
