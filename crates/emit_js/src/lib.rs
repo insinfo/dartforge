@@ -103,6 +103,8 @@ pub struct Relatorio {
     /// Unidades do usuário e de pacotes.
     pub unidades_usuario: usize,
     pub bibliotecas: usize,
+    /// Fontes Dart vindas da geração em memória, não do disco.
+    pub fontes_geradas: usize,
     pub avisos_outline: usize,
     pub avisos_corpos: usize,
     pub modulos: usize,
@@ -208,8 +210,44 @@ pub fn compilar_com_relatorio(
     rel.fase("cache do SDK", t);
     let t = Instant::now();
     let mut interner = Interner::new();
-    let (program, elements_diags) =
-        dartforge_elements::load::load_lenient_com_cache(entrada, &sdk, packages, &mut interner, cache);
+    // Fontes geradas em memória. `DARTFORGE_GERADOS=build_runner` monta a
+    // geração a partir do que o `build_runner` já escreveu — é como se verifica
+    // que ler de memória dá exatamente o mesmo JS que ler do disco, antes de
+    // trocar quem produz as strings.
+    let gerados = match std::env::var("DARTFORGE_GERADOS").ok().as_deref() {
+        Some("build_runner") => {
+            let cfg = packages
+                .map(|p| p.to_path_buf())
+                .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada))
+                .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
+            // `DARTFORGE_GERADOS_PKGS=a,b` restringe a geração a esses
+            // pacotes, para comparar com o disco sem mudar mais nada.
+            let filtro: Option<std::collections::HashSet<String>> = std::env::var("DARTFORGE_GERADOS_PKGS")
+                .ok()
+                .map(|v| v.split(',').map(|s| s.trim().to_string()).collect());
+            cfg.map(|c| dartforge_elements::gerado::do_build_runner(&c, ".template.dart", filtro.as_ref()))
+        }
+        _ => None,
+    };
+    if let Some(g) = &gerados {
+        rel.fontes_geradas = g.len();
+        if std::env::var("DARTFORGE_GERADOS_DEBUG").is_ok() {
+            let mut v: Vec<String> = g.caminhos().map(|p| p.display().to_string()).collect();
+            v.sort();
+            eprintln!("geração: {} fontes", v.len());
+            for c in v.iter().take(3) { eprintln!("  {c}"); }
+            for c in v.iter().filter(|c| c.contains("limitless")).take(3) { eprintln!("  L {c}"); }
+        }
+    }
+    let (program, elements_diags) = dartforge_elements::load::load_lenient_gerados(
+        entrada,
+        &sdk,
+        packages,
+        &mut interner,
+        cache,
+        None,
+        gerados,
+    );
     rel.fase("carregar programa", t);
     rel.carga = program.tempos.clone();
     // Partes do SDK têm URI `file:///…/lib/core/int.dart`; o que decide é a biblioteca.

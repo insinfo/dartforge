@@ -1,6 +1,8 @@
 //! Leitura de `.dart_tool/package_config.json` v2 e resolução de URIs `package:`.
 use std::collections::HashMap;
+use crate::gerado::Geracao;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use url::Url;
 
 /// Informações sobre um pacote declarado no `package_config.json`.
@@ -27,6 +29,11 @@ pub struct PackageConfig {
     /// existe: raiz dos arquivos gerados pelo `build_runner`, mapeados para
     /// `package:<pacote>/<rel>` em `canonical_file_uri`.
     pub generated_root: Option<PathBuf>,
+    /// Fontes geradas em memória (`.template.dart` do ngdart e afins).
+    /// Quando a geração tem o caminho natural de um arquivo, ela manda:
+    /// é a autoridade sobre o que ela mesma gera, e o disco nem é
+    /// consultado.
+    pub gerados: Option<Arc<Geracao>>,
 }
 
 /// Tira o prefixo verbatim `\\?\` que `canonicalize` devolve no Windows, para
@@ -168,6 +175,7 @@ impl PackageConfig {
             packages,
             package_dirs,
             generated_root,
+            gerados: None,
         })
     }
 
@@ -191,6 +199,9 @@ impl PackageConfig {
             let path = file_url
                 .to_file_path()
                 .map_err(|_| format!("URL não representa um arquivo local: {file_url}"))?;
+            if self.gerados.as_ref().is_some_and(|g| g.contem(&path)) {
+                return Ok(path);
+            }
             if path.is_file() {
                 return Ok(path);
             }

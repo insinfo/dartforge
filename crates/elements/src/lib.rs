@@ -8,6 +8,7 @@
 #![allow(clippy::too_many_arguments, clippy::collapsible_if)]
 
 pub mod config;
+pub mod gerado;
 pub mod load;
 pub mod model;
 pub mod outline;

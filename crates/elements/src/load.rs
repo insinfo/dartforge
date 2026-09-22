@@ -90,7 +90,23 @@ pub fn load_lenient_incremental(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
+    unidades: Option<&mut crate::unidades::CacheUnidades>,
+) -> (Program, Vec<Diagnostic>) {
+    load_lenient_gerados(entry, sdk, package_config_path, interner, cache, unidades, None)
+}
+
+/// Como `load_lenient_incremental`, com uma geração de fontes em memória
+/// (`.template.dart` do ngdart e afins): o que estiver nela vale mais que o
+/// disco e nem é lido de lá.
+#[allow(clippy::too_many_arguments)]
+pub fn load_lenient_gerados(
+    entry: &Path,
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    cache: Option<crate::sdk_cache::SdkCache>,
     mut unidades: Option<&mut crate::unidades::CacheUnidades>,
+    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
 ) -> (Program, Vec<Diagnostic>) {
     if let Some(u) = unidades.as_deref_mut() {
         u.iniciar_carga();
@@ -102,13 +118,14 @@ pub fn load_lenient_incremental(
     let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
 
     // 1. Carrega o package_config.json
-    let package_config = if let Some(p) = package_config_path {
+    let mut package_config = if let Some(p) = package_config_path {
         PackageConfig::load(p).unwrap_or_default()
     } else if let Some(discovered) = PackageConfig::discover(entry) {
         PackageConfig::load(&discovered).unwrap_or_default()
     } else {
         PackageConfig::default()
     };
+    package_config.gerados = gerados;
 
     let mut program = Program::default();
     let mut uri_to_library: HashMap<String, LibraryId> = HashMap::new();
@@ -144,7 +161,7 @@ pub fn load_lenient_incremental(
         std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf()),
     );
     let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
-    let mut prefetch = Prefetch::default();
+    let mut prefetch = Prefetch { gerados: package_config.gerados.clone(), ..Default::default() };
     let mut considerados = 0usize;
     let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
         existing
@@ -392,7 +409,7 @@ pub fn load_lenient_incremental(
                             interner,
                             &mut program,
                             &mut diagnostics,
-                            None,
+                            prefetch.tirar(&canonical_part),
                             unidades.as_deref_mut(),
                         );
 
@@ -517,6 +534,8 @@ type Lido = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token
 #[derive(Default)]
 struct Prefetch {
     prontos: HashMap<PathBuf, Lido>,
+    /// Geração corrente: fontes daqui nunca vêm do disco.
+    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
 }
 
 impl Prefetch {
@@ -525,6 +544,11 @@ impl Prefetch {
     }
 
     fn tirar(&mut self, path: &Path) -> Option<Lido> {
+        if let Some(f) = self.gerados.as_ref().and_then(|g| g.obter(path)) {
+            let fonte = f.conteudo.to_string();
+            let tokens = dartforge_frontend::lexer::lex(&fonte);
+            return Some(Ok((fonte, tokens)));
+        }
         self.prontos.remove(path)
     }
 
@@ -532,6 +556,11 @@ impl Prefetch {
     /// arquivos ficam na própria thread, que o custo de criar threads não
     /// compensa.
     fn carregar(&mut self, caminhos: Vec<PathBuf>) {
+        // O que a geração tem em memória não é lido do disco.
+        let caminhos: Vec<PathBuf> = match &self.gerados {
+            Some(g) => caminhos.into_iter().filter(|p| !g.contem(p)).collect(),
+            None => caminhos,
+        };
         let ler = |p: &Path| -> Lido {
             let s = std::fs::read_to_string(p)?;
             let t = dartforge_frontend::lexer::lex(&s);
