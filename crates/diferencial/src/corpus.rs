@@ -116,7 +116,7 @@ pub fn tema(nome: &str) -> &'static str {
         100..=109 => "Records e padrões",
         110..=119 => "Extensions, typedef e bibliotecas",
         120..=139 => "Bibliotecas do SDK",
-        140..=199 => "Convertidos dos fixtures antigos",
+        140..=299 => "Convertidos dos fixtures antigos",
         _ => "Outros",
     }
 }

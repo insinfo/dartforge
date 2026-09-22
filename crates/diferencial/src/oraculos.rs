@@ -132,15 +132,16 @@ fn cache_gravar(amb: &Ambiente, executor: &str, chave: &str, s: &Saida) {
 
 // ---------------------------------------------------------------- dart run
 
-/// Oráculo de semântica: `dart run arquivo` no diretório do arquivo.
+/// Oráculo de semântica: `dart run --enable-asserts arquivo` no diretório do arquivo.
+/// Asserts ligados porque o DDC (e o modo de desenvolvimento do DartForge) os liga.
 pub fn oraculo_dart(amb: &Ambiente, programa: &Programa) -> Saida {
     let chave = chave_cache(programa);
-    if let Some(s) = cache_ler(amb, "dart", &chave) {
+    if let Some(s) = cache_ler(amb, "dart-ea", &chave) {
         return s;
     }
     let nome = programa.entrada.file_name().unwrap().to_string_lossy().into_owned();
-    let s = executar("dart", &["run".into(), nome], programa.diretorio(), amb.limite);
-    cache_gravar(amb, "dart", &chave, &s);
+    let s = executar("dart", &["run".into(), "--enable-asserts".into(), nome], programa.diretorio(), amb.limite);
+    cache_gravar(amb, "dart-ea", &chave, &s);
     s
 }
 
@@ -153,13 +154,19 @@ pub fn compilar_ddc(amb: &Ambiente, programa: &Programa, dir: &Path) -> Result<S
     let js = dir.join(format!("{}.js", programa.nome));
     // `dartdevc` já segue os imports relativos; só a entrada é passada. O cwd é o
     // diretório do programa para o nome do módulo ser o nome do arquivo.
-    let args = vec![
+    let mut args = vec![
         amb.dartdevc_snapshot().to_string_lossy().into_owned(),
         "--modules=es6".into(),
         "-o".into(),
         js.to_string_lossy().into_owned(),
-        programa.entrada.file_name().unwrap().to_string_lossy().into_owned(),
     ];
+    // Programas com `package:` trazem o seu `.dart_tool/package_config.json` (o `dart run` o
+    // encontra sozinho; o `dartdevc` precisa do `--packages`).
+    let pacotes = programa.diretorio().join(".dart_tool/package_config.json");
+    if pacotes.is_file() {
+        args.push(format!("--packages={}", pacotes.to_string_lossy()));
+    }
+    args.push(programa.entrada.file_name().unwrap().to_string_lossy().into_owned());
     let s = executar("dart", &args, programa.diretorio(), amb.limite);
     if s.codigo != 0 {
         return Err(s);
