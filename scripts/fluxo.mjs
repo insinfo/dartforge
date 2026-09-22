@@ -26,7 +26,7 @@ function args(argv) {
   const o = { dir: 'work/fe/out', web: '', porta: 8771, json: '', visivel: false, rotulo: 'DartForge' };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--visivel') o.visivel = true;
+    if (a === '--visivel' || a === '--ddc') o[a.slice(2)] = true;
     else if (a.startsWith('--')) o[a.slice(2)] = argv[++i];
   }
   o.porta = Number(o.porta);
@@ -60,20 +60,44 @@ const TIPOS = {
 };
 
 const naoEncontrados = new Set();
+let indexEmMemoria = null;
+
+// Modo `--build <.dart_tool/build/generated>`: serve a saída oficial do
+// `build_web_compilers` (um módulo DDC por biblioteca + require.js), que é
+// como a aplicação roda no `webdev serve`. Resolve, nesta ordem:
+// `packages/<pkg>/<x>` → `<build>/<pkg>/lib/<x>`; o resto → `<build>/<pacote da
+// aplicação>/web/<x>`; e os estáticos do projeto em `--web`.
+function candidatos(rel) {
+  if (!op.build) return [join(raiz, rel)];
+  const lista = [];
+  const m = rel.match(/^packages\/([^/]+)\/(.*)$/);
+  if (m) lista.push(join(op.build, m[1], 'lib', m[2]));
+  lista.push(join(op.build, op.pacote || 'new_sali_frontend', 'web', rel));
+  if (op.web) lista.push(join(op.web, rel));
+  return lista;
+}
 
 function servidor() {
   return createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
     if (rel === '') rel = 'index.html';
-    let arquivo = resolve(join(raiz, rel));
-    if (!arquivo.startsWith(raiz + sep) && arquivo !== raiz) {
+    const navegacaoHtml = (req.headers.accept || '').includes('text/html');
+    if (indexEmMemoria && (rel === 'index.html' || (extname(rel) === '' && navegacaoHtml))) {
+      res.writeHead(200, { 'Content-Type': TIPOS['.html'] });
+      res.end(indexEmMemoria);
+      return;
+    }
+    let arquivo = candidatos(rel).find((c) => existsSync(c) && !statSync(c).isDirectory()) || resolve(join(raiz, rel));
+    if (!op.build && !arquivo.startsWith(raiz + sep) && arquivo !== raiz) {
       res.writeHead(403).end('fora da raiz');
       return;
     }
     if (!existsSync(arquivo) || statSync(arquivo).isDirectory()) {
-      // Fallback de SPA: só para navegações (sem extensão conhecida).
-      if (extname(arquivo) === '') {
+      // Fallback de SPA: só para navegações (o navegador pede `text/html`);
+      // XHR/fetch de API continuam a receber 404, que é o que a aplicação veria.
+      const navegacao = (req.headers.accept || '').includes('text/html');
+      if (extname(arquivo) === '' && navegacao) {
         arquivo = join(raiz, 'index.html');
       } else {
         naoEncontrados.add('/' + rel);
@@ -88,7 +112,20 @@ function servidor() {
 
 // ------------------------------------------------------------- index.html
 
-// Injeta o coletor de erros e troca `main.dart.js` pelo módulo emitido.
+// Nome exportado da biblioteca de entrada na saída do `dartdevc` (a linha
+// `export { main as web__main, … }` do `main.js`).
+function exportacaoDdc() {
+  const js = readFileSync(join(raiz, 'main.js'), 'utf8');
+  const linha = js.split('\n').find((l) => l.startsWith('export {'));
+  if (!linha) throw new Error('main.js sem linha `export {`');
+  const nomes = linha.slice(linha.indexOf('{') + 1, linha.lastIndexOf('}')).split(',').map((s) => s.trim());
+  const entrada = nomes.find((n) => /^main(\s+as\s+\w+)?$/.test(n)) || nomes[0];
+  return entrada.includes(' as ') ? entrada.split(/\s+as\s+/)[1] : entrada;
+}
+
+// Injeta o coletor de erros e troca `main.dart.js` pelo módulo emitido. No modo
+// `--build` (saída oficial do build_web_compilers) o `main.dart.js` é mantido:
+// só o coletor entra, e o index fica em memória.
 function prepararIndex() {
   if (!op.web) return;
   const fonte = readFileSync(join(op.web, 'index.html'), 'utf8');
@@ -99,8 +136,13 @@ window.onerror = function (m, s, l, c, e) { window.__reg(String(m) + " @" + s + 
 window.addEventListener("unhandledrejection", function (ev) { var r = ev.reason; window.__reg("rejeição: " + String(r) + (r && r.stack ? "\\n" + r.stack : "")); });
 var __log = console.error; console.error = function () { window.__reg("console.error: " + Array.from(arguments).map(String).join(" ")); __log.apply(console, arguments); };
 </script>`;
+  if (op.build) {
+    // O bootstrap oficial (`main.dart.js` + require.js) continua no lugar.
+    indexEmMemoria = fonte.replace('<head>', `<head>\n${coletor}`);
+    return;
+  }
   let html = fonte.replace(/<script[^>]*src="main\.dart\.js"[^>]*>\s*<\/script>/, '');
-  const entrada = op.ddc ? `<script type="module">import { main } from './main.js'; main.main();</script>` : `<script type="module" src="main.mjs"></script>`;
+  const entrada = op.ddc ? `<script type="module">import { ${exportacaoDdc()} as entrada } from './main.js'; entrada.main();</script>` : `<script type="module" src="main.mjs"></script>`;
   html = html.replace('</head>', `${coletor}\n${entrada}\n</head>`);
   writeFileSync(join(raiz, 'index.html'), html);
   for (const a of ['assets', 'favicon.ico', 'manifest.json', 'scrollbar.css']) {
@@ -145,6 +187,15 @@ class Cdp {
     });
   }
   // Erros do protocolo (console, exceções) desde um marco.
+  // `print` da aplicação (vira `console.log`/`debug`): não é erro, mas mostra o
+  // caminho que o código percorreu — é o que se compara entre compiladores.
+  registros(marco) {
+    return this.eventos
+      .slice(marco)
+      .filter((e) => e.method === 'Runtime.consoleAPICalled' && (e.params.type === 'log' || e.params.type === 'debug' || e.params.type === 'info'))
+      .map((e) => e.params.args.map((a) => a.description || a.value).join(' ').replace(/\s+/g, ' ').slice(0, 160))
+      .filter(Boolean);
+  }
   drenar(marco) {
     const novos = this.eventos.slice(marco);
     const erros = [];
@@ -225,10 +276,11 @@ async function passo(cdp, nome, corpo) {
   const daPagina = (await cdp.avalia(`(window.__erros || []).slice(${antes})`)) || [];
   const doProtocolo = cdp.drenar(marco);
   const todos = [...new Set([...daPagina, ...doProtocolo])];
-  // 404 de recurso é do ambiente (já listado em `naoEncontrados`), não da aplicação.
-  const ambiente = todos.filter((e) => /Failed to load resource/.test(e));
+  // Do ambiente, não da aplicação: 404 de recurso (listado em `naoEncontrados`)
+  // e as conexões recusadas/bloqueadas para os servidores externos (IdP, API).
+  const ambiente = todos.filter((e) => /Failed to load resource|ERR_CONNECTION_REFUSED|ERR_BLOCKED_BY_CLIENT|WebSocket connection to/.test(e));
   const erros = todos.filter((e) => !ambiente.includes(e));
-  return { nome, ...detalhe, resumo, erros, ambiente, falha };
+  return { nome, ...detalhe, resumo, erros, ambiente, registros: cdp.registros(marco).slice(0, 12), falha };
 }
 
 // ------------------------------------------------------------------ main
@@ -322,7 +374,8 @@ async function main() {
       await navegar('/login?error_code=GOVBR_BRONZE');
       const achou = await esperarPor(cdp, `!!document.querySelector('.alert-warning')`, 8000);
       const texto = achou ? await cdp.avalia(`document.querySelector('.alert-warning').innerText.replace(/\\s+/g, ' ').trim().slice(0, 120)`) : null;
-      return { alertaRenderizado: achou, textoAlerta: texto };
+      const html = achou ? await cdp.avalia(`document.querySelector('.alert-warning').innerHTML.replace(/\\s+/g, ' ').slice(0, 300)`) : null;
+      return { alertaRenderizado: achou, textoAlerta: texto, htmlAlerta: html };
     }));
 
     // 4. Submeter "Entrar": `doLogin()` pede o redirecionamento ao IdP; a
@@ -369,7 +422,57 @@ async function main() {
       return { linkClicado: href, urlApos: await cdp.avalia('location.pathname') };
     }));
 
+    // 10. Retorno do IdP com `code`/`state` inválidos: o serviço tenta trocar o
+    //     código (pedido bloqueado) e deve tratar a falha sem exceção solta.
+    relatorio.passos.push(await passo(cdp, '10. callback do IdP com code inválido', async () => {
+      await cdp.avalia(`(() => { sessionStorage.setItem('oidc_state', 'estado-de-teste'); sessionStorage.setItem('oidc_code_verifier', 'verificador-de-teste'); return true; })()`);
+      externas.length = 0;
+      await cdp.envia('Page.navigate', { url: base + '/callback?code=codigo-invalido&state=estado-de-teste' });
+      await espera(4000);
+      const bloqueadas = [...new Set(externas.filter((u) => u.startsWith('http')))].map((u) => u.split('?')[0]);
+      const saiu = await cdp.avalia(`location.protocol`) !== 'http:';
+      await navegar('/login'); // volta ao estado conhecido
+      return { pedidosBloqueados: bloqueadas.slice(0, 3), saiuDaAplicacao: saiu };
+    }));
+
+    // 11. Sessão forjada no sessionStorage: leva a aplicação ao shell autenticado
+    //     (menu, permissões, serviços REST). As chamadas à API estão bloqueadas,
+    //     então o que se afirma é que a montagem e os caminhos de erro rodam sem
+    //     exceção — é o trecho de código mais profundo que o fluxo alcança.
+    relatorio.passos.push(await passo(cdp, '11. sessão forjada → /restrito/home', async () => {
+      const perfil = {
+        sub: '12345',
+        name: 'Usuária de Teste',
+        email: 'teste@exemplo.gov.br',
+        preferred_username: 'teste',
+        cpf: '00000000000',
+        auth_method: 'local',
+        'sali:organogramas': [{ id: 1, id_organograma: 1, nome: 'Setor de Teste', ativo: true, sigla: 'ST', protocolo: true }],
+        usuarioOrganogramaAtual: { id: 1, id_organograma: 1, nome: 'Setor de Teste', ativo: true, sigla: 'ST', protocolo: true },
+      };
+      const expira = new Date(Date.now() + 3600e3).toISOString();
+      await cdp.avalia(`(() => {
+        sessionStorage.setItem('oidc_user_profile', ${JSON.stringify(JSON.stringify(perfil))});
+        sessionStorage.setItem('oidc_access_token_expires_at', ${JSON.stringify(expira)});
+        sessionStorage.setItem('oidc_access_token', 'token-de-teste');
+        sessionStorage.setItem('oidc_id_token', 'id-token-de-teste');
+        sessionStorage.setItem('oidc_login_timestamp', new Date().toISOString());
+        return true;
+      })()`);
+      await navegar('/restrito/home');
+      // A guarda espera as permissões da API (indisponível) e só segue quando o
+      // seu watchdog de 20 s dispara; daí a espera longa.
+      const montouShell = await esperarPor(cdp, `document.querySelectorAll('my-app *').length > 5`, 40000);
+      await espera(2000);
+      return {
+        urlApos: await cdp.avalia('location.pathname'),
+        montouShell,
+        elementos: await cdp.avalia(`document.querySelectorAll('my-app *').length`),
+      };
+    }));
+
     relatorio.naoEncontrados = [...naoEncontrados].sort();
+    relatorio.externasBloqueadas = [...new Set(externas.map((u) => u.split('?')[0]))].sort().slice(0, 12);
     ws.close();
   } finally {
     navegador.kill();
@@ -389,7 +492,7 @@ async function main() {
     if (r.entradas?.length) linhas.push(`  entradas: ${r.entradas.join(', ')}`);
     if (r.alertas?.length) linhas.push(`  alertas: ${r.alertas.join(' | ')}`);
     for (const [k, v] of Object.entries(p)) {
-      if (['nome', 'resumo', 'erros', 'ambiente', 'falha'].includes(k)) continue;
+      if (['nome', 'resumo', 'erros', 'ambiente', 'registros', 'falha'].includes(k)) continue;
       linhas.push(`  ${k}: ${JSON.stringify(v)}`);
     }
     if (p.erros.length) {
@@ -400,8 +503,10 @@ async function main() {
       linhas.push('  sem erros');
     }
     if (p.ambiente?.length) linhas.push(`  ambiente: ${p.ambiente.length} recurso(s) 404`);
+    for (const r of (p.registros || []).slice(0, 6)) linhas.push(`  print: ${r}`);
   }
   linhas.push(`\n${relatorio.rotulo}: ${relatorio.passos.length} passos, ${comErro} com erro; 404 do servidor: ${relatorio.naoEncontrados.length}`);
+  if (relatorio.externasBloqueadas?.length) linhas.push(`  externas bloqueadas: ${relatorio.externasBloqueadas.filter((u) => u.startsWith('http')).join(' ')}`);
   if (relatorio.naoEncontrados.length) linhas.push(`  404: ${relatorio.naoEncontrados.slice(0, 10).join(' ')}`);
   console.log(linhas.join('\n'));
   if (op.json) writeFileSync(op.json, JSON.stringify(relatorio, null, 2));
