@@ -34,7 +34,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let oficial = do_build_runner(&cfg, ".template.dart", None);
+    let oficial = do_build_runner(&cfg, &[".template.dart", ".css.shim.dart"], None);
     println!("oficial: {} arquivos gerados pelo build_runner", oficial.len());
 
     // Fase 1: carregar o projeto sem os gerados. A carga é tolerante, então

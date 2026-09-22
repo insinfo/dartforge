@@ -259,7 +259,7 @@ pub fn compilar_com_relatorio(
             cfg.and_then(|c| {
                 let apoio = dartforge_elements::gerado::do_build_runner(
                     &c,
-                    ".template.dart",
+                    &[".template.dart", ".css.shim.dart"],
                     filtro_de_pacotes().as_ref(),
                 );
                 let raiz = c.origin.as_ref()?.parent()?.parent()?.to_path_buf();
@@ -297,7 +297,7 @@ pub fn compilar_com_relatorio(
             cfg.map(|c| {
                 dartforge_elements::gerado::do_build_runner(
                     &c,
-                    ".template.dart",
+                    &[".template.dart", ".css.shim.dart"],
                     filtro_de_pacotes().as_ref(),
                 )
             })

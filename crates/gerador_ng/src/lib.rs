@@ -22,6 +22,7 @@ pub mod dom;
 pub mod expr;
 pub mod html;
 pub mod resolucao;
+pub mod sass;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
@@ -428,14 +429,24 @@ fn gerar_arquivo(
     let mut extras = Vec::new();
     for url in &comp.style_urls {
         let css = fonte.parent().ok_or(Motivo::Estilos)?.join(url);
-        let texto_css = std::fs::read_to_string(&css).map_err(|_| Motivo::Estilos)?;
+        // O `.css` do `styleUrls` quase nunca existe no disco: quem o produz
+        // é o `sass_builder`, a partir do `.scss` ao lado. Fazemos os dois.
+        let (texto_css, entrada) = match std::fs::read_to_string(&css) {
+            Ok(t) => (t, css.clone()),
+            Err(_) => {
+                let scss = css.with_extension("scss");
+                let fonte_scss =
+                    std::fs::read_to_string(&scss).map_err(|_| Motivo::Estilos)?;
+                (sass::compilar(&fonte_scss)?, scss)
+            }
+        };
         let shim = css::shim(&texto_css)?;
         let destino = css.with_file_name(format!(
             "{}.shim.dart",
             css.file_name().unwrap_or_default().to_string_lossy()
         ));
         extras.push((destino, format!("final List<Object> styles = ['{shim}'];")));
-        entradas.push(css);
+        entradas.push(entrada);
     }
     Ok((texto, entradas, extras))
 }

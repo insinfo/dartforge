@@ -117,7 +117,7 @@ impl Construtor {
 /// quem produz as strings.
 pub fn do_build_runner(
     cfg: &crate::config::PackageConfig,
-    sufixo: &str,
+    sufixos: &[&str],
     pacotes: Option<&std::collections::HashSet<String>>,
 ) -> Arc<Geracao> {
     let mut c = Construtor::nova();
@@ -142,7 +142,8 @@ pub fn do_build_runner(
                     pilha.push(p);
                     continue;
                 }
-                if !p.to_string_lossy().ends_with(sufixo) {
+                let nome = p.to_string_lossy();
+                if !sufixos.iter().any(|s| nome.ends_with(s)) {
                     continue;
                 }
                 let Ok(rel) = p.strip_prefix(&dir) else { continue };
