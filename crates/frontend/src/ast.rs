@@ -100,6 +100,17 @@ impl Ast {
         self.functions.push(function);
         FunctionId(self.functions.len() as u32 - 1)
     }
+    /// Devolve ao alocador a capacidade não usada de cada arena. Chamado ao
+    /// fim da análise, quando a árvore deixa de crescer.
+    pub fn shrink_to_fit(&mut self) {
+        self.exprs.shrink_to_fit();
+        self.stmts.shrink_to_fit();
+        self.types.shrink_to_fit();
+        self.patterns.shrink_to_fit();
+        self.decls.shrink_to_fit();
+        self.members.shrink_to_fit();
+        self.functions.shrink_to_fit();
+    }
 }
 
 /// Identificador com posição.
@@ -665,7 +676,8 @@ pub struct Expr {
 #[derive(Debug, Clone)]
 pub struct StringLit {
     pub span: Span,
-    pub parts: Vec<StringPart>,
+    /// Tamanho exato (`Box<[T]>`): a maioria dos literais tem um trecho só.
+    pub parts: Box<[StringPart]>,
 }
 
 #[derive(Debug, Clone)]
@@ -699,11 +711,14 @@ impl StringLit {
 #[derive(Debug)]
 pub struct Arguments {
     pub span: Span,
-    pub type_args: Vec<TypeId>,
-    pub args: Vec<Argument>,
+    /// `Box<[T]>` e não `Vec`: capacidade exata (o `Vec` dobrava — 4 slots
+    /// para 2 argumentos) e 16 bytes em vez de 24. Leitura igual à de um
+    /// `Vec` (`iter`, `len`, índice); só o parser constrói.
+    pub type_args: Box<[TypeId]>,
+    pub args: Box<[Argument]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Argument {
     pub name: Option<Name>,
     pub value: ExprId,
@@ -793,7 +808,11 @@ pub enum ExprKind {
         keyword: Option<CreationKeyword>,
         ty: TypeId,
         constructor: Option<Name>,
-        arguments: Arguments,
+        /// Em `Box` porque `Arguments` tem 64 bytes e é a variante que
+        /// ditava o tamanho de todo `Expr` (120 → 80 bytes): só chamadas
+        /// pagam por ela. `Box` de estrutura auxiliar, não de nó — os nós
+        /// continuam em arenas.
+        arguments: Box<Arguments>,
     },
     /// `(params) { }`, `(params) => e`, `<T>(params) async { }`
     FunctionExpression(FunctionId),
@@ -812,7 +831,8 @@ pub enum ExprKind {
     /// função (um `Property` para chamadas de método).
     Call {
         target: ExprId,
-        arguments: Arguments,
+        /// Veja [`ExprKind::InstanceCreation::arguments`].
+        arguments: Box<Arguments>,
     },
     /// `e<T>` — instanciação explícita de tearoff ou tipo genérico.
     TypeArguments {

@@ -125,9 +125,15 @@ pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
     };
     let mut parser = Parser::new(source, tokens, interner);
     let unit = parser.parse_compilation_unit();
+    let mut ast = parser.ast;
+    // A árvore devolvida vive muito (um editor a retém por arquivo aberto) e
+    // as arenas cresceram em potências de dois: no `new_sali` a folga era
+    // 29 MiB de 132 MiB. Uma realocação por arena aqui é mais barata do que
+    // reter a folga pela vida inteira da unidade.
+    ast.shrink_to_fit();
     Parsed {
         unit,
-        ast: parser.ast,
+        ast,
         diagnostics: parser.diagnostics,
     }
 }
@@ -149,6 +155,13 @@ pub struct Parser<'s, 'i> {
     pub(crate) in_generator: bool,
     /// Dentro de `<...>` de tipo: `>` nunca se compõe.
     pub(crate) in_type_args: u32,
+    /// Rascunho de argumentos de chamada, compartilhado por todas as
+    /// chamadas (aninhadas empilham acima da anterior); ver
+    /// [`Parser::parse_arguments`].
+    pub(crate) scratch_args: Vec<crate::ast::Argument>,
+    /// Rascunho de trechos de string literal; ver
+    /// [`Parser::parse_string_literal`].
+    pub(crate) scratch_parts: Vec<crate::ast::StringPart>,
 }
 
 /// Limite de aninhamento antes de um diagnóstico de profundidade.
@@ -167,6 +180,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             in_async: false,
             in_generator: false,
             in_type_args: 0,
+            scratch_args: Vec::new(),
+            scratch_parts: Vec::new(),
         }
     }
 

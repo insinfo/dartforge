@@ -123,25 +123,34 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Um argumento é nomeado quando é um identificador seguido de `:`.
     pub(crate) fn parse_arguments(&mut self) -> PResult<Arguments> {
         let start = self.expect_op(Op::LParen)?.span;
-        let mut args = Vec::new();
-        while !self.at_op(Op::RParen) {
-            let name = if self.at_identifier() && self.at_op_at(1, Op::Colon) {
-                let name = self.identifier();
-                self.advance();
-                Some(name)
-            } else {
-                None
-            };
-            let value = self.parse_expression()?;
-            args.push(Argument { name, value });
-            if !self.eat_op(Op::Comma) {
-                break;
+        // Os argumentos vão para o rascunho compartilhado a partir de `base`
+        // (chamadas aninhadas empilham acima) e saem numa única alocação de
+        // tamanho exato. Um `Vec` local cresceria em dobro e realocaria ao
+        // virar `Box<[T]>`: no `new_sali` eram 57 mil chamadas.
+        let base = self.scratch_args.len();
+        let result = (|| {
+            while !self.at_op(Op::RParen) {
+                let name = if self.at_identifier() && self.at_op_at(1, Op::Colon) {
+                    let name = self.identifier();
+                    self.advance();
+                    Some(name)
+                } else {
+                    None
+                };
+                let value = self.parse_expression()?;
+                self.scratch_args.push(Argument { name, value });
+                if !self.eat_op(Op::Comma) {
+                    break;
+                }
             }
-        }
-        self.expect_op(Op::RParen)?;
+            self.expect_op(Op::RParen)
+        })();
+        let args: Box<[Argument]> = self.scratch_args[base..].into();
+        self.scratch_args.truncate(base);
+        result?;
         Ok(Arguments {
             span: self.span_from(start),
-            type_args: Vec::new(),
+            type_args: Box::default(),
             args,
         })
     }
@@ -154,26 +163,35 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// decodificado ([`crate::lexer::decode_string`]).
     pub(crate) fn parse_string_literal(&mut self) -> PResult<StringLit> {
         let start = self.span();
-        let mut parts = Vec::new();
-        let mut any = false;
-        loop {
-            match self.kind() {
-                Kind::Str(flags) => {
-                    let token = self.advance();
-                    self.push_string_text(&mut parts, token, flags, true, false)?;
+        // Trechos vão para o rascunho compartilhado a partir de `base` (uma
+        // string dentro de interpolação empilha acima) e saem numa alocação
+        // exata: a maioria dos literais tem um trecho só, e um `Vec` local
+        // reservava quatro.
+        let base = self.scratch_parts.len();
+        let result = (|| {
+            let mut any = false;
+            loop {
+                match self.kind() {
+                    Kind::Str(flags) => {
+                        let token = self.advance();
+                        self.push_string_text(token, flags, true, false)?;
+                    }
+                    Kind::StrBegin(flags, interp) => {
+                        let token = self.advance();
+                        self.push_string_text(token, flags, true, false)?;
+                        self.parse_interpolations(interp)?;
+                    }
+                    _ => break,
                 }
-                Kind::StrBegin(flags, interp) => {
-                    let token = self.advance();
-                    self.push_string_text(&mut parts, token, flags, true, false)?;
-                    self.parse_interpolations(&mut parts, interp)?;
-                }
-                _ => break,
+                any = true;
             }
-            any = true;
-        }
-        if !any {
-            return Err(self.error("esperava uma string"));
-        }
+            if !any {
+                return Err(self.error("esperava uma string"));
+            }
+            Ok(())
+        })();
+        let parts: Box<[StringPart]> = self.scratch_parts.drain(base..).collect();
+        result?;
         Ok(StringLit {
             span: self.span_from(start),
             parts,
@@ -605,7 +623,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     );
                 }
                 Kind::Op(Op::LParen) => {
-                    let arguments = self.parse_arguments()?;
+                    let arguments = Box::new(self.parse_arguments()?);
                     expr = self.push(
                         start,
                         ExprKind::Call {
@@ -621,12 +639,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                     let type_args = self.parse_type_arguments_opt()?;
                     if self.at_op(Op::LParen) {
                         let mut arguments = self.parse_arguments()?;
-                        arguments.type_args = type_args;
+                        arguments.type_args = type_args.into_boxed_slice();
                         expr = self.push(
                             start,
                             ExprKind::Call {
                                 target: expr,
-                                arguments,
+                                arguments: Box::new(arguments),
                             },
                         );
                     } else {
@@ -1097,7 +1115,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             None
         };
-        let arguments = self.parse_arguments()?;
+        let arguments = Box::new(self.parse_arguments()?);
         Ok(self.push(
             start,
             ExprKind::InstanceCreation {
@@ -1209,7 +1227,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     // -- Strings ------------------------------------------------------------
 
     /// Lê as interpolações e trechos que seguem um `StrBegin` até o `StrEnd`.
-    fn parse_interpolations(&mut self, parts: &mut Vec<StringPart>, first: Interp) -> PResult<()> {
+    fn parse_interpolations(&mut self, first: Interp) -> PResult<()> {
         let mut previous = first;
         loop {
             let expr = match previous {
@@ -1223,17 +1241,17 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Interp::Brace => self.parse_expression()?,
             };
-            parts.push(StringPart::Interpolation(expr));
+            self.scratch_parts.push(StringPart::Interpolation(expr));
             let leading_brace = previous == Interp::Brace;
             match self.kind() {
                 Kind::StrMid(flags, next) => {
                     let token = self.advance();
-                    self.push_string_text(parts, token, flags, false, leading_brace)?;
+                    self.push_string_text(token, flags, false, leading_brace)?;
                     previous = next;
                 }
                 Kind::StrEnd(flags) => {
                     let token = self.advance();
-                    self.push_string_text(parts, token, flags, false, leading_brace)?;
+                    self.push_string_text(token, flags, false, leading_brace)?;
                     return Ok(());
                 }
                 _ => return Err(self.error("esperava '}' fechando interpolação")),
@@ -1241,14 +1259,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Decodifica o texto de um trecho de string e o anexa a `parts`.
+    /// Decodifica o texto de um trecho de string e o anexa ao rascunho.
     ///
     /// `first` indica o trecho que começa na aspa de abertura (recebe o `r`
     /// e a remoção da primeira quebra de linha em strings triplas);
     /// `leading_brace` indica que o trecho começa na `}` de uma interpolação.
     fn push_string_text(
         &mut self,
-        parts: &mut Vec<StringPart>,
         token: Token,
         flags: StrFlags,
         first: bool,
@@ -1275,7 +1292,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             .unwrap_or("");
         match crate::lexer::decode_string(content, flags.raw, first && flags.triple) {
             Ok(decoded) => {
-                parts.push(StringPart::Text(decoded));
+                self.scratch_parts.push(StringPart::Text(decoded));
                 Ok(())
             }
             Err(message) => Err(self.error_at(token.span, format!("string inválida: {message}"))),
