@@ -104,6 +104,9 @@ pub enum Motivo {
     EstiloEmLinha,
     /// Arquivo `.html` do `templateUrl` não encontrado.
     TemplateAusente,
+    /// Atributo ou ligação que pertence a uma diretiva do ecossistema
+    /// (`ngClass`, `ngModel`…), não ao DOM.
+    Diretiva,
     /// Forma do componente que o gerador não sabe traduzir e, por isso,
     /// recusa — `@HostListener`, `@ViewChild`, ciclo de vida, argumento
     /// desconhecido de `@Component`.
@@ -128,6 +131,7 @@ impl Motivo {
             Motivo::Projecao => "<ng-content>",
             Motivo::EstiloEmLinha => "style em linha",
             Motivo::TemplateAusente => "template não encontrado",
+            Motivo::Diretiva => "ligação de diretiva",
             Motivo::NaoEntendido => "forma do componente não entendida",
         }
     }
@@ -190,6 +194,21 @@ fn motivos_dos_nos(nos: &[No], fora: &mut std::collections::BTreeSet<Motivo>) {
     }
 }
 
+/// Um componente que este template pode usar, vindo do índice do pacote.
+#[derive(Debug, Clone)]
+pub struct Filho {
+    pub classe: String,
+    pub seletor: String,
+    /// URI `package:` do `.dart` que declara a classe.
+    pub uri_dart: String,
+    /// URI `package:` do `.template.dart` dele.
+    pub uri_template: String,
+    /// Tem `<ng-content>`: muda `create` para `createAndProject`.
+    pub projeta: bool,
+    /// Campos e getters do filho, para as ligações de `@Input`.
+    pub entradas: std::collections::HashMap<String, crate::componente::Membro>,
+}
+
 /// O que o emissor precisa saber de onde o componente mora.
 pub struct Local<'a> {
     /// Nome do pacote (`new_sali_frontend`).
@@ -240,11 +259,23 @@ struct Corpo<'a> {
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
     /// Métodos da classe, válidos só como alvo de chamada.
     metodos: &'a std::collections::HashMap<String, String>,
+    /// Componentes que este template pode usar, por seletor.
+    filhos: &'a std::collections::HashMap<String, Filho>,
+    /// Campos das visões-filhas (`_compView_n` e a instância), que saem na
+    /// classe depois das ligações de texto.
+    campos_filho: Vec<String>,
+    /// `_compView_n` de cada filho, para a detecção e a destruição.
+    vistas_filhas: Vec<String>,
+    /// Asset deste arquivo, para calcular os caminhos de import dos filhos.
+    asset: String,
     /// Para analisar as expressões do template, que são expressões Dart.
     nomes: &'a mut dartforge_intern::Interner,
     /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
     /// alguma ligação imutável é escrita só na primeira checagem.
     usa_primeira_checagem: bool,
+    /// `final _ctx = this.ctx;` no `detectChangesInternal` — uma visão que só
+    /// repassa a detecção para as filhas não precisa dele.
+    usa_ctx_na_deteccao: bool,
     /// Próximo índice de nó. Vale para elementos e textos juntos, em ordem de
     /// documento; comentário não consome índice porque some antes.
     proximo: u32,
@@ -278,7 +309,8 @@ impl Corpo<'_> {
         if convertida.imutavel {
             let acao = self.acao(l, alvo, &convertida.texto)?;
             self.usa_primeira_checagem = true;
-            self.deteccao.push(format!(
+            self.usa_ctx_na_deteccao = true;
+        self.deteccao.push(format!(
                 "    if (firstCheck) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n    }}"
             ));
             return Ok(());
@@ -289,6 +321,7 @@ impl Corpo<'_> {
         let acao = self.acao(l, alvo, &format!("currVal_{k}"))?;
         let chk = self.imp.alias(CHECK_BINDING);
         let valor = convertida.texto;
+        self.usa_ctx_na_deteccao = true;
         self.deteccao.push(format!(
             "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
         ));
@@ -338,6 +371,81 @@ impl Corpo<'_> {
         self.linhas.push(format!(
             "    {alvo}.addEventListener('{evento}', this.eventHandler{aridade}({metodo}));"
         ));
+        Ok(())
+    }
+
+    /// Um componente dentro do template: a visão-filha é um campo, a
+    /// instância é outro, e o `build()` cria as duas e as liga.
+    ///
+    /// O sufixo `_5` do campo da instância é o `uniqueId` do provedor no nó
+    /// (`_instances.length` em `provider_resolver.dart`): num nó que só tem o
+    /// componente, os cinco provedores embutidos do elemento já ocupam 0..4.
+    fn componente_filho(
+        &mut self,
+        e: &crate::html::Elemento,
+        filho: &Filho,
+        pai: &str,
+    ) -> Result<(), Motivo> {
+        if !e.propriedades.is_empty()
+            || !e.eventos.is_empty()
+            || !e.bananas.is_empty()
+            || !e.referencias.is_empty()
+            || e.estrela.is_some()
+            || !e.atributos.is_empty()
+        {
+            // Ligação em componente filho (`@Input`/`@Output`) ainda não.
+            return Err(Motivo::Ligacao);
+        }
+        let n = self.proximo;
+        self.proximo += 1;
+        let cam_template = caminho_do_import(&self.asset, &asset_de_uri(&filho.uri_template, "", Path::new(""))
+            .ok_or(Motivo::ComponenteNoTemplate)?)
+            .ok_or(Motivo::ComponenteNoTemplate)?;
+        let cam_dart = caminho_do_import(&self.asset, &asset_de_uri(&filho.uri_dart, "", Path::new(""))
+            .ok_or(Motivo::ComponenteNoTemplate)?)
+            .ok_or(Motivo::ComponenteNoTemplate)?;
+        let vt = self.imp.alias(&cam_template);
+        let vd = self.imp.alias(&cam_dart);
+        let classe = &filho.classe;
+        let campo_vista = format!("_compView_{n}");
+        let campo_inst = format!("_{classe}_{n}_5");
+        self.campos_filho.push(format!("  late final {vt}.View{classe}0 {campo_vista};"));
+        self.campos_filho.push(format!("  late final {vd}.{classe} {campo_inst};"));
+        self.vistas_filhas.push(campo_vista.clone());
+        self.linhas.push(format!("    this.{campo_vista} = {vt}.View{classe}0(this, {n});"));
+        self.linhas.push(format!("    final _el_{n} = this.{campo_vista}.rootElement;"));
+        self.linhas.push(format!("    {pai}.append(_el_{n});"));
+        self.linhas.push(format!("    this.{campo_inst} = {vd}.{classe}();"));
+        if filho.projeta {
+            // Conteúdo projetado: os nós são criados soltos e entregues ao
+            // filho, que decide onde encaixá-los.
+            let marca = self.linhas.len();
+            self.nos(&e.filhos, "")?;
+            let criados: Vec<String> = self.linhas[marca..]
+                .iter()
+                .filter_map(|l| l.split_once("final ").map(|(_, r)| r))
+                .filter_map(|r| r.split_once(' ').map(|(nome, _)| nome.to_string()))
+                .collect();
+            let raiz: Vec<String> =
+                criados.iter().filter(|n| n.starts_with("_el_")).cloned().collect();
+            // Sem conteúdo projetado a lista sai constante e numa linha
+            // só, como o oficial escreve.
+            self.linhas.push(if raiz.is_empty() {
+                format!(
+                    "    this.{campo_vista}.createAndProject(this.{campo_inst}, [const <Object>[]]);"
+                )
+            } else {
+                format!(
+                    "    this.{campo_vista}.createAndProject(this.{campo_inst}, [\n      <Object>[{}]\n    ]);",
+                    raiz.join(", ")
+                )
+            });
+        } else {
+            if !e.filhos.is_empty() {
+                return Err(Motivo::Projecao);
+            }
+            self.linhas.push(format!("    this.{campo_vista}.create(this.{campo_inst});"));
+        }
         Ok(())
     }
 
@@ -391,6 +499,7 @@ impl Corpo<'_> {
         } else {
             format!("updateText({})", interpolar(self.imp))
         };
+        self.usa_ctx_na_deteccao = true;
         self.deteccao.push(format!(
             "    this._textBinding_{n}.{atualizacao} /* REF:{url}:{inicio}:{fim} */;"
         ));
@@ -404,6 +513,9 @@ impl Corpo<'_> {
             match no {
                 No::Comentario(_) => {}
                 No::Texto(t) => {
+                    if pai.is_empty() {
+                        return Err(Motivo::Projecao); // texto projetado solto
+                    }
                     let n = self.proximo;
                     self.proximo += 1;
                     let dom = self.dom();
@@ -413,8 +525,20 @@ impl Corpo<'_> {
                     ));
                 }
                 No::Elemento(e) => {
+                    if let Some(filho) = self.filhos.get(&e.nome).cloned() {
+                        self.componente_filho(e, &filho, pai)?;
+                        continue;
+                    }
                     if !dom::tag_html(&e.nome) {
                         return Err(Motivo::ComponenteNoTemplate);
+                    }
+                    // Nome de diretiva do ecossistema (`ngClass`, `ngModel`…)
+                    // numa ligação é coisa de diretiva, não propriedade do
+                    // DOM: emitir `setProperty` ali faria outra coisa.
+                    if e.propriedades.iter().chain(e.eventos.iter()).any(|l| e_de_diretiva(&l.nome))
+                        || e.atributos.iter().any(|a| e_de_diretiva(&a.nome))
+                    {
+                        return Err(Motivo::Diretiva);
                     }
                     if !e.bananas.is_empty() || !e.referencias.is_empty() || e.estrela.is_some() {
                         // `[(x)]`, `#ref` e `*ngIf` ainda não.
@@ -432,7 +556,14 @@ impl Corpo<'_> {
                     }
                     let dom = self.dom();
                     let tag = e.nome.to_ascii_lowercase();
-                    let criacao = match tag.as_str() {
+                    // Nó projetado não tem pai: o oficial cria solto, com
+                    // `document.createElement`, e entrega ao filho
+                    // (`_createElementAndAppend`, com `parent == null`).
+                    let criacao = if pai.is_empty() {
+                        let util = self.imp.alias(UTILITIES);
+                        format!("{util}.unsafeCast(doc.createElement('{tag}'))")
+                    } else {
+                    match tag.as_str() {
                         "div" => format!("{dom}.appendDiv(doc, {pai})"),
                         "span" => format!("{dom}.appendSpan(doc, {pai})"),
                         _ => {
@@ -442,6 +573,7 @@ impl Corpo<'_> {
                                 "{dom}.appendElement<{html}.{tipo}>(doc, {pai}, '{tag}')"
                             )
                         }
+                    }
                     };
                     // Elemento com ligação de propriedade vira campo da
                     // visão: o `detectChangesInternal` precisa dele depois do
@@ -599,6 +731,33 @@ fn tem_elemento_ligado(nos: &[No]) -> bool {
     })
 }
 
+/// Os componentes filhos usados no template, em ordem de documento.
+fn filhos_em_ordem<'a>(
+    nos: &[No],
+    filhos: &'a std::collections::HashMap<String, Filho>,
+) -> Vec<&'a Filho> {
+    let mut saida = Vec::new();
+    for no in nos {
+        let No::Elemento(e) = no else { continue };
+        match filhos.get(&e.nome) {
+            Some(f) => {
+                saida.push(f);
+                // O conteúdo projetado é criado no mesmo `build()`, mas os
+                // seus campos vêm depois — o percurso continua.
+                saida.extend(filhos_em_ordem(&e.filhos, filhos));
+            }
+            None => saida.extend(filhos_em_ordem(&e.filhos, filhos)),
+        }
+    }
+    saida
+}
+
+/// Nome que pertence a uma diretiva do ecossistema, não ao DOM.
+fn e_de_diretiva(nome: &str) -> bool {
+    let base = nome.split('.').next().unwrap_or(nome);
+    base.starts_with("ng") || base.starts_with("form") && base != "form"
+}
+
 /// O template tem `{{ … }}` em algum lugar?
 fn tem_interpolacao(nos: &[No]) -> bool {
     nos.iter().any(|n| match n {
@@ -637,6 +796,7 @@ pub fn template_de_componente(
     nos: &[No],
     resolvedor: Option<&dyn Resolucao>,
     nomes: &mut dartforge_intern::Interner,
+    filhos: &std::collections::HashMap<String, Filho>,
 ) -> Result<String, Motivo> {
     if !c.style_urls.is_empty() || !c.styles.is_empty() {
         return Err(Motivo::Estilos); // mudam `styles$X` e ligam o shim
@@ -652,9 +812,19 @@ pub fn template_de_componente(
     let proprio = imp.alias(local.arquivo);
     // Os campos da visão saem antes de tudo na classe, então os seus imports
     // são alocados antes: é o que faz a numeração bater com a do oficial.
+    // Os campos da visão saem antes de tudo na classe — ligações de texto,
+    // visões-filhas, valores anteriores, elementos —, e os imports são
+    // alocados nessa mesma ordem. É isso que faz a numeração bater com a do
+    // oficial; fora de ordem, a comparação byte a byte não vale nada.
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
-    // Elemento com ligação vira campo `late final T _el_n`, e o tipo vem de
-    // `dart:html`: então o import entra aqui, antes do resto.
+    for f in filhos_em_ordem(nos, filhos) {
+        for uri in [&f.uri_template, &f.uri_dart] {
+            let asset = asset_de_uri(uri, "", Path::new("")).ok_or(Motivo::ComponenteNoTemplate)?;
+            let caminho =
+                caminho_do_import(&local.asset(), &asset).ok_or(Motivo::ComponenteNoTemplate)?;
+            imp.alias(&caminho);
+        }
+    }
     if tem_elemento_ligado(nos) {
         imp.alias("dart:html");
     }
@@ -669,12 +839,17 @@ pub fn template_de_componente(
     let mut corpo = Corpo {
         linhas: Vec::new(),
         campos: Vec::new(),
+        campos_filho: Vec::new(),
+        vistas_filhas: Vec::new(),
+        filhos,
+        asset: local.asset(),
         campos_expr: Vec::new(),
         campos_el: Vec::new(),
         proxima_ligacao: 0,
         deteccao: Vec::new(),
         nomes,
         usa_primeira_checagem: false,
+        usa_ctx_na_deteccao: false,
         tb,
         url_do_template: local.url_do_template.clone(),
         membros: &c.membros,
@@ -696,32 +871,54 @@ pub fn template_de_componente(
     // Ordem dos campos na classe, como o oficial escreve: ligações de texto,
     // depois os valores anteriores das ligações, depois os elementos.
     let mut todos = corpo.campos.clone();
+    todos.extend(corpo.campos_filho.clone());
     todos.extend(corpo.campos_expr.clone());
     todos.extend(corpo.campos_el.clone());
     let campos =
         if todos.is_empty() { String::new() } else { format!("{}
 ", todos.join("
 ")) };
-    let deteccao = if corpo.deteccao.is_empty() {
+    // A detecção junta as ligações do próprio template e o repasse para as
+    // visões-filhas. `_ctx` e `firstCheck` só são declarados se alguém os usa.
+    let mut linhas_deteccao = corpo.deteccao.clone();
+    for v in &corpo.vistas_filhas {
+        linhas_deteccao.push(format!("    this.{v}.detectChanges();"));
+    }
+    let deteccao = if linhas_deteccao.is_empty() {
         String::new()
     } else {
-        let primeira = if corpo.usa_primeira_checagem {
-            "    bool firstCheck = this.firstCheck;
-"
-        } else {
-            ""
-        };
+        let ctx = if corpo.usa_ctx_na_deteccao { "    final _ctx = this.ctx;
+" } else { "" };
+        let primeira =
+            if corpo.usa_primeira_checagem { "    bool firstCheck = this.firstCheck;
+" } else { "" };
         format!(
             "
   @override
   void detectChangesInternal() {{
-    final _ctx = this.ctx;
-{primeira}{}
+{ctx}{primeira}{}
   }}
 ",
-            corpo.deteccao.join("
+            linhas_deteccao.join("
 ")
         )
+    };
+    // Visão-filha precisa ser destruída com a visão que a criou.
+    let destruicao = if corpo.vistas_filhas.is_empty() {
+        String::new()
+    } else {
+        let linhas: Vec<String> = corpo
+            .vistas_filhas
+            .iter()
+            .map(|v| format!("    this.{v}.destroyInternalState();"))
+            .collect();
+        format!("
+  @override
+  void destroyInternal() {{
+{}
+  }}
+", linhas.join("
+"))
     };
 
     imp.sem_alias(ANGULAR);
@@ -764,7 +961,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
   void build() {{{ctx_no_build}
     final parentRenderNode = this.initViewRoot();{corpo_build}
   }}
-{deteccao}
+{deteccao}{destruicao}
   static void _debugClearComponentStyles() {{
     _componentStyles = null;
   }}
@@ -945,6 +1142,7 @@ mod testes {
             &[No::Comentario("{{message}}".into())],
             None,
             &mut Interner::new(),
+            &Default::default(),
         )
             .expect("gera");
         let esperado = include_str!("../testes/form_feedback_component.template.dart");
@@ -971,7 +1169,7 @@ mod testes {
             url_do_template: None,
         };
         let nos = crate::html::analisar("<div>Processando login...</div>");
-        let saida = template_de_componente(&c, &local, &nos, None, &mut Interner::new()).expect("gera");
+        let saida = template_de_componente(&c, &local, &nos, None, &mut Interner::new(), &Default::default()).expect("gera");
         let esperado = include_str!("../testes/callback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
@@ -980,7 +1178,7 @@ mod testes {
     fn ligacao_ainda_nao_gera() {
         let c = Componente { classe: "X".into(), seletor: "x".into(), ..Default::default() };
         let nos = crate::html::analisar("<div [hidden]=\"a\"></div>");
-        assert_eq!(template_de_componente(&c, &local(), &nos, None, &mut Interner::new()), Err(Motivo::Ligacao));
+        assert_eq!(template_de_componente(&c, &local(), &nos, None, &mut Interner::new(), &Default::default()), Err(Motivo::Ligacao));
     }
 
     #[test]
@@ -988,7 +1186,7 @@ mod testes {
         let c = Componente { classe: "X".into(), seletor: "x".into(), ..Default::default() };
         let nos = crate::html::analisar("<outro-comp></outro-comp>");
         assert_eq!(
-            template_de_componente(&c, &local(), &nos, None, &mut Interner::new()),
+            template_de_componente(&c, &local(), &nos, None, &mut Interner::new(), &Default::default()),
             Err(Motivo::ComponenteNoTemplate)
         );
     }
@@ -1003,7 +1201,7 @@ mod testes {
         };
         // Sem banco semântico não há como saber que biblioteca declara o tipo.
         assert_eq!(
-            template_de_componente(&c, &local(), &[], None, &mut Interner::new()),
+            template_de_componente(&c, &local(), &[], None, &mut Interner::new(), &Default::default()),
             Err(Motivo::InjecaoNaoResolvida)
         );
     }
@@ -1033,7 +1231,7 @@ mod testes {
         ]);
         let nos = crate::html::analisar("<div>Processando login...</div>");
         let saida =
-            template_de_componente(&c, &local, &nos, Some(&tabela), &mut Interner::new()).expect("gera");
+            template_de_componente(&c, &local, &nos, Some(&tabela), &mut Interner::new(), &Default::default()).expect("gera");
         let esperado = include_str!("../testes/callback_com_injecao.template.dart");
         assert_eq!(saida, esperado.replace("
 ", "

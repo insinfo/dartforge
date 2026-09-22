@@ -78,6 +78,17 @@ impl Elemento {
     }
 }
 
+/// O template projeta conteúdo (`<ng-content>`)? Quem usa o componente
+/// precisa saber: com projeção a visão-filha é criada por
+/// `createAndProject`, sem ela por `create`.
+pub fn tem_projecao(nos: &[No]) -> bool {
+    nos.iter().any(|n| match n {
+        No::Conteudo { .. } => true,
+        No::Elemento(e) => tem_projecao(&e.filhos),
+        _ => false,
+    })
+}
+
 /// Analisa um template. Erros de forma não interrompem: o parser recupera e
 /// segue, como o do ngast, para que um template quebrado não derrube a
 /// geração inteira.

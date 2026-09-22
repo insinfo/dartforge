@@ -171,6 +171,11 @@ pub fn gerar_em(
     placar: &mut Placar,
     resolvedor: Option<&dyn resolucao::Resolucao>,
 ) {
+    // Duas passadas: a primeira lê e analisa tudo, a segunda gera. É a
+    // primeira que monta o índice de componentes do pacote — sem ele não dá
+    // para saber que `<a02-texto-estatico>` é um componente e qual classe o
+    // implementa.
+    let mut arquivos: Vec<(PathBuf, String, Achados)> = Vec::new();
     for dir in diretorios {
         let mut pilha = vec![dir.clone()];
         while let Some(d) = pilha.pop() {
@@ -193,30 +198,128 @@ pub fn gerar_em(
                 let tokens = dartforge_frontend::lexer::lex(&fonte);
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
                 let achados = achar(&analisada.ast, &analisada.unit, &fonte, interner);
-                let (texto, entradas) =
-                    match gerar_arquivo(pacote, &p, &nome, &achados, resolvedor, interner) {
-                    Ok(x) => x,
-                    Err(motivo) => {
-                        // Forma que o gerador ainda não cobre: fica com o
-                        // build_runner, e a aplicação compila do mesmo jeito.
-                        *placar.motivos.entry(motivo).or_default() += 1;
-                        for c in &achados.componentes {
-                            if let Some(forma) = &c.nao_entendido {
-                                *placar.nao_entendidos.entry(forma.clone()).or_default() += 1;
-                            }
-                        }
-                        placar.conjuntos.push(motivos_do_arquivo(
-                            pacote, &p, &achados, motivo, resolvedor,
-                        ));
-                        placar.pendentes.push(p);
-                        continue;
-                    }
-                };
-                c.por(caminho_do_template(&p), texto, "ngdart", entradas);
-                placar.gerados += 1;
+                arquivos.push((p, nome, achados));
             }
         }
     }
+
+    let indice = Indice::montar(pacote, &arquivos);
+
+    for (p, nome, achados) in &arquivos {
+        let (texto, entradas) =
+            match gerar_arquivo(pacote, p, nome, achados, resolvedor, interner, &indice) {
+                Ok(x) => x,
+                Err(motivo) => {
+                    // Forma que o gerador ainda não cobre: fica com o
+                    // build_runner, e a aplicação compila do mesmo jeito.
+                    *placar.motivos.entry(motivo).or_default() += 1;
+                    for c in &achados.componentes {
+                        if let Some(forma) = &c.nao_entendido {
+                            *placar.nao_entendidos.entry(forma.clone()).or_default() += 1;
+                        }
+                    }
+                    placar.conjuntos.push(motivos_do_arquivo(
+                        pacote, p, achados, motivo, resolvedor,
+                    ));
+                    placar.pendentes.push(p.clone());
+                    continue;
+                }
+            };
+        c.por(caminho_do_template(p), texto, "ngdart", entradas);
+        placar.gerados += 1;
+    }
+}
+
+/// Os componentes do pacote, por biblioteca e classe.
+///
+/// O oficial pergunta isso ao grafo de assets do `build`; aqui vem da
+/// primeira passada. É o que permite casar `<a02-texto-estatico>` com a
+/// classe que declara esse seletor e emitir a visão-filha.
+#[derive(Default)]
+pub struct Indice {
+    por_classe: std::collections::HashMap<(String, String), visao::Filho>,
+    /// Mesmo índice por nome de classe, para quando não há banco semântico
+    /// (o teste do corpus). Só vale quando o nome é único no pacote — com
+    /// duas classes de mesmo nome, resolver pelo nome seria chute.
+    por_nome: std::collections::HashMap<String, Vec<visao::Filho>>,
+}
+
+impl Indice {
+    fn montar(pacote: &Pacote, arquivos: &[(PathBuf, String, Achados)]) -> Self {
+        let mut por_classe = std::collections::HashMap::new();
+        for (caminho, _nome, achados) in arquivos {
+            let Some(uri) = uri_de_biblioteca(pacote, caminho) else { continue };
+            for comp in &achados.componentes {
+                if comp.seletor.is_empty() {
+                    continue;
+                }
+                let projeta = comp
+                    .template_url
+                    .as_ref()
+                    .and_then(|u| caminho.parent().map(|d| d.join(u)))
+                    .and_then(|c| std::fs::read_to_string(c).ok())
+                    .map(|t| html::tem_projecao(&html::analisar(&t)))
+                    .unwrap_or_else(|| {
+                        comp.template
+                            .as_ref()
+                            .map(|t| html::tem_projecao(&html::analisar(t)))
+                            .unwrap_or(false)
+                    });
+                por_classe.insert(
+                    (uri.clone(), comp.classe.clone()),
+                    visao::Filho {
+                        classe: comp.classe.clone(),
+                        seletor: comp.seletor.clone(),
+                        uri_dart: uri.clone(),
+                        uri_template: uri.replace(".dart", ".template.dart"),
+                        projeta,
+                        entradas: comp
+                            .membros
+                            .iter()
+                            .map(|(n, m)| (n.clone(), m.clone()))
+                            .collect(),
+                    },
+                );
+            }
+        }
+        let mut por_nome: std::collections::HashMap<String, Vec<visao::Filho>> =
+            std::collections::HashMap::new();
+        for ((_, classe), f) in &por_classe {
+            por_nome.entry(classe.clone()).or_default().push(f.clone());
+        }
+        Indice { por_classe, por_nome }
+    }
+
+    /// Os filhos que este componente pode usar: os nomes de `directives:` que
+    /// resolvem para um componente do índice, por seletor.
+    fn filhos_de(
+        &self,
+        comp: &componente::Componente,
+        arquivo: &Path,
+        resolvedor: Option<&dyn resolucao::Resolucao>,
+    ) -> std::collections::HashMap<String, visao::Filho> {
+        let mut saida = std::collections::HashMap::new();
+        for nome in &comp.diretivas {
+            let achado = resolvedor
+                .and_then(|r| r.uri_do_tipo(arquivo, nome))
+                .and_then(|uri| self.por_classe.get(&(uri, nome.clone())))
+                .or_else(|| match self.por_nome.get(nome) {
+                    Some(v) if v.len() == 1 => v.first(),
+                    _ => None,
+                });
+            if let Some(f) = achado {
+                saida.insert(f.seletor.clone(), f.clone());
+            }
+        }
+        saida
+    }
+}
+
+/// URI `package:` de um arquivo do pacote, quando ele está em `lib/`.
+fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
+    let rel = pacote.relativo(caminho);
+    let dentro = rel.strip_prefix("lib/")?;
+    Some(format!("package:{}/{dentro}", pacote.nome))
 }
 
 /// Conteúdo do `.template.dart` de um arquivo, quando sabemos gerá-lo, com os
@@ -228,6 +331,7 @@ fn gerar_arquivo(
     achados: &Achados,
     resolvedor: Option<&dyn resolucao::Resolucao>,
     nomes: &mut Interner,
+    indice: &Indice,
 ) -> Result<(String, Vec<PathBuf>), Motivo> {
     if achados.trivial() {
         return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
@@ -264,7 +368,8 @@ fn gerar_arquivo(
         url_do_template: url_do_template(pacote, fonte, comp),
     };
     let nos = html::analisar(&template);
-    let texto = visao::template_de_componente(comp, &local, &nos, resolvedor, nomes)?;
+    let filhos = indice.filhos_de(comp, fonte, resolvedor);
+    let texto = visao::template_de_componente(comp, &local, &nos, resolvedor, nomes, &filhos)?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
     Ok((texto, entradas))
