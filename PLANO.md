@@ -778,6 +778,17 @@ existente é removida antes de a nova trilha a cobrir.
    com os *patch files* do dart2js, como o dart2js faz. Isso substitui as
    tabelas em Rust de `nucleo.rs` por código Dart, e é o único caminho em que
    a cobertura de biblioteca é a do SDK e não uma lista mantida à mão.
+   **Cumprido em 2026-09-22** (`crates/types`, commit 2e779d8): escopos,
+   inferência de expressões, promoção por fluxo, constantes, 40 negativos do
+   `analyzer`; SDK 120.055 expressões em 155 ms; `new_sali` 132.146
+   expressões em 26 ms, +4,4 MB.
+4. (**decisão 2026-09-22**) O `dart:*` em JavaScript vem primeiro do
+   `dart_sdk.js` que o `dartdevc` do próprio SDK gera do
+   `ddc_platform.dill` (`scripts/gerar-dart-sdk.ps1`; verificado no Node
+   24). A emissão do DartForge segue o **contrato de módulos do DDC**, e o
+   `dartdevc` é o oráculo do contrato construto a construto. Compilar o SDK
+   pela nossa fonte continua sendo o passo 4, com o mesmo contrato.
+   Ver `docs/EMISSAO-DDC.md`.
 5. **Emissão completa** — despacho dinâmico, reificação de tipos genéricos,
    `noSuchMethod`, `runtimeType`, `is`/`as` sobre qualquer tipo, tearoffs,
    `async*`/`sync*`, isolates conforme `docs/ISOLATES-WEB.md`. Aceite: os
