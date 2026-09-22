@@ -576,6 +576,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
                 let mut s = self.ctx.class_recipe(*class);
+                // Aridade declarada, sempre: `raw|Caixa<@>`, nunca `raw|Caixa`
+                // (`Ctx::args_na_aridade`).
+                let args = self.ctx.args_na_aridade(*class, args);
                 if !args.is_empty() {
                     s.push('<');
                     let parts: Vec<String> = args.iter().map(|a| self.recipe(a, unbound, used_fn, used_class)).collect();
