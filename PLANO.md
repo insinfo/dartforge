@@ -799,6 +799,40 @@ mas passam a ser **otimizações sobre um programa completo**, nunca recusas: um
 receptor `dynamic` reduz o que se pode remover, e o compilador mede isso em vez
 de proibir o programa.
 
+## `dartforge dev` — o compilador residente (desenho fixado em 2026-09-22)
+
+Depois de o emissor passar o corpus (correção primeiro), o próximo salto de
+latência não está em `emitir_programa`, está antes dele: hoje cada chamada
+refaz `load → outline → infer → emit` do programa inteiro. O desenho, na
+linha de ReScript (interfaces `.resi` com hash), Scala.js
+(`fastLinkJS` incremental por módulo) e Kotlin/JS (`per-module`):
+
+1. **Sessão residente** — `dartforge dev` mantém vivos `Interner`,
+   `TypeTable`, ASTs, outlines, `BodyTypes`, JS emitido e hashes por
+   biblioteca; o processo não termina a cada edição.
+2. **Dois hashes por biblioteca**: `hash_fonte` e `hash_api_publica`
+   (o outline sem privados). Corpo mudou e API não → reanalisa e reemite
+   **só** aquela biblioteca; API mudou → só os dependentes que a usam.
+3. **Dependências por tipo**, não só "importa": `Import`, `Type`,
+   `Inheritance`, `Constant`, `Runtime` — `class A extends B` invalida
+   diferente de `print(B.x)`.
+4. **SDK como artefato compilado**: além de `runtime/ddc/dart_sdk.js`, um
+   outline serializado do SDK (`dart_sdk.dfi`: classes, membros,
+   assinaturas, hierarquia, extensions) para não reanalisar as 36
+   bibliotecas a cada início (hoje ~460 ms no `elements` + 155 ms no
+   `types`).
+5. **Escrever só o que mudou**: hash do JS anterior por módulo; `.mjs`
+   igual não é reescrito (timestamp intacto, o Vite/HMR não recarrega).
+6. Três níveis: `dev` (latência, sem otimização global), `build`
+   (tree shaking, constantes, inlining local) e `build --release`
+   (programa inteiro sobre a mesma IR: DCE global, desvirtualização,
+   especialização, minificação). O caminho de desenvolvimento nunca
+   recebe otimização de programa inteiro.
+
+Meta observável no `new_sali` (80 mil linhas): alterar um método privado
+→ parse de 1 biblioteca, tipos de 1 biblioteca, 1 `.mjs` reescrito,
+dezenas de ms — medido pelo mesmo harness de `crates/instrument`.
+
 ## Regra de projeto — equivalência semântica com o Dart oficial
 
 **O DartForge pode tornar código Dart padrão mais rápido, dividir workers
