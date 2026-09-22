@@ -127,8 +127,12 @@ trabalho, não opcional. Registre os números em `docs/NATIVO.md`.
 
 ## Disciplina
 
-`cargo build -p dartforge-emit-native -p dartforge-cli` e `cargo test -p
-dartforge-emit-native` verdes; o `clang` está em `D:/LLVM/22.1.8/bin`
+O backend nativo do CLI está atrás do feature `nativo`
+(`crates/cli/src/nativo.rs`; `cargo build -p dartforge-cli --features
+nativo`) — o build padrão do CLI não puxa `llvm-sys`, para que o caminho
+JavaScript não pague o LLVM. Seu `compile-native` entra nesse módulo, sob o
+mesmo feature. `cargo build -p dartforge-emit-native -p dartforge-cli
+--features nativo` e `cargo test -p dartforge-emit-native` verdes; o `clang` está em `D:/LLVM/22.1.8/bin`
 (perfil Windows x64 já validado em `crates/abi`). Commit por bloco
 verificado com o N/202 na mensagem. Na resposta final: N/202, quais dos 7
 testes do core rodam, tempos, e o hash.
