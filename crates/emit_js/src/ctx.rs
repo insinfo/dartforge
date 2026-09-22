@@ -346,7 +346,18 @@ impl<'a> Ctx<'a> {
                     let v = &self.outline.variables[rep.0 as usize];
                     if let Some(t) = v.declared_type.or(v.inferred) {
                         let mut map = HashMap::new();
-                        for (p, a) in self.class_params[decl.0 as usize].iter().zip(args.iter()) {
+                        // Durante `compute_hierarchy` a tabela ainda não existe:
+                        // um supertipo pode mencionar um extension type, então
+                        // os parâmetros vêm do outline nesse caso.
+                        let params: Vec<TyParam> = match self.class_params.get(decl.0 as usize) {
+                            Some(p) => p.clone(),
+                            None => self.outline.classes[decl.0 as usize]
+                                .type_params
+                                .iter()
+                                .map(|&pid| self.ty_param_of(pid))
+                                .collect(),
+                        };
+                        for (p, a) in params.iter().zip(args.iter()) {
                             map.insert(p.id, self.ty_of(*a));
                         }
                         let t = self.ty_of(t).subst(&map);

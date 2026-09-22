@@ -75,8 +75,16 @@ impl PackageConfig {
                 .get("rootUri")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| format!("pacote '{name}' sem rootUri em {}", path.display()))?;
+            // `rootUri` é um diretório mas o pub o escreve sem `/` final
+            // (`.../collection-1.19.1`); sem a barra, `join("lib/")` trocaria o
+            // último segmento em vez de descer nele.
+            let root_dir = if root_str.ends_with('/') {
+                root_str.to_string()
+            } else {
+                format!("{root_str}/")
+            };
             let root_uri = base_url
-                .join(root_str)
+                .join(&root_dir)
                 .map_err(|e| format!("rootUri inválida em '{name}': {e}"))?;
 
             let package_str = entry

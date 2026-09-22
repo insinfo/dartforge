@@ -54,12 +54,30 @@ pub fn compilar(
     };
     let sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     let mut interner = Interner::new();
-    let (program, _elements_diags) = load_lenient(entrada, &sdk, packages, &mut interner);
+    let (program, elements_diags) = load_lenient(entrada, &sdk, packages, &mut interner);
+    // Nenhuma fase falha em silêncio: diagnósticos de carregamento (arquivo ou
+    // pacote não encontrado, sintaxe) abortam; os de tipos são avisos por
+    // enquanto, porque a inferência ainda tem lacunas e o emissor recua para
+    // despacho dinâmico onde o tipo é desconhecido.
+    if !elements_diags.is_empty() {
+        for d in &elements_diags {
+            eprintln!("erro: {d}");
+        }
+        return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
+    }
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
-    let (mut outline, _outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, _body_diags) =
+    let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    let avisos = outline_diags.len() + body_diags.len();
+    if avisos > 0 {
+        let limite = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        for d in outline_diags.iter().chain(body_diags.iter()).take(limite) {
+            eprintln!("aviso: {d}");
+        }
+        eprintln!("({avisos} aviso(s) de tipos; DARTFORGE_AVISOS=N mostra mais)");
+    }
     emitir_programa(&program, &interner, &table, &core, &outline, &bodies)
         .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
 }

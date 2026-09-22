@@ -860,6 +860,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// como nome de função/variável)? `late(x)`, `static = 1`, `external;`
     /// são nomes.
     fn modifier_ok(&self) -> bool {
+        // `static ({int a, int b}) f()` e `static (int, int)? g()`: o `(` abre
+        // um record type de retorno, não a lista de parâmetros de um método
+        // chamado `static`. É modificador quando o grupo é seguido de um nome
+        // (com `?` opcional entre eles).
+        if self.kind_at(1) == Kind::Op(Op::LParen) {
+            if let Some(close) = self.matching_close(self.pos + 1) {
+                let mut after = close + 1;
+                if self.kind_of(after) == Kind::Op(Op::Question) {
+                    after += 1;
+                }
+                return self.kind_of(after) == Kind::Ident;
+            }
+            return false;
+        }
         !matches!(
             self.kind_at(1),
             Kind::Eof
