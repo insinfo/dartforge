@@ -207,22 +207,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             out[i] = Some(js.at(P_ASSIGN));
             tys[i] = ty;
         }
-        // Retorno esperado (só para o que ainda falta).
-        if let Some(e) = expected_ret {
-            if !free.is_empty() {
-                let mut tmp = subst.clone();
-                self.match_type(&ret, e, free, &mut tmp);
-                for f in free {
-                    if !subst.contains_key(f) {
-                        if let Some(t) = tmp.get(f) {
-                            if !t.mentions_params() && !matches!(t, Ty::Dynamic) {
-                                subst.insert(*f, t.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
         // Fase 2: closures.
         for (i, a) in arguments.args.iter().enumerate() {
             if !is_closure(self, a.value) {
@@ -252,6 +236,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             out[i] = Some(js.at(P_ASSIGN));
             tys[i] = ty;
         }
+        // Retorno esperado (só para o que ainda falta).
+        if let Some(e) = expected_ret {
+            if !free.is_empty() {
+                let mut tmp = subst.clone();
+                self.match_type(&ret, e, free, &mut tmp);
+                for f in free {
+                    if !subst.contains_key(f) {
+                        if let Some(t) = tmp.get(f) {
+                            if !t.mentions_params() && !matches!(t, Ty::Dynamic) {
+                                subst.insert(*f, t.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // Monta a lista: posicionais na ordem, nomeados no objeto final.
         let mut pos_js = Vec::new();
         let mut named_js = Vec::new();
@@ -278,7 +278,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_method_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>, is_super: bool) -> (Js, Ty) {
         let recv_nn = recv_ty.non_null();
         // Membros de Object com helpers.
-        let user = self.is_user_class_ty(&recv_nn);
+        let user = self.is_user_class_ty(&recv_nn) || is_super;
         match name {
             "toString" if !user && arguments.args.is_empty() => {
                 return (Js::prim(format!("dart.toString({})", recv.code)), self.ctx.t_string());

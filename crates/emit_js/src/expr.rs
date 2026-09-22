@@ -93,12 +93,67 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
         let expr = self.expr(e);
-        match &expr.kind {
+        let (js, ty) = match &expr.kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
                 let (js, ty, guards) = self.emit_selector(e, expected);
                 (self.wrap_guards(js, guards), ty)
             }
             _ => self.emit_expr_inner(e, expected),
+        };
+        match expected {
+            Some(exp) => self.coerce_to(js, ty, exp),
+            None => (js, ty),
+        }
+    }
+
+    /// Coerções implícitas: instanciação de tearoff genérico e `.call` de classe invocável.
+    pub fn coerce_to(&mut self, js: Js, ty: Ty, expected: &Ty) -> (Js, Ty) {
+        let Ty::Fn { type_params: etps, .. } = expected else { return (js, ty) };
+        if !etps.is_empty() {
+            return (js, ty);
+        }
+        match &ty {
+            Ty::Fn { type_params, .. } if !type_params.is_empty() => {
+                // Instancia com os argumentos inferidos do tipo esperado.
+                let free: Vec<u32> = type_params.iter().map(|p| p.id).collect();
+                let inner = match &ty {
+                    Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
+                    t => t.clone(),
+                };
+                let mut subst = HashMap::new();
+                self.match_type(&inner, expected, &free, &mut subst);
+                let mut rtis = Vec::new();
+                for p in type_params {
+                    let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
+                    subst.insert(p.id, t.clone());
+                    rtis.push(self.rti(&t));
+                }
+                (Js::prim(format!("dart.gbind({}, {})", js.code, rtis.join(", "))), inner.subst(&subst))
+            }
+            Ty::Iface { class, nullable: false, .. } if Some(*class) != self.ctx.function_ => {
+                // Classe invocável: tearoff de `call`.
+                match self.ctx.lookup_member(&ty, "call", false) {
+                    Some(m) if matches!(m.kind, MemberKind::Method(_)) => {
+                        let mty = self.ctx.member_ty(&m);
+                        let key = self.member_key_string(&ty, "call");
+                        (Js::prim(format!("dart.bind({}, {key})", js.code)), mty)
+                    }
+                    _ => (js, ty),
+                }
+            }
+            _ => (js, ty),
+        }
+    }
+
+    /// Nome de membro como expressão JS (string, símbolo `dartx` ou privado) para `dart.bind`.
+    pub fn member_key_string(&self, recv_ty: &Ty, name: &str) -> String {
+        if name.starts_with('_') {
+            let lib = self.ctx.lookup_member(recv_ty, name, false).map(|m| self.ctx.lib_of_class(m.class)).unwrap_or(self.lib);
+            self.private_sym(lib, name)
+        } else if self.ctx.is_ext_member(recv_ty, name, false) {
+            self.dartx(&js_member_name(name))
+        } else {
+            js::string_literal(&js_member_name(name))
         }
     }
 
@@ -170,7 +225,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
                 self.emit_instance_creation(*keyword, *ty, constructor.as_ref(), arguments, expected)
             }
-            ExprKind::FunctionExpression(fid) => self.emit_function_expr(*fid, expected, true),
+            ExprKind::FunctionExpression(fid) => {
+                let saved_const = self.in_const;
+                self.in_const = false;
+                let r = self.emit_function_expr(*fid, expected, true);
+                self.in_const = saved_const;
+                r
+            }
             ExprKind::TypeArguments { target, type_args } => {
                 let tys: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                 if let ExprKind::Identifier(id) = &self.expr(*target).kind {
@@ -346,6 +407,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
+        let const_ = const_ || self.in_const;
+        let saved_const = self.in_const;
+        if const_ {
+            self.in_const = true;
+        }
+        let r = self.emit_list_literal_inner(const_, type_args, elements, expected);
+        self.in_const = saved_const;
+        r
+    }
+
+    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
         let elem_ty = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
         } else if let Some(t) = self.expected_arg(expected, self.ctx.list_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
@@ -636,6 +708,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     fn emit_set_or_map(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
+        let const_ = const_ || self.in_const;
+        let saved_const = self.in_const;
+        if const_ {
+            self.in_const = true;
+        }
+        let r = self.emit_set_or_map_inner(const_, type_args, elements, expected);
+        self.in_const = saved_const;
+        r
+    }
+
+    fn emit_set_or_map_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
         let is_map = if type_args.len() == 2 {
             true
         } else if type_args.len() == 1 {
@@ -1330,8 +1413,54 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 None
             }
+            ExprKind::TypeArguments { target: t2, type_args } => {
+                // `C<T>.new` / `C<T>.named`: tearoff de construtor instanciado.
+                if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
+                    if let IdentTarget::Element(Element::Class(c)) = self.resolve_ident(id.sym) {
+                        let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                        return self.ctor_tearoff(c, targs, name);
+                    }
+                }
+                None
+            }
             _ => None,
         }
+    }
+
+    /// Tearoff de construtor `C<args>.name` como closure.
+    pub fn ctor_tearoff(&mut self, c: ClassId, targs: Vec<Ty>, name: &str) -> Option<(Js, Ty)> {
+        let class = self.ctx.program.class(c);
+        let key = if name == "new" { self.ctx.empty_sym } else { self.ctx.sym(name) };
+        let fid = *class.constructors.get(&key?)?;
+        let params = &self.ctx.class_params[c.0 as usize];
+        let mut subst = HashMap::new();
+        for (p, a) in params.iter().zip(targs.iter()) {
+            subst.insert(p.id, a.clone());
+        }
+        let ty = self.ctx.fn_ty(fid).subst(&subst);
+        let inst = Ty::Iface { class: c, args: targs.clone(), nullable: false };
+        let ty = match ty {
+            Ty::Fn { pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: Box::new(inst.clone()), pos, opt, named, nullable },
+            t => t,
+        };
+        let (pos_n, ..) = match &ty {
+            Ty::Fn { pos, .. } => (pos.len(), ()),
+            _ => (0, ()),
+        };
+        let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
+        let f = self.ctx.program.function(fid);
+        let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
+        let mut args = params_js.clone();
+        if !params.is_empty() {
+            args.insert(0, self.rti(&inst));
+        }
+        let call = if f.factory {
+            format!("{}.{cname}({})", self.class_ref(c), args.join(", "))
+        } else {
+            format!("new {}.{cname}({})", self.class_ref(c), args.join(", "))
+        };
+        let rti = self.rti(&ty);
+        Some((Js::prim(format!("dart.fn(({}) => {call}, {rti})", params_js.join(", "))), ty))
     }
 
     pub fn static_member_get(&mut self, c: ClassId, name: &str) -> Option<(Js, Ty)> {
@@ -1341,6 +1470,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return Some(self.emit_static_get(k, name, mk));
             }
             cur = self.ctx.superclass_of(k);
+        }
+        // Constantes de enum.
+        {
+            let class = self.ctx.program.class(c);
+            if class.kind == ClassKind::Enum {
+                if let Some(sym) = self.ctx.sym(name) {
+                    if class.enum_constants.iter().any(|v| self.ctx.program.variable(*v).name == sym) {
+                        let cls = self.class_ref(c);
+                        return Some((Js::prim(format!("{cls}{}", js::prop_access(&static_member_name(name)))), Ty::iface(c)));
+                    }
+                }
+            }
         }
         // Construtor como tearoff: `C.new`/`C.named`.
         let class = self.ctx.program.class(c);
@@ -1354,7 +1495,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 let params: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
                 let f = self.ctx.program.function(fid);
-                let cname = if name == "new" { "new".to_string() } else { name.to_string() };
+                let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
                 let call = if f.factory {
                     format!("{}.{cname}({})", self.class_ref(c), params.join(", "))
                 } else {
@@ -1604,8 +1745,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => {}
         }
         let (l, lt) = self.emit_expr(left, None);
-        let r_expected = if self.ctx.is_num_like_nullable(&lt) { None } else { None };
-        let (r, rt) = self.emit_expr(right, r_expected);
+        let r_expected: Option<Ty> = if self.ctx.is_num_like_nullable(&lt) || matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+            None
+        } else {
+            self.ctx.lookup_member(&lt.non_null(), binop_name(op), false).and_then(|m| match self.ctx.member_ty(&m) {
+                Ty::Fn { pos, .. } => pos.first().cloned(),
+                _ => None,
+            })
+        };
+        let (r, rt) = self.emit_expr(right, r_expected.as_ref());
         self.emit_binop_values(op, l, &lt, r, &rt)
     }
 
@@ -2019,7 +2167,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         expected: Option<&Ty>,
     ) -> (Js, Ty) {
         let t = self.resolve_type(ty);
-        let is_const = keyword == Some(ast::CreationKeyword::Const);
+        let is_const = keyword == Some(ast::CreationKeyword::Const) || (keyword.is_none() && self.in_const);
         let Ty::Iface { class, args, .. } = &t else {
             return (Js::prim("null"), Ty::Dynamic);
         };
@@ -2101,7 +2249,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let ty = Ty::Iface { class, args: targs.clone(), nullable: false };
         let cls = self.ctx.program.class(class);
         let cls_ref = self.class_ref(class);
-        let jsname = if ctor_name.is_empty() { "new".to_string() } else { ctor_name.to_string() };
+        let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(ctor_name) };
         let is_factory = fid.is_some_and(|f| self.ctx.program.function(f).factory);
         let generic = !self.ctx.class_params[class.0 as usize].is_empty();
         // Redirecionamento de factory `= Outra`: resolve o alvo.
@@ -2114,7 +2262,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let tt = if self.ctx.class_params[tclass.0 as usize].len() == targs.len() { Some(Ty::Iface { class: tclass, args: targs.clone(), nullable: false }) } else { None };
                     arg_js.insert(0, self.rti(&tt.unwrap_or(ty.clone())));
                 }
-                let tjs = if tname.is_empty() { "new".to_string() } else { tname };
+                let tjs = if tname.is_empty() { "new".to_string() } else { static_member_name(&tname) };
                 let call = if is_target_factory {
                     format!("{tref}.{tjs}({})", arg_js.join(", "))
                 } else {

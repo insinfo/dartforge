@@ -548,7 +548,18 @@ impl<'a> Ctx<'a> {
         let class = self.program.class(c);
         let key = if setter { format!("{name}_=") } else { name.to_string() };
         let sym = self.interner.lookup(&key)?;
-        let fid = *class.instance_members.get(&sym)?;
+        let Some(&fid) = class.instance_members.get(&sym) else {
+            if setter {
+                // `late final` sem inicializador aceita uma atribuição.
+                let fsym = self.interner.lookup(name)?;
+                let vid = class.fields.iter().copied().find(|v| {
+                    let var = self.program.variable(*v);
+                    var.name == fsym && !var.static_ && var.late
+                })?;
+                return Some(MemberKind::Field(vid));
+            }
+            return None;
+        };
         let f = self.program.function(fid);
         Some(match f.kind {
             FunctionKind::ImplicitAccessor => {

@@ -803,13 +803,20 @@ fn create_extension_element(
             MemberKind::Method(fid) => {
                 let ast_fn = ast.function(*fid);
                 if let Some(name) = ast_fn.name {
-                    let fn_sym = name.sym;
+                    let mut fn_sym = name.sym;
                     let fn_kind = match ast_fn.kind {
                         ast::FunctionKind::Getter => FunctionKind::Getter,
                         ast::FunctionKind::Setter => FunctionKind::Setter,
                         ast::FunctionKind::Operator => FunctionKind::Operator,
                         _ => FunctionKind::Function,
                     };
+                    // `operator -()` sem parâmetros é o menos unário: chave `unary-`.
+                    if fn_kind == FunctionKind::Operator
+                        && interner.resolve(fn_sym) == "-"
+                        && ast_fn.parameters.as_ref().is_some_and(|p| p.is_empty())
+                    {
+                        fn_sym = interner.intern("unary-");
+                    }
                     let fn_id = FunctionElementId(pools.functions.len() as u32);
                     pools.functions.push(FunctionElement {
                         name: fn_sym,
@@ -980,13 +987,20 @@ fn extract_members(
             MemberKind::Method(fid) => {
                 let ast_fn = ast.function(*fid);
                 if let Some(name) = ast_fn.name {
-                    let fn_sym = name.sym;
+                    let mut fn_sym = name.sym;
                     let fn_kind = match ast_fn.kind {
                         ast::FunctionKind::Getter => FunctionKind::Getter,
                         ast::FunctionKind::Setter => FunctionKind::Setter,
                         ast::FunctionKind::Operator => FunctionKind::Operator,
                         _ => FunctionKind::Function,
                     };
+                    // `operator -()` sem parâmetros é o menos unário: chave `unary-`.
+                    if fn_kind == FunctionKind::Operator
+                        && interner.resolve(fn_sym) == "-"
+                        && ast_fn.parameters.as_ref().is_some_and(|p| p.is_empty())
+                    {
+                        fn_sym = interner.intern("unary-");
+                    }
                     let fn_id = FunctionElementId(pools.functions.len() as u32);
                     pools.functions.push(FunctionElement {
                         name: fn_sym,
@@ -1149,13 +1163,20 @@ fn merge_class_patch(
             MemberKind::Method(fid) => {
                 let ast_fn = ast.function(*fid);
                 if let Some(name) = ast_fn.name {
-                    let fn_sym = name.sym;
+                    let mut fn_sym = name.sym;
                     let fn_kind = match ast_fn.kind {
                         ast::FunctionKind::Getter => FunctionKind::Getter,
                         ast::FunctionKind::Setter => FunctionKind::Setter,
                         ast::FunctionKind::Operator => FunctionKind::Operator,
                         _ => FunctionKind::Function,
                     };
+                    // `operator -()` sem parâmetros é o menos unário: chave `unary-`.
+                    if fn_kind == FunctionKind::Operator
+                        && interner.resolve(fn_sym) == "-"
+                        && ast_fn.parameters.as_ref().is_some_and(|p| p.is_empty())
+                    {
+                        fn_sym = interner.intern("unary-");
+                    }
                     let fn_id = FunctionElementId(pools.functions.len() as u32);
                     pools.functions.push(FunctionElement {
                         name: fn_sym,

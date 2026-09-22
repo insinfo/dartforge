@@ -72,6 +72,8 @@ pub struct FnEmitter<'m, 'a> {
     pub pending_prefix: Vec<String>,
     pub extension_this: Option<Ty>,
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
+    /// Dentro de uma expressão constante (instanciações implícitas viram `dart.const`).
+    pub in_const: bool,
     /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
     pub case_labels: Vec<(String, String, String)>,
 }
@@ -108,6 +110,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             pending_prefix: Vec::new(),
             extension_this: None,
             current_extension: None,
+            in_const: false,
             case_labels: Vec::new(),
         }
     }
@@ -735,20 +738,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 ast::ParameterKind::Optional => {
                     oi += 1;
-                    let jsn = self.declare(name.sym, ty);
+                    let jsn = self.declare(name.sym, ty.clone());
+                    let saved_const = self.in_const;
+                    self.in_const = true;
                     let def = match p.default_value {
-                        Some(d) => self.emit_expr(d, None).0.at(P_ASSIGN + 1),
+                        Some(d) => self.emit_expr(d, Some(&ty)).0.at(P_ASSIGN + 1),
                         None => "null".to_string(),
                     };
+                    self.in_const = saved_const;
                     js_params.push(format!("{jsn} = {def}"));
                 }
                 ast::ParameterKind::Named => {
                     has_named = true;
-                    let jsn = self.declare(name.sym, ty);
+                    let jsn = self.declare(name.sym, ty.clone());
+                    let saved_const = self.in_const;
+                    self.in_const = true;
                     let def = match p.default_value {
-                        Some(d) => self.emit_expr(d, None).0.at(P_COND + 1),
+                        Some(d) => self.emit_expr(d, Some(&ty)).0.at(P_COND + 1),
                         None => "null".to_string(),
                     };
+                    self.in_const = saved_const;
                     let key = self.name(name.sym);
                     prologue.push_str(&format!(
                         "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
@@ -1133,7 +1142,12 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         for v in list.variables.iter() {
             match v.initializer {
                 Some(e) => {
+                    let saved_const = self.in_const;
+                    if list.const_ {
+                        self.in_const = true;
+                    }
                     let (js, ty) = self.emit_expr(e, declared.as_ref());
+                    self.in_const = saved_const;
                     let ty = match &declared {
                         Some(d) => d.clone(),
                         None => ty,

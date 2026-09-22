@@ -564,6 +564,7 @@ fn emit_top_variables(ctx: &Ctx, m: &ModState, vars: &[VariableId], w: &mut Writ
         let var = &list.variables[index];
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, unit, None, true);
+        e.in_const = v.const_;
         let init = match var.initializer {
             Some(i) => {
                 let (js, _) = e.emit_expr(i, Some(&ty));
@@ -637,7 +638,10 @@ fn indent(s: &str) -> String {
 
 /// Campo de instância e como é armazenado.
 struct FieldInfo {
+    #[allow(dead_code)]
     vid: VariableId,
+    /// Emite par getter/setter (campo virtual).
+    virtual_: bool,
     name: String,
     /// Símbolo de armazenamento (`this[sym]`); `None` → propriedade direta.
     storage: Option<String>,
@@ -693,7 +697,8 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         } else {
             Some(m.private_sym(ctx, class.library, &format!("{cname}.{name}")))
         };
-        fields.push(FieldInfo { vid, name, storage, late: v.late, final_: v.final_, init: var.initializer, unit: fu, ty: ctx.var_ty(vid) });
+        let virtual_ = v.late || (!private && !is_enum);
+        fields.push(FieldInfo { vid, name, virtual_, storage, late: v.late, final_: v.final_, init: var.initializer, unit: fu, ty: ctx.var_ty(vid) });
     }
 
     // Superclasse JS.
@@ -708,8 +713,11 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
 
     // Getters/setters de campos virtuais.
     for f in &fields {
+        if !f.virtual_ {
+            continue;
+        }
         if let Some(sym) = &f.storage {
-            let key = if f.name.starts_with('_') { format!("[{sym}]") } else { js::prop_key(&f.name) };
+            let key = if f.name.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, &f.name)) } else { js::prop_key(&f.name) };
             if f.late {
                 m.use_sdk("_internal");
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
@@ -776,7 +784,10 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             MemberKind::Method(fid) => {
                 let af = ast.function(*fid);
                 let Some(fname) = af.name else { continue };
-                let name = ctx.name(fname.sym).to_string();
+                let mut name = ctx.name(fname.sym).to_string();
+                if af.kind == ast::FunctionKind::Operator && name == "-" && af.parameters.as_ref().is_some_and(|p| p.is_empty()) {
+                    name = "unary-".to_string();
+                }
                 let key = if af.kind == ast::FunctionKind::Setter { format!("{name}_=") } else { name.clone() };
                 let ksym = ctx.sym(&key);
                 let fe = ksym.and_then(|s| if af.static_ { class.static_members.get(&s) } else { class.instance_members.get(&s) }.copied());
@@ -790,10 +801,19 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 let data = &ctx.outline.functions[feid.0 as usize];
                 let fty = ctx.fn_ty(feid);
                 let is_generic = !data.type_params.is_empty();
-                let head = match af.kind {
-                    ast::FunctionKind::Getter => format!("{}get {key_js}", if af.static_ { "static " } else { "" }),
-                    ast::FunctionKind::Setter => format!("{}set {key_js}", if af.static_ { "static " } else { "" }),
-                    _ => format!("{}{}", if af.static_ { "static " } else { "" }, if name.starts_with('_') { key_js.clone() } else { js::prop_key(&jsname) }),
+                let head = if af.static_ {
+                    let sk = js::prop_key(&static_member_name(&name));
+                    match af.kind {
+                        ast::FunctionKind::Getter => format!("static get {sk}"),
+                        ast::FunctionKind::Setter => format!("static set {sk}"),
+                        _ => format!("static {sk}"),
+                    }
+                } else {
+                    match af.kind {
+                        ast::FunctionKind::Getter => format!("get {key_js}"),
+                        ast::FunctionKind::Setter => format!("set {key_js}"),
+                        _ => if name.starts_with('_') { key_js.clone() } else { js::prop_key(&jsname) },
+                    }
                 };
                 let (text, _) = function_text(ctx, m, feid, Some(&head), Some(c), af.static_, None);
                 let text = if name == "==" && !af.static_ {
@@ -894,13 +914,18 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let mem = ast.member(mid);
         let MemberKind::Constructor(ctor) = &mem.kind else { continue };
         let name = ctor.name.map(|n| ctx.name(n.sym).to_string());
-        let jsname = name.clone().unwrap_or("new".into());
+        let jsname = name.clone().map(|n| static_member_name(&n)).unwrap_or("new".into());
         ctor_names.push(jsname.clone());
         let text = emit_constructor(ctx, m, c, unit, ctor, &fields, generic, is_enum);
         w.line(&format!("({cref}.{jsname} = {text}).prototype = {cref}.prototype;"));
     }
     if is_mixin {
-        w.line(&format!("({cref}[dart.mixinNew] = function() {{}}).prototype = {cref}.prototype;"));
+        let mut body = Writer::default();
+        body.indent = 1;
+        emit_field_inits(ctx, m, c, &fields, &HashSet::new(), &mut body);
+        w.line(&format!("({cref}[dart.mixinNew] = function() {{"));
+        w.push_raw(&body.out);
+        w.line(&format!("}}).prototype = {cref}.prototype;"));
     }
 
     // Recursos rti: a própria classe e as interfaces implementadas (transitivas).
@@ -997,6 +1022,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let mut lazy: Vec<String> = Vec::new();
     if is_enum {
         let mut e = FnEmitter::new(ctx, m, unit, Some(c), true);
+        e.in_const = true;
         let mut names = Vec::new();
         for (i, ec) in enum_constants.iter().enumerate() {
             let n = ctx.name(ec.name.sym).to_string();
@@ -1032,6 +1058,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let var = &list.variables[index];
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, fu, Some(c), true);
+        e.in_const = v.const_;
         let init = match var.initializer {
             Some(i) => {
                 let (js, _) = e.emit_expr(i, Some(&ty));
@@ -1171,9 +1198,9 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         };
         for n in ctor_names {
             if base == "core.Object" {
-                w.line(&format!("({app}.{n} = function() {{}}).prototype = {app}.prototype;"));
+                w.line(&format!("({app}.{n} = function() {{ {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
             } else {
-                w.line(&format!("({app}.{n} = function(...args) {{ {base}.{n}.apply(this, args); }}).prototype = {app}.prototype;"));
+                w.line(&format!("({app}.{n} = function(...args) {{ {base}.{n}.apply(this, args); {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
             }
         }
         w.line(&format!("dart.applyMixin({app}, {mref});"));
@@ -1273,7 +1300,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     });
     let cref = e.class_ref(c);
     if let Some((target, args)) = redirect {
-        let tname = target.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into());
+        let tname = target.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
         let tsym = target.map(|n| n.sym).or(ctx.empty_sym);
         let tfid = tsym.and_then(|s| class.constructors.get(&s).copied());
         let tsig = tfid.map(|f| ctx.fn_ty(f)).unwrap_or(Ty::Dynamic);
@@ -1347,7 +1374,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 let sup = class.supertype_class;
                 if let Some(s) = sup {
                     if Some(s) != ctx.object {
-                        let sname = constructor.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into());
+                        let sname = constructor.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
                         let ssym = constructor.map(|n| n.sym).or(ctx.empty_sym);
                         let sfid = ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied());
                         let ssig = sfid.map(|f| ctx.fn_ty(f)).unwrap_or(Ty::Dynamic);
@@ -1379,17 +1406,33 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
             if Some(s) != ctx.object {
                 let sref = e.class_ref(s);
                 let base = mixin_base_ref(ctx, c, &sref);
-                let super_params: Vec<String> = ctor
-                    .parameters
-                    .iter()
-                    .filter(|p| p.super_)
-                    .filter_map(|p| p.name.map(|n| e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(ctx.name(n.sym)))))
-                    .collect();
+                let mut super_params: Vec<String> = Vec::new();
+                let mut super_named: Vec<String> = Vec::new();
+                for p in ctor.parameters.iter().filter(|p| p.super_) {
+                    let Some(n) = p.name else { continue };
+                    let jsn = e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(ctx.name(n.sym)));
+                    if p.kind == ast::ParameterKind::Named {
+                        super_named.push(format!("{}: {jsn}", js::prop_key(ctx.name(n.sym))));
+                    } else {
+                        super_params.push(jsn);
+                    }
+                }
                 let mut all: Vec<String> = vec!["this".into()];
                 if !ctx.class_params[s.0 as usize].is_empty() {
                     all.push("null".into());
                 }
                 all.extend(super_params);
+                if !super_named.is_empty() {
+                    // Posicionais opcionais omitidos do super antes de `opts`.
+                    let ssym = ctx.empty_sym;
+                    if let Some(sfid) = ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied()) {
+                        let n_pos = ctx.outline.functions[sfid.0 as usize].parameters.iter().filter(|p| p.kind != ast::ParameterKind::Named).count();
+                        while all.len() - 1 - (if ctx.class_params[s.0 as usize].is_empty() { 0 } else { 1 }) < n_pos {
+                            all.push("void 0".into());
+                        }
+                    }
+                    all.push(format!("{{{}}}", super_named.join(", ")));
+                }
                 super_call = Some(format!("{base}.new.call({});", all.join(", ")));
             }
         }
@@ -1427,7 +1470,7 @@ fn field_target(fields: &[FieldInfo], name: &str) -> String {
 /// `static nome(params) { corpo }` de um factory.
 fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::Constructor, mid: ast::MemberId, cw: &mut Writer) {
     let class = ctx.program.class(c);
-    let name = ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into());
+    let name = ctor.name.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
     let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());
     let _ = mid;
