@@ -54,80 +54,72 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Resultado {
 }
 
 #[cfg(feature = "nativo")]
+/// `dartforge aot <entrada.dart> <saida.exe>` — AOT de produção.
+///
+/// Antes este comando chamava `dartforge_compiler::compile_path_llvm_*`, da
+/// trilha velha (`lexer`/`parser`/`hir`/`llvm`), que não é mais dependência do
+/// CLI: o crate saiu do `Cargo.toml` e o comando deixou de compilar com a
+/// feature `nativo`. O compilador nativo vivo é o `emit_native`
+/// (frontend -> elements/types -> HIR própria -> LLVM IR -> Clang), o mesmo do
+/// `compile-native`; `aot` passa a ser o apelido de produção dele, para que
+/// exista uma única trilha nativa em vez de duas medindo coisas diferentes.
+///
+/// As opções `--merge-identical-functions` e `--link-object` eram da trilha
+/// velha e não têm equivalente aqui; são recusadas explicitamente em vez de
+/// aceitas e ignoradas, porque silenciosamente não fazer o que a bandeira diz
+/// é pior do que não ter a bandeira.
 pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
-        if args.len() < 3 {
-            return Err(
-                "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]".into(),
-            );
-        }
-        let mut optimize = false;
-        let mut merge_identical_functions = false;
-        let mut timings = false;
-        let mut objects = Vec::new();
-        let mut flags = args[3..].iter();
-        while let Some(flag) = flags.next() {
-            if flag == "--optimize" && !optimize {
-                optimize = true;
-            } else if flag == "--merge-identical-functions" && !merge_identical_functions {
-                merge_identical_functions = true;
-            } else if flag == "--timings" && !timings {
-                timings = true;
-            } else if flag == "--link-object" {
-                let path = flags
-                    .next()
-                    .ok_or("--link-object exige caminho de objeto nativo")?;
-                objects.push(PathBuf::from(path));
-            } else {
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--timings] [--sdk <lib>] [--packages <package_config.json>]";
+    if args.len() < 3 {
+        return Err(usage.into());
+    }
+    let input = PathBuf::from(&args[1]);
+    let output = PathBuf::from(&args[2]);
+    let mut optimize = false;
+    let mut timings = false;
+    let mut sdk: Option<PathBuf> = None;
+    let mut packages: Option<PathBuf> = None;
+    let mut flags = args[3..].iter();
+    while let Some(flag) = flags.next() {
+        match flag.to_str() {
+            Some("--optimize") => optimize = true,
+            Some("--timings") => timings = true,
+            Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk exige caminho")?)),
+            Some("--packages") => {
+                packages = Some(PathBuf::from(flags.next().ok_or("--packages exige caminho")?))
+            }
+            Some("--merge-identical-functions") | Some("--link-object") => {
                 return Err(format!(
-                    "opção AOT desconhecida ou repetida: {}",
+                    "{} era da trilha velha e não existe no compilador nativo atual",
                     flag.to_string_lossy()
                 )
-                .into());
+                .into())
+            }
+            _ => {
+                return Err(
+                    format!("opção AOT desconhecida: {}", flag.to_string_lossy()).into()
+                )
             }
         }
-        let total_start = std::time::Instant::now();
-        let input = PathBuf::from(&args[1]);
-        let output = PathBuf::from(&args[2]);
-        let frontend_start = std::time::Instant::now();
-        let ir = dartforge_compiler::compile_path_llvm_with_options(
-            &input,
-            dartforge_compiler::CompileOptions {
-                merge_identical_functions,
-                ..Default::default()
-            },
-        )?;
-        let frontend = frontend_start.elapsed();
-        let options = dartforge_native::NativeOptions {
-            optimize,
-            ..Default::default()
-        };
-        if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)?;
-        }
-        let report = dartforge_native::build_executable_with_report_and_objects(
-            &ir, &output, &options, &objects,
-        )?;
-        let total = total_start.elapsed();
-        if timings {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1, "backend": "llvm", "merge_identical_functions": merge_identical_functions, "optimization": if optimize { "O2" } else { "O0" },
-                    "frontend_ns": frontend.as_nanos(), "prepare_ns": report.write_ir_runtime.as_nanos(),
-                    "clang_ns": report.clang.as_nanos(), "rustc_link_ns": report.rustc_link.as_nanos(),
-                    "publish_ns": report.publish.as_nanos(), "driver_total_ns": report.total.as_nanos(),
-                    "total_ns": total.as_nanos(), "executable_bytes": report.executable_bytes,
-                }))?
-            );
-        } else {
-            println!(
-                "{} -> {} (AOT LLVM {})",
-                input.display(),
-                output.display(),
-                if optimize { "O2" } else { "O0" }
-            );
-        }
-        return Ok(());
+    }
+
+    // Pilha grande: o lowering é recursivo sobre a AST e programas reais
+    // estouram a pilha padrão de 8 MiB da thread principal.
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = dartforge_emit_native::CompileOptions {
+                sdk: sdk.as_deref(),
+                packages: packages.as_deref(),
+                timings,
+                optimize,
+            };
+            dartforge_emit_native::compilar(&input, &output, &options)
+        })
+        .map_err(|e| e.to_string())?
+        .join()
+        .map_err(|_| "a compilação AOT abortou".to_string())??;
+    Ok(())
 }
 
 #[cfg(feature = "nativo")]
