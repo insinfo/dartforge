@@ -277,6 +277,45 @@ pub fn dartforge(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
     executar_node(amb, dir)
 }
 
+/// O DartForge Nativo: compila via `dartforge_emit_native::compilar` e depois executa o binário.
+pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
+    let _ = std::fs::create_dir_all(dir);
+    let exe_nome = if cfg!(windows) { format!("{}.exe", programa.nome) } else { programa.nome.clone() };
+    let saida_exe = dir.join(&exe_nome);
+
+    let entrada = programa.entrada.clone();
+    let saida = saida_exe.clone();
+    let comp_res = std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = dartforge_emit_native::CompileOptions {
+                sdk: None,
+                packages: None,
+                timings: false,
+                optimize: false,
+            };
+            dartforge_emit_native::compilar(&entrada, &saida, &options)
+        })
+        .map_err(|e| format!("falha ao criar thread de compilação: {e}"))
+        .and_then(|h| h.join().map_err(|_| "a thread de compilação abortou".to_string()))
+        .and_then(|r| r);
+
+    if let Err(e) = comp_res {
+        let primeira = e.lines().next().unwrap_or("").to_string();
+        return Saida {
+            stdout: String::new(),
+            stderr: format!("[compile-native] {primeira}\n{e}"),
+            codigo: 1,
+        };
+    }
+
+    if !saida_exe.is_file() {
+        return Saida::erro("[compile-native] devolveu Ok mas não gerou executável");
+    }
+
+    executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite, &amb.path_extra)
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;

@@ -19,7 +19,7 @@ fn programas(amb: &Ambiente) -> Vec<dartforge_diferencial::Programa> {
 fn corpus_roda_no_dart_run() {
     let amb = Ambiente::detectar();
     let programas = programas(&amb);
-    let op = Opcoes { com_forge: amb.dartforge_bin.is_some(), threads: 0 };
+    let op = Opcoes { com_forge: amb.dartforge_bin.is_some(), threads: 0, ..Default::default() };
     let resultados = executar_corpus(&amb, &programas, op, |_| {});
     print!("{}", relatorio(&resultados));
     let invalidos: Vec<String> = resultados
@@ -37,7 +37,7 @@ fn corpus_roda_no_dart_run() {
 fn ddc_bate_com_dart_run() {
     let amb = Ambiente::detectar();
     let programas = programas(&amb);
-    let resultados = executar_corpus(&amb, &programas, Opcoes { com_forge: false, threads: 0 }, |_| {});
+    let resultados = executar_corpus(&amb, &programas, Opcoes { com_forge: false, threads: 0, ..Default::default() }, |_| {});
     let mut problemas = Vec::new();
     for r in &resultados {
         match (r.ddc_vs_dart(), &r.programa.diverge_ddc) {

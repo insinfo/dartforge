@@ -10,7 +10,7 @@ pub mod processo;
 pub mod relatorio;
 
 pub use corpus::{Programa, listar};
-pub use oraculos::{Ambiente, dartforge, oraculo_dart, oraculo_ddc};
+pub use oraculos::{Ambiente, dartforge, dartforge_nativo, oraculo_dart, oraculo_ddc};
 pub use processo::Saida;
 pub use relatorio::{Divergencia, Resultado, comparar, relatorio};
 
@@ -23,20 +23,28 @@ pub struct Opcoes {
     pub com_forge: bool,
     /// Número de threads; 0 = núcleos disponíveis.
     pub threads: usize,
+    /// Executar no modo nativo AOT (comparando contra o oráculo Dart VM).
+    pub nativo: bool,
 }
 
 impl Default for Opcoes {
     fn default() -> Self {
-        Opcoes { com_forge: true, threads: 0 }
+        Opcoes { com_forge: true, threads: 0, nativo: false }
     }
 }
 
 /// Executa um programa nos executores pedidos.
 pub fn executar_programa(amb: &Ambiente, programa: &Programa, op: Opcoes) -> Resultado {
     let dart = oraculo_dart(amb, programa);
-    let ddc = oraculo_ddc(amb, programa, &amb.dir_saida("ddc", programa));
-    let forge = op.com_forge.then(|| dartforge(amb, programa, &amb.dir_saida("forge", programa)));
-    Resultado { programa: programa.clone(), dart, ddc, forge }
+    if op.nativo {
+        let ddc = Saida { stdout: String::new(), stderr: String::new(), codigo: 0 };
+        let forge = op.com_forge.then(|| dartforge_nativo(amb, programa, &amb.dir_saida("nativo", programa)));
+        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true }
+    } else {
+        let ddc = oraculo_ddc(amb, programa, &amb.dir_saida("ddc", programa));
+        let forge = op.com_forge.then(|| dartforge(amb, programa, &amb.dir_saida("forge", programa)));
+        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: false }
+    }
 }
 
 /// Executa o corpus inteiro com `std::thread` (fila compartilhada), preservando a ordem.

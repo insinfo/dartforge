@@ -130,6 +130,17 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i8 @dartforge_exception_pending()\n");
         self.out.push_str("declare i64 @dartforge_exception_take_bits()\n");
         self.out.push_str("declare i8 @dartforge_exception_take_tag()\n");
+        self.out.push_str("declare i64 @dartforge_exception_peek_bits()\n");
+        self.out.push_str("declare i8 @dartforge_exception_peek_tag()\n");
+        self.out.push_str("declare void @dartforge_exception_clear()\n");
+        self.out.push_str("declare void @dartforge_register_subclass(i64, i64)\n");
+        self.out.push_str("declare i8 @dartforge_is_subclass(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_stack_trace_get()\n");
+        self.out.push_str("declare i64 @dartforge_stack_trace_empty()\n");
+        self.out.push_str("declare i64 @dartforge_stack_trace_from_string(i64)\n");
+        self.out.push_str("declare void @dartforge_throw_with_stack_trace(i64, i8, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_first(i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_last(i64)\n");
         self.out.push_str("declare i64 @dartforge_value_class(i64)\n");
         self.out.push_str("declare i64 @dartforge_to_string_i64(i64)\n");
         self.out.push_str("declare i64 @dartforge_to_string_f64(double)\n");
@@ -147,6 +158,9 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_map_get_to_string(i64, i64, i8)\n");
         self.out.push_str("declare i64 @dartforge_record_new(ptr, i64)\n");
         self.out.push_str("declare i64 @dartforge_int_to_radix_string(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_int_parse(i64)\n");
+        self.out.push_str("declare i64 @dartforge_int_try_parse(i64)\n");
+        self.out.push_str("declare double @dartforge_double_parse(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_substring(i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_from_char_code(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_from_char_codes(i64)\n");
@@ -170,7 +184,41 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_string_buffer_new()\n");
         self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_regexp_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_split_map_pieces(i64, i64)\n\n");
+        self.out.push_str("declare i64 @dartforge_string_split_map_pieces(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_collection_mark_unmodifiable(i64)\n");
+        self.out.push_str("declare i8 @dartforge_collection_is_unmodifiable(i64)\n");
+        self.out.push_str("declare i64 @dartforge_exception_new(i64, i8)\n");
+        self.out.push_str("declare i64 @dartforge_format_exception_new(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_state_error_new(i64)\n");
+        self.out.push_str("declare i64 @dartforge_argument_error_new(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_argument_error_value(i64, i8, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_argument_error_not_null(i64)\n");
+        self.out.push_str("declare i64 @dartforge_range_error_new(i64)\n");
+        self.out.push_str("declare i64 @dartforge_range_error_value(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_range_error_range(i64, i64, i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_range_error_index(i64, i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_unsupported_error_new(i64)\n");
+        self.out.push_str("declare i64 @dartforge_unimplemented_error_new(i64)\n");
+        self.out.push_str("declare i64 @dartforge_assertion_error_new(i64, i8)\n");
+        self.out.push_str("declare i64 @dartforge_concurrent_modification_error_new()\n");
+        self.out.push_str("declare i64 @dartforge_type_error_new()\n");
+        self.out.push_str("declare i64 @dartforge_no_such_method_error_new()\n");
+        self.out.push_str("declare i64 @dartforge_error_get_message(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_name(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_invalid_value(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_start(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_end(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_source(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_offset(i64)\n");
+        self.out.push_str("declare i64 @dartforge_error_get_stack_trace(i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_single(i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_sublist(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_remove_at(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_filled(i64, i64, i8)\n");
+        self.out.push_str("declare i64 @dartforge_map_remove(i64, i64, i8)\n");
+        self.out.push_str("declare i64 @dartforge_map_keys(i64)\n");
+        self.out.push_str("declare void @dartforge_iteration_begin(i64)\n");
+        self.out.push_str("declare void @dartforge_iteration_end(i64)\n\n");
     }
 
     fn emit_string_constants(&mut self) {
@@ -410,11 +458,17 @@ impl<'a> LlvmEmitter<'a> {
                         ).unwrap();
                     }
                     Instruction::CallStatic { symbol, args, ret_ty } => {
+                        let target_func = self.module.functions.iter().find(|f| f.symbol == *symbol);
                         let args_str: Vec<String> = args
                             .iter()
-                            .map(|a| {
+                            .enumerate()
+                            .map(|(idx, a)| {
                                 let s = self.operand_str(a);
-                                format!("i64 {s}")
+                                let t = target_func
+                                    .and_then(|f| f.params.get(idx))
+                                    .map(|p| p.2.llvm_ir())
+                                    .unwrap_or("i64");
+                                format!("{t} {s}")
                             })
                             .collect();
                         let joined = args_str.join(", ");
@@ -505,6 +559,18 @@ impl<'a> LlvmEmitter<'a> {
                             self.out,
                             "  %v{v} = call i64 @dartforge_record_new(ptr %{buf_name}, i64 {count})"
                         ).unwrap();
+                    }
+                    Instruction::Alloca(ty) => {
+                        writeln!(self.out, "  %v{v} = alloca {}", ty.llvm_ir()).unwrap();
+                    }
+                    Instruction::Load { ptr, ty } => {
+                        let sp = self.operand_str(ptr);
+                        writeln!(self.out, "  %v{v} = load {}, ptr {sp}", ty.llvm_ir()).unwrap();
+                    }
+                    Instruction::Store { ptr, val } => {
+                        let sp = self.operand_str(ptr);
+                        let sv = self.operand_str(val);
+                        writeln!(self.out, "  store i64 {sv}, ptr {sp}").unwrap();
                     }
                     Instruction::Phi { incoming, ty } => {
                         let t = ty.llvm_ir();
@@ -618,6 +684,14 @@ impl<'a> LlvmEmitter<'a> {
                 self.out,
                 "  call void @dartforge_register_class_name(i64 {}, ptr @.str.{}, i64 {})",
                 class.id, idx, len
+            ).unwrap();
+        }
+
+        // Registra grafo de subtipagem
+        for (sub, sup) in &self.module.subtyping_edges {
+            writeln!(
+                self.out,
+                "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})"
             ).unwrap();
         }
 

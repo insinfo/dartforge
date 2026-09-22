@@ -8,6 +8,15 @@ use dartforge_intern::SymbolId;
 use dartforge_types::resolved::{LocalId, MemberRef, Resolved};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone)]
+pub struct FinallyScope {
+    pub entry_block: BlockId,
+    pub resume_block: BlockId,
+    pub reason_phi: ValueId,
+    pub ret_val_phi: ValueId,
+    pub incoming: Vec<(BlockId, i64, Operand)>,
+}
+
 pub struct FnBuilder<'a, 'c> {
     pub ctx: &'c Context<'a>,
     pub unit_id: dartforge_elements::model::UnitId,
@@ -22,6 +31,17 @@ pub struct FnBuilder<'a, 'c> {
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
     pub enclosing_class: Option<dartforge_elements::model::ClassId>,
+    pub exception_targets: Vec<BlockId>,
+    pub finally_scopes: Vec<FinallyScope>,
+    pub active_catch_stack: Vec<(Operand, u8)>,
+    pub terminated_blocks: std::collections::HashSet<BlockId>,
+    pub local_ptrs: HashMap<SymbolId, Operand>,
+    pub local_functions: HashMap<SymbolId, (String, Type, Vec<Type>)>,
+    pub extra_functions: Vec<Function>,
+    pub labeled_break_targets: HashMap<SymbolId, BlockId>,
+    pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
+    pub pending_labels: Vec<SymbolId>,
+    pub current_cascade_target: Option<Operand>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -59,7 +79,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             continue_targets: Vec::new(),
             this_param: None,
             enclosing_class: None,
+            exception_targets: Vec::new(),
+            finally_scopes: Vec::new(),
+            active_catch_stack: Vec::new(),
+            terminated_blocks: std::collections::HashSet::new(),
+            local_ptrs: HashMap::new(),
+            local_functions: HashMap::new(),
+            extra_functions: Vec::new(),
+            labeled_break_targets: HashMap::new(),
+            labeled_continue_targets: HashMap::new(),
+            pending_labels: Vec::new(),
+            current_cascade_target: None,
         }
+    }
+
+    pub fn class_all_fields(&self, cid: dartforge_elements::model::ClassId) -> Vec<dartforge_elements::model::VariableId> {
+        let mut fields = Vec::new();
+        let class = &self.ctx.program.classes[cid.0 as usize];
+        if let Some(sup) = class.supertype_class {
+            fields.extend(self.class_all_fields(sup));
+        }
+        fields.extend(class.fields.iter().copied());
+        fields
+    }
+
+    pub fn find_field_index(&self, cid: dartforge_elements::model::ClassId, sym: SymbolId) -> Option<usize> {
+        let all = self.class_all_fields(cid);
+        all.iter().position(|&vid| self.ctx.program.variables[vid.0 as usize].name == sym)
     }
 
     pub fn add_param(&mut self, name: String, ty: Type) -> ValueId {
@@ -110,7 +156,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.current_block = block;
     }
 
+    pub fn is_terminated(&self) -> bool {
+        self.terminated_blocks.contains(&self.current_block)
+    }
+
     pub fn emit(&mut self, inst: Instruction, ty: Type) -> Operand {
+        if self.is_terminated() {
+            let dead = self.new_block();
+            self.set_block(dead);
+        }
         let vid = ValueId(self.next_value);
         self.next_value += 1;
         self.value_types.insert(vid, ty.clone());
@@ -120,8 +174,420 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn terminate(&mut self, term: Terminator) {
+        if self.is_terminated() {
+            return;
+        }
+        self.terminated_blocks.insert(self.current_block);
         let idx = self.func.blocks.iter().position(|b| b.id == self.current_block).unwrap();
         self.func.blocks[idx].terminator = term;
+    }
+
+    pub fn default_return_operand(&self) -> Operand {
+        match self.func.return_ty {
+            Type::I64 => Operand::Constant(Constant::Int(0)),
+            Type::I1 | Type::I8 => Operand::Constant(Constant::Bool(false)),
+            Type::F64 => Operand::Constant(Constant::Double(0.0)),
+            _ => Operand::Constant(Constant::Null),
+        }
+    }
+
+    pub fn default_return_operand_opt(&self) -> Option<Operand> {
+        if self.func.return_ty == Type::Void {
+            None
+        } else {
+            Some(self.default_return_operand())
+        }
+    }
+
+    pub fn route_return(&mut self, ret_val: Option<Operand>) {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_clear".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        if self.finally_scopes.is_empty() {
+            self.terminate(Terminator::Return(ret_val));
+        } else {
+            let default_val = self.default_return_operand();
+            let val = ret_val.unwrap_or(default_val);
+            let fin = self.finally_scopes.last_mut().unwrap();
+            fin.incoming.push((self.current_block, 1, val));
+            let fin_entry = fin.entry_block;
+            self.terminate(Terminator::Branch(fin_entry));
+        }
+        let dead = self.new_block();
+        self.set_block(dead);
+    }
+
+    pub fn route_break(&mut self) {
+        self.route_break_to(None);
+    }
+
+    pub fn route_break_to(&mut self, label: Option<SymbolId>) {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_clear".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        let target_opt = label.and_then(|sym| self.labeled_break_targets.get(&sym).copied())
+            .or_else(|| self.break_targets.last().copied());
+        if let Some(target) = target_opt {
+            if self.finally_scopes.is_empty() {
+                self.terminate(Terminator::Branch(target));
+            } else {
+                let default_ret = self.default_return_operand();
+                let fin = self.finally_scopes.last_mut().unwrap();
+                fin.incoming.push((self.current_block, 3, default_ret));
+                let fin_entry = fin.entry_block;
+                self.terminate(Terminator::Branch(fin_entry));
+            }
+        }
+        let dead = self.new_block();
+        self.set_block(dead);
+    }
+
+    pub fn route_continue(&mut self) {
+        self.route_continue_to(None);
+    }
+
+    pub fn route_continue_to(&mut self, label: Option<SymbolId>) {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_clear".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        let target_opt = label.and_then(|sym| self.labeled_continue_targets.get(&sym).copied())
+            .or_else(|| self.continue_targets.last().copied());
+        if let Some(target) = target_opt {
+            if self.finally_scopes.is_empty() {
+                self.terminate(Terminator::Branch(target));
+            } else {
+                let default_ret = self.default_return_operand();
+                let fin = self.finally_scopes.last_mut().unwrap();
+                fin.incoming.push((self.current_block, 4, default_ret));
+                let fin_entry = fin.entry_block;
+                self.terminate(Terminator::Branch(fin_entry));
+            }
+        }
+        let dead = self.new_block();
+        self.set_block(dead);
+    }
+
+    pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
+        let res_op = self.emit(inst, ret_ty);
+        if self.is_terminated() {
+            return res_op;
+        }
+        let pending = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_pending".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        let is_exc = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, pending, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+
+        let cont_b = self.new_block();
+        let curr_b = self.current_block;
+
+        if let Some(&exc_target) = self.exception_targets.last() {
+            self.terminate(Terminator::CondBranch {
+                cond: is_exc,
+                then_block: exc_target,
+                else_block: cont_b,
+            });
+        } else if !self.finally_scopes.is_empty() {
+            let default_ret = self.default_return_operand();
+            let fin = self.finally_scopes.last_mut().unwrap();
+            fin.incoming.push((curr_b, 2, default_ret));
+            let fin_entry = fin.entry_block;
+            self.terminate(Terminator::CondBranch {
+                cond: is_exc,
+                then_block: fin_entry,
+                else_block: cont_b,
+            });
+        } else {
+            let unwind_b = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: is_exc,
+                then_block: unwind_b,
+                else_block: cont_b,
+            });
+            let prev = self.current_block;
+            self.set_block(unwind_b);
+            self.terminate(Terminator::Return(self.default_return_operand_opt()));
+            self.set_block(prev);
+        }
+
+        self.set_block(cont_b);
+        res_op
+    }
+
+    pub fn emit_throw(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
+        let ex_op = self.lower_expr(ast, expr_id);
+        self.emit_throw_op(ex_op)
+    }
+
+    pub fn emit_throw_op(&mut self, ex_op: Operand) -> Operand {
+        let tag = match self.operand_type(&ex_op) {
+            Type::I64 => 1,
+            Type::I1 | Type::I8 => 2,
+            Type::Ref => 3,
+            Type::F64 => 4,
+            _ => 3,
+        };
+        let bits_op = match self.operand_type(&ex_op) {
+            Type::I1 => self.emit(Instruction::ZExt { op: ex_op, from: Type::I1, to: Type::I8 }, Type::I8),
+            _ => ex_op,
+        };
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_throw".to_string(),
+                args: vec![
+                    (bits_op, Type::I64),
+                    (Operand::Constant(Constant::Int(tag as i64)), Type::I8),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+
+        let curr_b = self.current_block;
+        if let Some(&exc_target) = self.exception_targets.last() {
+            self.terminate(Terminator::Branch(exc_target));
+        } else if !self.finally_scopes.is_empty() {
+            let default_ret = self.default_return_operand();
+            let fin = self.finally_scopes.last_mut().unwrap();
+            fin.incoming.push((curr_b, 2, default_ret));
+            let fin_entry = fin.entry_block;
+            self.terminate(Terminator::Branch(fin_entry));
+        } else {
+            self.terminate(Terminator::Return(self.default_return_operand_opt()));
+        }
+
+        let dead = self.new_block();
+        self.set_block(dead);
+        self.default_return_operand()
+    }
+
+    pub fn emit_rethrow(&mut self) -> Operand {
+        if let Some(&(ref ex_op, tag)) = self.active_catch_stack.last() {
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_throw".to_string(),
+                    args: vec![
+                        (ex_op.clone(), Type::I64),
+                        (Operand::Constant(Constant::Int(tag as i64)), Type::I8),
+                    ],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
+        let curr_b = self.current_block;
+        if let Some(&exc_target) = self.exception_targets.last() {
+            self.terminate(Terminator::Branch(exc_target));
+        } else if !self.finally_scopes.is_empty() {
+            let default_ret = self.default_return_operand();
+            let fin = self.finally_scopes.last_mut().unwrap();
+            fin.incoming.push((curr_b, 2, default_ret));
+            let fin_entry = fin.entry_block;
+            self.terminate(Terminator::Branch(fin_entry));
+        } else {
+            self.terminate(Terminator::Return(self.default_return_operand_opt()));
+        }
+
+        let dead = self.new_block();
+        self.set_block(dead);
+        self.default_return_operand()
+    }
+
+    pub fn lower_type_match(&mut self, ast_ty: &ast::TypeAnnotation, ex_bits: Operand, ex_tag: Operand) -> Operand {
+        if let ast::TypeKind::Named { name, .. } = &ast_ty.kind {
+            if let Some(first) = name.first() {
+                let name_str = self.ctx.symbol_name(first.sym);
+                match name_str {
+                    "int" => {
+                        return self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(1))), Type::I1);
+                    }
+                    "bool" => {
+                        return self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(2))), Type::I1);
+                    }
+                    "double" => {
+                        return self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(4))), Type::I1);
+                    }
+                    "String" => {
+                        let is_ref = self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(3))), Type::I1);
+                        let cls = self.emit(Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(ex_bits, Type::I64)], ret_ty: Type::I64 }, Type::I64);
+                        let is_str_cls = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-2))), Type::I1);
+                        return self.emit(Instruction::And(is_ref, is_str_cls), Type::I1);
+                    }
+                    "Object" | "dynamic" => {
+                        let not_null_tag = self.emit(Instruction::ICmp(ICmpOp::Ne, ex_tag, Operand::Constant(Constant::Int(0))), Type::I1);
+                        let not_null_bits = self.emit(Instruction::ICmp(ICmpOp::Ne, ex_bits, Operand::Constant(Constant::Int(0))), Type::I1);
+                        return self.emit(Instruction::And(not_null_tag, not_null_bits), Type::I1);
+                    }
+                    _ => {
+                        let target_cid = match name_str {
+                            "Exception" => 1000,
+                            "FormatException" => 1001,
+                            "StateError" => 1002,
+                            "ArgumentError" => 1003,
+                            "RangeError" => 1004,
+                            "UnsupportedError" => 1005,
+                            "StackTrace" => 1006,
+                            "Error" => 1007,
+                            "UnimplementedError" => 1008,
+                            "AssertionError" => 1009,
+                            "ConcurrentModificationError" => 1010,
+                            "TypeError" => 1011,
+                            "NoSuchMethodError" => 1012,
+                            _ => {
+                                self.ctx.program.classes.iter().position(|c| self.ctx.symbol_name(c.name) == name_str)
+                                    .map(|idx| (idx + 1) as i64)
+                                    .unwrap_or(0)
+                            }
+                        };
+                        let cls = self.emit(Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(ex_bits, Type::I64)], ret_ty: Type::I64 }, Type::I64);
+                        let is_sub = self.emit(Instruction::CallRuntime {
+                            name: "dartforge_is_subclass".to_string(),
+                            args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(target_cid)), Type::I64)],
+                            ret_ty: Type::I8,
+                        }, Type::I8);
+                        return self.emit(Instruction::ICmp(ICmpOp::Eq, is_sub, Operand::Constant(Constant::Int(1))), Type::I1);
+                    }
+                }
+            }
+        }
+        self.emit(Instruction::Const(Constant::Bool(true)), Type::I1)
+    }
+
+    pub fn emit_trunc_div(&mut self, lop: Operand, rop: Operand) -> Operand {
+        let is_zero = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let div_zero_block = self.new_block();
+        let normal_div_block = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: is_zero,
+            then_block: div_zero_block,
+            else_block: normal_div_block,
+        });
+
+        self.set_block(div_zero_block);
+        let msg = self.emit(Instruction::Const(Constant::String("IntegerDivisionByZeroException".to_string())), Type::Ref);
+        let err_obj = self.emit(
+            Instruction::AllocObject {
+                class_id: 1005, // UnsupportedError
+                fields: vec![msg],
+            },
+            Type::Ref,
+        );
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_throw".to_string(),
+                args: vec![
+                    (err_obj, Type::I64),
+                    (Operand::Constant(Constant::Int(3)), Type::I8),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        let curr_b = self.current_block;
+        if let Some(&exc_target) = self.exception_targets.last() {
+            self.terminate(Terminator::Branch(exc_target));
+        } else if !self.finally_scopes.is_empty() {
+            let default_ret = self.default_return_operand();
+            let fin = self.finally_scopes.last_mut().unwrap();
+            fin.incoming.push((curr_b, 2, default_ret));
+            let fin_entry = fin.entry_block;
+            self.terminate(Terminator::Branch(fin_entry));
+        } else {
+            self.terminate(Terminator::Return(self.default_return_operand_opt()));
+        }
+
+        self.set_block(normal_div_block);
+        self.emit(Instruction::SDiv(lop, rop), Type::I64)
+    }
+
+    pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand) -> Operand {
+        let lop_ty = self.operand_type(&lop);
+        let rop_ty = self.operand_type(&rop);
+        let is_float = lop_ty == Type::F64 || rop_ty == Type::F64;
+        let is_string = lop_ty == Type::Ref || rop_ty == Type::Ref;
+
+        match op {
+            BinaryOp::Add => {
+                if is_string {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_string_concat".to_string(),
+                            args: vec![(lop, Type::Ref), (rop, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
+                } else if is_float {
+                    self.emit(Instruction::FAdd(lop, rop), Type::F64)
+                } else {
+                    self.emit(Instruction::Add(lop, rop), Type::I64)
+                }
+            }
+            BinaryOp::Sub => {
+                if is_float {
+                    self.emit(Instruction::FSub(lop, rop), Type::F64)
+                } else {
+                    self.emit(Instruction::Sub(lop, rop), Type::I64)
+                }
+            }
+            BinaryOp::Mul => {
+                if is_float {
+                    self.emit(Instruction::FMul(lop, rop), Type::F64)
+                } else {
+                    self.emit(Instruction::Mul(lop, rop), Type::I64)
+                }
+            }
+            BinaryOp::Div => {
+                self.emit(Instruction::FDiv(lop, rop), Type::F64)
+            }
+            BinaryOp::TruncDiv => {
+                self.emit_trunc_div(lop, rop)
+            }
+            BinaryOp::Rem => {
+                self.emit(Instruction::SRem(lop, rop), Type::I64)
+            }
+            BinaryOp::Shl => {
+                self.emit(Instruction::Shl(lop, rop), Type::I64)
+            }
+            BinaryOp::Shr => {
+                self.emit(Instruction::AShr(lop, rop), Type::I64)
+            }
+            BinaryOp::BitAnd => {
+                self.emit(Instruction::And(lop, rop), Type::I64)
+            }
+            BinaryOp::BitOr => {
+                self.emit(Instruction::Or(lop, rop), Type::I64)
+            }
+            BinaryOp::BitXor => {
+                self.emit(Instruction::Xor(lop, rop), Type::I64)
+            }
+            _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
+        }
     }
 
     pub fn lower_stmt(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
@@ -136,13 +602,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_expr(ast, *expr_id);
             }
             StmtKind::Variables(var_list) => {
+                let var_ty_opt = var_list.ty;
                 for var in &var_list.variables {
                     let sym = var.name.sym;
                     let init_op = if let Some(init_id) = var.initializer {
-                        self.lower_expr(ast, init_id)
+                        let op = self.lower_expr(ast, init_id);
+                        if let Some(tid) = var_ty_opt {
+                            let ast_ty = ast.ty(tid);
+                            if let ast::TypeKind::Named { name, .. } = &ast_ty.kind {
+                                if let Some(first) = name.first() {
+                                    let ty_name = self.ctx.symbol_name(first.sym);
+                                    if ty_name != "dynamic" && ty_name != "var" && ty_name != "Object" {
+                                        let tag = self.operand_tag(&op);
+                                        let is_m = self.lower_type_match(ast_ty, op.clone(), Operand::Constant(Constant::Int(tag as i64)));
+                                        let fail_b = self.new_block();
+                                        let pass_b = self.new_block();
+                                        self.terminate(Terminator::CondBranch {
+                                            cond: is_m,
+                                            then_block: pass_b,
+                                            else_block: fail_b,
+                                        });
+                                        self.set_block(fail_b);
+                                        let err_op = self.emit(
+                                            Instruction::CallRuntime {
+                                                name: "dartforge_type_error_new".to_string(),
+                                                args: Vec::new(),
+                                                ret_ty: Type::Ref,
+                                            },
+                                            Type::Ref,
+                                        );
+                                        self.emit_throw_op(err_op);
+                                        self.set_block(pass_b);
+                                    }
+                                }
+                            }
+                        }
+                        op
                     } else {
                         self.emit(Instruction::Const(Constant::Null), Type::Ref)
                     };
+                    let ptr = self.emit(Instruction::Alloca(Type::I64), Type::Ref);
+                    self.emit(Instruction::Store { ptr: ptr.clone(), val: init_op.clone() }, Type::Void);
+                    self.local_ptrs.insert(sym, ptr);
                     self.named_locals.insert(sym, init_op);
                 }
             }
@@ -181,6 +682,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let loop_body = self.new_block();
                 let exit_block = self.new_block();
 
+                let attached_labels = std::mem::take(&mut self.pending_labels);
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.insert(lbl, exit_block);
+                    self.labeled_continue_targets.insert(lbl, loop_header);
+                }
+
                 self.terminate(Terminator::Branch(loop_header));
                 self.set_block(loop_header);
 
@@ -200,6 +707,49 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.break_targets.pop();
                 self.continue_targets.pop();
+
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.remove(&lbl);
+                    self.labeled_continue_targets.remove(&lbl);
+                }
+
+                self.set_block(exit_block);
+            }
+            StmtKind::DoWhile { body, condition } => {
+                let loop_body = self.new_block();
+                let loop_cond = self.new_block();
+                let exit_block = self.new_block();
+
+                let attached_labels = std::mem::take(&mut self.pending_labels);
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.insert(lbl, exit_block);
+                    self.labeled_continue_targets.insert(lbl, loop_cond);
+                }
+
+                self.terminate(Terminator::Branch(loop_body));
+                self.set_block(loop_body);
+
+                self.break_targets.push(exit_block);
+                self.continue_targets.push(loop_cond);
+
+                self.lower_stmt(ast, *body);
+                self.terminate(Terminator::Branch(loop_cond));
+
+                self.break_targets.pop();
+                self.continue_targets.pop();
+
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.remove(&lbl);
+                    self.labeled_continue_targets.remove(&lbl);
+                }
+
+                self.set_block(loop_cond);
+                let cond_op = self.lower_expr(ast, *condition);
+                self.terminate(Terminator::CondBranch {
+                    cond: cond_op,
+                    then_block: loop_body,
+                    else_block: exit_block,
+                });
 
                 self.set_block(exit_block);
             }
@@ -234,6 +784,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let loop_update = self.new_block();
                 let exit_block = self.new_block();
 
+                let attached_labels = std::mem::take(&mut self.pending_labels);
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.insert(lbl, exit_block);
+                    self.labeled_continue_targets.insert(lbl, loop_update);
+                }
+
                 self.terminate(Terminator::Branch(loop_header));
                 self.set_block(loop_header);
 
@@ -264,31 +820,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.break_targets.pop();
                 self.continue_targets.pop();
 
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.remove(&lbl);
+                    self.labeled_continue_targets.remove(&lbl);
+                }
+
                 self.set_block(exit_block);
             }
             StmtKind::Return(expr_opt) => {
-                if let Some(e) = expr_opt {
-                    let op = self.lower_expr(ast, *e);
-                    self.terminate(Terminator::Return(Some(op)));
-                } else {
-                    self.terminate(Terminator::Return(None));
-                }
-                let dead_b = self.new_block();
-                self.set_block(dead_b);
+                let op = expr_opt.map(|e| self.lower_expr(ast, e));
+                self.route_return(op);
             }
-            StmtKind::Break(_) => {
-                if let Some(&target) = self.break_targets.last() {
-                    self.terminate(Terminator::Branch(target));
-                    let dead_b = self.new_block();
-                    self.set_block(dead_b);
-                }
+            StmtKind::Break(lbl) => {
+                let sym = lbl.as_ref().map(|n| n.sym);
+                self.route_break_to(sym);
             }
-            StmtKind::Continue(_) => {
-                if let Some(&target) = self.continue_targets.last() {
-                    self.terminate(Terminator::Branch(target));
-                    let dead_b = self.new_block();
-                    self.set_block(dead_b);
-                }
+            StmtKind::Continue(lbl) => {
+                let sym = lbl.as_ref().map(|n| n.sym);
+                self.route_continue_to(sym);
             }
             StmtKind::Assert { condition, .. } => {
                 let cond_op = self.lower_expr(ast, *condition);
@@ -316,6 +865,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             StmtKind::ForIn { target, iterable, body, .. } => {
                 let iterable_op = self.lower_expr(ast, *iterable);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_iteration_begin".to_string(),
+                        args: vec![(iterable_op.clone(), Type::Ref)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
                 let len_op = self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_generic_len".to_string(),
@@ -330,6 +887,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let loop_body = self.new_block();
                 let loop_update = self.new_block();
                 let exit_block = self.new_block();
+
+                let attached_labels = std::mem::take(&mut self.pending_labels);
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.insert(lbl, exit_block);
+                    self.labeled_continue_targets.insert(lbl, loop_update);
+                }
 
                 self.terminate(Terminator::Branch(loop_header));
                 self.set_block(loop_header);
@@ -385,6 +948,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.break_targets.pop();
                 self.continue_targets.pop();
 
+                for &lbl in &attached_labels {
+                    self.labeled_break_targets.remove(&lbl);
+                    self.labeled_continue_targets.remove(&lbl);
+                }
+
                 self.set_block(loop_update);
                 let next_idx = self.emit(
                     Instruction::Add(phi_op, Operand::Constant(Constant::Int(1))),
@@ -402,10 +970,327 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
 
                 self.set_block(exit_block);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_iteration_end".to_string(),
+                        args: vec![(iterable_op, Type::Ref)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
+            }
+            StmtKind::Function(fid) => {
+                let f = self.ctx.program.unit(self.unit_id).ast.function(*fid);
+                if let Some(fn_name) = f.name {
+                    let sym = fn_name.sym;
+                    let local_sym_name = format!("{}_local_{}", self.func.symbol, fid.0);
+                    let name_str = self.ctx.symbol_name(sym).to_string();
+                    let ret_ty = Type::Ref;
+
+                    let mut b = FnBuilder::new(
+                        self.ctx,
+                        self.unit_id,
+                        local_sym_name.clone(),
+                        name_str,
+                        ret_ty,
+                    );
+                    b.local_functions = self.local_functions.clone();
+
+                    if let Some(params) = &f.parameters {
+                        for p in params.iter() {
+                            let p_name = p.name.map(|n| self.ctx.symbol_name(n.sym).to_string()).unwrap_or_else(|| "arg".to_string());
+                            let vid = b.add_param(p_name, Type::Ref);
+                            if let Some(n) = p.name {
+                                b.named_locals.insert(n.sym, Operand::Val(vid));
+                            }
+                        }
+                    }
+
+                    match &f.body {
+                        FunctionBody::Block(stmt_id) => {
+                            b.lower_stmt(ast, *stmt_id);
+                        }
+                        FunctionBody::Expression(expr_id) => {
+                            let r = b.lower_expr(ast, *expr_id);
+                            b.terminate(Terminator::Return(Some(r)));
+                        }
+                        _ => {}
+                    }
+
+                    self.local_functions.insert(sym, (local_sym_name, ret_ty, Vec::new()));
+                    self.extra_functions.push(b.func);
+                    self.extra_functions.extend(b.extra_functions);
+                }
+            }
+            StmtKind::Try { body, catches, finally_ } => {
+                self.lower_try_stmt(ast, *body, catches, *finally_);
+            }
+            StmtKind::Labeled { labels, body } => {
+                for l in labels.iter() {
+                    self.pending_labels.push(l.sym);
+                }
+                self.lower_stmt(ast, *body);
             }
             StmtKind::Empty => {}
             _ => {}
         }
+    }
+
+    fn lower_try_stmt(
+        &mut self,
+        ast: &ast::Ast,
+        body: StmtId,
+        catches: &[ast::CatchClause],
+        finally_: Option<StmtId>,
+    ) {
+        let try_body_block = self.new_block();
+        let merge_block = self.new_block();
+
+        let has_catches = !catches.is_empty();
+        let catch_dispatch_block = if has_catches {
+            Some(self.new_block())
+        } else {
+            None
+        };
+
+        let fin_info = if finally_.is_some() {
+            let entry = self.new_block();
+            let resume = self.new_block();
+            let reason_phi = ValueId(self.next_value);
+            self.next_value += 1;
+            self.value_types.insert(reason_phi, Type::I64);
+
+            let ret_val_phi = ValueId(self.next_value);
+            self.next_value += 1;
+            let ret_ty = if self.func.return_ty == Type::Void { Type::Ref } else { self.func.return_ty };
+            self.value_types.insert(ret_val_phi, ret_ty);
+
+            Some((entry, resume, reason_phi, ret_val_phi))
+        } else {
+            None
+        };
+
+        if let Some((entry, resume, reason_phi, ret_val_phi)) = fin_info {
+            self.finally_scopes.push(FinallyScope {
+                entry_block: entry,
+                resume_block: resume,
+                reason_phi,
+                ret_val_phi,
+                incoming: Vec::new(),
+            });
+        }
+
+        let try_exc_target = if let Some(cb) = catch_dispatch_block {
+            cb
+        } else if let Some((entry, _, _, _)) = fin_info {
+            entry
+        } else if let Some(&parent_target) = self.exception_targets.last() {
+            parent_target
+        } else {
+            let u = self.new_block();
+            let prev = self.current_block;
+            self.set_block(u);
+            self.terminate(Terminator::Return(self.default_return_operand_opt()));
+            self.set_block(prev);
+            u
+        };
+
+        self.exception_targets.push(try_exc_target);
+        self.terminate(Terminator::Branch(try_body_block));
+
+        self.set_block(try_body_block);
+        self.lower_stmt(ast, body);
+
+        if !self.is_terminated() {
+            if let Some((entry, _, _, _)) = fin_info {
+                let default_ret = self.default_return_operand();
+                let last_scope = self.finally_scopes.last_mut().unwrap();
+                last_scope.incoming.push((self.current_block, 0, default_ret));
+                self.terminate(Terminator::Branch(entry));
+            } else {
+                self.terminate(Terminator::Branch(merge_block));
+            }
+        }
+
+        self.exception_targets.pop();
+
+        if let Some(dispatch_block) = catch_dispatch_block {
+            self.set_block(dispatch_block);
+            let ex_bits = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_peek_bits".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            );
+            let ex_tag = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_peek_tag".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+
+            let mut current_test_block = dispatch_block;
+
+            for clause in catches.iter() {
+                self.set_block(current_test_block);
+                let body_b = self.new_block();
+                let next_test_b = self.new_block();
+
+                if let Some(on_tid) = clause.on_type {
+                    let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(on_tid);
+                    let is_match = self.lower_type_match(ast_ty, ex_bits.clone(), ex_tag.clone());
+                    self.terminate(Terminator::CondBranch {
+                        cond: is_match,
+                        then_block: body_b,
+                        else_block: next_test_b,
+                    });
+                } else {
+                    self.terminate(Terminator::Branch(body_b));
+                }
+
+                self.set_block(body_b);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_clear".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
+
+                if let Some(ex_name) = &clause.exception {
+                    let ptr = self.emit(Instruction::Alloca(Type::I64), Type::Ref);
+                    self.emit(Instruction::Store { ptr: ptr.clone(), val: ex_bits.clone() }, Type::Void);
+                    self.local_ptrs.insert(ex_name.sym, ptr);
+                    self.named_locals.insert(ex_name.sym, ex_bits.clone());
+                }
+                if let Some(st_name) = &clause.stack_trace {
+                    let st_val = self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_stack_trace_get".to_string(),
+                            args: Vec::new(),
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                    let ptr = self.emit(Instruction::Alloca(Type::I64), Type::Ref);
+                    self.emit(Instruction::Store { ptr: ptr.clone(), val: st_val.clone() }, Type::Void);
+                    self.local_ptrs.insert(st_name.sym, ptr);
+                    self.named_locals.insert(st_name.sym, st_val);
+                }
+
+                self.active_catch_stack.push((ex_bits.clone(), 3));
+                self.lower_stmt(ast, clause.body);
+                self.active_catch_stack.pop();
+
+                if !self.is_terminated() {
+                    if let Some((entry, _, _, _)) = fin_info {
+                        let default_ret = self.default_return_operand();
+                        let last_scope = self.finally_scopes.last_mut().unwrap();
+                        last_scope.incoming.push((self.current_block, 0, default_ret));
+                        self.terminate(Terminator::Branch(entry));
+                    } else {
+                        self.terminate(Terminator::Branch(merge_block));
+                    }
+                }
+
+                current_test_block = next_test_b;
+            }
+
+            self.set_block(current_test_block);
+            if let Some((entry, _, _, _)) = fin_info {
+                let default_ret = self.default_return_operand();
+                let last_scope = self.finally_scopes.last_mut().unwrap();
+                last_scope.incoming.push((self.current_block, 2, default_ret));
+                self.terminate(Terminator::Branch(entry));
+            } else if let Some(&parent_target) = self.exception_targets.last() {
+                self.terminate(Terminator::Branch(parent_target));
+            } else {
+                self.terminate(Terminator::Return(self.default_return_operand_opt()));
+            }
+        }
+
+        if let Some(fin_stmt) = finally_ {
+            let (entry, _resume, reason_phi, ret_val_phi) = fin_info.unwrap();
+            let scope = self.finally_scopes.pop().unwrap();
+
+            self.set_block(entry);
+
+            let header_idx = self.func.blocks.iter().position(|b| b.id == entry).unwrap();
+            let mut reason_incoming = Vec::new();
+            let mut ret_val_incoming = Vec::new();
+            for (b, reason, ret_op) in &scope.incoming {
+                reason_incoming.push((*b, Operand::Constant(Constant::Int(*reason))));
+                ret_val_incoming.push((*b, ret_op.clone()));
+            }
+
+            self.func.blocks[header_idx].instructions.push((
+                reason_phi,
+                Instruction::Phi { incoming: reason_incoming, ty: Type::I64 },
+                Type::I64,
+            ));
+            let ret_ty = if self.func.return_ty == Type::Void { Type::Ref } else { self.func.return_ty };
+            self.func.blocks[header_idx].instructions.push((
+                ret_val_phi,
+                Instruction::Phi { incoming: ret_val_incoming, ty: ret_ty },
+                ret_ty,
+            ));
+
+            self.lower_stmt(ast, fin_stmt);
+
+            if !self.is_terminated() {
+                let b_norm = merge_block;
+                let b_ret = self.new_block();
+                let b_exc = self.new_block();
+                let b_brk = self.new_block();
+                let b_cont = self.new_block();
+
+                self.terminate(Terminator::Switch {
+                    val: Operand::Val(reason_phi),
+                    default: b_norm,
+                    cases: vec![
+                        (0, b_norm),
+                        (1, b_ret),
+                        (2, b_exc),
+                        (3, b_brk),
+                        (4, b_cont),
+                    ],
+                });
+
+                self.set_block(b_ret);
+                let ret_op = if self.func.return_ty == Type::Void {
+                    None
+                } else {
+                    Some(Operand::Val(ret_val_phi))
+                };
+                self.route_return(ret_op);
+
+                self.set_block(b_exc);
+                if !self.finally_scopes.is_empty() {
+                    let default_ret = self.default_return_operand();
+                    let parent_fin = self.finally_scopes.last_mut().unwrap();
+                    parent_fin.incoming.push((b_exc, 2, default_ret));
+                    let p_entry = parent_fin.entry_block;
+                    self.terminate(Terminator::Branch(p_entry));
+                } else if let Some(&parent_target) = self.exception_targets.last() {
+                    self.terminate(Terminator::Branch(parent_target));
+                } else {
+                    self.terminate(Terminator::Return(self.default_return_operand_opt()));
+                }
+
+                self.set_block(b_brk);
+                self.route_break();
+
+                self.set_block(b_cont);
+                self.route_continue();
+            }
+        }
+
+        self.set_block(merge_block);
     }
 
     pub fn lower_expr(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
@@ -580,6 +1465,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Identifier(name) => {
                 let sym = name.sym;
+                if let Some(ptr) = self.local_ptrs.get(&sym) {
+                    return self.emit(Instruction::Load { ptr: ptr.clone(), ty: Type::I64 }, Type::I64);
+                }
                 if let Some(op) = self.named_locals.get(&sym) {
                     return op.clone();
                 }
@@ -636,6 +1524,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                         _ => {}
                     }
+                }
+                let id_name = self.ctx.symbol_name(sym);
+                if id_name == "String" {
+                    return Operand::Constant(Constant::Int(-2));
+                } else if id_name == "Error" {
+                    return Operand::Constant(Constant::Int(1007));
+                } else if let Some(idx) = self.ctx.program.classes.iter().position(|c| self.ctx.symbol_name(c.name) == id_name) {
+                    let class_id = (idx + 1) as i64;
+                    return Operand::Constant(Constant::Int(class_id));
                 }
                 self.emit(Instruction::Const(Constant::Int(0)), Type::I64)
             }
@@ -696,7 +1593,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                     BinaryOp::Div => self.emit(Instruction::FDiv(lop, rop), Type::F64),
-                    BinaryOp::TruncDiv => self.emit(Instruction::SDiv(lop, rop), Type::I64),
+                    BinaryOp::TruncDiv => self.emit_trunc_div(lop, rop),
                     BinaryOp::Rem => self.emit(Instruction::SRem(lop, rop), Type::I64),
                     BinaryOp::Shl => self.emit(Instruction::Shl(lop, rop), Type::I64),
                     BinaryOp::Shr => self.emit(Instruction::AShr(lop, rop), Type::I64),
@@ -802,22 +1699,90 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.set_block(null_block);
                         let rop = self.lower_expr(ast, *right);
                         let rop_block = self.current_block;
-                        self.terminate(Terminator::Branch(merge_block));
+                        let right_reaches = !self.is_terminated();
+                        if right_reaches {
+                            self.terminate(Terminator::Branch(merge_block));
+                        }
 
                         self.set_block(merge_block);
-                        let ty = self.operand_type(&rop);
-                        self.emit(
-                            Instruction::Phi {
-                                incoming: vec![(left_block, lop), (rop_block, rop)],
+                        if right_reaches {
+                            let ty = self.operand_type(&rop);
+                            self.emit(
+                                Instruction::Phi {
+                                    incoming: vec![(left_block, lop), (rop_block, rop)],
+                                    ty,
+                                },
                                 ty,
-                            },
-                            ty,
-                        )
+                            )
+                        } else {
+                            lop
+                        }
                     }
                     _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
                 }
             }
             ExprKind::Unary { op, operand } => {
+                match op {
+                    UnaryOp::PrefixInc | UnaryOp::PostfixInc | UnaryOp::PrefixDec | UnaryOp::PostfixDec => {
+                        if let ExprKind::Identifier(id) = &ast.expr(*operand).kind {
+                            let curr = if let Some(ptr) = self.local_ptrs.get(&id.sym) {
+                                self.emit(Instruction::Load { ptr: ptr.clone(), ty: Type::I64 }, Type::I64)
+                            } else if let Some(op) = self.named_locals.get(&id.sym) {
+                                op.clone()
+                            } else {
+                                Operand::Constant(Constant::Int(0))
+                            };
+                            let delta = Operand::Constant(Constant::Int(1));
+                            let next = match op {
+                                UnaryOp::PrefixInc | UnaryOp::PostfixInc => {
+                                    self.emit(Instruction::Add(curr.clone(), delta), Type::I64)
+                                }
+                                _ => {
+                                    self.emit(Instruction::Sub(curr.clone(), delta), Type::I64)
+                                }
+                            };
+                            if let Some(ptr) = self.local_ptrs.get(&id.sym).cloned() {
+                                self.emit(Instruction::Store { ptr, val: next.clone() }, Type::Void);
+                            }
+                            self.named_locals.insert(id.sym, next.clone());
+                            match op {
+                                UnaryOp::PrefixInc | UnaryOp::PrefixDec => return next,
+                                _ => return curr,
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                if *op == UnaryOp::NullAssert {
+                    let sub_op = self.lower_expr(ast, *operand);
+                    let is_null = self.emit(
+                        Instruction::ICmp(
+                            ICmpOp::Eq,
+                            sub_op.clone(),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    );
+                    let null_block = self.new_block();
+                    let cont_block = self.new_block();
+                    self.terminate(Terminator::CondBranch {
+                        cond: is_null,
+                        then_block: null_block,
+                        else_block: cont_block,
+                    });
+                    self.set_block(null_block);
+                    let err_op = self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_type_error_new".to_string(),
+                            args: Vec::new(),
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                    self.emit_throw_op(err_op);
+                    self.set_block(cont_block);
+                    return sub_op;
+                }
                 let sub_op = self.lower_expr(ast, *operand);
                 match op {
                     UnaryOp::Neg => self.emit(Instruction::Neg(sub_op), Type::I64),
@@ -839,26 +1804,65 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.set_block(then_block);
                 let then_op = self.lower_expr(ast, *then);
                 let then_end = self.current_block;
-                self.terminate(Terminator::Branch(merge_block));
+                let then_reaches = !self.is_terminated();
+                if then_reaches {
+                    self.terminate(Terminator::Branch(merge_block));
+                }
 
                 self.set_block(else_block);
                 let else_op = self.lower_expr(ast, *else_);
                 let else_end = self.current_block;
-                self.terminate(Terminator::Branch(merge_block));
+                let else_reaches = !self.is_terminated();
+                if else_reaches {
+                    self.terminate(Terminator::Branch(merge_block));
+                }
 
                 self.set_block(merge_block);
-                let ty = self.operand_type(&then_op);
-                self.emit(
-                    Instruction::Phi {
-                        incoming: vec![(then_end, then_op), (else_end, else_op)],
+                if then_reaches && else_reaches {
+                    let ty = self.operand_type(&then_op);
+                    self.emit(
+                        Instruction::Phi {
+                            incoming: vec![(then_end, then_op), (else_end, else_op)],
+                            ty,
+                        },
                         ty,
-                    },
-                    ty,
-                )
+                    )
+                } else if then_reaches {
+                    then_op
+                } else if else_reaches {
+                    else_op
+                } else {
+                    self.default_return_operand()
+                }
             }
             ExprKind::Property { target, name, .. } => {
-                let target_op = self.lower_expr(ast, *target);
                 let prop_name = self.ctx.symbol_name(name.sym);
+
+                if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
+                    if self.ctx.symbol_name(id.sym) == "StackTrace" {
+                        if prop_name == "current" {
+                            return self.emit(
+                                Instruction::CallRuntime {
+                                    name: "dartforge_stack_trace_get".to_string(),
+                                    args: Vec::new(),
+                                    ret_ty: Type::Ref,
+                                },
+                                Type::Ref,
+                            );
+                        } else if prop_name == "empty" {
+                            return self.emit(
+                                Instruction::CallRuntime {
+                                    name: "dartforge_stack_trace_empty".to_string(),
+                                    args: Vec::new(),
+                                    ret_ty: Type::Ref,
+                                },
+                                Type::Ref,
+                            );
+                        }
+                    }
+                }
+
+                let target_op = self.lower_expr(ast, *target);
 
                 if let Some(resolved) = self.ctx.get_resolved(self.unit_id, expr_id) {
                     if let Resolved::Member { class, member, .. } = resolved {
@@ -885,17 +1889,67 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             }
                         };
                         if let Some(field_idx) = field_idx_opt {
-                            return self.emit(
+                            let curr_val = self.emit(
                                 Instruction::CallRuntime {
                                     name: "dartforge_object_get".to_string(),
                                     args: vec![
-                                        (target_op, Type::Ref),
+                                        (target_op.clone(), Type::Ref),
                                         (Operand::Constant(Constant::Int(field_idx as i64)), Type::I64),
                                     ],
                                     ret_ty: Type::I64,
                                 },
                                 Type::I64,
                             );
+                            if let MemberRef::Variable(var_id) = member {
+                                let v_elem = &self.ctx.program.variables[var_id.0 as usize];
+                                if v_elem.late {
+                                    if let Some(init_id) = v_elem.initializer {
+                                        let is_null = self.emit(
+                                            Instruction::ICmp(
+                                                ICmpOp::Eq,
+                                                curr_val.clone(),
+                                                Operand::Constant(Constant::Int(0)),
+                                            ),
+                                            Type::I1,
+                                        );
+                                        let init_b = self.new_block();
+                                        let done_b = self.new_block();
+                                        let curr_b = self.current_block;
+                                        self.terminate(Terminator::CondBranch {
+                                            cond: is_null,
+                                            then_block: init_b,
+                                            else_block: done_b,
+                                        });
+                                        self.set_block(init_b);
+                                        let init_val = self.lower_expr(ast, init_id);
+                                        let is_ref = if self.operand_type(&init_val) == Type::Ref { 1 } else { 0 };
+                                        self.emit(
+                                            Instruction::CallRuntime {
+                                                name: "dartforge_object_set".to_string(),
+                                                args: vec![
+                                                    (target_op, Type::Ref),
+                                                    (Operand::Constant(Constant::Int(field_idx as i64)), Type::I64),
+                                                    (init_val.clone(), Type::I64),
+                                                    (Operand::Constant(Constant::Int(is_ref)), Type::I8),
+                                                ],
+                                                ret_ty: Type::Void,
+                                            },
+                                            Type::Void,
+                                        );
+                                        let init_end = self.current_block;
+                                        self.terminate(Terminator::Branch(done_b));
+                                        self.set_block(done_b);
+                                        return self.emit(
+                                            Instruction::Phi {
+                                                incoming: vec![(curr_b, curr_val), (init_end, init_val)],
+                                                ty: Type::I64,
+                                            },
+                                            Type::I64,
+                                        );
+                                    }
+                                }
+                            }
+                            return curr_val;
                         }
                     }
                 }
@@ -944,37 +1998,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::I1,
                     )
                 } else if prop_name == "last" {
-                    let len_op = self.emit(
+                    self.emit_call_with_check(
                         Instruction::CallRuntime {
-                            name: "dartforge_list_len".to_string(),
-                            args: vec![(target_op.clone(), Type::Ref)],
-                            ret_ty: Type::I64,
-                        },
-                        Type::I64,
-                    );
-                    let last_idx = self.emit(
-                        Instruction::Sub(
-                            len_op,
-                            Operand::Constant(Constant::Int(1)),
-                        ),
-                        Type::I64,
-                    );
-                    self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_get_bits".to_string(),
-                            args: vec![(target_op, Type::Ref), (last_idx, Type::I64)],
+                            name: "dartforge_list_last".to_string(),
+                            args: vec![(target_op, Type::Ref)],
                             ret_ty: Type::I64,
                         },
                         Type::I64,
                     )
                 } else if prop_name == "first" {
-                    self.emit(
+                    self.emit_call_with_check(
                         Instruction::CallRuntime {
-                            name: "dartforge_list_get_bits".to_string(),
-                            args: vec![
-                                (target_op, Type::Ref),
-                                (Operand::Constant(Constant::Int(0)), Type::I64),
-                            ],
+                            name: "dartforge_list_first".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "single" {
+                    self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_list_single".to_string(),
+                            args: vec![(target_op, Type::Ref)],
                             ret_ty: Type::I64,
                         },
                         Type::I64,
@@ -1006,13 +2051,189 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         },
                         Type::Ref,
                     )
+                } else if prop_name == "isOdd" {
+                    let rem = self.emit(
+                        Instruction::And(target_op, Operand::Constant(Constant::Int(1))),
+                        Type::I64,
+                    );
+                    self.emit(
+                        Instruction::ICmp(ICmpOp::Ne, rem, Operand::Constant(Constant::Int(0))),
+                        Type::I1,
+                    )
+                } else if prop_name == "isEven" {
+                    let rem = self.emit(
+                        Instruction::And(target_op, Operand::Constant(Constant::Int(1))),
+                        Type::I64,
+                    );
+                    self.emit(
+                        Instruction::ICmp(ICmpOp::Eq, rem, Operand::Constant(Constant::Int(0))),
+                        Type::I1,
+                    )
+                } else if prop_name == "message" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_message".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
+                } else if prop_name == "name" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_name".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
+                } else if prop_name == "invalidValue" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_invalid_value".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "start" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_start".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "end" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_end".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "source" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_source".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
+                } else if prop_name == "offset" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_offset".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "stackTrace" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_error_get_stack_trace".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
+                } else if prop_name == "runtimeType" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_value_class".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                } else if prop_name == "keys" {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_map_keys".to_string(),
+                            args: vec![(target_op, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )
                 } else {
-                    self.emit(Instruction::Const(Constant::Int(0)), Type::I64)
+                    if let Some(fid) = self.ctx.program.functions.iter().position(|f| f.class.is_some() && !f.static_ && f.name == name.sym) {
+                        let f_elem = &self.ctx.program.functions[fid];
+                        let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
+                        let symbol = format!("df_fn_{fid}_{sanitized_name}");
+                        let ret_ty = self.ctx.outline.functions.get(fid)
+                            .map(|fd| self.ctx.to_hir_type(fd.return_type))
+                            .unwrap_or(Type::Ref);
+                        return self.emit_call_with_check(
+                            Instruction::CallStatic {
+                                symbol,
+                                args: vec![target_op],
+                                ret_ty,
+                            },
+                            ret_ty,
+                        );
+                    }
+                    let mut found_field = None;
+                    for (c_idx, _) in self.ctx.program.classes.iter().enumerate() {
+                        let cid = dartforge_elements::model::ClassId(c_idx as u32);
+                        if let Some(f_idx) = self.find_field_index(cid, name.sym) {
+                            found_field = Some(f_idx);
+                            break;
+                        }
+                    }
+                    if let Some(f_idx) = found_field {
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_object_get".to_string(),
+                                args: vec![
+                                    (target_op, Type::Ref),
+                                    (Operand::Constant(Constant::Int(f_idx as i64)), Type::I64),
+                                ],
+                                ret_ty: Type::I64,
+                            },
+                            Type::I64,
+                        );
+                    }
+                    // Getter inexistente em dynamic: lança NoSuchMethodError
+                    let err_op = self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_no_such_method_error_new".to_string(),
+                            args: Vec::new(),
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                    self.emit_throw_op(err_op);
+                    self.default_return_operand()
                 }
             }
             ExprKind::Index { target, index, .. } => {
                 let target_op = self.lower_expr(ast, *target);
                 let idx_op = self.lower_expr(ast, *index);
+                if let Some(fid) = self.ctx.program.functions.iter().position(|f| f.class.is_some() && !f.static_ && self.ctx.symbol_name(f.name) == "[]") {
+                    let f_elem = &self.ctx.program.functions[fid];
+                    let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
+                    let symbol = format!("df_fn_{fid}_{sanitized_name}");
+                    let ret_ty = self.ctx.outline.functions.get(fid)
+                        .map(|fd| self.ctx.to_hir_type(fd.return_type))
+                        .unwrap_or(Type::Ref);
+                    let target_ty = self.ctx.get_type(self.unit_id, *target);
+                    let is_std_map = target_ty.map_or(false, |t| self.ctx.is_map(t));
+                    let is_std_list = target_ty.map_or(false, |t| self.ctx.is_list(t));
+                    if !is_std_map && !is_std_list && !matches!(ast.expr(*target).kind, ExprKind::List { .. } | ExprKind::SetOrMap { .. }) {
+                        return self.emit_call_with_check(
+                            Instruction::CallStatic {
+                                symbol,
+                                args: vec![target_op, idx_op],
+                                ret_ty,
+                            },
+                            ret_ty,
+                        );
+                    }
+                }
                 let target_ty = self.ctx.get_type(self.unit_id, *target);
                 let is_map = target_ty.map_or(false, |t| self.ctx.is_map(t))
                     || self.operand_type(&idx_op) == Type::Ref;
@@ -1035,7 +2256,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::I64,
                     )
                 } else if is_string_or_match {
-                    self.emit(
+                    self.emit_call_with_check(
                         Instruction::CallRuntime {
                             name: "dartforge_list_get_bits".to_string(),
                             args: vec![(target_op, Type::Ref), (idx_op, Type::I64)],
@@ -1044,7 +2265,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else {
-                    self.emit(
+                    self.emit_call_with_check(
                         Instruction::CallRuntime {
                             name: "dartforge_list_get_bits".to_string(),
                             args: vec![(target_op, Type::Ref), (idx_op, Type::I64)],
@@ -1175,6 +2396,67 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             },
                             Type::Ref,
                         );
+                    } else if id_str == "identical" && arguments.args.len() == 2 {
+                        let a_op = self.lower_expr(ast, arguments.args[0].value);
+                        let b_op = self.lower_expr(ast, arguments.args[1].value);
+                        return self.emit(
+                            Instruction::ICmp(ICmpOp::Eq, a_op, b_op),
+                            Type::I1,
+                        );
+                    } else if let Some(err_cid) = match id_str {
+                        "Exception" => Some(1000),
+                        "FormatException" => Some(1001),
+                        "StateError" => Some(1002),
+                        "ArgumentError" => Some(1003),
+                        "RangeError" => Some(1004),
+                        "UnsupportedError" => Some(1005),
+                        "UnimplementedError" => Some(1008),
+                        _ => None,
+                    } {
+                        let msg_op = if let Some(first_arg) = arguments.args.first() {
+                            self.lower_expr(ast, first_arg.value)
+                        } else {
+                            self.emit(Instruction::Const(Constant::String("".to_string())), Type::Ref)
+                        };
+                        return self.emit(
+                            Instruction::AllocObject {
+                                class_id: err_cid,
+                                fields: vec![msg_op],
+                            },
+                            Type::Ref,
+                        );
+                    } else if let Some((sym, ret_ty, _)) = self.local_functions.get(&id.sym).cloned() {
+                        let mut args_ops = Vec::new();
+                        for a in &arguments.args {
+                            args_ops.push(self.lower_expr(ast, a.value));
+                        }
+                        return self.emit_call_with_check(
+                            Instruction::CallStatic {
+                                symbol: sym,
+                                args: args_ops,
+                                ret_ty,
+                            },
+                            ret_ty,
+                        );
+                    } else if let Some(fid) = self.ctx.program.functions.iter().position(|f| f.class.is_none() && f.name == id.sym) {
+                        let f_elem = &self.ctx.program.functions[fid];
+                        let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
+                        let symbol = format!("df_fn_{fid}_{sanitized_name}");
+                        let ret_ty = self.ctx.outline.functions.get(fid)
+                            .map(|fd| self.ctx.to_hir_type(fd.return_type))
+                            .unwrap_or(Type::Ref);
+                        let mut args_ops = Vec::new();
+                        for a in &arguments.args {
+                            args_ops.push(self.lower_expr(ast, a.value));
+                        }
+                        return self.emit_call_with_check(
+                            Instruction::CallStatic {
+                                symbol,
+                                args: args_ops,
+                                ret_ty,
+                            },
+                            ret_ty,
+                        );
                     }
                 }
 
@@ -1248,7 +2530,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let m_name = self.ctx.symbol_name(method_name.sym);
                     let recv_op = self.lower_expr(ast, *inner_target);
 
-                    if m_name == "toUpperCase" {
+                    if m_name == "add" {
+                        if let Some(first_arg) = arguments.args.first() {
+                            let val_op = self.lower_expr(ast, first_arg.value);
+                            let tag = self.operand_tag(&val_op);
+                            return self.emit(
+                                Instruction::CallRuntime {
+                                    name: "dartforge_list_push".to_string(),
+                                    args: vec![
+                                        (recv_op, Type::Ref),
+                                        (val_op, Type::I64),
+                                        (Operand::Constant(Constant::Int(tag as i64)), Type::I8),
+                                    ],
+                                    ret_ty: Type::Void,
+                                },
+                                Type::Void,
+                            );
+                        }
+                    } else if m_name == "toUpperCase" {
                         return self.emit(
                             Instruction::CallRuntime {
                                 name: "dartforge_string_to_upper".to_string(),
@@ -1933,6 +3232,72 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::Ref,
                 )
+            }
+            ExprKind::Throw(inner) => {
+                self.emit_throw(ast, *inner)
+            }
+            ExprKind::Rethrow => {
+                self.emit_rethrow()
+            }
+            ExprKind::Is { value, ty, negated } => {
+                let val_op = self.lower_expr(ast, *value);
+                let tag = self.operand_tag(&val_op);
+                let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(*ty);
+                let is_m = self.lower_type_match(ast_ty, val_op, Operand::Constant(Constant::Int(tag as i64)));
+                if *negated {
+                    self.emit(Instruction::LNot(is_m), Type::I1)
+                } else {
+                    is_m
+                }
+            }
+            ExprKind::As { value, ty } => {
+                let val_op = self.lower_expr(ast, *value);
+                let tag = self.operand_tag(&val_op);
+                let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(*ty);
+                let is_m = self.lower_type_match(ast_ty, val_op.clone(), Operand::Constant(Constant::Int(tag as i64)));
+                let fail_block = self.new_block();
+                let pass_block = self.new_block();
+                self.terminate(Terminator::CondBranch {
+                    cond: is_m,
+                    then_block: pass_block,
+                    else_block: fail_block,
+                });
+                self.set_block(fail_block);
+                let err_op = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_type_error_new".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                self.emit_throw_op(err_op);
+                self.set_block(pass_block);
+                val_op
+            }
+            ExprKind::Assign { op, target, value } => {
+                let val_op = self.lower_expr(ast, *value);
+                if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
+                    let final_val = match op {
+                        ast::AssignOp::Assign => val_op,
+                        ast::AssignOp::Compound(bin_op) => {
+                            let curr = if let Some(ptr) = self.local_ptrs.get(&id.sym) {
+                                self.emit(Instruction::Load { ptr: ptr.clone(), ty: Type::I64 }, Type::I64)
+                            } else if let Some(op) = self.named_locals.get(&id.sym) {
+                                op.clone()
+                            } else {
+                                Operand::Constant(Constant::Int(0))
+                            };
+                            self.lower_binary_op_helper(*bin_op, curr, val_op)
+                        }
+                    };
+                    if let Some(ptr) = self.local_ptrs.get(&id.sym).cloned() {
+                        self.emit(Instruction::Store { ptr, val: final_val.clone() }, Type::Void);
+                    }
+                    self.named_locals.insert(id.sym, final_val.clone());
+                    return final_val;
+                }
+                val_op
             }
             _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
         }

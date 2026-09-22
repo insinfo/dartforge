@@ -146,6 +146,17 @@ pub enum Instruction {
         env: Operand,
     },
 
+    // Memória local e ponteiros de pilha
+    Alloca(Type),
+    Load {
+        ptr: Operand,
+        ty: Type,
+    },
+    Store {
+        ptr: Operand,
+        val: Operand,
+    },
+
     // Acesso a propriedades e posições
     GetField {
         object: Operand,
@@ -283,6 +294,7 @@ pub struct Module {
     pub functions: Vec<Function>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
+    pub subtyping_edges: Vec<(u32, u32)>,
     pub entry_symbol: Option<String>,
 }
 

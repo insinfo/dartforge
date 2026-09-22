@@ -13,6 +13,7 @@ pub struct Resultado {
     pub dart: Saida,
     pub ddc: Saida,
     pub forge: Option<Saida>,
+    pub nativo: bool,
 }
 
 /// Onde duas saídas divergem.
@@ -50,7 +51,7 @@ fn primeira_linha_diferente(a: &str, b: &str) -> usize {
 impl Resultado {
     /// A saída de referência do DartForge (VM, ou DDC se o cabeçalho declara divergência).
     pub fn referencia(&self) -> &Saida {
-        if self.programa.referencia_e_ddc() { &self.ddc } else { &self.dart }
+        if !self.nativo && self.programa.referencia_e_ddc() { &self.ddc } else { &self.dart }
     }
 
     /// Divergência DDC × VM (só interessa quando o cabeçalho não a declara).
@@ -109,6 +110,7 @@ pub fn lado_a_lado(colunas: &[(&str, &str)], foco: usize) -> String {
 pub fn relatorio(resultados: &[Resultado]) -> String {
     let mut out = String::new();
     let com_forge = resultados.iter().any(|r| r.forge.is_some());
+    let nativo = resultados.first().map_or(false, |r| r.nativo);
     let mut ok = 0usize;
     let mut avisos_ddc = 0usize;
     let mut grupos: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -117,17 +119,19 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
         if r.dart.codigo != 0 {
             let _ = writeln!(out, "DART!  {nome}  (dart run saiu com {}: {})", r.dart.codigo, truncar(r.dart.primeira_linha_stderr(), 90));
         }
-        match (r.ddc_vs_dart(), &r.programa.diverge_ddc) {
-            (Some(d), None) => {
-                avisos_ddc += 1;
-                let _ = writeln!(out, "DDC≠VM {nome}  ({})", descrever(d));
-                let _ = write!(out, "{}", lado_a_lado(&[("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout)], foco(d)));
-                let _ = writeln!(out, "       códigos: dart={} ddc={}  stderr ddc: {}", r.dart.codigo, r.ddc.codigo, truncar(r.ddc.primeira_linha_stderr(), 80));
+        if !nativo {
+            match (r.ddc_vs_dart(), &r.programa.diverge_ddc) {
+                (Some(d), None) => {
+                    avisos_ddc += 1;
+                    let _ = writeln!(out, "DDC≠VM {nome}  ({})", descrever(d));
+                    let _ = write!(out, "{}", lado_a_lado(&[("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout)], foco(d)));
+                    let _ = writeln!(out, "       códigos: dart={} ddc={}  stderr ddc: {}", r.dart.codigo, r.ddc.codigo, truncar(r.ddc.primeira_linha_stderr(), 80));
+                }
+                (None, Some(motivo)) => {
+                    let _ = writeln!(out, "AVISO  {nome}  cabeçalho declara divergência DDC mas as saídas batem: {motivo}");
+                }
+                _ => {}
             }
-            (None, Some(motivo)) => {
-                let _ = writeln!(out, "AVISO  {nome}  cabeçalho declara divergência DDC mas as saídas batem: {motivo}");
-            }
-            _ => {}
         }
         let Some(forge) = &r.forge else { continue };
         match r.forge_vs_referencia() {
@@ -137,8 +141,18 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
             }
             Some(d) => {
                 let _ = writeln!(out, "FALHA  {nome}  ({})", descrever(d));
-                let _ = write!(out, "{}", lado_a_lado(&[("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout), ("dartforge", &forge.stdout)], foco(d)));
-                let _ = writeln!(out, "       códigos: dart={} ddc={} forge={}", r.dart.codigo, r.ddc.codigo, forge.codigo);
+                let colunas: Vec<(&str, &str)> = if nativo {
+                    vec![("dart run", &r.dart.stdout), ("dartforge nativo", &forge.stdout)]
+                } else {
+                    vec![("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout), ("dartforge", &forge.stdout)]
+                };
+                let _ = write!(out, "{}", lado_a_lado(&colunas, foco(d)));
+                let codigos = if nativo {
+                    format!("códigos: dart={} forge={}", r.dart.codigo, forge.codigo)
+                } else {
+                    format!("códigos: dart={} ddc={} forge={}", r.dart.codigo, r.ddc.codigo, forge.codigo)
+                };
+                let _ = writeln!(out, "       {codigos}");
                 let chave = forge.primeira_linha_stderr();
                 let chave = if chave.is_empty() { "(stderr vazio)".to_string() } else { truncar(chave, 120) };
                 let _ = writeln!(out, "       stderr: {chave}");
@@ -149,9 +163,12 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     let total = resultados.len();
     let _ = writeln!(out);
     if com_forge {
-        let _ = writeln!(out, "DartForge: {ok}/{total} ok");
+        let label = if nativo { "DartForge Nativo" } else { "DartForge" };
+        let _ = writeln!(out, "{label}: {ok}/{total} ok");
     }
-    let _ = writeln!(out, "DDC×VM: {}/{total} batem (sem contar {} com divergência declarada)", total - avisos_ddc - resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count(), resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count());
+    if !nativo {
+        let _ = writeln!(out, "DDC×VM: {}/{total} batem (sem contar {} com divergência declarada)", total - avisos_ddc - resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count(), resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count());
+    }
     if !grupos.is_empty() {
         let mut lista: Vec<(String, Vec<String>)> = grupos.into_iter().collect();
         lista.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
@@ -199,9 +216,9 @@ mod testes {
     fn relatorio_agrupa() {
         let p = |nome: &str| Programa { nome: nome.into(), entrada: "x.dart".into(), arquivos: vec![], diverge_ddc: None };
         let r = vec![
-            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)) },
-            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }) },
-            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }) },
+            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false },
+            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false },
+            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false },
         ];
         let t = relatorio(&r);
         assert!(t.contains("ok     a"), "{t}");

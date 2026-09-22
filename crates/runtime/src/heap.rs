@@ -343,6 +343,11 @@ impl Heap {
             .and_then(Option::as_ref)
             .expect("handle não vivo")
     }
+    /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
+    pub fn try_get(&self, handle: i64) -> Option<&Value> {
+        let index = usize::try_from(handle.checked_sub(1)?).ok()?;
+        self.slots.get(index).and_then(Option::as_ref)
+    }
     /// Atualiza campo com tag explícita; valores escalares jamais são raízes.
     pub fn set(&mut self, handle: i64, index: i64, bits: i64, is_ref: bool) {
         if is_ref && bits != 0 {

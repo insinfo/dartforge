@@ -103,11 +103,51 @@ pub extern "C" fn main() -> i32 {
 
 use heap::{Heap, TaggedValue, Value};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 thread_local! {
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::new());
+    static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::new());
+    static IMMUTABLE_COLLECTIONS: RefCell<HashSet<i64>> = RefCell::new(HashSet::new());
+    static ACTIVE_ITERATIONS: RefCell<HashSet<i64>> = RefCell::new(HashSet::new());
+    static ORIGIN_COLLECTIONS: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::new());
+}
+
+fn register_key_iteration_origin(keys_list: i64, map_handle: i64) {
+    ORIGIN_COLLECTIONS.with(|m| m.borrow_mut().insert(keys_list, map_handle));
+}
+
+fn is_active_iteration(handle: i64) -> bool {
+    ACTIVE_ITERATIONS.with(|s| s.borrow().contains(&handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_iteration_begin(handle: i64) {
+    if handle == 0 { return; }
+    ACTIVE_ITERATIONS.with(|s| {
+        let mut set = s.borrow_mut();
+        set.insert(handle);
+        ORIGIN_COLLECTIONS.with(|m| {
+            if let Some(&origin) = m.borrow().get(&handle) {
+                set.insert(origin);
+            }
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_iteration_end(handle: i64) {
+    if handle == 0 { return; }
+    ACTIVE_ITERATIONS.with(|s| {
+        let mut set = s.borrow_mut();
+        set.remove(&handle);
+        ORIGIN_COLLECTIONS.with(|m| {
+            if let Some(&origin) = m.borrow().get(&handle) {
+                set.remove(&origin);
+            }
+        });
+    });
 }
 
 /// Registra o nome de uma classe pelo id para exibição em toString/print.
@@ -121,6 +161,104 @@ pub unsafe extern "C" fn dartforge_register_class_name(class_id: i64, ptr: *cons
     };
     let name = std::str::from_utf8(bytes).expect("UTF-8").to_string();
     CLASS_NAMES.with(|map| map.borrow_mut().insert(class_id, name));
+}
+
+/// Registra relação de subtipagem direta: sub_id <: super_id.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
+    SUBCLASSES.with(|map| {
+        map.borrow_mut().entry(sub_id).or_default().push(super_id);
+    });
+}
+
+/// Consulta pertinência de subtipagem nominal em tempo de execução.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_is_subclass(class_id: i64, target_class: i64) -> u8 {
+    if class_id == target_class {
+        return 1;
+    }
+    if target_class == 0 {
+        // Object é supertipo de toda classe nominal
+        return 1;
+    }
+    SUBCLASSES.with(|map| {
+        let map = map.borrow();
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(class_id);
+        visited.insert(class_id);
+        while let Some(curr) = queue.pop_front() {
+            if curr == target_class {
+                return 1;
+            }
+            if let Some(supers) = map.get(&curr) {
+                for &s in supers {
+                    if visited.insert(s) {
+                        queue.push_back(s);
+                    }
+                }
+            }
+        }
+        0
+    })
+}
+
+thread_local! {
+    static CURRENT_STACK_TRACE: RefCell<Option<i64>> = RefCell::new(None);
+}
+
+/// Retorna um objeto StackTrace não vazio gerenciado no heap.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_stack_trace_get() -> i64 {
+    if let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) {
+        return h;
+    }
+    HEAP.with(|heap| {
+        let trace_str = heap.borrow_mut().allocate(Value::String("#0      main (dart:native)\n".to_string()));
+        let stack_trace_cid = CLASS_NAMES.with(|map| {
+            map.borrow().iter().find(|(_, name)| *name == "StackTrace" || *name == "_StackTrace").map(|(&id, _)| id)
+        }).unwrap_or(1006);
+        heap.borrow_mut().allocate(Value::Object {
+            class_id: stack_trace_cid,
+            fields: vec![(trace_str, true)],
+        })
+    })
+}
+
+/// Retorna um objeto StackTrace vazio gerenciado no heap.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_stack_trace_empty() -> i64 {
+    HEAP.with(|heap| {
+        let trace_str = heap.borrow_mut().allocate(Value::String("".to_string()));
+        let stack_trace_cid = CLASS_NAMES.with(|map| {
+            map.borrow().iter().find(|(_, name)| *name == "StackTrace" || *name == "_StackTrace").map(|(&id, _)| id)
+        }).unwrap_or(1006);
+        heap.borrow_mut().allocate(Value::Object {
+            class_id: stack_trace_cid,
+            fields: vec![(trace_str, true)],
+        })
+    })
+}
+
+/// Cria um objeto StackTrace a partir de uma string customizada.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_stack_trace_from_string(str_handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let stack_trace_cid = CLASS_NAMES.with(|map| {
+            map.borrow().iter().find(|(_, name)| *name == "StackTrace" || *name == "_StackTrace").map(|(&id, _)| id)
+        }).unwrap_or(1006);
+        heap.borrow_mut().allocate(Value::Object {
+            class_id: stack_trace_cid,
+            fields: vec![(str_handle, true)],
+        })
+    })
+}
+
+/// Lança exceção associando um stack trace explícito.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_throw_with_stack_trace(bits: i64, tag: u8, st_handle: i64) {
+    CURRENT_STACK_TRACE.with(|slot| *slot.borrow_mut() = Some(st_handle));
+    dartforge_exception_throw(bits, tag);
 }
 
 /// Exceção pendente do esquema portátil de `throw`/`try`/`catch`.
@@ -210,9 +348,10 @@ pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let Value::Object { fields, .. } = heap.get(handle) else {
-            panic!("objeto esperado")
+            return 0;
         };
-        fields[usize::try_from(index).expect("índice inválido")].0
+        let idx = usize::try_from(index).unwrap_or(usize::MAX);
+        fields.get(idx).map_or(0, |(bits, _)| *bits)
     })
 }
 /// Grava campo e informa explicitamente se seus bits são referência gerenciada.
@@ -382,10 +521,202 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                     }
                     output.push(')');
                 }
-                Value::Object { class_id, .. } => {
+                Value::Object { class_id, fields } => {
+                    if *class_id == 1013 {
+                        if let Some((b, _)) = fields.first() {
+                            output.push_str(&format!("{b}"));
+                        }
+                        return;
+                    }
                     let name = CLASS_NAMES.with(|map| map.borrow().get(class_id).cloned())
                         .unwrap_or_else(|| "Object".to_string());
-                    output.push_str(&format!("Instance of '{name}'"));
+                    if name == "Exception" || name == "_Exception" {
+                        if !fields.is_empty() && fields[0].0 != 0 {
+                            output.push_str("Exception: ");
+                            let val = TaggedValue {
+                                bits: fields[0].0,
+                                is_ref: fields[0].1,
+                                tag: if fields[0].1 { ValueTag::Ref } else { ValueTag::Int },
+                            };
+                            render(heap, val, depth - 1, output);
+                        } else {
+                            output.push_str("Exception");
+                        }
+                    } else if name == "FormatException" {
+                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let s_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let off_opt = fields.get(2).and_then(|(b, _)| if *b >= 0 { Some(*b) } else { None });
+                        if let Some(s) = s_opt {
+                            let m = m_opt.unwrap_or_default();
+                            if let Some(off) = off_opt {
+                                let char_idx = off + 1;
+                                let spaces = " ".repeat(off as usize);
+                                if m.is_empty() {
+                                    output.push_str(&format!("FormatException (at character {char_idx})\n{s}\n{spaces}^\n"));
+                                } else {
+                                    output.push_str(&format!("FormatException: {m} (at character {char_idx})\n{s}\n{spaces}^\n"));
+                                }
+                            } else if m.is_empty() {
+                                output.push_str(&format!("FormatException\n{s}"));
+                            } else {
+                                output.push_str(&format!("FormatException: {m}\n{s}"));
+                            }
+                        } else if let Some(m) = m_opt {
+                            if m.is_empty() {
+                                output.push_str("FormatException");
+                            } else {
+                                output.push_str(&format!("FormatException: {m}"));
+                            }
+                        } else {
+                            output.push_str("FormatException");
+                        }
+                    } else if name == "StateError" {
+                        if let Some((b, _)) = fields.first() {
+                            if *b != 0 {
+                                let m = match heap.get(*b) { Value::String(s) => s.clone(), _ => "".to_string() };
+                                output.push_str(&format!("Bad state: {m}"));
+                            } else {
+                                output.push_str("Bad state");
+                            }
+                        } else {
+                            output.push_str("Bad state");
+                        }
+                    } else if name == "ArgumentError" {
+                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let n_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let has_val = fields.get(3).map_or(false, |(b, _)| *b != 0);
+                        if has_val {
+                            let val_str = if let Some(&(v_bits, is_ref)) = fields.get(2) {
+                                if is_ref {
+                                    if v_bits == 0 {
+                                        "null".to_string()
+                                    } else {
+                                        match heap.get(v_bits) {
+                                            Value::String(s) => format!("\"{s}\""),
+                                            _ => {
+                                                let mut tmp = String::new();
+                                                render(heap, TaggedValue::reference(v_bits), depth - 1, &mut tmp);
+                                                tmp
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    v_bits.to_string()
+                                }
+                            } else {
+                                "null".to_string()
+                            };
+                            match (n_opt, m_opt) {
+                                (Some(n), Some(m)) => output.push_str(&format!("Invalid argument ({n}): {m}: {val_str}")),
+                                (Some(n), None) => output.push_str(&format!("Invalid argument ({n}): {val_str}")),
+                                (None, Some(m)) => output.push_str(&format!("Invalid argument: {m}: {val_str}")),
+                                (None, None) => output.push_str(&format!("Invalid argument: {val_str}")),
+                            }
+                        } else {
+                            match (n_opt, m_opt) {
+                                (Some(n), Some(m)) => output.push_str(&format!("Invalid argument(s) ({n}): {m}")),
+                                (Some(n), None) => output.push_str(&format!("Invalid argument(s) ({n})")),
+                                (None, Some(m)) => output.push_str(&format!("Invalid argument(s): {m}")),
+                                (None, None) => output.push_str("Invalid argument(s)"),
+                            }
+                        }
+                    } else if name == "RangeError" {
+                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let n_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let inv_val = fields.get(2).map_or(0, |(b, _)| *b);
+                        let start_val = fields.get(3).map_or(0, |(b, _)| *b);
+                        let end_val = fields.get(4).map_or(0, |(b, _)| *b);
+                        let kind = fields.get(5).map_or(0, |(b, _)| *b);
+                        let has_val = fields.get(6).map_or(false, |(b, _)| *b != 0);
+
+                        if kind == 1 {
+                            match (n_opt, m_opt) {
+                                (Some(n), Some(m)) => output.push_str(&format!("RangeError ({n}): {m}: Not in inclusive range {start_val}..{end_val}: {inv_val}")),
+                                (Some(n), None) => output.push_str(&format!("RangeError ({n}): Invalid value: Not in inclusive range {start_val}..{end_val}: {inv_val}")),
+                                (None, Some(m)) => output.push_str(&format!("RangeError: {m}: Not in inclusive range {start_val}..{end_val}: {inv_val}")),
+                                (None, None) => output.push_str(&format!("RangeError: Invalid value: Not in inclusive range {start_val}..{end_val}: {inv_val}")),
+                            }
+                        } else if kind == 2 {
+                            match (n_opt, m_opt) {
+                                (Some(n), Some(m)) => output.push_str(&format!("RangeError ({n}): {m}: index should be less than {end_val}: {inv_val}")),
+                                (Some(n), None) => output.push_str(&format!("RangeError ({n}): Index out of range: index should be less than {end_val}: {inv_val}")),
+                                (None, Some(m)) => output.push_str(&format!("RangeError: {m}: index should be less than {end_val}: {inv_val}")),
+                                (None, None) => output.push_str(&format!("RangeError: Index out of range: index should be less than {end_val}: {inv_val}")),
+                            }
+                        } else if has_val {
+                            match (n_opt, m_opt) {
+                                (Some(n), Some(m)) => output.push_str(&format!("RangeError ({n}): {m}: {inv_val}")),
+                                (Some(n), None) => output.push_str(&format!("RangeError ({n}): Value not in range: {inv_val}")),
+                                (None, Some(m)) => output.push_str(&format!("RangeError: {m}: {inv_val}")),
+                                (None, None) => output.push_str(&format!("RangeError: Value not in range: {inv_val}")),
+                            }
+                        } else if let Some(m) = m_opt {
+                            output.push_str(&format!("RangeError: {m}"));
+                        } else {
+                            output.push_str("RangeError");
+                        }
+                    } else if name == "UnsupportedError" {
+                        if let Some((b, _)) = fields.first() {
+                            if *b != 0 {
+                                let m = match heap.get(*b) { Value::String(s) => s.clone(), _ => "".to_string() };
+                                output.push_str(&format!("Unsupported operation: {m}"));
+                            } else {
+                                output.push_str("Unsupported operation");
+                            }
+                        } else {
+                            output.push_str("Unsupported operation");
+                        }
+                    } else if name == "UnimplementedError" {
+                        if let Some((b, _)) = fields.first() {
+                            if *b != 0 {
+                                let m = match heap.get(*b) { Value::String(s) => s.clone(), _ => "".to_string() };
+                                if m.is_empty() {
+                                    output.push_str("UnimplementedError");
+                                } else {
+                                    output.push_str(&format!("UnimplementedError: {m}"));
+                                }
+                            } else {
+                                output.push_str("UnimplementedError");
+                            }
+                        } else {
+                            output.push_str("UnimplementedError");
+                        }
+                    } else if name == "AssertionError" {
+                        if let Some(&(b, is_ref)) = fields.first() {
+                            if b != 0 {
+                                if is_ref {
+                                    match heap.get(b) {
+                                        Value::String(s) => output.push_str(&format!("Assertion failed: \"{s}\"")),
+                                        _ => {
+                                            let mut s = String::new();
+                                            render(heap, TaggedValue::reference(b), depth - 1, &mut s);
+                                            output.push_str(&format!("Assertion failed: {s}"));
+                                        }
+                                    }
+                                } else {
+                                    output.push_str(&format!("Assertion failed: {b}"));
+                                }
+                            } else {
+                                output.push_str("Assertion failed");
+                            }
+                        } else {
+                            output.push_str("Assertion failed");
+                        }
+                    } else if name == "ConcurrentModificationError" {
+                        output.push_str("Concurrent modification during iteration.");
+                    } else if name == "TypeError" {
+                        output.push_str("TypeError");
+                    } else if name == "NoSuchMethodError" {
+                        output.push_str("NoSuchMethodError");
+                    } else if name == "StackTrace" || name == "_StackTrace" {
+                        if let Some(m) = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None }) {
+                            output.push_str(&m);
+                        } else {
+                            output.push_str("#0      main (dart:native)\n");
+                        }
+                    } else {
+                        output.push_str(&format!("Instance of '{name}'"));
+                    }
                 }
             }
             return;
@@ -559,6 +890,68 @@ pub extern "C" fn dartforge_list_len(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().list_len(handle) as i64)
 }
 
+fn allocate_state_error(message: &str) -> i64 {
+    HEAP.with(|h| {
+        let msg = h.borrow_mut().allocate(Value::String(message.to_string()));
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1002, // StateError
+            fields: vec![(msg, true), (st, true)],
+        })
+    })
+}
+
+fn allocate_range_error(message: &str) -> i64 {
+    HEAP.with(|h| {
+        let msg = h.borrow_mut().allocate(Value::String(message.to_string()));
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1004, // RangeError
+            fields: vec![(msg, true), (st, true)],
+        })
+    })
+}
+
+/// Lê o primeiro elemento da lista ou lança StateError se vazia.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_first(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap_ref = heap.borrow();
+        if handle == 0 { return 0; }
+        if let Value::List(items) = heap_ref.get(handle) {
+            if items.is_empty() {
+                drop(heap_ref);
+                let err = allocate_state_error("No element");
+                dartforge_exception_throw(err, 3);
+                return 0;
+            }
+            items[0].bits
+        } else {
+            0
+        }
+    })
+}
+
+/// Lê o último elemento da lista ou lança StateError se vazia.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_last(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap_ref = heap.borrow();
+        if handle == 0 { return 0; }
+        if let Value::List(items) = heap_ref.get(handle) {
+            if items.is_empty() {
+                drop(heap_ref);
+                let err = allocate_state_error("No element");
+                dartforge_exception_throw(err, 3);
+                return 0;
+            }
+            items.last().unwrap().bits
+        } else {
+            0
+        }
+    })
+}
+
 /// Lê os bits do elemento, sem verificar limites: o emissor verifica antes.
 ///
 /// O índice fora dos limites lança `RangeError` capturável em vez de abortar;
@@ -572,10 +965,8 @@ pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
             Value::List(_) => {
                 if index < 0 || index >= heap_ref.list_len(handle) as i64 {
                     drop(heap_ref);
-                    let message = HEAP.with(|h| {
-                        h.borrow_mut().allocate(Value::String("RangeError".into()))
-                    });
-                    dartforge_exception_throw(message, 3);
+                    let err = allocate_range_error("RangeError");
+                    dartforge_exception_throw(err, 3);
                     return 0;
                 }
                 heap_ref.list_get(handle, index as usize).bits
@@ -584,10 +975,8 @@ pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
                 let units: Vec<u16> = s.encode_utf16().collect();
                 if index < 0 || index >= units.len() as i64 {
                     drop(heap_ref);
-                    let message = HEAP.with(|h| {
-                        h.borrow_mut().allocate(Value::String("RangeError".into()))
-                    });
-                    dartforge_exception_throw(message, 3);
+                    let err = allocate_range_error("RangeError");
+                    dartforge_exception_throw(err, 3);
                     return 0;
                 }
                 let u = units[index as usize];
@@ -600,10 +989,8 @@ pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
             Value::RawString(r) => {
                 if index < 0 || index >= r.len() as i64 {
                     drop(heap_ref);
-                    let message = HEAP.with(|h| {
-                        h.borrow_mut().allocate(Value::String("RangeError".into()))
-                    });
-                    dartforge_exception_throw(message, 3);
+                    let err = allocate_range_error("RangeError");
+                    dartforge_exception_throw(err, 3);
                     return 0;
                 }
                 let u = r[index as usize];
@@ -646,13 +1033,16 @@ pub extern "C" fn dartforge_list_get_tag(handle: i64, index: i64) -> u8 {
 /// Substitui o elemento existente; limites verificados como na leitura.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_set(handle: i64, index: i64, bits: i64, tag: u8) {
+    if dartforge_collection_is_unmodifiable(handle) != 0 {
+        let err = dartforge_unsupported_error_new(0);
+        dartforge_exception_throw(err, 3);
+        return;
+    }
     let value = tagged(bits, tag);
     HEAP.with(|heap| {
         if index < 0 || index >= heap.borrow().list_len(handle) as i64 {
-            let message = heap
-                .borrow_mut()
-                .allocate(Value::String("RangeError".into()));
-            dartforge_exception_throw(message, 3);
+            let err = allocate_range_error("RangeError");
+            dartforge_exception_throw(err, 3);
             return;
         }
         heap.borrow_mut().list_set(handle, index as usize, value);
@@ -662,6 +1052,11 @@ pub extern "C" fn dartforge_list_set(handle: i64, index: i64, bits: i64, tag: u8
 /// Acrescenta ao fim (`List.add`); devolve void pela ABI do emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_push(handle: i64, bits: i64, tag: u8) {
+    if dartforge_collection_is_unmodifiable(handle) != 0 {
+        let err = dartforge_unsupported_error_new(0);
+        dartforge_exception_throw(err, 3);
+        return;
+    }
     let value = tagged(bits, tag);
     HEAP.with(|heap| heap.borrow_mut().list_push(handle, value));
 }
@@ -792,9 +1187,64 @@ pub extern "C" fn dartforge_map_set(
     value_bits: i64,
     value_tag: u8,
 ) {
+    if dartforge_collection_is_unmodifiable(handle) != 0 {
+        let err = dartforge_unsupported_error_new(0);
+        dartforge_exception_throw(err, 3);
+        return;
+    }
+    if is_active_iteration(handle) {
+        let err = dartforge_concurrent_modification_error_new(handle);
+        dartforge_exception_throw(err, 3);
+        return;
+    }
     let key = tagged(key_bits, key_tag);
     let value = tagged(value_bits, value_tag);
     HEAP.with(|heap| heap.borrow_mut().map_set(handle, key, value));
+}
+
+/// Remove par do mapa; lança ConcurrentModificationError se em iteração ativa.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_remove(handle: i64, key_bits: i64, key_tag: u8) -> i64 {
+    if handle == 0 { return 0; }
+    if is_active_iteration(handle) {
+        let err = dartforge_concurrent_modification_error_new(handle);
+        dartforge_exception_throw(err, 3);
+        return 0;
+    }
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let target_key = TaggedValue {
+            bits: key_bits,
+            is_ref: key_tag == 3,
+            tag: match key_tag {
+                1 => heap::ValueTag::Int,
+                2 => heap::ValueTag::Bool,
+                3 => heap::ValueTag::Ref,
+                _ => heap::ValueTag::Int,
+            },
+        };
+        let Value::Map(entries) = heap.get_mut(handle) else { return 0; };
+        if let Some(pos) = entries.iter().position(|(k, _)| k.bits == target_key.bits) {
+            entries.remove(pos).1.bits
+        } else {
+            0
+        }
+    })
+}
+
+/// Retorna lista com as chaves do mapa, associando a origem para rastreamento de iteração.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_keys(handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    HEAP.with(|heap| {
+        let heap_ref = heap.borrow();
+        let Value::Map(entries) = heap_ref.get(handle) else { return 0; };
+        let keys: Vec<TaggedValue> = entries.iter().map(|(k, _)| *k).collect();
+        drop(heap_ref);
+        let list_handle = heap.borrow_mut().create_list(keys);
+        register_key_iteration_origin(list_handle, handle);
+        list_handle
+    })
 }
 
 /// Cria um conjunto com `len` pares (bits, tag); duplicadas conservam a primeira.
@@ -807,7 +1257,7 @@ pub unsafe extern "C" fn dartforge_set_new(pairs: *const i64, len: i64) -> i64 {
     let values = if len == 0 {
         Vec::new()
     } else {
-        // SAFETY: vetor temporário do emissor, legível pelos `2 * len` i64.
+        // SAFETY: vetores temporários do emissor, legíveis pelos `2 * len` i64.
         let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
         raw.chunks_exact(2)
             .map(|pair| tagged(pair[0], u8::try_from(pair[1]).expect("tag inválida")))
@@ -816,7 +1266,7 @@ pub unsafe extern "C" fn dartforge_set_new(pairs: *const i64, len: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().create_set(values))
 }
 
-/// Quantidade de elementos distintos do conjunto.
+/// Quantidade de elementos únicos do conjunto.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_set_len(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().set_len(handle) as i64)
@@ -832,6 +1282,11 @@ pub extern "C" fn dartforge_set_contains(handle: i64, bits: i64, tag: u8) -> u8 
 /// Insere quando ausente (`Set.add`); devolve se houve inserção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_set_add(handle: i64, bits: i64, tag: u8) -> u8 {
+    if is_active_iteration(handle) {
+        let err = dartforge_concurrent_modification_error_new(handle);
+        dartforge_exception_throw(err, 3);
+        return 0;
+    }
     let value = tagged(bits, tag);
     HEAP.with(|heap| u8::from(heap.borrow_mut().set_add(handle, value)))
 }
@@ -865,7 +1320,25 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
     let value = tagged(bits, tag);
     if value.is_ref && value.bits != 0 {
         HEAP.with(|heap| {
-            heap.borrow().get(value.bits);
+            let mut heap = heap.borrow_mut();
+            if let Value::Object { class_id, fields } = heap.get_mut(value.bits) {
+                let cid = *class_id;
+                let is_err = dartforge_is_subclass(cid, 1007);
+                if is_err != 0 {
+                    let st_idx = match cid {
+                        1003 => 5,
+                        1004 => 7,
+                        _ => 1,
+                    };
+                    if fields.len() <= st_idx {
+                        fields.resize(st_idx + 1, (0, false));
+                    }
+                    if fields[st_idx].0 == 0 {
+                        let st = dartforge_stack_trace_get();
+                        fields[st_idx] = (st, true);
+                    }
+                }
+            }
         });
     }
     EXCEPTION.with(|slot| *slot.borrow_mut() = Some(value));
@@ -890,6 +1363,29 @@ pub extern "C" fn dartforge_exception_take_bits() -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_take_tag() -> u8 {
     EXCEPTION.with(|slot| slot.borrow().map_or(0, |value| untag(value).1))
+}
+
+/// Inspeciona os bits da exceção pendente sem consumir/limpar o slot.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_peek_bits() -> i64 {
+    EXCEPTION.with(|slot| slot.borrow().map_or(0, |value| value.bits))
+}
+
+/// Inspeciona a tag da exceção pendente sem consumir/limpar o slot.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_peek_tag() -> u8 {
+    EXCEPTION.with(|slot| slot.borrow().map_or(0, |value| untag(value).1))
+}
+
+/// Desarma e limpa o slot de exceção pendente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_clear() {
+    EXCEPTION.with(|slot| {
+        slot.borrow_mut().take();
+    });
+    CURRENT_STACK_TRACE.with(|slot| {
+        slot.borrow_mut().take();
+    });
 }
 
 /// Cria um novo Record no heap a partir de um array plano de pares (bits, tag).
@@ -1072,9 +1568,15 @@ pub extern "C" fn dartforge_string_substring(handle: i64, start: i64, end: i64) 
             _ => Vec::new(),
         }
     });
-    let len = units.len();
-    let start_idx = (start.max(0) as usize).min(len);
-    let end_idx = if end < 0 { len } else { (end as usize).min(len).max(start_idx) };
+    let len = units.len() as i64;
+    let actual_end = if end < 0 { len } else { end };
+    if start < 0 || start > len || actual_end < start || actual_end > len {
+        let err = dartforge_range_error_value(start, 0, 0);
+        dartforge_exception_throw(err, 3);
+        return 0;
+    }
+    let start_idx = start as usize;
+    let end_idx = actual_end as usize;
     let slice = &units[start_idx..end_idx];
     match String::from_utf16(slice) {
         Ok(s) => HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(s))),
@@ -1324,7 +1826,13 @@ pub extern "C" fn dartforge_string_split_map_pieces(target_handle: i64, pat_hand
             let matched = &target_str[match_start..match_start + match_len];
             pieces.push((true, matched.to_string(), true));
 
-            curr_byte = match_start + match_len;
+            if match_len > 0 {
+                curr_byte = match_start + match_len;
+            } else if let Some(ch) = target_str[match_start..].chars().next() {
+                curr_byte = match_start + ch.len_utf8();
+            } else {
+                break;
+            }
         } else {
             let non_match = &target_str[curr_byte..];
             pieces.push((false, non_match.to_string(), false));
@@ -1374,7 +1882,14 @@ pub extern "C" fn dartforge_string_replace_all(handle: i64, from_handle: i64, to
                         if let Some((start, len)) = find_next_pattern(s, curr, pat) {
                             out.push_str(&s[curr..start]);
                             out.push_str(to);
-                            curr = start + len;
+                            if len > 0 {
+                                curr = start + len;
+                            } else if let Some(ch) = s[start..].chars().next() {
+                                out.push(ch);
+                                curr = start + ch.len_utf8();
+                            } else {
+                                break;
+                            }
                         } else {
                             out.push_str(&s[curr..]);
                             break;
@@ -1733,3 +2248,454 @@ pub extern "C" fn dartforge_string_replace_range(handle: i64, start: i64, end: i
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(res)))
 }
 
+fn allocate_format_exception(message: &str) -> i64 {
+    HEAP.with(|h| {
+        let msg = h.borrow_mut().allocate(Value::String(message.to_string()));
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1001, // FormatException
+            fields: vec![(msg, true), (0, true), (-1, false)],
+        })
+    })
+}
+
+/// Converte string para inteiro ou lança FormatException.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_int_parse(handle: i64) -> i64 {
+    if handle == 0 {
+        let err = allocate_format_exception("Invalid number: null");
+        dartforge_exception_throw(err, 3);
+        return 0;
+    }
+    let text = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::String(s) => s.trim().to_string(),
+            _ => String::new(),
+        }
+    });
+    match text.parse::<i64>() {
+        Ok(val) => val,
+        Err(_) => {
+            let err = allocate_format_exception(&format!("Invalid radix-10 number: {text}"));
+            dartforge_exception_throw(err, 3);
+            0
+        }
+    }
+}
+
+/// Tenta converter string para inteiro; se falhar, devolve 0 (null); se passar, aloca _BoxedInt (1013).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_int_try_parse(handle: i64) -> i64 {
+    if handle == 0 {
+        return 0;
+    }
+    let text = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::String(s) => s.trim().to_string(),
+            _ => String::new(),
+        }
+    });
+    match text.parse::<i64>() {
+        Ok(val) => {
+            HEAP.with(|heap| {
+                heap.borrow_mut().allocate(Value::Object {
+                    class_id: 1013,
+                    fields: vec![(val, false)],
+                })
+            })
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Converte string para ponto flutuante ou lança FormatException.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_double_parse(handle: i64) -> f64 {
+    if handle == 0 {
+        let err = allocate_format_exception("Invalid double: null");
+        dartforge_exception_throw(err, 3);
+        return 0.0;
+    }
+    let text = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::String(s) => s.trim().to_string(),
+            _ => String::new(),
+        }
+    });
+    match text.parse::<f64>() {
+        Ok(val) => val,
+        Err(_) => {
+            let err = allocate_format_exception(&format!("Invalid double: {text}"));
+            dartforge_exception_throw(err, 3);
+            0.0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_collection_mark_unmodifiable(handle: i64) -> i64 {
+    IMMUTABLE_COLLECTIONS.with(|set| {
+        set.borrow_mut().insert(handle);
+    });
+    handle
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_collection_is_unmodifiable(handle: i64) -> u8 {
+    IMMUTABLE_COLLECTIONS.with(|set| {
+        u8::from(set.borrow().contains(&handle))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_filled(len: i64, fill_bits: i64, fill_tag: u8) -> i64 {
+    let count = usize::try_from(len.max(0)).expect("comprimento inválido");
+    let val = tagged(fill_bits, fill_tag);
+    let items = vec![val; count];
+    HEAP.with(|heap| heap.borrow_mut().create_list(items))
+}
+
+// Construtores de Erros Core
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
+    HEAP.with(|h| {
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1000,
+            fields: if msg_bits == 0 && is_ref == 0 {
+                Vec::new()
+            } else {
+                vec![(msg_bits, is_ref != 0)]
+            },
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i64, offset: i64) -> i64 {
+    HEAP.with(|h| {
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1001,
+            fields: vec![(msg_handle, true), (src_handle, true), (offset, false)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1002,
+            fields: vec![(msg_handle, true), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1003,
+            fields: vec![(msg_handle, true), (name_handle, true), (0, false), (0, false), (0, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_argument_error_value(val_bits: i64, val_is_ref: u8, name_handle: i64, msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1003,
+            fields: vec![(msg_handle, true), (name_handle, true), (val_bits, val_is_ref != 0), (1, false), (0, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_argument_error_not_null(name_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let msg = h.borrow_mut().allocate(Value::String("Must not be null".to_string()));
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1003,
+            fields: vec![(msg, true), (name_handle, true), (0, false), (0, false), (0, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_range_error_new(msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1004,
+            fields: vec![(msg_handle, true), (0, false), (0, false), (0, false), (0, false), (0, false), (0, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_range_error_value(val: i64, name_handle: i64, msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1004,
+            fields: vec![(msg_handle, true), (name_handle, true), (val, false), (0, false), (0, false), (0, false), (1, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name_handle: i64, msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1004,
+            fields: vec![(msg_handle, true), (name_handle, true), (val, false), (min, false), (max, false), (1, false), (1, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64, name_handle: i64, msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let len = if let Some(val) = heap.try_get(indexable_or_len) {
+            match val {
+                Value::List(items) => items.len() as i64,
+                Value::String(s) => s.encode_utf16().count() as i64,
+                _ => indexable_or_len,
+            }
+        } else {
+            indexable_or_len
+        };
+        let st = dartforge_stack_trace_get();
+        heap.allocate(Value::Object {
+            class_id: 1004,
+            fields: vec![(msg_handle, true), (name_handle, true), (index, false), (0, false), (len, false), (2, false), (1, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_unsupported_error_new(msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1005,
+            fields: vec![(msg_handle, true), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_unimplemented_error_new(msg_handle: i64) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1008,
+            fields: vec![(msg_handle, true), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1009,
+            fields: vec![(msg_bits, is_ref != 0), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_concurrent_modification_error_new() -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1010,
+            fields: vec![(0, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_type_error_new() -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1011,
+            fields: vec![(0, false), (st, true)],
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_no_such_method_error_new() -> i64 {
+    HEAP.with(|h| {
+        let st = dartforge_stack_trace_get();
+        h.borrow_mut().allocate(Value::Object {
+            class_id: 1012,
+            fields: vec![(0, false), (st, true)],
+        })
+    })
+}
+
+// Getters de Erros Core
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_message(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.first().map_or(0, |(bits, _)| *bits)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_name(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.get(1).map_or(0, |(bits, _)| *bits)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_invalid_value(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.get(2).map_or(0, |(bits, _)| *bits)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_start(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.get(3).map_or(0, |(bits, _)| *bits)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_end(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.get(4).map_or(0, |(bits, _)| *bits)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_source(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.get(1).map_or(0, |(bits, _)| *bits)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_offset(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
+        fields.get(2).map_or(0, |(bits, _)| if *bits < 0 { 0 } else { *bits })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_error_get_stack_trace(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::Object { class_id, fields } = heap.get(handle) else { return 0; };
+        let cid = *class_id;
+        let st_idx = match cid {
+            1003 => 5,
+            1004 => 7,
+            _ => 1,
+        };
+        fields.get(st_idx).map_or(0, |(bits, _)| *bits)
+    })
+}
+
+// Funções de Lista com checagem de erros
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_single(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap_ref = heap.borrow();
+        if handle == 0 { return 0; }
+        if let Value::List(items) = heap_ref.get(handle) {
+            if items.is_empty() {
+                drop(heap_ref);
+                let err = allocate_state_error("No element");
+                dartforge_exception_throw(err, 3);
+                return 0;
+            }
+            if items.len() > 1 {
+                drop(heap_ref);
+                let err = allocate_state_error("Too many elements");
+                dartforge_exception_throw(err, 3);
+                return 0;
+            }
+            items[0].bits
+        } else {
+            0
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_sublist(handle: i64, start: i64, end: i64) -> i64 {
+    HEAP.with(|heap| {
+        let len = {
+            let h = heap.borrow();
+            match h.get(handle) {
+                Value::List(items) => items.len() as i64,
+                _ => 0,
+            }
+        };
+        let end_idx = if end < 0 { len } else { end };
+        if start < 0 || start > len || end_idx < start || end_idx > len {
+            let err = allocate_range_error("Index out of range");
+            dartforge_exception_throw(err, 3);
+            return 0;
+        }
+        let h = heap.borrow();
+        let Value::List(items) = h.get(handle) else { return 0; };
+        let slice: Vec<TaggedValue> = items[start as usize..end_idx as usize].to_vec();
+        drop(h);
+        heap.borrow_mut().allocate(Value::List(slice))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_remove_at(handle: i64, index: i64) -> i64 {
+    HEAP.with(|heap| {
+        let len = {
+            let h = heap.borrow();
+            match h.get(handle) {
+                Value::List(items) => items.len() as i64,
+                _ => 0,
+            }
+        };
+        if index < 0 || index >= len {
+            let err = allocate_range_error("Index out of range");
+            dartforge_exception_throw(err, 3);
+            return 0;
+        }
+        let mut h = heap.borrow_mut();
+        let Value::List(items) = h.get_mut(handle) else { return 0; };
+        items.remove(index as usize).bits
+    })
+}

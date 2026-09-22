@@ -352,6 +352,9 @@ dependencies = [
 [[package]]
 name = "dartforge-diferencial"
 version = "0.1.0"
+dependencies = [
+ "dartforge-emit-native",
+]
 
 [[package]]
 name = "dartforge-elements"

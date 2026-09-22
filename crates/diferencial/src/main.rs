@@ -7,8 +7,8 @@ use std::time::Duration;
 use dartforge_diferencial::{Ambiente, Opcoes, contrato, executar_corpus, listar, relatorio};
 
 const USO: &str = "uso:
-  dartforge-diferencial [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--silencioso]
-      roda dart run × dartdevc+node × dartforge em cada programa e imprime o relatório
+  dartforge-diferencial [--nativo] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--silencioso]
+      roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
       (código 0 se todos batem; 1 se algum falha)
   dartforge-diferencial contrato [--corpus DIR] [-o ARQUIVO]
       compila cada programa com o dartdevc e escreve docs/CONTRATO-DDC.md
@@ -49,6 +49,7 @@ fn main() {
                 amb.limite = Duration::from_secs(args[i].parse().expect("--limite SEG"));
             }
             "--sem-forge" => op.com_forge = false,
+            "--nativo" => op.nativo = true,
             "--sem-cache" => amb.usar_cache = false,
             "--silencioso" => silencioso = true,
             "-h" | "--help" => {
@@ -92,6 +93,8 @@ fn main() {
                     if r.ok() { "ok" } else { "FALHA" }
                 } else if r.dart.codigo != 0 {
                     "DART!"
+                } else if r.nativo {
+                    "DART"
                 } else if r.ddc_vs_dart().is_none() == r.programa.diverge_ddc.is_none() {
                     "ok"
                 } else {
@@ -103,6 +106,8 @@ fn main() {
             println!("({} programas em {:.1} s)", resultados.len(), inicio.elapsed().as_secs_f64());
             let todos_ok = if op.com_forge {
                 resultados.iter().all(|r| r.ok())
+            } else if op.nativo {
+                resultados.iter().all(|r| r.dart.codigo == 0)
             } else {
                 resultados.iter().all(|r| r.dart.codigo == 0 && (r.ddc_vs_dart().is_none() != r.programa.diverge_ddc.is_some()))
             };
