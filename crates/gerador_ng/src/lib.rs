@@ -466,6 +466,25 @@ fn url_do_template(
     Some(format!("package:{}/{dentro_de_lib}", pacote.nome))
 }
 
+/// A folha de um componente compila (Sass e shim)? É a mesma conta que o
+/// gerador faz; o placar usa para não marcar como pendente o que já sai.
+pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
+    let Some(dir) = fonte.parent() else { return false };
+    let css = dir.join(url);
+    let texto = match std::fs::read_to_string(&css) {
+        Ok(t) => t,
+        Err(_) => {
+            let scss = css.with_extension("scss");
+            match std::fs::read_to_string(&scss).ok().map(|f| sass::compilar_em(&f, scss.parent()))
+            {
+                Some(Ok(c)) => c,
+                _ => return false,
+            }
+        }
+    };
+    css::shim(&texto).is_ok()
+}
+
 /// Conjunto de motivos de um arquivo pendente, para o placar.
 fn motivos_do_arquivo(
     pacote: &Pacote,

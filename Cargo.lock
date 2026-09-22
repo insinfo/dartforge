@@ -414,6 +414,7 @@ dependencies = [
  "dartforge-elements",
  "dartforge-frontend",
  "dartforge-intern",
+ "tempfile",
 ]
 
 [[package]]

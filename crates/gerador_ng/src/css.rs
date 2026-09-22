@@ -61,9 +61,22 @@ fn regras(css: &str, saida: &mut String, topo: bool) -> Result<(), Motivo> {
                 return Err(Motivo::Estilos);
             };
             let nome = sem_arroba.split_whitespace().next().unwrap_or("");
-            // `@media` aninha regras; o resto (`@keyframes`, `@font-face`,
-            // `@import`) tem semântica própria — `from`/`to` não podem ganhar
-            // atributo — e fica de fora.
+            let nome = nome.trim_start_matches('-').split('-').next_back().unwrap_or(nome);
+            // `@keyframes` sai como está: `from`, `to` e as porcentagens não
+            // são seletores e não podem ganhar o atributo do escopo.
+            if nome == "keyframes" {
+                let corpo_ini = fim_prelúdio + 1;
+                let fim = fim_do_bloco(sem_arroba, corpo_ini).ok_or(Motivo::Estilos)?;
+                saida.push('@');
+                saida.push_str(&comprimir(&sem_arroba[..fim_prelúdio]));
+                saida.push('{');
+                saida.push_str(&sem_escopo(&sem_arroba[corpo_ini..fim])?);
+                saida.push('}');
+                resto = sem_arroba[fim + 1..].trim_start();
+                continue;
+            }
+            // `@media` aninha regras; o resto (`@font-face`, `@import`) tem
+            // semântica própria e fica de fora.
             if nome != "media" || !topo {
                 return Err(Motivo::Estilos);
             }
@@ -125,13 +138,68 @@ fn seletores(lista: &str) -> Result<String, Motivo> {
     Ok(partes.join(","))
 }
 
-/// Um seletor: cada composto da cadeia recebe o atributo, no fim — inclusive
-/// depois de pseudo-classe, como o oficial faz em `a:hover._ngcontent-%ID%`.
+/// Um seletor, com as formas que o compilador oficial trata — cada uma
+/// conferida contra a saída dele (caso b16 do corpus):
+///
+/// | escrito | sai |
+/// |---|---|
+/// | `.a::before` | `.a._ngcontent-%ID%::before` |
+/// | `:host(.x) .b` | `._nghost-%ID%.x .b._ngcontent-%ID%` |
+/// | `:host-context(.p) .c` | dois seletores, um por posição do hospedeiro |
+/// | `::ng-deep .d` | ` .d` — o que vem depois não é escopado |
+/// | `.e > .f` | `.e._ngcontent-%ID% > .f._ngcontent-%ID%` |
 fn um_seletor(s: &str) -> Result<String, Motivo> {
-    if s.contains("::") || s.contains("/deep/") || s.contains(">>>") {
-        // Pseudo-elemento e travessia de sombra têm regra própria no
-        // `shadow_css.dart`; ficam de fora até serem lidos de lá.
-        return Err(Motivo::Estilos);
+    // `::ng-deep`, `>>>` e `/deep/` soltam o escopo daí para a frente.
+    for fundo in ["::ng-deep", ">>>", "/deep/"] {
+        if let Some((antes, depois)) = s.split_once(fundo) {
+            let antes = antes.trim();
+            let escopado = if antes.is_empty() { String::new() } else { um_seletor(antes)? };
+            return Ok(format!("{escopado} {}", depois.trim()));
+        }
+    }
+    if let Some(resto) = s.strip_prefix(":host-context(") {
+        // O hospedeiro pode ser o próprio elemento ou um ancestral dele.
+        let (dentro, depois) = ate_fechar(resto).ok_or(Motivo::Estilos)?;
+        let cauda = compostos(depois.trim())?;
+        let junta = |a: String| if cauda.is_empty() { a } else { format!("{a} {cauda}") };
+        return Ok(format!(
+            "{},{}",
+            junta(format!("{HOSPEDEIRO}{dentro}")),
+            junta(format!("{dentro} {HOSPEDEIRO}"))
+        ));
+    }
+    if let Some(resto) = s.strip_prefix(":host(") {
+        let (dentro, depois) = ate_fechar(resto).ok_or(Motivo::Estilos)?;
+        let cauda = compostos(depois.trim())?;
+        let cabeca = format!("{HOSPEDEIRO}{dentro}");
+        return Ok(if cauda.is_empty() { cabeca } else { format!("{cabeca} {cauda}") });
+    }
+    compostos(s)
+}
+
+/// O conteúdo até o parêntese que fecha, e o que vem depois.
+fn ate_fechar(s: &str) -> Option<(&str, &str)> {
+    let mut nivel = 1usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => nivel += 1,
+            ')' => {
+                nivel -= 1;
+                if nivel == 0 {
+                    return Some((&s[..i], &s[i + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Cada composto da cadeia recebe o atributo — antes do pseudo-elemento,
+/// depois da pseudo-classe, como o oficial faz.
+fn compostos(s: &str) -> Result<String, Motivo> {
+    if s.is_empty() {
+        return Ok(String::new());
     }
     let mut saida = String::with_capacity(s.len() + CONTEUDO.len());
     for (i, composto) in s.split_whitespace().enumerate() {
@@ -148,10 +216,36 @@ fn um_seletor(s: &str) -> Result<String, Motivo> {
             continue;
         }
         if composto.starts_with(":host") {
-            return Err(Motivo::Estilos); // `:host(...)`, `:host-context`
+            return Err(Motivo::Estilos);
         }
-        saida.push_str(composto);
-        saida.push_str(CONTEUDO);
+        match composto.split_once("::") {
+            Some((antes, pseudo)) => {
+                saida.push_str(antes);
+                saida.push_str(CONTEUDO);
+                saida.push_str("::");
+                saida.push_str(pseudo);
+            }
+            None => {
+                saida.push_str(composto);
+                saida.push_str(CONTEUDO);
+            }
+        }
+    }
+    Ok(saida)
+}
+
+/// Regras sem escopo nenhum, para dentro de `@keyframes`.
+fn sem_escopo(css: &str) -> Result<String, Motivo> {
+    let mut saida = String::new();
+    let mut resto = css.trim();
+    while !resto.is_empty() {
+        let Some(abre) = resto.find('{') else { return Err(Motivo::Estilos) };
+        let fim = fim_do_bloco(resto, abre + 1).ok_or(Motivo::Estilos)?;
+        saida.push_str(&comprimir(&resto[..abre]));
+        saida.push('{');
+        saida.push_str(&declaracoes(&resto[abre + 1..fim])?);
+        saida.push('}');
+        resto = resto[fim + 1..].trim_start();
     }
     Ok(saida)
 }
@@ -170,7 +264,9 @@ fn declaracoes(corpo: &str) -> Result<String, Motivo> {
     Ok(partes.join(";"))
 }
 
-/// Espaço interno do valor é preservado (`0 auto`), o das pontas não.
+/// Espaço interno do valor é preservado (`0 auto`), o das pontas não — e o
+/// que encosta em parêntese some, como na saída do compilador oficial
+/// (`linear-gradient(45deg, …)`).
 fn comprimir_valor(v: &str) -> String {
     let mut saida = String::with_capacity(v.len());
     let mut espaco = false;
@@ -179,7 +275,7 @@ fn comprimir_valor(v: &str) -> String {
             espaco = true;
             continue;
         }
-        if espaco && !saida.is_empty() {
+        if espaco && !saida.is_empty() && !saida.ends_with('(') && c != ')' {
             saida.push(' ');
         }
         espaco = false;
@@ -228,12 +324,50 @@ mod testes {
         );
     }
 
+    /// As formas do caso b16, uma a uma, contra a saída do oficial.
+    #[test]
+    fn formas_do_b16_iguais_ao_oficial() {
+        let css = ".a::before {
+  content: \"x\";
+}
+
+:host(.tema-escuro) .b {
+  color: white;
+}
+
+:host-context(.pai) .c {
+  color: red;
+}
+
+::ng-deep .d {
+  color: blue;
+}
+
+.e > .f {
+  margin: 0;
+}
+
+input[type=\"text\"] {
+  border: 0;
+}
+
+@keyframes girar {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.g {
+  animation: girar 1s;
+}
+";
+        let esperado = ".a._ngcontent-%ID%::before{content:\"x\"}._nghost-%ID%.tema-escuro .b._ngcontent-%ID%{color:white}._nghost-%ID%.pai .c._ngcontent-%ID%,.pai ._nghost-%ID% .c._ngcontent-%ID%{color:red} .d{color:blue}.e._ngcontent-%ID% > .f._ngcontent-%ID%{margin:0}input[type=\"text\"]._ngcontent-%ID%{border:0}@keyframes girar{from{opacity:0}to{opacity:1}}.g._ngcontent-%ID%{animation:girar 1s}";
+        assert_eq!(shim(css).unwrap(), esperado);
+    }
+
     #[test]
     fn recusa_o_que_nao_sabe() {
-        assert!(shim("@keyframes girar { from { opacity: 0; } }").is_err());
-        assert!(shim(".a::before { content: ''; }").is_err());
-        assert!(shim(":host(.x) { color: red; }").is_err());
         // Aninhamento é Sass, não CSS.
         assert!(shim(".a { .b { color: red; } }").is_err());
+        assert!(shim("@font-face { font-family: x; }").is_err());
     }
 }

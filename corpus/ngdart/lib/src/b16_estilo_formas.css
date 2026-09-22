@@ -1,0 +1,32 @@
+.a::before {
+  content: "x";
+}
+
+:host(.tema-escuro) .b {
+  color: white;
+}
+
+:host-context(.pai) .c {
+  color: red;
+}
+
+::ng-deep .d {
+  color: blue;
+}
+
+.e > .f {
+  margin: 0;
+}
+
+input[type="text"] {
+  border: 0;
+}
+
+@keyframes girar {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.g {
+  animation: girar 1s;
+}

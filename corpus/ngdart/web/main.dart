@@ -35,6 +35,7 @@ import 'package:corpus_ngdart/src/b12_do_check.template.dart' as b12;
 import 'package:corpus_ngdart/src/b13_after_content_checked.template.dart' as b13;
 import 'package:corpus_ngdart/src/b14_ciclo_completo.template.dart' as b14;
 import 'package:corpus_ngdart/src/b15_estilo_rico.template.dart' as b15;
+import 'package:corpus_ngdart/src/b16_estilo_formas.template.dart' as b16;
 import 'package:corpus_ngdart/src/c01_ligacao_e_texto.template.dart' as c01;
 import 'package:corpus_ngdart/src/c02_evento_e_ligacao.template.dart' as c02;
 import 'package:corpus_ngdart/src/c03_dois_elementos_ligados.template.dart' as c03;
@@ -83,6 +84,7 @@ void main() {
     b13.B13AfterContentCheckedNgFactory,
     b14.B14CicloCompletoNgFactory,
     b15.B15EstiloRicoNgFactory,
+    b16.B16EstiloFormasNgFactory,
     c01.C01LigacaoETextoNgFactory,
     c02.C02EventoELigacaoNgFactory,
     c03.C03DoisElementosLigadosNgFactory,

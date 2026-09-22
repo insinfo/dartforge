@@ -156,8 +156,14 @@ pub fn motivos(
     if c.nao_entendido.is_some() {
         fora.insert(Motivo::NaoEntendido);
     }
-    if !c.style_urls.is_empty() || !c.styles.is_empty() {
+    // O diagnóstico roda a mesma conta do gerador: marcar toda folha como
+    // pendente escondia o que já funciona.
+    if !c.styles.is_empty() || c.style_urls.len() > 1 {
         fora.insert(Motivo::Estilos);
+    } else if let Some(url) = c.style_urls.first() {
+        if local.uri_do_estilo(url).is_none() || !crate::estilo_compila(local.caminho, url) {
+            fora.insert(Motivo::Estilos);
+        }
     }
     if let Some(m) = falta_para_construir(c, local, resolvedor) {
         fora.insert(m);
@@ -253,7 +259,7 @@ pub struct Local<'a> {
 
 impl Local<'_> {
     /// URI `package:` do `.css.shim.dart` de uma folha do `styleUrls`.
-    fn uri_do_estilo(&self, url: &str) -> Option<String> {
+    pub(crate) fn uri_do_estilo(&self, url: &str) -> Option<String> {
         let dentro = self.relativo.strip_prefix("lib/")?;
         let dir = dentro.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let caminho =
