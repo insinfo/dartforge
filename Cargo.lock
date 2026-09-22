@@ -346,6 +346,10 @@ name = "dartforge-diagnostics"
 version = "0.1.0"
 
 [[package]]
+name = "dartforge-diferencial"
+version = "0.1.0"
+
+[[package]]
 name = "dartforge-elements"
 version = "0.1.0"
 dependencies = [
