@@ -1,0 +1,61 @@
+{
+    "name": "dartforge",
+    "displayName": "DartForge",
+    "description": "Suporte à linguagem Dart pelo servidor DartForge (diagnósticos incrementais, baixo consumo de memória).",
+    "version": "0.1.0",
+    "publisher": "dartforge",
+    "license": "MIT",
+    "repository": {
+        "url": "https://github.com/anomalyco/opencode",
+        "type": "git"
+    },
+    "engines": {
+        "vscode": "^1.93.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "onLanguage:dart"
+    ],
+    "main": "./out/extension",
+    "contributes": {
+        "configuration": {
+            "title": "DartForge",
+            "properties": {
+                "dartforge.serverPath": {
+                    "type": [
+                        "null",
+                        "string"
+                    ],
+                    "scope": "machine-overridable",
+                    "default": null,
+                    "markdownDescription": "Caminho do binário `dartforge-lsp`. Quando vazio, a extensão procura `dartforge-lsp` no `PATH`."
+                },
+                "dartforge.trace.server": {
+                    "type": "string",
+                    "scope": "window",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Rastreia as mensagens entre o cliente e o servidor (verboso; só para depuração)."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "~22.13.4",
+        "@types/vscode": "~1.93.0",
+        "typescript": "^5.6.3"
+    }
+}

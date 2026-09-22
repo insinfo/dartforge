@@ -1106,6 +1106,17 @@ Estado em 2026-09-21: `crates/lsp` tem `diagnose()` multi-erro + `DocumentStore`
 (ver item 3); transporte JSON-RPC, `didChange` incremental com UTF-16 correto e
 cancelamento continuam inexistentes.
 
+Estado em 2026-09-22: transporte pronto — `crates/lsp/src/` tem
+`transporte.rs` (quadros `Content-Length` por stdio, leitora + despacho,
+`stdout` só protocolo), `utf16.rs` (tabela de linhas por documento,
+recalculada do ponto editado em diante), `servidor.rs` (`Servidor` dono de
+tudo, fila com `$/cancelRequest` determinístico, `textDocumentSync:
+incremental`, `publishDiagnostics` com `source: "dartforge"`) e
+`trait Analisador` com `AnalisadorSintatico` (parser novo; a semântica entra
+sem tocar no transporte). Aceite em `tests/protocolo.rs` (4 testes pelo fio
+em processo filho) + `tests/plato_protocolo.rs` (K=24 × K=24 reais pelo
+protocolo, binário separado). Detalhe em `docs/LSP.md`.
+
 ### 7. Consultas sob demanda com memoização, e despejo delas
 
 **Falha a que responde:** recompilar o mundo a cada tecla, que é o que força o
@@ -1166,6 +1177,13 @@ vez do programa. Não começou.
 Não existe. Cliente TypeScript fino que só localiza e inicia o binário; toda a
 lógica no servidor Rust.
 
+Estado em 2026-09-22: existe — `editors/vscode/` (`package.json`,
+`tsconfig.json`, `src/extension.ts`, `README.md`): só localiza o binário
+(`dartforge.serverPath`, senão `PATH`) e o inicia com `--stdio` via
+`vscode-languageclient`; ativa em `onLanguage:dart`; `npm run compile`
+limpo. Verificação funcional em `docs/LSP.md` (arquivo real do `new_sali`
+com erro inserido rende o diagnóstico pelo fio).
+
 ### 10. Medir contra o alvo real, não contra nós mesmos
 
 A comparação honesta é RSS do DartForge contra `webdev` e contra o LSP do Dart
@@ -1206,3 +1224,14 @@ alocações/execução, `live_bytes_growth` 839, pico de 3,25 MiB vivos; acerto 
 cache (`sem_edicao`) 0,39 ms e 124 alocações. São números do harness, não
 comparação com `webdev` — a comparação continua bloqueada até o teste de platô
 do LSP existir.
+
+Medição do LSP em 2026-09-22 (`scripts/medir-lsp.ps1`, `docs/LSP.md`):
+mesma sequência nos dois servidores sobre o `new_sali` (1.258 `didOpen` +
+200 edições, RSS a cada 50 mensagens) — DartForge: pico 21,3 MiB, platô
+19,0 MiB, 2,5 s, 1.460 quadros com diagnóstico por abertura e edição;
+Dart (`dart language-server --protocol=lsp`): pico 640,5 MiB, platô
+633,7 MiB, nada publicado em 2 min (sem `package_config` a resolução fica
+prejudicada, ou a análise nunca alcança 1.258 arquivos de uma vez). O 6 GB
+do relato de campo não foi reproduzido aqui; o afirmado é só o medido:
+in-process, 8,52 MiB de fonte → 19,94 MiB vivos (2,34×) com tudo retido, e
+o teste `plato_pelo_protocolo` trava o platô sob edição repetida.
