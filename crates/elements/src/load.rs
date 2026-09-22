@@ -82,7 +82,6 @@ pub fn load_lenient_com_cache(
     // Bibliotecas cujas partes já vieram do cache (a diretiva `part` não
     // deve recarregá-las).
     let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
-    let mut memo_canonico: HashMap<PathBuf, PathBuf> = HashMap::new();
 
     // 1. Carrega o package_config.json
     let package_config = if let Some(p) = package_config_path {
@@ -119,9 +118,15 @@ pub fn load_lenient_com_cache(
         queue.push_back(core_id);
     }
 
-    // 3. Registra e enfileira o ponto de entrada
-    let canonical_entry = std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
+    // 3. Registra e enfileira o ponto de entrada. É o único `canonicalize`
+    // da carga (corrige maiúsculas e links do caminho dado pelo usuário);
+    // tudo o que deriva dele — partes e imports relativos — é resolvido
+    // lexicalmente, como a `Uri.resolve` do Dart faz.
+    let canonical_entry = crate::config::sem_verbatim(
+        std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf()),
+    );
     let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
+    let mut prefetch = Prefetch::default();
     let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
         existing
     } else {
@@ -148,12 +153,31 @@ pub fn load_lenient_com_cache(
 
     // 4. Processa a fila de bibliotecas transitivas
     while let Some(lib_id) = queue.pop_front() {
+        // Onda: as bibliotecas já enfileiradas (um nível do grafo de imports)
+        // são lidas e lexadas em paralelo antes de serem analisadas em série.
+        if prefetch.vazio() {
+            let t = std::time::Instant::now();
+            let mut caminhos: Vec<PathBuf> = Vec::new();
+            for id in std::iter::once(&lib_id).chain(queue.iter()) {
+                let uri = &program.libraries[id.0 as usize].uri;
+                if !uri.starts_with("dart:") {
+                    if let Some(p) = caminho_da_biblioteca(uri, &package_config) {
+                        caminhos.push(p);
+                    }
+                }
+            }
+            prefetch.carregar(caminhos);
+            program.tempos.leitura_lex_paralelo += t.elapsed();
+            program.tempos.ondas += 1;
+        }
         let lib_uri = program.libraries[lib_id.0 as usize].uri.clone();
 
         // Determina os arquivos da biblioteca (origem + patches se for SDK)
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
+            let t_cache = std::time::Instant::now();
             let do_cache = cache.as_mut().and_then(|c| c.retirar(lib_name));
+            program.tempos.sdk_cache += t_cache.elapsed();
             if let Some(unidades) = do_cache {
                 for u in unidades {
                     let unit_id = UnitId(program.units.len() as u32);
@@ -179,6 +203,7 @@ pub fn load_lenient_com_cache(
                     interner,
                     &mut program,
                     &mut diagnostics,
+                    None,
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -198,6 +223,7 @@ pub fn load_lenient_com_cache(
                         interner,
                         &mut program,
                         &mut diagnostics,
+                        None,
                     );
                     if let Some(uid) = patch_unit {
                         program.libraries[lib_id.0 as usize].units.push(uid);
@@ -211,13 +237,7 @@ pub fn load_lenient_com_cache(
             }
         } else {
             // Biblioteca de arquivo local ou pacote
-            let file_path = if lib_uri.starts_with("package:") {
-                package_config.resolve_package_uri(&lib_uri).ok()
-            } else if let Ok(url) = Url::parse(&lib_uri) {
-                url.to_file_path().ok()
-            } else {
-                Some(PathBuf::from(&lib_uri))
-            };
+            let file_path = caminho_da_biblioteca(&lib_uri, &package_config);
 
             if let Some(path) = file_path {
                 let main_unit = load_unit(
@@ -228,6 +248,7 @@ pub fn load_lenient_com_cache(
                     interner,
                     &mut program,
                     &mut diagnostics,
+                    prefetch.tirar(&path),
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -241,11 +262,14 @@ pub fn load_lenient_com_cache(
         }
 
         // 5. Analisa diretivas em todas as unidades carregadas desta biblioteca
+        let t_dir = std::time::Instant::now();
+        let (leitura_antes, parse_antes) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
         while unit_idx < program.libraries[lib_id.0 as usize].units.len() {
             let unit_id = program.libraries[lib_id.0 as usize].units[unit_idx];
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
+            let unit_uri = program.units[unit_id.0 as usize].uri.clone();
 
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
@@ -314,11 +338,16 @@ pub fn load_lenient_com_cache(
                         let Some(base_path) = &unit_path else {
                             continue;
                         };
-                        let part_file_path =
-                            base_path.parent().unwrap_or(Path::new(".")).join(&uri);
-                        let canonical_part =
-                            std::fs::canonicalize(&part_file_path).unwrap_or(part_file_path);
-                        let part_uri = canonical_file_uri(&canonical_part, &package_config);
+                        let pela_uri = resolver_relativo_a_package(&unit_uri, &uri)
+                            .and_then(|u| package_config.resolve_package_uri(&u).ok().map(|p| (p, u)));
+                        let (canonical_part, part_uri) = match pela_uri {
+                            Some(x) => x,
+                            None => {
+                                let p = normalizar(&base_path.parent().unwrap_or(Path::new(".")).join(&uri));
+                                let u = canonical_file_uri(&p, &package_config);
+                                (p, u)
+                            }
+                        };
 
                         let part_unit = load_unit(
                             &canonical_part,
@@ -328,10 +357,11 @@ pub fn load_lenient_com_cache(
                             interner,
                             &mut program,
                             &mut diagnostics,
+                            None,
                         );
 
                         if let Some(p_uid) = part_unit {
-                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics, &mut memo_canonico);
+                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
                             program.libraries[lib_id.0 as usize].units.push(p_uid);
                         }
                     }
@@ -344,10 +374,11 @@ pub fn load_lenient_com_cache(
                     } => {
                         let resolved = resolve_directive_target(
                             &uri,
+                            &unit_uri,
                             unit_path.as_deref(),
                             sdk,
                             &package_config,
-                        );
+                            );
 
                         match resolved {
                             Ok((target_canonical_uri, _)) => {
@@ -378,10 +409,11 @@ pub fn load_lenient_com_cache(
                     } => {
                         let resolved = resolve_directive_target(
                             &uri,
+                            &unit_uri,
                             unit_path.as_deref(),
                             sdk,
                             &package_config,
-                        );
+                            );
 
                         match resolved {
                             Ok((target_canonical_uri, _)) => {
@@ -406,6 +438,11 @@ pub fn load_lenient_com_cache(
                 }
             }
         }
+        // Partes carregadas aqui já contaram em leitura/parse.
+        program.tempos.diretivas += t_dir
+            .elapsed()
+            .saturating_sub(program.tempos.leitura - leitura_antes)
+            .saturating_sub(program.tempos.parse - parse_antes);
     }
 
     // 6. Constrói outline, namespaces e resolve supertipos
@@ -437,6 +474,96 @@ pub fn load(
 // Funções auxiliares de resolução e carregamento
 // ---------------------------------------------------------------------------
 
+/// Fonte e tokens de um arquivo lido e lexado fora da thread principal.
+type Lido = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token>, Diagnostic>)>;
+
+/// Arquivos de uma onda da fila, lidos e lexados em paralelo.
+#[derive(Default)]
+struct Prefetch {
+    prontos: HashMap<PathBuf, Lido>,
+}
+
+impl Prefetch {
+    fn vazio(&self) -> bool {
+        self.prontos.is_empty()
+    }
+
+    fn tirar(&mut self, path: &Path) -> Option<Lido> {
+        self.prontos.remove(path)
+    }
+
+    /// Lê e lexa `caminhos` com até 8 threads (`std::thread::scope`); poucos
+    /// arquivos ficam na própria thread, que o custo de criar threads não
+    /// compensa.
+    fn carregar(&mut self, caminhos: Vec<PathBuf>) {
+        let ler = |p: &Path| -> Lido {
+            let s = std::fs::read_to_string(p)?;
+            let t = dartforge_frontend::lexer::lex(&s);
+            Ok((s, t))
+        };
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+        if caminhos.len() < 4 || threads < 2 {
+            for p in caminhos {
+                let l = ler(&p);
+                self.prontos.insert(p, l);
+            }
+            return;
+        }
+        let proximo = std::sync::atomic::AtomicUsize::new(0);
+        let resultados: Vec<Vec<(PathBuf, Lido)>> = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..threads)
+                .map(|_| {
+                    s.spawn(|| {
+                        let mut meus = Vec::new();
+                        loop {
+                            let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(p) = caminhos.get(i) else { break };
+                            let l = ler(p);
+                            meus.push((p.clone(), l));
+                        }
+                        meus
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+        });
+        for lote in resultados {
+            for (p, l) in lote {
+                self.prontos.insert(p, l);
+            }
+        }
+    }
+}
+
+/// Caminho do arquivo principal de uma biblioteca `package:` ou `file:`.
+fn caminho_da_biblioteca(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf> {
+    if lib_uri.starts_with("package:") {
+        package_config.resolve_package_uri(lib_uri).ok()
+    } else if let Ok(url) = Url::parse(lib_uri) {
+        url.to_file_path().ok()
+    } else {
+        Some(PathBuf::from(lib_uri))
+    }
+}
+
+/// Resolve `.` e `..` sem tocar no sistema de arquivos (`Uri.resolve` do Dart
+/// é lexical; `canonicalize` custava uma chamada ao sistema por diretiva).
+fn normalizar(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn load_unit(
     path: &Path,
     uri: &str,
@@ -445,9 +572,18 @@ fn load_unit(
     interner: &mut Interner,
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
+    lido: Option<Lido>,
 ) -> Option<UnitId> {
-    let source = match std::fs::read_to_string(path) {
-        Ok(s) => s,
+    let t = std::time::Instant::now();
+    let lido = match lido {
+        Some(l) => l,
+        None => std::fs::read_to_string(path).map(|s| {
+            let t = dartforge_frontend::lexer::lex(&s);
+            (s, t)
+        }),
+    };
+    let (source, tokens) = match lido {
+        Ok(x) => x,
         Err(e) => {
             diagnostics.push(Diagnostic::new(
                 format!("não foi possível ler {}: {e}", path.display()),
@@ -456,8 +592,13 @@ fn load_unit(
             return None;
         }
     };
+    program.tempos.leitura += t.elapsed();
+    program.tempos.arquivos_lidos += 1;
+    program.tempos.bytes_lidos += source.len();
 
-    let parsed = dartforge_frontend::parser::parse(&source, interner);
+    let t = std::time::Instant::now();
+    let parsed = dartforge_frontend::parser::parse_lexed(&source, tokens, interner);
+    program.tempos.parse += t.elapsed();
     for mut d in parsed.diagnostics {
         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);
         diagnostics.push(d);
@@ -528,19 +669,39 @@ fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> Strin
         .unwrap_or_else(|_| canonical.to_string_lossy().to_string())
 }
 
-/// `canonicalize` com memória: `verify_part_of` compara o mesmo caminho
-/// muitas vezes (uma por parte da biblioteca).
-fn canonico(memo: &mut HashMap<PathBuf, PathBuf>, p: &Path) -> PathBuf {
-    if let Some(c) = memo.get(p) {
-        return c.clone();
+/// Resolve `rel` (sem esquema) contra `base` (`package:x/a/b.dart`) só com
+/// texto, como `Uri.resolve`: `None` se `..` sair do pacote (aí o chamador
+/// resolve pelo caminho) ou se `rel` tiver esquema.
+fn resolver_relativo_a_package(base: &str, rel: &str) -> Option<String> {
+    if rel.contains(':') || rel.starts_with('/') {
+        return None;
     }
-    let c = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    memo.insert(p.to_path_buf(), c.clone());
-    c
+    let corpo = base.strip_prefix("package:")?;
+    let (pacote, resto) = corpo.split_once('/')?;
+    let mut segs: Vec<&str> = resto.split('/').collect();
+    segs.pop(); // o arquivo base
+    for s in rel.split('/') {
+        match s {
+            "" | "." => {}
+            ".." => {
+                segs.pop()?;
+            }
+            s => segs.push(s),
+        }
+    }
+    let mut out = String::with_capacity(base.len() + rel.len());
+    out.push_str("package:");
+    out.push_str(pacote);
+    for s in segs {
+        out.push('/');
+        out.push_str(s);
+    }
+    Some(out)
 }
 
 fn resolve_directive_target(
     uri_str: &str,
+    base_uri: &str,
     base_path: Option<&Path>,
     sdk: &SdkLayout,
     package_config: &PackageConfig,
@@ -552,14 +713,23 @@ fn resolve_directive_target(
             Err(format!("biblioteca SDK 'dart:{sdk_name}' não encontrada"))
         }
     } else if uri_str.starts_with("package:") {
-        let file_path = package_config.resolve_package_uri(uri_str)?;
-        Ok((uri_str.to_string(), Some(file_path)))
+        // Só valida o pacote; o caminho é calculado uma vez, quando a
+        // biblioteca sai da fila (`caminho_da_biblioteca`), não por diretiva.
+        let nome = uri_str["package:".len()..].split('/').next().unwrap_or("");
+        if package_config.packages.contains_key(nome) {
+            Ok((uri_str.to_string(), None))
+        } else {
+            let file_path = package_config.resolve_package_uri(uri_str)?;
+            Ok((uri_str.to_string(), Some(file_path)))
+        }
+    } else if let Some(uri) = resolver_relativo_a_package(base_uri, uri_str) {
+        Ok((uri, None))
     } else {
         // Relativo ao arquivo base
         let base = base_path.and_then(|p| p.parent()).unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
-        let canonical = std::fs::canonicalize(&target_path)
-            .map_err(|e| format!("não foi possível resolver '{}': {e}", target_path.display()))?;
+        // Lexical, como `Uri.resolve`; arquivo inexistente falha na leitura.
+        let canonical = normalizar(&target_path);
         let canonical_uri = canonical_file_uri(&canonical, package_config);
         Ok((canonical_uri, Some(canonical)))
     }
@@ -606,7 +776,6 @@ fn verify_part_of(
     part_unit_id: UnitId,
     lib_id: LibraryId,
     diagnostics: &mut Vec<Diagnostic>,
-    memo: &mut HashMap<PathBuf, PathBuf>,
 ) {
     let part_unit = &program.units[part_unit_id.0 as usize];
     let parent_lib = &program.libraries[lib_id.0 as usize];
@@ -622,10 +791,10 @@ fn verify_part_of(
                             .parent()
                             .unwrap_or(Path::new("."))
                             .join(&parent_uri_str);
-                        let canonical_expected = canonico(memo, &expected_parent);
+                        let canonical_expected = normalizar(&expected_parent);
                         let matches_any_unit = parent_lib.units.iter().any(|&u| {
                             if let Some(p) = &program.units[u.0 as usize].path {
-                                canonico(memo, p) == canonical_expected
+                                normalizar(p) == canonical_expected
                             } else {
                                 false
                             }

@@ -113,7 +113,18 @@ pub struct Parsed {
 /// assert_eq!(saida.unit.declarations.len(), 1);
 /// ```
 pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
-    let tokens = match lexer::lex(source) {
+    parse_lexed(source, lexer::lex(source), interner)
+}
+
+/// Como [`parse`], com a fonte já lexada. O lexer é puro (não interna nomes),
+/// então pode correr noutra thread; só a análise sintática precisa do
+/// `Interner` e fica sequencial.
+pub fn parse_lexed(
+    source: &str,
+    tokens: Result<Vec<Token>, Diagnostic>,
+    interner: &mut Interner,
+) -> Parsed {
+    let tokens = match tokens {
         Ok(tokens) => tokens,
         Err(diagnostic) => {
             return Parsed {
