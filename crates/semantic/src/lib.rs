@@ -18,6 +18,7 @@ mod generics;
 mod maps;
 mod modifiers;
 mod native;
+mod nucleo;
 mod records;
 mod reified;
 mod shorthands;
@@ -816,6 +817,16 @@ pub fn analyze_with_async_library(
             return Err(Diagnostic::new("Duplicate class ID", class.span));
         }
     }
+    // Interfaces nominais de `dart:core`. Entram depois das classes do programa
+    // para que uma classe homônima — que o parser já faz ter precedência — não
+    // seja sobrescrita, e antes da validação do grafo porque é ela que confere os
+    // contratos de `implements`.
+    {
+        let tabela = Rc::make_mut(&mut validator.classes);
+        for (id, info) in nucleo::nucleo_interfaces() {
+            tabela.entry(id).or_insert(info);
+        }
+    }
     validator.validate_class_graph(program)?;
     for function in &program.functions {
         if function.is_getter {
@@ -1119,6 +1130,7 @@ impl<'a> Validator<'a> {
             if class.is_library_globals {
                 continue;
             }
+            self.nucleo_valida_interfaces(class)?;
             let mut active = HashSet::new();
             let mut finished = HashSet::new();
             let mut stack = vec![(class.id, false)];
@@ -1399,6 +1411,14 @@ impl<'a> Validator<'a> {
         let mut ids = self.ancestors(id).into_iter().collect::<Vec<_>>();
         ids.sort_unstable();
         for ancestor in ids {
+            // Contratos vindos de `Comparable` apagado não passam por aqui: o
+            // parâmetro apagado é `Object?`, e a contravariância recusaria o
+            // `int compareTo(Propria)` que o Dart aceita. O contrato real vive
+            // em `nucleo_valida_interfaces`, que exige um `compareTo` capaz de
+            // receber a própria classe.
+            if ancestor == dartforge_syntax::NUCLEO_COMPARABLE {
+                continue;
+            }
             for (&name, signature) in &self.classes[&ancestor].methods {
                 required.entry(name).or_default().push(signature);
             }
@@ -3097,6 +3117,25 @@ impl<'a> Validator<'a> {
                 Ok(element)
             }
             ExprKind::Invoke { callee, arguments } => {
+                // `StringBuffer()` chega como invocação de um nome que não é
+                // declarado em lugar nenhum — o parser a emite nessa forma de
+                // propósito, porque `Construct` exigiria um identificador de
+                // classe registrado pelo ligador. Um local, um parâmetro ou uma
+                // função de topo com o mesmo nome tem precedência e desvia daqui,
+                // como acontece com `print` e `identical`.
+                if let ExprKind::Identifier("StringBuffer") = callee.kind
+                    && self.lookup("StringBuffer").is_none()
+                    && !self.functions.contains_key("StringBuffer")
+                    && !self.has_implicit_member("StringBuffer")
+                {
+                    if !arguments.is_empty() {
+                        return Err(Diagnostic::new(
+                            "'StringBuffer(...)' with an initial value is unsupported in this subset: write 'StringBuffer()' and call 'write' once",
+                            expression.span,
+                        ));
+                    }
+                    return Ok(Type::Class(dartforge_syntax::NUCLEO_STRING_BUFFER));
+                }
                 let ty = self.value(callee)?;
                 self.invoke(ty, arguments, expression.span)
             }
@@ -3183,6 +3222,19 @@ impl<'a> Validator<'a> {
             } => self.factory_call(*class_id, name, arguments, expression.span),
             ExprKind::Member { receiver, name } => {
                 let receiver_type = self.upper_bound(self.value(receiver)?);
+                // Membro de tipo escalar de `dart:core`. A tabela vem antes de
+                // tudo porque em Dart o membro de instância tem precedência, e o
+                // tipo do receptor é regravado pela resolução: é ele que o
+                // emissor consulta para escolher a forma JavaScript, e `s.length`
+                // sai como propriedade enquanto `s.isEmpty` sai como comparação.
+                if let Some(resultado) =
+                    self.nucleo_escalar(receiver, receiver_type, name, None, expression.span)
+                {
+                    return resultado;
+                }
+                if receiver_type == Type::Class(dartforge_syntax::NUCLEO_STRING_BUFFER) {
+                    return self.nucleo_string_buffer(name, None, expression.span);
+                }
                 if receiver_type == Type::Duration {
                     return match *name {
                         "inDays" | "inHours" | "inMinutes" | "inSeconds" | "inMilliseconds"
@@ -3225,12 +3277,9 @@ impl<'a> Validator<'a> {
                     return self.record_field(receiver_type, name, expression.span);
                 }
                 if let Some(element) = self.element(receiver_type) {
-                    if let Some(resultado) = self.nucleo_iteravel_membro(
-                        receiver_type,
-                        element,
-                        name,
-                        expression.span,
-                    ) {
+                    if let Some(resultado) =
+                        self.nucleo_iteravel_membro(receiver_type, element, name, expression.span)
+                    {
                         return resultado;
                     }
                     return match *name {
@@ -3281,6 +3330,20 @@ impl<'a> Validator<'a> {
                 arguments,
             } => {
                 let receiver_type = self.upper_bound(self.value(receiver)?);
+                // Idem para a chamada: a tabela do núcleo primeiro, e a busca por
+                // extension continua depois quando o nome não pertence a ela.
+                if let Some(resultado) = self.nucleo_escalar(
+                    receiver,
+                    receiver_type,
+                    name,
+                    Some(arguments),
+                    expression.span,
+                ) {
+                    return resultado;
+                }
+                if receiver_type == Type::Class(dartforge_syntax::NUCLEO_STRING_BUFFER) {
+                    return self.nucleo_string_buffer(name, Some(arguments), expression.span);
+                }
                 if receiver_type == Type::Timer {
                     if *name == "cancel" && arguments.is_empty() {
                         return Ok(Type::Void);
@@ -3348,6 +3411,16 @@ impl<'a> Validator<'a> {
                         })
                         .collect::<Vec<_>>();
                     if candidates.is_empty() {
+                        // Num escalar a mensagem nomeia o tipo: a genérica não
+                        // distingue "não existe em String" de "não existe nesta
+                        // classe", e a primeira é a dúvida comum.
+                        if nucleo::tabela(receiver_type).is_some() {
+                            return Err(self.nucleo_metodo_ausente(
+                                receiver_type,
+                                name,
+                                expression.span,
+                            ));
+                        }
                         return Err(Diagnostic::new(
                             "Unknown instance or extension method",
                             expression.span,

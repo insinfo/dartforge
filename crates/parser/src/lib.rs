@@ -448,12 +448,13 @@ fn top_level_declaration<'a>(
         if cursor.peek() == Some(TokenKind::Symbol('@')) {
             return Err(cursor.error("annotations on extensions are not supported yet"));
         }
-        if tokens.get(declaration_index + 1).map(|token| token.kind) == Some(TokenKind::Word("type"))
+        if tokens.get(declaration_index + 1).map(|token| token.kind)
+            == Some(TokenKind::Word("type"))
         {
             return cursor.extension_type(&mut parts.extensions, &mut parts.functions);
         }
-        let id =
-            u32::try_from(parts.extensions.len()).map_err(|_| cursor.error("too many extensions"))?;
+        let id = u32::try_from(parts.extensions.len())
+            .map_err(|_| cursor.error("too many extensions"))?;
         let extension = cursor.extension(id)?;
         parts.extensions.push(extension);
     } else {
@@ -951,10 +952,7 @@ fn index_one_declaration<'a>(
                     index += 1;
                     if tokens.get(index).map(|t| t.kind) == Some(TokenKind::Symbol('.')) {
                         index += 1;
-                        if !matches!(
-                            tokens.get(index).map(|t| t.kind),
-                            Some(TokenKind::Word(_))
-                        ) {
+                        if !matches!(tokens.get(index).map(|t| t.kind), Some(TokenKind::Word(_))) {
                             return Err(Diagnostic::new(
                                 "expected qualified interface name",
                                 first.span,
@@ -1235,6 +1233,39 @@ impl<'a> Cursor<'_, 'a> {
             _ => Err(self.error("expected a non-reserved identifier")),
         }
     }
+    /// Lê um nome de interface na cláusula `implements`, com seu span.
+    ///
+    /// `name()` não serve aqui: palavras reservadas como `Iterable`, `List` ou
+    /// `String` são nomes de tipo legítimos nesta posição, e recusá-las
+    /// impediria `class C implements Iterable<int>` — a forma que todo programa
+    /// real usa. Qualquer palavra vale; a resolução decide se ela é conhecida.
+    fn interface_name(&mut self) -> Result<(&'a str, Span), Diagnostic> {
+        match self.peek() {
+            Some(TokenKind::Word(name)) => {
+                let span = self.tokens[self.index].span;
+                self.index += 1;
+                Ok((name, span))
+            }
+            _ => Err(self.error("expected an interface name")),
+        }
+    }
+    /// Resolve um nome de `implements`: classe do programa, interface nominal de
+    /// `dart:core`, ou recusa nomeada quando o nome existe mas não é modelado.
+    ///
+    /// Sem a segunda metade, `implements Error` cairia em "unknown interface",
+    /// que sugere erro de digitação onde há decisão de subconjunto documentada.
+    fn resolve_interface(&self, name: &str, span: Span) -> Result<u32, Diagnostic> {
+        if let Some(id) = self.class_ids.get(name) {
+            return Ok(*id);
+        }
+        if let Some(id) = nucleo_interface(name) {
+            return Ok(id);
+        }
+        if let Some(razao) = nucleo_sem_modelo(name) {
+            return Err(Diagnostic::new(razao, span));
+        }
+        Err(Diagnostic::new("unknown interface", span))
+    }
     /// Resolve `p.Tipo` por busca binária no vetor ordenado de nomes com prefixo.
     ///
     /// Devolve `None` quando o token corrente não é seguido por `.` e um nome,
@@ -1459,7 +1490,10 @@ impl<'a> Cursor<'_, 'a> {
         // avançar duas vezes num caso e nenhuma no outro.
         let consumiu_nome = matches!(
             word,
-            Some(TokenKind::Word("List" | "Set" | "Iterable" | "Map" | "Future") | TokenKind::Symbol('('))
+            Some(
+                TokenKind::Word("List" | "Set" | "Iterable" | "Map" | "Future")
+                    | TokenKind::Symbol('(')
+            )
         ) || (word == Some(TokenKind::Word("Comparator"))
             && !self.class_ids.contains_key("Comparator"));
         if !consumiu_nome {
@@ -1730,16 +1764,12 @@ impl<'a> Cursor<'_, 'a> {
         let mut interfaces = Vec::new();
         if self.take(TokenKind::Word("implements")) {
             loop {
-                let name = self.name()?;
+                let (name, span) = self.interface_name()?;
                 // Uma interface de `dart:core` não tem declaração para
                 // consultar: `class C implements Exception` resolve pela faixa
                 // reservada. A classe homônima do programa vem primeiro, porque
                 // é ela que `class_ids` registra.
-                interfaces.push(match self.class_ids.get(name) {
-                    Some(id) => *id,
-                    None => nucleo_interface(name)
-                        .ok_or_else(|| self.error("unknown interface"))?,
-                });
+                interfaces.push(self.resolve_interface(name, span)?);
                 self.discard_type_arguments();
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
@@ -2111,16 +2141,13 @@ impl<'a> Cursor<'_, 'a> {
         let mut interfaces = Vec::new();
         if self.take(TokenKind::Word("implements")) {
             loop {
-                let name = self.name()?;
+                let (name, span) = self.interface_name()?;
                 // Uma interface de `dart:core` não tem declaração para
                 // consultar: `class C implements Exception` resolve pela faixa
                 // reservada. A classe homônima do programa vem primeiro, porque
                 // é ela que `class_ids` registra.
-                interfaces.push(match self.class_ids.get(name) {
-                    Some(id) => *id,
-                    None => nucleo_interface(name)
-                        .ok_or_else(|| self.error("unknown interface"))?,
-                });
+                interfaces.push(self.resolve_interface(name, span)?);
+                self.discard_type_arguments();
                 if !self.take(TokenKind::Symbol(',')) {
                     break;
                 }
@@ -4939,6 +4966,9 @@ impl<'a> Cursor<'_, 'a> {
                 }
             }
             Some(TokenKind::Word(name)) if !reserved(name) => {
+                // Guardado antes do avanço: só o token do nome tem este span, e
+                // `StringBuffer()` precisa dele para o identificador que emite.
+                let nome_span = self.tokens[self.index].span;
                 self.index += 1;
                 if self.generic_call_ahead() {
                     let type_arguments = self.type_arguments()?;
@@ -4978,6 +5008,21 @@ impl<'a> Cursor<'_, 'a> {
                     if let Some(&class_id) = self.class_ids.get(name) {
                         ExprKind::Construct {
                             class_id,
+                            arguments,
+                        }
+                    } else if name == "StringBuffer" {
+                        // `StringBuffer()` não pode virar `Construct`: aquele nó
+                        // exige um identificador de classe que o ligador tenha
+                        // registrado, e `StringBuffer` não é declarado em parte
+                        // alguma. A invocação de um identificador atravessa o
+                        // ligador intacta e a análise semântica a reconhece como
+                        // intrínseco; um nome local homônimo continua ganhando,
+                        // porque é a análise que decide, não o parser.
+                        ExprKind::Invoke {
+                            callee: Box::new(Expr {
+                                kind: ExprKind::Identifier(name),
+                                span: nome_span,
+                            }),
                             arguments,
                         }
                     } else {
@@ -8271,5 +8316,171 @@ mod tests {
         rejected(&format!("print({}true);", "!".repeat(1000)));
         rejected(&format!("{}{}", "{".repeat(1000), "}".repeat(1000)));
         rejected(&format!("print(1{});", "+1".repeat(1000)));
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::{MAX_DIAGNOSTICS, parse_unit_with_recovery, parse_with_recovery};
+
+    /// Analisa com recuperação a partir do texto, devolvendo fonte e diagnósticos.
+    fn diagnosticos(fonte: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
+        let tokens = dartforge_lexer::lex(fonte).expect("fonte precisa tokenizar");
+        let (programa, erros) =
+            parse_unit_with_recovery(&tokens, fonte.len(), Default::default(), Some(0));
+        // Recuperar não é engolir: com qualquer diagnóstico não existe programa.
+        assert_eq!(programa.is_none(), !erros.is_empty(), "{fonte}");
+        erros
+    }
+
+    /// Três erros em declarações diferentes precisam sair todos, com span próprio.
+    ///
+    /// É a propriedade que justifica a recuperação: antes dela, corrigir o
+    /// primeiro erro só revelava o segundo, e uma aferição de corpus contava um
+    /// arquivo quebrado como uma lacuna quando ele tinha três.
+    #[test]
+    fn tres_erros_independentes_saem_todos_com_spans_corretos() {
+        let fonte = "void primeira() { int ; }\n\
+                     class Segunda { int metodo() { return 1 } }\n\
+                     int terceira() { return true ? ; }\n";
+        let erros = diagnosticos(fonte);
+        assert_eq!(
+            erros.len(),
+            3,
+            "esperados três diagnósticos, saíram {:?}",
+            erros
+                .iter()
+                .map(|erro| (erro.span.start, erro.span.end, erro.message.as_str()))
+                .collect::<Vec<_>>()
+        );
+        // A ordem é por span, não pela ordem em que o parser tropeçou.
+        assert!(erros[0].span.start < erros[1].span.start);
+        assert!(erros[1].span.start < erros[2].span.start);
+        // Cada diagnóstico aponta para dentro da declaração que o causou.
+        let limites = [
+            (
+                fonte.find("void primeira").unwrap(),
+                fonte.find("class").unwrap(),
+            ),
+            (
+                fonte.find("class").unwrap(),
+                fonte.find("int terceira").unwrap(),
+            ),
+            (fonte.find("int terceira").unwrap(), fonte.len()),
+        ];
+        for (erro, (inicio, fim)) in erros.iter().zip(limites) {
+            assert!(
+                erro.span.start >= inicio && erro.span.end <= fim,
+                "{} em {}..{} fora de {inicio}..{fim}",
+                erro.message,
+                erro.span.start,
+                erro.span.end
+            );
+            assert!(fonte.is_char_boundary(erro.span.start));
+            assert!(fonte.is_char_boundary(erro.span.end));
+        }
+        // Cada span é não-vazio e aponta para dentro da declaração que o
+        // causou (o token exato varia com a sincronização; o contrato é a
+        // localização por declaração, não o token ofensor).
+        for erro in &erros {
+            assert!(
+                erro.span.end > erro.span.start,
+                "span vazio em {}",
+                erro.message
+            );
+        }
+    }
+
+    /// Um erro só não pode virar dez diagnósticos derivados.
+    ///
+    /// A supressão por região já relatada é o que mantém o relatório legível: sem
+    /// ela, o recuo de span para o começo da declaração faria cada tentativa
+    /// seguinte apontar de novo para o mesmo trecho.
+    #[test]
+    fn um_erro_nao_produz_cascata() {
+        for fonte in [
+            "void a() { int ; }\nvoid b() { print(1); }\nvoid c() { print(2); }\n",
+            "class A { int ; }\nvoid d() { print(3); }\n",
+            "int e() { return 1 }\nvoid f() {}\n",
+        ] {
+            let erros = diagnosticos(fonte);
+            assert_eq!(erros.len(), 1, "{fonte} produziu {erros:?}");
+        }
+    }
+
+    /// Um arquivo correto continua saindo como programa, sem diagnóstico algum.
+    #[test]
+    fn arquivo_valido_continua_sem_diagnostico() {
+        let fonte = "class Ponto { final int x; Ponto(this.x); }\nint dobro(int n) { return n * 2; }\nvoid main() { print(dobro(21)); }\n";
+        let tokens = dartforge_lexer::lex(fonte).unwrap();
+        let (programa, erros) = parse_with_recovery(&tokens, fonte.len());
+        assert!(erros.is_empty(), "{erros:?}");
+        let programa = programa.expect("arquivo válido precisa render programa");
+        assert_eq!(programa.classes.len(), 1);
+        assert_eq!(programa.functions.len(), 1);
+    }
+
+    /// Entradas patológicas terminam, com limite de tempo, e nunca viram programa.
+    ///
+    /// Este é o teste que prova o progresso da sincronização. Toda estratégia de
+    /// recuperação aqui avança pelo menos um token: se o alvo calculado não
+    /// estiver à frente do cursor, o avanço forçado assume. Sem isso, chaves
+    /// desbalanceadas travariam o compilador em vez de reprová-lo.
+    #[test]
+    fn entradas_patologicas_terminam_em_tempo_limitado() {
+        const PATOLOGICAS: [&str; 10] = [
+            "class {{{{",
+            "class A {{{{ void f() {{{{",
+            "}}}} class",
+            "void a() { ( ( ( ( } class B { ; ; ; }",
+            "final final final final ;;;;",
+            "@ class class class",
+            "class A { class B { class C {",
+            ";;;;;;;;;;",
+            "void ) ( } { ; class",
+            "enum enum enum {",
+        ];
+        let (remetente, receptor) = std::sync::mpsc::channel();
+        let analise = std::thread::spawn(move || {
+            for fonte in PATOLOGICAS {
+                // Falha léxica está fora do escopo: sem tokens não há fronteira
+                // de declaração em que sincronizar.
+                let Ok(tokens) = dartforge_lexer::lex(fonte) else {
+                    continue;
+                };
+                let (programa, erros) =
+                    parse_unit_with_recovery(&tokens, fonte.len(), Default::default(), Some(0));
+                assert!(programa.is_none(), "{fonte} saiu como programa válido");
+                assert!(!erros.is_empty(), "{fonte} não relatou diagnóstico");
+                assert!(erros.len() <= MAX_DIAGNOSTICS, "{fonte} passou do teto");
+                for par in erros.windows(2) {
+                    assert!(
+                        (par[0].span.start, par[0].span.end)
+                            <= (par[1].span.start, par[1].span.end),
+                        "{fonte} saiu fora de ordem"
+                    );
+                }
+            }
+            remetente
+                .send(())
+                .expect("o receptor vive enquanto o teste espera");
+        });
+        match receptor.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(()) => analise.join().expect("a análise já sinalizou sucesso"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("a recuperação não terminou: alguma estratégia deixou de avançar")
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("a análise abortou; o pânico dela está acima")
+            }
+        }
+    }
+
+    /// Um arquivo com muitos erros para no teto, em vez de gerar relatório infinito.
+    #[test]
+    fn teto_de_diagnosticos_limita_o_relatorio() {
+        let fonte = "void a() { int ; }\n".repeat(MAX_DIAGNOSTICS * 2);
+        let erros = diagnosticos(&fonte);
+        assert_eq!(erros.len(), MAX_DIAGNOSTICS);
     }
 }

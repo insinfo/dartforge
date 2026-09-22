@@ -1,0 +1,18 @@
+[package]
+name = "dartforge-elements"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-intern = { path = "../intern" }
+dartforge-frontend = { path = "../frontend" }
+serde_json = "1"
+url = "2.5"
+
+[dev-dependencies]
+tempfile = "3"
+

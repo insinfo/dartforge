@@ -453,6 +453,14 @@ const AUXILIARES: &[(&str, &str)] = &[
         "function $dartforgeStartsWith(s, p, start) { $dartforgeInicio(s, start); return s.startsWith(p, start); }\n",
     ),
     (
+        "$dartforgeStringBuffer",
+        // Acumula os pedaços num vetor e junta só no `toString`: concatenar a
+        // cada `write` é quadrático, e um buffer existe justamente para não ser.
+        // `length` é o número de unidades UTF-16 já escritas, como no SDK, e não
+        // o número de chamadas — por isso é somado na escrita, não contado depois.
+        "class $dartforgeStringBuffer {\n  constructor() { this.pedacos = []; this.total = 0; }\n  get $df_length() { return this.total; }\n  get $df_isEmpty() { return this.total === 0; }\n  get $df_isNotEmpty() { return this.total !== 0; }\n  $df_write(value) { const texto = $dartforgeString(value); this.pedacos.push(texto); this.total += texto.length; }\n  $df_writeln(value = '') { this.$df_write(value); this.$df_write('\\n'); }\n  $df_writeCharCode(code) { this.$df_write(String.fromCharCode(code)); }\n  $df_clear() { this.pedacos.length = 0; this.total = 0; }\n  $df_toString() { const texto = this.pedacos.join(''); this.pedacos = [texto]; return texto; }\n}\n",
+    ),
+    (
         "$dartforgeStringHash",
         // O valor difere do SDK de propósito: o Dart não o especifica e a VM e o
         // dart2js já discordam entre si. O contrato preservado é o único que
@@ -576,12 +584,13 @@ mod tests {
         }
     }
 
-    /// Cada fonte define a função com o nome sob o qual foi registrada.
+    /// Cada fonte define a função — ou a classe — com o nome registrado.
     #[test]
     fn cada_fonte_define_a_propria_funcao() {
         for (nome, fonte) in AUXILIARES {
             assert!(
-                fonte.starts_with(&format!("function {nome}(")),
+                fonte.starts_with(&format!("function {nome}("))
+                    || fonte.starts_with(&format!("class {nome} ")),
                 "{nome} não abre com a própria declaração"
             );
         }

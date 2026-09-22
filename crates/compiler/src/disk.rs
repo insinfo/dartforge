@@ -34,15 +34,42 @@ const FORMAT_VERSION: u32 = 1;
 const MAGIC: &str = "DARTFORGE-CACHE";
 /// Orçamento padrão de um registro; acima disso a gravação é descartada.
 const DEFAULT_MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
+/// Teto padrão de registros no diretório; acima disso o menos usado é expulso.
+const DEFAULT_MAX_ENTRIES: usize = 256;
+
+/// Contadores observáveis do cache em disco, no molde do cache de macros.
+///
+/// `hits`/`misses` contam leituras desta alçada; `evictions` conta registros
+/// expulsos por ela para manter o teto de entradas. Vários processos podem
+/// compartilhar o diretório, então estes números cobrem o que esta alçada viu,
+/// não um total global do diretório.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DiskCacheStats {
+    /// Leituras que conferiram entrada, opções, alvo e todo o conteúdo.
+    pub hits: usize,
+    /// Leituras que faltaram por qualquer motivo, incluindo ausência.
+    pub misses: usize,
+    /// Registros expulsos para manter o teto de entradas.
+    pub evictions: usize,
+}
 
 /// Cache persistente de saídas, indexado por entrada e opções.
 ///
 /// Um registro é gravado por caminho de entrada. Regravar substitui, porque
 /// manter histórico exigiria uma política de expurgo que ainda não existe.
+/// Acima do teto de entradas, a gravação expulsa os registros menos usados
+/// recentemente (aproximados pelo mtime mais antigo) até caber.
+///
+/// Os contadores são compartilhados entre clones (`Arc`): a sessão guarda um
+/// clone, então as expulsões que ela provoca aparecem na alçada do teste.
 #[derive(Debug, Clone)]
 pub struct DiskCache {
     root: PathBuf,
     max_entry_bytes: usize,
+    max_entries: usize,
+    hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    misses: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    evictions: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl DiskCache {
@@ -57,6 +84,10 @@ impl DiskCache {
         Self {
             root: root.to_path_buf(),
             max_entry_bytes: DEFAULT_MAX_ENTRY_BYTES,
+            max_entries: DEFAULT_MAX_ENTRIES,
+            hits: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            misses: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            evictions: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -69,6 +100,43 @@ impl DiskCache {
     /// Orçamento por registro atualmente configurado.
     pub fn max_entry_bytes(&self) -> usize {
         self.max_entry_bytes
+    }
+
+    /// Define o teto de registros no diretório; zero desativa a gravação.
+    ///
+    /// Sem teto, cada entrada distinta grava um arquivo novo e o diretório
+    /// cresce sem limite entre execuções — a causa mecânica mais comum de
+    /// retenção monotônica, agora com despejo em vez de crescimento.
+    pub fn with_max_entries(mut self, entries: usize) -> Self {
+        self.max_entries = entries;
+        self
+    }
+
+    /// Teto de registros atualmente configurado.
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
+    /// Contadores compartilhados entre clones; processos distintos não aparecem.
+    pub fn stats(&self) -> DiskCacheStats {
+        use std::sync::atomic::Ordering;
+        DiskCacheStats {
+            hits: self.hits.load(Ordering::Relaxed),
+            misses: self.misses.load(Ordering::Relaxed),
+            evictions: self.evictions.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Conta os registros atualmente no diretório; zero quando ele não existe.
+    pub fn entries(&self) -> usize {
+        std::fs::read_dir(&self.root)
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| entry.ok())
+                    .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "dfcache"))
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     /// Caminho do registro de uma entrada canônica sob uma combinação de opções.
@@ -100,6 +168,30 @@ impl DiskCache {
     /// divergência, arquivo ausente, registro corrompido ou chave diferente
     /// devolve `None`, e o chamador compila normalmente.
     pub fn load(
+        &self,
+        entry: &Path,
+        options: CompileOptions,
+        target: &str,
+    ) -> Option<CachedCompilation> {
+        use std::sync::atomic::Ordering;
+        let hit = self.load_inner(entry, options, target);
+        if hit.is_some() {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.misses.fetch_add(1, Ordering::Relaxed);
+        }
+        hit
+    }
+
+    /// Lê um registro e devolve o JavaScript quando tudo confere.
+    ///
+    /// Relê do disco cada fonte registrada e compara byte a byte. Qualquer
+    /// divergência, arquivo ausente, registro corrompido ou chave diferente
+    /// devolve `None`, e o chamador compila normalmente.
+    ///
+    /// Num acerto, o mtime do registro é atualizado: é o que torna a expulsão
+    /// por mtime uma aproximação de LRU em vez de FIFO.
+    fn load_inner(
         &self,
         entry: &Path,
         options: CompileOptions,
@@ -152,6 +244,14 @@ impl DiskCache {
             source_bytes = source_bytes.saturating_add(source.len());
         }
         let javascript = String::from_utf8(reader.block()?.to_vec()).ok()?;
+        // Toca o registro antes de devolver: sem isso, a expulsão por mtime
+        // seria FIFO e um registro quente poderia ser expulso por um frio.
+        // Falha aqui é só oportunidade perdida de recência, não erro de leitura.
+        let record_path = self.entry_path(&canonical, options, target);
+        if let Ok(handle) = std::fs::OpenOptions::new().write(true).open(&record_path) {
+            let now = std::time::SystemTime::now();
+            let _ = handle.set_times(std::fs::FileTimes::new().set_modified(now));
+        }
         Some(CachedCompilation {
             javascript,
             units,
@@ -164,7 +264,8 @@ impl DiskCache {
     /// Falhas de escrita são silenciosas de propósito: um cache que não pôde ser
     /// gravado é uma oportunidade perdida, não um erro de compilação. A gravação
     /// passa por arquivo temporário e renomeação, para que um processo
-    /// interrompido não deixe um registro pela metade.
+    /// interrompido não deixe um registro pela metade. Depois de gravar, expulsa
+    /// os menos usados até o teto de entradas.
     pub fn store(
         &self,
         entry: &Path,
@@ -173,7 +274,7 @@ impl DiskCache {
         graph: &SourceGraph,
         javascript: &str,
     ) {
-        if self.max_entry_bytes == 0 {
+        if self.max_entry_bytes == 0 || self.max_entries == 0 {
             return;
         }
         let Ok(canonical) = std::fs::canonicalize(entry) else {
@@ -211,6 +312,41 @@ impl DiskCache {
         let temporary = target_path.with_extension("dfcache.tmp");
         if std::fs::write(&temporary, &bytes).is_ok() {
             let _ = std::fs::rename(&temporary, &target_path);
+        }
+        self.evict_overflow();
+    }
+
+    /// Expulsa registros além do teto, do mtime mais antigo ao mais novo.
+    ///
+    /// O registro recém-gravado tem o mtime mais novo, então nunca é expulso
+    /// pela própria gravação — mesmo com teto 1, o último `store` sobrevive.
+    /// Falhas de leitura de metadados contam como antiguidade zero: na dúvida,
+    /// expulsa primeiro o que não se consegue datar.
+    fn evict_overflow(&self) {
+        use std::sync::atomic::Ordering;
+        let Ok(dir) = std::fs::read_dir(&self.root) else {
+            return;
+        };
+        let mut records: Vec<(PathBuf, std::time::SystemTime)> = dir
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "dfcache"))
+            .map(|path| {
+                let modified = path
+                    .metadata()
+                    .and_then(|meta| meta.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (path, modified)
+            })
+            .collect();
+        if records.len() <= self.max_entries {
+            return;
+        }
+        records.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        for (path, _) in records.iter().take(records.len() - self.max_entries) {
+            if std::fs::remove_file(path).is_ok() {
+                self.evictions.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
@@ -325,7 +461,6 @@ mod tests {
     /// Opções diferentes produzem chaves diferentes.
     #[test]
     fn every_option_changes_the_key() {
-        let _base = CompileOptions::default();
         let mut seen = std::collections::HashSet::new();
         for optimization in [Optimization::None, Optimization::Constants] {
             for merge in [false, true] {
@@ -334,7 +469,6 @@ mod tests {
                         optimization,
                         merge_identical_functions: merge,
                         tree_shaking: shake,
-                        .._base
                     })));
                 }
             }

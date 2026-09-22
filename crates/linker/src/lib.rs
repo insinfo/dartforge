@@ -1189,7 +1189,7 @@ impl<'a> Resolver<'a, '_> {
                     let symbol = self.prefixed_lookup(prefix, name, span)?;
                     match symbol.class_id {
                         Some(class_id) => Shape::Construct(class_id),
-                        None => Shape::Call(self.global_name(symbol, *name)),
+                        None => Shape::Call(self.global_name(symbol, name)),
                     }
                 } else if let ExprKind::Member {
                     receiver: owner,
@@ -1199,7 +1199,7 @@ impl<'a> Resolver<'a, '_> {
                     let Some(prefix) = self.prefix_of(owner) else {
                         return Ok(false);
                     };
-                    Shape::Named(self.prefixed_class(prefix, class, span)?, *name)
+                    Shape::Named(self.prefixed_class(prefix, class, span)?, name)
                 } else {
                     return Ok(false);
                 }
@@ -1211,7 +1211,7 @@ impl<'a> Resolver<'a, '_> {
                         return Err(self
                             .error(span, format!("{prefix}.{name} é uma classe e não um valor")));
                     }
-                    Shape::Value(self.global_name(symbol, *name))
+                    Shape::Value(self.global_name(symbol, name))
                 } else if let ExprKind::Member {
                     receiver: owner,
                     name: class,
@@ -1220,7 +1220,7 @@ impl<'a> Resolver<'a, '_> {
                     let Some(prefix) = self.prefix_of(owner) else {
                         return Ok(false);
                     };
-                    Shape::Enum(self.prefixed_class(prefix, class, span)?, *name)
+                    Shape::Enum(self.prefixed_class(prefix, class, span)?, name)
                 } else {
                     return Ok(false);
                 }

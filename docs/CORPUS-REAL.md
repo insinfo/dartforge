@@ -191,39 +191,52 @@ primeiro nome de outro arquivo que ele mencione.
 
 A contagem de diagnósticos diz onde o compilador para. Ela não diz o tamanho da
 oportunidade, porque o parser para no **primeiro** erro de cada arquivo. Para
-isso, a contagem de quantos arquivos usam cada construção:
+isso, a contagem de quantos arquivos usam cada construção — **por pacote**, porque
+os quatro discordam e a média esconderia isso:
 
-| Construção | Arquivos (de 179) | Proporção |
-| --- | --- | --- |
-| Anotações | 116 | 65% |
-| `extends` | 99 | 55% |
-| Tipos genéricos escritos (`List<T>`, `Map<K,V>`) | 92 | 51% |
-| `late` | 50 | 28% |
-| `factory` | 30 | 17% |
-| `typedef` | 11 | 6% |
-| Classes genéricas (`class C<T>`) | 8 | 4% |
-| `dynamic` | 5 | 3% |
+| Construção | `pdf` (179) | `intl` (91) | `collection` (49) | `http` (48) |
+| --- | --- | --- | --- | --- |
+| Anotações | 116 (65%) | 32 (35%) | 26 (53%) | 22 (46%) |
+| `extends` | 99 (55%) | 10 (11%) | 18 (37%) | 16 (33%) |
+| Tipos genéricos escritos | 92 (51%) | 48 (53%) | 32 (65%) | 31 (65%) |
+| `late` | 50 (28%) | 5 (5%) | 5 (10%) | 7 (15%) |
+| `factory` | 30 (17%) | 5 (5%) | 5 (10%) | 4 (8%) |
+| `typedef` | 11 (6%) | 8 (9%) | 0 | 1 (2%) |
+| `dynamic` | 5 (3%) | 16 (18%) | 9 (18%) | 4 (8%) |
+
+A leitura por pacote muda conclusões. `extends` é 55% em `pdf`, que é uma
+hierarquia de widgets, e 11% em `intl`, que é quase tudo função e tabela de
+dados. `dynamic` é 3% em `pdf` — o número que sustentou a decisão de recusá-lo — e
+**18%** em `intl` e `collection`, que são justamente as bibliotecas genéricas.
+Medir só `pdf` teria mandado esse item para o fim da fila com confiança
+injustificada.
 
 ### Anotações: o item mais barato da lista
 
-Das 587 anotações no corpus, **507 são `@override`**, já suportada. As que
-bloqueiam são metadados sem efeito nenhum em geração de código:
+A esmagadora maioria é `@override`, já suportada: 507 em `pdf`, 358 em
+`collection`, 67 em `intl`, 42 em `http`. O que sobra, por pacote:
 
-| Anotação | Ocorrências |
-| --- | --- |
-| `@immutable` | 33 |
-| `@Deprecated` | 24 (já suportada) |
-| `@protected` | 16 |
-| `@mustCallSuper` | 4 |
-| `@pragma` | 2 |
-| `@visibleForTesting` | 1 |
-| `@experimental` | 1 |
+| Anotação | `pdf` | `intl` | `collection` | `http` |
+| --- | --- | --- | --- | --- |
+| `@immutable` | 33 | | | |
+| `@Deprecated` (já suportada) | 24 | 4 | 23 | |
+| `@protected` | 16 | | | |
+| `@pragma` | 2 | 16 | | |
+| `@TestOn` | | 11 | 1 | 9 |
+| `@mustCallSuper` | 4 | | | 1 |
+| `@visibleForTesting` | 1 | 2 | | |
+| `@experimental` | 1 | | | |
+| `@Timeout`, `@Tags`, `@Skip` | | 4 | | |
+| `@JS`, `@internal` | | | | 3 |
 
 Hoje o parser rejeita qualquer anotação que não reconheça. Tolerar as que não
-alteram semântica destrava 65% dos arquivos com uma mudança pequena. O cuidado
-necessário: **tolerar não é ignorar em silêncio**. Uma anotação desconhecida que
-o compilador pudesse precisar honrar — `@pragma` dirige o compilador — merece
-diagnóstico próprio, e não o mesmo tratamento de `@immutable`.
+alteram semântica destrava a maior parte dos arquivos de `pdf` com uma mudança
+pequena. O cuidado necessário: **tolerar não é ignorar em silêncio**. Uma anotação
+desconhecida que o compilador pudesse precisar honrar — `@pragma` dirige o
+compilador, e é 16 ocorrências em `intl` — merece diagnóstico próprio, e não o
+mesmo tratamento de `@immutable`. As anotações de configuração de teste
+(`@TestOn`, `@Timeout`, `@Skip`) só aparecem em `test/`, e portanto só importam
+para quem quiser medir aquelas entradas.
 
 ### `dynamic` importa muito menos do que se supunha
 
@@ -256,6 +269,12 @@ aferição contra código real existe.
 scripts/corpus.sh --com-dependencias          # corpus padrão: pdf http collection intl
 cargo test -p dartforge-compiler --test corpus_real -- --ignored --nocapture
 ```
+
+`--com-dev-dependencias` segue também `dev_dependencies` e traz `package:test` com
+a sua árvore, que é o que falta para as entradas de `test/` resolverem. O padrão
+não faz isso: são dezenas de pacotes a mais no disco, nenhum deles o código que se
+quer medir, e o relatório já separa aquelas entradas justamente para que a decisão
+seja visível em vez de embutida num número.
 
 O script baixa os pacotes pedidos, segue as dependências declaradas em cada
 `pubspec.yaml` e escreve dois arquivos em `references/pub/.dart_tool/`:

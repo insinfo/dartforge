@@ -256,7 +256,14 @@ impl<'a> Validator<'a> {
         if self.lookup(name).is_some()
             || self.has_implicit_member(name)
             || self.functions.contains_key(name)
-            || self.classes.values().any(|c| c.name == name)
+            // Interfaces sintéticas do núcleo (`library_id == usize::MAX`) não
+            // são declarações do programa: sem a isenção, a entrada "Iterable"
+            // da tabela faria toda anotação `Iterable x` falhar como sombra.
+            // Uma classe do usuário com o mesmo nome continua recusada.
+            || self
+                .classes
+                .values()
+                .any(|c| c.name == name && c.library_id != usize::MAX)
         {
             return Err(Diagnostic::new("Declaration shadows collection type", span));
         }
@@ -858,8 +865,8 @@ impl<'a> Validator<'a> {
             _ => {
                 return Err(Diagnostic::new(
                     format!(
-                        "'{}' declares no method '{name}' in this subset; the recognized members are listed in docs/NUCLEO.md"
-                        , self.nucleo_rotulo(receiver)
+                        "'{}' declares no method '{name}' in this subset; the recognized members are listed in docs/NUCLEO.md",
+                        self.nucleo_rotulo(receiver)
                     ),
                     span,
                 ));

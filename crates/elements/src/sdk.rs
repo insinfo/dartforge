@@ -1,0 +1,142 @@
+//! Layout do SDK: `libraries.json` diz onde cada `dart:x` vive e quais patches
+//! a completam.
+//!
+//! O arquivo é o mesmo que o CFE lê. A seção escolhida é `dartdevc`, porque a
+//! emissão segue o modelo do DDC (docs/FRONTEND-ARQUITETURA.md §5); a seção
+//! `dart2js` tem as mesmas bibliotecas de origem com patches diferentes, e
+//! trocar de modelo é trocar a seção.
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Uma biblioteca `dart:` do SDK.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SdkLibrary {
+    /// Nome após `dart:` (`core`, `_js_helper`).
+    pub name: String,
+    /// Arquivo da biblioteca de origem.
+    pub path: PathBuf,
+    /// Patch files, na ordem em que o SDK os aplica.
+    pub patches: Vec<PathBuf>,
+    /// `supported: false` em `libraries.json` (`dart:io` no DDC): importável,
+    /// mas todo uso lança `UnsupportedError`.
+    pub supported: bool,
+}
+
+/// Mapa `dart:x` → arquivos, para um alvo de `libraries.json`.
+#[derive(Debug, Clone, Default)]
+pub struct SdkLayout {
+    /// Diretório `lib/` do SDK.
+    pub root: PathBuf,
+    pub libraries: HashMap<String, SdkLibrary>,
+}
+
+impl SdkLayout {
+    /// Lê `<lib>/libraries.json` e a seção `target` (`dartdevc` ou `dart2js`).
+    ///
+    /// # Erros
+    /// Arquivo ausente, JSON inválido ou seção inexistente.
+    ///
+    /// ```no_run
+    /// let sdk = dartforge_elements::sdk::SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
+    /// assert!(sdk.library("core").is_some());
+    /// ```
+    pub fn load(lib_dir: &Path, target: &str) -> Result<Self, String> {
+        let path = lib_dir.join("libraries.json");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("não foi possível ler {}: {e}", path.display()))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("{} inválido: {e}", path.display()))?;
+        let section = json
+            .get(target)
+            .and_then(|t| t.get("libraries"))
+            .and_then(|l| l.as_object())
+            .ok_or_else(|| format!("seção {target}.libraries ausente em {}", path.display()))?;
+        let mut libraries = HashMap::new();
+        for (name, entry) in section {
+            let uri = entry
+                .get("uri")
+                .and_then(|u| u.as_str())
+                .ok_or_else(|| format!("biblioteca {name} sem uri"))?;
+            let patches = match entry.get("patches") {
+                None => Vec::new(),
+                Some(serde_json::Value::String(one)) => vec![lib_dir.join(one)],
+                Some(serde_json::Value::Array(many)) => many
+                    .iter()
+                    .filter_map(|p| p.as_str())
+                    .map(|p| lib_dir.join(p))
+                    .collect(),
+                Some(_) => return Err(format!("biblioteca {name} com patches inválidos")),
+            };
+            let supported = entry
+                .get("supported")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(true);
+            libraries.insert(
+                name.clone(),
+                SdkLibrary {
+                    name: name.clone(),
+                    path: lib_dir.join(uri),
+                    patches,
+                    supported,
+                },
+            );
+        }
+        Ok(SdkLayout {
+            root: lib_dir.to_path_buf(),
+            libraries,
+        })
+    }
+
+    /// Biblioteca pelo nome sem o prefixo `dart:`.
+    pub fn library(&self, name: &str) -> Option<&SdkLibrary> {
+        self.libraries.get(name)
+    }
+
+    /// Localiza o `lib/` do SDK: `DARTFORGE_SDK_LIB`, `DART_SDK/lib`, ou o
+    /// `dart` no `PATH` (`<bin>/../lib`).
+    pub fn discover() -> Option<PathBuf> {
+        if let Ok(explicit) = std::env::var("DARTFORGE_SDK_LIB") {
+            let path = PathBuf::from(explicit);
+            if path.join("libraries.json").exists() {
+                return Some(path);
+            }
+        }
+        if let Ok(sdk) = std::env::var("DART_SDK") {
+            let path = PathBuf::from(sdk).join("lib");
+            if path.join("libraries.json").exists() {
+                return Some(path);
+            }
+        }
+        let path_var = std::env::var_os("PATH")?;
+        for dir in std::env::split_paths(&path_var) {
+            for exe in ["dart.exe", "dart"] {
+                if dir.join(exe).exists() {
+                    let lib = dir.join("..").join("lib");
+                    if lib.join("libraries.json").exists() {
+                        return Some(lib);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn le_secao_dartdevc_do_sdk_local() {
+        let Some(lib) = SdkLayout::discover() else {
+            eprintln!("SDK não encontrado; teste pulado");
+            return;
+        };
+        let sdk = SdkLayout::load(&lib, "dartdevc").unwrap();
+        let core = sdk.library("core").unwrap();
+        assert!(core.path.ends_with("core/core.dart"));
+        assert_eq!(core.patches.len(), 2);
+        assert!(!sdk.library("io").unwrap().supported);
+        assert!(sdk.library("_runtime").is_some());
+    }
+}

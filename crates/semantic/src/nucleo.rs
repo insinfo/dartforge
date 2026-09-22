@@ -156,7 +156,12 @@ pub(super) const STRING: &[Membro] = &[
         resultado: Resultado::ListaDeString,
     },
     opcional("startsWith", &[Type::String, Type::Int], 1, Type::Bool),
-    opcional("substring", &[Type::Int, Type::NullableInt], 1, Type::String),
+    opcional(
+        "substring",
+        &[Type::Int, Type::NullableInt],
+        1,
+        Type::String,
+    ),
     metodo("toLowerCase", &[], Type::String),
     metodo("toString", &[], Type::String),
     metodo("toUpperCase", &[], Type::String),
@@ -245,7 +250,10 @@ pub(super) const NUM: &[Membro] = &[
 ];
 
 /// Membros de `bool`, ordenados por nome.
-pub(super) const BOOL: &[Membro] = &[getter("hashCode", Type::Int), metodo("toString", &[], Type::String)];
+pub(super) const BOOL: &[Membro] = &[
+    getter("hashCode", Type::Int),
+    metodo("toString", &[], Type::String),
+];
 
 /// Membros de `StringBuffer`, ordenados por nome.
 ///
@@ -312,7 +320,217 @@ pub(super) fn recusa_de_objeto(nome: &str) -> Option<&'static str> {
     }
 }
 
+/// Entrada de tabela de classe para uma interface nominal de `dart:core`.
+///
+/// A interface **não existe** como declaração: não há fonte de `dart:core` neste
+/// projeto e nada é emitido por ela. O que a tabela de classes precisa ter é o
+/// nome — para diagnóstico e para a checagem de sombreamento — e os membros que o
+/// contrato de `implements` exige. Todo o resto fica vazio, e um `HashMap` ou um
+/// `Vec` vazio não aloca: as cinco entradas custam só a inserção no mapa, uma vez
+/// por compilação, e o mapa é compartilhado por `Rc` — nada disso entra no
+/// caminho copiado a cada ramificação de fluxo.
+fn nucleo_info<'a>(nome: &'static str, metodos: Vec<(&'a str, Signature<'a>)>) -> ClassInfo<'a> {
+    ClassInfo {
+        // Nenhuma dessas interfaces é construível: `Exception('x')` do SDK é uma
+        // fábrica que devolve um tipo privado, e o subconjunto não a tem.
+        has_generative: false,
+        factories: HashMap::new(),
+        constructor_parameters: Vec::new(),
+        constructor_required: 0,
+        constructor_named: Vec::new(),
+        named_constructors: Vec::new(),
+        static_fields: Vec::new(),
+        static_methods: Vec::new(),
+        const_plans: Vec::new(),
+        modifier: ClassModifier::None,
+        kind: ClassKind::Class,
+        is_mixin_application: false,
+        is_interface: false,
+        library_id: usize::MAX,
+        is_abstract: true,
+        interfaces: Vec::new(),
+        abstract_methods: metodos.iter().map(|(nome, _)| *nome).collect(),
+        enum_values: Vec::new(),
+        name: nome,
+        superclass: None,
+        fields: HashMap::new(),
+        methods: metodos.into_iter().collect(),
+        setters: Vec::new(),
+        generic_bounds: Vec::new(),
+    }
+}
+
+/// Assinatura de um membro sintético de interface.
+fn nucleo_assinatura<'a>(is_getter: bool, parameters: Vec<Type>, result: Type) -> Signature<'a> {
+    let required_positional = parameters.len();
+    Signature {
+        generic_count: 0,
+        bounds: Vec::new(),
+        is_getter,
+        parameters,
+        required_positional,
+        named: Vec::new(),
+        result,
+    }
+}
+
+/// Entradas de tabela das interfaces nominais de `dart:core`.
+///
+/// Os contratos são os do SDK, **apagados** nos argumentos de tipo, como manda a
+/// política de genéricos deste subconjunto (`docs/TIPOS.md`):
+///
+/// * `Iterator<T>` exige `bool moveNext()` e `T get current`; apagado, `current`
+///   devolve `Object?`, e uma classe que declare `int get current` satisfaz o
+///   contrato por covariância de retorno.
+/// * `Iterable<T>` exige `Iterator<T> get iterator`; apagado, o getter devolve
+///   `Iterator`.
+/// * `Comparable<T>` exige `int compareTo(T)`; apagado, o parâmetro é `Object?`.
+///   O método **entra** na tabela para que chamadas por receptor de tipo
+///   `Comparable` resolvam — mas `validate_contracts` isenta contratos vindos
+///   desse ancestral, porque a contravariância recusaria o
+///   `int compareTo(Propria)` que o Dart aceita. O contrato real é conferido por
+///   [`Validator::nucleo_valida_interfaces`], que pede um `compareTo` capaz de
+///   receber a própria classe.
+/// * `Exception` não declara membro nenhum, no SDK e aqui.
+/// * `StringBuffer` resolve seus membros pela tabela [`STRING_BUFFER`], porque
+///   `write` precisa da checagem de representação textual que uma assinatura
+///   comum não expressa.
+pub(super) fn nucleo_interfaces<'a>() -> [(u32, ClassInfo<'a>); 5] {
+    [
+        (
+            dartforge_syntax::NUCLEO_COMPARABLE,
+            nucleo_info(
+                "Comparable",
+                vec![(
+                    "compareTo",
+                    nucleo_assinatura(false, vec![Type::NullableObject], Type::Int),
+                )],
+            ),
+        ),
+        (
+            dartforge_syntax::NUCLEO_ITERATOR,
+            nucleo_info(
+                "Iterator",
+                vec![
+                    (
+                        "current",
+                        nucleo_assinatura(true, Vec::new(), Type::NullableObject),
+                    ),
+                    ("moveNext", nucleo_assinatura(false, Vec::new(), Type::Bool)),
+                ],
+            ),
+        ),
+        (
+            dartforge_syntax::NUCLEO_EXCEPTION,
+            nucleo_info("Exception", Vec::new()),
+        ),
+        (
+            dartforge_syntax::NUCLEO_ITERABLE,
+            nucleo_info(
+                "Iterable",
+                vec![(
+                    "iterator",
+                    nucleo_assinatura(
+                        true,
+                        Vec::new(),
+                        Type::Class(dartforge_syntax::NUCLEO_ITERATOR),
+                    ),
+                )],
+            ),
+        ),
+        (
+            dartforge_syntax::NUCLEO_STRING_BUFFER,
+            nucleo_info("StringBuffer", Vec::new()),
+        ),
+    ]
+}
+
 impl<'a> Validator<'a> {
+    /// Confere os contratos que não cabem numa assinatura apagada.
+    ///
+    /// Hoje é só `Comparable<T>`: ver [`nucleo_interfaces`] para a razão.
+    ///
+    /// # Erros
+    ///
+    /// Classe concreta que declara `implements Comparable<...>` sem um
+    /// `int compareTo(P)` que aceite a própria classe.
+    pub(super) fn nucleo_valida_interfaces(
+        &self,
+        class: &dartforge_syntax::Class<'a>,
+    ) -> Result<(), Diagnostic> {
+        if !class
+            .interfaces
+            .contains(&dartforge_syntax::NUCLEO_COMPARABLE)
+        {
+            return Ok(());
+        }
+        if class.is_abstract || self.nucleo_comparavel(Type::Class(class.id)) {
+            return Ok(());
+        }
+        Err(Diagnostic::new(
+            format!(
+                "'{}' declares 'implements Comparable' but no 'int compareTo({} other)': the ordering contract is what 'sort()' and 'compareTo' resolve against, so it cannot be left out",
+                class.name, class.name
+            ),
+            class.span,
+        ))
+    }
+
+    /// Diz se o tipo é uma classe que implementa a interface reservada dada.
+    ///
+    /// A busca sobe por `extends` e por `implements`, como qualquer relação
+    /// nominal: uma derivada de quem implementa `Exception` também a implementa.
+    pub(super) fn implementa_nucleo(&self, ty: Type, interface: u32) -> bool {
+        match self.upper_bound(ty) {
+            Type::Class(id) | Type::NullableClass(id) => self.ancestors(id).contains(&interface),
+            _ => false,
+        }
+    }
+
+    /// Resolve um membro de `StringBuffer`, pela tabela [`STRING_BUFFER`].
+    ///
+    /// `write` e `writeln` convertem o argumento pelo `toString` dele, então vale
+    /// a mesma regra de `print`, da interpolação e de `join`: um valor sem
+    /// representação textual definida é recusado em vez de virar
+    /// `[object Object]`.
+    pub(super) fn nucleo_string_buffer(
+        &self,
+        nome: &str,
+        argumentos: Option<&[Expr<'a>]>,
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let Some(membro) = membro(STRING_BUFFER, nome) else {
+            return Err(Diagnostic::new(
+                format!(
+                    "'StringBuffer' declares no member '{nome}' in this subset; the recognized members are listed in docs/NUCLEO.md"
+                ),
+                span,
+            ));
+        };
+        if matches!(nome, "write" | "writeln")
+            && let Some(argumentos) = argumentos
+            && let Some(valor) = argumentos.first()
+        {
+            let escrito = self.value_expected(valor, Some(Type::NullableObject))?;
+            if !self.printable_type(escrito) {
+                return Err(Diagnostic::new(
+                    format!(
+                        "'StringBuffer.{nome}' writes the value through its 'toString', and '{}' declares none: emitting the JavaScript \"[object Object]\" — or Dart's \"Instance of 'Name'\" — would be a plausible wrong answer; declare 'String toString()' on it",
+                        self.nucleo_rotulo(escrito)
+                    ),
+                    valor.span,
+                ));
+            }
+            return Ok(Type::Void);
+        }
+        self.nucleo_aplica(
+            Type::Class(dartforge_syntax::NUCLEO_STRING_BUFFER),
+            membro,
+            argumentos,
+            span,
+        )
+    }
+
     /// Resolve `receptor.nome` sobre um escalar e fixa o tipo que o emissor lê.
     ///
     /// Devolve `None` quando o receptor não é escalar, ou quando o nome não é
@@ -335,9 +553,7 @@ impl<'a> Validator<'a> {
         argumentos: Option<&[Expr<'a>]>,
         span: Span,
     ) -> Option<Result<Type, Diagnostic>> {
-        if tabela(tipo).is_none() {
-            return None;
-        }
+        tabela(tipo)?;
         self.resolution
             .borrow_mut()
             .expr_types
@@ -478,9 +694,12 @@ impl<'a> Validator<'a> {
         )
     }
 
-    /// Nome Dart de um tipo escalar, para compor diagnósticos.
+    /// Nome Dart de um tipo escalar ou de interface, para compor diagnósticos.
     pub(super) fn nome_do_tipo(&self, ty: Type) -> &'static str {
         match ty {
+            Type::Class(id) | Type::NullableClass(id) => {
+                dartforge_syntax::nucleo_nome(id).unwrap_or("instance")
+            }
             Type::String => "String",
             Type::Int => "int",
             Type::Double => "double",
@@ -508,29 +727,35 @@ impl<'a> Validator<'a> {
     ///
     /// São os escalares ordenáveis do subconjunto e qualquer classe que declare
     /// `int compareTo(P)` com `P` capaz de receber a própria classe — que é o que
-    /// `implements Comparable<Self>` exige. A busca sobe por `extends` e por
-    /// `implements`, como qualquer outra resolução de membro.
+    /// `implements Comparable<Self>` exige. A busca sobe por `extends`, como
+    /// qualquer implementação herdada — mas **não** por `implements`: desde que
+    /// a tabela sintética declara `compareTo(Object?)` em `Comparable`, olhar
+    /// interfaces acharia o contrato apagado na própria classe que deveria
+    /// implementá-lo e liberaria `implements Comparable` sem `compareTo`.
     pub(super) fn nucleo_comparavel(&self, ty: Type) -> bool {
         match self.upper_bound(ty) {
             Type::Int | Type::Double | Type::Num | Type::String => true,
-            Type::Class(id) => self.method(id, "compareTo").is_some_and(|assinatura| {
-                !assinatura.is_getter
-                    && assinatura.result == Type::Int
-                    && assinatura.required_positional == 1
-                    && assinatura.parameters.len() == 1
-                    && self
-                        .require_type(Type::Class(id), assinatura.parameters[0], Span {
-                            start: 0,
-                            end: 0,
-                        })
-                        .is_ok()
-            }),
+            Type::Class(id) => self
+                .implementation(id, "compareTo")
+                .is_some_and(|assinatura| {
+                    !assinatura.is_getter
+                        && assinatura.result == Type::Int
+                        && assinatura.required_positional == 1
+                        && assinatura.parameters.len() == 1
+                        && self
+                            .require_type(
+                                Type::Class(id),
+                                assinatura.parameters[0],
+                                Span { start: 0, end: 0 },
+                            )
+                            .is_ok()
+                }),
             _ => false,
         }
     }
 
     /// Nome legível de um tipo para diagnóstico, inclusive coleções e classes.
-    fn nucleo_rotulo(&self, ty: Type) -> String {
+    pub(crate) fn nucleo_rotulo(&self, ty: Type) -> String {
         match self.upper_bound(ty) {
             Type::Class(id) | Type::NullableClass(id) => self
                 .classes
@@ -602,7 +827,10 @@ impl<'a> Validator<'a> {
             "keys" => Ok(self.iteravel_de(chave)),
             "values" => Ok(self.iteravel_de(valor)),
             "hashCode" => Err(self.nucleo_hash_de_colecao(
-                self.intern(TypeShape::Map { key: chave, value: valor }),
+                self.intern(TypeShape::Map {
+                    key: chave,
+                    value: valor,
+                }),
                 span,
             )),
             "entries" => Err(self.nucleo_sem_tipo("entries", span)),
@@ -689,12 +917,10 @@ impl<'a> Validator<'a> {
             "insert" if lista => self.nucleo_insert(elemento, args, span),
             "removeAt" if lista => self.nucleo_um_int(elemento, args, span),
             "addAll" if lista || conjunto => self.nucleo_add_all(elemento, args, span),
-            "remove" if lista || conjunto => {
-                self.nucleo_um_objeto(args, span).map(|()| Type::Bool)
-            }
-            "clear" if lista || conjunto => {
-                self.nucleo_sem_argumentos(nome, args, span).map(|()| Type::Void)
-            }
+            "remove" if lista || conjunto => self.nucleo_um_objeto(args, span).map(|()| Type::Bool),
+            "clear" if lista || conjunto => self
+                .nucleo_sem_argumentos(nome, args, span)
+                .map(|()| Type::Void),
             // `Iterable` é preguiçoso e imutável: recusar aqui evita prometer
             // mutação sobre uma sequência que não tem armazenamento próprio.
             "addAll" | "remove" | "clear" | "insert" | "removeAt" | "sublist" | "indexOf" => {
@@ -815,7 +1041,10 @@ impl<'a> Validator<'a> {
         span: Span,
     ) -> Result<Type, Diagnostic> {
         if args.len() != 1 {
-            return Err(Diagnostic::new("'reduce' expects one combine callback", span));
+            return Err(Diagnostic::new(
+                "'reduce' expects one combine callback",
+                span,
+            ));
         }
         let esperado = self.intern(TypeShape::Function {
             result: elemento,
@@ -876,7 +1105,10 @@ impl<'a> Validator<'a> {
         });
         let real = self.value_expected(&args[0], Some(contexto))?;
         let Some(TypeShape::Function { result, parameters }) = self.shape(real) else {
-            return Err(Diagnostic::new("'expand' expects one callback", args[0].span));
+            return Err(Diagnostic::new(
+                "'expand' expects one callback",
+                args[0].span,
+            ));
         };
         if parameters.len() != 1 {
             return Err(Diagnostic::new(
@@ -922,10 +1154,7 @@ impl<'a> Validator<'a> {
             return Ok(Type::Void);
         }
         if args.len() != 1 {
-            return Err(Diagnostic::new(
-                "'sort' takes at most one comparator",
-                span,
-            ));
+            return Err(Diagnostic::new("'sort' takes at most one comparator", span));
         }
         let esperado = self.intern(TypeShape::Function {
             result: Type::Int,
@@ -987,7 +1216,10 @@ impl<'a> Validator<'a> {
         span: Span,
     ) -> Result<Type, Diagnostic> {
         if args.len() != 2 {
-            return Err(Diagnostic::new("'insert' takes an index and an element", span));
+            return Err(Diagnostic::new(
+                "'insert' takes an index and an element",
+                span,
+            ));
         }
         let indice = self.value_expected(&args[0], Some(Type::Int))?;
         self.require_type(indice, Type::Int, args[0].span)?;

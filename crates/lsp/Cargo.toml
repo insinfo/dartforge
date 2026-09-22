@@ -9,3 +9,5 @@ workspace = true
 [dependencies]
 dartforge-compiler = { path = "../compiler" }
 dartforge-diagnostics = { path = "../diagnostics" }
+[dev-dependencies]
+dartforge-instrument = { path = "../instrument" }

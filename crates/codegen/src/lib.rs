@@ -1733,6 +1733,19 @@ fn expression(value: &Expr<'_>, output: &mut Output<'_>) {
             output.push(')');
         }
         ExprKind::Invoke { callee, arguments } => {
+            // `StringBuffer()` chega nesta forma por decisão do parser; a
+            // resolução semântica já disse que é o intrínseco e não a invocação de
+            // um valor, e o tipo estático da expressão é o que distingue os dois.
+            if static_type(value, output)
+                == Some(Type::Class(dartforge_syntax::NUCLEO_STRING_BUFFER))
+            {
+                output.nucleo.insert("$dartforgeStringBuffer");
+                // `write` converte pelo mesmo `$dartforgeString` de `print` e da
+                // interpolação; a análise já recusou valor sem texto definido.
+                output.strings_used = true;
+                output.push_str("new $dartforgeStringBuffer()");
+                return;
+            }
             output.push('(');
             expression(callee, output);
             output.push_str(")(");

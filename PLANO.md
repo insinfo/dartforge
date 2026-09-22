@@ -30,7 +30,7 @@ Não assumir que a branch HEAD do SDK equivale ao Dart exigido pelo ngdart escol
 
 ## Fase 0 — Fundação (iniciada)
 
-- [x] Instalar toolchain Rust em D:\Rust e configurar Cargo/rustup fora de C:.
+- [x] Instalar toolchain Rust em D:\Rust e D:\LLVM\22.1.8\bin e configurar Cargo/rustup fora de C:.
 - [x] Criar workspace com 12 crates e CLI.
 - [x] Implementar primeiro caminho vertical: void main() com print de strings simples.
 - [x] Criar testes de Unicode, erros e rejeição de sintaxe não implementada.
@@ -415,6 +415,14 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
 
 - Tree shaking conservador JS opt-in; análise semântica completa anterior à poda.
 - Future/async/await, microtasks e timers one-shot com oráculo Dart 3.6.2.
+- Pesquisa de isolates/workers **fechada como contrato** (2026-09-21):
+  desenho em [ISOLATES-WEB.md](docs/ISOLATES-WEB.md), decisões em
+  [IMPLEMENTACAO-23.md](docs/IMPLEMENTACAO-23.md) — API portátil
+  `package:forge_isolate` + `WorkerTask` const, entrypoint restrito nos quatro
+  alvos, serialização dirigida por tipo com `TransferableBuffer` de uso único,
+  `dart:mirrors` não implementado (reflexão estática mirando
+  `package:reflectable`, verificado 5.2.3 em pub.dev). Sem protótipo neste
+  ciclo; ordem real começa por Dart puro validado nos 4 alvos.
 - Próximos: Timer.periodic, composição de Futures e Zones; Streams com cancelamento,
   pausa e erros; async* e await-for; isolates com heaps/event loops distintos, ports,
   validação de mensagens e transferência de propriedade de buffers.
@@ -500,6 +508,15 @@ tem ruído e a contagem de alocações não.
       parâmetros nomeados privados `this._x` (Dart 3.12). Alocações por
       compilação inalteradas: 16.716 antes e depois.
       [Contrato](docs/PARAMETROS.md).
+- [x] Núcleo `dart:core` nominal em 2026-09-21: `Comparable`/`Iterator`/
+      `Iterable`/`Exception`/`StringBuffer` como interfaces sintéticas,
+      `implements` aceitando palavras reservadas (`Iterable<int>`) e type
+      arguments, `compareTo` apagado resolvendo por receptor de tipo
+      `Comparable`, formas cruas de `List`/`Set`/`Iterable`, `Map.remove`
+      anulável. Suíte em `crates/compiler/tests/nucleo.rs` (31 testes,
+      oráculo Dart 3.6.2). Limites honestos: `Map` cru recusado (só chave
+      `String` na emissão), `implements Error` recusado (sem `StackTrace`).
+      [Contrato](docs/NUCLEO.md).
 - [ ] Literais de string completos: interpolação, strings triplas e literais
       adjacentes. É a lacuna mais bloqueante: quase todo arquivo Dart real usa.
 - [ ] Construtores nomeados, listas de inicialização, `super` explícito,
@@ -674,6 +691,102 @@ As duas granularidades continuam sendo requisitos distintos e ambos necessários
 **granularidade do trabalho**, não reanalisar bibliotecas não afetadas, e
 **granularidade da saída**, um arquivo por biblioteca Dart.
 
+## Meta governante — qualquer projeto Dart 3.6 válido no dart2js/DDC compila
+
+**A compilação Dart → JavaScript tem de funcionar para qualquer projeto Dart
+3.6.0 válido que o dart2js ou o DDC compilem.** Registrado em 2026-09-21 por
+instrução do proprietário. Esta meta é superior a toda decisão anterior de
+"recusar de propósito" — `dynamic`, `runtimeType`, `noSuchMethod`, `DateTime`,
+`RegExp`, `Uri`, `Stopwatch`, `Map` cru, `dart:convert`, `dart:collection`,
+`dart:math`, `dart:typed_data`, `dart:io` — porque um projeto de produção usa
+todos eles, e o critério de aceite passa a ser o do compilador oficial, não o do
+subconjunto.
+
+### O que a meta implica na arquitetura, medido no código de hoje
+
+O front-end atual é um compilador de subconjunto, e as representações centrais
+foram desenhadas para isso:
+
+* o parser **resolve tipos durante a análise sintática** (`type_at` em
+  `crates/parser/src/lib.rs`): exige um ambiente de nomes de classe, apaga os
+  argumentos de tipo de classes genéricas do usuário e recusa qualquer nome que
+  não conheça com `expected an explicitly supported type`. Um parser de Dart
+  completo não pode depender de resolução: `Foo<Bar>` é sintaxe válida sem saber
+  o que `Foo` é;
+* `dartforge_syntax::Type` é uma enumeração `Copy` com variantes `Int`,
+  `NullableInt`, `Duration`, `Timer`, e `TypeShape` com `List`/`Map`/`Future`
+  fixos. Não representa `dynamic`, tipos de função com parâmetros nomeados,
+  `FutureOr`, tipos genéricos de usuário reificados, bounds nem `Never`;
+* não existe fonte de `dart:core`: os membros são tabelas em Rust
+  (`crates/semantic/src/nucleo.rs`), 40 nomes de membro, com `Comparable`,
+  `Iterator` e vizinhos numa faixa reservada de identificadores;
+* a aferição de 2026-09-21 (`docs/CORPUS-REAL.md`, modo grafo) mostra **0 de
+  113 pontos de entrada** dos quatro pacotes medidos chegando ao front-end: o
+  carregador para em `dart:convert`, `dart:io`, `dart:math`, `dart:collection`
+  e `dart:typed_data`, e o parser para em `#símbolo`.
+
+Estender essas representações uma variante por vez não converge para a meta:
+cada recurso novo do Dart pede outra variante fixa, e a meta é a linguagem
+inteira. A decisão é construir o **front-end completo** como uma trilha nova,
+com o mesmo desenho de memória já registrado (arenas, índices, `SymbolId`), e
+migrar a emissão para ele quando a análise estiver completa. O subconjunto
+atual continua compilando o que já compila até lá — nenhuma capacidade
+existente é removida antes de a nova trilha a cobrir.
+
+### A trilha, em ordem, com o critério de aceite de cada passo
+
+1. **Sintaxe completa** — `crates/frontend`: lexer, AST e parser de Dart 3.6
+   inteiro, sem resolução. Aceite: **100%** dos 426 arquivos de `lib/` do SDK
+   3.6.2 (`C:/tools/dartsdk-3.6.2/lib`) e **100%** dos arquivos do corpus
+   (`references/pub/`) analisados sem diagnóstico. O `lib/` do SDK é o corpus
+   de parser definitivo porque contém o runtime do dart2js escrito em Dart
+   (`_internal/js_runtime`) e usa toda a gramática.
+   **Cumprido em 2026-09-21**: 426/426 do SDK e 1.969/1.969 do corpus
+   (26 pacotes), afirmado por `crates/frontend/tests/corpus.rs`. As últimas
+   lacunas, cada uma com teste de regressão: o `?` após `is T`/`as T`
+   decidido pela lista de `computeTypeAfterIsOrAs` do SDK (com tentativa
+   para `{`/`when`); função local com retorno anulável; `.5` como `double`;
+   `operator` como nome de campo; padrão de objeto em `for-in`; vírgula
+   final nos atualizadores do `for` (aceita pelo Dart 3.6.2 embora fora da
+   gramática escrita); elementos null-aware `?e` (3.8, o corpus usa); e
+   strings com surrogates soltos — o escape de surrogate alto sozinho é
+   literal válido, então `StringPart::Text` passou a ser `DartStr` (WTF-8,
+   `utf16_len()` é o `length` do Dart) em vez de `Box<str>`. Duas
+   expectativas de teste estavam erradas em relação ao oráculo e foram
+   corrigidas: `await x;` fora de `async` é declaração de tipo `await` no
+   SDK, e a contagem de membros de uma classe de teste.
+2. **Modelo de elementos e resolução** — bibliotecas, imports/exports com
+   combinadores e prefixos, `part`, escopos, classes/mixins/extensions/
+   extension types, enums, typedefs. Aceite: toda referência de nome do SDK e
+   do corpus resolve para uma declaração.
+   **Cumprido em 2026-09-21** (`crates/elements`): 36 bibliotecas do SDK,
+   179 unidades, 1.525 classes, 19.849 funções em 0,46 s; patches do DDC
+   fundidos (`int.parse` sem `external`); 269/269 supertipos resolvidos;
+   `crates/elements/tests/sdk.rs`, 14 testes.
+3. **Tipos e inferência** — o sistema de tipos do Dart 3: `dynamic`, `Never`,
+   `FutureOr`, tipos de função com parâmetros nomeados e opcionais, generics
+   com bounds e variância por uso, promoção de fluxo, inferência de literais e
+   de argumentos de tipo, extensões. Aceite: o SDK e o corpus passam sem erro
+   de tipo, e os testes negativos do `analyzer` reprovam onde ele reprova.
+   Em andamento (`crates/types`, brief em `brief-types.md`): primeira metade
+   é representação hash-consed, resolução das anotações do outline,
+   hierarquia instanciada e subtipagem regra a regra.
+4. **SDK a partir da fonte** — compilar `dart:core`, `dart:async`,
+   `dart:collection`, `dart:convert`, `dart:math`, `dart:typed_data`,
+   `dart:js_interop` e `dart:_internal`/`_js_helper` a partir do `lib/` do SDK
+   com os *patch files* do dart2js, como o dart2js faz. Isso substitui as
+   tabelas em Rust de `nucleo.rs` por código Dart, e é o único caminho em que
+   a cobertura de biblioteca é a do SDK e não uma lista mantida à mão.
+5. **Emissão completa** — despacho dinâmico, reificação de tipos genéricos,
+   `noSuchMethod`, `runtimeType`, `is`/`as` sobre qualquer tipo, tearoffs,
+   `async*`/`sync*`, isolates conforme `docs/ISOLATES-WEB.md`. Aceite: os
+   pontos de entrada do corpus executam no Node com a mesma saída do dart2js.
+
+O tree shaking e a minificação continuam sendo o ganho legítimo do DartForge,
+mas passam a ser **otimizações sobre um programa completo**, nunca recusas: um
+receptor `dynamic` reduz o que se pode remover, e o compilador mede isso em vez
+de proibir o programa.
+
 ## Regra de projeto — equivalência semântica com o Dart oficial
 
 **O DartForge pode tornar código Dart padrão mais rápido, dividir workers
@@ -791,10 +904,16 @@ incomparavelmente menor. É a prova de existência da meta, e está clonado em
 Duas lacunas concretas a atacar antes de qualquer transporte JSON-RPC:
 
 1. `dartforge_compiler::compile` devolve `Result<String, Diagnostic>` — **um**
-   erro. `crates/lsp/src/lib.rs` já expõe `diagnose() -> Vec<Diagnostic>`, mas o
-   vetor nunca pode ter mais de um elemento. Um LSP precisa de **todos** os erros.
-2. Logo, **recuperação de erro no parser é pré-requisito** do LSP, não recurso
-   posterior. Sem ela o editor mostra um erro por arquivo.
+   erro. `crates/lsp/src/lib.rs` já expõe `diagnose() -> Vec<Diagnostic>`, e o
+   parser agora recupera em fronteiras de declaração (três declarações
+   quebradas rendem três diagnósticos) — **correção em 2026-09-21**: a frase
+   antiga "o vetor nunca pode ter mais de um elemento" valia só para o
+   passado; o gargalo restante são as fases pós-sintaxe (macros, mixins,
+   semântica, emissão), que ainda param no primeiro erro. Um LSP precisa de
+   **todos** os erros também da semântica.
+2. Logo, **recuperação de erro na semântica é o pré-requisito restante** do
+   LSP (o do parser foi cumprido). Sem ela o editor mostra um erro
+   semântico por arquivo.
 
 `crates/lsp` tem 22 linhas e documenta honestamente que não tem transporte,
 JSON-RPC nem sincronização de documentos. Não existe extensão de editor ainda.
@@ -902,6 +1021,10 @@ coisas diferentes: corpo de função, assinatura e import.
 
 **Sem este teste, nenhum outro item desta lista pode ser declarado concluído.**
 
+Estado em 2026-09-21: existe e passa — `crates/compiler/tests/plato_memoria.rs`
+(`edicoes_sucessivas_estabilizam_em_plato`, 60 edições alternando corpo,
+assinatura e import, tolerância de 8 KiB sobre o platô de referência).
+
 ### 2. Teto e despejo em todo cache que sobreviva a uma requisição
 
 **Falha a que responde:** cache sem teto é a causa mecânica mais comum de
@@ -912,6 +1035,14 @@ novo nasce com teto, política de despejo e `hits`/`misses`/`evictions`
 observáveis — o cache de macros já faz assim e serve de molde.
 
 **Verificação:** encher além do teto e afirmar que o tamanho não passa dele.
+
+Estado em 2026-09-21: feito — teto padrão de 256 registros, despejo do mtime
+mais antigo (LRU aproximado; acerto atualiza recência), contadores
+compartilhados entre clones via `Arc` (a sessão guarda um clone, então as
+expulsões que ela provoca aparecem na alçada do teste), `DiskCacheStats`
+exportado. Verificação em `crates/compiler/tests/teto_disco.rs` (3 testes,
+incluindo o LRU tocar-A-expulsa-B). Detalhe que quebrou o primeiro teste:
+`Clone` copiava os contadores, e a sessão incrementava a cópia dela.
 
 ### 3. O desenho de snapshot único não escala para o LSP
 
@@ -925,6 +1056,19 @@ Precisa de dono explícito por documento e descarte determinístico da versão N
 quando N chega. **Verificação:** abrir K documentos, editar cada um K vezes,
 afirmar platô — o teste do item 1 aplicado ao servidor, não ao compilador.
 
+Estado em 2026-09-21: o dono existe — `DocumentStore` em `crates/lsp`
+(uma entrada por documento, chegada da versão N substitui a N−1 no lugar,
+versão menor ou igual ignorada, `close` remove; sincronização integral por
+enquanto, incremental por intervalos pendente). Verificação K×K feita —
+`crates/lsp/tests/plato_documentos.rs`: 24 documentos × 24 edições com
+diagnóstico a cada uma, `live_bytes` em platô (tolerância 8 KiB); fechar os
+16 de uma segunda fase devolve ao nível inicial, e o `drop` do servidor volta
+ao byte exato de antes (3.847 → 3.847). Detalhe que enganou a primeira
+versão: o alocador contador é global ao processo, e o harness libera as
+estruturas de um `#[test]` terminado em momento não determinístico — dois
+testes no mesmo binário mediam um ao outro, e `Mutex` não resolve porque a
+liberação ocorre fora da região travada. As duas fases vivem num só `#[test]`.
+
 ### 4. Interning e `SymbolId`
 
 **Falha a que responde:** o piso de memória do modelo, não o crescimento.
@@ -935,6 +1079,11 @@ que emprestam `&'a str` em `crates/syntax` definem a fronteira do trabalho.
 
 **Verificação:** `live_bytes` do modelo semântico antes e depois, no corpus real.
 
+Estado em 2026-09-21: a facilidade existe — `crates/intern` (`SymbolId` de 4
+bytes `Copy`, `Interner` com `payload_bytes`, 4 testes) — mas a migração dos
+54 pontos (lexer/parser → semântica/HIR/codegen) não começou; o crate documenta
+a fronteira.
+
 ### 5. Recuperação de erro no parser
 
 **Falha a que responde:** editor que mostra um erro por arquivo.
@@ -942,11 +1091,20 @@ que emprestam `&'a str` em `crates/syntax` definem a fronteira do trabalho.
 Pré-requisito do LSP: `compile` devolve `Result<String, Diagnostic>` — um erro —
 enquanto `crates/lsp` já promete `Vec<Diagnostic>`. Em andamento.
 
+Estado em 2026-09-21: recuperação no parser pronta (fronteiras de declaração,
+3 erros independentes saem com spans próprios, sem cascata, entradas
+patológicas terminam; `diagnose()` multi-erro). A semântica ainda para no
+primeiro erro — o gargalo restante é semântica multi-erro, não mais o parser.
+
 ### 6. Transporte do LSP
 
 Não existe: `crates/lsp` tem 22 linhas e documenta que não tem JSON-RPC nem
 sincronização de documentos. Precisa de `didChange` **incremental** — reenviar o
 arquivo inteiro a cada tecla reintroduz o custo que se quer evitar.
+
+Estado em 2026-09-21: `crates/lsp` tem `diagnose()` multi-erro + `DocumentStore`
+(ver item 3); transporte JSON-RPC, `didChange` incremental com UTF-16 correto e
+cancelamento continuam inexistentes.
 
 ### 7. Consultas sob demanda com memoização, e despejo delas
 
@@ -957,6 +1115,43 @@ Desenho do rust-analyzer (`references/rust-analyzer`): interning, memoização p
 consulta, snapshots compartilhados. Com a ressalva já registrada — **o cache de
 consultas cresce** e precisa de despejo LRU, senão trocamos um vazamento por
 outro.
+
+Mapeamento fechado em 2026-09-21 (verificado nos clones; não é analogia
+livre). Onde o analyzer do Dart retém
+(`references/dart-sdk/pkg/analyzer/lib/src/dart/analysis/`):
+
+* `driver.dart:248` — `_resolvedLibraryCache: Map<String, …>` **sem teto**
+  (só `.clear()` em L569); `driver.dart:245` — `_priorityResults` idem;
+* `file_state.dart` — cada edição gera nova `_unlinkedKey`/assinatura, mas as
+  entradas antigas permanecem nos mapas; `FileContentCache` e
+  `UnlinkedUnitStoreImpl` sem despejo determinístico por versão;
+* `summary2/` (link, element_builder, ~40 arquivos) — element model como
+  grafo de objetos com identidade por referência, não por índice.
+
+Peças do salsa do rust-analyzer que se aplicam a `crates/semantic` +
+`crates/lsp` (verificado em `references/rust-analyzer/crates/`):
+
+* `base-db/src/input.rs` + `lib.rs` — `#[salsa::input]` para texto/raízes,
+  `#[salsa::interned]` para identidades (Crate), `#[salsa::tracked]` para
+  consultas memoizadas retornando `Arc`; `Durability` separa o que muda por
+  tecla (baixa) do que é quase imutável (bibliotecas, alta);
+* `base-db/src/change.rs` — `FileChange` transacional: N edições aplicadas de
+  uma vez, invalidação calculada pelo salsa, não à mão;
+* `intern/` — interning global com `gc.rs` (`GarbageCollector` explícito):
+  prova de que interning sem coleta é outro vazamento; `SymbolId` do
+  DartForge precisa do par (internar, coletar);
+* `vfs/` (`path_interner.rs`, `file_set.rs`) — identidade de arquivo por
+  índice, nunca por `String` de caminho;
+* `rust-analyzer/src/` (`global_state.rs`, `mem_docs.rs`, `main_loop.rs`,
+  `op_queue.rs`) — documentos em memória versionados, fila de operações com
+  cancelamento, estado global dono dos snapshots.
+
+Aplicação, em ordem: (i) `SymbolId` + arenas por unidade (desbloqueia os 54
+pontos `&'a str`); (ii) resumo da biblioteca separado dos corpos, com
+impressão que interrompe invalidação (o `unlinkedKey` do analyzer, mas com
+despejo); (iii) consultas memoizadas por (arquivo, revisão) com LRU; (iv)
+dono explícito por documento no LSP descartando N−1 quando N chega.
+Verificação de cada peça: o teste de platô do item 1.
 
 ### 8. Emissão modular por biblioteca
 
@@ -980,3 +1175,34 @@ relatado: `new_sali` (front-end), onde o `webdev` chega a ~10 GB e o LSP a ~6 GB
 Pendência registrada: `cargo bench -p dartforge-compiler --bench incremental`
 terminou com código 101 e sem saída. **Nenhum número de memória do DartForge foi
 medido ainda**, e nenhuma comparação pode ser afirmada antes disso.
+
+**Alvo de referência fixado em 2026-09-21 por instrução do proprietário:
+`C:/MyDartProjects/new_sali`** — ngdart no front-end, angel3 no back-end,
+1.258 arquivos `.dart`, 8,52 MiB de fonte. Ninguém aceita que 10 MB de Dart
+virem 10 GB de RAM para compilar ou para o LSP no VS Code; memória e tempo
+de compilação são critério permanente, e o compromisso é ser melhor que
+dart2js, DDC e o LSP do Dart **neste projeto**, medido.
+
+Primeira medição do front-end novo sobre o `new_sali` inteiro
+(`cargo run --release -p dartforge-frontend --example memoria --
+C:/MyDartProjects/new_sali`, alocador contador, **todas as árvores retidas**
+como num editor com o projeto aberto): 1.258/1.258 arquivos aceitos, 254 ms
+(33,6 MiB/s), **132 MiB vivos** com tudo retido — 15,5× a fonte —, pico
+igual ao vivo (nada transitório sobra), 367 mil alocações, 18.583 símbolos
+internados em 0,25 MiB. Contra os ~6 GB do LSP do Dart é 45× menos, mas o
+número honesto a perseguir é o 15,5×: os nós da arena são gordos
+(`Expr` 120 bytes, `Stmt` 96, `TypeAnnotation` 80, `Decl` 224, `Member`
+248, `CollectionElement` 88), e é aí que o modelo de dados ainda paga —
+`Vec` e `Box` dentro de variantes de enum e `Span` de 16 bytes em cada nó.
+Reduzir o nó é trabalho de representação, medido por esta mesma linha de
+comando antes e depois. A medição encontrou e corrigiu uma recusa real do
+parser (record nomeado dentro de `<...>` em função local), o que confirma
+que o projeto do proprietário é corpus de aceite, não só de memória.
+
+Estado em 2026-09-21: **desbloqueado** — a causa era `nucleo_rotulo` privado
+(E0624) num módulo que o bench usa. Primeira medição (25 unidades, ~38 KiB de
+fontes): cenário `assinatura` 4,86 ms de mediana (p95 5,62 ms), 15.834
+alocações/execução, `live_bytes_growth` 839, pico de 3,25 MiB vivos; acerto de
+cache (`sem_edicao`) 0,39 ms e 124 alocações. São números do harness, não
+comparação com `webdev` — a comparação continua bloqueada até o teste de platô
+do LSP existir.

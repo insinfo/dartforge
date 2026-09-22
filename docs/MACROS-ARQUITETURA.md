@@ -150,3 +150,77 @@ não podem funcionar junto com tremor de árvore — não é questão de esforç
 
 Logo `import 'dart:mirrors'` recebe diagnóstico próprio, que nomeia o substituto
 em vez de só recusar.
+
+## Verificação do protótipo e contrato fechado (2026-09-21)
+
+Verificado por leitura direta no clone `references/dart-macros`, commit
+`89aecb1e3c10373ea795f003268d7cd48c9ed431` (2025-02-04).
+
+### Transporte: confirmado e descartado
+
+- Hospedagem: `pkgs/_macro_host` (`macro_host.dart`, `macro_cache.dart`,
+  `package_config.dart`), `pkgs/_macro_client` (`builder_impls.dart`,
+  `execute_macro.dart`), `pkgs/_macro_server` (`macro_server.dart`).
+- `MacroServer.serve` usa `ServerSocket.bind('localhost', 0)` — **TCP/IP em
+  loopback**, com `TODO(davidmorgan): other transports besides TCP/IP`.
+- Enquadramento: `pkgs/macro_service/lib/src/message_grouper.dart` —
+  prefixo de comprimento u32 big-endian por mensagem.
+- Handshake: `handshake.g.dart` (gerado por `tool/dart_model_generator`) —
+  `Protocol{encoding: json|binary, version: handshake|macros1}`.
+- Schemas JSON: `dart_model` 438 + `handshake` 58 + `macro_metadata` 1186 +
+  `macro_service` 267 = **1949 linhas**. Confere.
+- Decisão mantida: **herdar o contrato de fases, descartar o transporte**.
+  Introspecção por RPC (serializar → socket → desserializar por consulta) é o
+  custo apontado no relato de janeiro/2025 e colide com a meta incremental.
+  O gerador é Rust em processo, como `@JsonCodable`/`@DataClass` já são.
+
+### Fases: confirmadas no código
+
+`pkgs/macro/lib/src/macro.dart`: `Library/Class/Function/Variable/Enum` ×
+`Types/Declarations/DefinitionsMacro`; `pkgs/macro/lib/src/builders.dart`:
+`TypesBuilder.declareType`, builders por fase, `query(Query)` sobre `Model`
+acumulado. As três regras que viram ganho incremental (ordem lexicográfica,
+`OmittedTypeAnnotation`/inferência só na fase 3, erro ao sombrear
+identificador resolvido) são adotadas da especificação citada; o clone local
+não contém o documento de spec, então **não foram re-verificadas nele** (Q3).
+
+### Alvo `package:reflectable`: afirmação verificada, sem correção de substância
+
+Checado em pub.dev em 2026-09-21: `reflectable` **5.2.3**, publicado em
+2026-05-26 (~3 meses) — pacote ativo, não abandonado. Confirmado: parte
+runtime + `reflectable_builder` (dev) via `package:build`/`build_runner`;
+capacidades explícitas (`invokingCapability`, `typingCapability`, etc.);
+exemplo oficial em `web/main.dart`; limitações declaradas (sem
+funções/closures, quase sem privados, URIs parciais, genéricos parciais).
+Tudo o que ISOLATES-WEB.md §"Recomendação sobre mirrors" afirma sobre ele
+confere; **nenhuma correção de substância necessária**.
+
+### Adendo novo (não estava nos docs): os dois acoplamentos mecânicos
+
+O README do reflectable impõe dois requisitos que o contrato precisa cobrir,
+sob pena de violar a equivalência na forma dura (fonte que compila sob
+dart2js e quebra sob DartForge):
+
+1. `import 'x.reflectable.dart'` — o programa importa um arquivo **que não
+   existe em disco** antes do build. O DartForge precisa sintetizar essa
+   biblioteca (o gerador nativo produz o conteúdo) ou rejeitá-la com
+   diagnóstico que mapeie para a geração — nunca com erro de "arquivo não
+   encontrado".
+2. `initializeReflectable()` no início do `main` — precisa existir como
+   intrínseco (no-op quando a inicialização é estática, ou inicialização
+   real). Um programa canônico do reflectable chama isso; sem o símbolo, o
+   mesmo fonte não compila.
+
+### Perguntas abertas
+
+- Q1: granularidade do plano de reflexão — capacidades × argumentos de tipo
+  de `WorkerTask`/`SendPort`: um gerador só (exigido por ISOLATES-WEB.md
+  §"A interseção com isolates") ou dois com tabela compartilhada?
+- Q2: namespace reservado dos descritores (não sombrear identificador
+  resolvido) — prefixo, sufixo ou símbolo higienizado? Decide antes do
+  primeiro descritor emitido.
+- Q3: re-verificar as três regras da spec contra o documento de linguagem
+  (fora do clone do protótipo).
+- Q4: macros de usuário escritas em Dart — fora do contrato; só o gerador
+  Rust em processo. Hospedagem isolada, protocolo versionado e orçamento
+  continuam pendentes desde o incremento 21.

@@ -2,11 +2,18 @@
 use super::*;
 impl<'a> Validator<'a> {
     /// Nomes intrínsecos não atravessam declarações que ocultam a classe Future.
+    ///
+    /// A isenção de `library_id == usize::MAX` é a mesma de `collections.rs`:
+    /// entradas sintéticas do núcleo não são declarações do programa. Hoje não
+    /// há sintético "Future", então é só a armadilha idêntica já desarmada.
     pub(super) fn future_name(&self, span: Span) -> Result<(), Diagnostic> {
         if self.lookup("Future").is_some()
             || self.has_implicit_member("Future")
             || self.functions.contains_key("Future")
-            || self.classes.values().any(|c| c.name == "Future")
+            || self
+                .classes
+                .values()
+                .any(|c| c.name == "Future" && c.library_id != usize::MAX)
         {
             return Err(Diagnostic::new("Declaration shadows Future", span));
         }

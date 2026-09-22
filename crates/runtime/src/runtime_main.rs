@@ -44,6 +44,27 @@ unsafe extern "C" {
 fn main() {
     // SAFETY: o objeto foi emitido para esta ABI e ligado pelo mesmo driver nativo.
     unsafe { dartforge_entry() };
+    let pending = EXCEPTION.with(|slot| slot.borrow().is_some());
+    if pending {
+        let (bits, tag) = EXCEPTION.with(|slot| {
+            let value = slot.borrow().expect("exceção verificada acima");
+            untag(value)
+        });
+        HEAP.with(|heap| {
+            let heap = heap.borrow();
+            let detail = match tag {
+                1 => format!("{bits}"),
+                2 => format!("{}", bits != 0),
+                _ => describe_handle(&heap, bits),
+            };
+            use std::io::Write;
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "Uncaught exception: {detail}"
+            );
+        });
+        std::process::exit(101);
+    }
     if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
         HEAP.with(|heap| {
             let s = heap.borrow().stats();
@@ -55,10 +76,43 @@ fn main() {
     }
 }
 
-use heap::{Heap, Value};
+use heap::{Heap, TaggedValue, Value};
 use std::cell::RefCell;
 thread_local! {
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
+}
+
+/// Exceção pendente do esquema portátil de `throw`/`try`/`catch`.
+///
+/// Em vez de desenrolamento nativo (`landingpad`/personalidade C++), que
+/// exigiria alinhar o runtime Rust com o ABI de exceção do Clang em cada
+/// plataforma, o emissor LLVM verifica `dartforge_exception_pending` após cada
+/// chamada e desvia para o tratador. A carga é um valor com tag explícita:
+/// 1 = int, 2 = bool, 3 = referência gerenciada viva. `throw null` é erro de
+/// compilação no Dart 3.6.2 e nunca chega aqui.
+thread_local! {
+    static EXCEPTION: RefCell<Option<TaggedValue>> = RefCell::new(None);
+}
+
+/// Monta um valor com tag a partir da ABI plana (bits, tag); valida referências.
+fn tagged(bits: i64, tag: u8) -> TaggedValue {
+    match tag {
+        1 => TaggedValue::scalar(bits),
+        2 => TaggedValue::boolean(bits != 0),
+        3 => TaggedValue::reference(bits),
+        _ => panic!("tag de valor inválida"),
+    }
+}
+
+/// Separa um valor na ABI plana (bits, tag) para chamadas LLVM.
+fn untag(value: TaggedValue) -> (i64, u8) {
+    use heap::ValueTag;
+    let tag = match value.tag {
+        ValueTag::Int => 1,
+        ValueTag::Bool => 2,
+        ValueTag::Ref => 3,
+    };
+    (value.bits, tag)
 }
 
 /// Abre frame para raízes precisas dos valores SSA da função.
@@ -185,4 +239,453 @@ pub extern "C" fn dartforge_print_string(handle: i64) {
         };
         println!("{text}");
     });
+}
+
+/// Descreve um handle para mensagens de erro e impressão de coleções.
+///
+/// Profundidade limitada a 4 e 101 elementos, como a abreviação do SDK 3.6.2
+/// para iteráveis; a forma exata é do subconjunto, não do SDK.
+fn describe_handle(heap: &Heap, handle: i64) -> String {
+    fn render(heap: &Heap, value: TaggedValue, depth: usize, output: &mut String) {
+        if depth == 0 {
+            output.push_str("...");
+            return;
+        }
+        if value.is_ref {
+            if value.bits == 0 {
+                output.push_str("null");
+                return;
+            }
+            match heap.get(value.bits) {
+                Value::String(text) => {
+                    output.push_str(text);
+                }
+                Value::List(items) => {
+                    let items: Vec<TaggedValue> = items.clone();
+                    output.push('[');
+                    for (index, item) in items.iter().take(101).enumerate() {
+                        if index > 0 {
+                            output.push_str(", ");
+                        }
+                        render(heap, *item, depth - 1, output);
+                    }
+                    if items.len() > 101 {
+                        output.push_str(", ...");
+                    }
+                    output.push(']');
+                }
+                Value::Map(entries) => {
+                    let entries: Vec<(TaggedValue, TaggedValue)> = entries.clone();
+                    output.push('{');
+                    for (index, (key, item)) in entries.iter().take(101).enumerate() {
+                        if index > 0 {
+                            output.push_str(", ");
+                        }
+                        render(heap, *key, depth - 1, output);
+                        output.push_str(": ");
+                        render(heap, *item, depth - 1, output);
+                    }
+                    if entries.len() > 101 {
+                        output.push_str(", ...");
+                    }
+                    output.push('}');
+                }
+                Value::Set(items) => {
+                    let items: Vec<TaggedValue> = items.clone();
+                    output.push('{');
+                    for (index, item) in items.iter().take(101).enumerate() {
+                        if index > 0 {
+                            output.push_str(", ");
+                        }
+                        render(heap, *item, depth - 1, output);
+                    }
+                    if items.len() > 101 {
+                        output.push_str(", ...");
+                    }
+                    output.push('}');
+                }
+                Value::Closure { .. }
+                | Value::Environment(_)
+                | Value::Cell(_)
+                | Value::Object { .. } => {
+                    output.push_str("Instance");
+                }
+            }
+            return;
+        }
+        use heap::ValueTag;
+        match value.tag {
+            ValueTag::Bool => output.push_str(if value.bits != 0 { "true" } else { "false" }),
+            ValueTag::Int => output.push_str(&value.bits.to_string()),
+        }
+    }
+    let mut output = String::new();
+    render(
+        heap,
+        TaggedValue::reference(handle),
+        4,
+        &mut output,
+    );
+    output
+}
+
+/// Imprime uma lista gerenciada no formato `[1, 2]`, como `print` de Dart.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_print_list(handle: i64) {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        println!("{}", describe_handle(&heap, handle));
+    });
+}
+
+/// Imprime um mapa gerenciado no formato `{1: a}`, como `print` de Dart.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_print_map(handle: i64) {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        println!("{}", describe_handle(&heap, handle));
+    });
+}
+
+/// Imprime um conjunto gerenciado no formato `{1, 2}`, como `print` de Dart.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_print_set(handle: i64) {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        println!("{}", describe_handle(&heap, handle));
+    });
+}
+
+/// Cria uma célula de captura mutável; o chamador a enraíza antes de coletar.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_cell_new(bits: i64, tag: u8) -> i64 {
+    let value = tagged(bits, tag);
+    HEAP.with(|heap| heap.borrow_mut().create_cell(value))
+}
+
+/// Lê os bits de uma captura mutável, sem copiar o objeto de uma referência.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_cell_get_bits(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().cell_get(handle).bits)
+}
+
+/// Lê a tag (1 = int, 2 = bool, 3 = referência) de uma captura mutável.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_cell_get_tag(handle: i64) -> u8 {
+    HEAP.with(|heap| untag(heap.borrow().cell_get(handle)).1)
+}
+
+/// Atualiza a captura observada por todos os ambientes que partilham a célula.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_cell_set(handle: i64, bits: i64, tag: u8) {
+    let value = tagged(bits, tag);
+    HEAP.with(|heap| heap.borrow_mut().cell_set(handle, value));
+}
+
+/// Cria um ambiente com `len` pares (bits, tag) lidos de `pairs`.
+///
+/// # Safety
+/// `pairs` deve apontar para `2 * len` i64 legíveis; o emissor constrói o vetor
+/// na pilha. Capturas mutáveis entram como handles de célula (tag 3).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_env_new(pairs: *const i64, len: i64) -> i64 {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let captures = if len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: vetor temporário do emissor, legível pelos `2 * len` i64.
+        let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
+        raw.chunks_exact(2)
+            .map(|pair| tagged(pair[0], u8::try_from(pair[1]).expect("tag inválida")))
+            .collect()
+    };
+    HEAP.with(|heap| heap.borrow_mut().create_environment(captures))
+}
+
+/// Obtém a captura (handle de célula) por índice do ambiente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_env_get(handle: i64, index: i64) -> i64 {
+    HEAP.with(|heap| {
+        heap.borrow()
+            .environment_get(handle, usize::try_from(index).expect("índice inválido"))
+            .bits
+    })
+}
+
+/// Cria uma closure com identidade própria sobre código simbólico e ambiente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_new(code_id: i64, env: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().create_closure(code_id, env))
+}
+
+/// Devolve o tear-off canônico de uma função top-level (mesmo handle sempre).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_tearoff(code_id: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().tearoff(code_id))
+}
+
+/// Consulta o código simbólico de uma closure para despacho indireto.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_code(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().closure_parts(handle).0)
+}
+
+/// Consulta o ambiente de uma closure para chamadas indiretas.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_env(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().closure_parts(handle).1)
+}
+
+/// Cria uma lista expansível com `len` pares (bits, tag) lidos de `pairs`.
+///
+/// # Safety
+/// `pairs` deve apontar para `2 * len` i64 legíveis construídos pelo emissor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_list_new(pairs: *const i64, len: i64) -> i64 {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let values = if len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: vetor temporário do emissor, legível pelos `2 * len` i64.
+        let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
+        raw.chunks_exact(2)
+            .map(|pair| tagged(pair[0], u8::try_from(pair[1]).expect("tag inválida")))
+            .collect()
+    };
+    HEAP.with(|heap| heap.borrow_mut().create_list(values))
+}
+
+/// Quantidade de elementos da lista.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_len(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().list_len(handle) as i64)
+}
+
+/// Lê os bits do elemento, sem verificar limites: o emissor verifica antes.
+///
+/// O índice fora dos limites lança `RangeError` capturável em vez de abortar;
+/// o emissor desvia para o tratador ao observar a exceção pendente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if index < 0 || index >= heap.list_len(handle) as i64 {
+            drop(heap);
+            let message = HEAP.with(|heap| {
+                heap.borrow_mut().allocate(Value::String("RangeError".into()))
+            });
+            dartforge_exception_throw(message, 3);
+            return 0;
+        }
+        heap.list_get(handle, index as usize).bits
+    })
+}
+
+/// Lê a tag (1 = int, 2 = bool, 3 = referência) do elemento da lista.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_get_tag(handle: i64, index: i64) -> u8 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if index < 0 || index >= heap.list_len(handle) as i64 {
+            return 0;
+        }
+        untag(heap.list_get(handle, index as usize)).1
+    })
+}
+
+/// Substitui o elemento existente; limites verificados como na leitura.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_set(handle: i64, index: i64, bits: i64, tag: u8) {
+    let value = tagged(bits, tag);
+    HEAP.with(|heap| {
+        if index < 0 || index >= heap.borrow().list_len(handle) as i64 {
+            let message = heap
+                .borrow_mut()
+                .allocate(Value::String("RangeError".into()));
+            dartforge_exception_throw(message, 3);
+            return;
+        }
+        heap.borrow_mut().list_set(handle, index as usize, value);
+    });
+}
+
+/// Acrescenta ao fim (`List.add`); devolve void pela ABI do emissor.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_push(handle: i64, bits: i64, tag: u8) {
+    let value = tagged(bits, tag);
+    HEAP.with(|heap| heap.borrow_mut().list_push(handle, value));
+}
+
+/// Cria um mapa com `len` chaves e valores lidos de dois vetores de pares.
+///
+/// # Safety
+/// `keys` e `values` apontam para `2 * len` i64 legíveis cada.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_map_new(keys: *const i64, values: *const i64, len: i64) -> i64 {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let read = |ptr: *const i64| -> Vec<TaggedValue> {
+        if len == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: vetores temporários do emissor, legíveis pelos `2 * len` i64.
+            let raw = unsafe { std::slice::from_raw_parts(ptr, len * 2) };
+            raw.chunks_exact(2)
+                .map(|pair| tagged(pair[0], u8::try_from(pair[1]).expect("tag inválida")))
+                .collect()
+        }
+    };
+    let keys = read(keys);
+    let values = read(values);
+    HEAP.with(|heap| {
+        heap.borrow_mut()
+            .create_map(keys.into_iter().zip(values).collect())
+    })
+}
+
+/// Quantidade de pares do mapa.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_len(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().map_len(handle) as i64)
+}
+
+/// Pertinência de chave (`containsKey`); nunca lança.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_contains(handle: i64, bits: i64, tag: u8) -> u8 {
+    let key = tagged(bits, tag);
+    HEAP.with(|heap| u8::from(heap.borrow().map_contains(handle, key)))
+}
+
+/// Lê os bits do valor; chave ausente devolve null (bits 0, tag verificada à parte).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_get_bits(handle: i64, bits: i64, tag: u8) -> i64 {
+    let key = tagged(bits, tag);
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if heap.map_contains(handle, key) {
+            heap.map_get(handle, key).bits
+        } else {
+            0
+        }
+    })
+}
+
+/// Lê a tag do valor; chave ausente devolve 0 (ausência, não null tipado).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_get_tag(handle: i64, bits: i64, tag: u8) -> u8 {
+    let key = tagged(bits, tag);
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if heap.map_contains(handle, key) {
+            untag(heap.map_get(handle, key)).1
+        } else {
+            0
+        }
+    })
+}
+
+/// Insere ou substitui (`map[chave] = valor` e `[]=`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_set(
+    handle: i64,
+    key_bits: i64,
+    key_tag: u8,
+    value_bits: i64,
+    value_tag: u8,
+) {
+    let key = tagged(key_bits, key_tag);
+    let value = tagged(value_bits, value_tag);
+    HEAP.with(|heap| heap.borrow_mut().map_set(handle, key, value));
+}
+
+/// Cria um conjunto com `len` pares (bits, tag); duplicadas conservam a primeira.
+///
+/// # Safety
+/// `pairs` deve apontar para `2 * len` i64 legíveis construídos pelo emissor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_set_new(pairs: *const i64, len: i64) -> i64 {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let values = if len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: vetor temporário do emissor, legível pelos `2 * len` i64.
+        let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
+        raw.chunks_exact(2)
+            .map(|pair| tagged(pair[0], u8::try_from(pair[1]).expect("tag inválida")))
+            .collect()
+    };
+    HEAP.with(|heap| heap.borrow_mut().create_set(values))
+}
+
+/// Quantidade de elementos distintos do conjunto.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_set_len(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().set_len(handle) as i64)
+}
+
+/// Pertinência (`contains`); nunca lança.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_set_contains(handle: i64, bits: i64, tag: u8) -> u8 {
+    let value = tagged(bits, tag);
+    HEAP.with(|heap| u8::from(heap.borrow().set_contains(handle, value)))
+}
+
+/// Insere quando ausente (`Set.add`); devolve se houve inserção.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_set_add(handle: i64, bits: i64, tag: u8) -> u8 {
+    let value = tagged(bits, tag);
+    HEAP.with(|heap| u8::from(heap.borrow_mut().set_add(handle, value)))
+}
+
+/// Consulta a classe nominal de um handle para testes `on T` de captura.
+///
+/// Devolve o `class_id` de objetos, -2 para strings, -3 para listas, -4 para
+/// mapas, -5 para conjuntos e -6 para closures; outros valores internos nunca
+/// são lançáveis pelo subconjunto e devolvem -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::Object { class_id, .. } => *class_id,
+            Value::String(_) => -2,
+            Value::List(_) => -3,
+            Value::Map(_) => -4,
+            Value::Set(_) => -5,
+            Value::Closure { .. } => -6,
+            Value::Cell(_) | Value::Environment(_) => -1,
+        }
+    })
+}
+
+/// Registra a exceção pendente; referências devem estar vivas e enraizadas.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
+    let value = tagged(bits, tag);
+    if value.is_ref && value.bits != 0 {
+        HEAP.with(|heap| {
+            heap.borrow().get(value.bits);
+        });
+    }
+    EXCEPTION.with(|slot| *slot.borrow_mut() = Some(value));
+}
+
+/// Indica se há exceção pendente na thread corrente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_pending() -> u8 {
+    EXCEPTION.with(|slot| u8::from(slot.borrow().is_some()))
+}
+
+/// Toma os bits da exceção pendente e limpa o slot.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_take_bits() -> i64 {
+    EXCEPTION.with(|slot| slot.borrow_mut().take().map_or(0, |value| value.bits))
+}
+
+/// Lê a tag da exceção pendente sem limpar (a limpeza é de `take_bits`).
+///
+/// O emissor lê a tag antes dos bits: `take_bits` consome o slot e leituras
+/// posteriores devolvem 0, que nenhuma carga válida usa.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_take_tag() -> u8 {
+    EXCEPTION.with(|slot| slot.borrow().map_or(0, |value| untag(value).1))
 }

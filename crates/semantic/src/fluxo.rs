@@ -101,9 +101,26 @@ impl<'a> Validator<'a> {
     ) -> Result<(), Diagnostic> {
         self.invalidate_writes(body);
         let source = self.value(iterable)?;
-        let element = self
-            .element(source)
-            .ok_or_else(|| Diagnostic::new("for-in requires a List or Iterable", iterable.span))?;
+        let element = match self.element(source) {
+            Some(element) => element,
+            // Uma classe que declara `implements Iterable<T>` é subtipo de
+            // Iterable, mas o `T` foi **apagado**: `Iterator<T> get iterator`
+            // chega à análise como `Iterator`, e o elemento que `for-in` ligaria
+            // seria `Object?`. Percorrer com o iterator à mão preserva o tipo que
+            // a própria classe declara, então é isso que a mensagem oferece.
+            None if self.implementa_nucleo(source, dartforge_syntax::NUCLEO_ITERABLE) => {
+                return Err(Diagnostic::new(
+                    "'for-in' over a class that implements Iterable<T> is unsupported: this subset erases class type arguments, so the element would bind as Object?; iterate explicitly with 'var it = x.iterator; while (it.moveNext()) { ... it.current ... }', which keeps the type your own Iterator declares",
+                    iterable.span,
+                ));
+            }
+            None => {
+                return Err(Diagnostic::new(
+                    "for-in requires a List or Iterable",
+                    iterable.span,
+                ));
+            }
+        };
         let declared = match annotation {
             Some(expected) => {
                 self.check_type_name(expected, span)?;

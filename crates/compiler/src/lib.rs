@@ -5,7 +5,7 @@ mod session;
 pub use dartforge_linker::LinkStats;
 pub use dartforge_macros::{MacroCacheStats, MacroSession};
 pub use dartforge_packages::{CompilationEnvironment, CompilationTarget};
-pub use disk::{CachedCompilation, DiskCache};
+pub use disk::{CachedCompilation, DiskCache, DiskCacheStats};
 pub use session::{Compilation, CompilerSession, SessionStats};
 /// Compila o subconjunto suportado de Dart em um módulo JavaScript ESM.
 ///

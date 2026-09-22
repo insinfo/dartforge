@@ -361,8 +361,7 @@ fn nomes_declarados(fonte: &str) -> Vec<String> {
             .unwrap_or_else(|| linha.trim_end().len());
         if let Some(nome) = linha[..fim]
             .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
-            .filter(|palavra| !palavra.is_empty())
-            .next_back()
+            .rfind(|palavra| !palavra.is_empty())
         {
             nomes.push(nome.to_owned());
         }
@@ -781,13 +780,10 @@ impl Falha<'_> {
         self.fonte.lines().any(|linha| {
             let mut resto = linha.trim_start();
             let mut houve = false;
-            loop {
-                let Some(proximo) = MODIFICADORES
-                    .iter()
-                    .find_map(|modificador| resto.strip_prefix(modificador))
-                else {
-                    break;
-                };
+            while let Some(proximo) = MODIFICADORES
+                .iter()
+                .find_map(|modificador| resto.strip_prefix(modificador))
+            {
                 resto = proximo.trim_start();
                 houve = true;
             }
@@ -810,9 +806,7 @@ fn uri_no_span(trecho: &str) -> Option<&str> {
     while let Some(abre) = resto.find(['\'', '"']) {
         let delimitador = resto.as_bytes()[abre];
         let conteudo = &resto[abre + 1..];
-        let Some(fecha) = conteudo.find(delimitador as char) else {
-            return None;
-        };
+        let fecha = conteudo.find(delimitador as char)?;
         let candidato = &conteudo[..fecha];
         if candidato.starts_with("dart:")
             || candidato.starts_with("package:")

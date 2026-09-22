@@ -1,0 +1,2008 @@
+//! Unidade de compilação, diretivas, metadata, declarações de topo, membros
+//! de classe, construtores e corpos de função (Dart 3.6, sem resolução).
+//!
+//! Decisões que não são tradução direta da gramática:
+//!
+//! * **Recuperação de erro.** Uma declaração de topo ou um membro que falha
+//!   registra um único diagnóstico; o cursor é então sincronizado até a
+//!   próxima fronteira plausível (`;` ou `}` no nível de aninhamento em que a
+//!   declaração começou, ou um token que inicia declaração de topo) e a
+//!   análise continua. Assim uma unidade com N erros independentes produz
+//!   ~N diagnósticos, e os membros seguintes a um erro dentro de uma classe
+//!   não são perdidos. A profundidade é recalculada a partir do início da
+//!   declaração, porque o erro pode ter acontecido dentro de um corpo.
+//! * **Construtor × método.** `Nome(` é construtor quando `Nome` é o da
+//!   classe corrente (o nome é passado ao parser de membros); `Nome.x(` é
+//!   sempre construtor, porque métodos não têm nome pontuado; `factory` e
+//!   `const Nome(` idem.
+//! * **Função × variável.** Após `tipo? nome`, `(` ou `<` abre uma função;
+//!   qualquer outra coisa é uma lista de variáveis. `get`/`set` seguidos de
+//!   identificador são getter/setter mesmo sem tipo de retorno, porque são
+//!   identificadores embutidos e não podem nomear um tipo.
+//! * **Metadata.** `@Nome (` só é lista de argumentos se o `(` estiver colado
+//!   ao nome (ou houver argumentos de tipo), como faz o parser do SDK — caso
+//!   contrário o `(` inicia um tipo record da declaração seguinte.
+//! * **Redirecionamento de factory.** Em `= D.x;` o `D.x` é lido primeiro
+//!   como tipo (possivelmente `prefixo.Tipo`); `.x` só vira nome de construtor
+//!   se sobrar após o tipo. Distinguir `prefixo.Tipo` de `Tipo.construtor`
+//!   exige resolução.
+//! * **Ordem das diretivas.** Não é imposta: qualquer diretiva é aceita em
+//!   qualquer ponto do nível de topo (superconjunto; a fase seguinte valida).
+use super::{ComposedGt, PResult, ParseError, Parser};
+use crate::ast::{
+    Annotation, AsyncModifier, ClassDecl, ClassModifiers, Combinator, CompilationUnit,
+    Configuration, Constructor, Decl, DeclId, DeclKind, Directive, DirectiveKind, EnumConstant,
+    EnumDecl, ExtensionDecl, ExtensionTypeDecl, Function, FunctionBody, FunctionId, FunctionKind,
+    Initializer, Member, MemberId, MemberKind, MixinDecl, Name, RedirectTarget, TypeId,
+    TypedefDecl, TypedefKind, Variable, VariableList,
+};
+use crate::token::{Keyword, Kind, Op};
+use dartforge_diagnostics::Span;
+
+/// Modificadores que podem preceder um membro ou uma declaração de topo.
+///
+/// São lidos em qualquer ordem (superconjunto): a gramática fixa uma ordem,
+/// mas rejeitar a ordem errada é papel da fase seguinte.
+#[derive(Debug, Default, Clone, Copy)]
+struct Modifiers {
+    external: bool,
+    static_: bool,
+    abstract_: bool,
+    covariant: bool,
+    late: bool,
+    final_: bool,
+    const_: bool,
+    var_: bool,
+}
+
+/// Resultado de `tipo? nome …`: função/método/acessor ou lista de variáveis.
+enum FunctionOrVariables {
+    Function(FunctionId),
+    Variables(VariableList),
+}
+
+impl<'s, 'i> Parser<'s, 'i> {
+    // -----------------------------------------------------------------------
+    // Unidade de compilação
+    // -----------------------------------------------------------------------
+
+    /// Lê a unidade inteira, com recuperação nas fronteiras de declaração.
+    ///
+    /// Nunca falha: cada declaração que não pode ser lida vira um diagnóstico
+    /// e a análise continua na próxima fronteira plausível.
+    pub(crate) fn parse_compilation_unit(&mut self) -> CompilationUnit {
+        let mut unit = CompilationUnit::default();
+        if self.kind() == Kind::ScriptTag {
+            unit.script_tag = Some(self.advance().span);
+        }
+        while !self.at_eof() {
+            let start_pos = self.pos;
+            if self.parse_top_level_item(&mut unit).is_err() {
+                self.recover_top_level(start_pos);
+            }
+        }
+        unit
+    }
+
+    /// Uma diretiva ou uma declaração de topo, com sua metadata.
+    fn parse_top_level_item(&mut self, unit: &mut CompilationUnit) -> PResult<()> {
+        let start = self.span();
+        let metadata = self.parse_metadata()?;
+        if let Some(kind) = self.parse_directive_opt()? {
+            unit.directives.push(Directive {
+                span: self.span_from(start),
+                metadata,
+                kind,
+            });
+            return Ok(());
+        }
+        if !self.can_start_declaration() {
+            return Err(self.error("esperava uma declaração"));
+        }
+        let id = self.parse_top_level_declaration(start, metadata)?;
+        unit.declarations.push(id);
+        Ok(())
+    }
+
+    /// O token corrente pode iniciar uma declaração de topo ou um membro?
+    ///
+    /// Serve para falhar cedo em tokens soltos (`;`, `}`, `)`) sem consultar
+    /// os *lookaheads* de tipo.
+    fn can_start_declaration(&self) -> bool {
+        matches!(
+            self.kind(),
+            Kind::Ident
+                | Kind::Op(Op::LParen)
+                | Kind::Keyword(
+                    Keyword::Class
+                        | Keyword::Enum
+                        | Keyword::Void
+                        | Keyword::Final
+                        | Keyword::Const
+                        | Keyword::Var
+                )
+        )
+    }
+
+    /// Profundidade de `()[]{}` acumulada entre duas posições de token.
+    fn nesting_between(&self, from: usize, to: usize) -> usize {
+        let mut depth = 0usize;
+        for token in &self.tokens[from.min(self.tokens.len())..to.min(self.tokens.len())] {
+            match token.kind {
+                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => depth += 1,
+                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        depth
+    }
+
+    /// Sincroniza após uma declaração de topo falhar em `start_pos`.
+    ///
+    /// Pula tokens até fechar o nível em que a declaração começou (`;` ou
+    /// `}` com profundidade zero) ou até um token que inicia declaração de
+    /// topo. Garante progresso: consome ao menos um token.
+    fn recover_top_level(&mut self, start_pos: usize) {
+        let mut depth = self.nesting_between(start_pos, self.pos);
+        loop {
+            match self.kind() {
+                Kind::Eof => break,
+                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => {
+                    depth += 1;
+                    self.advance();
+                }
+                Kind::Op(Op::RParen | Op::RBracket) => {
+                    // Um fechamento solto no nível zero é, ele próprio, uma
+                    // fronteira: não vale engolir a declaração seguinte.
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                Kind::Op(Op::RBrace) => {
+                    depth = depth.saturating_sub(1);
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                Kind::Op(Op::Semicolon) => {
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ if depth == 0 && self.pos > start_pos && self.starts_top_level_declaration() => {
+                    break;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+        if self.pos == start_pos {
+            self.advance();
+        }
+    }
+
+    /// O token corrente é um início plausível de declaração de topo (para a
+    /// sincronização de erro)?
+    fn starts_top_level_declaration(&self) -> bool {
+        match self.kind() {
+            Kind::Op(Op::At) => true,
+            Kind::Keyword(
+                Keyword::Class
+                | Keyword::Enum
+                | Keyword::Final
+                | Keyword::Const
+                | Keyword::Var
+                | Keyword::Void,
+            ) => true,
+            Kind::Ident => matches!(
+                self.text(),
+                "typedef"
+                    | "mixin"
+                    | "extension"
+                    | "abstract"
+                    | "import"
+                    | "export"
+                    | "part"
+                    | "library"
+                    | "external"
+                    | "base"
+                    | "interface"
+                    | "sealed"
+                    | "late"
+                    | "static"
+            ),
+            _ => false,
+        }
+    }
+
+    /// Sincroniza após um membro falhar em `start_pos`, sem sair do corpo.
+    ///
+    /// Consome até um `;` ou até fechar o `{` do próprio membro; a `}` que
+    /// fecha a classe **não** é consumida, para que o laço do corpo termine.
+    fn recover_member(&mut self, start_pos: usize) {
+        let mut depth = self.nesting_between(start_pos, self.pos);
+        loop {
+            match self.kind() {
+                Kind::Eof => break,
+                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => {
+                    depth += 1;
+                    self.advance();
+                }
+                Kind::Op(Op::RParen | Op::RBracket) => {
+                    // Um fechamento solto no nível zero é, ele próprio, uma
+                    // fronteira: não vale engolir a declaração seguinte.
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                Kind::Op(Op::RBrace) => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                Kind::Op(Op::Semicolon) => {
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                Kind::Op(Op::At) if depth == 0 && self.pos > start_pos => break,
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+        if self.pos == start_pos && !self.at_op(Op::RBrace) {
+            self.advance();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Diretivas
+    // -----------------------------------------------------------------------
+
+    /// O token `n` à frente é um literal de string?
+    fn string_at(&self, n: usize) -> bool {
+        matches!(self.kind_at(n), Kind::Str(_) | Kind::StrBegin(..))
+    }
+
+    /// Lê uma diretiva se o token corrente inicia uma; `None` caso contrário
+    /// (sem consumir nada). `library`, `import`, `export` e `part` são
+    /// identificadores embutidos, então a decisão olha o token seguinte.
+    fn parse_directive_opt(&mut self) -> PResult<Option<DirectiveKind>> {
+        if self.at_ident("library") && (self.at_identifier_at(1) || self.at_op_at(1, Op::Semicolon))
+        {
+            self.advance();
+            let name = if self.at_identifier() {
+                self.parse_dotted_name()?
+            } else {
+                Vec::new()
+            };
+            self.expect_op(Op::Semicolon)?;
+            return Ok(Some(DirectiveKind::Library { name }));
+        }
+        if self.at_ident("import") && self.string_at(1) {
+            self.advance();
+            let uri = self.parse_string_literal()?;
+            let configurations = self.parse_configurations()?;
+            let deferred = self.eat_ident("deferred");
+            let prefix = if self.eat_ident("as") {
+                Some(self.expect_identifier()?)
+            } else {
+                None
+            };
+            let combinators = self.parse_combinators()?;
+            self.expect_op(Op::Semicolon)?;
+            return Ok(Some(DirectiveKind::Import {
+                uri,
+                configurations,
+                deferred,
+                prefix,
+                combinators,
+            }));
+        }
+        if self.at_ident("export") && self.string_at(1) {
+            self.advance();
+            let uri = self.parse_string_literal()?;
+            let configurations = self.parse_configurations()?;
+            let combinators = self.parse_combinators()?;
+            self.expect_op(Op::Semicolon)?;
+            return Ok(Some(DirectiveKind::Export {
+                uri,
+                configurations,
+                combinators,
+            }));
+        }
+        if self.at_ident("part") {
+            if self.string_at(1) {
+                self.advance();
+                let uri = self.parse_string_literal()?;
+                self.expect_op(Op::Semicolon)?;
+                return Ok(Some(DirectiveKind::Part { uri }));
+            }
+            if self.at_ident_at(1, "of") && (self.string_at(2) || self.at_identifier_at(2)) {
+                self.advance();
+                self.advance();
+                let (uri, name) = if self.string_at(0) {
+                    (Some(self.parse_string_literal()?), Vec::new())
+                } else {
+                    (None, self.parse_dotted_name()?)
+                };
+                self.expect_op(Op::Semicolon)?;
+                return Ok(Some(DirectiveKind::PartOf { uri, name }));
+            }
+        }
+        Ok(None)
+    }
+
+    /// `a`, `a.b.c` — nome de biblioteca ou teste de configuração.
+    fn parse_dotted_name(&mut self) -> PResult<Vec<Name>> {
+        let mut names = vec![self.expect_identifier()?];
+        while self.at_op(Op::Dot) && self.at_identifier_at(1) {
+            self.advance();
+            names.push(self.identifier());
+        }
+        Ok(names)
+    }
+
+    /// Zero ou mais `if (dart.library.io == 'x') 'uri'`.
+    fn parse_configurations(&mut self) -> PResult<Vec<Configuration>> {
+        let mut out = Vec::new();
+        while self.at_kw(Keyword::If) {
+            let start = self.span();
+            self.advance();
+            self.expect_op(Op::LParen)?;
+            let test = self.parse_dotted_name()?;
+            let value = if self.eat_op(Op::EqEq) {
+                Some(self.parse_string_literal()?)
+            } else {
+                None
+            };
+            self.expect_op(Op::RParen)?;
+            let uri = self.parse_string_literal()?;
+            out.push(Configuration {
+                span: self.span_from(start),
+                test,
+                value,
+                uri,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Zero ou mais `show a, b` / `hide c`, em qualquer ordem.
+    fn parse_combinators(&mut self) -> PResult<Vec<Combinator>> {
+        let mut out = Vec::new();
+        loop {
+            if self.eat_ident("show") {
+                out.push(Combinator::Show(self.parse_identifier_list()?));
+            } else if self.eat_ident("hide") {
+                out.push(Combinator::Hide(self.parse_identifier_list()?));
+            } else {
+                return Ok(out);
+            }
+        }
+    }
+
+    /// `a, b, c` — ao menos um identificador.
+    fn parse_identifier_list(&mut self) -> PResult<Vec<Name>> {
+        let mut names = vec![self.expect_identifier()?];
+        while self.eat_op(Op::Comma) {
+            names.push(self.expect_identifier()?);
+        }
+        Ok(names)
+    }
+
+    // -----------------------------------------------------------------------
+    // Metadata
+    // -----------------------------------------------------------------------
+
+    /// Zero ou mais `@anotação`.
+    ///
+    /// Formas: `@a`, `@p.a`, `@C.ctor(args)`, `@p.C.ctor(args)`, `@C<T>(args)`,
+    /// `@p.C<T>.ctor(args)`. Os argumentos só são lidos se o `(` estiver
+    /// colado ao nome (ou se houver argumentos de tipo), para não engolir um
+    /// tipo record que inicie a declaração seguinte.
+    pub(crate) fn parse_metadata(&mut self) -> PResult<Vec<Annotation>> {
+        let mut out = Vec::new();
+        while self.at_op(Op::At) {
+            let start = self.span();
+            self.advance();
+            let mut name = vec![self.expect_identifier()?];
+            if self.at_op(Op::Dot) && self.at_identifier_at(1) {
+                self.advance();
+                name.push(self.identifier());
+            }
+            let type_args = if self.at_op(Op::Lt) {
+                self.parse_type_arguments_opt()?
+            } else {
+                Vec::new()
+            };
+            if self.at_op(Op::Dot) && (self.at_identifier_at(1) || self.at_kw_at(1, Keyword::New)) {
+                self.advance();
+                let part = self.identifier_or_new()?;
+                name.push(part);
+            }
+            let glued = self.pos > 0 && self.tokens[self.pos - 1].glued;
+            let arguments = if self.at_op(Op::LParen) && (glued || !type_args.is_empty()) {
+                Some(self.parse_arguments()?)
+            } else {
+                None
+            };
+            out.push(Annotation {
+                span: self.span_from(start),
+                name,
+                type_args,
+                arguments,
+            });
+        }
+        Ok(out)
+    }
+
+    /// `identifierOrNew`: um identificador ou a palavra `new` (nome de
+    /// construtor `C.new`).
+    fn identifier_or_new(&mut self) -> PResult<Name> {
+        if self.at_kw(Keyword::New) {
+            let token = self.advance();
+            Ok(self.name_from("new", token.span))
+        } else {
+            self.expect_identifier()
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Declarações de topo
+    // -----------------------------------------------------------------------
+
+    /// Despacha a declaração de topo que começa no token corrente.
+    fn parse_top_level_declaration(
+        &mut self,
+        start: Span,
+        metadata: Vec<Annotation>,
+    ) -> PResult<DeclId> {
+        let kind = if self.class_follows() {
+            DeclKind::Class(self.parse_class()?)
+        } else if self.mixin_follows() {
+            DeclKind::Mixin(self.parse_mixin()?)
+        } else if self.at_kw(Keyword::Enum) {
+            DeclKind::Enum(self.parse_enum()?)
+        } else if self.at_ident("typedef")
+            && (self.at_identifier_at(1) || self.at_kw_at(1, Keyword::Void))
+        {
+            DeclKind::Typedef(self.parse_typedef()?)
+        } else if self.at_ident("extension")
+            && (self.at_identifier_at(1) || self.at_op_at(1, Op::Lt))
+        {
+            self.parse_extension_or_extension_type()?
+        } else {
+            let fstart = self.span();
+            let mods = self.parse_modifiers();
+            match self.parse_function_or_variables(mods, fstart)? {
+                FunctionOrVariables::Function(id) => DeclKind::Function(id),
+                FunctionOrVariables::Variables(list) => DeclKind::Variables(list),
+            }
+        };
+        Ok(self.ast.push_decl(Decl {
+            span: self.span_from(start),
+            metadata,
+            kind,
+        }))
+    }
+
+    /// `modificadores* class` começa aqui?
+    fn class_follows(&self) -> bool {
+        let mut i = self.pos;
+        loop {
+            match self.kind_of(i) {
+                Kind::Keyword(Keyword::Final) => i += 1,
+                Kind::Ident
+                    if matches!(
+                        self.text_of(i),
+                        "abstract" | "base" | "interface" | "sealed" | "mixin"
+                    ) =>
+                {
+                    i += 1
+                }
+                Kind::Keyword(Keyword::Class) => return true,
+                _ => return false,
+            }
+        }
+    }
+
+    /// `base? mixin Nome` começa aqui?
+    fn mixin_follows(&self) -> bool {
+        (self.at_ident("mixin") && self.at_identifier_at(1))
+            || (self.at_ident("base") && self.at_ident_at(1, "mixin") && self.at_identifier_at(2))
+    }
+
+    /// `classDeclaration`, inclusive a forma `class C = S with M;`.
+    fn parse_class(&mut self) -> PResult<ClassDecl> {
+        let mut modifiers = ClassModifiers::default();
+        loop {
+            if self.eat_kw(Keyword::Final) {
+                modifiers.final_ = true;
+            } else if self.eat_ident("abstract") {
+                modifiers.abstract_ = true;
+            } else if self.eat_ident("base") {
+                modifiers.base = true;
+            } else if self.eat_ident("interface") {
+                modifiers.interface = true;
+            } else if self.eat_ident("sealed") {
+                modifiers.sealed = true;
+            } else if self.eat_ident("mixin") {
+                modifiers.mixin = true;
+            } else {
+                break;
+            }
+        }
+        self.expect_kw(Keyword::Class)?;
+        let name_text = self.text();
+        let name = self.expect_identifier()?;
+        let type_params = self.parse_type_parameters_opt()?;
+        if self.eat_op(Op::Assign) {
+            let extends = Some(self.parse_type()?);
+            self.expect_kw(Keyword::With)?;
+            let with = self.parse_type_list()?;
+            let implements = self.parse_implements_opt()?;
+            self.expect_op(Op::Semicolon)?;
+            return Ok(ClassDecl {
+                modifiers,
+                name,
+                type_params,
+                extends,
+                with,
+                implements,
+                mixin_application: true,
+                members: Vec::new(),
+            });
+        }
+        let extends = if self.eat_kw(Keyword::Extends) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let with = if self.eat_kw(Keyword::With) {
+            self.parse_type_list()?
+        } else {
+            Vec::new()
+        };
+        let implements = self.parse_implements_opt()?;
+        let members = self.parse_class_body(Some(name_text))?;
+        Ok(ClassDecl {
+            modifiers,
+            name,
+            type_params,
+            extends,
+            with,
+            implements,
+            mixin_application: false,
+            members,
+        })
+    }
+
+    /// `implements A, B` opcional.
+    fn parse_implements_opt(&mut self) -> PResult<Vec<TypeId>> {
+        if self.eat_ident("implements") {
+            self.parse_type_list()
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// `A, B, C` — ao menos um tipo.
+    fn parse_type_list(&mut self) -> PResult<Vec<TypeId>> {
+        let mut out = vec![self.parse_type()?];
+        while self.eat_op(Op::Comma) {
+            out.push(self.parse_type()?);
+        }
+        Ok(out)
+    }
+
+    /// `mixinDeclaration`.
+    fn parse_mixin(&mut self) -> PResult<MixinDecl> {
+        let base = self.eat_ident("base");
+        self.expect_ident("mixin")?;
+        let name_text = self.text();
+        let name = self.expect_identifier()?;
+        let type_params = self.parse_type_parameters_opt()?;
+        let on = if self.eat_ident("on") {
+            self.parse_type_list()?
+        } else {
+            Vec::new()
+        };
+        let implements = self.parse_implements_opt()?;
+        let members = self.parse_class_body(Some(name_text))?;
+        Ok(MixinDecl {
+            base,
+            name,
+            type_params,
+            on,
+            implements,
+            members,
+        })
+    }
+
+    /// `enumType`: constantes (com metadata, argumentos de tipo, construtor
+    /// e argumentos), vírgula final opcional, `;` e membros opcionais.
+    fn parse_enum(&mut self) -> PResult<EnumDecl> {
+        self.expect_kw(Keyword::Enum)?;
+        let name_text = self.text();
+        let name = self.expect_identifier()?;
+        let type_params = self.parse_type_parameters_opt()?;
+        let with = if self.eat_kw(Keyword::With) {
+            self.parse_type_list()?
+        } else {
+            Vec::new()
+        };
+        let implements = self.parse_implements_opt()?;
+        self.expect_op(Op::LBrace)?;
+        let mut constants = Vec::new();
+        while !self.at_op(Op::RBrace) && !self.at_op(Op::Semicolon) && !self.at_eof() {
+            constants.push(self.parse_enum_constant()?);
+            if !self.eat_op(Op::Comma) {
+                break;
+            }
+        }
+        let members = if self.eat_op(Op::Semicolon) {
+            self.parse_member_list(Some(name_text))?
+        } else {
+            self.expect_op(Op::RBrace)?;
+            Vec::new()
+        };
+        Ok(EnumDecl {
+            name,
+            type_params,
+            with,
+            implements,
+            constants,
+            members,
+        })
+    }
+
+    /// `@meta nome<T>.ctor(args)`.
+    fn parse_enum_constant(&mut self) -> PResult<EnumConstant> {
+        let start = self.span();
+        let metadata = self.parse_metadata()?;
+        let name = self.expect_identifier()?;
+        let type_args = if self.at_op(Op::Lt) {
+            self.parse_type_arguments_opt()?
+        } else {
+            Vec::new()
+        };
+        let constructor = if self.eat_op(Op::Dot) {
+            Some(self.identifier_or_new()?)
+        } else {
+            None
+        };
+        let arguments = if self.at_op(Op::LParen) {
+            Some(self.parse_arguments()?)
+        } else {
+            None
+        };
+        Ok(EnumConstant {
+            span: self.span_from(start),
+            metadata,
+            name,
+            type_args,
+            constructor,
+            arguments,
+        })
+    }
+
+    /// `extension` já foi visto: decide entre `extension [Nome]<T> on Tipo`
+    /// e `extension type`. `extension type on X {}` é uma extension chamada
+    /// `type`; `extension type Nome(...)` e `extension type const` são
+    /// extension types.
+    fn parse_extension_or_extension_type(&mut self) -> PResult<DeclKind> {
+        let is_extension_type = self.at_ident_at(1, "type")
+            && (self.at_kw_at(2, Keyword::Const)
+                || (self.at_identifier_at(2)
+                    && (!self.at_ident_at(2, "on")
+                        || matches!(self.kind_at(3), Kind::Op(Op::LParen | Op::Lt | Op::Dot)))));
+        if is_extension_type {
+            Ok(DeclKind::ExtensionType(self.parse_extension_type()?))
+        } else {
+            Ok(DeclKind::Extension(self.parse_extension()?))
+        }
+    }
+
+    /// `extension Nome? <T>? on Tipo { membros }`.
+    fn parse_extension(&mut self) -> PResult<ExtensionDecl> {
+        self.expect_ident("extension")?;
+        // `on` só é nome da extension se ainda houver um `on` (ou `<`) depois.
+        let named = self.at_identifier()
+            && (!self.at_ident("on") || self.at_ident_at(1, "on") || self.at_op_at(1, Op::Lt));
+        let (name_text, name) = if named {
+            let text = self.text();
+            (Some(text), Some(self.identifier()))
+        } else {
+            (None, None)
+        };
+        let type_params = self.parse_type_parameters_opt()?;
+        self.expect_ident("on")?;
+        let on = self.parse_type()?;
+        let members = self.parse_class_body(name_text)?;
+        Ok(ExtensionDecl {
+            name,
+            type_params,
+            on,
+            members,
+        })
+    }
+
+    /// `extension type const? Nome<T>(.ctor)? (@meta final? Tipo nome) implements I { }`.
+    fn parse_extension_type(&mut self) -> PResult<ExtensionTypeDecl> {
+        self.expect_ident("extension")?;
+        self.expect_ident("type")?;
+        let const_ = self.eat_kw(Keyword::Const);
+        let name_text = self.text();
+        let name = self.expect_identifier()?;
+        let type_params = self.parse_type_parameters_opt()?;
+        let constructor = if self.eat_op(Op::Dot) {
+            Some(self.identifier_or_new()?)
+        } else {
+            None
+        };
+        self.expect_op(Op::LParen)?;
+        let representation_metadata = self.parse_metadata()?;
+        // `final` não está na gramática 3.6, mas é inofensivo aceitar.
+        self.eat_kw(Keyword::Final);
+        let representation_type = self.parse_type()?;
+        let representation_name = self.expect_identifier()?;
+        self.expect_op(Op::RParen)?;
+        let implements = self.parse_implements_opt()?;
+        let members = self.parse_class_body(Some(name_text))?;
+        Ok(ExtensionTypeDecl {
+            const_,
+            name,
+            type_params,
+            constructor,
+            representation_metadata,
+            representation_type,
+            representation_name,
+            implements,
+            members,
+        })
+    }
+
+    /// Posição após `<...>` iniciado em `pos` contando só `<`/`>` (serve para
+    /// parâmetros de tipo, que podem ter `extends`); `pos` se não houver
+    /// `<` ou se a lista não fechar antes de `;`/`{`/`}`/`=`.
+    fn skip_angles(&self, pos: usize) -> usize {
+        if self.kind_of(pos) != Kind::Op(Op::Lt) {
+            return pos;
+        }
+        let mut depth = 0usize;
+        let mut i = pos;
+        loop {
+            match self.kind_of(i) {
+                Kind::Op(Op::Lt) => depth += 1,
+                Kind::Op(Op::Gt) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i + 1;
+                    }
+                }
+                Kind::Op(Op::Semicolon | Op::LBrace | Op::RBrace | Op::Assign | Op::Arrow)
+                | Kind::Eof => return pos,
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+
+    /// `typedef F<T> = tipo;` ou a forma antiga `typedef ret? F<T>(params);`.
+    fn parse_typedef(&mut self) -> PResult<TypedefDecl> {
+        self.expect_ident("typedef")?;
+        if self.at_identifier() {
+            let after = self.skip_angles(self.pos + 1);
+            if self.kind_of(after) == Kind::Op(Op::Assign) {
+                let name = self.identifier();
+                let type_params = self.parse_type_parameters_opt()?;
+                self.expect_op(Op::Assign)?;
+                let ty = self.parse_type()?;
+                self.expect_op(Op::Semicolon)?;
+                return Ok(TypedefDecl {
+                    name,
+                    type_params,
+                    kind: TypedefKind::Alias(ty),
+                });
+            }
+            if self.kind_of(after) == Kind::Op(Op::LParen) {
+                let name = self.identifier();
+                let type_params = self.parse_type_parameters_opt()?;
+                let parameters = self.parse_formal_parameters()?;
+                self.expect_op(Op::Semicolon)?;
+                return Ok(TypedefDecl {
+                    name,
+                    type_params,
+                    kind: TypedefKind::Legacy {
+                        return_type: None,
+                        parameters,
+                    },
+                });
+            }
+        }
+        let return_type = Some(self.parse_type()?);
+        let name = self.expect_identifier()?;
+        let type_params = self.parse_type_parameters_opt()?;
+        let parameters = self.parse_formal_parameters()?;
+        self.expect_op(Op::Semicolon)?;
+        Ok(TypedefDecl {
+            name,
+            type_params,
+            kind: TypedefKind::Legacy {
+                return_type,
+                parameters,
+            },
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Modificadores, funções e variáveis (comum a topo e membros)
+    // -----------------------------------------------------------------------
+
+    /// O identificador embutido corrente é usado como modificador (e não
+    /// como nome de função/variável)? `late(x)`, `static = 1`, `external;`
+    /// são nomes.
+    fn modifier_ok(&self) -> bool {
+        !matches!(
+            self.kind_at(1),
+            Kind::Eof
+                | Kind::Op(
+                    Op::LParen
+                        | Op::Assign
+                        | Op::Semicolon
+                        | Op::Comma
+                        | Op::Dot
+                        | Op::Lt
+                        | Op::Arrow
+                        | Op::Question
+                        | Op::RParen
+                        | Op::RBrace
+                        | Op::RBracket
+                        | Op::LBracket
+                        | Op::Colon
+                )
+        )
+    }
+
+    /// Modificadores em qualquer ordem: `external static abstract covariant
+    /// late final const var`.
+    fn parse_modifiers(&mut self) -> Modifiers {
+        let mut m = Modifiers::default();
+        loop {
+            match self.kind() {
+                Kind::Keyword(Keyword::Final) => m.final_ = true,
+                Kind::Keyword(Keyword::Const) => m.const_ = true,
+                Kind::Keyword(Keyword::Var) => m.var_ = true,
+                Kind::Ident if self.modifier_ok() => match self.text() {
+                    "external" => m.external = true,
+                    "static" => m.static_ = true,
+                    "abstract" => m.abstract_ = true,
+                    "covariant" => m.covariant = true,
+                    "late" => m.late = true,
+                    _ => break,
+                },
+                _ => break,
+            }
+            self.advance();
+        }
+        m
+    }
+
+    /// `get nome`, `set nome`, `operator op` começam aqui? Devolve o tipo do
+    /// acessor sem consumir nada.
+    fn accessor_follows(&self) -> Option<FunctionKind> {
+        if self.at_ident("get") && self.at_identifier_at(1) {
+            Some(FunctionKind::Getter)
+        } else if self.at_ident("set") && self.at_identifier_at(1) {
+            Some(FunctionKind::Setter)
+        } else if self.at_ident("operator") && self.operator_follows() {
+            Some(FunctionKind::Operator)
+        } else {
+            None
+        }
+    }
+
+    /// O token após `operator` é um operador declarável? `operator<T>()` é
+    /// um método chamado `operator`, então `<` só conta se `(` vier depois.
+    fn operator_follows(&self) -> bool {
+        self.operator_follows_at(self.pos)
+    }
+
+    /// Nome de operador como texto: `+`, `[]`, `[]=`, `>=`, `>>`, `>>>`…
+    /// (`>` chega isolado do lexer e é composto aqui).
+    fn parse_operator_name(&mut self) -> PResult<Name> {
+        let start = self.span();
+        let text: &str = match self.kind() {
+            Kind::Op(Op::LBracket) => {
+                self.advance();
+                self.expect_op(Op::RBracket)?;
+                if self.eat_op(Op::Assign) { "[]=" } else { "[]" }
+            }
+            Kind::Op(Op::Gt) => {
+                let composed = self.composed_gt().unwrap_or(ComposedGt::Gt);
+                let text = match composed {
+                    ComposedGt::Gt => ">",
+                    ComposedGt::GtEq => ">=",
+                    ComposedGt::Shr => ">>",
+                    ComposedGt::UShr => ">>>",
+                    ComposedGt::ShrAssign | ComposedGt::UShrAssign => {
+                        return Err(self.error("operador inválido para 'operator'"));
+                    }
+                };
+                self.eat_composed_gt(composed);
+                text
+            }
+            Kind::Op(
+                op @ (Op::Tilde
+                | Op::Lt
+                | Op::LtEq
+                | Op::LtLt
+                | Op::Plus
+                | Op::Minus
+                | Op::Star
+                | Op::Slash
+                | Op::TildeSlash
+                | Op::Percent
+                | Op::Pipe
+                | Op::Caret
+                | Op::Amp
+                | Op::EqEq),
+            ) => {
+                self.advance();
+                op.text()
+            }
+            _ => return Err(self.error("esperava um operador após 'operator'")),
+        };
+        Ok(self.name_from(text, self.span_from(start)))
+    }
+
+    /// `tipo? nome (params) corpo`, `tipo? get nome corpo`, `tipo? set nome
+    /// (params) corpo`, `tipo? operator op (params) corpo` ou
+    /// `tipo? a = 1, b;`. Os modificadores já foram lidos.
+    fn parse_function_or_variables(
+        &mut self,
+        mods: Modifiers,
+        start: Span,
+    ) -> PResult<FunctionOrVariables> {
+        if let Some(kind) = self.accessor_follows() {
+            let id = self.parse_accessor(mods, start, None, kind)?;
+            return Ok(FunctionOrVariables::Function(id));
+        }
+        let ty = if mods.var_ {
+            None
+        } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier(self.pos) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        if let Some(kind) = self.accessor_follows() {
+            let id = self.parse_accessor(mods, start, ty, kind)?;
+            return Ok(FunctionOrVariables::Function(id));
+        }
+        let name = self.expect_identifier()?;
+        if self.at_op(Op::LParen) || self.at_op(Op::Lt) {
+            let type_params = self.parse_type_parameters_opt()?;
+            let parameters = self.parse_formal_parameters()?;
+            let (modifier, body) = self.parse_function_body()?;
+            let id = self.ast.push_function(Function {
+                span: self.span_from(start),
+                external: mods.external,
+                static_: mods.static_,
+                kind: FunctionKind::Function,
+                return_type: ty,
+                name: Some(name),
+                type_params,
+                parameters: Some(parameters),
+                modifier,
+                body,
+            });
+            return Ok(FunctionOrVariables::Function(id));
+        }
+        let variables = self.parse_declared_variables_tail(name)?;
+        Ok(FunctionOrVariables::Variables(VariableList {
+            external: mods.external,
+            static_: mods.static_,
+            abstract_: mods.abstract_,
+            covariant: mods.covariant,
+            late: mods.late,
+            final_: mods.final_,
+            const_: mods.const_,
+            var_: mods.var_,
+            ty,
+            variables,
+        }))
+    }
+
+    /// Getter, setter ou operador a partir de `get`/`set`/`operator`.
+    fn parse_accessor(
+        &mut self,
+        mods: Modifiers,
+        start: Span,
+        return_type: Option<TypeId>,
+        kind: FunctionKind,
+    ) -> PResult<FunctionId> {
+        self.advance();
+        let (name, parameters) = match kind {
+            FunctionKind::Getter => (self.expect_identifier()?, None),
+            FunctionKind::Setter => {
+                let name = self.expect_identifier()?;
+                (name, Some(self.parse_formal_parameters()?))
+            }
+            _ => {
+                let name = self.parse_operator_name()?;
+                (name, Some(self.parse_formal_parameters()?))
+            }
+        };
+        let (modifier, body) = self.parse_function_body()?;
+        Ok(self.ast.push_function(Function {
+            span: self.span_from(start),
+            external: mods.external,
+            static_: mods.static_,
+            kind,
+            return_type,
+            name: Some(name),
+            type_params: Vec::new(),
+            parameters,
+            modifier,
+            body,
+        }))
+    }
+
+    /// `= e`? (`, nome = e`?)* `;` a partir do primeiro nome já lido.
+    fn parse_declared_variables_tail(&mut self, first: Name) -> PResult<Vec<Variable>> {
+        let mut variables = Vec::new();
+        let mut name = first;
+        loop {
+            let initializer = if self.eat_op(Op::Assign) {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            variables.push(Variable { name, initializer });
+            if !self.eat_op(Op::Comma) {
+                break;
+            }
+            name = self.expect_identifier()?;
+        }
+        self.expect_op(Op::Semicolon)?;
+        Ok(variables)
+    }
+
+    // -----------------------------------------------------------------------
+    // Membros
+    // -----------------------------------------------------------------------
+
+    /// `{ membros }` de classe, mixin, extension ou extension type.
+    fn parse_class_body(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+        self.expect_op(Op::LBrace)?;
+        self.parse_member_list(class_name)
+    }
+
+    /// Membros até a `}` de fechamento (inclusive), com recuperação por
+    /// membro. Um fim de arquivo prematuro registra o erro mas devolve os
+    /// membros já lidos.
+    fn parse_member_list(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+        let mut members = Vec::new();
+        loop {
+            if self.eat_op(Op::RBrace) {
+                return Ok(members);
+            }
+            if self.at_eof() {
+                self.error("esperava '}' para fechar o corpo");
+                return Ok(members);
+            }
+            let start_pos = self.pos;
+            match self.parse_member(class_name) {
+                Ok(id) => members.push(id),
+                Err(ParseError) => self.recover_member(start_pos),
+            }
+        }
+    }
+
+    /// Um `classMemberDefinition`: campo, método, acessor, operador ou
+    /// construtor. `class_name` decide se `Nome(` é construtor.
+    fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
+        let start = self.span();
+        let metadata = self.parse_metadata()?;
+        if !self.can_start_declaration() {
+            return Err(self.error("esperava um membro"));
+        }
+        let fstart = self.span();
+        let mods = self.parse_modifiers();
+        let kind = if self.at_ident("factory") && self.at_identifier_at(1) {
+            self.parse_constructor(mods, true)?
+        } else if self.constructor_follows(class_name, mods) {
+            self.parse_constructor(mods, false)?
+        } else {
+            match self.parse_function_or_variables(mods, fstart)? {
+                FunctionOrVariables::Function(id) => MemberKind::Method(id),
+                FunctionOrVariables::Variables(list) => MemberKind::Field(list),
+            }
+        };
+        Ok(self.ast.push_member(Member {
+            span: self.span_from(start),
+            metadata,
+            kind,
+        }))
+    }
+
+    /// `Nome(` com o nome da classe (ou após `const`), ou `Nome.x(`.
+    fn constructor_follows(&self, class_name: Option<&str>, mods: Modifiers) -> bool {
+        if !self.at_identifier() {
+            return false;
+        }
+        if self.at_op_at(1, Op::LParen) {
+            return mods.const_ || class_name == Some(self.text());
+        }
+        self.at_op_at(1, Op::Dot)
+            && (self.at_identifier_at(2) || self.at_kw_at(2, Keyword::New))
+            && self.at_op_at(3, Op::LParen)
+    }
+
+    /// `factory? C(.nome)? (params) (= Alvo.nome; | (: inits)? corpo)`.
+    fn parse_constructor(&mut self, mods: Modifiers, factory: bool) -> PResult<MemberKind> {
+        if factory {
+            self.advance();
+        }
+        let class_name = self.expect_identifier()?;
+        let name = if self.eat_op(Op::Dot) {
+            Some(self.identifier_or_new()?)
+        } else {
+            None
+        };
+        let parameters = self.parse_formal_parameters()?;
+        let mut initializers = Vec::new();
+        let mut redirect = None;
+        let body = if factory && self.eat_op(Op::Assign) {
+            let rstart = self.span();
+            let ty = self.parse_type()?;
+            let constructor = if self.eat_op(Op::Dot) {
+                Some(self.identifier_or_new()?)
+            } else {
+                None
+            };
+            redirect = Some(RedirectTarget {
+                span: self.span_from(rstart),
+                ty,
+                constructor,
+            });
+            self.expect_op(Op::Semicolon)?;
+            FunctionBody::Empty
+        } else {
+            if self.eat_op(Op::Colon) {
+                loop {
+                    initializers.push(self.parse_initializer()?);
+                    if !self.eat_op(Op::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.parse_function_body()?.1
+        };
+        Ok(MemberKind::Constructor(Constructor {
+            external: mods.external,
+            const_: mods.const_,
+            factory,
+            class_name,
+            name,
+            parameters,
+            initializers,
+            redirect,
+            body,
+        }))
+    }
+
+    /// Uma entrada da lista de inicializadores: `super(...)`, `super.n(...)`,
+    /// `this(...)`/`this.n(...)` (redirecionamento), `this.x = e`, `x = e`
+    /// ou `assert(c, m)`.
+    fn parse_initializer(&mut self) -> PResult<Initializer> {
+        let start = self.span();
+        if self.eat_kw(Keyword::Super) {
+            let constructor = if self.eat_op(Op::Dot) {
+                Some(self.identifier_or_new()?)
+            } else {
+                None
+            };
+            let arguments = self.parse_arguments()?;
+            return Ok(Initializer::Super {
+                span: self.span_from(start),
+                constructor,
+                arguments,
+            });
+        }
+        if self.eat_kw(Keyword::This) {
+            if self.eat_op(Op::Dot) {
+                let name = self.identifier_or_new()?;
+                if self.at_op(Op::LParen) {
+                    let arguments = self.parse_arguments()?;
+                    return Ok(Initializer::Redirect {
+                        span: self.span_from(start),
+                        constructor: Some(name),
+                        arguments,
+                    });
+                }
+                self.expect_op(Op::Assign)?;
+                let value = self.parse_expression()?;
+                return Ok(Initializer::Field {
+                    span: self.span_from(start),
+                    this_: true,
+                    name,
+                    value,
+                });
+            }
+            let arguments = self.parse_arguments()?;
+            return Ok(Initializer::Redirect {
+                span: self.span_from(start),
+                constructor: None,
+                arguments,
+            });
+        }
+        if self.eat_kw(Keyword::Assert) {
+            self.expect_op(Op::LParen)?;
+            let condition = self.parse_expression()?;
+            let message = if self.eat_op(Op::Comma) && !self.at_op(Op::RParen) {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            self.eat_op(Op::Comma);
+            self.expect_op(Op::RParen)?;
+            return Ok(Initializer::Assert {
+                span: self.span_from(start),
+                condition,
+                message,
+            });
+        }
+        let name = self.expect_identifier()?;
+        self.expect_op(Op::Assign)?;
+        let value = self.parse_expression()?;
+        Ok(Initializer::Field {
+            span: self.span_from(start),
+            this_: false,
+            name,
+            value,
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Corpos de função
+    // -----------------------------------------------------------------------
+
+    /// `async`/`async*`/`sync*` opcional seguido de `{...}`, `=> e;`, `;` ou
+    /// `native ...;`. Ajusta `in_async`/`in_generator` durante o corpo.
+    pub(crate) fn parse_function_body(&mut self) -> PResult<(AsyncModifier, FunctionBody)> {
+        self.parse_function_body_ex(true)
+    }
+
+    /// Como [`Parser::parse_function_body`], mas em expressões de função
+    /// (`(x) => x + 1`) não há `;` após a expressão: passe `false`.
+    ///
+    /// O contexto `async`/generator do corpo é o do modificador lido aqui —
+    /// uma função aninhada não herda o do exterior — e o contexto anterior é
+    /// restaurado ao sair, mesmo em caso de erro.
+    pub(crate) fn parse_function_body_ex(
+        &mut self,
+        expect_semicolon: bool,
+    ) -> PResult<(AsyncModifier, FunctionBody)> {
+        let modifier = self.parse_async_modifier();
+        let saved = (self.in_async, self.in_generator);
+        self.in_async = matches!(modifier, AsyncModifier::Async | AsyncModifier::AsyncStar);
+        self.in_generator = matches!(modifier, AsyncModifier::AsyncStar | AsyncModifier::SyncStar);
+        let body = self.parse_body_after_modifier(expect_semicolon);
+        (self.in_async, self.in_generator) = saved;
+        Ok((modifier, body?))
+    }
+
+    /// `async`, `async*`, `sync*` (identificadores contextuais; `*` é um
+    /// token separado) ou nada.
+    fn parse_async_modifier(&mut self) -> AsyncModifier {
+        if self.at_ident("async") {
+            self.advance();
+            if self.eat_op(Op::Star) {
+                AsyncModifier::AsyncStar
+            } else {
+                AsyncModifier::Async
+            }
+        } else if self.at_ident("sync") && self.at_op_at(1, Op::Star) {
+            self.advance();
+            self.advance();
+            AsyncModifier::SyncStar
+        } else {
+            AsyncModifier::None
+        }
+    }
+
+    /// O corpo propriamente dito, após o modificador.
+    fn parse_body_after_modifier(&mut self, expect_semicolon: bool) -> PResult<FunctionBody> {
+        if self.at_op(Op::LBrace) {
+            return Ok(FunctionBody::Block(self.parse_block()?));
+        }
+        if self.eat_op(Op::Arrow) {
+            let expr = self.parse_expression()?;
+            if expect_semicolon {
+                self.expect_op(Op::Semicolon)?;
+            }
+            return Ok(FunctionBody::Expression(expr));
+        }
+        if self.eat_op(Op::Semicolon) {
+            return Ok(FunctionBody::Empty);
+        }
+        if self.eat_ident("native") {
+            let name = if self.string_at(0) {
+                Some(self.parse_string_literal()?)
+            } else {
+                None
+            };
+            self.expect_op(Op::Semicolon)?;
+            return Ok(FunctionBody::Native(name));
+        }
+        Err(self.error("esperava o corpo da função ('{', '=>' ou ';')"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::{
+        AsyncModifier, DeclKind, DirectiveKind, FunctionBody, FunctionKind, MemberKind, Name,
+    };
+    use crate::parser::{Parsed, Parser, parse};
+    use dartforge_intern::Interner;
+
+    fn parse_ok(src: &str, names: &mut Interner) -> Parsed {
+        let out = parse(src, names);
+        assert!(out.diagnostics.is_empty(), "{src}: {:?}", out.diagnostics);
+        out
+    }
+
+    fn text(names: &Interner, name: Name) -> &str {
+        names.resolve(name.sym)
+    }
+
+    fn decl(out: &Parsed, i: usize) -> &DeclKind {
+        &out.ast.decl(out.unit.declarations[i]).kind
+    }
+
+    fn class(out: &Parsed, i: usize) -> &crate::ast::ClassDecl {
+        match decl(out, i) {
+            DeclKind::Class(class) => class,
+            other => panic!("esperava classe, veio {other:?}"),
+        }
+    }
+
+    fn member<'a>(out: &'a Parsed, class: &crate::ast::ClassDecl, i: usize) -> &'a MemberKind {
+        &out.ast.member(class.members[i]).kind
+    }
+
+    // -- Independentes dos outros módulos -----------------------------------
+
+    #[test]
+    fn script_tag_e_library() {
+        let mut names = Interner::new();
+        let out = parse_ok("#!/usr/bin/env dart\nlibrary a.b.c;\n", &mut names);
+        assert!(out.unit.script_tag.is_some());
+        assert_eq!(out.unit.directives.len(), 1);
+        match &out.unit.directives[0].kind {
+            DirectiveKind::Library { name } => {
+                let partes: Vec<_> = name.iter().map(|n| text(&names, *n)).collect();
+                assert_eq!(partes, ["a", "b", "c"]);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn library_sem_nome_e_part_of_pontuado() {
+        let mut names = Interner::new();
+        let out = parse_ok("library; part of a.b;", &mut names);
+        assert_eq!(out.unit.directives.len(), 2);
+        assert!(
+            matches!(&out.unit.directives[0].kind, DirectiveKind::Library { name } if name.is_empty())
+        );
+        assert!(matches!(
+            &out.unit.directives[1].kind,
+            DirectiveKind::PartOf { uri: None, name } if name.len() == 2
+        ));
+    }
+
+    #[test]
+    fn modificadores_de_classe() {
+        let mut names = Interner::new();
+        let src = "class A {} abstract class B {} base class C {} interface class D {} \
+                   final class E {} sealed class F {} mixin class G {} \
+                   abstract base class H {} abstract interface class I {} \
+                   abstract mixin class J {} base mixin class K {} abstract final class L {}";
+        let out = parse_ok(src, &mut names);
+        assert_eq!(out.unit.declarations.len(), 12);
+        let m = |i: usize| class(&out, i).modifiers;
+        assert!(!m(0).abstract_ && !m(0).base && !m(0).mixin);
+        assert!(m(1).abstract_);
+        assert!(m(2).base);
+        assert!(m(3).interface);
+        assert!(m(4).final_);
+        assert!(m(5).sealed);
+        assert!(m(6).mixin);
+        assert!(m(7).abstract_ && m(7).base);
+        assert!(m(8).abstract_ && m(8).interface);
+        assert!(m(9).abstract_ && m(9).mixin);
+        assert!(m(10).base && m(10).mixin);
+        assert!(m(11).abstract_ && m(11).final_);
+        assert_eq!(text(&names, class(&out, 11).name), "L");
+        assert!(!class(&out, 0).mixin_application);
+    }
+
+    #[test]
+    fn mixins() {
+        let mut names = Interner::new();
+        let out = parse_ok("mixin M {} base mixin N {}", &mut names);
+        match decl(&out, 0) {
+            DeclKind::Mixin(m) => assert!(!m.base && text(&names, m.name) == "M"),
+            other => panic!("{other:?}"),
+        }
+        match decl(&out, 1) {
+            DeclKind::Mixin(m) => assert!(m.base && text(&names, m.name) == "N"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn enums_sem_argumentos() {
+        let mut names = Interner::new();
+        let src = "enum A { a, b } enum B { a, b, } enum C { a; } enum D { a.named, b; var x; } enum E { a.new }";
+        let out = parse_ok(src, &mut names);
+        let e = |i: usize| match decl(&out, i) {
+            DeclKind::Enum(e) => e,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(e(0).constants.len(), 2);
+        assert_eq!(e(1).constants.len(), 2);
+        assert_eq!(e(2).constants.len(), 1);
+        assert!(e(2).members.is_empty());
+        assert_eq!(e(3).constants.len(), 2);
+        assert_eq!(
+            text(&names, e(3).constants[0].constructor.unwrap()),
+            "named"
+        );
+        assert_eq!(e(3).members.len(), 1);
+        assert_eq!(text(&names, e(4).constants[0].constructor.unwrap()), "new");
+    }
+
+    #[test]
+    fn campos_com_modificadores() {
+        let mut names = Interner::new();
+        let src = "class A { var x; static var y, z; late var w; external var e; abstract var f; covariant var c; }";
+        let out = parse_ok(src, &mut names);
+        let a = class(&out, 0);
+        assert_eq!(a.members.len(), 6);
+        let field = |i: usize| match member(&out, a, i) {
+            MemberKind::Field(list) => list,
+            other => panic!("{other:?}"),
+        };
+        assert!(field(0).var_ && field(0).variables.len() == 1);
+        assert!(field(1).static_ && field(1).variables.len() == 2);
+        assert_eq!(text(&names, field(1).variables[1].name), "z");
+        assert!(field(2).late);
+        assert!(field(3).external);
+        assert!(field(4).abstract_);
+        assert!(field(5).covariant);
+    }
+
+    #[test]
+    fn getters_abstratos_e_native() {
+        let mut names = Interner::new();
+        let src = "class A { get x; static get y; external get z; get w native; }";
+        let out = parse_ok(src, &mut names);
+        let a = class(&out, 0);
+        assert_eq!(a.members.len(), 4);
+        let getter = |i: usize| match member(&out, a, i) {
+            MemberKind::Method(id) => out.ast.function(*id),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(getter(0).kind, FunctionKind::Getter);
+        assert!(getter(0).parameters.is_none());
+        assert!(matches!(getter(0).body, FunctionBody::Empty));
+        assert!(getter(1).static_);
+        assert!(getter(2).external);
+        assert!(matches!(getter(3).body, FunctionBody::Native(None)));
+        assert_eq!(text(&names, getter(3).name.unwrap()), "w");
+    }
+
+    #[test]
+    fn variaveis_de_topo_sem_tipo() {
+        let mut names = Interner::new();
+        let out = parse_ok("var x, y; late var z;", &mut names);
+        assert_eq!(out.unit.declarations.len(), 2);
+        match decl(&out, 0) {
+            DeclKind::Variables(list) => assert_eq!(list.variables.len(), 2),
+            other => panic!("{other:?}"),
+        }
+        match decl(&out, 1) {
+            DeclKind::Variables(list) => assert!(list.late && list.var_),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn metadata_sem_argumentos() {
+        let mut names = Interner::new();
+        let out = parse_ok("@a @b.c @d.e.f class A {} @override var x;", &mut names);
+        let a = out.ast.decl(out.unit.declarations[0]);
+        assert_eq!(a.metadata.len(), 3);
+        assert_eq!(a.metadata[0].name.len(), 1);
+        assert_eq!(a.metadata[1].name.len(), 2);
+        assert_eq!(a.metadata[2].name.len(), 3);
+        assert_eq!(text(&names, a.metadata[2].name[2]), "f");
+        assert!(a.metadata.iter().all(|m| m.arguments.is_none()));
+        let x = out.ast.decl(out.unit.declarations[1]);
+        assert_eq!(text(&names, x.metadata[0].name[0]), "override");
+    }
+
+    #[test]
+    fn recuperacao_no_nivel_de_topo() {
+        let mut names = Interner::new();
+        let out = parse(
+            "class {} class A {} enum {} class B {} class {}",
+            &mut names,
+        );
+        assert_eq!(out.diagnostics.len(), 3, "{:?}", out.diagnostics);
+        assert_eq!(out.unit.declarations.len(), 2);
+        assert_eq!(text(&names, class(&out, 0).name), "A");
+        assert_eq!(text(&names, class(&out, 1).name), "B");
+    }
+
+    #[test]
+    fn recuperacao_pula_o_corpo_da_declaracao_quebrada() {
+        let mut names = Interner::new();
+        let out = parse("class A B { var x; } class C {}", &mut names);
+        assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+        assert_eq!(out.unit.declarations.len(), 1);
+        assert_eq!(text(&names, class(&out, 0).name), "C");
+    }
+
+    #[test]
+    fn recuperacao_entre_membros() {
+        let mut names = Interner::new();
+        let out = parse(
+            "class A { var x; ; var y; ) var z; } class B {}",
+            &mut names,
+        );
+        assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
+        assert_eq!(out.unit.declarations.len(), 2);
+        assert_eq!(class(&out, 0).members.len(), 3);
+    }
+
+    #[test]
+    fn tokens_soltos_no_topo() {
+        let mut names = Interner::new();
+        let out = parse("; } class A {}", &mut names);
+        assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
+        assert_eq!(out.unit.declarations.len(), 1);
+    }
+
+    #[test]
+    fn corpo_de_funcao_vazio_e_native() {
+        let mut names = Interner::new();
+        for (src, modifier, native) in [
+            (";", AsyncModifier::None, false),
+            ("async;", AsyncModifier::Async, false),
+            ("async*;", AsyncModifier::AsyncStar, false),
+            ("sync*;", AsyncModifier::SyncStar, false),
+            ("native;", AsyncModifier::None, true),
+        ] {
+            let tokens = crate::lexer::lex(src).unwrap();
+            let mut p = Parser::new(src, tokens, &mut names);
+            let (m, body) = p.parse_function_body().unwrap();
+            assert_eq!(m, modifier, "{src}");
+            assert!(p.diagnostics.is_empty());
+            assert!(p.at_eof());
+            assert!(!p.in_async && !p.in_generator, "contexto restaurado: {src}");
+            match body {
+                FunctionBody::Empty => assert!(!native),
+                FunctionBody::Native(None) => assert!(native),
+                other => panic!("{src}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn corpo_de_funcao_ausente_restaura_contexto() {
+        let mut names = Interner::new();
+        let src = "async )";
+        let tokens = crate::lexer::lex(src).unwrap();
+        let mut p = Parser::new(src, tokens, &mut names);
+        assert!(p.parse_function_body().is_err());
+        assert_eq!(p.diagnostics.len(), 1);
+        assert!(!p.in_async);
+    }
+
+    #[test]
+    fn nome_de_operador_composto() {
+        let mut names = Interner::new();
+        for (src, esperado) in [
+            (">=", ">="),
+            (">>", ">>"),
+            (">>>", ">>>"),
+            (">", ">"),
+            ("[]", "[]"),
+            ("[]=", "[]="),
+            ("~/", "~/"),
+            ("==", "=="),
+            ("-", "-"),
+        ] {
+            let tokens = crate::lexer::lex(src).unwrap();
+            let mut p = Parser::new(src, tokens, &mut names);
+            let name = p.parse_operator_name().unwrap();
+            assert!(p.at_eof(), "{src}");
+            assert_eq!(text(&names, name), esperado);
+        }
+    }
+
+    // -- Dependentes de types/expressions/statements ------------------------
+    //
+    // Estes testes panicam com `not yet implemented` enquanto os outros
+    // módulos são stubs; passam quando eles existirem.
+    mod dependentes {
+        use super::*;
+        use crate::ast::{Combinator, Initializer, TypedefKind};
+
+        #[test]
+        fn diretivas_com_uri() {
+            let mut names = Interner::new();
+            let src = "import 'a.dart'; import 'b.dart' deferred as b show x, y hide z; \
+                       import 'c.dart' if (dart.library.io == 'x') 'd.dart' if (dart.library.html) 'e.dart' as c; \
+                       export 'f.dart' show q; part 'g.dart'; part of 'h.dart';";
+            let out = parse_ok(src, &mut names);
+            assert_eq!(out.unit.directives.len(), 6);
+            match &out.unit.directives[1].kind {
+                DirectiveKind::Import {
+                    deferred,
+                    prefix,
+                    combinators,
+                    ..
+                } => {
+                    assert!(*deferred);
+                    assert_eq!(text(&names, prefix.unwrap()), "b");
+                    assert_eq!(combinators.len(), 2);
+                    assert!(matches!(&combinators[0], Combinator::Show(n) if n.len() == 2));
+                    assert!(matches!(&combinators[1], Combinator::Hide(n) if n.len() == 1));
+                }
+                other => panic!("{other:?}"),
+            }
+            match &out.unit.directives[2].kind {
+                DirectiveKind::Import { configurations, .. } => {
+                    assert_eq!(configurations.len(), 2);
+                    assert_eq!(configurations[0].test.len(), 3);
+                    assert!(configurations[0].value.is_some());
+                    assert!(configurations[1].value.is_none());
+                }
+                other => panic!("{other:?}"),
+            }
+            assert!(matches!(
+                &out.unit.directives[5].kind,
+                DirectiveKind::PartOf { uri: Some(_), .. }
+            ));
+        }
+
+        #[test]
+        fn cabecalhos_de_classe_e_mixin_application() {
+            let mut names = Interner::new();
+            let src = "class A<T> extends B<T> with M1, M2 implements I, J {} \
+                       class C<T> = S with M1, M2 implements I; \
+                       mixin M<T> on A, B implements C {}";
+            let out = parse_ok(src, &mut names);
+            let a = class(&out, 0);
+            assert!(a.extends.is_some() && a.with.len() == 2 && a.implements.len() == 2);
+            assert_eq!(a.type_params.len(), 1);
+            let c = class(&out, 1);
+            assert!(c.mixin_application && c.extends.is_some() && c.with.len() == 2);
+            match decl(&out, 2) {
+                DeclKind::Mixin(m) => assert!(m.on.len() == 2 && m.implements.len() == 1),
+                other => panic!("{other:?}"),
+            }
+        }
+
+        #[test]
+        fn enum_completo() {
+            let mut names = Interner::new();
+            let src = "enum E<T> with M implements I { @deprecated a, b('x'), c<int>.named(1); \
+                       final int x; const E([this.x = 0]); int get y => x; static E of(int v) => a; }";
+            let out = parse_ok(src, &mut names);
+            match decl(&out, 0) {
+                DeclKind::Enum(e) => {
+                    assert_eq!(e.constants.len(), 3);
+                    assert_eq!(e.constants[0].metadata.len(), 1);
+                    assert!(e.constants[1].arguments.is_some());
+                    assert_eq!(e.constants[2].type_args.len(), 1);
+                    assert!(e.constants[2].constructor.is_some());
+                    assert_eq!(e.members.len(), 4);
+                    assert!(
+                        matches!(&out.ast.member(e.members[1]).kind, MemberKind::Constructor(c) if c.const_)
+                    );
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+
+        #[test]
+        fn extensions_e_extension_types() {
+            let mut names = Interner::new();
+            let src = "extension E<T> on List<T> { T get first => this[0]; } \
+                       extension on int { int get dobro => this * 2; } \
+                       extension type E2<T>(int x) implements I { E2.named(int y) : this(y); } \
+                       extension type const E3._(final int x) {} \
+                       extension type on X {}";
+            let out = parse_ok(src, &mut names);
+            assert_eq!(out.unit.declarations.len(), 5);
+            match decl(&out, 0) {
+                DeclKind::Extension(e) => assert!(e.name.is_some() && e.members.len() == 1),
+                other => panic!("{other:?}"),
+            }
+            match decl(&out, 1) {
+                DeclKind::Extension(e) => assert!(e.name.is_none()),
+                other => panic!("{other:?}"),
+            }
+            match decl(&out, 2) {
+                DeclKind::ExtensionType(e) => {
+                    assert!(!e.const_ && e.constructor.is_none() && e.implements.len() == 1);
+                    assert_eq!(text(&names, e.representation_name), "x");
+                    assert!(
+                        matches!(&out.ast.member(e.members[0]).kind, MemberKind::Constructor(c)
+                        if matches!(c.initializers[0], Initializer::Redirect { .. }))
+                    );
+                }
+                other => panic!("{other:?}"),
+            }
+            match decl(&out, 3) {
+                DeclKind::ExtensionType(e) => {
+                    assert!(e.const_);
+                    assert_eq!(text(&names, e.constructor.unwrap()), "_");
+                }
+                other => panic!("{other:?}"),
+            }
+            match decl(&out, 4) {
+                DeclKind::Extension(e) => assert_eq!(text(&names, e.name.unwrap()), "type"),
+                other => panic!("{other:?}"),
+            }
+        }
+
+        #[test]
+        fn typedefs() {
+            let mut names = Interner::new();
+            let src = "typedef F<T> = int Function(T); typedef X<T> = Map<T, T>; \
+                       typedef int G<T>(T x); typedef H(int x); typedef void K<T>(T x); typedef L<T>(T x);";
+            let out = parse_ok(src, &mut names);
+            assert_eq!(out.unit.declarations.len(), 6);
+            let td = |i: usize| match decl(&out, i) {
+                DeclKind::Typedef(t) => t,
+                other => panic!("{other:?}"),
+            };
+            assert!(matches!(td(0).kind, TypedefKind::Alias(_)) && td(0).type_params.len() == 1);
+            assert!(matches!(td(1).kind, TypedefKind::Alias(_)));
+            assert!(matches!(
+                td(2).kind,
+                TypedefKind::Legacy {
+                    return_type: Some(_),
+                    ..
+                }
+            ));
+            assert!(matches!(
+                td(3).kind,
+                TypedefKind::Legacy {
+                    return_type: None,
+                    ..
+                }
+            ));
+            assert!(matches!(
+                td(4).kind,
+                TypedefKind::Legacy {
+                    return_type: Some(_),
+                    ..
+                }
+            ));
+            assert!(matches!(
+                td(5).kind,
+                TypedefKind::Legacy {
+                    return_type: None,
+                    ..
+                }
+            ));
+            assert_eq!(td(5).type_params.len(), 1);
+        }
+
+        #[test]
+        fn funcoes_e_variaveis_de_topo() {
+            let mut names = Interner::new();
+            let src = "T f<U>(U u) async { return u; } main() {} get x => 1; int get y => 2; \
+                       set z(int v) {} external void e(); int a = 1, b; final c = 1; const int d = 1; \
+                       late final int l; external int ext; Stream<int> g() async* { yield 1; } \
+                       Iterable<int> h() sync* {} int Function(int) k() => (x) => x; (int, int) r() => (1, 2);";
+            let out = parse_ok(src, &mut names);
+            assert_eq!(out.unit.declarations.len(), 15);
+            let f = |i: usize| match decl(&out, i) {
+                DeclKind::Function(id) => out.ast.function(*id),
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(f(0).modifier, AsyncModifier::Async);
+            assert_eq!(f(0).type_params.len(), 1);
+            assert!(f(1).return_type.is_none());
+            assert_eq!(f(2).kind, FunctionKind::Getter);
+            assert!(f(2).return_type.is_none());
+            assert!(f(3).return_type.is_some());
+            assert_eq!(f(4).kind, FunctionKind::Setter);
+            assert!(f(5).external && matches!(f(5).body, FunctionBody::Empty));
+            match decl(&out, 6) {
+                DeclKind::Variables(v) => {
+                    assert_eq!(v.variables.len(), 2);
+                    assert!(
+                        v.variables[0].initializer.is_some()
+                            && v.variables[1].initializer.is_none()
+                    );
+                }
+                other => panic!("{other:?}"),
+            }
+            assert!(matches!(decl(&out, 7), DeclKind::Variables(v) if v.final_ && v.ty.is_none()));
+            assert!(matches!(decl(&out, 8), DeclKind::Variables(v) if v.const_ && v.ty.is_some()));
+            assert!(matches!(decl(&out, 9), DeclKind::Variables(v) if v.late && v.final_));
+            assert!(matches!(decl(&out, 10), DeclKind::Variables(v) if v.external));
+            assert_eq!(f(11).modifier, AsyncModifier::AsyncStar);
+            assert_eq!(f(12).modifier, AsyncModifier::SyncStar);
+            assert!(matches!(f(13).body, FunctionBody::Expression(_)));
+            assert!(f(14).return_type.is_some());
+        }
+
+        /// `operator` é identificador embutido: serve de nome de campo.
+        #[test]
+        fn campo_chamado_operator() {
+            let mut names = Interner::new();
+            let out = parse_ok(
+                "class A { final O operator; A(this.operator); }",
+                &mut names,
+            );
+            let a = class(&out, 0);
+            assert_eq!(a.members.len(), 2);
+            assert!(matches!(member(&out, a, 0), MemberKind::Field(_)));
+        }
+
+        #[test]
+        fn membros_metodos_e_operadores() {
+            let mut names = Interner::new();
+            let src = "class A { static const int x = 1; final int a, b; late String s; covariant int c; \
+                       abstract int d; external int e; List<int> Function() f = () => []; \
+                       static T m<T>(T t) => t; external void ext(); void abs(); \
+                       int get g => 1; set g(int v) {} get h; set i(v); \
+                       operator +(A o) => this; void operator []=(int k, A v) {} A operator [](int k) => this; \
+                       bool operator ==(Object o) => true; bool operator >=(A o) => true; \
+                       int operator >>(int n) => 1; int operator >>>(int n) => 1; int operator <<(int n) => 1; \
+                       bool operator <=(A o) => true; bool operator <(A o) => true; bool operator >(A o) => true; \
+                       A operator -() => this; A operator ~() => this; int operator ~/(int o) => 1; \
+                       int foo() native; int bar() native 'bar'; }";
+            let out = parse_ok(src, &mut names);
+            let a = class(&out, 0);
+            assert_eq!(a.members.len(), 30);
+            let method = |i: usize| match member(&out, a, i) {
+                MemberKind::Method(id) => out.ast.function(*id),
+                other => panic!("{other:?}"),
+            };
+            assert!(matches!(member(&out, a, 0), MemberKind::Field(f) if f.static_ && f.const_));
+            assert!(
+                matches!(member(&out, a, 1), MemberKind::Field(f) if f.final_ && f.variables.len() == 2)
+            );
+            assert!(matches!(member(&out, a, 4), MemberKind::Field(f) if f.abstract_));
+            assert!(method(7).static_ && method(7).type_params.len() == 1);
+            assert!(method(8).external);
+            assert!(matches!(method(9).body, FunctionBody::Empty));
+            assert_eq!(method(10).kind, FunctionKind::Getter);
+            assert_eq!(method(11).kind, FunctionKind::Setter);
+            let op = |i: usize| {
+                assert_eq!(method(i).kind, FunctionKind::Operator);
+                text(&names, method(i).name.unwrap())
+            };
+            let esperados = [
+                "+", "[]=", "[]", "==", ">=", ">>", ">>>", "<<", "<=", "<", ">", "-", "~", "~/",
+            ];
+            for (k, esperado) in esperados.iter().enumerate() {
+                assert_eq!(op(14 + k), *esperado);
+            }
+            assert!(matches!(method(28).body, FunctionBody::Native(None)));
+            assert!(matches!(method(29).body, FunctionBody::Native(Some(_))));
+        }
+
+        #[test]
+        fn construtores() {
+            let mut names = Interner::new();
+            let src = "class C<T> { final int x; int _z; \
+                       C(this.x, {super.key, required this.y}) : assert(x > 0, 'msg'), _z = x, super.named(1) {} \
+                       C.named() : this(1); const C.k() : x = 0, _z = 0; \
+                       factory C.f() => C(1); factory C.r() = D<T>.y; const factory C.s() = C.k; \
+                       external C.e(); C.arrow() : x = 1, _z = 2; C.dotted() : this.x = 1, this._z = 2; }";
+            let out = parse_ok(src, &mut names);
+            let c = class(&out, 0);
+            assert_eq!(c.members.len(), 11);
+            let ctor = |i: usize| match member(&out, c, i) {
+                MemberKind::Constructor(k) => k,
+                other => panic!("{other:?}"),
+            };
+            assert!(ctor(2).name.is_none() && ctor(2).initializers.len() == 3);
+            assert!(matches!(
+                ctor(2).initializers[0],
+                Initializer::Assert {
+                    message: Some(_),
+                    ..
+                }
+            ));
+            assert!(matches!(
+                ctor(2).initializers[1],
+                Initializer::Field { this_: false, .. }
+            ));
+            assert!(matches!(
+                ctor(2).initializers[2],
+                Initializer::Super {
+                    constructor: Some(_),
+                    ..
+                }
+            ));
+            assert!(matches!(
+                ctor(3).initializers[0],
+                Initializer::Redirect {
+                    constructor: None,
+                    ..
+                }
+            ));
+            assert!(ctor(4).const_);
+            assert!(ctor(5).factory && matches!(ctor(5).body, FunctionBody::Expression(_)));
+            assert!(ctor(6).factory && ctor(6).redirect.as_ref().unwrap().constructor.is_some());
+            assert!(ctor(7).const_ && ctor(7).factory && ctor(7).redirect.is_some());
+            assert!(ctor(8).external);
+            assert!(matches!(
+                ctor(10).initializers[1],
+                Initializer::Field { this_: true, .. }
+            ));
+        }
+
+        #[test]
+        fn recuperacao_dentro_de_corpo_de_metodo() {
+            let mut names = Interner::new();
+            let out = parse(
+                "class A { void f() { x = ; } void g() {} } class B { int x } class C {}",
+                &mut names,
+            );
+            assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
+            assert_eq!(out.unit.declarations.len(), 3);
+            assert_eq!(class(&out, 0).members.len(), 2);
+        }
+
+        #[test]
+        fn metadata_com_argumentos() {
+            let mut names = Interner::new();
+            let src = "@pragma('vm:entry-point') @p.Nome.ctor(1) @Nome<int>(2) @Nome<int>.ctor(3) @a.b.c class A {} \
+                       @meta (int, int) f() => (1, 2);";
+            let out = parse_ok(src, &mut names);
+            let a = out.ast.decl(out.unit.declarations[0]);
+            assert_eq!(a.metadata.len(), 5);
+            assert!(a.metadata[0].arguments.is_some());
+            assert_eq!(a.metadata[1].name.len(), 3);
+            assert_eq!(a.metadata[2].type_args.len(), 1);
+            assert_eq!(a.metadata[3].name.len(), 2);
+            assert!(a.metadata[4].arguments.is_none());
+            let f = out.ast.decl(out.unit.declarations[1]);
+            assert!(f.metadata[0].arguments.is_none());
+            assert!(matches!(f.kind, DeclKind::Function(_)));
+        }
+    }
+}

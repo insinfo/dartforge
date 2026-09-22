@@ -1,0 +1,13 @@
+[package]
+name = "dartforge-frontend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[lints]
+workspace = true
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-intern = { path = "../intern" }
+[dev-dependencies]
+dartforge-instrument = { path = "../instrument" }

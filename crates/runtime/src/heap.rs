@@ -23,18 +23,40 @@ pub struct HeapStats {
     pub peak_estimated_bytes: usize,
 }
 
+/// Marca escalar precisa; bits coincidentes entre int e bool não são iguais.
+///
+/// A distinção existe porque chaves de `Map` seguem `==` de Dart: `0` e `false`
+/// são chaves diferentes, e zero como handle null só vale para referências.
+/// A invariante é `is_ref ⟺ tag == Ref`; os construtores abaixo a garantem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueTag {
+    Int,
+    Bool,
+    Ref,
+}
+
 /// Payload com tag precisa; bits escalares jamais são interpretados como handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TaggedValue {
     pub bits: i64,
     pub is_ref: bool,
+    pub tag: ValueTag,
 }
 impl TaggedValue {
-    /// Representa inteiro, booleano ou outro escalar definido pelo futuro lowering.
+    /// Representa inteiro; booleanos usam [`TaggedValue::boolean`].
     pub fn scalar(bits: i64) -> Self {
         Self {
             bits,
             is_ref: false,
+            tag: ValueTag::Int,
+        }
+    }
+    /// Representa booleano sem confundir `false` (bits 0) com inteiro zero.
+    pub fn boolean(value: bool) -> Self {
+        Self {
+            bits: i64::from(value),
+            is_ref: false,
+            tag: ValueTag::Bool,
         }
     }
     /// Representa handle gerenciado; zero representa referência null.
@@ -42,6 +64,7 @@ impl TaggedValue {
         Self {
             bits: handle,
             is_ref: true,
+            tag: ValueTag::Ref,
         }
     }
 }
@@ -65,6 +88,15 @@ pub enum Value {
     },
     /// Lista expansível de payloads tipados para tracing, sem generics Dart ainda.
     List(Vec<TaggedValue>),
+    /// Mapa de inserção ordenada, como o `LinkedHashMap` padrão de Dart.
+    ///
+    /// Chaves seguem `==` observável: escalares distinguem int de bool pelos
+    /// bits e pela tag, e referências usam identidade, exceto strings, que
+    /// comparam conteúdo. A busca é linear; adequada ao subconjunto, não a
+    /// mapas grandes de produção.
+    Map(Vec<(TaggedValue, TaggedValue)>),
+    /// Conjunto de inserção ordenada, como o `LinkedHashSet` padrão de Dart.
+    Set(Vec<TaggedValue>),
 }
 impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
@@ -76,16 +108,20 @@ impl Value {
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
             Self::Cell(_) | Self::Closure { .. } => 0,
-            Self::Environment(values) | Self::List(values) => values
+            Self::Environment(values) | Self::List(values) | Self::Set(values) => values
                 .capacity()
                 .checked_mul(std::mem::size_of::<TaggedValue>())
+                .expect("payload excede usize"),
+            Self::Map(entries) => entries
+                .capacity()
+                .checked_mul(std::mem::size_of::<(TaggedValue, TaggedValue)>())
                 .expect("payload excede usize"),
         };
         std::mem::size_of::<Self>()
             .checked_add(payload)
             .expect("payload excede usize")
     }
-    /// Acrescenta somente arestas gerenciadas, inclusive ciclos de captura e listas.
+    /// Igualdade de chaves de `Map`/`Set` segundo `==` observável de Dart.
     fn trace(&self, pending: &mut Vec<i64>) {
         match self {
             Self::String(_) => {}
@@ -99,11 +135,16 @@ impl Value {
                     pending.push(value.bits);
                 }
             }
-            Self::Environment(values) | Self::List(values) => pending.extend(
+            Self::Environment(values) | Self::List(values) | Self::Set(values) => pending.extend(
                 values
                     .iter()
                     .filter_map(|value| value.is_ref.then_some(value.bits)),
             ),
+            Self::Map(entries) => pending.extend(entries.iter().flat_map(|(key, value)| {
+                [key, value]
+                    .into_iter()
+                    .filter_map(|part| part.is_ref.then_some(part.bits))
+            })),
             Self::Closure { environment, .. } => pending.push(*environment),
         }
     }
@@ -124,6 +165,12 @@ pub struct Heap {
     pending: Vec<i64>,
     byte_threshold: usize,
     enum_values: std::collections::HashMap<(i64, i64), i64>,
+    /// Tear-offs canônicos de funções top-level, por ID de código.
+    ///
+    /// O oráculo Dart 3.6.2 exige `identical(f, f)` verdadeiro para dois
+    /// tear-offs da mesma função top-level; cada `code_id` tem um único handle,
+    /// mantido vivo como raiz permanente, como os singletons de enum.
+    tearoffs: std::collections::HashMap<i64, i64>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -141,6 +188,7 @@ impl Heap {
             pending: Vec::new(),
             byte_threshold: 1024 * 1024,
             enum_values: std::collections::HashMap::new(),
+            tearoffs: std::collections::HashMap::new(),
         }
     }
     /// Obtém o singleton de um valor enum, protegendo as alocações internas.
@@ -159,6 +207,25 @@ impl Heap {
         self.enum_values.insert((class_id, index), object);
         self.pop_frame(frame);
         object
+    }
+    /// Obtém o tear-off canônico de uma função top-level, criando-o uma vez.
+    ///
+    /// O ID de código é o índice da função no módulo; o ambiente é vazio e o
+    /// handle devolvido é estável entre chamadas, preservando `identical`.
+    /// Tear-offs de métodos (com receptor capturado) não passam por aqui:
+    /// cada avaliação cria uma closure nova.
+    pub fn tearoff(&mut self, code_id: i64) -> i64 {
+        assert!(code_id >= 0, "ID de código inválido");
+        if let Some(&handle) = self.tearoffs.get(&code_id) {
+            return handle;
+        }
+        let frame = self.push_frame_with_slots(1);
+        let env = self.create_environment(Vec::new());
+        self.set_root(frame, 0, env);
+        let closure = self.create_closure(code_id, env);
+        self.tearoffs.insert(code_id, closure);
+        self.pop_frame(frame);
+        closure
     }
     /// Abre frame de raízes com identificador monotônico.
     pub fn push_frame(&mut self) -> i64 {
@@ -291,6 +358,31 @@ impl Heap {
         self.pop_frame(frame);
         handle
     }
+    /// Igualdade de chaves de `Map`/`Set` segundo `==` observável de Dart.
+    ///
+    /// Escalares comparam tag e bits (`0` int difere de `false`); referências
+    /// null só igualam null; strings comparam conteúdo e demais referências,
+    /// identidade de handle.
+    fn key_equal(&self, left: &TaggedValue, right: &TaggedValue) -> bool {
+        match (left.tag, right.tag) {
+            (ValueTag::Int, ValueTag::Int) | (ValueTag::Bool, ValueTag::Bool) => {
+                left.bits == right.bits
+            }
+            (ValueTag::Ref, ValueTag::Ref) => {
+                if left.bits == 0 || right.bits == 0 {
+                    return left.bits == right.bits;
+                }
+                if left.bits == right.bits {
+                    return true;
+                }
+                matches!(
+                    (self.get(left.bits), self.get(right.bits)),
+                    (Value::String(a), Value::String(b)) if a == b
+                )
+            }
+            _ => false,
+        }
+    }
     /// Cria célula compartilhável; proteja o resultado antes da próxima alocação.
     pub fn create_cell(&mut self, value: TaggedValue) -> i64 {
         self.allocate_linked(Value::Cell(value))
@@ -396,8 +488,143 @@ impl Heap {
             self.pop_frame(frame);
         }
     }
+    /// Cria mapa com ordem de inserção; chaves duplicadas conservam a última.
+    ///
+    /// A entrada duplicada mantém a posição da primeira ocorrência e o valor da
+    /// última, como o literal de mapa do SDK 3.6.2. O chamador enraíza o
+    /// resultado antes da próxima operação que possa coletar.
+    pub fn create_map(&mut self, entries: Vec<(TaggedValue, TaggedValue)>) -> i64 {
+        let mut unique: Vec<(TaggedValue, TaggedValue)> = Vec::with_capacity(entries.len());
+        for (key, value) in entries {
+            self.validate_tag(key);
+            self.validate_tag(value);
+            if let Some(slot) = unique.iter_mut().find(|(existing, _)| {
+                // `find` não tem acesso a `self` sem conflito de empréstimo;
+                // a comparação repete `key_equal` sobre chaves já validadas.
+                self.key_equal(existing, &key)
+            }) {
+                slot.1 = value;
+            } else {
+                unique.push((key, value));
+            }
+        }
+        self.allocate_linked(Value::Map(unique))
+    }
+    /// Quantidade de pares; capacidade interna não é comprimento.
+    pub fn map_len(&self, handle: i64) -> usize {
+        match self.get(handle) {
+            Value::Map(entries) => entries.len(),
+            _ => panic!("mapa esperado"),
+        }
+    }
+    /// Diz se a chave existe, sem distinguir valor null de ausência pelo valor.
+    pub fn map_contains(&self, handle: i64, key: TaggedValue) -> bool {
+        match self.get(handle) {
+            Value::Map(entries) => entries
+                .iter()
+                .any(|(existing, _)| self.key_equal(existing, &key)),
+            _ => panic!("mapa esperado"),
+        }
+    }
+    /// Obtém o valor da chave; ausência provoca panic, sem acesso inseguro.
+    ///
+    /// O protocolo LLVM consulta `map_contains` antes; esta API não devolve
+    /// "null por ausência" para não confundir valor null armazenado com falta.
+    pub fn map_get(&self, handle: i64, key: TaggedValue) -> TaggedValue {
+        match self.get(handle) {
+            Value::Map(entries) => entries
+                .iter()
+                .find(|(existing, _)| self.key_equal(existing, &key))
+                .map(|(_, value)| *value)
+                .expect("chave ausente"),
+            _ => panic!("mapa esperado"),
+        }
+    }
+    /// Insere ou substitui, preservando a posição da primeira ocorrência.
+    pub fn map_set(&mut self, handle: i64, key: TaggedValue, value: TaggedValue) {
+        self.validate_tag(key);
+        self.validate_tag(value);
+        let index = match self.get(handle) {
+            Value::Map(entries) => entries
+                .iter()
+                .position(|(existing, _)| self.key_equal(existing, &key)),
+            _ => panic!("mapa esperado"),
+        };
+        let Value::Map(entries) = self.get_mut(handle) else {
+            panic!("mapa esperado")
+        };
+        if let Some(index) = index {
+            entries[index].1 = value;
+        } else {
+            entries.push((key, value));
+        }
+    }
+    /// Cria conjunto com ordem de inserção; duplicadas conservam a primeira.
+    pub fn create_set(&mut self, values: Vec<TaggedValue>) -> i64 {
+        let mut unique = Vec::with_capacity(values.len());
+        for value in values {
+            self.validate_tag(value);
+            if !unique
+                .iter()
+                .any(|existing| self.key_equal(existing, &value))
+            {
+                unique.push(value);
+            }
+        }
+        self.allocate_linked(Value::Set(unique))
+    }
+    /// Quantidade de elementos distintos.
+    pub fn set_len(&self, handle: i64) -> usize {
+        match self.get(handle) {
+            Value::Set(values) => values.len(),
+            _ => panic!("conjunto esperado"),
+        }
+    }
+    /// Pertinência segundo `==` observável de chaves.
+    pub fn set_contains(&self, handle: i64, value: TaggedValue) -> bool {
+        match self.get(handle) {
+            Value::Set(values) => values
+                .iter()
+                .any(|existing| self.key_equal(existing, &value)),
+            _ => panic!("conjunto esperado"),
+        }
+    }
+    /// Insere quando ausente; devolve se houve inserção (`Set.add` de Dart).
+    pub fn set_add(&mut self, handle: i64, value: TaggedValue) -> bool {
+        self.validate_tag(value);
+        let present = match self.get(handle) {
+            Value::Set(values) => values
+                .iter()
+                .any(|existing| self.key_equal(existing, &value)),
+            _ => panic!("conjunto esperado"),
+        };
+        if present {
+            return false;
+        }
+        let previous = self.get(handle).estimated_bytes();
+        let Value::Set(values) = self.get_mut(handle) else {
+            panic!("conjunto esperado")
+        };
+        values.push(value);
+        let added = self.get(handle).estimated_bytes() - previous;
+        self.stats.estimated_bytes = self
+            .stats
+            .estimated_bytes
+            .checked_add(added)
+            .expect("heap excede usize");
+        self.stats.peak_estimated_bytes = self
+            .stats
+            .peak_estimated_bytes
+            .max(self.stats.estimated_bytes);
+        true
+    }
     /// Valida referência antes de modificar o grafo; null não exige objeto vivo.
     fn validate_tag(&self, value: TaggedValue) {
+        assert_eq!(
+            value.is_ref,
+            value.tag == ValueTag::Ref,
+            "tag inconsistente com is_ref"
+        );
         if value.is_ref && value.bits != 0 {
             self.get(value.bits);
         }
@@ -415,6 +642,7 @@ impl Heap {
     pub fn collect(&mut self) {
         self.stats.collections += 1;
         self.stats.roots_scanned += self.enum_values.len() as u64;
+        self.stats.roots_scanned += self.tearoffs.len() as u64;
         self.stats.roots_scanned += self
             .frames
             .iter()
@@ -425,6 +653,7 @@ impl Heap {
         self.marks.fill(false);
         self.pending.clear();
         self.pending.extend(self.enum_values.values().copied());
+        self.pending.extend(self.tearoffs.values().copied());
         self.pending.extend(
             self.frames
                 .iter()
@@ -468,7 +697,7 @@ impl Heap {
         HeapStats {
             live_objects: self.slots.len() - self.free.len(),
             reserved_slots: self.slots.len(),
-            permanent_roots: self.enum_values.len(),
+            permanent_roots: self.enum_values.len() + self.tearoffs.len(),
             ..self.stats
         }
     }
@@ -789,6 +1018,113 @@ mod fixed_root_tests {
             assert_eq!(stats.reclaimed, 99_999);
             assert!(stats.reserved_slots <= 257);
         }
+    }
+}
+#[cfg(test)]
+mod maps_sets_tearoffs {
+    use super::*;
+
+    /// Chaves int e bool com os mesmos bits são entradas distintas, como no SDK.
+    #[test]
+    fn int_and_bool_keys_are_distinct_and_strings_compare_by_content() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(3);
+        let first = heap.allocate(Value::String("chave".into()));
+        heap.set_root(frame, 0, first);
+        let second = heap.allocate(Value::String("chave".into()));
+        heap.set_root(frame, 1, second);
+        assert_ne!(first, second);
+        let map = heap.create_map(vec![
+            (TaggedValue::scalar(0), TaggedValue::scalar(1)),
+            (TaggedValue::boolean(false), TaggedValue::scalar(2)),
+            (TaggedValue::reference(first), TaggedValue::scalar(3)),
+        ]);
+        heap.set_root(frame, 2, map);
+        assert_eq!(heap.map_len(map), 3);
+        assert!(heap.map_contains(map, TaggedValue::scalar(0)));
+        assert!(heap.map_contains(map, TaggedValue::boolean(false)));
+        // Conteúdo igual, handle diferente: mesma chave.
+        assert!(heap.map_contains(map, TaggedValue::reference(second)));
+        assert_eq!(
+            heap.map_get(map, TaggedValue::reference(second)),
+            TaggedValue::scalar(3)
+        );
+        assert!(!heap.map_contains(map, TaggedValue::scalar(7)));
+        heap.set_root(frame, 0, 0);
+        heap.set_root(frame, 1, 0);
+        heap.collect();
+        // A chave original sobrevive pelo mapa; a duplicata é coletada.
+        assert_eq!(heap.stats().live_objects, 2);
+        assert_eq!(
+            heap.map_get(map, TaggedValue::reference(first)),
+            TaggedValue::scalar(3)
+        );
+        // Substituição preserva a posição; inserção acrescenta no fim.
+        heap.map_set(map, TaggedValue::scalar(0), TaggedValue::scalar(10));
+        assert_eq!(heap.map_len(map), 3);
+        assert_eq!(
+            heap.map_get(map, TaggedValue::scalar(0)),
+            TaggedValue::scalar(10)
+        );
+    }
+
+    /// Literais com chaves duplicadas conservam o último valor, como Dart.
+    #[test]
+    fn duplicate_literal_keys_keep_the_last_value() {
+        let mut heap = Heap::new(false);
+        let map = heap.create_map(vec![
+            (TaggedValue::scalar(1), TaggedValue::scalar(100)),
+            (TaggedValue::scalar(1), TaggedValue::scalar(200)),
+        ]);
+        assert_eq!(heap.map_len(map), 1);
+        assert_eq!(
+            heap.map_get(map, TaggedValue::scalar(1)),
+            TaggedValue::scalar(200)
+        );
+    }
+
+    /// Conjuntos removem duplicadas por conteúdo e `add` informa a inserção.
+    #[test]
+    fn sets_deduplicate_and_report_insertion() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(2);
+        let text = heap.allocate(Value::String("dup".into()));
+        heap.set_root(frame, 0, text);
+        let set = heap.create_set(vec![
+            TaggedValue::scalar(1),
+            TaggedValue::scalar(1),
+            TaggedValue::boolean(true),
+            TaggedValue::reference(text),
+            TaggedValue::reference(text),
+        ]);
+        heap.set_root(frame, 1, set);
+        // `true` (bits 1) difere de `1` int pela tag.
+        assert_eq!(heap.set_len(set), 3);
+        assert!(heap.set_contains(set, TaggedValue::boolean(true)));
+        assert!(!heap.set_add(set, TaggedValue::scalar(1)));
+        assert!(heap.set_add(set, TaggedValue::scalar(9)));
+        assert_eq!(heap.set_len(set), 4);
+        heap.set_root(frame, 0, 0);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 2);
+    }
+
+    /// Tear-offs da mesma função são canônicos e sobrevivem sem frames externos.
+    #[test]
+    fn top_level_tearoffs_are_canonical_permanent_roots() {
+        let mut heap = Heap::new(true);
+        let first = heap.tearoff(4);
+        let second = heap.tearoff(4);
+        let other = heap.tearoff(9);
+        assert_eq!(first, second);
+        assert_ne!(first, other);
+        heap.collect();
+        assert_eq!(heap.tearoff(4), first);
+        let (code, _) = heap.closure_parts(first);
+        assert_eq!(code, 4);
+        // Cada tear-off tem closure e ambiente próprios, ambos permanentes.
+        assert_eq!(heap.stats().live_objects, 4);
+        assert_eq!(heap.stats().permanent_roots, 2);
     }
 }
 #[cfg(test)]
