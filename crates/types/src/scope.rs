@@ -543,6 +543,49 @@ impl<'a> MemberResolver<'a> {
             }
         }
 
+        // 3. Receptor que é a própria classe (`C.x`): constantes de enum e
+        // membros estáticos. O tipo do receptor não distingue instância de
+        // literal de classe, por isso é o último recurso.
+        if !via_super {
+            let class_elem = &self.program.classes[class_id.0 as usize];
+            if let Some(&var_id) = class_elem.enum_constants.iter().find(|&&v| self.program.variables[v.0 as usize].name == name) {
+                if !is_setter {
+                    let ty = self.table.intern(Type::Interface { class: class_id, args: Box::new([]), nullable: false });
+                    return Some((
+                        Resolved::Member { class: class_id, member: MemberRef::Variable(var_id), via_super },
+                        ty,
+                    ));
+                }
+            }
+            if let Some(&func_id) = class_elem.static_members.get(&name) {
+                let func_elem = &self.program.functions[func_id.0 as usize];
+                if is_setter && func_elem.kind != FunctionKind::Setter && func_elem.kind != FunctionKind::ImplicitAccessor {
+                    return None;
+                }
+                let ty = match func_elem.kind {
+                    FunctionKind::ImplicitAccessor => match func_elem.variable {
+                        Some(vid) => {
+                            let var_data = &self.outline.variables[vid.0 as usize];
+                            var_data.declared_type.or(var_data.inferred).unwrap_or(self.core.dynamic_)
+                        }
+                        None => self.core.dynamic_,
+                    },
+                    FunctionKind::Getter => self.outline.functions[func_id.0 as usize].return_type,
+                    FunctionKind::Setter => self.outline.functions[func_id.0 as usize]
+                        .parameters
+                        .first()
+                        .map(|p| p.ty)
+                        .unwrap_or(self.core.dynamic_),
+                    _ => self.outline.functions[func_id.0 as usize].signature,
+                };
+                let member = match func_elem.variable {
+                    Some(vid) if func_elem.kind == FunctionKind::ImplicitAccessor => MemberRef::Variable(vid),
+                    _ => MemberRef::Function(func_id),
+                };
+                return Some((Resolved::Member { class: class_id, member, via_super }, ty));
+            }
+        }
+
         None
     }
 
