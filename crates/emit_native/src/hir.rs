@@ -124,13 +124,16 @@ pub enum Instruction {
         fields: Vec<Operand>,
     },
     AllocList {
-        elements: Vec<Operand>,
+        elements: Vec<(Operand, u8)>,
     },
     AllocMap {
-        entries: Vec<(Operand, Operand)>,
+        entries: Vec<((Operand, u8), (Operand, u8))>,
     },
     AllocSet {
-        elements: Vec<Operand>,
+        elements: Vec<(Operand, u8)>,
+    },
+    AllocRecord {
+        elements: Vec<(Operand, u8)>,
     },
     AllocCell {
         value: Operand,
@@ -263,6 +266,7 @@ pub struct ClassDef {
     pub field_count: usize,
     /// Mapa de selector_id -> símbolo da função implementada
     pub vtable: Vec<(u32, String)>,
+    pub to_string_symbol: Option<String>,
 }
 
 /// Seletor de chamada registrado globalmente.

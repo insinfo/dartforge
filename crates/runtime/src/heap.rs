@@ -106,6 +106,8 @@ pub enum Value {
     Map(Vec<(TaggedValue, TaggedValue)>),
     /// Conjunto de inserção ordenada, como o `LinkedHashSet` padrão de Dart.
     Set(Vec<TaggedValue>),
+    /// Record do Dart: `(1, 'b')`
+    Record(Vec<TaggedValue>),
 }
 impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
@@ -117,7 +119,7 @@ impl Value {
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
             Self::Cell(_) | Self::Closure { .. } => 0,
-            Self::Environment(values) | Self::List(values) | Self::Set(values) => values
+            Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => values
                 .capacity()
                 .checked_mul(std::mem::size_of::<TaggedValue>())
                 .expect("payload excede usize"),
@@ -144,7 +146,7 @@ impl Value {
                     pending.push(value.bits);
                 }
             }
-            Self::Environment(values) | Self::List(values) | Self::Set(values) => pending.extend(
+            Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => pending.extend(
                 values
                     .iter()
                     .filter_map(|value| value.is_ref.then_some(value.bits)),
@@ -300,8 +302,10 @@ impl Heap {
     pub fn allocate(&mut self, value: Value) -> i64 {
         let bytes = value.estimated_bytes();
         if self.stress
-            || self.allocations >= self.threshold
-            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+            || (!self.frames.is_empty() && (
+                self.allocations >= self.threshold
+                || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+            ))
         {
             self.collect();
         }

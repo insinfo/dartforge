@@ -90,9 +90,11 @@ pub fn compile_and_link(
     }
     let link_duration = t_link.elapsed();
 
-    // Limpeza de arquivos temporários
-    let _ = std::fs::remove_file(&ll_file);
-    let _ = std::fs::remove_file(&obj_file);
+    // Limpeza de arquivos temporários (mantém se DARTFORGE_KEEP_IR estiver definido)
+    if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
+        let _ = std::fs::remove_file(&ll_file);
+        let _ = std::fs::remove_file(&obj_file);
+    }
 
     Ok((clang_duration, link_duration))
 }

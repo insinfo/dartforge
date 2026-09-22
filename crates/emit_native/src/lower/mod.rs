@@ -17,6 +17,7 @@ pub fn lower_program(ctx: &Context) -> Module {
         name: "Object".to_string(),
         field_count: 0,
         vtable: Vec::new(),
+        to_string_symbol: None,
     });
 
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
@@ -27,6 +28,7 @@ pub fn lower_program(ctx: &Context) -> Module {
             name,
             field_count: class.fields.len(),
             vtable: Vec::new(),
+            to_string_symbol: None,
         });
     }
 
@@ -51,14 +53,46 @@ pub fn lower_program(ctx: &Context) -> Module {
                     module.entry_symbol = Some(symbol.clone());
                 }
 
+                if let Some(c_id) = func_elem.class {
+                    if name == "toString" && !func_elem.static_ {
+                        module.classes[c_id.0 as usize + 1].to_string_symbol = Some(symbol.clone());
+                    }
+                }
+
+                let ret_ty = if is_main {
+                    Type::Void
+                } else if let Some(fdata) = ctx.outline.functions.get(f_idx) {
+                    ctx.to_hir_type(fdata.return_type)
+                } else {
+                    Type::Void
+                };
+
                 // Cria o construtor da função
                 let mut builder = fn_builder::FnBuilder::new(
                     ctx,
                     unit,
                     symbol,
                     name.to_string(),
-                    Type::Void, // ou tipo de retorno inferido
+                    ret_ty,
                 );
+
+                let is_instance_member = func_elem.class.is_some() && !func_elem.static_;
+                if is_instance_member {
+                    let this_vid = builder.add_param("this".to_string(), Type::Ref);
+                    builder.this_param = Some(Operand::Val(this_vid));
+                    builder.enclosing_class = func_elem.class;
+                }
+
+                if let Some(fdata) = ctx.outline.functions.get(f_idx) {
+                    for p in fdata.parameters.iter() {
+                        let p_name = p.name.map(|s| ctx.symbol_name(s).to_string()).unwrap_or_else(|| "arg".to_string());
+                        let p_ty = ctx.to_hir_type(p.ty);
+                        let vid = builder.add_param(p_name, p_ty);
+                        if let Some(sym) = p.name {
+                            builder.named_locals.insert(sym, Operand::Val(vid));
+                        }
+                    }
+                }
 
                 // Baixa o corpo
                 match &ast_func.body {

@@ -131,5 +131,19 @@ impl<'a> Context<'a> {
     pub fn is_void(&self, ty: TypeId) -> bool {
         ty == self.core.void_
     }
+
+    pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
+        if self.is_void(ty) {
+            crate::hir::Type::Void
+        } else if self.is_int(ty) {
+            crate::hir::Type::I64
+        } else if self.is_double(ty) {
+            crate::hir::Type::F64
+        } else if self.is_bool(ty) {
+            crate::hir::Type::I1
+        } else {
+            crate::hir::Type::Ref
+        }
+    }
 }
 

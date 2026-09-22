@@ -39,7 +39,10 @@ impl<'a> LlvmEmitter<'a> {
             self.emit_function(func);
         }
 
-        // 6. Entrada global @dartforge_entry
+        // 6. Funções de despacho polimórfico
+        self.emit_dispatch_functions();
+
+        // 7. Entrada global @dartforge_entry
         self.emit_entry();
 
         self.out
@@ -126,7 +129,20 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i8 @dartforge_exception_pending()\n");
         self.out.push_str("declare i64 @dartforge_exception_take_bits()\n");
         self.out.push_str("declare i8 @dartforge_exception_take_tag()\n");
-        self.out.push_str("declare i64 @dartforge_value_class(i64)\n\n");
+        self.out.push_str("declare i64 @dartforge_value_class(i64)\n");
+        self.out.push_str("declare i64 @dartforge_to_string_i64(i64)\n");
+        self.out.push_str("declare i64 @dartforge_to_string_f64(double)\n");
+        self.out.push_str("declare i64 @dartforge_to_string_bool(i8)\n");
+        self.out.push_str("declare i64 @dartforge_to_string_handle(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_len(i64)\n");
+        self.out.push_str("declare i64 @dartforge_generic_len(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_code_unit_at(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_to_upper(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_repeat(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_join(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_new_empty()\n");
+        self.out.push_str("declare i64 @dartforge_map_get_to_string(i64, i64, i8)\n");
+        self.out.push_str("declare i64 @dartforge_record_new(ptr, i64)\n\n");
     }
 
     fn emit_string_constants(&mut self) {
@@ -401,14 +417,14 @@ impl<'a> LlvmEmitter<'a> {
                         let count = elements.len();
                         let alloca_id = format!("list_buf_{v}");
                         writeln!(self.out, "  %{alloca_id} = alloca [{} x i64]", count * 2).unwrap();
-                        for (idx, elem) in elements.iter().enumerate() {
+                        for (idx, (elem, tag)) in elements.iter().enumerate() {
                             let se = self.operand_str(elem);
                             let off_bits = idx * 2;
                             let off_tag = idx * 2 + 1;
                             writeln!(self.out, "  %ptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{alloca_id}, i64 0, i64 {off_bits}", count * 2).unwrap();
                             writeln!(self.out, "  store i64 {se}, ptr %ptr_{v}_{off_bits}").unwrap();
                             writeln!(self.out, "  %ptr_{v}_{off_tag} = getelementptr [{} x i64], ptr %{alloca_id}, i64 0, i64 {off_tag}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 1, ptr %ptr_{v}_{off_tag}").unwrap();
+                            writeln!(self.out, "  store i64 {tag}, ptr %ptr_{v}_{off_tag}").unwrap();
                         }
                         writeln!(
                             self.out,
@@ -421,7 +437,7 @@ impl<'a> LlvmEmitter<'a> {
                         let v_buf = format!("map_v_{v}");
                         writeln!(self.out, "  %{k_buf} = alloca [{} x i64]", count * 2).unwrap();
                         writeln!(self.out, "  %{v_buf} = alloca [{} x i64]", count * 2).unwrap();
-                        for (idx, (k, val)) in entries.iter().enumerate() {
+                        for (idx, ((k, k_tag), (val, v_tag))) in entries.iter().enumerate() {
                             let sk = self.operand_str(k);
                             let sv = self.operand_str(val);
                             let off_bits = idx * 2;
@@ -429,16 +445,37 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %kptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{k_buf}, i64 0, i64 {off_bits}", count * 2).unwrap();
                             writeln!(self.out, "  store i64 {sk}, ptr %kptr_{v}_{off_bits}").unwrap();
                             writeln!(self.out, "  %kptr_{v}_{off_tag} = getelementptr [{} x i64], ptr %{k_buf}, i64 0, i64 {off_tag}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 3, ptr %kptr_{v}_{off_tag}").unwrap();
+                            writeln!(self.out, "  store i64 {k_tag}, ptr %kptr_{v}_{off_tag}").unwrap();
 
                             writeln!(self.out, "  %vptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{v_buf}, i64 0, i64 {off_bits}", count * 2).unwrap();
                             writeln!(self.out, "  store i64 {sv}, ptr %vptr_{v}_{off_bits}").unwrap();
                             writeln!(self.out, "  %vptr_{v}_{off_tag} = getelementptr [{} x i64], ptr %{v_buf}, i64 0, i64 {off_tag}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 1, ptr %vptr_{v}_{off_tag}").unwrap();
+                            writeln!(self.out, "  store i64 {v_tag}, ptr %vptr_{v}_{off_tag}").unwrap();
                         }
                         writeln!(
                             self.out,
                             "  %v{v} = call i64 @dartforge_map_new(ptr %{k_buf}, ptr %{v_buf}, i64 {count})"
+                        ).unwrap();
+                    }
+                    Instruction::AllocRecord { elements } => {
+                        let count = elements.len();
+                        let total_i64 = count * 2;
+                        let buf_name = format!("rec_buf_{v}");
+                        writeln!(self.out, "  %{buf_name} = alloca [{total_i64} x i64]").unwrap();
+                        for (i, (elem, tag)) in elements.iter().enumerate() {
+                            let sop = self.operand_str(elem);
+                            let ptr_bits = format!("ptr_rec_{v}_{i}_bits");
+                            let ptr_tag = format!("ptr_rec_{v}_{i}_tag");
+                            let off_bits = i * 2;
+                            let off_tag = i * 2 + 1;
+                            writeln!(self.out, "  %{ptr_bits} = getelementptr [{total_i64} x i64], ptr %{buf_name}, i64 0, i64 {off_bits}").unwrap();
+                            writeln!(self.out, "  store i64 {sop}, ptr %{ptr_bits}").unwrap();
+                            writeln!(self.out, "  %{ptr_tag} = getelementptr [{total_i64} x i64], ptr %{buf_name}, i64 0, i64 {off_tag}").unwrap();
+                            writeln!(self.out, "  store i64 {tag}, ptr %{ptr_tag}").unwrap();
+                        }
+                        writeln!(
+                            self.out,
+                            "  %v{v} = call i64 @dartforge_record_new(ptr %{buf_name}, i64 {count})"
                         ).unwrap();
                     }
                     Instruction::Phi { incoming, ty } => {
@@ -462,11 +499,19 @@ impl<'a> LlvmEmitter<'a> {
 
             match &block.terminator {
                 Terminator::Return(Some(op)) => {
-                    let sop = self.operand_str(op);
-                    writeln!(self.out, "  ret {} {sop}", func.return_ty.llvm_ir()).unwrap();
+                    if func.return_ty == Type::Void {
+                        writeln!(self.out, "  ret void").unwrap();
+                    } else {
+                        let sop = self.operand_str(op);
+                        writeln!(self.out, "  ret {} {sop}", func.return_ty.llvm_ir()).unwrap();
+                    }
                 }
                 Terminator::Return(None) => {
-                    writeln!(self.out, "  ret void").unwrap();
+                    if func.return_ty == Type::Void {
+                        writeln!(self.out, "  ret void").unwrap();
+                    } else {
+                        writeln!(self.out, "  ret {} 0", func.return_ty.llvm_ir()).unwrap();
+                    }
                 }
                 Terminator::Branch(target) => {
                     writeln!(self.out, "  br label %b{}", target.0).unwrap();
@@ -495,6 +540,44 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
+    }
+
+    fn emit_dispatch_functions(&mut self) {
+        self.out.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n");
+        self.out.push_str("b0:\n");
+        self.out.push_str("  %is_null = icmp eq i64 %obj, 0\n");
+        self.out.push_str("  br i1 %is_null, label %ret_null, label %check_obj\n");
+        self.out.push_str("ret_null:\n");
+        self.out.push_str("  %null_s = call i64 @dartforge_to_string_handle(i64 0)\n");
+        self.out.push_str("  ret i64 %null_s\n");
+        self.out.push_str("check_obj:\n");
+        self.out.push_str("  %cls = call i64 @dartforge_value_class(i64 %obj)\n");
+
+        let mut cases = Vec::new();
+        for class in &self.module.classes {
+            if let Some(sym) = &class.to_string_symbol {
+                cases.push((class.id, sym.clone()));
+            }
+        }
+
+        if cases.is_empty() {
+            self.out.push_str("  br label %fallback\n");
+        } else {
+            write!(self.out, "  switch i64 %cls, label %fallback [").unwrap();
+            for (cid, _) in &cases {
+                write!(self.out, " i64 {cid}, label %case_{cid}").unwrap();
+            }
+            writeln!(self.out, " ]").unwrap();
+            for (cid, sym) in &cases {
+                writeln!(self.out, "case_{cid}:").unwrap();
+                writeln!(self.out, "  %res_{cid} = call i64 @{sym}(i64 %obj)").unwrap();
+                writeln!(self.out, "  ret i64 %res_{cid}").unwrap();
+            }
+        }
+        self.out.push_str("fallback:\n");
+        self.out.push_str("  %fb = call i64 @dartforge_to_string_handle(i64 %obj)\n");
+        self.out.push_str("  ret i64 %fb\n");
+        self.out.push_str("}\n\n");
     }
 
     fn emit_entry(&mut self) {
