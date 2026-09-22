@@ -155,6 +155,46 @@ impl Writer {
     pub fn push_raw(&mut self, s: &str) {
         self.out.push_str(s);
     }
+    /// Escreve a indentação da linha corrente (usado pelas macros `linha!`,
+    /// `abre!` e `fecha!`, que formatam direto no buffer).
+    pub fn recuo(&mut self) {
+        for _ in 0..self.indent {
+            self.out.push_str("  ");
+        }
+    }
+    pub fn fim_de_linha(&mut self) {
+        self.out.push('\n');
+    }
+}
+
+/// `linha!(w, "…{}", x)` escreve a linha formatando **dentro** do buffer do
+/// [`Writer`], sem a `String` intermediária que `w.line(&format!(…))` aloca.
+#[macro_export]
+macro_rules! linha {
+    ($w:expr, $($a:tt)*) => {{
+        use std::fmt::Write as _;
+        $w.recuo();
+        let _ = write!($w.out, $($a)*);
+        $w.fim_de_linha();
+    }};
+}
+
+/// Como [`linha!`], abrindo um bloco (indenta as linhas seguintes).
+#[macro_export]
+macro_rules! abre {
+    ($w:expr, $($a:tt)*) => {{
+        $crate::linha!($w, $($a)*);
+        $w.indent += 1;
+    }};
+}
+
+/// Como [`linha!`], fechando o bloco aberto.
+#[macro_export]
+macro_rules! fecha {
+    ($w:expr, $($a:tt)*) => {{
+        $w.indent = $w.indent.saturating_sub(1);
+        $crate::linha!($w, $($a)*);
+    }};
 }
 
 /// Palavras reservadas do JS e nomes que o módulo usa; identificadores Dart
