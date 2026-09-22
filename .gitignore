@@ -24,3 +24,6 @@ editors/vscode/package-lock.json
 # SDK compilado pelo DDC: gerado por scripts/gerar-dart-sdk.ps1
 runtime/ddc/dart_sdk.js
 runtime/ddc/dart_sdk.js.map
+
+# worktrees de subagentes
+.claude/worktrees/
