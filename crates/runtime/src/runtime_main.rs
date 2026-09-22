@@ -21,6 +21,29 @@ pub extern "C" fn dartforge_print_null() {
     println!("null");
 }
 
+/// Imprime ponto flutuante de 64 bits (double).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_print_f64(value: f64) {
+    if value.fract() == 0.0 && !value.is_infinite() && !value.is_nan() {
+        println!("{value:.1}");
+    } else {
+        println!("{value}");
+    }
+}
+
+/// Imprime qualquer objeto gerenciado pelo handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_print_handle(handle: i64) {
+    if handle == 0 {
+        println!("null");
+        return;
+    }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        println!("{}", describe_handle(&heap, handle));
+    });
+}
+
 /// Encerra o processo quando uma asserção de não nulidade falha.
 ///
 /// Ainda não há exceções Dart capturáveis; a falha é explícita e não retorna.
@@ -41,7 +64,8 @@ unsafe extern "C" {
 }
 
 /// Invoca uma vez o programa ligado ao runtime Rust.
-fn main() {
+#[unsafe(no_mangle)]
+pub extern "C" fn main() -> i32 {
     // SAFETY: o objeto foi emitido para esta ABI e ligado pelo mesmo driver nativo.
     unsafe { dartforge_entry() };
     let pending = EXCEPTION.with(|slot| slot.borrow().is_some());
@@ -74,12 +98,29 @@ fn main() {
                 s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots);
         });
     }
+    0
 }
 
 use heap::{Heap, TaggedValue, Value};
 use std::cell::RefCell;
+use std::collections::HashMap;
+
 thread_local! {
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
+    static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::new());
+}
+
+/// Registra o nome de uma classe pelo id para exibição em toString/print.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_register_class_name(class_id: i64, ptr: *const u8, len: i64) {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let bytes = if len == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(ptr, len) }
+    };
+    let name = std::str::from_utf8(bytes).expect("UTF-8").to_string();
+    CLASS_NAMES.with(|map| map.borrow_mut().insert(class_id, name));
 }
 
 /// Exceção pendente do esquema portátil de `throw`/`try`/`catch`.
@@ -88,7 +129,7 @@ thread_local! {
 /// exigiria alinhar o runtime Rust com o ABI de exceção do Clang em cada
 /// plataforma, o emissor LLVM verifica `dartforge_exception_pending` após cada
 /// chamada e desvia para o tratador. A carga é um valor com tag explícita:
-/// 1 = int, 2 = bool, 3 = referência gerenciada viva. `throw null` é erro de
+/// 1 = int, 2 = bool, 3 = referência gerenciada viva, 4 = double. `throw null` é erro de
 /// compilação no Dart 3.6.2 e nunca chega aqui.
 thread_local! {
     static EXCEPTION: RefCell<Option<TaggedValue>> = RefCell::new(None);
@@ -100,6 +141,11 @@ fn tagged(bits: i64, tag: u8) -> TaggedValue {
         1 => TaggedValue::scalar(bits),
         2 => TaggedValue::boolean(bits != 0),
         3 => TaggedValue::reference(bits),
+        4 => TaggedValue {
+            bits,
+            is_ref: false,
+            tag: heap::ValueTag::Double,
+        },
         _ => panic!("tag de valor inválida"),
     }
 }
@@ -111,6 +157,7 @@ fn untag(value: TaggedValue) -> (i64, u8) {
         ValueTag::Int => 1,
         ValueTag::Bool => 2,
         ValueTag::Ref => 3,
+        ValueTag::Double => 4,
     };
     (value.bits, tag)
 }
@@ -306,9 +353,13 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                 }
                 Value::Closure { .. }
                 | Value::Environment(_)
-                | Value::Cell(_)
-                | Value::Object { .. } => {
+                | Value::Cell(_) => {
                     output.push_str("Instance");
+                }
+                Value::Object { class_id, .. } => {
+                    let name = CLASS_NAMES.with(|map| map.borrow().get(class_id).cloned())
+                        .unwrap_or_else(|| "Object".to_string());
+                    output.push_str(&format!("Instance of '{name}'"));
                 }
             }
             return;
@@ -317,6 +368,21 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
         match value.tag {
             ValueTag::Bool => output.push_str(if value.bits != 0 { "true" } else { "false" }),
             ValueTag::Int => output.push_str(&value.bits.to_string()),
+            ValueTag::Double => {
+                let d = f64::from_bits(value.bits as u64);
+                if d.fract() == 0.0 && !d.is_infinite() && !d.is_nan() {
+                    output.push_str(&format!("{d:.1}"));
+                } else {
+                    output.push_str(&d.to_string());
+                }
+            }
+            ValueTag::Ref => {
+                if value.bits != 0 {
+                    render(heap, value, depth - 1, output);
+                } else {
+                    output.push_str("null");
+                }
+            }
         }
     }
     let mut output = String::new();

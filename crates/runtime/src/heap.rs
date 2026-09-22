@@ -32,6 +32,7 @@ pub struct HeapStats {
 pub enum ValueTag {
     Int,
     Bool,
+    Double,
     Ref,
 }
 
@@ -57,6 +58,14 @@ impl TaggedValue {
             bits: i64::from(value),
             is_ref: false,
             tag: ValueTag::Bool,
+        }
+    }
+    /// Representa ponto flutuante de 64 bits.
+    pub fn double(val: f64) -> Self {
+        Self {
+            bits: val.to_bits() as i64,
+            is_ref: false,
+            tag: ValueTag::Double,
         }
     }
     /// Representa handle gerenciado; zero representa referência null.
@@ -365,7 +374,9 @@ impl Heap {
     /// identidade de handle.
     fn key_equal(&self, left: &TaggedValue, right: &TaggedValue) -> bool {
         match (left.tag, right.tag) {
-            (ValueTag::Int, ValueTag::Int) | (ValueTag::Bool, ValueTag::Bool) => {
+            (ValueTag::Int, ValueTag::Int)
+            | (ValueTag::Bool, ValueTag::Bool)
+            | (ValueTag::Double, ValueTag::Double) => {
                 left.bits == right.bits
             }
             (ValueTag::Ref, ValueTag::Ref) => {
