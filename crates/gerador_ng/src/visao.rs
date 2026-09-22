@@ -27,10 +27,21 @@ pub struct Importacoes {
 }
 
 impl Importacoes {
-    /// Aloca (ou reaproveita) o número de uma URI e devolve o prefixo.
+    /// Aloca (ou reaproveita) o número de uma URI e devolve o prefixo — vazio
+    /// para as bibliotecas que o oficial importa sem prefixo.
     pub fn alias(&mut self, uri: &str) -> String {
+        if SEM_PREFIXO.contains(&uri) {
+            self.indice(uri, false);
+            return String::new();
+        }
         let n = self.indice(uri, true);
         format!("import{n}")
+    }
+
+    /// `alias` seguido de ponto, ou vazio: `import3.NgFor` e `NgIf`.
+    pub fn q(&mut self, uri: &str) -> String {
+        let a = self.alias(uri);
+        if a.is_empty() { a } else { format!("{a}.") }
     }
 
     /// Aloca um número sem prefixo — a URI é importada aberta.
@@ -69,6 +80,25 @@ const DI_ERRORS: &str = "package:ngdart/src/di/errors.dart";
 const TEXT_BINDING: &str = "package:ngdart/src/runtime/text_binding.dart";
 const CHECK_BINDING: &str = "package:ngdart/src/runtime/check_binding.dart";
 const DEVTOOLS: &str = "package:ngdart/src/devtools.dart";
+const VIEW_CONTAINER: &str = "package:ngdart/src/core/linker/view_container.dart";
+const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
+const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
+const EMBEDDED_VIEW: &str = "package:ngdart/src/core/linker/views/embedded_view.dart";
+const RENDER_VIEW: &str = "package:ngdart/src/core/linker/views/render_view.dart";
+
+/// Bibliotecas que o emissor oficial importa **sem prefixo**, por serem a API
+/// pública do ngdart (`_allowListedImports` em `output/dart_emitter.dart`).
+const SEM_PREFIXO: &[&str] = &[
+    ANGULAR,
+    "dart:core",
+    "package:ngdart/src/core/linker/element_ref.dart",
+    VIEW_CONTAINER,
+    TEMPLATE_REF,
+    "package:ngdart/src/core/change_detection/change_detection.dart",
+    NG_IF,
+    "package:ngdart/src/core/linker/app_view.dart",
+    "package:ngdart/src/core/render/api.dart",
+];
 const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
@@ -203,11 +233,9 @@ fn motivos_dos_nos(
                     {
                         fora.insert(Motivo::LigacaoEmFilho);
                     }
-                } else if !e.propriedades.is_empty()
-                    || !e.eventos.is_empty()
-                    || !e.bananas.is_empty()
+                } else if !e.bananas.is_empty()
                     || !e.referencias.is_empty()
-                    || e.estrela.is_some()
+                    || e.estrela.as_ref().is_some_and(|x| x.nome != "ngIf")
                 {
                     fora.insert(Motivo::Ligacao);
                 }
@@ -310,6 +338,17 @@ struct Corpo<'a> {
     tipos: Option<(&'a dyn Resolucao, &'a Path)>,
     /// O componente tem folha de estilo: cada elemento ganha `addShimC`.
     com_estilo: bool,
+    /// Classes de visão embutida já emitidas (`*ngIf`), com as suas fábricas.
+    embutidas: Vec<String>,
+    /// Nome da classe da visão (`ViewX`), para numerar as embutidas.
+    classe_da_visao: String,
+    /// `_appEl_n` de cada `ViewContainer`, para a detecção e a destruição.
+    ancoras: Vec<String>,
+    /// Esta visão é embutida: a raiz é registrada com `initRootNode`.
+    embutida: bool,
+    /// Tipo do contexto da visão (`import1.X`), para a embutida declarar
+    /// `EmbeddedView<X>`.
+    tipo_do_contexto: String,
     /// Para analisar as expressões do template, que são expressões Dart.
     nomes: &'a mut dartforge_intern::Interner,
     /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
@@ -527,6 +566,129 @@ impl Corpo<'_> {
         Ok(())
     }
 
+    /// `*ngIf="cond"`: âncora, `ViewContainer`, `TemplateRef` e a diretiva,
+    /// com o conteúdo numa visão embutida à parte.
+    ///
+    /// A entrada do `NgIf` é escrita **sem** `checkBinding`: é a exceção que o
+    /// `binding_converter.dart` do ngcompiler declara em `_isDirectBinding`,
+    /// porque a própria diretiva já compara o valor antes de agir.
+    fn ng_if(
+        &mut self,
+        e: &crate::html::Elemento,
+        estrela: &crate::html::Ligacao,
+        pai: &str,
+    ) -> Result<(), Motivo> {
+        let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
+        let convertida =
+            crate::expr::converter_com_metodos(&estrela.valor, self.membros, self.metodos, self.nomes, self.tipos)?;
+        let n = self.proximo;
+        self.proximo += 1;
+        let dom = self.dom();
+        let vc = self.imp.q(VIEW_CONTAINER);
+        let tr = self.imp.q(TEMPLATE_REF);
+        let ngif = self.imp.q(NG_IF);
+        let dev = self.imp.alias(DEVTOOLS);
+        // A visão embutida é uma classe irmã, numerada a partir de 1.
+        let indice = self.embutidas.len() + 1;
+        let nome_fabrica = format!("viewFactory_{}{indice}", &self.classe_da_visao[4..]);
+        self.campos_filho.push(format!("  late final {vc}ViewContainer _appEl_{n};"));
+        self.campos_filho.push(format!("  late final {ngif}NgIf _NgIf_{n}_9;"));
+        self.ancoras.push(format!("_appEl_{n}"));
+        self.linhas.push(format!("    final _anchor_{n} = {dom}.appendAnchor({pai});"));
+        self.linhas
+            .push(format!("    this._appEl_{n} = {vc}ViewContainer({n}, null, this, _anchor_{n});"));
+        self.linhas.push(format!(
+            "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+        ));
+        self.linhas
+            .push(format!("    this._NgIf_{n}_9 = {ngif}NgIf(this._appEl_{n}, _TemplateRef_{n}_8);"));
+        self.linhas.push(format!(
+            "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this._NgIf_{n}_9);\n    }}"
+        ));
+        let valor = convertida.texto;
+        let (ini, fim) = (estrela.inicio, estrela.fim);
+        self.usa_ctx_na_deteccao = true;
+        self.deteccao.push(format!(
+            "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.recordInput(this._NgIf_{n}_9, 'ngIf', {valor});\n    }}\n    this._NgIf_{n}_9.ngIf = {valor} /* REF:{url}:{ini}:{fim} */;"
+        ));
+        // O conteúdo vai para a visão embutida, sem o `*ngIf`.
+        let mut sem_estrela = e.clone();
+        sem_estrela.estrela = None;
+        let classe = format!("_{}{indice}", self.classe_da_visao);
+        let texto = self.visao_embutida(&classe, &nome_fabrica, &[No::Elemento(sem_estrela)])?;
+        self.embutidas.push(texto);
+        Ok(())
+    }
+
+    /// Emite a classe de uma visão embutida e a sua fábrica.
+    fn visao_embutida(
+        &mut self,
+        classe: &str,
+        fabrica: &str,
+        nos: &[No],
+    ) -> Result<String, Motivo> {
+        // As classes embutidas saem depois das fábricas no arquivo, e é lá
+        // que o oficial aloca estes dois imports — depois do `angular.dart`.
+        // Os prefixos entram no fim, por marcação.
+        let ev = "%%EV%%".to_string();
+        let rv = "%%RV%%".to_string();
+        let tipo = self.tipo_do_contexto.clone();
+        let mut dentro = Corpo {
+            linhas: Vec::new(),
+            campos: Vec::new(),
+            campos_filho: Vec::new(),
+            vistas_filhas: Vec::new(),
+            campos_expr: Vec::new(),
+            campos_el: Vec::new(),
+            proxima_ligacao: 0,
+            deteccao: Vec::new(),
+            nomes: self.nomes,
+            usa_primeira_checagem: false,
+            usa_ctx_na_deteccao: false,
+            tb: self.tb.clone(),
+            url_do_template: self.url_do_template.clone(),
+            membros: self.membros,
+            metodos: self.metodos,
+            filhos: self.filhos,
+            asset: self.asset.clone(),
+            tipos: self.tipos,
+            com_estilo: self.com_estilo,
+            embutidas: Vec::new(),
+            classe_da_visao: self.classe_da_visao.clone(),
+            ancoras: Vec::new(),
+            embutida: true,
+            proximo: 0,
+            tem_doc: false,
+            usa_ctx_no_build: false,
+            proxima_projecao: 0,
+            imp: self.imp,
+            html: self.html.clone(),
+            tipo_do_contexto: self.tipo_do_contexto.clone(),
+        };
+        dentro.nos(nos, "")?;
+        if dentro.proximo == 0 {
+            return Err(Motivo::Ligacao);
+        }
+        let corpo = dentro.linhas.join("\n");
+        let campos = if dentro.campos.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", dentro.campos.join("\n"))
+        };
+        let deteccao = if dentro.deteccao.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n  @override\n  void detectChangesInternal() {{\n{}\n  }}\n",
+                dentro.deteccao.join("\n")
+            )
+        };
+        let embutidas = dentro.embutidas.join("");
+        Ok(format!(
+            "\nclass {classe} extends {ev}.EmbeddedView<{tipo}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n{embutidas}"
+        ))
+    }
+
     /// Emite a ligação de texto de `{{ … }}`: o campo `TextBinding`, o
     /// `append` no `build()` e a atualização no `detectChangesInternal`.
     fn interpolacao(
@@ -618,8 +780,15 @@ impl Corpo<'_> {
                     {
                         return Err(Motivo::Diretiva);
                     }
-                    if !e.bananas.is_empty() || !e.referencias.is_empty() || e.estrela.is_some() {
-                        // `[(x)]`, `#ref` e `*ngIf` ainda não.
+                    if let Some(estrela) = &e.estrela {
+                        if estrela.nome != "ngIf" {
+                            return Err(Motivo::Ligacao); // outro `*` ainda não
+                        }
+                        self.ng_if(e, estrela, pai)?;
+                        continue;
+                    }
+                    if !e.bananas.is_empty() || !e.referencias.is_empty() {
+                        // `[(x)]` e `#ref` ainda não.
                         return Err(Motivo::Ligacao);
                     }
                     if e.atributos.iter().any(|a| a.valor.contains("{{")) {
@@ -819,23 +988,31 @@ fn tem_elemento_ligado(nos: &[No], filhos: &std::collections::HashMap<String, Fi
     })
 }
 
-/// Os componentes filhos usados no template, em ordem de documento.
-fn filhos_em_ordem<'a>(
+/// O que gera campo na classe da visão, na ordem em que aparece.
+enum CampoDaVisao<'a> {
+    Filho(&'a Filho),
+    NgIf,
+}
+
+/// Os campos que o template vai gerar, em ordem de documento. A ordem dos
+/// imports segue esta lista, e é ela que faz a numeração bater com a do
+/// oficial.
+fn campos_em_ordem<'a>(
     nos: &[No],
     filhos: &'a std::collections::HashMap<String, Filho>,
-) -> Vec<&'a Filho> {
+) -> Vec<CampoDaVisao<'a>> {
     let mut saida = Vec::new();
     for no in nos {
         let No::Elemento(e) = no else { continue };
-        match filhos.get(&e.nome) {
-            Some(f) => {
-                saida.push(f);
-                // O conteúdo projetado é criado no mesmo `build()`, mas os
-                // seus campos vêm depois — o percurso continua.
-                saida.extend(filhos_em_ordem(&e.filhos, filhos));
-            }
-            None => saida.extend(filhos_em_ordem(&e.filhos, filhos)),
+        if e.estrela.is_some() {
+            // O conteúdo vai para a visão embutida; os campos dele são de lá.
+            saida.push(CampoDaVisao::NgIf);
+            continue;
         }
+        if let Some(f) = filhos.get(&e.nome) {
+            saida.push(CampoDaVisao::Filho(f));
+        }
+        saida.extend(campos_em_ordem(&e.filhos, filhos));
     }
     saida
 }
@@ -919,12 +1096,21 @@ pub fn template_de_componente(
     // alocados nessa mesma ordem. É isso que faz a numeração bater com a do
     // oficial; fora de ordem, a comparação byte a byte não vale nada.
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
-    for f in filhos_em_ordem(nos, filhos) {
-        for uri in [&f.uri_template, &f.uri_dart] {
-            let asset = asset_de_uri(uri, "", Path::new("")).ok_or(Motivo::ComponenteNoTemplate)?;
-            let caminho =
-                caminho_do_import(&local.asset(), &asset).ok_or(Motivo::ComponenteNoTemplate)?;
-            imp.alias(&caminho);
+    for campo in campos_em_ordem(nos, filhos) {
+        match campo {
+            CampoDaVisao::Filho(f) => {
+                for uri in [&f.uri_template, &f.uri_dart] {
+                    let asset =
+                        asset_de_uri(uri, "", Path::new("")).ok_or(Motivo::ComponenteNoTemplate)?;
+                    let caminho = caminho_do_import(&local.asset(), &asset)
+                        .ok_or(Motivo::ComponenteNoTemplate)?;
+                    imp.alias(&caminho);
+                }
+            }
+            CampoDaVisao::NgIf => {
+                imp.alias(VIEW_CONTAINER);
+                imp.alias(NG_IF);
+            }
         }
     }
     if tem_elemento_ligado(nos, filhos) {
@@ -947,6 +1133,11 @@ pub fn template_de_componente(
         asset: local.asset(),
         tipos: resolvedor.map(|r| (r, local.caminho)),
         com_estilo: !c.style_urls.is_empty(),
+        embutidas: Vec::new(),
+        classe_da_visao: format!("View{}", c.classe),
+        ancoras: Vec::new(),
+        embutida: false,
+        tipo_do_contexto: format!("{proprio}.{}", c.classe),
         campos_expr: Vec::new(),
         campos_el: Vec::new(),
         proxima_ligacao: 0,
@@ -974,6 +1165,7 @@ pub fn template_de_componente(
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
     // Ordem dos campos na classe, como o oficial escreve: ligações de texto,
     // depois os valores anteriores das ligações, depois os elementos.
+    let embutidas = corpo.embutidas.join("");
     let mut todos = corpo.campos.clone();
     todos.extend(corpo.campos_filho.clone());
     todos.extend(corpo.campos_expr.clone());
@@ -985,6 +1177,9 @@ pub fn template_de_componente(
     // A detecção junta as ligações do próprio template e o repasse para as
     // visões-filhas. `_ctx` e `firstCheck` só são declarados se alguém os usa.
     let mut linhas_deteccao = corpo.deteccao.clone();
+    for a in &corpo.ancoras {
+        linhas_deteccao.push(format!("    this.{a}.detectChangesInNestedViews();"));
+    }
     for v in &corpo.vistas_filhas {
         linhas_deteccao.push(format!("    this.{v}.detectChanges();"));
     }
@@ -1008,14 +1203,17 @@ pub fn template_de_componente(
         )
     };
     // Visão-filha precisa ser destruída com a visão que a criou.
-    let destruicao = if corpo.vistas_filhas.is_empty() {
+    let destruicao = if corpo.vistas_filhas.is_empty() && corpo.ancoras.is_empty() {
         String::new()
     } else {
-        let linhas: Vec<String> = corpo
-            .vistas_filhas
+        let mut linhas: Vec<String> = corpo
+            .ancoras
             .iter()
-            .map(|v| format!("    this.{v}.destroyInternalState();"))
+            .map(|a| format!("    this.{a}.destroyNestedViews();"))
             .collect();
+        linhas.extend(
+            corpo.vistas_filhas.iter().map(|v| format!("    this.{v}.destroyInternalState();")),
+        );
         format!("
   @override
   void destroyInternal() {{
@@ -1026,6 +1224,13 @@ pub fn template_de_componente(
     };
 
     imp.sem_alias(ANGULAR);
+    let embutidas = if embutidas.is_empty() {
+        embutidas
+    } else {
+        let ev = imp.alias(EMBEDDED_VIEW);
+        let rv = imp.alias(RENDER_VIEW);
+        embutidas.replace("%%EV%%", &ev).replace("%%RV%%", &rv)
+    };
     let hosp = imp.alias(HOST_VIEW);
     let construcao = construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
         .ok_or(Motivo::InjecaoNaoResolvida)?;
@@ -1095,7 +1300,7 @@ ComponentFactory<{proprio}.{x}> get {x}NgFactory {{
 ComponentFactory<{proprio}.{x}> create{x}Factory() {{
   return ComponentFactory('{seletor}', viewFactory_{x}Host0);
 }}
-
+{embutidas}
 final List<Object> styles${x}Host = const [];
 
 class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
