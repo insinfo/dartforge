@@ -881,11 +881,15 @@ impl<'a> Ctx<'a> {
             Type::Void => Ty::Void,
             Type::Never => Ty::Never,
             Type::Null => Ty::Null,
-            Type::Interface { class, args, nullable } => Ty::Iface {
-                class: *class,
-                args: args.iter().map(|a| self.ty_of(*a)).collect(),
-                nullable: *nullable,
-            },
+            Type::Interface { class, args, nullable } => {
+                // Tipo cru vindo da tabela (`Caixa` por `Caixa<dynamic>`):
+                // completa a aridade aqui, na única porta de entrada, para que
+                // receitas, regras rti, substituições e busca de membros vejam
+                // sempre a mesma forma (ver `args_na_aridade`).
+                let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
+                let args = self.args_na_aridade(*class, &args).into_owned();
+                Ty::Iface { class: *class, args, nullable: *nullable }
+            }
             Type::Function { type_params, ret, positional, optional, named, nullable } => Ty::Fn {
                 type_params: type_params.iter().map(|p| self.ty_param_of(*p)).collect(),
                 ret: Box::new(self.ty_of(*ret)),
@@ -922,6 +926,7 @@ impl<'a> Ctx<'a> {
                 // para o tipo de representação.
                 if self.interop_ext_types.contains(decl) {
                     let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
+                    let args = self.args_na_aridade(*decl, &args).into_owned();
                     return Ty::Iface { class: *decl, args, nullable: *nullable };
                 }
                 let class = self.program.class(*decl);
@@ -1849,6 +1854,37 @@ impl<'a> Ctx<'a> {
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
         format!("{}|{}", self.lib_ident(lib), self.class_name(c))
+    }
+
+    /// Quantos parâmetros de tipo a classe declara.
+    ///
+    /// Usa `class_params` quando já existe e o outline enquanto
+    /// `compute_hierarchy` ainda o está construindo.
+    pub fn class_arity(&self, c: ClassId) -> usize {
+        match self.class_params.get(c.0 as usize) {
+            Some(p) => p.len(),
+            None => self.outline.classes.get(c.0 as usize).map_or(0, |k| k.type_params.len()),
+        }
+    }
+
+    /// Argumentos de uma interface na aridade declarada: um tipo **cru**
+    /// (`Caixa` querendo dizer `Caixa<dynamic>`) recebe um `dynamic` por
+    /// parâmetro que falta.
+    ///
+    /// O `rti` exige um argumento por parâmetro declarado — `_areArgumentsSubtypes`
+    /// (`rti.dart:3676`) tem `assert(length == _Utils.arrayLength(tArgs))`, e uma
+    /// receita crua derruba a aplicação no primeiro `is`/`as` que a atravesse. O
+    /// `dartdevc` emite `raw|Caixa<@>` e nunca `raw|Caixa` (o nome sem
+    /// argumentos só aparece como **chave** de `addRules`/`addRtiResources`, que
+    /// é outra coisa).
+    pub fn args_na_aridade<'t>(&self, class: ClassId, args: &'t [Ty]) -> std::borrow::Cow<'t, [Ty]> {
+        let n = self.class_arity(class);
+        if args.len() >= n {
+            return std::borrow::Cow::Borrowed(args);
+        }
+        let mut v = args.to_vec();
+        v.resize(n, Ty::Dynamic);
+        std::borrow::Cow::Owned(v)
     }
 
     pub fn sym(&self, name: &str) -> Option<SymbolId> {

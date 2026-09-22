@@ -390,6 +390,10 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
         let _ = class;
         for s in supers {
             let Ty::Iface { class: sc, args, .. } = &s else { continue };
+            // O `addRules` do supertipo leva um argumento por parâmetro que ele
+            // declara; um supertipo cru (`implements Caixa`) vale
+            // `Caixa<dynamic>` (`Ctx::args_na_aridade`).
+            let args = ctx.args_na_aridade(*sc, args);
             let sparams = &ctx.class_params[sc.0 as usize];
             for (p, a) in sparams.iter().zip(args.iter()) {
                 items.push(format!("\"{}.{}\":{}", ctx.class_name(*sc), p.name, json_str(&rule_recipe(ctx, a, c))));
@@ -453,6 +457,8 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
         Ty::Null => ctx.null_.map(|n| ctx.class_recipe(n)).unwrap_or("core|Null".into()),
         Ty::Iface { class: c, args, nullable } => {
             let mut s = ctx.class_recipe(*c);
+            // Aridade declarada, sempre (`Ctx::args_na_aridade`).
+            let args = ctx.args_na_aridade(*c, args);
             if !args.is_empty() {
                 s.push('<');
                 let parts: Vec<String> = args.iter().map(|a| rule_recipe(ctx, a, class)).collect();

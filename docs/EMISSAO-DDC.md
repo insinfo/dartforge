@@ -256,3 +256,53 @@ suporta: `ferias_real_delta_pdf_test` importa `dart:io` e lê `File(...)`
 que na web cai no stub e lança `PdfFontLoadException`. Não foram contornados.
 O `main.mjs` importa um `preambulo.js` com `globalThis.self = globalThis`
 porque o `dart_sdk.js` é o do navegador (`Random.secure()` usa `self.crypto`).
+
+## limitless_ui/example (2026-09-22)
+
+Aplicação ngdart real com **suíte e2e de comportamento**: `26/26` no build
+oficial (dart2js) e `26/26` na saída do `compile-js`, com o mesmo servidor nos
+dois lados; e, numa sonda que percorre as 53 rotas da galeria, `52/53` dos dois
+lados (a única reprovada reprova também no oficial). 483 módulos, 10,5 s de
+compilação. Detalhes, como preparar e o que falta em
+[LIMITLESS-UI.md](LIMITLESS-UI.md).
+
+### Aridade das receitas: tipo cru é `C<@>`, nunca `C`
+
+Uma receita de tipo interface traz **sempre** um argumento por parâmetro
+declarado; um tipo cru (`AbstractControl` por `AbstractControl<dynamic>`) vale
+`C<@,…>`. O `rti` confere a aridade — `_areArgumentsSubtypes` (`rti.dart:3676`)
+tem `assert(length == _Utils.arrayLength(tArgs))` — e uma receita crua derruba
+o primeiro `is`/`as` que a atravesse. O nome sem argumentos só é legítimo como
+**chave** de `addRules` e no `addRtiResources`, que não são receitas de tipo.
+No `addRules`, o vetor de argumentos do supertipo segue a mesma regra
+(`implements Caixa` dá `"c|Caixa":["@"]` mais `"Caixa.T":"@"`).
+
+Verificado no oráculo. Preenchido em `Ctx::ty_of` (porta de entrada dos tipos
+da `TypeTable`, ramos `Interface` e `ExtensionType` de interop) e reforçado nos
+dois emissores de receita (`FnEmitter::recipe`, `rule_recipe`) e no
+`emit_rules`, via `Ctx::args_na_aridade`. Corpus: `214_tipo_cru_generico`.
+
+### Pedido ao `crates/types` (inferência de corpos)
+
+Essa compilação emite **74.332 avisos de inferência de corpos**. Cada um é um
+ponto onde o emissor não recebe tipo estático e recua para despacho dinâmico
+(`dart.dsend`/`dload`/`dput`): continua correto, mas é mais lento e maior. Os
+grupos mais frequentes, em ordem:
+
+1. **campo com inicializador `dynamic` incompatível com o tipo declarado** — o
+   caso dominante, e quase todo ele vem dos `.template.dart` do ngdart
+   (`TextBinding`, `ComponentView<T>`, `ViewContainer`): o inicializador é uma
+   chamada a um construtor genérico cujo argumento de tipo devia vir do tipo
+   declarado do campo (inferência descendente para o inicializador de campo);
+2. **`Iterable<dynamic>` onde se espera `Set<String>` / `Map<K,V>`** —
+   literais de coleção sem argumentos de tipo explícitos cujo tipo tem de vir
+   do contexto (`const {}`, `[...]` atribuídos a campo tipado);
+3. **função com parâmetro nomeado tratada como posicional** — assinaturas como
+   `dynamic Function(T, {String rawValue})` recebendo
+   `dynamic Function(T, String?)`; parece perda dos nomeados na formação do
+   tipo função do valor;
+4. `FutureOr` chegando sem exatamente um argumento de tipo, e uma referência
+   de tipo ambígua no outline.
+
+Nenhum deles impede a emissão; são a diferença entre chamar direto e chamar por
+`dart.dsend`.
