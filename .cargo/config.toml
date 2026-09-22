@@ -16,12 +16,12 @@
 [env]
 LLVM_SYS_221_PREFIX = "D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
 
-# `target/` compartilhado por todas as worktrees (agentes trabalham em
-# D:/Projects/dartforge-*/ e .claude/worktrees/*): a máquina tem 8 GB de RAM e
-# quatro árvores compilando o mesmo workspace em paralelo, cada uma com o seu
-# `target/`, é o que a deixa em disco. Com um diretório só, os builds se
-# enfileiram na trava do Cargo e nada é compilado mais de uma vez.
-# `jobs` limita o rustc em paralelo pelo mesmo motivo (8 núcleos, 8 GB).
+# `jobs` limita o rustc em paralelo: 8 núcleos, 8 GB e várias árvores.
+#
+# Um `target/` único compartilhado entre worktrees foi tentado e revertido:
+# com árvores divergentes o Cargo considera o crate "fresh" e o binário final
+# (`target/<perfil>/dartforge.exe`, hardlink do último que compilou) fica
+# sendo o de OUTRA árvore — o harness rodava um compilador antigo. Cada
+# worktree mantém o seu `target/`.
 [build]
-target-dir = "D:/Projects/dartforge/target"
 jobs = 6
