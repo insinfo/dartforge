@@ -38,6 +38,44 @@ pub fn emitir_programa(
     module::emitir(&ctx)
 }
 
+/// Tempos por fase e contagens de uma compilação (`dartforge compile-js --timings`).
+#[derive(Debug, Default, Clone)]
+pub struct Relatorio {
+    /// `(fase, duração)` na ordem em que as fases correram.
+    pub fases: Vec<(&'static str, std::time::Duration)>,
+    /// Unidades (`.dart`) do SDK, patches incluídos.
+    pub unidades_sdk: usize,
+    /// Unidades do usuário e de pacotes.
+    pub unidades_usuario: usize,
+    pub bibliotecas: usize,
+    pub avisos_outline: usize,
+    pub avisos_corpos: usize,
+    pub modulos: usize,
+}
+
+impl Relatorio {
+    /// Registra uma fase medida a partir de `inicio`.
+    pub fn fase(&mut self, nome: &'static str, inicio: std::time::Instant) {
+        self.fases.push((nome, inicio.elapsed()));
+    }
+
+    /// Texto de uma linha por fase, com o total.
+    pub fn texto(&self) -> String {
+        let mut out = String::new();
+        let mut total = std::time::Duration::ZERO;
+        for (nome, d) in &self.fases {
+            out.push_str(&format!("{nome:<24}{:>9.1} ms\n", d.as_secs_f64() * 1000.0));
+            total += *d;
+        }
+        out.push_str(&format!("{:<24}{:>9.1} ms\n", "total", total.as_secs_f64() * 1000.0));
+        out.push_str(&format!(
+            "unidades: {} SDK + {} usuário/pacotes; {} bibliotecas; {} módulos; avisos: {} outline + {} corpos\n",
+            self.unidades_sdk, self.unidades_usuario, self.bibliotecas, self.modulos, self.avisos_outline, self.avisos_corpos
+        ));
+        out
+    }
+}
+
 /// Roda o pipeline inteiro (elementos → outline → corpos → emissão) para uma entrada.
 ///
 /// `sdk_lib` é o `lib/` do SDK (descoberto pelo `PATH` quando `None`).
@@ -46,15 +84,34 @@ pub fn compilar(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<Emitido, String> {
+    compilar_com_relatorio(entrada, sdk_lib, packages).map(|(e, _)| e)
+}
+
+/// Como [`compilar`], devolvendo também o [`Relatorio`] de tempos por fase.
+pub fn compilar_com_relatorio(
+    entrada: &std::path::Path,
+    sdk_lib: Option<&std::path::Path>,
+    packages: Option<&std::path::Path>,
+) -> Result<(Emitido, Relatorio), String> {
     use dartforge_elements::load::load_lenient;
     use dartforge_elements::sdk::SdkLayout;
+    use std::time::Instant;
+    let mut rel = Relatorio::default();
+    let t = Instant::now();
     let sdk_dir = match sdk_lib {
         Some(p) => p.to_path_buf(),
         None => SdkLayout::discover().unwrap_or_else(|| std::path::PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
     let sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
+    rel.fase("layout do SDK", t);
+    let t = Instant::now();
     let mut interner = Interner::new();
     let (program, elements_diags) = load_lenient(entrada, &sdk, packages, &mut interner);
+    rel.fase("carregar programa", t);
+    // Partes do SDK têm URI `file:///…/lib/core/int.dart`; o que decide é a biblioteca.
+    rel.unidades_sdk = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
+    rel.unidades_usuario = program.units.len() - rel.unidades_sdk;
+    rel.bibliotecas = program.libraries.len();
     // Nenhuma fase falha em silêncio: diagnósticos de carregamento (arquivo ou
     // pacote não encontrado, sintaxe) abortam; os de tipos são avisos por
     // enquanto, porque a inferência ainda tem lacunas e o emissor recua para
@@ -65,11 +122,17 @@ pub fn compilar(
         }
         return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
     }
+    let t = Instant::now();
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    rel.fase("outline (tipos)", t);
+    let t = Instant::now();
     let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    rel.fase("inferência de corpos", t);
+    rel.avisos_outline = outline_diags.len();
+    rel.avisos_corpos = body_diags.len();
     let avisos = outline_diags.len() + body_diags.len();
     if avisos > 0 {
         let limite = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
@@ -78,27 +141,43 @@ pub fn compilar(
         }
         eprintln!("({avisos} aviso(s) de tipos; DARTFORGE_AVISOS=N mostra mais)");
     }
-    emitir_programa(&program, &interner, &table, &core, &outline, &bodies)
-        .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
+    let t = Instant::now();
+    let emitido = emitir_programa(&program, &interner, &table, &core, &outline, &bodies)
+        .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))?;
+    rel.fase("emissão", t);
+    rel.modulos = emitido.modulos.len();
+    let t = Instant::now();
+    drop(bodies);
+    drop(outline);
+    drop(table);
+    drop(program);
+    drop(interner);
+    rel.fase("liberar memória", t);
+    Ok((emitido, rel))
 }
 
 /// Escreve os módulos e o `main.mjs` em `dir` e copia o `dart_sdk.js`.
-pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<(), String> {
+///
+/// Devolve quantos arquivos foram de fato gravados.
+pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<usize, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut escritos = 0usize;
     for (path, text) in &emitido.modulos {
         let p = dir.join(path);
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         std::fs::write(&p, text).map_err(|e| format!("{}: {e}", p.display()))?;
+        escritos += 1;
     }
     std::fs::write(dir.join("main.mjs"), &emitido.entrada).map_err(|e| format!("main.mjs: {e}"))?;
+    escritos += 1;
     let dest = dir.join("dart_sdk.js");
     if !dest.exists() {
         std::fs::copy(dart_sdk_js, &dest)
             .map_err(|e| format!("{} → {}: {e}", dart_sdk_js.display(), dest.display()))?;
     }
-    Ok(())
+    Ok(escritos)
 }
 
 /// Caminho do `dart_sdk.js` gerado por `scripts/gerar-dart-sdk.ps1`.

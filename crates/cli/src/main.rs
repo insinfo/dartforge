@@ -602,24 +602,38 @@ mod environment_tests {
 
 /// `compile-js`: emite módulos ES6 no contrato do DDC em `<dir>` e copia o `dart_sdk.js`.
 fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings]";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
+    let mut timings = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
             Some("-o") => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--timings") => timings = true,
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
     }
     let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
-    let emitido = dartforge_emit_js::compilar(&input, sdk.as_deref(), packages.as_deref())?;
-    dartforge_emit_js::escrever(&emitido, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
-    println!("{} -> {} ({} módulos)", input.display(), out.display(), emitido.modulos.len());
+    let (emitido, mut relatorio) =
+        dartforge_emit_js::compilar_com_relatorio(&input, sdk.as_deref(), packages.as_deref())?;
+    let t = std::time::Instant::now();
+    let escritos = dartforge_emit_js::escrever(&emitido, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
+    relatorio.fase("escrita", t);
+    println!(
+        "{} -> {} ({} módulos, {} arquivo(s) reescrito(s))",
+        input.display(),
+        out.display(),
+        emitido.modulos.len(),
+        escritos
+    );
+    if timings {
+        print!("{}", relatorio.texto());
+    }
     Ok(())
 }
