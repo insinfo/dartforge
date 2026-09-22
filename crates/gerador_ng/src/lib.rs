@@ -19,12 +19,12 @@
 pub mod componente;
 pub mod dom;
 pub mod html;
+pub mod resolucao;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
 use visao::Motivo;
 use dartforge_frontend::ast;
-use dartforge_frontend::parser::Parsed;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -69,10 +69,15 @@ fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> String {
 }
 
 /// Varre as declarações de topo de uma unidade já analisada.
-pub fn achar(analisada: &Parsed, fonte: &str, interner: &Interner) -> Achados {
+pub fn achar(
+    arvore: &ast::Ast,
+    unidade: &ast::CompilationUnit,
+    fonte: &str,
+    interner: &Interner,
+) -> Achados {
     let mut achados = Achados::default();
-    for &id in &analisada.unit.declarations {
-        let decl = analisada.ast.decl(id);
+    for &id in &unidade.declarations {
+        let decl = arvore.decl(id);
         // `@Component` e `@Directive` só existem em classe, mas
         // `@GenerateInjector` fica numa variável de topo
         // (`@GenerateInjector([...]) final InjectorFactory injector = …`), que é
@@ -87,7 +92,7 @@ pub fn achar(analisada: &Parsed, fonte: &str, interner: &Interner) -> Achados {
                 "Component" => {
                     if let ast::DeclKind::Class(classe) = &decl.kind {
                         achados.componentes.push(componente::ler_componente(
-                            analisada, fonte, interner, classe, a,
+                            arvore, fonte, interner, classe, a,
                         ));
                     }
                 }
@@ -160,6 +165,7 @@ pub fn gerar_em(
     interner: &mut Interner,
     c: &mut Construtor,
     placar: &mut Placar,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
 ) {
     for dir in diretorios {
         let mut pilha = vec![dir.clone()];
@@ -182,14 +188,17 @@ pub fn gerar_em(
                 };
                 let tokens = dartforge_frontend::lexer::lex(&fonte);
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
-                let achados = achar(&analisada, &fonte, interner);
-                let (texto, entradas) = match gerar_arquivo(pacote, &p, &nome, &achados) {
+                let achados = achar(&analisada.ast, &analisada.unit, &fonte, interner);
+                let (texto, entradas) =
+                    match gerar_arquivo(pacote, &p, &nome, &achados, resolvedor) {
                     Ok(x) => x,
                     Err(motivo) => {
                         // Forma que o gerador ainda não cobre: fica com o
                         // build_runner, e a aplicação compila do mesmo jeito.
                         *placar.motivos.entry(motivo).or_default() += 1;
-                        placar.conjuntos.push(motivos_do_arquivo(&p, &achados, motivo));
+                        placar.conjuntos.push(motivos_do_arquivo(
+                            pacote, &p, &achados, motivo, resolvedor,
+                        ));
                         placar.pendentes.push(p);
                         continue;
                     }
@@ -208,6 +217,7 @@ fn gerar_arquivo(
     fonte: &Path,
     nome_do_arquivo: &str,
     achados: &Achados,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
 ) -> Result<(String, Vec<PathBuf>), Motivo> {
     if achados.trivial() {
         return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
@@ -236,9 +246,11 @@ fn gerar_arquivo(
         pacote: &pacote.nome,
         relativo: &relativo,
         arquivo: nome_do_arquivo,
+        caminho: fonte,
+        raiz: &pacote.raiz,
     };
     let nos = html::analisar(&template);
-    let texto = visao::template_de_componente(comp, &local, &nos)?;
+    let texto = visao::template_de_componente(comp, &local, &nos, resolvedor)?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
     Ok((texto, entradas))
@@ -246,9 +258,11 @@ fn gerar_arquivo(
 
 /// Conjunto de motivos de um arquivo pendente, para o placar.
 fn motivos_do_arquivo(
+    pacote: &Pacote,
     fonte: &Path,
     achados: &Achados,
     primeiro: Motivo,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
 ) -> std::collections::BTreeSet<Motivo> {
     let mut fora = std::collections::BTreeSet::new();
     fora.insert(primeiro);
@@ -264,7 +278,16 @@ fn motivos_do_arquivo(
         },
         (None, None) => String::new(),
     };
-    fora.extend(visao::motivos(comp, &html::analisar(&template)));
+    let relativo = pacote.relativo(fonte);
+    let nome = fonte.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let local = visao::Local {
+        pacote: &pacote.nome,
+        relativo: &relativo,
+        arquivo: &nome,
+        caminho: fonte,
+        raiz: &pacote.raiz,
+    };
+    fora.extend(visao::motivos(comp, &local, &html::analisar(&template), resolvedor));
     fora
 }
 
@@ -279,6 +302,7 @@ pub fn gerar_com_apoio(
     pacote: &Pacote,
     interner: &mut Interner,
     apoio: Option<&Geracao>,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
 ) -> (Arc<Geracao>, Placar) {
     let mut c = Construtor::nova();
     let mut placar = Placar::default();
@@ -287,7 +311,7 @@ pub fn gerar_com_apoio(
         .map(|d| pacote.raiz.join(d))
         .filter(|d| d.is_dir())
         .collect();
-    gerar_em(pacote, &dirs, interner, &mut c, &mut placar);
+    gerar_em(pacote, &dirs, interner, &mut c, &mut placar, resolvedor);
     if let Some(apoio) = apoio {
         // O apoio entra só onde não geramos: pendentes deste pacote e tudo o
         // que é de fora dele.
@@ -315,7 +339,7 @@ mod testes {
         let mut i = Interner::new();
         let t = dartforge_frontend::lexer::lex(fonte);
         let u = dartforge_frontend::parser::parse_lexed(fonte, t, &mut i);
-        achar(&u, fonte, &i)
+        achar(&u.ast, &u.unit, fonte, &i)
     }
 
     #[test]

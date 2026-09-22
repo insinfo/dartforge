@@ -16,7 +16,9 @@
 use crate::componente::Componente;
 use crate::dom;
 use crate::html::No;
+use crate::resolucao::{Resolucao, asset_de_uri, caminho_do_import};
 use std::fmt::Write;
+use std::path::Path;
 
 /// Tabela de imports do arquivo gerado.
 #[derive(Default)]
@@ -63,6 +65,7 @@ const UTILITIES: &str = "package:ngdart/src/utilities.dart";
 const DOM_HELPERS: &str = "package:ngdart/src/runtime/dom_helpers.dart";
 const HOST_VIEW: &str = "package:ngdart/src/core/linker/views/host_view.dart";
 const ANGULAR: &str = "package:ngdart/angular.dart";
+const DI_ERRORS: &str = "package:ngdart/src/di/errors.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
 /// é isso que diz qual forma vale a pena aprender em seguida.
@@ -114,12 +117,17 @@ impl Motivo {
 /// primeiro. Sem isto o placar engana: um arquivo que trava em folha de
 /// estilo pode travar também em ligação e interpolação, e contar só o
 /// primeiro faz parecer que aprender uma forma destrava o arquivo.
-pub fn motivos(c: &Componente, nos: &[No]) -> std::collections::BTreeSet<Motivo> {
+pub fn motivos(
+    c: &Componente,
+    local: &Local,
+    nos: &[No],
+    resolvedor: Option<&dyn Resolucao>,
+) -> std::collections::BTreeSet<Motivo> {
     let mut fora = std::collections::BTreeSet::new();
     if !c.style_urls.is_empty() || !c.styles.is_empty() {
         fora.insert(Motivo::Estilos);
     }
-    if construcao_do_componente(c).is_none() {
+    if !pode_construir(c, local, resolvedor) {
         fora.insert(Motivo::Injecao);
     }
     motivos_dos_nos(nos, &mut fora);
@@ -167,6 +175,19 @@ pub struct Local<'a> {
     pub relativo: &'a str,
     /// Nome do arquivo para o `import` de si mesmo: `foo.dart`.
     pub arquivo: &'a str,
+    /// Caminho no disco, para perguntar ao banco semântico em que escopo os
+    /// nomes do construtor são resolvidos.
+    pub caminho: &'a Path,
+    /// Raiz do pacote, para mapear URIs `file:` do próprio projeto.
+    pub raiz: &'a Path,
+}
+
+impl Local<'_> {
+    /// URI `asset:` deste arquivo — o espaço em que o emissor oficial calcula
+    /// os caminhos de import.
+    fn asset(&self) -> String {
+        format!("asset:{}/{}", self.pacote, self.relativo)
+    }
 }
 
 /// Corpo do `build()` de uma visão, montado enquanto se anda pelo template.
@@ -295,11 +316,16 @@ pub fn template_de_componente(
     c: &Componente,
     local: &Local,
     nos: &[No],
+    resolvedor: Option<&dyn Resolucao>,
 ) -> Result<String, Motivo> {
     if !c.style_urls.is_empty() || !c.styles.is_empty() {
         return Err(Motivo::Estilos); // mudam `styles$X` e ligam o shim
     }
-    let construcao = construcao_do_componente(c).ok_or(Motivo::Injecao)?;
+    // A construção sai depois dos imports fixos, porque a injeção aloca os
+    // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
+    if !pode_construir(c, local, resolvedor) {
+        return Err(Motivo::Injecao);
+    }
 
     let mut imp = Importacoes::default();
     let vista = imp.alias(COMPONENT_VIEW);
@@ -326,6 +352,8 @@ pub fn template_de_componente(
 
     imp.sem_alias(ANGULAR);
     let hosp = imp.alias(HOST_VIEW);
+    let construcao = construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
+        .ok_or(Motivo::Injecao)?;
 
     let x = &c.classe;
     let seletor = &c.seletor;
@@ -388,7 +416,7 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
   void build() {{
     this.componentView = View{x}0(this, 0);
     final _el_0 = this.componentView.rootElement;
-    this.component = {proprio}.{x}({construcao});
+    this.component = {construcao}
     this.initRootNode(_el_0);
   }}
 }}
@@ -401,22 +429,80 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
     Ok(s)
 }
 
-/// Argumentos do construtor do componente na visão-hospedeira.
+/// A construção do componente na visão-hospedeira, com injeção — o texto
+/// inteiro depois de `this.component = `, ponto e vírgula incluído.
 ///
-/// Só as formas que não precisam de injeção: sem parâmetros, ou um parâmetro
-/// do elemento raiz. Injeção de serviços exige resolver o token até a
-/// biblioteca que o declara, e isso entra quando o gerador enxergar o banco
-/// semântico.
-fn construcao_do_componente(c: &Componente) -> Option<String> {
+/// Cada parâmetro do construtor vira `this.injectorGet(T, this.parentIndex)`,
+/// com `T` qualificado pelo import da biblioteca que **declara** o tipo — é
+/// por isso que a injeção precisou do banco semântico. Um parâmetro do tipo
+/// `Element` é o elemento raiz e não passa pelo injetor.
+///
+/// Havendo injeção, o oficial embrulha a chamada em `debugInjectorWrap` sob
+/// `isDevMode`, para que um token faltando aponte o componente; sem injeção a
+/// chamada sai limpa.
+fn construcao_do_componente(
+    c: &Componente,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+    imp: &mut Importacoes,
+    proprio: &str,
+    util: &str,
+) -> Option<String> {
+    let x = &c.classe;
+    let injeta = c.parametros.iter().any(|p| !e_elemento(p.tipo.as_deref()));
+    // O `errors.dart` entra antes dos tipos injetados, como no oficial.
+    let erros = injeta.then(|| imp.alias(DI_ERRORS));
     let mut args = Vec::new();
     for p in &c.parametros {
-        let tipo = p.tipo.as_deref().unwrap_or("");
-        match tipo {
-            "Element" | "HtmlElement" | "html.Element" => args.push("_el_0".to_string()),
-            _ => return None,
+        if e_elemento(p.tipo.as_deref()) {
+            args.push("_el_0".to_string());
+            continue;
         }
+        if p.anotado || p.nomeado {
+            return None; // `@Optional`, `@Inject(...)`, nomeado: ainda não
+        }
+        let tipo = p.tipo.as_deref()?;
+        if tipo.contains('<') {
+            return None; // token genérico ainda não
+        }
+        let simples = tipo.rsplit('.').next()?;
+        let uri = resolvedor?.uri_do_tipo(local.caminho, tipo)?;
+        let asset = asset_de_uri(&uri, local.pacote, local.raiz)?;
+        let caminho = caminho_do_import(&local.asset(), &asset)?;
+        let alias = imp.alias(&caminho);
+        args.push(format!("this.injectorGet({alias}.{simples}, this.parentIndex)"));
     }
-    Some(args.join(", "))
+    let chamada = format!("{proprio}.{x}({})", args.join(", "));
+    let Some(erros) = erros else { return Some(format!("{chamada};")) };
+    Some(format!(
+        "({util}.isDevMode
+        ? {erros}.debugInjectorWrap({proprio}.{x}, () {{
+            return {chamada};
+          }})
+        : {chamada});"
+    ))
+}
+
+/// O parâmetro é o elemento raiz do componente?
+fn e_elemento(tipo: Option<&str>) -> bool {
+    matches!(tipo.map(|t| t.rsplit('.').next().unwrap_or(t)), Some("Element" | "HtmlElement"))
+}
+
+/// A construção é possível? (a tabela de imports não é tocada aqui)
+fn pode_construir(c: &Componente, local: &Local, resolvedor: Option<&dyn Resolucao>) -> bool {
+    c.parametros.iter().all(|p| {
+        if e_elemento(p.tipo.as_deref()) {
+            return true;
+        }
+        if p.anotado || p.nomeado {
+            return false;
+        }
+        let Some(tipo) = p.tipo.as_deref() else { return false };
+        if tipo.contains('<') {
+            return false;
+        }
+        resolvedor.is_some_and(|r| r.uri_do_tipo(local.caminho, tipo).is_some())
+    })
 }
 
 #[cfg(test)]
@@ -429,7 +515,23 @@ mod testes {
             pacote: "new_sali_frontend",
             relativo: "lib/src/shared/components/form_feedback/form_feedback_component.dart",
             arquivo: "form_feedback_component.dart",
+            caminho: Path::new("x.dart"),
+            raiz: Path::new(""),
         }
+    }
+
+    /// Responde o que o banco semântico responderia, sem carregar um
+    /// programa: o par (nome do tipo, URI da biblioteca que o declara).
+    struct Tabela(&'static [(&'static str, &'static str)]);
+
+    impl Resolucao for Tabela {
+        fn uri_do_tipo(&self, _arquivo: &Path, nome: &str) -> Option<String> {
+            self.0.iter().find(|(n, _)| *n == nome).map(|(_, u)| u.to_string())
+        }
+    }
+
+    fn param(tipo: &str) -> Parametro {
+        Parametro { tipo: Some(tipo.into()), nome: "p".into(), nomeado: false, anotado: false }
     }
 
     /// Bytes exatos do arquivo que o compilador oficial gerou para
@@ -441,7 +543,7 @@ mod testes {
             seletor: "form-feedback-comp".into(),
             ..Default::default()
         };
-        let saida = template_de_componente(&c, &local(), &[No::Comentario("{{message}}".into())])
+        let saida = template_de_componente(&c, &local(), &[No::Comentario("{{message}}".into())], None)
             .expect("gera");
         let esperado = include_str!("../testes/form_feedback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
@@ -462,9 +564,11 @@ mod testes {
             pacote: "new_sali_frontend",
             relativo: "lib/src/modules/auth/pages/callback/callback_component.dart",
             arquivo: "callback_component.dart",
+            caminho: Path::new("callback_component.dart"),
+            raiz: Path::new(""),
         };
         let nos = crate::html::analisar("<div>Processando login...</div>");
-        let saida = template_de_componente(&c, &local, &nos).expect("gera");
+        let saida = template_de_componente(&c, &local, &nos, None).expect("gera");
         let esperado = include_str!("../testes/callback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
@@ -473,7 +577,7 @@ mod testes {
     fn ligacao_ainda_nao_gera() {
         let c = Componente { classe: "X".into(), seletor: "x".into(), ..Default::default() };
         let nos = crate::html::analisar("<div [hidden]=\"a\"></div>");
-        assert_eq!(template_de_componente(&c, &local(), &nos), Err(Motivo::Ligacao));
+        assert_eq!(template_de_componente(&c, &local(), &nos, None), Err(Motivo::Ligacao));
     }
 
     #[test]
@@ -481,7 +585,7 @@ mod testes {
         let c = Componente { classe: "X".into(), seletor: "x".into(), ..Default::default() };
         let nos = crate::html::analisar("<outro-comp></outro-comp>");
         assert_eq!(
-            template_de_componente(&c, &local(), &nos),
+            template_de_componente(&c, &local(), &nos, None),
             Err(Motivo::ComponenteNoTemplate)
         );
     }
@@ -491,13 +595,41 @@ mod testes {
         let c = Componente {
             classe: "X".into(),
             seletor: "x".into(),
-            parametros: vec![Parametro {
-                tipo: Some("RestConfig".into()),
-                nome: "r".into(),
-                nomeado: false,
-            }],
+            parametros: vec![param("RestConfig")],
             ..Default::default()
         };
-        assert_eq!(template_de_componente(&c, &local(), &[]), Err(Motivo::Injecao));
+        // Sem banco semântico não há como saber que biblioteca declara o tipo.
+        assert_eq!(template_de_componente(&c, &local(), &[], None), Err(Motivo::Injecao));
+    }
+
+    /// Bytes exatos do `CallbackComponent` oficial, agora **com** a injeção:
+    /// dois tokens, um do próprio pacote (import relativo) e um do ngrouter
+    /// (import `package:` da biblioteca que declara o tipo).
+    #[test]
+    fn injecao_igual_ao_oficial() {
+        let c = Componente {
+            classe: "CallbackComponent".into(),
+            seletor: "callback-page".into(),
+            parametros: vec![param("OidcService"), param("Router")],
+            ..Default::default()
+        };
+        let local = Local {
+            pacote: "new_sali_frontend",
+            relativo: "lib/src/modules/auth/pages/callback/callback_component.dart",
+            arquivo: "callback_component.dart",
+            caminho: Path::new("callback_component.dart"),
+            raiz: Path::new(""),
+        };
+        let tabela = Tabela(&[
+            ("OidcService", "package:new_sali_frontend/src/shared/services/oidc_service.dart"),
+            ("Router", "package:ngrouter/src/router/router.dart"),
+        ]);
+        let nos = crate::html::analisar("<div>Processando login...</div>");
+        let saida =
+            template_de_componente(&c, &local, &nos, Some(&tabela)).expect("gera");
+        let esperado = include_str!("../testes/callback_com_injecao.template.dart");
+        assert_eq!(saida, esperado.replace("
+", "
+"));
     }
 }

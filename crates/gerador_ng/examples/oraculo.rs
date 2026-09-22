@@ -11,6 +11,9 @@
 //! ```
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::gerado::{Construtor, do_build_runner};
+use dartforge_elements::load::load_lenient;
+use dartforge_elements::sdk::SdkLayout;
+use dartforge_gerador_ng::resolucao::Resolvedor;
 use dartforge_gerador_ng::{Pacote, Placar, caminho_do_template, gerar_em};
 use dartforge_intern::Interner;
 use std::path::PathBuf;
@@ -34,6 +37,29 @@ fn main() -> std::process::ExitCode {
     let oficial = do_build_runner(&cfg, ".template.dart", None);
     println!("oficial: {} arquivos gerados pelo build_runner", oficial.len());
 
+    // Fase 1: carregar o projeto sem os gerados. A carga é tolerante, então
+    // os `.template.dart` que faltam viram diagnóstico e o resto do programa
+    // fica de pé — que é tudo o que o gerador precisa para resolver nomes.
+    let entrada = args_entrada(&raiz);
+    let sdk_dir = SdkLayout::discover()
+        .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+    let sdk = match SdkLayout::load(&sdk_dir, "dartdevc") {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("SDK indisponível ({e}); o placar sai sem resolução de nomes");
+            return placar_sem_resolucao(&raiz, &cfg, &oficial);
+        }
+    };
+    let mut nomes = Interner::new();
+    let t = std::time::Instant::now();
+    let (programa, _) = load_lenient(&entrada, &sdk, Some(&cfg_path), &mut nomes);
+    println!(
+        "programa: {} bibliotecas em {} ms",
+        programa.libraries.len(),
+        t.elapsed().as_millis()
+    );
+    let resolvedor = Resolvedor::novo(&programa, &nomes);
+
     let mut interner = Interner::new();
     let mut c = Construtor::nova();
     let mut placar = Placar::default();
@@ -51,7 +77,7 @@ fn main() -> std::process::ExitCode {
         .unwrap_or_else(|| raiz.file_name().unwrap_or_default().to_string_lossy().to_string());
     let pacote = Pacote { nome, raiz: raiz.clone() };
     println!("pacote: {}", pacote.nome);
-    gerar_em(&pacote, &dirs, &mut interner, &mut c, &mut placar);
+    gerar_em(&pacote, &dirs, &mut interner, &mut c, &mut placar, Some(&resolvedor));
     let nossa = match c.concluir(1) {
         Ok(g) => g,
         Err(erros) => {
@@ -113,4 +139,24 @@ fn main() -> std::process::ExitCode {
         }
     }
     if diferentes == 0 { std::process::ExitCode::SUCCESS } else { std::process::ExitCode::FAILURE }
+}
+
+/// Entrada da carga: `web/main.dart` quando existe (é por onde a aplicação
+/// alcança tudo), senão a biblioteca de mesmo nome do pacote.
+fn args_entrada(raiz: &std::path::Path) -> PathBuf {
+    let web = raiz.join("web").join("main.dart");
+    if web.is_file() {
+        return web;
+    }
+    let nome = raiz.file_name().unwrap_or_default().to_string_lossy().to_string();
+    raiz.join("lib").join(format!("{nome}.dart"))
+}
+
+/// Sem SDK não há resolução de nomes; o placar ainda vale para o resto.
+fn placar_sem_resolucao(
+    _raiz: &std::path::Path,
+    _cfg: &PackageConfig,
+    _oficial: &std::sync::Arc<dartforge_elements::gerado::Geracao>,
+) -> std::process::ExitCode {
+    std::process::ExitCode::FAILURE
 }
