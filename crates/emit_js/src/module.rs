@@ -125,7 +125,7 @@ pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
     // O `dart_sdk.js` do DDC é o do navegador: `self` é o global (Node só tem `globalThis`).
     modulos.push(("preambulo.js".to_string(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".to_string()));
     let entrada = format!(
-        "process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
+        "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
     Ok(Emitido { modulos, entrada })
 }
@@ -1728,8 +1728,32 @@ fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::C
         e.factory_ti = true;
     }
     if ctor.redirect.is_some() {
-        // Redirecionamento resolvido nas chamadas; corpo vazio.
-        cw.line(&format!("static {}({}) {{}}", js::prop_key(&name), params.join(", ")));
+        // Redirecionamento: as chamadas diretas já resolvem o alvo; o corpo
+        // encaminha para servir aos tearoffs (`C.new` como valor).
+        let body = match fid.and_then(|f| e.factory_redirect_target(f)) {
+            Some((tclass, tname, is_target_factory)) => {
+                let tref = e.class_ref(tclass);
+                let tjs = if tname.is_empty() { "new".to_string() } else { static_member_name(&tname) };
+                let mut args: Vec<String> = Vec::new();
+                if ctx.requires_rti(tclass) {
+                    if tclass == c && generic {
+                        args.push("_ti".into());
+                    } else {
+                        args.push(e.rti(&ctx.this_ty_default(tclass)));
+                    }
+                }
+                args.push("...args".into());
+                if is_target_factory {
+                    format!("return {tref}.{tjs}({});", args.join(", "))
+                } else {
+                    format!("return new {tref}.{tjs}({});", args.join(", "))
+                }
+            }
+            None => String::new(),
+        };
+        let mut ps = params.clone();
+        ps.push("...args".into());
+        cw.line(&format!("static {}({}) {{ {body} }}", js::prop_key(&name), ps.join(", ")));
         return;
     }
     let sig = fid.map(|f| ctx.fn_ty(f));

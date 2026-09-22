@@ -1195,7 +1195,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             IdentTarget::Prefix(_) => (Js::prim("null"), Ty::Dynamic),
-            IdentTarget::Unknown => (Js::prim(js::ident(&n)), Ty::Dynamic),
+            IdentTarget::Unknown => {
+                // Literais de tipo especiais.
+                let special = match n.as_str() {
+                    "dynamic" => Some(Ty::Dynamic),
+                    "Never" => Some(Ty::Never),
+                    _ => None,
+                };
+                if let Some(t) = special {
+                    return (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type());
+                }
+                (Js::prim(js::ident(&n)), Ty::Dynamic)
+            }
         }
     }
 

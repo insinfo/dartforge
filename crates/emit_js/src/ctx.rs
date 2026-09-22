@@ -342,7 +342,18 @@ impl<'a> Ctx<'a> {
 
     fn compute_ext_set(&mut self, find_lib: impl Fn(&str) -> Option<LibraryId>) {
         let mut natives = Vec::new();
-        for lib_uri in ["dart:_interceptors", "dart:_native_typed_data"] {
+        // Classes `@Native` do SDK: interceptors, typed data e as bibliotecas web
+        // (no DDC com null safety os membros nativos de `dart:html` também são
+        // simbolizados, com `checkNativeNonNull`).
+        for lib_uri in [
+            "dart:_interceptors",
+            "dart:_native_typed_data",
+            "dart:html",
+            "dart:indexed_db",
+            "dart:svg",
+            "dart:web_audio",
+            "dart:web_gl",
+        ] {
             if let Some(lib) = find_lib(lib_uri) {
                 for (i, c) in self.program.classes.iter().enumerate() {
                     if c.library == lib && self.has_native_annotation(ClassId(i as u32)) {
