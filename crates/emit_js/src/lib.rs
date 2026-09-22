@@ -53,6 +53,8 @@ pub struct Relatorio {
     pub modulos: usize,
     /// `"lido"`, `"construído"` ou `""` (desligado/indisponível).
     pub sdk_cache: &'static str,
+    /// Sub-fases de `load_lenient` (impressas sob "carregar programa").
+    pub carga: dartforge_elements::model::TemposCarga,
 }
 
 impl Relatorio {
@@ -65,9 +67,34 @@ impl Relatorio {
     pub fn texto(&self) -> String {
         let mut out = String::new();
         let mut total = std::time::Duration::ZERO;
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         for (nome, d) in &self.fases {
-            out.push_str(&format!("{nome:<24}{:>9.1} ms\n", d.as_secs_f64() * 1000.0));
+            out.push_str(&format!("{nome:<24}{:>9.1} ms\n", ms(*d)));
             total += *d;
+            if *nome == "carregar programa" {
+                let c = &self.carga;
+                let sub = [
+                    ("leitura+lex paralelos", c.leitura_lex_paralelo),
+                    ("leitura+lex em série", c.leitura),
+                    ("parse", c.parse),
+                    ("SDK do cache", c.sdk_cache),
+                    ("diretivas/URIs", c.diretivas),
+                    ("outline: declarações", c.outline_declaracoes),
+                    ("outline: reexports", c.outline_reexports),
+                    ("outline: escopos", c.outline_escopos),
+                    ("outline: supertipos", c.outline_supertipos),
+                ];
+                for (n, d) in sub {
+                    out.push_str(&format!("  {n:<22}{:>9.1} ms\n", ms(d)));
+                }
+                out.push_str(&format!(
+                    "  {:<22}{:>9} arquivos, {:.2} MiB, {} ondas\n",
+                    "lidos",
+                    c.arquivos_lidos,
+                    c.bytes_lidos as f64 / 1_048_576.0,
+                    c.ondas
+                ));
+            }
         }
         out.push_str(&format!("{:<24}{:>9.1} ms\n", "total", total.as_secs_f64() * 1000.0));
         out.push_str(&format!(
@@ -129,6 +156,7 @@ pub fn compilar_com_relatorio(
     let (program, elements_diags) =
         dartforge_elements::load::load_lenient_com_cache(entrada, &sdk, packages, &mut interner, cache);
     rel.fase("carregar programa", t);
+    rel.carga = program.tempos.clone();
     // Partes do SDK têm URI `file:///…/lib/core/int.dart`; o que decide é a biblioteca.
     rel.unidades_sdk = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
     rel.unidades_usuario = program.units.len() - rel.unidades_sdk;

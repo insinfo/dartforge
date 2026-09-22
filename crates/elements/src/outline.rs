@@ -40,6 +40,7 @@ pub fn build_outline(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let empty_sym = interner.intern("");
+    let mut t_fase = std::time::Instant::now();
 
     // -----------------------------------------------------------------------
     // Fase 1: Coleta de elementos declarados por biblioteca
@@ -326,6 +327,8 @@ pub fn build_outline(
 
     // -----------------------------------------------------------------------
     // Fase 2: Construção de Library::exported (com ponto fixo para reexports)
+    program.tempos.outline_declaracoes += t_fase.elapsed();
+    t_fase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     // Inicializa `exported` com o que é declarado localmente e não privado
     for lib in &mut program.libraries {
@@ -370,6 +373,8 @@ pub fn build_outline(
 
     // -----------------------------------------------------------------------
     // Fase 3: Construção do escopo léxico de cada biblioteca (Library::scope)
+    program.tempos.outline_reexports += t_fase.elapsed();
+    t_fase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     for lib_idx in 0..program.libraries.len() {
         let mut scope = program.libraries[lib_idx].declared.clone();
@@ -428,6 +433,8 @@ pub fn build_outline(
 
     // -----------------------------------------------------------------------
     // Fase 4: Resolução de supertipos e verificação de ciclos
+    program.tempos.outline_escopos += t_fase.elapsed();
+    t_fase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     let object_sym = interner.intern("Object");
     let core_id = program.core;
@@ -507,6 +514,7 @@ pub fn build_outline(
             curr = program.classes[next_id.0 as usize].supertype_class;
         }
     }
+    program.tempos.outline_supertipos += t_fase.elapsed();
 }
 
 // ---------------------------------------------------------------------------

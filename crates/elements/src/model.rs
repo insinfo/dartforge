@@ -38,9 +38,39 @@ id!(/// Índice em [`Program::functions`] (funções de topo, métodos, getters,
 id!(/// Índice em [`Program::variables`] (variáveis de topo e campos).
     VariableId);
 
+/// Tempos das sub-fases de `load_lenient`, para o `--timings` do `compile-js`.
+#[derive(Debug, Default, Clone)]
+pub struct TemposCarga {
+    /// Leitura e lexing em série (partes e SDK dos arquivos), mais o custo
+    /// de tirar do prefetch o que já veio pronto.
+    pub leitura: std::time::Duration,
+    /// Ondas de leitura + lexing em paralelo (tempo de parede).
+    pub leitura_lex_paralelo: std::time::Duration,
+    pub ondas: usize,
+    /// Análise sintática (sequencial: precisa do `Interner`).
+    pub parse: std::time::Duration,
+    /// Decodificação das unidades do SDK vindas do cache.
+    pub sdk_cache: std::time::Duration,
+    /// Resolução de diretivas: URIs, `canonicalize`, `verify_part_of`, fila.
+    pub diretivas: std::time::Duration,
+    /// `build_outline` fase 1: declarações e membros.
+    pub outline_declaracoes: std::time::Duration,
+    /// `build_outline` fase 2: `exported` com ponto fixo de reexports.
+    pub outline_reexports: std::time::Duration,
+    /// `build_outline` fase 3: escopo léxico e prefixos por biblioteca.
+    pub outline_escopos: std::time::Duration,
+    /// `build_outline` fase 4: supertipos e ciclos.
+    pub outline_supertipos: std::time::Duration,
+    /// Arquivos lidos e bytes de fonte (usuário e pacotes).
+    pub arquivos_lidos: usize,
+    pub bytes_lidos: usize,
+}
+
 /// Programa inteiro: SDK, pacotes e o projeto, num só grafo de bibliotecas.
 #[derive(Debug, Default)]
 pub struct Program {
+    /// Tempos das sub-fases da carga (preenchido por `load_lenient`).
+    pub tempos: TemposCarga,
     pub units: Vec<Unit>,
     pub libraries: Vec<Library>,
     pub classes: Vec<ClassElement>,
