@@ -1341,6 +1341,136 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             },
                             Type::Ref,
                         );
+                    } else if m_name == "padRight" {
+                        let width_op = self.lower_expr(ast, arguments.args[0].value);
+                        let pad_op = if arguments.args.len() > 1 {
+                            self.lower_expr(ast, arguments.args[1].value)
+                        } else {
+                            self.emit(Instruction::Const(Constant::String(" ".to_string())), Type::Ref)
+                        };
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_pad_right".to_string(),
+                                args: vec![(recv_op, Type::Ref), (width_op, Type::I64), (pad_op, Type::Ref)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
+                    } else if m_name == "startsWith" {
+                        let pat_op = self.lower_expr(ast, arguments.args[0].value);
+                        let start_op = if arguments.args.len() > 1 {
+                            self.lower_expr(ast, arguments.args[1].value)
+                        } else {
+                            Operand::Constant(Constant::Int(0))
+                        };
+                        let c_i8 = self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_starts_with".to_string(),
+                                args: vec![(recv_op, Type::Ref), (pat_op, Type::Ref), (start_op, Type::I64)],
+                                ret_ty: Type::I8,
+                            },
+                            Type::I8,
+                        );
+                        return self.emit(
+                            Instruction::Trunc {
+                                op: c_i8,
+                                from: Type::I8,
+                                to: Type::I1,
+                            },
+                            Type::I1,
+                        );
+                    } else if m_name == "endsWith" {
+                        let pat_op = self.lower_expr(ast, arguments.args[0].value);
+                        let c_i8 = self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_ends_with".to_string(),
+                                args: vec![(recv_op, Type::Ref), (pat_op, Type::Ref)],
+                                ret_ty: Type::I8,
+                            },
+                            Type::I8,
+                        );
+                        return self.emit(
+                            Instruction::Trunc {
+                                op: c_i8,
+                                from: Type::I8,
+                                to: Type::I1,
+                            },
+                            Type::I1,
+                        );
+                    } else if m_name == "trim" {
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_trim".to_string(),
+                                args: vec![(recv_op, Type::Ref)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
+                    } else if m_name == "trimLeft" {
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_trim_left".to_string(),
+                                args: vec![(recv_op, Type::Ref)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
+                    } else if m_name == "trimRight" {
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_trim_right".to_string(),
+                                args: vec![(recv_op, Type::Ref)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
+                    } else if m_name == "toLowerCase" {
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_to_lower".to_string(),
+                                args: vec![(recv_op, Type::Ref)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
+                    } else if m_name == "compareTo" {
+                        let other_op = self.lower_expr(ast, arguments.args[0].value);
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_compare_to".to_string(),
+                                args: vec![(recv_op, Type::Ref), (other_op, Type::Ref)],
+                                ret_ty: Type::I64,
+                            },
+                            Type::I64,
+                        );
+                    } else if m_name == "replaceFirst" {
+                        let from_op = self.lower_expr(ast, arguments.args[0].value);
+                        let to_op = self.lower_expr(ast, arguments.args[1].value);
+                        let start_op = if arguments.args.len() > 2 {
+                            self.lower_expr(ast, arguments.args[2].value)
+                        } else {
+                            Operand::Constant(Constant::Int(0))
+                        };
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_replace_first".to_string(),
+                                args: vec![(recv_op, Type::Ref), (from_op, Type::Ref), (to_op, Type::Ref), (start_op, Type::I64)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
+                    } else if m_name == "replaceRange" {
+                        let start_op = self.lower_expr(ast, arguments.args[0].value);
+                        let end_op = self.lower_expr(ast, arguments.args[1].value);
+                        let rep_op = self.lower_expr(ast, arguments.args[2].value);
+                        return self.emit(
+                            Instruction::CallRuntime {
+                                name: "dartforge_string_replace_range".to_string(),
+                                args: vec![(recv_op, Type::Ref), (start_op, Type::I64), (end_op, Type::I64), (rep_op, Type::Ref)],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        );
                     } else if m_name == "write" {
                         let arg_op = self.lower_expr(ast, arguments.args[0].value);
                         let arg_ty = self.operand_type(&arg_op);

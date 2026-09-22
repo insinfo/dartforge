@@ -156,6 +156,16 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i8 @dartforge_string_contains(i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_replace_all(i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_pad_left(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_pad_right(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_trim(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_trim_left(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_trim_right(i64)\n");
+        self.out.push_str("declare i8 @dartforge_string_starts_with(i64, i64, i64)\n");
+        self.out.push_str("declare i8 @dartforge_string_ends_with(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_to_lower(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_compare_to(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_replace_first(i64, i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_replace_range(i64, i64, i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_list_reversed(i64)\n");
         self.out.push_str("declare i64 @dartforge_string_buffer_new()\n");
         self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n\n");

@@ -566,28 +566,71 @@ pub extern "C" fn dartforge_list_len(handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
     HEAP.with(|heap| {
-        let heap = heap.borrow();
-        if index < 0 || index >= heap.list_len(handle) as i64 {
-            drop(heap);
-            let message = HEAP.with(|heap| {
-                heap.borrow_mut().allocate(Value::String("RangeError".into()))
-            });
-            dartforge_exception_throw(message, 3);
-            return 0;
+        let heap_ref = heap.borrow();
+        if handle == 0 { return 0; }
+        match heap_ref.get(handle) {
+            Value::List(_) => {
+                if index < 0 || index >= heap_ref.list_len(handle) as i64 {
+                    drop(heap_ref);
+                    let message = HEAP.with(|h| {
+                        h.borrow_mut().allocate(Value::String("RangeError".into()))
+                    });
+                    dartforge_exception_throw(message, 3);
+                    return 0;
+                }
+                heap_ref.list_get(handle, index as usize).bits
+            }
+            Value::String(s) => {
+                let units: Vec<u16> = s.encode_utf16().collect();
+                if index < 0 || index >= units.len() as i64 {
+                    drop(heap_ref);
+                    let message = HEAP.with(|h| {
+                        h.borrow_mut().allocate(Value::String("RangeError".into()))
+                    });
+                    dartforge_exception_throw(message, 3);
+                    return 0;
+                }
+                let u = units[index as usize];
+                drop(heap_ref);
+                match String::from_utf16(&[u]) {
+                    Ok(ch_str) => HEAP.with(|h| h.borrow_mut().allocate(Value::String(ch_str))),
+                    Err(_) => HEAP.with(|h| h.borrow_mut().allocate(Value::RawString(vec![u]))),
+                }
+            }
+            Value::RawString(r) => {
+                if index < 0 || index >= r.len() as i64 {
+                    drop(heap_ref);
+                    let message = HEAP.with(|h| {
+                        h.borrow_mut().allocate(Value::String("RangeError".into()))
+                    });
+                    dartforge_exception_throw(message, 3);
+                    return 0;
+                }
+                let u = r[index as usize];
+                drop(heap_ref);
+                HEAP.with(|h| h.borrow_mut().allocate(Value::RawString(vec![u])))
+            }
+            _ => 0,
         }
-        heap.list_get(handle, index as usize).bits
     })
 }
 
-/// Lê a tag (1 = int, 2 = bool, 3 = referência) do elemento da lista.
+/// Lê a tag (1 = int, 2 = bool, 3 = referência) do elemento da lista ou string.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_get_tag(handle: i64, index: i64) -> u8 {
     HEAP.with(|heap| {
-        let heap = heap.borrow();
-        if index < 0 || index >= heap.list_len(handle) as i64 {
-            return 0;
+        let heap_ref = heap.borrow();
+        if handle == 0 { return 0; }
+        match heap_ref.get(handle) {
+            Value::List(_) => {
+                if index < 0 || index >= heap_ref.list_len(handle) as i64 {
+                    return 0;
+                }
+                untag(heap_ref.list_get(handle, index as usize)).1
+            }
+            Value::String(_) | Value::RawString(_) => 3,
+            _ => 0,
         }
-        untag(heap.list_get(handle, index as usize)).1
     })
 }
 
@@ -1204,18 +1247,49 @@ pub extern "C" fn dartforge_string_replace_all(handle: i64, from_handle: i64, to
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_pad_left(handle: i64, width: i64, pad_handle: i64) -> i64 {
     if handle == 0 { return 0; }
-    let pad_char = HEAP.with(|heap| {
+    let pad_str = HEAP.with(|heap| {
         let heap = heap.borrow();
         if pad_handle != 0 {
-            if let Value::String(p) = heap.get(pad_handle) { p.chars().next().unwrap_or(' ') } else { ' ' }
-        } else { ' ' }
+            if let Value::String(p) = heap.get(pad_handle) { p.clone() } else { " ".to_string() }
+        } else { " ".to_string() }
     });
     let s_len = dartforge_generic_len(handle);
     if width <= s_len { return handle; }
-    let count = (width - s_len) as usize;
-    let pad_str: String = std::iter::repeat(pad_char).take(count).collect();
-    let pad_handle = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_str)));
+    let needed = (width - s_len) as usize;
+    if pad_str.is_empty() { return handle; }
+    let mut padding = String::new();
+    while padding.encode_utf16().count() < needed {
+        padding.push_str(&pad_str);
+    }
+    let units: Vec<u16> = padding.encode_utf16().collect();
+    let start = units.len().saturating_sub(needed);
+    let pad_trimmed = String::from_utf16_lossy(&units[start..]);
+    let pad_handle = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_trimmed)));
     HEAP.with(|heap| heap.borrow_mut().string_concat(pad_handle, handle))
+}
+
+/// Preenche à direita até a largura indicada.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_pad_right(handle: i64, width: i64, pad_handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let pad_str = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if pad_handle != 0 {
+            if let Value::String(p) = heap.get(pad_handle) { p.clone() } else { " ".to_string() }
+        } else { " ".to_string() }
+    });
+    let s_len = dartforge_generic_len(handle);
+    if width <= s_len { return handle; }
+    let needed = (width - s_len) as usize;
+    if pad_str.is_empty() { return handle; }
+    let mut padding = String::new();
+    while padding.encode_utf16().count() < needed {
+        padding.push_str(&pad_str);
+    }
+    let units: Vec<u16> = padding.encode_utf16().collect();
+    let pad_trimmed = String::from_utf16_lossy(&units[..needed]);
+    let pad_handle = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_trimmed)));
+    HEAP.with(|heap| heap.borrow_mut().string_concat(handle, pad_handle))
 }
 
 /// Retorna elementos da lista na ordem inversa.
@@ -1327,3 +1401,198 @@ pub extern "C" fn dartforge_list_join(handle: i64, sep_handle: i64) -> i64 {
     });
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(joined)))
 }
+
+fn is_dart_whitespace(c: char) -> bool {
+    matches!(c,
+        '\t' | '\n' | '\x0B' | '\x0C' | '\r' | ' ' |
+        '\u{0085}' | '\u{00A0}' | '\u{1680}' |
+        '\u{2000}'..='\u{200A}' |
+        '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
+    )
+}
+
+/// Remove espaços em branco do início e fim.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_trim(handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let trimmed = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::String(s) = heap.get(handle) else { return String::new(); };
+        s.trim_matches(is_dart_whitespace).to_string()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(trimmed)))
+}
+
+/// Remove espaços em branco do início.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_trim_left(handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let trimmed = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::String(s) = heap.get(handle) else { return String::new(); };
+        s.trim_start_matches(is_dart_whitespace).to_string()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(trimmed)))
+}
+
+/// Remove espaços em branco do fim.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_trim_right(handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let trimmed = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::String(s) = heap.get(handle) else { return String::new(); };
+        s.trim_end_matches(is_dart_whitespace).to_string()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(trimmed)))
+}
+
+/// Verifica se a string começa com o prefixo dado a partir do índice `start`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_starts_with(handle: i64, pat_handle: i64, start: i64) -> u8 {
+    if handle == 0 || pat_handle == 0 { return 0; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target_units: Vec<u16> = match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            Value::StringBuffer(b) => b.encode_utf16().collect(),
+            _ => return 0,
+        };
+        let pat_units: Vec<u16> = match heap.get(pat_handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return 0,
+        };
+        if start < 0 { return 0; }
+        let start_pos = start as usize;
+        if start_pos > target_units.len() { return 0; }
+        if start_pos + pat_units.len() > target_units.len() { return 0; }
+        (target_units[start_pos..start_pos + pat_units.len()] == pat_units[..]) as u8
+    })
+}
+
+/// Verifica se a string termina com o sufixo dado.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_ends_with(handle: i64, pat_handle: i64) -> u8 {
+    if handle == 0 || pat_handle == 0 { return 0; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target_units: Vec<u16> = match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            Value::StringBuffer(b) => b.encode_utf16().collect(),
+            _ => return 0,
+        };
+        let pat_units: Vec<u16> = match heap.get(pat_handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return 0,
+        };
+        if pat_units.len() > target_units.len() { return 0; }
+        target_units.ends_with(&pat_units) as u8
+    })
+}
+
+/// Retorna uma nova string convertida para minúsculas.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_to_lower(handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let text = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::String(s) = heap.get(handle) else { return String::new(); };
+        s.to_lowercase()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(text)))
+}
+
+/// Compara duas strings lexicograficamente segundo unidades UTF-16 (-1, 0, 1).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_compare_to(handle: i64, other_handle: i64) -> i64 {
+    if handle == 0 && other_handle == 0 { return 0; }
+    if handle == 0 { return -1; }
+    if other_handle == 0 { return 1; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target_units: Vec<u16> = match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return 0,
+        };
+        let other_units: Vec<u16> = match heap.get(other_handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return 0,
+        };
+        match target_units.cmp(&other_units) {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        }
+    })
+}
+
+/// Substitui a primeira ocorrência de `from` por `to` a partir de `start`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_replace_first(handle: i64, from_handle: i64, to_handle: i64, start: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let res_str = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let s = match heap.get(handle) {
+            Value::String(s) => s.as_str(),
+            _ => return String::new(),
+        };
+        let from = if from_handle != 0 {
+            if let Value::String(f) = heap.get(from_handle) { f.as_str() } else { "" }
+        } else { "" };
+        let to = if to_handle != 0 {
+            if let Value::String(t) = heap.get(to_handle) { t.as_str() } else { "" }
+        } else { "" };
+        if from.is_empty() {
+            let start_idx = (start.max(0) as usize).min(s.len());
+            return format!("{}{}{}", &s[..start_idx], to, &s[start_idx..]);
+        }
+        let search_start = (start.max(0) as usize).min(s.len());
+        if let Some(pos) = s[search_start..].find(from) {
+            let actual_pos = search_start + pos;
+            format!("{}{}{}", &s[..actual_pos], to, &s[actual_pos + from.len()..])
+        } else {
+            s.to_string()
+        }
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(res_str)))
+}
+
+/// Substitui a faixa [start, end) por `replacement`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_replace_range(handle: i64, start: i64, end: i64, rep_handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let res = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target_units: Vec<u16> = match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return String::new(),
+        };
+        let rep_units: Vec<u16> = if rep_handle != 0 {
+            match heap.get(rep_handle) {
+                Value::String(s) => s.encode_utf16().collect(),
+                Value::RawString(r) => r.clone(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+        let start_pos = (start.max(0) as usize).min(target_units.len());
+        let end_pos = (end.max(0) as usize).min(target_units.len());
+        let mut out = Vec::new();
+        out.extend_from_slice(&target_units[..start_pos]);
+        out.extend_from_slice(&rep_units);
+        if end_pos < target_units.len() {
+            out.extend_from_slice(&target_units[end_pos..]);
+        }
+        String::from_utf16_lossy(&out)
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(res)))
+}
+
