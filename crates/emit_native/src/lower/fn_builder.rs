@@ -526,16 +526,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             let op_ty = self.operand_type(&arg_op);
                             let arg_ty = self.ctx.get_type(self.unit_id, first_arg.value);
 
-                            if op_ty == Type::I64 || arg_ty.map_or(false, |t| self.ctx.is_int(t)) {
-                                return self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_print_i64".to_string(),
-                                        args: vec![(arg_op, Type::I64)],
-                                        ret_ty: Type::Void,
-                                    },
-                                    Type::Void,
-                                );
-                            } else if op_ty == Type::F64 || arg_ty.map_or(false, |t| self.ctx.is_double(t)) {
+                            if op_ty == Type::F64 {
                                 return self.emit(
                                     Instruction::CallRuntime {
                                         name: "dartforge_print_f64".to_string(),
@@ -544,7 +535,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                     },
                                     Type::Void,
                                 );
-                            } else if op_ty == Type::I1 || op_ty == Type::I8 || arg_ty.map_or(false, |t| self.ctx.is_bool(t)) {
+                            } else if op_ty == Type::I64 {
+                                return self.emit(
+                                    Instruction::CallRuntime {
+                                        name: "dartforge_print_i64".to_string(),
+                                        args: vec![(arg_op, Type::I64)],
+                                        ret_ty: Type::Void,
+                                    },
+                                    Type::Void,
+                                );
+                            } else if op_ty == Type::I1 || op_ty == Type::I8 {
                                 let arg_i8 = if op_ty == Type::I1 {
                                     self.emit(
                                         Instruction::ZExt {
@@ -570,17 +570,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                     Instruction::CallRuntime {
                                         name: "dartforge_print_null".to_string(),
                                         args: Vec::new(),
-                                        ret_ty: Type::Void,
-                                    },
-                                    Type::Void,
-                                );
-                            } else if arg_ty.map_or(false, |t| self.ctx.is_string(t))
-                                || matches!(ast.expr(first_arg.value).kind, ExprKind::String(_))
-                            {
-                                return self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_print_string".to_string(),
-                                        args: vec![(arg_op, Type::Ref)],
                                         ret_ty: Type::Void,
                                     },
                                     Type::Void,

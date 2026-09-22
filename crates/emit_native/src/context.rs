@@ -60,19 +60,19 @@ impl<'a> Context<'a> {
     }
 
     pub fn is_int(&self, ty: TypeId) -> bool {
-        if ty == self.core.int {
+        if self.core.int_class.is_some() && ty == self.core.int {
             return true;
         }
         match self.table.get(ty) {
-            Type::Interface { class, .. } => Some(*class) == self.core.int_class,
+            Type::Interface { class, .. } => {
+                let name = self.symbol_name(self.program.classes[class.0 as usize].name);
+                name == "int"
+            }
             _ => false,
         }
     }
 
     pub fn is_double(&self, ty: TypeId) -> bool {
-        if ty == self.core.num && Some(ty) != Some(self.core.int) {
-            // num pode ser double
-        }
         match self.table.get(ty) {
             Type::Interface { class, .. } => {
                 let name = self.symbol_name(self.program.classes[class.0 as usize].name);
@@ -83,35 +83,47 @@ impl<'a> Context<'a> {
     }
 
     pub fn is_bool(&self, ty: TypeId) -> bool {
-        if ty == self.core.bool_ {
+        if self.core.bool_class.is_some() && ty == self.core.bool_ {
             return true;
         }
         match self.table.get(ty) {
-            Type::Interface { class, .. } => Some(*class) == self.core.bool_class,
+            Type::Interface { class, .. } => {
+                let name = self.symbol_name(self.program.classes[class.0 as usize].name);
+                name == "bool"
+            }
             _ => false,
         }
     }
 
     pub fn is_string(&self, ty: TypeId) -> bool {
-        if ty == self.core.string {
+        if self.core.string_class.is_some() && ty == self.core.string {
             return true;
         }
         match self.table.get(ty) {
-            Type::Interface { class, .. } => Some(*class) == self.core.string_class,
+            Type::Interface { class, .. } => {
+                let name = self.symbol_name(self.program.classes[class.0 as usize].name);
+                name == "String"
+            }
             _ => false,
         }
     }
 
     pub fn is_list(&self, ty: TypeId) -> bool {
         match self.table.get(ty) {
-            Type::Interface { class, .. } => Some(*class) == self.core.list_class,
+            Type::Interface { class, .. } => {
+                let name = self.symbol_name(self.program.classes[class.0 as usize].name);
+                name == "List"
+            }
             _ => false,
         }
     }
 
     pub fn is_map(&self, ty: TypeId) -> bool {
         match self.table.get(ty) {
-            Type::Interface { class, .. } => Some(*class) == self.core.map_class,
+            Type::Interface { class, .. } => {
+                let name = self.symbol_name(self.program.classes[class.0 as usize].name);
+                name == "Map"
+            }
             _ => false,
         }
     }

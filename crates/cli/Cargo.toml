@@ -9,16 +9,16 @@ workspace = true
 [dependencies]
 dartforge-abi = { path = "../abi", optional = true }
 dartforge-native = { path = "../native", optional = true }
-dartforge-jit = { path = "../jit", optional = true }
+# dartforge-jit = { path = "../jit", optional = true }
+dartforge-emit-native = { path = "../emit_native", optional = true }
 dartforge-compiler = { path = "../compiler" }
 dartforge-packages = { path = "../packages" }
 dartforge-emit-js = { path = "../emit_js" }
 serde_json = "1"
 
 [features]
-# Backend nativo (JIT ORCv2 via llvm-sys, AOT, ABI). Desligado por padrão:
-# o caminho JavaScript não precisa do LLVM nem paga o build do llvm-sys.
-nativo = ["dep:dartforge-abi", "dep:dartforge-native", "dep:dartforge-jit"]
+# Backend nativo (AOT LLVM, ABI, emit-native). JIT ORCv2 desabilitado a pedido do usuário.
+nativo = ["dep:dartforge-abi", "dep:dartforge-native", "dep:dartforge-emit-native"]
 
 [[bin]]
 name = "dartforge"

@@ -21,6 +21,8 @@ pub fn aot(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("aot") }
 pub fn run_jit(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("run") }
 #[cfg(not(feature = "nativo"))]
 pub fn run_hot_reload(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("reload") }
+#[cfg(not(feature = "nativo"))]
+pub fn run_compile_native(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("compile-native") }
 
 #[cfg(feature = "nativo")]
 pub fn abi_info(args: &[std::ffi::OsString]) -> Resultado {
@@ -141,133 +143,59 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 /// # Erros
 /// Propaga diagnósticos do compilador e falhas da sessão JIT, incluindo IR
 /// recusado pelo LLVM e símbolo de entrada ausente.
-pub fn run_jit(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    if args.is_empty() {
-        return Err(
-            "usage: dartforge run <input.dart> [--merge-identical-functions] [--timings]".into(),
-        );
-    }
-    let mut merge_identical_functions = false;
-    let mut timings = false;
-    for flag in &args[1..] {
-        if flag == "--merge-identical-functions" && !merge_identical_functions {
-            merge_identical_functions = true;
-        } else if flag == "--timings" && !timings {
-            timings = true;
-        } else {
-            return Err(format!(
-                "opção de execução desconhecida ou repetida: {}",
-                flag.to_string_lossy()
-            )
-            .into());
-        }
-    }
-    let total_start = std::time::Instant::now();
-    let input = PathBuf::from(&args[0]);
-    let frontend_start = std::time::Instant::now();
-    let ir = dartforge_compiler::compile_path_llvm_with_options(
-        &input,
-        dartforge_compiler::CompileOptions {
-            merge_identical_functions,
-            ..Default::default()
-        },
-    )?;
-    let frontend = frontend_start.elapsed();
-    let report = dartforge_jit::run_ir(&ir)?;
-    let total = total_start.elapsed();
-    if timings {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "schema_version": 1, "backend": "llvm-orcv2", "profile": "jit",
-                "merge_identical_functions": merge_identical_functions,
-                "frontend_ns": frontend.as_nanos(), "session_ns": report.session.as_nanos(),
-                "parse_ir_ns": report.module.parse_ir.as_nanos(),
-                "add_module_ns": report.module.add_module.as_nanos(),
-                "lookup_ns": report.entry.lookup.as_nanos(),
-                "execute_ns": report.entry.execute.as_nanos(),
-                "jit_total_ns": report.total.as_nanos(), "total_ns": total.as_nanos(),
-                "ir_bytes": report.module.ir_bytes,
-            }))?
-        );
-    }
-    Ok(())
+pub fn run_jit(_args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    Err("JIT desabilitado temporariamente durante desenvolvimento AOT".into())
 }
 
 #[cfg(feature = "nativo")]
-/// Executa a primeira entrada e recarrega a sessão com as edições seguintes.
-///
-/// É o laço de desenvolvimento em forma de comando: a sessão JIT fica aberta, o
-/// heap gerenciado é preservado entre as versões e cada arquivo seguinte é uma
-/// edição publicada por hot reload. Sem `--timings` imprime apenas a saída do
-/// programa; com `--timings`, um objeto JSON por recarga, com o custo de cada
-/// etapa do ciclo — o front-end medido aqui, o resto medido dentro da sessão.
-///
-/// # Erros
-/// Propaga diagnósticos do compilador e da sessão JIT. Uma recarga recusada
-/// (contrato incompatível, IR inválido) encerra o comando com erro, e a versão
-/// anterior continuaria valendo se o laço prosseguisse.
-pub fn run_hot_reload(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    if args.len() < 2 {
-        return Err(
-            "usage: dartforge reload <inicial.dart> <edicao.dart> [<edicao.dart>...] [--timings]"
-                .into(),
-        );
-    }
-    let timings = args.last().is_some_and(|flag| flag == "--timings");
-    let arquivos = &args[..args.len() - usize::from(timings)];
-    if arquivos.len() < 2 {
-        return Err("reload exige a versão inicial e pelo menos uma edição".into());
-    }
-    let frontend_start = std::time::Instant::now();
-    let ir = dartforge_compiler::compile_path_llvm(std::path::Path::new(&arquivos[0]))?;
-    let frontend = frontend_start.elapsed();
-    let mut session = dartforge_jit::JitSession::new()?;
-    let inicial = session.add_reloadable_module("app", &ir)?;
-    let entrada = session.run_entry()?;
-    if timings {
-        println!(
-            "{}",
-            serde_json::to_string(&serde_json::json!({
-                "schema_version": 1, "backend": "llvm-orcv2", "profile": "jit-reload",
-                "file": arquivos[0].to_string_lossy(), "generation": inicial.generation,
-                "frontend_ns": frontend.as_nanos(), "parse_ir_ns": inicial.parse_ir.as_nanos(),
-                "contract_ns": inicial.contract.as_nanos(),
-                "add_module_ns": inicial.add_module.as_nanos(),
-                "stubs_ns": inicial.stubs.as_nanos(), "link_ns": inicial.link.as_nanos(),
-                "publish_ns": inicial.publish.as_nanos(), "retire_ns": inicial.retire.as_nanos(),
-                "reload_total_ns": inicial.total.as_nanos(),
-                "execute_ns": entrada.execute.as_nanos(), "ir_bytes": inicial.ir_bytes,
-                "entries": inicial.entries, "retained_generations": inicial.retained_generations,
-            }))?
-        );
-    }
-    for arquivo in &arquivos[1..] {
-        let frontend_start = std::time::Instant::now();
-        let ir = dartforge_compiler::compile_path_llvm(std::path::Path::new(arquivo))?;
-        let frontend = frontend_start.elapsed();
-        let relatorio = session.hot_reload("app", &ir)?;
-        let entrada = session.run_entry()?;
-        if timings {
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({
-                    "schema_version": 1, "backend": "llvm-orcv2", "profile": "jit-reload",
-                    "file": arquivo.to_string_lossy(), "generation": relatorio.generation,
-                    "frontend_ns": frontend.as_nanos(), "parse_ir_ns": relatorio.parse_ir.as_nanos(),
-                    "contract_ns": relatorio.contract.as_nanos(),
-                    "add_module_ns": relatorio.add_module.as_nanos(),
-                    "stubs_ns": relatorio.stubs.as_nanos(), "link_ns": relatorio.link.as_nanos(),
-                    "publish_ns": relatorio.publish.as_nanos(),
-                    "retire_ns": relatorio.retire.as_nanos(),
-                    "reload_total_ns": relatorio.total.as_nanos(),
-                    "execute_ns": entrada.execute.as_nanos(), "ir_bytes": relatorio.ir_bytes,
-                    "entries": relatorio.entries, "new_entries": relatorio.new_entries,
-                    "retained_generations": relatorio.retained_generations,
-                }))?
-            );
+pub fn run_hot_reload(_args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    Err("JIT reload desabilitado temporariamente durante desenvolvimento AOT".into())
+}
+
+#[cfg(feature = "nativo")]
+pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize]";
+    let mut input: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut sdk: Option<PathBuf> = None;
+    let mut packages: Option<PathBuf> = None;
+    let mut timings = false;
+    let mut optimize = false;
+
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.to_str() {
+            Some("-o") => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--timings") => timings = true,
+            Some("--optimize") => optimize = true,
+            _ if input.is_none() => input = Some(PathBuf::from(a)),
+            _ => return Err(usage.into()),
         }
     }
+    let (Some(input), Some(out)) = (input, out) else {
+        return Err(usage.into());
+    };
+
+    let (i2, o2) = (input.clone(), out.clone());
+    let s2 = sdk.clone();
+    let p2 = packages.clone();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = dartforge_emit_native::CompileOptions {
+                sdk: s2.as_deref(),
+                packages: p2.as_deref(),
+                timings,
+                optimize,
+            };
+            dartforge_emit_native::compilar(&i2, &o2, &options)
+        })
+        .map_err(|e| e.to_string())?
+        .join()
+        .map_err(|_| "a compilação nativa abortou".to_string())??;
+
     Ok(())
 }
 
