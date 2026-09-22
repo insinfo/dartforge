@@ -12,6 +12,7 @@ dartforge-native = { path = "../native" }
 dartforge-jit = { path = "../jit" }
 dartforge-compiler = { path = "../compiler" }
 dartforge-packages = { path = "../packages" }
+dartforge-emit-js = { path = "../emit_js" }
 serde_json = "1"
 
 [[bin]]
