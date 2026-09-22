@@ -853,6 +853,34 @@ Meta observável no `new_sali` (80 mil linhas): alterar um método privado
 → parse de 1 biblioteca, tipos de 1 biblioteca, 1 `.mjs` reescrito,
 dezenas de ms — medido pelo mesmo harness de `crates/instrument`.
 
+## Latência medida contra a toolchain oficial — `new_sali/frontend`
+
+Mesmo projeto (ngdart 8.0.0-dev.4, 284 arquivos do projeto, 3.183 unidades
+no fecho com os pacotes, 2.970 bibliotecas), mesma máquina (8 núcleos,
+8 GB, Windows com Defender ativo). Medido em 2026-09-22.
+
+| Ferramenta | O que faz | Tempo |
+| --- | --- | --- |
+| `dart run build_runner build --delete-conflicting-outputs` | templates ngdart + SCSS + **compila tudo com o DDC** (9.879 artefatos, 205 MB) | **2 min 59 s** |
+| `dart2js` de produção (`webdev build`) | JavaScript otimizado de programa inteiro | **~4 min** |
+| **`dartforge compile-js` a frio** | 616 módulos ES6, cache do SDK construído, saída vazia | **6,5 s** |
+| **`dartforge compile-js` morno** | idem, 0 arquivos reescritos | **4,3 s** |
+| **`dartforge dev`, edição de corpo** | 1 biblioteca reanalisada, 1 módulo escrito | **335 ms** |
+
+A comparação com o `dart2js` **não é de igual para igual** e não deve ser
+apresentada como tal: ele faz análise de programa inteiro, tree shaking e
+minificação (4,5 MB de saída), e nós emitimos o modo de desenvolvimento
+sem otimização global (48 MB). A comparação honesta com o `dart2js`
+existirá quando o modo de produção existir.
+
+A comparação com o `build_runner` **é** de igual para igual em objetivo —
+"deixar a aplicação pronta para abrir no navegador em desenvolvimento" —
+e o fator vem sobretudo de **não executar** o `build_web_compilers`: dos
+9.879 artefatos que ele gera, ~8.900 são do compilador DDC que o
+DartForge substitui. Os 773 `*.template.dart` do ngdart ainda vêm do
+`build_runner` (uma vez, enquanto a Fase 5 não existir); os 192 `.css`
+do `sass_builder` idem. Ver [BUILD-RUST.md](docs/BUILD-RUST.md).
+
 ## Geração de código em Rust — `dartforge build`
 
 Plano e medições em [BUILD-RUST.md](docs/BUILD-RUST.md) (2026-09-22). O

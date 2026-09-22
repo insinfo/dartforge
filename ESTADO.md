@@ -75,7 +75,12 @@ com prefixos/`show`/`hide`/`part`, interop (`package:js`,
 | **edição de corpo** (sessão viva) | **227 ms** — 1 unidade reanalisada, 1 módulo escrito |
 | edição de API pública | 288 ms — 82 bibliotecas reemitidas, 3 módulos |
 
-`new_sali/frontend`: primeira 9,5 s; edição de corpo **335 ms**.
+`new_sali/frontend` (3.183 unidades, 616 módulos): **6,5 s a frio**
+(cache do SDK construído, saída vazia), 4,3 s morno, edição de corpo
+**335 ms**. Contra a toolchain oficial no mesmo projeto e máquina:
+`build_runner build` **2 min 59 s** e `dart2js` de produção **~4 min**
+(esta última não é comparação de igual para igual — ver PLANO.md,
+"Latência medida contra a toolchain oficial").
 
 **Memória — a propriedade que o LSP do Dart não tem**: teste de platô com
 20 edições sucessivas, `live_bytes` **+0,00 MB** (core 204,63 MB, pico
