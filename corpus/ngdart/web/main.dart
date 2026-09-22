@@ -45,6 +45,10 @@ import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
 import 'package:corpus_ngdart/src/d04_projecao_no_filho.template.dart' as d04;
+import 'package:corpus_ngdart/src/e01_diretiva_simples.template.dart' as e01;
+import 'package:corpus_ngdart/src/e02_diretiva_com_host_binding.template.dart' as e02;
+import 'package:corpus_ngdart/src/e03_diretiva_com_entrada.template.dart' as e03;
+import 'package:corpus_ngdart/src/e04_pipe.template.dart' as e04;
 
 void main() {
   print([
@@ -92,5 +96,9 @@ void main() {
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
     d04.D04ProjecaoNoFilhoNgFactory,
+    e01.E01DiretivaSimplesNgFactory,
+    e02.E02DiretivaComHostBindingNgFactory,
+    e03.E03DiretivaComEntradaNgFactory,
+    e04.E04PipeNgFactory,
   ].length);
 }

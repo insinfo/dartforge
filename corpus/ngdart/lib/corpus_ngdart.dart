@@ -1,5 +1,5 @@
-/// Biblioteca do corpus: existe para a carga alcançar todos os casos numa
-/// entrada só — é por ela que o teste monta o banco semântico.
+/// Biblioteca do corpus: existe para a carga alcanÃ§ar todos os casos numa
+/// entrada sÃ³ â€” Ã© por ela que o teste monta o banco semÃ¢ntico.
 library corpus_ngdart;
 
 export 'src/a01_interpolacao.dart';
@@ -46,3 +46,7 @@ export 'src/d01_dois_filhos.dart';
 export 'src/d02_filho_aninhado.dart';
 export 'src/d03_filho_com_entrada.dart';
 export 'src/d04_projecao_no_filho.dart';
+export 'src/e01_diretiva_simples.dart';
+export 'src/e02_diretiva_com_host_binding.dart';
+export 'src/e03_diretiva_com_entrada.dart';
+export 'src/e04_pipe.dart';

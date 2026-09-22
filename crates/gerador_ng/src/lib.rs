@@ -42,6 +42,9 @@ pub struct Achados {
     pub pipes: Vec<String>,
     /// `@GenerateInjector` em qualquer declaração de topo.
     pub injetores: Vec<String>,
+    /// Alguma classe do arquivo tem `@HostBinding`/`@HostListener`, que fazem
+    /// o oficial gerar um `DirectiveChangeDetector`.
+    pub tem_hospedeiro: bool,
 }
 
 impl Achados {
@@ -88,6 +91,16 @@ pub fn achar(
             ast::DeclKind::Class(c) => interner.resolve(c.name.sym).to_string(),
             _ => String::new(),
         };
+        if let ast::DeclKind::Class(classe) = &decl.kind {
+            for &m in &classe.members {
+                for a in arvore.member(m).metadata.iter() {
+                    let n = nome_da_anotacao(a, interner);
+                    if n == "HostBinding" || n == "HostListener" {
+                        achados.tem_hospedeiro = true;
+                    }
+                }
+            }
+        }
         for a in decl.metadata.iter() {
             match nome_da_anotacao(a, interner).as_str() {
                 "Component" => {
@@ -363,6 +376,15 @@ fn gerar_arquivo(
     }
     if !achados.injetores.is_empty() {
         return Err(Motivo::Injetor);
+    }
+    // Diretiva e pipe não geram visão: o arquivo deles é o trivial, desde
+    // que nenhuma classe tenha `@HostBinding`/`@HostListener` — esses fazem o
+    // oficial gerar um `DirectiveChangeDetector`.
+    if achados.componentes.is_empty() {
+        if achados.tem_hospedeiro {
+            return Err(Motivo::DiretivaOuPipe);
+        }
+        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
     }
     if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
         return Err(Motivo::DiretivaOuPipe);

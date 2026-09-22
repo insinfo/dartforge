@@ -138,6 +138,22 @@ fn main() -> std::process::ExitCode {
             println!("    {n:4}  {forma}");
         }
     }
+    // Os pendentes mais perto de sair: poucos motivos, e quais.
+    let mut perto: Vec<(usize, String, String)> = placar
+        .pendentes
+        .iter()
+        .zip(placar.conjuntos.iter())
+        .map(|(p, c)| {
+            let nome = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let motivos: Vec<&str> = c.iter().map(|m| m.texto()).collect();
+            (c.len(), nome, motivos.join(", "))
+        })
+        .collect();
+    perto.sort();
+    println!("  mais perto de sair:");
+    for (n, nome, motivos) in perto.iter().take(10) {
+        println!("    {n}  {nome}: {motivos}");
+    }
     // Diagnóstico da resolução: sem isto não se sabe se a injeção falha por
     // falta de forma ou porque o arquivo nem está no programa carregado.
     let mut fora_do_programa = 0usize;

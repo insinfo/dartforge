@@ -16,9 +16,11 @@ $raiz = (Resolve-Path (Join-Path $PSScriptRoot '..\corpus\ngdart')).Path
 Push-Location $raiz
 try {
     # 1. main.dart com um import por caso, para o builder opcional rodar.
-    $casos = Get-ChildItem (Join-Path $raiz 'lib\src') -Filter *.dart |
+    $todos = Get-ChildItem (Join-Path $raiz 'lib\src') -Filter *.dart |
         Where-Object { $_.Name -notlike '*.template.dart' } |
         Sort-Object Name
+    # Só componentes têm `XNgFactory`; diretiva e pipe não entram no main.
+    $casos = $todos | Where-Object { (Get-Content $_.FullName -Raw) -match '@Component\(' }
     $linhas = @(
         '// Consome os `.template.dart` do corpus. O builder do ngdart é',
         '// `is_optional: true`: sem alguém pedindo a saída, ele não roda.',
@@ -48,7 +50,7 @@ try {
         'library corpus_ngdart;',
         ''
     )
-    foreach ($caso in $casos) {
+    foreach ($caso in $todos) {
         $exports += "export 'src/$([IO.Path]::GetFileNameWithoutExtension($caso.Name)).dart';"
     }
     [IO.File]::WriteAllText((Join-Path $raiz 'lib\corpus_ngdart.dart'), ($exports -join "`n") + "`n", $utf8)
