@@ -119,7 +119,7 @@ void main() {
   print(cheio > 10 ? throw Exception('nunca') : cheio);
 
   // throw em arrow function chamada dentro de laço com return
-  int atéFalhar() {
+  int ateFalhar() {
     for (var i = 0; i < 5; i++) {
       try {
         if (i == 2) lanca('parou em $i');
@@ -132,7 +132,7 @@ void main() {
     return -1;
   }
 
-  print(atéFalhar());
+  print(ateFalhar());
 
   // return dentro de forEach closure não sai da função externa
   int comForEach() {

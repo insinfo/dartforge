@@ -4,7 +4,7 @@ class Temperatura {
 
   double get celsius => _celsius;
   set celsius(double v) {
-    print('set celsius $v');
+    print('set celsius ${v.toStringAsFixed(1)}');
     _celsius = v;
   }
 

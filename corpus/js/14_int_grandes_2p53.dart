@@ -1,0 +1,88 @@
+// Inteiros grandes até 2^53: multiplicação, soma/subtração, ~/, parse/toString, toRadixString e hex grande.
+void main() {
+  var p2_53 = 1;
+  for (var i = 0; i < 53; i++) {
+    p2_53 *= 2;
+  }
+  print(p2_53);
+  print(p2_53 == 9007199254740992);
+  print(9007199254740992);
+  print(9007199254740991);
+  print(9007199254740992 - 1);
+  print(9007199254740991 + 1);
+  print(4503599627370496 * 2);
+  print(4503599627370496 + 4503599627370496);
+  print(9007199254740992 ~/ 2);
+  print(9007199254740992 ~/ 3);
+  print(9007199254740992 % 3);
+  print(9007199254740992 % 1000);
+  print(9007199254740991 % 1000);
+  print(9007199254740992 - 9007199254740991);
+  print(123456789 * 12345);
+  print(999999999 * 999999);
+  print(1000000000 * 1000000);
+  print(3037000499 * 2);
+  print(94906265 * 94906265);
+  print(int.parse('9007199254740992'));
+  print(int.parse('9007199254740991'));
+  print(int.parse('-9007199254740992'));
+  print(int.parse('1234567890123456'));
+  print(int.parse('20000000000000', radix: 16));
+  print(int.parse('1' + '0' * 53, radix: 2));
+  print(9007199254740992.toString());
+  print(9007199254740992.toString().length);
+  print(9007199254740991.toString().length);
+  print(9007199254740992.toRadixString(2));
+  print(9007199254740992.toRadixString(2).length);
+  print(9007199254740991.toRadixString(2).length);
+  print(9007199254740992.toRadixString(16));
+  print(9007199254740991.toRadixString(16));
+  print(9007199254740991.toRadixString(36));
+  print(1234567890123456.toRadixString(16));
+  print(0x1FFFFFFFFFFFFF);
+  print(0x1FFFFFFFFFFFFF == 9007199254740991);
+  print(0x20000000000000);
+  print(0x123456789ABCD);
+  print(0x123456789ABCD.toRadixString(16));
+  print(0xFFFFFFFFFFFF);
+  print(0xFFFFFFFFFFFF + 1);
+  print(-9007199254740992);
+  print(-9007199254740992 + 1);
+  print(-4503599627370496 * 2);
+  print((-9007199254740992).abs());
+  print(9007199254740992.isEven);
+  print(9007199254740991.isOdd);
+  print(9007199254740992.bitLength);
+  print(9007199254740991.bitLength);
+  print(9007199254740992.compareTo(9007199254740991));
+  print(9007199254740992 > 9007199254740991);
+  print(9007199254740991.gcd(9007199254740992));
+  print(6008513152146192.gcd(9007199254740992));
+  print(94906265 * 94906266);
+  print(94906265 * 94906266 % 1000000);
+  print(9007199254740992.sign);
+  print(9007199254740992.clamp(0, 100));
+  print((9007199254740992 / 4).toStringAsFixed(1));
+  print(1e15.toInt());
+  print(123456789012345.toDouble().toStringAsFixed(1));
+  var soma = 0;
+  for (var i = 0; i < 1000; i++) {
+    soma += 9007199254740;
+  }
+  print(soma);
+  print(9007199254740992.toStringAsFixed(2));
+  print(1234567890123456 ~/ 1000);
+  print(1234567890123456 % 1000);
+  print(1234567890123456 ~/ 7);
+  print(1234567890123456 % 7);
+  print(1234567890123456 - 1234567890123455);
+  print(1234567890123456 + 8000000000000000);
+  print(1234567890123456 * 7);
+  print(-1234567890123456 ~/ 7);
+  print(-1234567890123456 % 7);
+  print(4503599627370495 + 4503599627370496);
+  print(9007199254740992 - 4503599627370496 == 4503599627370496);
+  print(9007199254740992.remainder(10));
+  print(2251799813685248 * 4);
+  print(2251799813685248 * 3);
+}

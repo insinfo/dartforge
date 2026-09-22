@@ -87,6 +87,13 @@ void main() {
   print(SubNomeado(nome: 'a'));
   print(SubNomeado(nome: 'b', idade: 9, ativo: false));
   print(Positivo(5));
+  try {
+    Positivo(-1);
+    print('nao lancou');
+  } catch (e) {
+    print(e is AssertionError);
+    print((e as AssertionError).message);
+  }
   final t = Tardio(4);
   print(t.descricao);
   print(Base(1));

@@ -85,7 +85,13 @@ pub fn listar(dir: &Path, filtro: Option<&str>) -> Vec<Programa> {
     if let Some(f) = filtro {
         programas.retain(|p| p.nome.contains(f));
     }
+    // Ordem numérica pelo prefixo (`10_` antes de `100_`), depois pelo nome.
+    programas.sort_by(|a, b| numero(&a.nome).cmp(&numero(&b.nome)).then_with(|| a.nome.cmp(&b.nome)));
     programas
+}
+
+fn numero(nome: &str) -> u32 {
+    nome.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(u32::MAX)
 }
 
 fn listar_dart_recursivo(dir: &Path, saida: &mut Vec<PathBuf>) {
@@ -102,8 +108,7 @@ fn listar_dart_recursivo(dir: &Path, saida: &mut Vec<PathBuf>) {
 
 /// Tema de um programa pelo prefixo numérico do nome (organiza o CONTRATO-DDC.md).
 pub fn tema(nome: &str) -> &'static str {
-    let n: u32 = nome.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(999);
-    match n {
+    match numero(nome) {
         0..=9 => "Literais e strings",
         10..=19 => "Aritmética int/double",
         20..=29 => "Controle de fluxo",

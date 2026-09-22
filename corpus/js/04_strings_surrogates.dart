@@ -49,8 +49,8 @@ void main() {
   print('👍🏽'.runes.length);
   print('👍🏽'.length);
   print('é'.runes.length);
-  print('é'.runes.length);
-  print('é'.length);
+  print('e\u0301'.runes.length);
+  print('e\u0301'.length);
   print('😀'.codeUnits.map((c) => c.toRadixString(16)).toList());
   print('😀'.runes.map((r) => r.toRadixString(16)).toList());
   print(String.fromCharCodes('😀'.codeUnits) == '😀');

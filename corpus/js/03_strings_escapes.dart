@@ -43,6 +43,6 @@ void main() {
   print('a\\\\b');
   print('a\\\\b'.length);
   print('\\\$');
-  print('\\$');
   print('\\${1 + 1}');
+  print('\\\${1 + 1}');
 }
