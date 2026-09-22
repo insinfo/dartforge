@@ -202,6 +202,23 @@ pwsh scripts/servir.ps1 -Dir saida -Web C:/MyDartProjects/new_sali/frontend/web 
 cargo run --release -p dartforge-cli -- dev <entrada.dart> -o saida --packages <cfg>
 ```
 
+## 3.1 Espaço em disco — vigiar
+
+O `target/` do Cargo **não se limpa sozinho**: num dia de trabalho com
+vários agentes chegou a **38 GB** (21 GB em `debug/deps`, 8 GB de
+compilação incremental), tudo recriável e nada de código. Rode
+
+```powershell
+pwsh scripts/limpar.ps1            # relata o que ocupa espaço
+pwsh scripts/limpar.ps1 -Limpar    # apaga o lixo seguro (debug, target-*, incremental)
+pwsh scripts/limpar.ps1 -Limpar -Tudo  # também release e o cache de oráculos
+```
+
+Custo de recriar: `target/debug` ~10 min, `target/diferencial` (cache dos
+oráculos `dart run`) ~10 min, `target/release` ~5 min. Worktrees de
+agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
+depois de integrar o trabalho é parte da limpeza.
+
 ## 4. Organização do repositório
 
 * **Trilha nova (em uso)**: `frontend` → `elements` → `types` →
