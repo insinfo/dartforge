@@ -130,7 +130,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             tys.push(ty);
             match a.name {
                 Some(n) => named.push(format!("{}: {}", js::prop_key(self.name(n.sym)), js.at(P_ASSIGN))),
-                None => pos.push(js.at(P_ASSIGN)),
+                None => pos.push(js.into_at(P_ASSIGN)),
             }
         }
         let named_obj = if named.is_empty() { None } else { Some(format!("{{{}}}", named.join(", "))) };
@@ -238,7 +238,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             let js = if interop { self.assert_interop(js, &ty) } else { js };
-            out[i] = Some(js.at(P_ASSIGN));
+            out[i] = Some(js.into_at(P_ASSIGN));
             tys[i] = ty;
         }
         // Fase 2: closures.
@@ -268,7 +268,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             let js = if interop { self.assert_interop(js, &ty) } else { js };
-            out[i] = Some(js.at(P_ASSIGN));
+            out[i] = Some(js.into_at(P_ASSIGN));
             tys[i] = ty;
         }
         // Retorno esperado (só para o que ainda falta).

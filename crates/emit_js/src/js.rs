@@ -19,6 +19,20 @@ pub const P_ASSIGN: u8 = 3;
 pub const P_YIELD: u8 = 2;
 pub const P_COMMA: u8 = 1;
 
+/// Contadores de medição (exemplo `memoria`): quantos `Js` foram construídos,
+/// quantos bytes carregam, quantas vezes `at` emprestou o texto, quantas
+/// precisou de parênteses e quantos nomes/literais foram formatados.
+pub static JS_CONSTRUIDOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static JS_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static AT_EMPRESTIMOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static AT_PARENS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static NOMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[inline]
+fn conta(c: &std::sync::atomic::AtomicUsize, n: usize) {
+    c.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Expressão JS já escrita, com a precedência do operador mais externo.
 #[derive(Clone, Debug)]
 pub struct Js {
@@ -28,17 +42,33 @@ pub struct Js {
 
 impl Js {
     pub fn new(code: impl Into<String>, prec: u8) -> Js {
-        Js { code: code.into(), prec }
+        let code = code.into();
+        conta(&JS_CONSTRUIDOS, 1);
+        conta(&JS_BYTES, code.len());
+        Js { code, prec }
     }
     pub fn prim(code: impl Into<String>) -> Js {
         Js::new(code, P_PRIMARY)
     }
-    /// Texto com parênteses se a precedência for menor que `min`.
-    pub fn at(&self, min: u8) -> String {
+    /// Texto com parênteses se a precedência for menor que `min`. Empresta o
+    /// texto no caso comum (sem parênteses): quem o interpola num `format!`
+    /// não paga uma cópia por filho.
+    pub fn at(&self, min: u8) -> std::borrow::Cow<'_, str> {
         if self.prec < min {
+            conta(&AT_PARENS, 1);
+            std::borrow::Cow::Owned(format!("({})", self.code))
+        } else {
+            conta(&AT_EMPRESTIMOS, 1);
+            std::borrow::Cow::Borrowed(&self.code)
+        }
+    }
+    /// Como [`Js::at`], consumindo o `Js`: devolve o próprio texto sem copiar.
+    pub fn into_at(self, min: u8) -> String {
+        if self.prec < min {
+            conta(&AT_PARENS, 1);
             format!("({})", self.code)
         } else {
-            self.code.clone()
+            self.code
         }
     }
     pub fn paren(&self) -> Js {
@@ -87,14 +117,23 @@ pub fn string_literal_units(units: impl Iterator<Item = u16>) -> String {
 }
 
 pub fn string_literal(s: &str) -> String {
+    conta(&NOMES, 1);
     string_literal_units(s.encode_utf16())
 }
 
 /// Escritor com indentação.
-#[derive(Default)]
 pub struct Writer {
     pub out: String,
     pub indent: usize,
+}
+
+impl Default for Writer {
+    /// Buffer com 1 KiB de partida: um corpo de função cresce sem realocar
+    /// nas primeiras dezenas de linhas (o `String` vazio realoca a cada
+    /// dobra: 8, 16, 32… bytes).
+    fn default() -> Self {
+        Writer { out: String::with_capacity(1024), indent: 0 }
+    }
 }
 
 impl Writer {
@@ -144,6 +183,7 @@ pub fn is_reserved(name: &str) -> bool {
 
 /// Identificador JS para um nome Dart de variável/função local.
 pub fn ident(name: &str) -> String {
+    conta(&NOMES, 1);
     if is_reserved(name) || name.starts_with("t$") || name.starts_with("L$") {
         format!("{name}$")
     } else {
@@ -153,6 +193,7 @@ pub fn ident(name: &str) -> String {
 
 /// Nome de propriedade JS: identificador direto ou `['...']`.
 pub fn prop_access(name: &str) -> String {
+    conta(&NOMES, 1);
     if is_js_ident(name) {
         format!(".{name}")
     } else {
@@ -179,6 +220,7 @@ pub fn is_js_ident(name: &str) -> bool {
 
 /// Chave de propriedade em literal de objeto ou em membro de classe.
 pub fn prop_key(name: &str) -> String {
+    conta(&NOMES, 1);
     if is_js_ident(name) {
         name.to_string()
     } else {

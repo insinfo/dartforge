@@ -817,7 +817,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let saved_const = self.in_const;
                     self.in_const = true;
                     let def = match p.default_value {
-                        Some(d) => self.emit_expr(d, Some(&ty)).0.at(P_ASSIGN + 1),
+                        Some(d) => self.emit_expr(d, Some(&ty)).0.into_at(P_ASSIGN + 1),
                         None => "null".to_string(),
                     };
                     self.in_const = saved_const;
@@ -829,7 +829,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let saved_const = self.in_const;
                     self.in_const = true;
                     let def = match p.default_value {
-                        Some(d) => self.emit_expr(d, Some(&ty)).0.at(P_COND + 1),
+                        Some(d) => self.emit_expr(d, Some(&ty)).0.into_at(P_COND + 1),
                         None => "null".to_string(),
                     };
                     self.in_const = saved_const;
@@ -1248,7 +1248,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     if list.late {
                         self.w.line(&format!("let {jsn} = void 0;"));
                         if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
-                            l.lazy_init = Some(js.at(crate::js::P_ASSIGN + 1));
+                            l.lazy_init = Some(js.into_at(crate::js::P_ASSIGN + 1));
                         }
                     } else {
                         self.w.line(&format!("let {jsn} = {};", js.code));

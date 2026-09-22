@@ -81,6 +81,15 @@ fn main() {
     }
     let unidades_sdk = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
     let unidades_usuario = program.units.len() - unidades_sdk;
+    {
+        let c = &program.tempos;
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        println!(
+            "carga: leitura+lex paralelos {:.1} ms ({} ondas), em série {:.1} ms ({} arquivos, {:.2} MiB), parse {:.1} ms, SDK do cache {:.1} ms, diretivas {:.1} ms, outline decl {:.1} / reexports {:.1} / escopos {:.1} / supertipos {:.1} ms",
+            ms(c.leitura_lex_paralelo), c.ondas, ms(c.leitura), c.arquivos_lidos, c.bytes_lidos as f64 / MB, ms(c.parse), ms(c.sdk_cache), ms(c.diretivas),
+            ms(c.outline_declaracoes), ms(c.outline_reexports), ms(c.outline_escopos), ms(c.outline_supertipos)
+        );
+    }
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
@@ -99,6 +108,18 @@ fn main() {
         }
     };
     sonda.fase("emissão");
+    {
+        use dartforge_emit_js::js;
+        use std::sync::atomic::Ordering::Relaxed;
+        println!(
+            "emissão: Js construídos {} ({:.2} MB de texto intermediário), at() empréstimos {} + parênteses {}, nomes/literais {}",
+            js::JS_CONSTRUIDOS.load(Relaxed),
+            js::JS_BYTES.load(Relaxed) as f64 / MB,
+            js::AT_EMPRESTIMOS.load(Relaxed),
+            js::AT_PARENS.load(Relaxed),
+            js::NOMES.load(Relaxed)
+        );
+    }
 
     drop(bodies);
     drop(outline);

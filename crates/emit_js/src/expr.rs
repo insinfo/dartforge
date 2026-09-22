@@ -382,7 +382,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let mut parts = Vec::new();
                 for s in sections.iter() {
                     let (sjs, _) = self.emit_expr(*s, None);
-                    parts.push(sjs.at(P_ASSIGN));
+                    parts.push(sjs.into_at(P_ASSIGN));
                 }
                 self.cascade.pop();
                 let body = if parts.is_empty() { t.clone() } else { format!("{}, {t}", parts.join(", ")) };
@@ -441,7 +441,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     let (v, vty) = self.emit_expr(*e, None);
                     if self.ctx.is_string(&vty) {
-                        parts.push(v.at(P_ADD));
+                        parts.push(v.into_at(P_ADD));
                     } else if self.ctx.is_num_like(&vty) && !vty.is_class(self.ctx.num_) || self.ctx.is_bool(&vty) {
                         parts.push(format!("dart.strSafe({})", v.code));
                     } else {
@@ -497,7 +497,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let items: Vec<String> = elements
                 .iter()
                 .map(|e| match e {
-                    CollectionElement::Expression(x) => self.emit_expr(*x, Some(&elem_ty)).0.at(P_ASSIGN),
+                    CollectionElement::Expression(x) => self.emit_expr(*x, Some(&elem_ty)).0.into_at(P_ASSIGN),
                     _ => unreachable!(),
                 })
                 .collect();
@@ -821,8 +821,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let mut items = Vec::new();
                 for e in elements {
                     if let CollectionElement::MapEntry { key, value, .. } = e {
-                        items.push(self.emit_expr(*key, Some(&kt)).0.at(P_ASSIGN));
-                        items.push(self.emit_expr(*value, Some(&vt)).0.at(P_ASSIGN));
+                        items.push(self.emit_expr(*key, Some(&kt)).0.into_at(P_ASSIGN));
+                        items.push(self.emit_expr(*value, Some(&vt)).0.into_at(P_ASSIGN));
                     }
                 }
                 if const_ {
@@ -883,7 +883,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let items: Vec<String> = elements
                 .iter()
                 .map(|e| match e {
-                    CollectionElement::Expression(x) => self.emit_expr(*x, Some(&et)).0.at(P_ASSIGN),
+                    CollectionElement::Expression(x) => self.emit_expr(*x, Some(&et)).0.into_at(P_ASSIGN),
                     _ => unreachable!(),
                 })
                 .collect();
@@ -1052,13 +1052,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut pos_ty = Vec::new();
         for e in positional {
             let (j, t) = self.emit_expr(*e, None);
-            pos_js.push(j.at(P_ASSIGN));
+            pos_js.push(j.into_at(P_ASSIGN));
             pos_ty.push(t);
         }
         let mut named_items: Vec<(String, String, Ty)> = Vec::new();
         for (n, e) in named {
             let (j, t) = self.emit_expr(*e, None);
-            named_items.push((self.name(n.sym).to_string(), j.at(P_ASSIGN), t));
+            named_items.push((self.name(n.sym).to_string(), j.into_at(P_ASSIGN), t));
         }
         // Ordem de avaliação preservada por temps quando há nomeados fora de ordem.
         let mut sorted = named_items.clone();
@@ -2429,7 +2429,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let t = self.temp();
                 let mut parts = Vec::new();
                 let recv_js = if is_simple(&recv.code) {
-                    recv.at(P_PRIMARY)
+                    recv.at(P_PRIMARY).into_owned()
                 } else {
                     let tr = self.temp();
                     parts.push(format!("{tr} = {}", recv.code));
