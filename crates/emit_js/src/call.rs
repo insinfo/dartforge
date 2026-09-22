@@ -556,6 +556,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     pub fn emit_static_call(&mut self, c: ClassId, name: &str, mk: MemberKind, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+        // Constante de ambiente chamada como estático (`X.fromEnvironment(...)`
+        // sem `const`): o valor é o mesmo, avaliado na compilação.
+        if name == "fromEnvironment" {
+            if let Some(r) = self.constante_de_ambiente(c, arguments) {
+                return r;
+            }
+        }
         if self.ctx.is_js_class(c) && self.ctx.is_js_member_kind(&mk) {
             let js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, name);
             return match mk {

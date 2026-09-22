@@ -108,6 +108,9 @@ pub struct Ctx<'a> {
     pub fn_js: HashMap<FunctionElementId, Option<String>>,
     /// Variáveis (campos, topo) com `@JS(...)` explícito.
     pub var_js: HashMap<VariableId, Option<String>>,
+    /// `@JSName('x')` de membros de classes nativas: o nome JS difere do nome
+    /// Dart, e o DDC simboliza esses membros (`_isSymbolizedMember`).
+    pub js_names: HashMap<u32, String>,
     /// Memória da busca de membro: `(classe inicial, nome, setter)` →
     /// `(classe declarante, espécie)`. A busca percorre a hierarquia e o que
     /// ela encontra depende só do grafo de classes, não dos argumentos de
@@ -210,6 +213,7 @@ impl<'a> Ctx<'a> {
             js_libs: HashMap::new(),
             fn_js: HashMap::new(),
             var_js: HashMap::new(),
+            js_names: HashMap::new(),
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
@@ -218,6 +222,7 @@ impl<'a> Ctx<'a> {
         ctx.compute_ext_set(find_lib);
         ctx.compute_groups();
         ctx.compute_js_interop();
+        ctx.compute_js_names();
         ctx
     }
 
@@ -380,6 +385,76 @@ impl<'a> Ctx<'a> {
         self.js_libs = js_libs;
         self.fn_js = fn_js;
         self.var_js = var_js;
+    }
+
+    /// Anotação `@JSName('x')` (de `dart:_js_helper`): o nome JS do membro nativo.
+    fn ann_js_name(&self, unit: UnitId, a: &ast::Annotation) -> Option<String> {
+        let last = a.name.last()?;
+        if self.interner.resolve(last.sym) != "JSName" {
+            return None;
+        }
+        let args = a.arguments.as_ref()?;
+        let first = args.args.first()?;
+        match &self.program.unit(unit).ast.expr(first.value).kind {
+            ast::ExprKind::String(lit) => lit.constant_value().map(|v| v.to_string_lossy()),
+            _ => None,
+        }
+    }
+
+    /// Mapa `membro → nome JS` para as classes da hierarquia nativa. É lido da
+    /// anotação `@JSName` do outline (não de uma lista de nomes): em `dart:html`
+    /// são 614 membros, e a regra vale para qualquer classe `@Native`.
+    fn compute_js_names(&mut self) {
+        let mut map: HashMap<u32, String> = HashMap::new();
+        let classes: Vec<ClassId> = self.ext_set.iter().copied().collect();
+        for c in classes {
+            let class = self.program.class(c);
+            let Some(decl) = class.decl else { continue };
+            let unit = self.program.unit(decl.unit);
+            let d = unit.ast.decl(decl.decl);
+            let members: &[ast::MemberId] = match &d.kind {
+                DeclKindRef::Class(cd) => &cd.members,
+                DeclKindRef::Mixin(md) => &md.members,
+                _ => continue,
+            };
+            // Nome JS por função do AST (métodos, getters, setters) e por
+            // declaração de campo (os acessores implícitos herdam o nome).
+            let mut por_funcao: HashMap<u32, String> = HashMap::new();
+            let mut por_campo: HashMap<u32, String> = HashMap::new();
+            for &mid in members {
+                let mem = unit.ast.member(mid);
+                let Some(nome) = mem.metadata.iter().find_map(|a| self.ann_js_name(decl.unit, a)) else { continue };
+                match &mem.kind {
+                    ast::MemberKind::Method(fid) => {
+                        por_funcao.insert(fid.0, nome);
+                    }
+                    ast::MemberKind::Field(_) => {
+                        por_campo.insert(mid.0, nome);
+                    }
+                    ast::MemberKind::Constructor(_) => {}
+                }
+            }
+            if por_funcao.is_empty() && por_campo.is_empty() {
+                continue;
+            }
+            for &fid in class.instance_members.values().chain(class.static_members.values()) {
+                let f = self.program.function(fid);
+                if let dartforge_elements::model::FunctionRef::Function { function, .. } = f.node {
+                    if let Some(n) = por_funcao.get(&function.0) {
+                        map.insert(fid.0, n.clone());
+                        continue;
+                    }
+                }
+                if let Some(v) = f.variable {
+                    if let dartforge_elements::model::VariableRef::Field { member, .. } = self.program.variable(v).node {
+                        if let Some(n) = por_campo.get(&member.0) {
+                            map.insert(fid.0, n.clone());
+                        }
+                    }
+                }
+            }
+        }
+        self.js_names = map;
     }
 
     pub fn is_js_class(&self, c: ClassId) -> bool {
@@ -1493,11 +1568,13 @@ impl<'a> Ctx<'a> {
             },
             _ => return false,
         };
-        // Receptor de tipo nativo (`_isSymbolizedMember` do DDC): o membro
-        // encaminhado (público) que é campo ou `external`/`native` acede a
-        // propriedade JS direta, salvo se é `external` numa biblioteca web com
-        // retorno não anulável (simbolizado com `checkNativeNonNull`); os demais
-        // (com corpo Dart) são símbolos `dartx`.
+        // Receptor de tipo nativo (`_isSymbolizedMember`, compiler.dart:3311):
+        // o membro encaminhado (público) que é campo ou `external`/`native`
+        // acede a propriedade JS direta, exceto (a) quando é `external` numa
+        // biblioteca web com retorno não anulável — precisa do
+        // `checkNativeNonNull` da definição — e (b) quando `@JSName('x')` o
+        // renomeia (`x != nome`), porque aí o nome Dart não existe no objeto JS.
+        // Membros com corpo Dart são sempre símbolos `dartx`.
         let impl_class = if Some(class) == self.int_ || Some(class) == self.double_ || Some(class) == self.num_ {
             self.jsnumber
         } else if Some(class) == self.bool_ {
@@ -1511,19 +1588,20 @@ impl<'a> Ctx<'a> {
         if let Some(nc) = native_class {
             return match self.native_forwarded_member(nc, name, setter) {
                 Some((fid, is_field)) => {
-                    if is_field {
-                        false
-                    } else {
-                        let f = self.program.function(fid);
-                        let external = f.external || self.has_native_body(fid);
-                        if !external {
-                            true
-                        } else {
-                            let web = self.is_web_library(f.library);
-                            let ret = self.ty_of(self.outline.functions[fid.0 as usize].return_type);
-                            web && !ret.is_nullable()
+                    let f = self.program.function(fid);
+                    let external = f.external || self.has_native_body(fid);
+                    if !is_field && !external {
+                        return true; // corpo Dart: sempre simbolizado
+                    }
+                    // `_isNullCheckableNative`: só procedimentos `external` de
+                    // biblioteca web com retorno potencialmente não anulável.
+                    if !is_field && external && self.is_web_library(f.library) {
+                        let ret = self.ty_of(self.outline.functions[fid.0 as usize].return_type);
+                        if !ret.is_nullable() {
+                            return true;
                         }
                     }
+                    self.js_names.get(&fid.0).is_some_and(|j| j != name)
                 }
                 None => true,
             };

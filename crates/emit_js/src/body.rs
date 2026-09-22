@@ -1037,6 +1037,17 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let (cjs, _) = self.emit_cond(*condition);
                 let promos = std::mem::take(&mut self.pending_promotions);
                 let neg_promos = std::mem::take(&mut self.negated_promotions);
+                // Condição constante (típica de `const bool.fromEnvironment`):
+                // o ramo morto não é emitido, como no dartdevc.
+                if cjs == "false" || cjs == "true" {
+                    let vivo = if cjs == "true" { Some(*then) } else { *else_ };
+                    if let Some(st) = vivo {
+                        self.push_scope();
+                        self.emit_stmt(st);
+                        self.pop_scope();
+                    }
+                    return;
+                }
                 crate::abre!(self.w, "if ({}) {{", cjs);
                 self.push_scope();
                 for (sym, t) in &promos {
