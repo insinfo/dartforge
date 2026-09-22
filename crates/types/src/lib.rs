@@ -79,3 +79,17 @@ pub fn infer_program_bodies(
     let inferrer = BodyInferrer::new(program, interner, table, core, outline);
     inferrer.infer_all()
 }
+
+/// Como [`infer_program_bodies`], mas sem os corpos das bibliotecas `dart:`
+/// (quando a emissão liga contra um SDK já compilado).
+pub fn infer_user_bodies(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut OutlineTypes,
+) -> (BodyTypes, Vec<Diagnostic>) {
+    let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.skip_sdk = true;
+    inferrer.infer_all()
+}

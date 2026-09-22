@@ -31,6 +31,8 @@ pub struct BodyInferrer<'a> {
     pub body_types: BodyTypes,
     /// Rastreio de variáveis declaradas para o join de análise de fluxo: `LocalId -> TypeId`
     pub local_declared_types: HashMap<LocalId, TypeId>,
+    /// Pular corpos das bibliotecas `dart:` (só o outline é necessário para emitir contra o `dart_sdk.js`).
+    pub skip_sdk: bool,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -58,6 +60,7 @@ impl<'a> BodyInferrer<'a> {
                 units: units_body_types,
             },
             local_declared_types: HashMap::new(),
+            skip_sdk: false,
         }
     }
 
@@ -85,6 +88,9 @@ impl<'a> BodyInferrer<'a> {
     fn infer_variable_initializers(&mut self) {
         for i in 0..self.program.variables.len() {
             let var_elem = &self.program.variables[i];
+            if self.skip_sdk && self.program.library(var_elem.library).is_sdk {
+                continue;
+            }
             let declared_ty = self.outline.variables[i].declared_type;
 
             match var_elem.node {
@@ -169,6 +175,9 @@ impl<'a> BodyInferrer<'a> {
     fn infer_functions(&mut self) {
         for i in 0..self.program.functions.len() {
             let func_elem = &self.program.functions[i];
+            if self.skip_sdk && self.program.library(func_elem.library).is_sdk {
+                continue;
+            }
             let func_data = self.outline.functions[i].clone();
 
             match func_elem.node {
@@ -428,6 +437,18 @@ impl<'a> BodyInferrer<'a> {
                         },
                         Resolved::Member { class: _, member, via_super: _ } => {
                             match member {
+                                MemberRef::Function(fid) if self.program.function(fid).kind == dartforge_elements::model::FunctionKind::ImplicitAccessor => {
+                                    match self.program.function(fid).variable {
+                                        Some(vid) => {
+                                            let vdata = &self.outline.variables[vid.0 as usize];
+                                            vdata.declared_type.or(vdata.inferred).unwrap_or(self.core.dynamic_)
+                                        }
+                                        None => self.core.dynamic_,
+                                    }
+                                }
+                                MemberRef::Function(fid) if self.program.function(fid).kind == dartforge_elements::model::FunctionKind::Getter => {
+                                    self.outline.functions[fid.0 as usize].return_type
+                                }
                                 MemberRef::Function(fid) => self.outline.functions[fid.0 as usize].signature,
                                 MemberRef::Variable(vid) => {
                                     let vdata = &self.outline.variables[vid.0 as usize];
@@ -690,6 +711,11 @@ impl<'a> BodyInferrer<'a> {
             }
             // 7. Chamadas de função / método
             ExprKind::Call { target, arguments } => {
+                // `C(...)`, `C<T>(...)`, `C.nome(...)`, `p.C(...)`: instanciação sem `new`.
+                if let Some(t) = self.try_infer_constructor_call(unit, expr_id, *target, arguments, context_type, scope, flow) {
+                    self.body_types.units[unit.0 as usize].set_type(expr_id, t);
+                    return t;
+                }
                 let target_expr = &self.program.unit(unit).ast.exprs[target.0 as usize];
                 let target_ty = if let ExprKind::Property { target: recv, name, null_aware } = &target_expr.kind {
                     let recv_ty = self.infer_expr(unit, *recv, None, scope, flow);
@@ -943,7 +969,7 @@ impl<'a> BodyInferrer<'a> {
             // 11. Teste de tipo: e is T / e is! T
             ExprKind::Is { value, ty, .. } => {
                 let val_ty = self.infer_expr(unit, *value, None, scope, flow);
-                let target_ty = self.resolve_ast_type_annotation(unit, *ty, current_library, &HashMap::new());
+                let target_ty = self.resolve_ast_type_annotation(unit, *ty, current_library, &self.tp_scope(scope));
 
                 let mut env = SubtypeEnv::new(self.table, &self.outline.hierarchy, self.core);
                 if is_subtype(val_ty, target_ty, &mut env) && target_ty == self.core.object {
@@ -967,7 +993,7 @@ impl<'a> BodyInferrer<'a> {
             // 12. Cast explícito: e as T
             ExprKind::As { value, ty } => {
                 let val_ty = self.infer_expr(unit, *value, None, scope, flow);
-                let target_ty = self.resolve_ast_type_annotation(unit, *ty, current_library, &HashMap::new());
+                let target_ty = self.resolve_ast_type_annotation(unit, *ty, current_library, &self.tp_scope(scope));
 
                 let mut env = SubtypeEnv::new(self.table, &self.outline.hierarchy, self.core);
                 if is_subtype(val_ty, target_ty, &mut env) {
@@ -1181,7 +1207,7 @@ impl<'a> BodyInferrer<'a> {
             }
             // 16. Instanciação: new C(args) ou const C(args)
             ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
-                let class_ty = self.resolve_ast_type_annotation(unit, *ty, current_library, &HashMap::new());
+                let class_ty = self.resolve_ast_type_annotation(unit, *ty, current_library, &self.tp_scope(scope));
 
                 if let Type::Interface { class, .. } = self.table.get(class_ty).clone() {
                     let ctor_sym = constructor.as_ref().map(|n| n.sym).or_else(|| self.interner.lookup(""));
@@ -1217,7 +1243,7 @@ impl<'a> BodyInferrer<'a> {
                 if let Some(params) = &ast_func.parameters {
                     for (idx, p) in params.iter().enumerate() {
                         let p_ty = if let Some(t) = p.ty {
-                            self.resolve_ast_type_annotation(unit, t, current_library, &HashMap::new())
+                            self.resolve_ast_type_annotation(unit, t, current_library, &self.tp_scope(scope))
                         } else {
                             self.core.dynamic_
                         };
@@ -1232,7 +1258,7 @@ impl<'a> BodyInferrer<'a> {
                 }
 
                 let ret_ty = if let Some(ret) = ast_func.return_type {
-                    self.resolve_ast_type_annotation(unit, ret, current_library, &HashMap::new())
+                    self.resolve_ast_type_annotation(unit, ret, current_library, &self.tp_scope(scope))
                 } else {
                     self.core.dynamic_
                 };
@@ -1279,6 +1305,141 @@ impl<'a> BodyInferrer<'a> {
         ty
     }
 
+    /// Se `target(arguments)` é uma instanciação sem `new`, infere-a e devolve o tipo da classe.
+    fn try_infer_constructor_call(
+        &mut self,
+        unit: UnitId,
+        expr_id: ExprId,
+        target: ExprId,
+        arguments: &ast::Arguments,
+        context_type: Option<TypeId>,
+        scope: &mut ScopeStack,
+        flow: &mut FlowState,
+    ) -> Option<TypeId> {
+        let current_library = self.program.unit(unit).library;
+        let exprs = &self.program.unit(unit).ast.exprs;
+        // (classe, nome do construtor, argumentos de tipo explícitos)
+        let mut explicit_args: Vec<ast::TypeId> = Vec::new();
+        let mut ctor_name: Option<SymbolId> = None;
+        let mut head = target;
+        if let ExprKind::Property { target: t2, name, .. } = &exprs[target.0 as usize].kind {
+            // `C.nome` ou `p.C`
+            let inner = &exprs[t2.0 as usize];
+            if let ExprKind::Identifier(id) = &inner.kind {
+                let is_local = scope.resolve_identifier(id.sym, inner.span, current_library, self.program, &self.outline.hierarchy, self.interner, &mut Vec::new());
+                match is_local {
+                    Some(Resolved::Element(Element::Class(_))) => {
+                        ctor_name = Some(name.sym);
+                        head = *t2;
+                    }
+                    Some(Resolved::Prefix(_)) | None => {
+                        if self.program.lookup_prefixed(current_library, id.sym, name.sym).is_some() {
+                            head = target;
+                        } else {
+                            return None;
+                        }
+                    }
+                    _ => return None,
+                }
+            } else if let ExprKind::TypeArguments { target: t3, type_args } = &inner.kind {
+                if let ExprKind::Identifier(_) = &exprs[t3.0 as usize].kind {
+                    explicit_args = type_args.to_vec();
+                    ctor_name = Some(name.sym);
+                    head = *t3;
+                } else {
+                    return None;
+                }
+            } else if let ExprKind::Property { target: t3, name: n3, .. } = &inner.kind {
+                // `p.C.nome`
+                if let ExprKind::Identifier(id) = &exprs[t3.0 as usize].kind {
+                    if let Some(b) = self.program.lookup_prefixed(current_library, id.sym, n3.sym) {
+                        if matches!(b.getter, Some(Element::Class(_))) {
+                            ctor_name = Some(name.sym);
+                            head = *t2;
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        } else if let ExprKind::TypeArguments { target: t2, type_args } = &exprs[target.0 as usize].kind {
+            explicit_args = type_args.to_vec();
+            head = *t2;
+        }
+        // Resolve a classe da cabeça.
+        let class = match &exprs[head.0 as usize].kind {
+            ExprKind::Identifier(id) => {
+                if scope.resolve_identifier(id.sym, exprs[head.0 as usize].span, current_library, self.program, &self.outline.hierarchy, self.interner, &mut Vec::new())
+                    .is_some_and(|r| matches!(r, Resolved::Local(_) | Resolved::Parameter { .. }))
+                {
+                    return None;
+                }
+                match self.program.lookup(current_library, id.sym).and_then(|b| b.getter) {
+                    Some(Element::Class(c)) => c,
+                    _ => return None,
+                }
+            }
+            ExprKind::Property { target: t2, name, .. } => {
+                let ExprKind::Identifier(id) = &exprs[t2.0 as usize].kind else { return None };
+                match self.program.lookup_prefixed(current_library, id.sym, name.sym).and_then(|b| b.getter) {
+                    Some(Element::Class(c)) => c,
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        let ctor_sym = ctor_name.or_else(|| self.interner.lookup(""))?;
+        let fid = *self.program.classes[class.0 as usize].constructors.get(&ctor_sym)?;
+        self.body_types.units[unit.0 as usize].set_resolved(expr_id, Resolved::Constructor(fid));
+        let params = self.outline.classes[class.0 as usize].type_params.clone();
+        let args: Vec<TypeId> = if !explicit_args.is_empty() {
+            explicit_args.iter().map(|a| self.resolve_ast_type_annotation(unit, *a, current_library, &self.tp_scope(scope))).collect()
+        } else if let Some(ctx) = context_type.map(|c| self.table.get(c).clone()) {
+            match ctx {
+                Type::Interface { class: cc, args, .. } if cc == class && args.len() == params.len() => args.to_vec(),
+                _ => params.iter().map(|_| self.core.dynamic_).collect(),
+            }
+        } else {
+            params.iter().map(|_| self.core.dynamic_).collect()
+        };
+        let expected_types: Vec<_> = self.outline.functions[fid.0 as usize].parameters.iter().map(|p| p.ty).collect();
+        for (i, arg) in arguments.args.iter().enumerate() {
+            let expected = if arg.name.is_none() { expected_types.get(i).copied() } else { None };
+            self.infer_expr(unit, arg.value, expected, scope, flow);
+        }
+        let kind = self.program.classes[class.0 as usize].kind;
+        Some(if kind == dartforge_elements::model::ClassKind::ExtensionType {
+            self.table.intern(Type::ExtensionType { decl: class, args: args.into_boxed_slice(), nullable: false })
+        } else {
+            self.table.intern(Type::Interface { class, args: args.into_boxed_slice(), nullable: false })
+        })
+    }
+
+    /// Parâmetros de tipo visíveis (classe/extensão envolvente e função) por nome.
+    fn tp_scope(&self, scope: &ScopeStack) -> HashMap<SymbolId, TypeParamId> {
+        let mut m: HashMap<SymbolId, TypeParamId> = HashMap::new();
+        if let Some(c) = scope.enclosing_class {
+            for &p in self.outline.classes[c.0 as usize].type_params.iter() {
+                m.insert(self.table.param(p).name, p);
+            }
+        }
+        if let Some(e) = scope.enclosing_extension {
+            for &p in self.outline.extensions[e.0 as usize].type_params.iter() {
+                m.insert(self.table.param(p).name, p);
+            }
+        }
+        for (k, v) in &scope.function_type_params {
+            m.insert(*k, *v);
+        }
+        m
+    }
+
     /// Infere um statement sintático dentro de um corpo.
     pub fn infer_stmt(
         &mut self,
@@ -1306,7 +1467,7 @@ impl<'a> BodyInferrer<'a> {
                     let s_node = &self.program.unit(unit).ast.stmts[s.0 as usize];
                     if let StmtKind::Variables(var_list) = &s_node.kind {
                         let decl_ty = var_list.ty.map(|t| {
-                            self.resolve_ast_type_annotation(unit, t, current_library, &HashMap::new())
+                            self.resolve_ast_type_annotation(unit, t, current_library, &self.tp_scope(scope))
                         }).unwrap_or(self.core.dynamic_);
                         for var_decl in &var_list.variables {
                             let local_id = scope.declare_local(
@@ -1330,7 +1491,7 @@ impl<'a> BodyInferrer<'a> {
             }
             StmtKind::Variables(var_list) => {
                 let declared_ty = var_list.ty.map(|t| {
-                    self.resolve_ast_type_annotation(unit, t, current_library, &HashMap::new())
+                    self.resolve_ast_type_annotation(unit, t, current_library, &self.tp_scope(scope))
                 });
 
                 for var_decl in &var_list.variables {
@@ -1436,7 +1597,7 @@ impl<'a> BodyInferrer<'a> {
                     match for_init {
                         ast::ForInit::Variables(vlist) => {
                             let declared_ty = vlist.ty.map(|t| {
-                                self.resolve_ast_type_annotation(unit, t, current_library, &HashMap::new())
+                                self.resolve_ast_type_annotation(unit, t, current_library, &self.tp_scope(scope))
                             });
 
                             for var_decl in &vlist.variables {
@@ -1534,42 +1695,106 @@ impl<'a> BodyInferrer<'a> {
         match &node.kind {
             ast::TypeKind::Void => self.core.void_,
             ast::TypeKind::Named { name, args } => {
-                if name.len() == 1 {
+                let (binding, sym) = if name.len() == 2 {
+                    (self.program.lookup_prefixed(library, name[0].sym, name[1].sym), name[1].sym)
+                } else {
                     let sym = name[0].sym;
                     if let Some(&pid) = scope.get(&sym) {
-                        return self.table.intern(Type::TypeParameter {
-                            param: pid,
-                            nullable: is_nullable,
-                        });
+                        return self.table.intern(Type::TypeParameter { param: pid, nullable: is_nullable });
                     }
-
-                    let str_val = self.interner.resolve(sym);
-                    match str_val {
+                    match self.interner.resolve(sym) {
                         "dynamic" => return self.core.dynamic_,
                         "void" => return self.core.void_,
                         "Never" => return if is_nullable { self.core.null } else { self.core.never },
                         "Null" => return self.core.null,
                         _ => {}
                     }
-
-                    if let Some(binding) = self.program.lookup(library, sym) {
-                        if let Some(Element::Class(cid)) = binding.getter {
-                            let resolved_args: Vec<TypeId> = args
-                                .iter()
-                                .map(|&a| self.resolve_ast_type_annotation(unit, a, library, scope))
-                                .collect();
-
-                            return self.table.intern(Type::Interface {
-                                class: cid,
-                                args: resolved_args.into_boxed_slice(),
-                                nullable: is_nullable,
-                            });
+                    (self.program.lookup(library, sym), sym)
+                };
+                let _ = sym;
+                let resolved_args: Vec<TypeId> = args
+                    .iter()
+                    .map(|&a| self.resolve_ast_type_annotation(unit, a, library, scope))
+                    .collect();
+                match binding.and_then(|b| b.getter) {
+                    Some(Element::Class(cid)) => {
+                        let class = self.program.class(cid);
+                        let nparams = self.outline.classes[cid.0 as usize].type_params.len();
+                        let mut resolved_args = resolved_args;
+                        while resolved_args.len() < nparams {
+                            resolved_args.push(self.core.dynamic_);
+                        }
+                        if class.kind == dartforge_elements::model::ClassKind::ExtensionType {
+                            return self.table.intern(Type::ExtensionType { decl: cid, args: resolved_args.into_boxed_slice(), nullable: is_nullable });
+                        }
+                        if self.core.async_library.is_some() && self.interner.resolve(class.name) == "FutureOr" && self.program.library(class.library).uri == "dart:async" {
+                            let arg = resolved_args.first().copied().unwrap_or(self.core.dynamic_);
+                            return self.table.intern(Type::FutureOr { arg, nullable: is_nullable });
+                        }
+                        self.table.intern(Type::Interface { class: cid, args: resolved_args.into_boxed_slice(), nullable: is_nullable })
+                    }
+                    Some(Element::Typedef(tid)) => {
+                        let data = &self.outline.typedefs[tid.0 as usize];
+                        let mut map = HashMap::new();
+                        for (&p, &a) in data.type_params.iter().zip(resolved_args.iter()) {
+                            map.insert(p, a);
+                        }
+                        let t = substitute(data.target_type, &map, self.table);
+                        if is_nullable { crate::ops::nullable(t, self.table) } else { t }
+                    }
+                    _ => self.core.dynamic_,
+                }
+            }
+            ast::TypeKind::Function { return_type, type_params, parameters } => {
+                let mut local = scope.clone();
+                let mut tps = Vec::new();
+                for tp in type_params.iter() {
+                    let pid = self.table.alloc_type_param(tp.name.sym, crate::table::TypeParamOwner::GenericFunctionType, self.core.object_nullable, crate::table::Variance::Unspecified);
+                    local.insert(tp.name.sym, pid);
+                    tps.push(pid);
+                }
+                for (tp, &pid) in type_params.iter().zip(tps.iter()) {
+                    if let Some(b) = tp.bound {
+                        let bt = self.resolve_ast_type_annotation(unit, b, library, &local);
+                        self.table.set_type_param_bound(pid, bt);
+                    }
+                }
+                let ret = match return_type {
+                    Some(r) => self.resolve_ast_type_annotation(unit, *r, library, &local),
+                    None => self.core.dynamic_,
+                };
+                let mut pos = Vec::new();
+                let mut opt = Vec::new();
+                let mut named = Vec::new();
+                for p in parameters.iter() {
+                    let t = match p.ty {
+                        Some(t) => self.resolve_ast_type_annotation(unit, t, library, &local),
+                        None => self.core.dynamic_,
+                    };
+                    match p.kind {
+                        ast::ParameterKind::Required => pos.push(t),
+                        ast::ParameterKind::Optional => opt.push(t),
+                        ast::ParameterKind::Named => {
+                            if let Some(n) = &p.name {
+                                named.push((n.sym, t, p.required));
+                            }
                         }
                     }
                 }
-                self.core.dynamic_
+                self.table.intern(Type::Function {
+                    type_params: tps.into_boxed_slice(),
+                    ret,
+                    positional: pos.into_boxed_slice(),
+                    optional: opt.into_boxed_slice(),
+                    named: named.into_boxed_slice(),
+                    nullable: is_nullable,
+                })
             }
-            _ => self.core.dynamic_,
+            ast::TypeKind::Record { positional, named } => {
+                let pos: Vec<TypeId> = positional.iter().map(|&t| self.resolve_ast_type_annotation(unit, t, library, scope)).collect();
+                let nm: Vec<(SymbolId, TypeId)> = named.iter().map(|(n, t)| (n.sym, self.resolve_ast_type_annotation(unit, *t, library, scope))).collect();
+                self.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: is_nullable })
+            }
         }
     }
 

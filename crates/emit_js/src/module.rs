@@ -15,6 +15,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 /// Estado por módulo: usos de bibliotecas, símbolos `dartx` e privados.
 pub struct ModState {
     pub lib: LibraryId,
+    /// Bibliotecas emitidas neste módulo (um componente fortemente conexo de imports).
+    pub group: Vec<LibraryId>,
     pub sdk_used: RefCell<BTreeSet<String>>,
     pub user_imports: RefCell<BTreeSet<u32>>,
     pub dartx_used: RefCell<BTreeMap<String, String>>,
@@ -26,6 +28,7 @@ impl ModState {
     pub fn new(lib: LibraryId) -> Self {
         ModState {
             lib,
+            group: vec![lib],
             sdk_used: RefCell::new(BTreeSet::new()),
             user_imports: RefCell::new(BTreeSet::new()),
             dartx_used: RefCell::new(BTreeMap::new()),
@@ -40,7 +43,7 @@ impl ModState {
         let info = &ctx.libs[lib.0 as usize];
         if info.is_sdk {
             self.use_sdk(&info.js_var);
-        } else if lib != self.lib {
+        } else if !self.group.contains(&lib) {
             self.user_imports.borrow_mut().insert(lib.0);
         }
         info.js_var.clone()
@@ -51,6 +54,7 @@ impl ModState {
         var
     }
     pub fn private_sym(&self, ctx: &Ctx, lib: LibraryId, name: &str) -> String {
+        let _ = self.lib_var(ctx, lib);
         let ident = ctx.lib_ident(lib).to_string();
         let var = format!("$P_{ident}_{}", js_safe(name));
         self.private_syms.borrow_mut().insert(var.clone(), (lib.0, name.to_string()));
@@ -96,18 +100,25 @@ pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
     let mut main_async = false;
+    let mut done: HashSet<u32> = HashSet::new();
     for (i, lib) in ctx.program.libraries.iter().enumerate() {
         let lid = LibraryId(i as u32);
         let info = &ctx.libs[i];
-        if info.is_sdk || lib.units.is_empty() {
+        if info.is_sdk || lib.units.is_empty() || done.contains(&lid.0) {
             continue;
         }
-        let text = emit_library(ctx, lid);
+        let group: Vec<LibraryId> = ctx.groups.get(&lid.0).cloned().unwrap_or_else(|| vec![lid]);
+        for g in &group {
+            done.insert(g.0);
+        }
+        let text = emit_group(ctx, &group);
         modulos.push((info.module_path.clone(), text));
-        if Some(lid) == ctx.program.entry {
-            entry_ident = info.ident.clone();
-            entry_path = info.module_path.clone();
-            main_async = lib_main_is_async(ctx, lid);
+        for &g in &group {
+            if Some(g) == ctx.program.entry {
+                entry_ident = ctx.libs[g.0 as usize].ident.clone();
+                entry_path = info.module_path.clone();
+                main_async = lib_main_is_async(ctx, g);
+            }
         }
     }
     let _ = main_async;
@@ -158,35 +169,19 @@ fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
     out
 }
 
-fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
-    let m = ModState::new(lib);
+fn emit_group(ctx: &Ctx, group: &[LibraryId]) -> String {
+    let lib = group[0];
+    let mut m = ModState::new(lib);
+    m.group = group.to_vec();
     let info = &ctx.libs[lib.0 as usize];
-    let lvar = info.js_var.clone();
-    let library = ctx.program.library(lib);
     let mut body = Writer::default();
 
-    // Classes da biblioteca (todas as unidades).
+    // Classes de todas as bibliotecas do grupo, ordenadas por hierarquia.
+    let in_group = |l: LibraryId| group.contains(&l);
     let mut classes: Vec<ClassId> = Vec::new();
-    let mut functions: Vec<FunctionElementId> = Vec::new();
-    let mut variables: Vec<VariableId> = Vec::new();
     for (i, c) in ctx.program.classes.iter().enumerate() {
-        if c.library == lib && c.decl.is_some() {
+        if in_group(c.library) && c.decl.is_some() {
             classes.push(ClassId(i as u32));
-        }
-    }
-    for (i, f) in ctx.program.functions.iter().enumerate() {
-        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor {
-            functions.push(FunctionElementId(i as u32));
-        }
-    }
-    let mut ext_variables: Vec<VariableId> = Vec::new();
-    for (i, v) in ctx.program.variables.iter().enumerate() {
-        if v.library == lib && v.class.is_none() {
-            if v.extension.is_none() {
-                variables.push(VariableId(i as u32));
-            } else {
-                ext_variables.push(VariableId(i as u32));
-            }
         }
     }
     let ordered = order_classes(ctx, &classes);
@@ -194,57 +189,8 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
         m.note_class(c);
         emit_class(ctx, &m, c, &mut body);
     }
-    // Funções de topo e de extensão; acessores de topo agrupados por nome.
-    let mut accessors: Vec<(String, String)> = Vec::new();
-    for fid in functions {
-        emit_top_function(ctx, &m, fid, &mut body, &mut accessors);
-    }
-    if !accessors.is_empty() {
-        let lvar = &ctx.libs[lib.0 as usize].js_var;
-        body.line(&format!("dart.copyProperties({lvar}, {{"));
-        let texts: Vec<String> = accessors.iter().map(|(_, t)| indent(t)).collect();
-        body.push_raw(&texts.join(",\n"));
-        body.push_raw("\n});\n");
-    }
-    // Variáveis de topo.
-    emit_top_variables(ctx, &m, &variables, &mut body);
-    // Estáticos de extensão: `L['Ext|nome']`.
-    if !ext_variables.is_empty() {
-        let mut lazy: Vec<String> = Vec::new();
-        for vid in ext_variables {
-            let v = ctx.program.variable(vid);
-            let Some(ext) = v.extension else { continue };
-            let e = ctx.program.extension(ext);
-            let tmp = FnEmitter::new(ctx, &m, e.decl.unit, None, true);
-            let ext_name = tmp.extension_js_name(ext);
-            let name = ctx.name(v.name);
-            let key = format!("{ext_name}|{name}");
-            let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
-            let mem = ctx.program.unit(fu).ast.member(member);
-            let MemberKind::Field(list) = &mem.kind else { continue };
-            let var = &list.variables[index];
-            let ty = ctx.var_ty(vid);
-            let mut e2 = FnEmitter::new(ctx, &m, fu, None, true);
-            e2.in_const = v.const_;
-            let init = match var.initializer {
-                Some(i) => {
-                    let (js, _) = e2.emit_expr(i, Some(&ty));
-                    let pre = if e2.temps.is_empty() { String::new() } else { format!("let {};\n", e2.temps.join(", ")) };
-                    format!("{pre}{}return {};", e2.w.out, js.code)
-                }
-                None => "return null;".to_string(),
-            };
-            let mut entry = format!("get [{}]() {{\n{}\n}}", js::string_literal(&key), indent(&init));
-            if !v.final_ && !v.const_ {
-                entry.push_str(&format!(",\nset [{}](value) {{}}", js::string_literal(&key)));
-            }
-            lazy.push(entry);
-        }
-        if !lazy.is_empty() {
-            body.line(&format!("dart.defineLazy({lvar}, {{"));
-            body.push_raw(&indent(&lazy.join(",\n")));
-            body.push_raw("\n});\n");
-        }
+    for &glib in group {
+        emit_library_rest(ctx, &m, glib, &mut body);
     }
 
     // Regras rti das classes do módulo (e referenciadas).
@@ -252,7 +198,13 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
 
     // Prelúdio.
     let mut out = String::new();
-    out.push_str(&format!("var {lvar} = Object.create(dart.library);\nexport {{ {lvar} as {} }};\n", info.ident));
+    let mut exports: Vec<String> = Vec::new();
+    for &glib in group {
+        let gi = &ctx.libs[glib.0 as usize];
+        out.push_str(&format!("var {} = Object.create(dart.library);\n", gi.js_var));
+        exports.push(format!("{} as {}", gi.js_var, gi.ident));
+    }
+    out.push_str(&format!("export {{ {} }};\n", exports.join(", ")));
     let up = "../".repeat(info.module_path.matches('/').count());
     let mut sdk: BTreeSet<String> = m.sdk_used.borrow().clone();
     for s in ["dart", "dart_rti", "core", "dartx"] {
@@ -279,16 +231,95 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
         out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
     }
     out.push_str("dart._checkModuleNullSafetyMode(true);\n");
-    out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
+    for &glib in group {
+        let lvar = &ctx.libs[glib.0 as usize].js_var;
+        out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
+    }
     out.push_str(&body.out);
     out.push_str(&rules);
-    let uri = library.uri.clone();
+    let tracked: Vec<String> = group
+        .iter()
+        .map(|&g| format!("  {}: {}", js::string_literal(&ctx.program.library(g).uri), ctx.libs[g.0 as usize].js_var))
+        .collect();
     out.push_str(&format!(
-        "dart.trackLibraries({}, {{\n  {}: {lvar}\n}}, {{\n}}, null);\n",
+        "dart.trackLibraries({}, {{\n{}\n}}, {{\n}}, null);\n",
         js::string_literal(&info.ident),
-        js::string_literal(&uri)
+        tracked.join(",\n")
     ));
     out
+}
+
+/// Funções, variáveis de topo e estáticos de extensão de uma biblioteca.
+fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer) {
+    let lvar = ctx.libs[lib.0 as usize].js_var.clone();
+    let mut functions: Vec<FunctionElementId> = Vec::new();
+    let mut variables: Vec<VariableId> = Vec::new();
+    for (i, f) in ctx.program.functions.iter().enumerate() {
+        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor {
+            functions.push(FunctionElementId(i as u32));
+        }
+    }
+    let mut ext_variables: Vec<VariableId> = Vec::new();
+    for (i, v) in ctx.program.variables.iter().enumerate() {
+        if v.library == lib && v.class.is_none() {
+            if v.extension.is_none() {
+                variables.push(VariableId(i as u32));
+            } else {
+                ext_variables.push(VariableId(i as u32));
+            }
+        }
+    }
+    // Funções de topo e de extensão; acessores de topo agrupados por nome.
+    let mut accessors: Vec<(String, String)> = Vec::new();
+    for fid in functions {
+        emit_top_function(ctx, m, fid, body, &mut accessors);
+    }
+    if !accessors.is_empty() {
+        body.line(&format!("dart.copyProperties({lvar}, {{"));
+        let texts: Vec<String> = accessors.iter().map(|(_, t)| indent(t)).collect();
+        body.push_raw(&texts.join(",\n"));
+        body.push_raw("\n});\n");
+    }
+    // Variáveis de topo.
+    emit_top_variables(ctx, m, lib, &variables, body);
+    // Estáticos de extensão: `L['Ext|nome']`.
+    if !ext_variables.is_empty() {
+        let mut lazy: Vec<String> = Vec::new();
+        for vid in ext_variables {
+            let v = ctx.program.variable(vid);
+            let Some(ext) = v.extension else { continue };
+            let e = ctx.program.extension(ext);
+            let tmp = FnEmitter::new(ctx, m, e.decl.unit, None, true);
+            let ext_name = tmp.extension_js_name(ext);
+            let name = ctx.name(v.name);
+            let key = format!("{ext_name}|{name}");
+            let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
+            let mem = ctx.program.unit(fu).ast.member(member);
+            let MemberKind::Field(list) = &mem.kind else { continue };
+            let var = &list.variables[index];
+            let ty = ctx.var_ty(vid);
+            let mut e2 = FnEmitter::new(ctx, m, fu, None, true);
+            e2.in_const = v.const_;
+            let init = match var.initializer {
+                Some(i) => {
+                    let (js, _) = e2.emit_expr(i, Some(&ty));
+                    let pre = if e2.temps.is_empty() { String::new() } else { format!("let {};\n", e2.temps.join(", ")) };
+                    format!("{pre}{}return {};", e2.w.out, js.code)
+                }
+                None => "return null;".to_string(),
+            };
+            let mut entry = format!("get [{}]() {{\n{}\n}}", js::string_literal(&key), indent(&init));
+            if !v.final_ && !v.const_ {
+                entry.push_str(&format!(",\nset [{}](value) {{}}", js::string_literal(&key)));
+            }
+            lazy.push(entry);
+        }
+        if !lazy.is_empty() {
+            body.line(&format!("dart.defineLazy({lvar}, {{"));
+            body.push_raw(&indent(&lazy.join(",\n")));
+            body.push_raw("\n});\n");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,11 +629,11 @@ fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &
     (e.wrap_async_head(kind, &head, &prologue, &body, &ret_ty), kind)
 }
 
-fn emit_top_variables(ctx: &Ctx, m: &ModState, vars: &[VariableId], w: &mut Writer) {
+fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableId], w: &mut Writer) {
     if vars.is_empty() {
         return;
     }
-    let lvar = &ctx.libs[m.lib.0 as usize].js_var;
+    let lvar = &ctx.libs[lib.0 as usize].js_var;
     let mut lazy: Vec<String> = Vec::new();
     let mut props: Vec<String> = Vec::new();
     for &vid in vars {
@@ -1555,7 +1586,33 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                         } else if ctx.requires_rti(s) {
                             all.push("null".into());
                         }
-                        all.extend(arg_js);
+                        // `super.x` posicionais entram após os explícitos; nomeados juntam-se ao `opts`.
+                        let mut pos_js: Vec<String> = Vec::new();
+                        let mut named_js: Vec<String> = Vec::new();
+                        let mut opts_js: Option<String> = None;
+                        for a in arg_js {
+                            if a.starts_with('{') && a.ends_with('}') {
+                                opts_js = Some(a);
+                            } else {
+                                pos_js.push(a);
+                            }
+                        }
+                        for p in ctor.parameters.iter().filter(|p| p.super_) {
+                            let Some(n) = p.name else { continue };
+                            let jsn = e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(ctx.name(n.sym)));
+                            if p.kind == ast::ParameterKind::Named {
+                                named_js.push(format!("{}: {jsn}", js::prop_key(ctx.name(n.sym))));
+                            } else {
+                                pos_js.push(jsn);
+                            }
+                        }
+                        all.extend(pos_js);
+                        match (opts_js, named_js.is_empty()) {
+                            (Some(o), true) => all.push(o),
+                            (Some(o), false) => all.push(format!("{{...{o}, {}}}", named_js.join(", "))),
+                            (None, false) => all.push(format!("{{{}}}", named_js.join(", "))),
+                            (None, true) => {}
+                        }
                         super_call = Some(format!("{base}.{sname}.call({});", all.join(", ")));
                     }
                 }

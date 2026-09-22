@@ -95,6 +95,10 @@ pub struct Ctx<'a> {
     pub param_names: RefCell<HashMap<u32, String>>,
     pub next_param_id: RefCell<u32>,
     pub empty_sym: Option<SymbolId>,
+    /// Componentes fortemente conexos do grafo de imports das bibliotecas do
+    /// usuário: cada um vira um módulo JS (classes de bibliotecas em ciclo
+    /// precisam de ordem única). Chave: id de cada membro → grupo ordenado.
+    pub groups: HashMap<u32, Vec<LibraryId>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -168,10 +172,100 @@ impl<'a> Ctx<'a> {
             param_names: RefCell::new(HashMap::new()),
             next_param_id: RefCell::new(1 << 30),
             empty_sym: interner.lookup(""),
+            groups: HashMap::new(),
         };
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
+        ctx.compute_groups();
         ctx
+    }
+
+    /// Tarjan sobre imports+exports entre bibliotecas não-SDK; o módulo de um
+    /// grupo recebe o caminho da primeira biblioteca (menor id).
+    fn compute_groups(&mut self) {
+        let n = self.program.libraries.len();
+        let is_user = |i: usize, s: &Self| !s.libs[i].is_sdk && !s.program.libraries[i].units.is_empty();
+        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (i, lib) in self.program.libraries.iter().enumerate() {
+            if !is_user(i, self) {
+                continue;
+            }
+            for imp in &lib.imports {
+                let j = imp.library.0 as usize;
+                if is_user(j, self) && j != i {
+                    edges[i].push(j);
+                }
+            }
+            for exp in &lib.exports {
+                let j = exp.library.0 as usize;
+                if is_user(j, self) && j != i {
+                    edges[i].push(j);
+                }
+            }
+        }
+        // Tarjan iterativo.
+        let mut index = vec![usize::MAX; n];
+        let mut low = vec![0usize; n];
+        let mut on_stack = vec![false; n];
+        let mut stack: Vec<usize> = Vec::new();
+        let mut next_index = 0usize;
+        let mut sccs: Vec<Vec<usize>> = Vec::new();
+        for start in 0..n {
+            if !is_user(start, self) || index[start] != usize::MAX {
+                continue;
+            }
+            let mut call: Vec<(usize, usize)> = vec![(start, 0)];
+            index[start] = next_index;
+            low[start] = next_index;
+            next_index += 1;
+            stack.push(start);
+            on_stack[start] = true;
+            while let Some(&mut (v, ref mut ei)) = call.last_mut() {
+                if *ei < edges[v].len() {
+                    let w = edges[v][*ei];
+                    *ei += 1;
+                    if index[w] == usize::MAX {
+                        index[w] = next_index;
+                        low[w] = next_index;
+                        next_index += 1;
+                        stack.push(w);
+                        on_stack[w] = true;
+                        call.push((w, 0));
+                    } else if on_stack[w] {
+                        low[v] = low[v].min(index[w]);
+                    }
+                } else {
+                    call.pop();
+                    if let Some(&(u, _)) = call.last() {
+                        low[u] = low[u].min(low[v]);
+                    }
+                    if low[v] == index[v] {
+                        let mut comp = Vec::new();
+                        while let Some(w) = stack.pop() {
+                            on_stack[w] = false;
+                            comp.push(w);
+                            if w == v {
+                                break;
+                            }
+                        }
+                        comp.sort();
+                        sccs.push(comp);
+                    }
+                }
+            }
+        }
+        for comp in sccs {
+            if comp.len() < 2 {
+                continue;
+            }
+            let rep = comp[0];
+            let path = self.libs[rep].module_path.clone();
+            let group: Vec<LibraryId> = comp.iter().map(|&i| LibraryId(i as u32)).collect();
+            for &i in &comp {
+                self.libs[i].module_path = path.clone();
+                self.groups.insert(i as u32, group.clone());
+            }
+        }
     }
 
     fn compute_hierarchy(&mut self) {

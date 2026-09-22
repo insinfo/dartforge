@@ -69,7 +69,7 @@ pub fn compilar(
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
     let (bodies, body_diags) =
-        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+        dartforge_types::infer_user_bodies(&program, &interner, &mut table, &core, &mut outline);
     let avisos = outline_diags.len() + body_diags.len();
     if avisos > 0 {
         let limite = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
@@ -77,6 +77,18 @@ pub fn compilar(
             eprintln!("aviso: {d}");
         }
         eprintln!("({avisos} aviso(s) de tipos; DARTFORGE_AVISOS=N mostra mais)");
+        if std::env::var("DARTFORGE_AVISOS_RESUMO").is_ok() {
+            // Mensagens mais frequentes (sem a posição).
+            let mut contagem: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for d in outline_diags.iter().chain(body_diags.iter()) {
+                *contagem.entry(d.message.clone()).or_default() += 1;
+            }
+            let mut v: Vec<(String, usize)> = contagem.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1));
+            for (m, n) in v.iter().take(30) {
+                eprintln!("{n:6}  {m}");
+            }
+        }
     }
     emitir_programa(&program, &interner, &table, &core, &outline, &bodies)
         .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
