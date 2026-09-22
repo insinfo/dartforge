@@ -186,7 +186,9 @@ fn promocao_e_inferencia() {
 
     let (body_types, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let unit = &body_types.units[0];
+    // A unidade 0 é `dart:core` (sem inferência de corpos); a do usuário é a da entrada.
+    let entry_unit = prog.library(prog.entry.unwrap()).units[0];
+    let unit = &body_types.units[entry_unit.0 as usize];
     assert!(unit.static_types.len() > 10, "Expressões devem estar tipadas");
 
     // Verifica que não houve diagnósticos espúrios
@@ -526,7 +528,10 @@ fn corpos_do_sdk_tipam() {
     println!("Diagnósticos de Corpos:         {}", body_diags.len());
     println!("============================================================");
 
-    assert!(total_exprs > 1000, "SDK deve conter milhares de expressões em corpos");
+    // Desde a emissão DDC os corpos do SDK não são inferidos (só o outline):
+    // as tabelas das unidades do SDK ficam vazias e nenhum aviso vem delas.
+    assert_eq!(total_exprs, 0, "unidades do SDK não recebem inferência de corpos");
+    assert!(body_diags.is_empty(), "nenhum aviso de corpos deve vir do SDK: {}", body_diags.len());
 }
 
 // ===========================================================================

@@ -44,7 +44,13 @@ impl<'a> BodyInferrer<'a> {
         let num_units = program.units.len();
         let mut units_body_types = Vec::with_capacity(num_units);
         for u in &program.units {
-            units_body_types.push(UnitBodyTypes::new(u.ast.exprs.len(), core.dynamic_));
+            // Unidades do SDK não recebem inferência de corpos: tabela vazia
+            // (`get_type`/`get_resolved` devolvem `None`, `set_*` ignoram).
+            if program.library(u.library).is_sdk {
+                units_body_types.push(UnitBodyTypes::default());
+            } else {
+                units_body_types.push(UnitBodyTypes::new(u.ast.exprs.len(), core.dynamic_));
+            }
         }
 
         Self {
@@ -86,6 +92,15 @@ impl<'a> BodyInferrer<'a> {
         for i in 0..self.program.variables.len() {
             let var_elem = &self.program.variables[i];
             let declared_ty = self.outline.variables[i].declared_type;
+
+            // SDK: só o outline importa para tipar código do usuário. Uma
+            // variável sem tipo escrito (`const json = JsonCodec()`) ainda
+            // precisa do inicializador para ter tipo; as tipadas não.
+            let is_sdk = self.program.library(var_elem.library).is_sdk;
+            if is_sdk && declared_ty.is_some() {
+                continue;
+            }
+            let diags_antes = self.diagnostics.len();
 
             match var_elem.node {
                 VariableRef::TopLevel { unit, decl, index } => {
@@ -163,12 +178,22 @@ impl<'a> BodyInferrer<'a> {
                 }
                 _ => {}
             }
+            // Avisos em inicializadores do SDK são lacunas nossas, não do usuário.
+            if is_sdk {
+                self.diagnostics.truncate(diags_antes);
+            }
         }
     }
 
     fn infer_functions(&mut self) {
         for i in 0..self.program.functions.len() {
             let func_elem = &self.program.functions[i];
+            // Corpos do SDK não são emitidos nem consultados: pular poupa a
+            // maior parte da fase (docs/EMISSAO-DDC.md: `dart:*` vem do
+            // `dart_sdk.js`). `UnitBodyTypes` dessas unidades fica no fallback.
+            if self.program.library(func_elem.library).is_sdk {
+                continue;
+            }
             let func_data = self.outline.functions[i].clone();
 
             match func_elem.node {
