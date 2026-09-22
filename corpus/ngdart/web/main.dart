@@ -1,5 +1,6 @@
-// Consome os `.template.dart` do corpus. O builder do ngdart é
-// `is_optional: true`: sem alguém pedindo a saída, ele não roda.
+// Consome os `.template.dart` do corpus. O builder do ngdart Ã©
+// `is_optional: true`: sem alguÃ©m pedindo a saÃ­da, ele nÃ£o roda.
+// Gerado por scripts/corpus-ngdart.ps1.
 import 'package:corpus_ngdart/src/a01_interpolacao.template.dart' as a01;
 import 'package:corpus_ngdart/src/a02_texto_estatico.template.dart' as a02;
 import 'package:corpus_ngdart/src/a03_interpolacao_int.template.dart' as a03;
@@ -19,6 +20,20 @@ import 'package:corpus_ngdart/src/a16_entrada_e_saida.template.dart' as a16;
 import 'package:corpus_ngdart/src/a17_projecao_com_select.template.dart' as a17;
 import 'package:corpus_ngdart/src/a18_interpolacao_nula.template.dart' as a18;
 import 'package:corpus_ngdart/src/a19_atributo_sem_valor.template.dart' as a19;
+import 'package:corpus_ngdart/src/b01_ciclo_de_vida.template.dart' as b01;
+import 'package:corpus_ngdart/src/b02_providers.template.dart' as b02;
+import 'package:corpus_ngdart/src/b03_view_child.template.dart' as b03;
+import 'package:corpus_ngdart/src/b04_host_listener.template.dart' as b04;
+import 'package:corpus_ngdart/src/b05_host_binding.template.dart' as b05;
+import 'package:corpus_ngdart/src/b06_encapsulation.template.dart' as b06;
+import 'package:corpus_ngdart/src/b07_estilo.template.dart' as b07;
+import 'package:corpus_ngdart/src/b08_after_changes.template.dart' as b08;
+import 'package:corpus_ngdart/src/b09_after_view_init.template.dart' as b09;
+import 'package:corpus_ngdart/src/b10_after_view_checked.template.dart' as b10;
+import 'package:corpus_ngdart/src/b11_after_content_init.template.dart' as b11;
+import 'package:corpus_ngdart/src/b12_do_check.template.dart' as b12;
+import 'package:corpus_ngdart/src/b13_after_content_checked.template.dart' as b13;
+import 'package:corpus_ngdart/src/b14_ciclo_completo.template.dart' as b14;
 
 void main() {
   print([
@@ -41,5 +56,19 @@ void main() {
     a17.A17ProjecaoComSelectNgFactory,
     a18.A18InterpolacaoNulaNgFactory,
     a19.A19AtributoSemValorNgFactory,
+    b01.B01CicloDeVidaNgFactory,
+    b02.B02ProvidersNgFactory,
+    b03.B03ViewChildNgFactory,
+    b04.B04HostListenerNgFactory,
+    b05.B05HostBindingNgFactory,
+    b06.B06EncapsulationNgFactory,
+    b07.B07EstiloNgFactory,
+    b08.B08AfterChangesNgFactory,
+    b09.B09AfterViewInitNgFactory,
+    b10.B10AfterViewCheckedNgFactory,
+    b11.B11AfterContentInitNgFactory,
+    b12.B12DoCheckNgFactory,
+    b13.B13AfterContentCheckedNgFactory,
+    b14.B14CicloCompletoNgFactory,
   ].length);
 }

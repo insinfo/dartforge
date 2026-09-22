@@ -67,6 +67,7 @@ const HOST_VIEW: &str = "package:ngdart/src/core/linker/views/host_view.dart";
 const ANGULAR: &str = "package:ngdart/angular.dart";
 const DI_ERRORS: &str = "package:ngdart/src/di/errors.dart";
 const TEXT_BINDING: &str = "package:ngdart/src/runtime/text_binding.dart";
+const CHECK_BINDING: &str = "package:ngdart/src/runtime/check_binding.dart";
 const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
@@ -399,6 +400,85 @@ impl Corpo<'_> {
     }
 }
 
+/// `detectChangesInternal` e `destroyInternal` da visão-hospedeira, na forma
+/// exata do oficial: os ganchos de conteúdo antes de detectar a visão, os de
+/// visão depois, todos sob `!debugThrowIfChanged`, e `firstCheck` declarado só
+/// quando alguém o usa.
+fn ciclo_de_vida(g: &crate::componente::Ganchos, dbg: &str) -> String {
+    let mut s = String::new();
+    if g.tem_deteccao() {
+        s.push_str("
+  @override
+  void detectChangesInternal() {
+");
+        if g.usa_primeira_checagem() {
+            s.push_str("    bool firstCheck = this.firstCheck;
+");
+        }
+        if g.on_init {
+            s.push_str(&format!(
+                "    if (((!{dbg}.debugThrowIfChanged) && firstCheck)) {{
+      this.component.ngOnInit();
+    }}
+"
+            ));
+        }
+        if g.do_check {
+            s.push_str(&format!(
+                "    if ((!{dbg}.debugThrowIfChanged)) {{
+      this.component.ngDoCheck();
+    }}
+"
+            ));
+        }
+        if g.after_content_init || g.after_content_checked {
+            s.push_str(&format!("    if ((!{dbg}.debugThrowIfChanged)) {{
+"));
+            if g.after_content_init {
+                s.push_str("      if (firstCheck) {
+        this.component.ngAfterContentInit();
+      }
+");
+            }
+            if g.after_content_checked {
+                s.push_str("      this.component.ngAfterContentChecked();
+");
+            }
+            s.push_str("    }
+");
+        }
+        s.push_str("    this.componentView.detectChanges();
+");
+        if g.after_view_init || g.after_view_checked {
+            s.push_str(&format!("    if ((!{dbg}.debugThrowIfChanged)) {{
+"));
+            if g.after_view_init {
+                s.push_str("      if (firstCheck) {
+        this.component.ngAfterViewInit();
+      }
+");
+            }
+            if g.after_view_checked {
+                s.push_str("      this.component.ngAfterViewChecked();
+");
+            }
+            s.push_str("    }
+");
+        }
+        s.push_str("  }
+");
+    }
+    if g.on_destroy {
+        s.push_str("
+  @override
+  void destroyInternal() {
+    this.component.ngOnDestroy();
+  }
+");
+    }
+    s
+}
+
 /// Tipos que o ngcompiler trata como primitivos na interpolação
 /// (`isBool`, `isNumber`, `isDouble`, `isInt`).
 fn primitivo(tipo: &str) -> bool {
@@ -514,6 +594,13 @@ pub fn template_de_componente(
     let hosp = imp.alias(HOST_VIEW);
     let construcao = construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
         .ok_or(Motivo::InjecaoNaoResolvida)?;
+    // Os ganchos de ciclo de vida saem na visão-hospedeira, depois do
+    // `build()`, e o `check_binding.dart` entra aí.
+    let ciclo = if c.ganchos.algum() {
+        ciclo_de_vida(&c.ganchos, &imp.alias(CHECK_BINDING))
+    } else {
+        String::new()
+    };
 
     let x = &c.classe;
     let seletor = &c.seletor;
@@ -579,7 +666,7 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
     this.component = {construcao}
     this.initRootNode(_el_0);
   }}
-}}
+{ciclo}}}
 
 {hosp}.HostView<{proprio}.{x}> viewFactory_{x}Host0() {{
   return _View{x}Host0();

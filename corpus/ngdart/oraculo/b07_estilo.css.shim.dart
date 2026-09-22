@@ -1,0 +1,1 @@
+final List<Object> styles = ['.c._ngcontent-%ID%{color:red}span._ngcontent-%ID%{font-weight:bold}'];

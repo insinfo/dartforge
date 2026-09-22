@@ -27,6 +27,8 @@ pub struct Componente {
     /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
     /// para instanciar o componente.
     pub parametros: Vec<Parametro>,
+    /// Ganchos de ciclo de vida que a classe implementa.
+    pub ganchos: Ganchos,
     /// Anotação de membro que muda a visão e o gerador ainda não trata
     /// (`@HostListener`, `@ViewChild`…), ou argumento de `@Component` fora do
     /// que ele entende. Enquanto houver uma, o arquivo não é nosso: gerar
@@ -37,6 +39,48 @@ pub struct Componente {
     /// que o oficial decide pelo tipo estático da expressão do template e por
     /// ela ser mutável ou não.
     pub membros: std::collections::HashMap<String, Membro>,
+}
+
+/// Ganchos de ciclo de vida do ngdart implementados pelo componente. Cada um
+/// tem o seu lugar fixo no `detectChangesInternal` da visão-hospedeira.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Ganchos {
+    pub on_init: bool,
+    pub on_destroy: bool,
+    pub do_check: bool,
+    pub after_content_init: bool,
+    pub after_content_checked: bool,
+    pub after_view_init: bool,
+    pub after_view_checked: bool,
+}
+
+impl Ganchos {
+    /// Algum gancho põe código na visão-hospedeira?
+    pub fn algum(&self) -> bool {
+        self.on_init
+            || self.on_destroy
+            || self.do_check
+            || self.after_content_init
+            || self.after_content_checked
+            || self.after_view_init
+            || self.after_view_checked
+    }
+
+    /// `firstCheck` só é declarado quando algum gancho o usa.
+    pub fn usa_primeira_checagem(&self) -> bool {
+        self.on_init || self.after_content_init || self.after_view_init
+    }
+
+    /// Há detecção de mudança na hospedeira? (`ngOnDestroy` sozinho só gera
+    /// `destroyInternal`.)
+    pub fn tem_deteccao(&self) -> bool {
+        self.on_init
+            || self.do_check
+            || self.after_content_init
+            || self.after_content_checked
+            || self.after_view_init
+            || self.after_view_checked
+    }
 }
 
 /// Um campo ou getter da classe do componente.
@@ -122,6 +166,7 @@ pub fn ler_componente(
     }
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
+    c.ganchos = ganchos_da_classe(arvore, fonte, classe);
     c.nao_entendido = o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao);
     c
 }
@@ -148,19 +193,27 @@ const ANOTACOES_DE_MEMBRO: &[&str] = &[
     "ContentChildren",
 ];
 
-/// Interfaces de ciclo de vida do ngdart: implementá-las faz o oficial
-/// emitir chamadas na visão. (As do ngrouter — `OnActivate`, `CanDeactivate` —
-/// não mexem na visão.)
-const CICLO_DE_VIDA: &[&str] = &[
-    "OnInit",
-    "OnDestroy",
-    "DoCheck",
-    "AfterChanges",
-    "AfterContentInit",
-    "AfterContentChecked",
-    "AfterViewInit",
-    "AfterViewChecked",
-];
+/// Interfaces de ciclo de vida implementadas, pelas cláusulas `implements` e
+/// `with`. (As do ngrouter — `OnActivate`, `CanDeactivate` — não mexem na
+/// visão; `AfterChanges` tampouco aparece no arquivo do próprio componente.)
+fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) -> Ganchos {
+    let mut g = Ganchos::default();
+    for t in classe.implements.iter().chain(classe.with.iter()) {
+        let s = arvore.ty(*t).span;
+        let texto = fonte.get(s.start as usize..s.end as usize).unwrap_or("");
+        match texto.split(['<', '.']).next_back().unwrap_or(texto).trim() {
+            "OnInit" => g.on_init = true,
+            "OnDestroy" => g.on_destroy = true,
+            "DoCheck" => g.do_check = true,
+            "AfterContentInit" => g.after_content_init = true,
+            "AfterContentChecked" => g.after_content_checked = true,
+            "AfterViewInit" => g.after_view_init = true,
+            "AfterViewChecked" => g.after_view_checked = true,
+            _ => {}
+        }
+    }
+    g
+}
 
 /// O que neste componente o gerador ainda não sabe traduzir. Recusar é
 /// obrigatório: gerar sem isso produz um arquivo **errado**.
@@ -180,14 +233,6 @@ fn o_que_nao_entendemos(
             if !ARGUMENTOS_CONHECIDOS.contains(&nome) {
                 return Some(format!("@Component(.., {nome}: ..)"));
             }
-        }
-    }
-    for t in classe.implements.iter().chain(classe.with.iter()) {
-        let s = arvore.ty(*t).span;
-        let texto = fonte.get(s.start as usize..s.end as usize).unwrap_or("");
-        let simples = texto.split(['<', '.']).next_back().unwrap_or(texto).trim();
-        if CICLO_DE_VIDA.contains(&simples) {
-            return Some(format!("ciclo de vida {simples}"));
         }
     }
     for &id in &classe.members {
