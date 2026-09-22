@@ -114,7 +114,7 @@ com igualdade estrutural, `late`, construtores const canonicalizados, `JS()`
 | --- | --- | --- |
 | `frontend` | 100% dos 426 arquivos de `lib/` do SDK 3.6.2 e 100% de `references/pub` sem diagnóstico | **cumprido em 2026-09-21**: 426/426 e 1.969/1.969 (`cargo test -p dartforge-frontend --test corpus -- --ignored`, 1,7 s) |
 | `elements` | todo `dart:x` de `libraries.json` (`dartdevc`) carrega, com patches aplicados, e toda referência de nome do SDK e do corpus resolve | concluído (36 libs, 179 unidades, 1.525 classes, 269/269 supertipos resolvidos, 0 erros no elements) |
-| `types` | Parte 1 (outline, tabela hash-consed, hierarquia instanciada, subtipagem normativa): 36 libs do SDK 3.6.2, 25.179 anotações resolvidas, 10.396 TypeIds únicos em 1,65 MB de payload, 83/83 casos normativos de subtipagem aprovados. Parte 2 (inferência de corpos, fluxo, constantes): a seguir. | em andamento (parte 1 concluída) |
+| `types` | Parte 1 (outline, tabela hash-consed, hierarquia instanciada, subtipagem normativa 83/83). Parte 2 (inferência de corpos, escopos léxicos, análise de fluxo/atribuição definitiva, avaliador de constantes, 40/40 negativos do Analyzer). SDK 3.6.2: 179 unidades, 120.055 expressões tipadas em 155 ms. Alvo `new_sali`: 187 unidades, 132.146 expressões tipadas em 25,99 ms (front-end total: 133 ms, pico global 36,04 MB, +4,40 MB em corpos). | **cumprido em 2026-09-22**: 100% aprovado |
 | `lowering` + `emit_js` | `dart:core` compilado do SDK executa `print('olá')` no Node; depois os pontos de entrada do corpus com a mesma saída do `dart compile js` | — |
 
 A medição de latência e memória continua a do incremento 26 (alocações por

@@ -27,6 +27,7 @@ Não assumir que a branch HEAD do SDK equivale ao Dart exigido pelo ngdart escol
 7. Um bundler Rust pode otimizar módulos JS, mas não substitui resolução e semântica Dart.
 8. Rust como linguagem das ferramentas; JS como saída/runtime gerado. Node e browsers são
    runners de teste, não implementação do compilador.
+9. **Regra fundamental — foco estrito em funcionar**: Não perder tempo com formatação, estilo cosmético ou minúcias de linter. O critério exclusivo de sucesso é o código compilar, funcionar, passar na suíte de testes do compilador, manter latência ultrabaixa e respeitar o limite de memória.
 
 ## Fase 0 — Fundação (iniciada)
 

@@ -131,22 +131,44 @@ impl PackageConfig {
         let pkg_name = &remainder[..slash];
         let rel_path = &remainder[slash + 1..];
 
-        let pkg = self.packages.get(pkg_name).ok_or_else(|| {
+        if let Some(pkg) = self.packages.get(pkg_name) {
+            let file_url = pkg
+                .package_uri
+                .join(rel_path)
+                .map_err(|e| format!("não foi possível compor URI de arquivo para '{uri}': {e}"))?;
+
+            file_url
+                .to_file_path()
+                .map_err(|_| format!("URL não representa um arquivo local: {file_url}"))
+        } else {
+            // Fallback: procura em references/pub/<pkg_name>-<versão>/lib/<rel_path>
+            let pub_dir = Path::new("references/pub");
+            if pub_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(pub_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            if let Some(folder_name) = path.file_name().and_then(|n| n.to_str()) {
+                                if folder_name == pkg_name
+                                    || folder_name.starts_with(&format!("{pkg_name}-"))
+                                {
+                                    let candidate = path.join("lib").join(rel_path);
+                                    if candidate.exists() {
+                                        return candidate.canonicalize().or(Ok(candidate));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let origem = self
                 .origin
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "configuração não encontrada".to_string());
-            format!("pacote '{pkg_name}' não mapeado em {origem}")
-        })?;
-
-        let file_url = pkg
-            .package_uri
-            .join(rel_path)
-            .map_err(|e| format!("não foi possível compor URI de arquivo para '{uri}': {e}"))?;
-
-        file_url
-            .to_file_path()
-            .map_err(|_| format!("URL não representa um arquivo local: {file_url}"))
+            Err(format!("pacote '{pkg_name}' não mapeado em {origem}"))
+        }
     }
 }

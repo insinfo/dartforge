@@ -15,19 +15,33 @@
 //! - **Rastreio de memória**: A [`TypeTable`] computa continuamente seu `payload_bytes`
 //!   para vigilância de platô do LSP e medições do compilador.
 
+pub mod codes;
+pub mod constant;
+pub mod constraints;
+pub mod flow;
 pub mod hierarchy;
+pub mod infer;
 pub mod ops;
 pub mod resolve;
+pub mod resolved;
+pub mod scope;
 pub mod subtyping;
 pub mod table;
 
-pub use hierarchy::{ClassHierarchy, ClassHierarchyData, build_class_hierarchy};
+pub use codes::*;
+pub use constant::{ConstValue, ConstantEvaluator};
+pub use constraints::{ConstraintSolver, TypeParamBounds};
+pub use flow::{FlowState, SplitFlowState, VarFlowState};
+pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
+pub use infer::BodyInferrer;
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,
     ParameterTypeData, TypedefTypeData, VariableTypeData,
 };
-pub use subtyping::{SubtypeEnv, is_subtype};
+pub use resolved::{BodyTypes, LocalId, MemberRef, Resolved, UnitBodyTypes};
+pub use scope::{MemberResolver, ParamInfo, ScopeBlock, ScopeStack};
+pub use subtyping::{is_subtype, SubtypeEnv};
 pub use table::{
     CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeParameterData, TypeTable, Variance,
 };
@@ -49,4 +63,19 @@ pub fn resolve_outline(
 ) -> (OutlineTypes, Vec<Diagnostic>) {
     let resolver = OutlineResolver::new(program, interner, table, core);
     resolver.resolve_all()
+}
+
+/// Ponto de entrada para a inferência de tipos e resolução de corpos em um [`Program`].
+///
+/// Percorre todos os corpos de funções, métodos e inicializadores, preenchendo as tabelas
+/// laterais [`BodyTypes`] e resolvendo tipos de expressões, membros e escopos léxicos.
+pub fn infer_program_bodies(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut OutlineTypes,
+) -> (BodyTypes, Vec<Diagnostic>) {
+    let inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.infer_all()
 }

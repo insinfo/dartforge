@@ -245,6 +245,112 @@ impl TypeTable {
         self.types.push(ty);
         id
     }
+
+    /// Retorna representação textual legível de um tipo para mensagens de diagnóstico.
+    pub fn format(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
+        let t = self.get(ty);
+        match t {
+            Type::Dynamic => "dynamic".to_string(),
+            Type::Void => "void".to_string(),
+            Type::Never => "Never".to_string(),
+            Type::Null => "Null".to_string(),
+            Type::Interface {
+                class,
+                args,
+                nullable,
+            } => {
+                let name = interner.resolve(program.classes[class.0 as usize].name);
+                let q = if *nullable { "?" } else { "" };
+                if args.is_empty() {
+                    format!("{name}{q}")
+                } else {
+                    let formatted_args: Vec<String> = args
+                        .iter()
+                        .map(|&a| self.format(a, interner, program))
+                        .collect();
+                    format!("{name}<{}>{q}", formatted_args.join(", "))
+                }
+            }
+            Type::Function {
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+                ..
+            } => {
+                let q = if *nullable { "?" } else { "" };
+                let mut p_strs = Vec::new();
+                for &p in positional.iter() {
+                    p_strs.push(self.format(p, interner, program));
+                }
+                if !optional.is_empty() {
+                    let opt_strs: Vec<String> = optional
+                        .iter()
+                        .map(|&p| self.format(p, interner, program))
+                        .collect();
+                    p_strs.push(format!("[{}]", opt_strs.join(", ")));
+                }
+                if !named.is_empty() {
+                    let named_strs: Vec<String> = named
+                        .iter()
+                        .map(|(n, t, req)| {
+                            let r = if *req { "required " } else { "" };
+                            format!("{r}{} {}", self.format(*t, interner, program), interner.resolve(*n))
+                        })
+                        .collect();
+                    p_strs.push(format!("{{{}}}", named_strs.join(", ")));
+                }
+                let ret_str = self.format(*ret, interner, program);
+                format!("{ret_str} Function({}){q}", p_strs.join(", "))
+            }
+            Type::Record {
+                positional,
+                named,
+                nullable,
+            } => {
+                let q = if *nullable { "?" } else { "" };
+                let mut parts = Vec::new();
+                for &p in positional.iter() {
+                    parts.push(self.format(p, interner, program));
+                }
+                for (n, t) in named.iter() {
+                    parts.push(format!(
+                        "{} {}",
+                        self.format(*t, interner, program),
+                        interner.resolve(*n)
+                    ));
+                }
+                format!("({}){q}", parts.join(", "))
+            }
+            Type::FutureOr { arg, nullable } => {
+                let q = if *nullable { "?" } else { "" };
+                format!("FutureOr<{}>{q}", self.format(*arg, interner, program))
+            }
+            Type::TypeParameter { param, nullable } => {
+                let q = if *nullable { "?" } else { "" };
+                let name = interner.resolve(self.param(*param).name);
+                format!("{name}{q}")
+            }
+            Type::ExtensionType {
+                decl,
+                args,
+                nullable,
+            } => {
+                let name = interner.resolve(program.classes[decl.0 as usize].name);
+                let q = if *nullable { "?" } else { "" };
+                if args.is_empty() {
+                    format!("{name}{q}")
+                } else {
+                    let formatted_args: Vec<String> = args
+                        .iter()
+                        .map(|&a| self.format(a, interner, program))
+                        .collect();
+                    format!("{name}<{}>{q}", formatted_args.join(", "))
+                }
+            }
+        }
+    }
 }
 
 /// Tipos fundamentais do Dart (`dart:core` e `dart:async`) cacheados para consultas rápidas.
