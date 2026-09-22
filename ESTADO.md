@@ -135,23 +135,36 @@ básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
   navegador nunca vê meio estado. `DARTFORGE_GERADOS=build_runner` prova o
   encanamento: 284 templates lidos da memória dão 616 módulos byte a byte
   iguais aos da compilação que lê do disco.
-* `crates/gerador_ng` — o compilador do ngdart em Rust, com os 284 arquivos
-  do `build_runner` de oráculo
+* `crates/gerador_ng` — o compilador do ngdart em Rust, com dois oráculos:
+  o corpus próprio (`corpus/ngdart/`, uma forma por arquivo, com o
+  `.template.dart` oficial ao lado) e os 945 arquivos que o `build_runner`
+  gerou no `new_sali/frontend`
   (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
-  Hoje: **127 de 300 arquivos gerados por nós, 116 iguais byte a byte, 0
-  diferentes**. Cobre:
-  - biblioteca sem nada de Angular (o arquivo trivial);
-  - componente de template estático — elementos HTML, texto e atributos,
-    com as regras do oficial (`appendDiv`/`appendSpan`/`appendElement<T>`,
-    atributos em ordem alfabética, `updateChildClass`);
-  - **injeção no construtor**, resolvida pelo banco semântico: carga em
-    duas fases (carregar sem os gerados, gerar, recarregar com a geração),
-    `injectorGet` por token e `debugInjectorWrap` sob `isDevMode`, com o
-    import da biblioteca que **declara** o tipo e o caminho pela regra do
-    `getImportModulePath` do ngcompiler.
 
-  `DARTFORGE_GERADOS=ng` compila com ele, e o que falta continua vindo do
-  `build_runner`.
+  **new_sali/frontend: 134 arquivos gerados por nós, 125 iguais byte a
+  byte, 0 diferentes. Corpus: 37 de 51 casos.**
+
+  Cobre hoje:
+  - biblioteca sem Angular, `@Directive` e `@Pipe` (o arquivo trivial);
+  - template estático: elementos, texto, atributos, `<ng-content>`;
+  - interpolação, com as três formas de atualizar texto
+    (`interpolateString`, `interpolate`, `updateTextWithPrimitive`) e o
+    caminho da expressão imutável;
+  - ligações `[x]`, `[class.x]`, `[attr.x]`, `[style.x]` e eventos
+    `(x)="m()"`/`(x)="m($event)"`;
+  - componentes filhos, com `@Input`, projeção e `createAndProject`;
+  - injeção no construtor, ciclo de vida (os sete ganchos);
+  - folhas de estilo: **Sass** (o subconjunto que os projetos usam) e o
+    shim `_ngcontent-%ID%`, gerando também o `.css.shim.dart`.
+
+  Duas coisas sustentam o "0 diferentes": o gerador **recusa** toda forma
+  que não sabe traduzir (e o placar conta por motivo, para saber o que
+  atacar), e o conversor de expressões reusa o parser Dart da trilha nova
+  em vez de aproximar texto.
+
+  `DARTFORGE_GERADOS=ng` compila com ele, fazendo antes uma carga de
+  resolução (o equivalente ao `BuildStep.resolver`, lendo o nosso banco
+  semântico); o que falta continua vindo do `build_runner`.
 
 ---
 
@@ -166,31 +179,23 @@ conjunto completo, não só o primeiro:
 
 | forma | aparece em | destrava sozinha |
 |---|---|---|
-| ligação (`[x]`, `(x)`, `[(x)]`, `#ref`, `*ngIf`) | 151 | 2 |
-| folha de estilo (`styleUrls`) | 138 | 1 |
-| componente/diretiva no template | 119 | 3 |
-| interpolação `{{ }}` | 110 | 1 |
+| ligação no template (`*ngIf`, `#ref`, `[(x)]`, `[ngX]`) | 151 | 2 |
+| folha de estilo fora do subconjunto | 136 | 0 |
+| forma do componente não entendida | 136 | 0 |
+| interpolação fora do subconjunto | 109 | 0 |
+| componente no template que não resolve | 78 | 1 |
+| ligação em componente filho (`@Output`, `#ref`) | 71 | 0 |
 | `style` em linha | 34 | 0 |
-| `@Directive`/`@Pipe` no arquivo | 10 | 9 |
-| `<ng-content>` | 5 | 2 |
-| injeção (tipo não resolvido) | 3 | 0 |
+| `<ng-content select>` | 5 | 0 |
+| `@HostBinding`/`@HostListener` em diretiva | 5 | 4 |
+| `@GenerateInjector` | 1 | 1 |
 
-A injeção saiu da lista: era o maior bloqueio (137 arquivos) e caiu para 3
-quando o gerador passou a ler o tipo do campo nos parâmetros `this.x` —
-que é como quase todo componente ngdart recebe as dependências.
+Os que estão a **um** motivo de sair: `@HostBinding` em diretiva (o
+`DirectiveChangeDetector`), `@GenerateInjector` (o injetor do `di.dart`),
+e dois componentes que só precisam de mais uma forma de ligação.
 
-O que falta, em ordem do que aparece mais:
-
-1. **Interpolação e detecção de mudança** — `{{ }}` vira `TextBinding` com
-   `detectChangesInternal` e `checkBinding`; é a base de toda ligação.
-2. **Ligações de propriedade e evento** — `[x]`, `(x)`, `[(x)]`, `#ref`.
-3. **Diretivas e componentes no template** — casar seletor, instanciar a
-   visão-filha, passar `@Input`/`@Output`. Precisa resolver a lista
-   `directives:` da anotação pelo banco semântico.
-4. **`*ngIf`/`*ngFor`** — visões embutidas e `ViewContainer`.
-5. **Folha de estilo** — gerar também o `<x>.css.shim.dart` (o
-   compilador de folhas com `_ngcontent-%ID%`) e os `addShimC`/`addShimE`.
-6. **`<ng-content>`** — projeção.
+Dentro de "forma não entendida": `providers:` (66), `@ViewChild` (27),
+`pipes:` (17), `encapsulation:` (2).
 
 Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
 arquivo oficial correspondente serve de teste byte a byte.

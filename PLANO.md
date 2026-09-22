@@ -970,25 +970,36 @@ emissor (`cargo run -p dartforge-gerador-ng --example oraculo`). O que vale
 `ViewX0`) com a mesma semântica —, mas onde sair igual byte a byte,
 melhor: é verificação de graça.
 
-Estado em 2026-09-22: 127 dos 300 arquivos gerados por nós, 116 iguais
-byte a byte, 0 diferentes; compilação inteira do `new_sali/frontend` com o
-gerador ligado dá 616 módulos idênticos aos da que lê tudo do disco.
-Cobertos: a biblioteca sem Angular, o componente de template estático e a
-**injeção no construtor**.
+Estado em 2026-09-22: **134 arquivos gerados por nós no new_sali/frontend,
+125 iguais byte a byte, 0 diferentes**; corpus próprio em 37 de 51 casos.
+Cobertos: biblioteca sem Angular, `@Directive`/`@Pipe`, template estático,
+`<ng-content>`, interpolação, ligações de propriedade e evento,
+componentes filhos com `@Input`, injeção no construtor, ciclo de vida e
+folhas de estilo (Sass + shim).
 
-**Carga em duas fases**, que é o que a injeção exigiu: carregar o projeto
-sem os gerados (a carga é tolerante, então os `.template.dart` ausentes
-viram diagnóstico e o resto do programa fica de pé), gerar com o outline
-em mãos, recarregar com a geração. É o equivalente ao `BuildStep.resolver`
-do `package:build`, lendo o nosso banco semântico em vez do
-`package:analyzer`. Custo medido: 758 ms para as 2.970 bibliotecas do
+**Carga em duas fases**, que a injeção exigiu: carregar o projeto sem os
+gerados (a carga é tolerante, então os `.template.dart` ausentes viram
+diagnóstico e o resto do programa fica de pé), gerar com o outline em
+mãos, recarregar com a geração. É o equivalente ao `BuildStep.resolver` do
+`package:build`, lendo o nosso banco semântico em vez do
+`package:analyzer`. Custo medido: 775 ms para as 2.970 bibliotecas do
 `new_sali/frontend` na primeira fase; na sessão residente essa fase fica
 viva entre edições.
 
-Ordem do que falta, pelo que mais aparece nos 173 pendentes: interpolação
-e detecção de mudança (110), ligações de propriedade e evento (151),
-diretivas e componentes no template (119), `*ngIf`/`*ngFor`, folha de
-estilo com o `.css.shim.dart` (138) e `<ng-content>` (5).
+**A regra que sustenta o "0 diferentes"**: o gerador recusa toda forma que
+não sabe traduzir, e o placar conta por motivo. Saída errada é pior que
+saída faltando — foi assim que `@HostListener`, que eu ignorava, apareceu
+como dois arquivos divergentes assim que a projeção entrou.
+
+**O corpus** (`corpus/ngdart/`, `scripts/corpus-ngdart.ps1`) existe porque
+nenhum dos 284 arquivos do new_sali isola uma forma: todos trazem folha de
+estilo e ligação juntas. Cada forma nova entra como um `.dart` de dez
+linhas com o `.template.dart` oficial ao lado.
+
+O que falta, pelo que mais aparece: `*ngIf`/`*ngFor` e as diretivas com
+seletor de atributo (151), `providers:` (66), `@ViewChild` (27),
+`pipes:` (17), `@Output` em filho, `#ref`, `style` em linha e
+`@HostBinding` em diretiva.
 
 **Por que portar em vez de executar o `ngcompiler` oficial.** Executá-lo
 exigiria rodar `package:analyzer` (438 arquivos, 227 mil linhas, com
