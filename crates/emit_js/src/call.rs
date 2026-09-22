@@ -633,9 +633,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
             }
             Element::Class(c) => {
-                // Extension type: `E(x)` é o valor representado.
+                // Extension type: `E(x)` é o valor representado (nos de
+                // interop, `X(...)` é o construtor JS).
                 let class = self.ctx.program.class(c);
-                if class.kind == dartforge_elements::model::ClassKind::ExtensionType {
+                if class.kind == dartforge_elements::model::ClassKind::ExtensionType && !self.ctx.is_js_class(c) {
                     if let Some(a) = arguments.args.first() {
                         let (js, _) = self.emit_expr(a.value, None);
                         return (js, self.ctx.this_ty(c));

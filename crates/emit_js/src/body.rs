@@ -433,7 +433,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match binding.and_then(|b| b.getter) {
                     Some(Element::Class(c)) => {
                         let class = self.ctx.program.class(c);
-                        if class.kind == dartforge_elements::model::ClassKind::ExtensionType {
+                        if class.kind == dartforge_elements::model::ClassKind::ExtensionType && !self.ctx.interop_ext_types.contains(&c) {
                             if let Some(rep) = class.representation {
                                 let mut map = HashMap::new();
                                 for (p, a) in self.ctx.class_params[c.0 as usize].iter().zip(args.iter()) {
@@ -565,6 +565,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 None => "core|Null".into(),
             },
             Ty::Iface { class, args, nullable } => {
+                // Tipo de extensão de interop: a receita é a do tipo de
+                // representação (`JSArray<JSString>` →
+                // `_interceptors|JSArray<core|Object?>`, `JSString` →
+                // `core|String`), como o DDC emite.
+                if self.ctx.interop_ext_types.contains(class) {
+                    if let Some(t) = self.ctx.erase_ext(*class, args) {
+                        let t = if *nullable { t.with_nullable(true) } else { t };
+                        return self.recipe(&t, unbound, used_fn, used_class);
+                    }
+                }
                 let mut s = self.ctx.class_recipe(*class);
                 if !args.is_empty() {
                     s.push('<');

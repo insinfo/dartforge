@@ -347,6 +347,9 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
         if ctx.program.class(c).decl.is_none() {
             continue;
         }
+        if ctx.interop_ext_types.contains(&c) {
+            continue; // apagado para `_interceptors|JSObject` nas receitas
+        }
         if ctx.is_js_class(c) {
             entries.push(format!("{}:\"_interceptors|LegacyJavaScriptObject\"", json_str(&ctx.class_recipe(c))));
             interop.push(ctx.class_recipe(c));
@@ -422,6 +425,14 @@ fn json_str(s: &str) -> String {
 
 /// Receita em ambiente de classe (parâmetros próprios por índice 1..n).
 fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
+    if let Ty::Iface { class: c, args, nullable } = t {
+        if ctx.interop_ext_types.contains(c) {
+            if let Some(e) = ctx.erase_ext(*c, args) {
+                let e = if *nullable { e.with_nullable(true) } else { e };
+                return rule_recipe(ctx, &e, class);
+            }
+        }
+    }
     match t {
         Ty::Dynamic => "@".into(),
         Ty::Void => "~".into(),
@@ -770,7 +781,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let cref = format!("{lvar}.{cname}");
     let is_enum = class.kind == ClassKind::Enum;
     let is_mixin = class.kind == ClassKind::Mixin;
-    if class.kind == ClassKind::ExtensionType {
+    if class.kind == ClassKind::ExtensionType && !ctx.is_js_class(c) {
         // Membros viram funções estáticas… (não suportado além do básico).
         return;
     }
@@ -1046,11 +1057,17 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let cf = ctx.program.function(cfid);
             let cn = ctx.name(csym);
             let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
-            let generic_c = !ctx.class_params[c.0 as usize].is_empty();
-            if generic_c {
+            // Com parâmetros de tipo próprios o tearoff estático não existe
+            // (o valor é construído no ponto de uso, com os argumentos).
+            if !ctx.class_params[c.0 as usize].is_empty() {
                 continue;
             }
-            let call = if cf.factory { format!("{cref}.{jsname}(...args)") } else { format!("new {cref}.{jsname}(...args)") };
+            let mut args = String::from("...args");
+            if generic {
+                let mut e = FnEmitter::new(ctx, m, unit, Some(c), true);
+                args = format!("{}, ...args", e.rti(&ctx.this_ty_default(c)));
+            }
+            let call = if cf.factory { format!("{cref}.{jsname}({args})") } else { format!("new {cref}.{jsname}({args})") };
             cw.line(&format!("static [{}](...args) {{ return {call}; }}", js::string_literal(&format!("_#{jsname}#tearOff"))));
         }
     }
@@ -1332,6 +1349,7 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let d = ctx.program.unit(unit).ast.decl(decl.decl);
     let members: Vec<ast::MemberId> = match &d.kind {
         DeclKind::Class(cd) => cd.members.clone(),
+        DeclKind::ExtensionType(ed) => ed.members.clone(),
         _ => vec![],
     };
     let ast = &ctx.program.unit(unit).ast;
@@ -1827,7 +1845,9 @@ fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::C
     let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());
     let _ = mid;
-    let generic = !ctx.class_params[c.0 as usize].is_empty();
+    // O `_ti` entra quando a classe *ou uma superclasse* é genérica (regra do
+    // DDC, a mesma do construtor generativo): `static deBytes(_ti, bytes)`.
+    let generic = ctx.requires_rti(c);
     let mut e = FnEmitter::new(ctx, m, unit, Some(c), true);
     // Num factory os parâmetros de tipo da classe entram como parâmetros de função.
     let mut params: Vec<String> = Vec::new();

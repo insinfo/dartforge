@@ -108,6 +108,12 @@ pub struct Ctx<'a> {
     pub fn_js: HashMap<FunctionElementId, Option<String>>,
     /// Variáveis (campos, topo) com `@JS(...)` explícito.
     pub var_js: HashMap<VariableId, Option<String>>,
+    /// `dart:_interceptors::JSObject`: alvo do apagamento dos tipos de extensão
+    /// de interop nas receitas rti (é o que o DDC emite).
+    pub js_object_ic: Option<ClassId>,
+    /// Tipos de extensão de interop mantidos (não apagados para a
+    /// representação): os de `dart:js_interop` e os de bibliotecas `@JS()`.
+    pub interop_ext_types: HashSet<ClassId>,
     /// `@JSName('x')` de membros de classes nativas: o nome JS difere do nome
     /// Dart, e o DDC simboliza esses membros (`_isSymbolizedMember`).
     pub js_names: HashMap<u32, String>,
@@ -213,15 +219,20 @@ impl<'a> Ctx<'a> {
             js_libs: HashMap::new(),
             fn_js: HashMap::new(),
             var_js: HashMap::new(),
+            js_object_ic: find_class("dart:_interceptors", "JSObject"),
+            interop_ext_types: HashSet::new(),
             js_names: HashMap::new(),
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
         };
+        // A interop vem antes da hierarquia: os tipos de extensão de interop
+        // não são apagados, e os supertipos (`implements JSAny`) precisam
+        // disso para as extensões do SDK se aplicarem ao receptor certo.
+        ctx.compute_js_interop();
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
         ctx.compute_groups();
-        ctx.compute_js_interop();
         ctx.compute_js_names();
         ctx
     }
@@ -377,10 +388,35 @@ impl<'a> Ctx<'a> {
                 info.anonymous = d.metadata.iter().any(|a| self.ann_is(a, "anonymous"));
                 info.static_interop = d.metadata.iter().any(|a| self.ann_is(a, "staticInterop"));
             }
+            // `dart:js_interop`/package:web: `extension type X._(JSObject _)`
+            // numa biblioteca `@JS()`, com membros `external` — é interop pelo
+            // mesmo `usesJSInterop` do DDC (anotação na biblioteca basta para
+            // membros `external`, e os de um extension type nunca têm classe).
+            if info.is_none() && c.kind == ClassKind::ExtensionType && js_libs.contains_key(&c.library) {
+                info = Some(JsClass { name: None, anonymous: false, static_interop: true });
+            }
             if let Some(info) = info {
                 js_classes.insert(ClassId(i as u32), info);
             }
         }
+        // Tipos de extensão de `dart:js_interop` (JSPromise, JSString, JSAny…):
+        // não são emitidos por nós, mas o tipo precisa sobreviver para os
+        // membros de extensão do SDK (`toDart`, `toJS`) serem os certos.
+        let mut ext_tipos: HashSet<ClassId> = js_classes
+            .keys()
+            .copied()
+            .filter(|c| self.program.class(*c).kind == ClassKind::ExtensionType)
+            .collect();
+        for (i, c) in self.program.classes.iter().enumerate() {
+            if c.kind != ClassKind::ExtensionType {
+                continue;
+            }
+            let uri = self.program.library(c.library).uri.as_str();
+            if uri == "dart:js_interop" || uri == "dart:js_interop_unsafe" {
+                ext_tipos.insert(ClassId(i as u32));
+            }
+        }
+        self.interop_ext_types = ext_tipos;
         self.js_classes = js_classes;
         self.js_libs = js_libs;
         self.fn_js = fn_js;
@@ -455,6 +491,21 @@ impl<'a> Ctx<'a> {
             }
         }
         self.js_names = map;
+    }
+
+    /// Tipo de representação de um tipo de extensão, com os argumentos
+    /// substituídos: `JSArray<JSString>` → `_interceptors.JSArray<Object?>`,
+    /// `JSString` → `String`, `JSObject` → `_interceptors.JSObject`. É o que o
+    /// DDC usa nas receitas rti (os tipos de extensão são apagados).
+    pub fn erase_ext(&self, class: ClassId, args: &[Ty]) -> Option<Ty> {
+        let rep = self.program.class(class).representation?;
+        let v = &self.outline.variables[rep.0 as usize];
+        let t = v.declared_type.or(v.inferred)?;
+        let mut map = HashMap::new();
+        for (p, a) in self.class_params.get(class.0 as usize)?.iter().zip(args.iter()) {
+            map.insert(p.id, a.clone());
+        }
+        Some(self.ty_of(t).subst_prop(&map))
     }
 
     pub fn is_js_class(&self, c: ClassId) -> bool {
@@ -866,7 +917,13 @@ impl<'a> Ctx<'a> {
             }
             Type::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(self.ty_of(*arg)), nullable: *nullable },
             Type::ExtensionType { decl, args, nullable } => {
-                // Apaga para o tipo de representação.
+                // Interop (`@JS`): mantém o tipo, para os membros `external`
+                // virarem propriedades do objeto JS; os demais são apagados
+                // para o tipo de representação.
+                if self.interop_ext_types.contains(decl) {
+                    let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
+                    return Ty::Iface { class: *decl, args, nullable: *nullable };
+                }
                 let class = self.program.class(*decl);
                 if let Some(rep) = class.representation {
                     let v = &self.outline.variables[rep.0 as usize];

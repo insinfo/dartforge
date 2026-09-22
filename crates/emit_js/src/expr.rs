@@ -1770,7 +1770,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
         let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
-        if !self.ctx.requires_rti(c) {
+        // O tearoff estático existe quando a classe não tem parâmetros próprios
+        // (ele mesmo passa o `rti` da classe ao construtor).
+        if self.ctx.class_params[c.0 as usize].is_empty() {
             let rti = self.rti(&ty);
             return Some((Js::prim(format!("dart.fn({}[{}], {rti})", self.class_ref(c), js::string_literal(&format!("_#{cname}#tearOff")))), ty));
         }
@@ -2798,7 +2800,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 fun.external || fun.kind == FunctionKind::SyntheticConstructor
             });
             if external {
-                if jc.anonymous {
+                // Literal de objeto: `@anonymous` (package:js) e construtor
+                // `external` de extension type só com parâmetros nomeados
+                // (`dart:js_interop`, compiler.dart:6948) — `{a: 1, b: 2}`.
+                let so_nomeados = fid.is_some_and(|f| {
+                    let ps = &self.ctx.outline.functions[f.0 as usize].parameters;
+                    !ps.is_empty() && ps.iter().all(|p| p.kind == ast::ParameterKind::Named)
+                });
+                if jc.anonymous || so_nomeados {
                     let obj = arg_js.last().filter(|a| a.starts_with('{')).cloned().unwrap_or_else(|| "{}".to_string());
                     return (Js::prim(obj), ty);
                 }
