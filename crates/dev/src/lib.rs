@@ -10,6 +10,9 @@
 //! do cache (`crates/dev/tests/plato.rs` vigia com `live_bytes`).
 pub mod hashes;
 
+pub mod servidor;
+pub mod ws;
+
 use dartforge_elements::load::load_lenient_incremental;
 use dartforge_elements::model::{LibraryId, Program};
 use dartforge_elements::sdk::SdkLayout;

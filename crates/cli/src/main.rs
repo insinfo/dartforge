@@ -8,12 +8,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]\n       dartforge aot|run|reload|abi-info ...  (compile com --features nativo)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
+            "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge aot|run|reload|abi-info ...  (compile com --features nativo)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );
         return Ok(());
     }
     if args[0] == "dev" {
-        return run_dev(&args[1..]);
+        return run_dev(&args[1..], false);
+    }
+    if args[0] == "serve" {
+        return run_dev(&args[1..], true);
     }
     if args[0] == "compile-native" { return nativo::run_compile_native(&args[1..]); }
     if args[0] == "compile-js" {
@@ -89,14 +93,20 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
 /// `dev`: compilador residente. Compila uma vez, observa os arquivos do
 /// projeto por mtime e recompila o mínimo, gravando só os módulos cujo texto
 /// mudou (PLANO.md, "o compilador residente").
-fn run_dev(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge dev <input.dart> -o <dir> [--packages <package_config.json>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]";
+fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let usage = if servir {
+        "usage: dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>]"
+    } else {
+        "usage: dartforge dev <input.dart> -o <dir> [--packages <package_config.json>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]"
+    };
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut intervalo_ms = 200u64;
     let mut uma_vez = false;
+    let mut web: Option<PathBuf> = None;
+    let mut porta = 8080u16;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
@@ -112,6 +122,14 @@ fn run_dev(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
                     .ok_or("--intervalo exige milissegundos entre 10 e 10000")?;
             }
             Some("--uma-vez") => uma_vez = true,
+            Some("--web") => web = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--porta") => {
+                porta = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .and_then(|v| v.parse().ok())
+                    .ok_or("--porta exige um número")?;
+            }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
@@ -121,6 +139,7 @@ fn run_dev(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
     // Corpos profundos recursam fundo: a sessão roda numa thread com pilha própria.
     let saida = out.clone();
     let entrada = input.clone();
+    let web = web.clone();
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || -> Result<(), String> {
@@ -138,6 +157,13 @@ fn run_dev(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
             if uma_vez {
                 return Ok(());
             }
+            // `serve`: o servidor sobe depois da primeira compilação, para que
+            // a primeira visita já encontre a saída pronta.
+            let recarga = std::sync::Arc::new(dartforge_dev::servidor::Recarga::default());
+            if servir {
+                let p = dartforge_dev::servidor::servir(&saida, web.as_deref(), porta, recarga.clone())?;
+                println!("servindo em http://127.0.0.1:{p}/ (recarga automática por WebSocket)");
+            }
             println!("observando {} arquivos a cada {intervalo_ms} ms (ctrl+c para sair)…", sessao.observados().len());
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
@@ -150,8 +176,23 @@ fn run_dev(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
                     sessao.arquivo_mudou(p);
                 }
                 match sessao.compilar() {
-                    Ok(rel) => print!("{}", rel.texto()),
-                    Err(e) => eprintln!("erro: {e}"),
+                    Ok(rel) => {
+                        print!("{}", rel.texto());
+                        if servir {
+                            // Só recarrega o navegador se algum módulo mudou.
+                            if rel.modulos_escritos > 0 {
+                                recarga.disparar();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("erro: {e}");
+                        if servir {
+                            // O navegador mostra o erro no console e segue
+                            // ligado: a próxima compilação boa recarrega.
+                            recarga.erro(&e);
+                        }
+                    }
                 }
             }
         })
