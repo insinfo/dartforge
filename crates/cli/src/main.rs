@@ -58,7 +58,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge run <input.dart> [--merge-identical-functions] [--timings]\n       dartforge reload <inicial.dart> <edicao.dart> [<edicao.dart>...] [--timings]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print.\nrun executa em memória pelo JIT (perfil de desenvolvimento); aot produz executável (perfil de produção)."
+            "DartForge\nUsage: dartforge compile <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake|--no-tree-shake] [--timings]\n       dartforge watch <input.dart> <output.mjs> [--optimize] [--merge-identical-functions] [--tree-shake] [--interval <ms>]\n       dartforge emit-llvm <input.dart> <output.ll> [--merge-identical-functions]\n       dartforge aot <input.dart> <output.exe> [--optimize] [--merge-identical-functions] [--timings] [--link-object <path>]\n       dartforge run <input.dart> [--merge-identical-functions] [--timings]\n       dartforge reload <inicial.dart> <edicao.dart> [<edicao.dart>...] [--timings]\n       dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>]\n       dartforge abi-info <windows-x64|linux-x64|wasm32>\n       dartforge macro-info <input.dart>\n       dartforge graph <input.dart> [--target js|native|wasm]\nSubconjunto: funções tipadas, variáveis, expressões, condicionais, laços e print.\nrun executa em memória pelo JIT (perfil de desenvolvimento); aot produz executável (perfil de produção)."
         );
         return Ok(());
     }
@@ -132,6 +132,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }))?
         );
         return Ok(());
+    }
+    if args[0] == "compile-js" {
+        return run_compile_js(&args[1..]);
     }
     if args[0] == "run" {
         return run_jit(&args[1..]);
@@ -595,4 +598,28 @@ mod environment_tests {
             );
         }
     }
+}
+
+/// `compile-js`: emite módulos ES6 no contrato do DDC em `<dir>` e copia o `dart_sdk.js`.
+fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>]";
+    let mut input: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut sdk: Option<PathBuf> = None;
+    let mut packages: Option<PathBuf> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.to_str() {
+            Some("-o") => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            _ if input.is_none() => input = Some(PathBuf::from(a)),
+            _ => return Err(usage.into()),
+        }
+    }
+    let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
+    let emitido = dartforge_emit_js::compilar(&input, sdk.as_deref(), packages.as_deref())?;
+    dartforge_emit_js::escrever(&emitido, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
+    println!("{} -> {} ({} módulos)", input.display(), out.display(), emitido.modulos.len());
+    Ok(())
 }
