@@ -596,6 +596,8 @@ impl<'a> OutlineResolver<'a> {
                         self.resolve_annotation(unit, ast_ty, func.library, &scope)
                     } else if p.this_ {
                         self.field_type_for_this_param(func, p_name).unwrap_or(self.core.dynamic_)
+                    } else if p.super_ {
+                        self.super_param_type(func, ctor, p, 0).unwrap_or(self.core.dynamic_)
                     } else {
                         self.core.dynamic_
                     };
@@ -641,7 +643,9 @@ impl<'a> OutlineResolver<'a> {
                         .or(var_data.inferred)
                         .unwrap_or(self.core.dynamic_);
 
-                    if func.kind == FunctionKind::Getter {
+                    let is_getter = func.kind == FunctionKind::Getter
+                        || self.program.variable(var_id).getter == Some(func_id);
+                    if is_getter {
                         let sig = self.table.intern(Type::Function {
                             type_params: Box::new([]),
                             ret: var_ty,
@@ -1199,6 +1203,60 @@ impl<'a> OutlineResolver<'a> {
             named: named.into_boxed_slice(),
             nullable: false,
         })
+    }
+
+    /// Tipo de um parâmetro `super.x` sem anotação: o do parâmetro homónimo do
+    /// construtor da superclasse chamado (`super(...)`/`super.nome(...)`; sem
+    /// inicializador, o sem nome). Parâmetros de tipo da superclasse ficam
+    /// como estão (aproximação): o emissor só precisa da classe.
+    fn super_param_type(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32) -> Option<TypeId> {
+        if depth > 8 {
+            return None;
+        }
+        let class = func.class?;
+        let sup = self.program.class(class).supertype_class?;
+        let super_name = ctor.initializers.iter().find_map(|i| match i {
+            ast::Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
+            _ => None,
+        });
+        let key = match super_name {
+            Some(Some(n)) => n,
+            _ => self.interner.lookup("")?,
+        };
+        let sfid = *self.program.class(sup).constructors.get(&key)?;
+        let sfunc = self.program.function(sfid);
+        let FunctionRef::Constructor { unit, member } = sfunc.node else { return None };
+        let mem = self.program.unit(unit).ast.member(member);
+        let MemberKind::Constructor(sctor) = &mem.kind else { return None };
+        let pname = p.name?.sym;
+        let sp = if p.kind == ParameterKind::Named {
+            sctor.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.name.map(|n| n.sym) == Some(pname))?
+        } else {
+            // Posicional: o índice entre os posicionais de `super.` casa com os
+            // posicionais restantes do super construtor após os passados em `super(...)`.
+            let explicit = ctor
+                .initializers
+                .iter()
+                .find_map(|i| match i {
+                    ast::Initializer::Super { arguments, .. } => Some(arguments.args.iter().filter(|a| a.name.is_none()).count()),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let my_index = ctor.parameters.iter().filter(|q| q.super_ && q.kind != ParameterKind::Named).position(|q| std::ptr::eq(q, p))?;
+            sctor.parameters.iter().filter(|q| q.kind != ParameterKind::Named).nth(explicit + my_index)?
+        };
+        let scope = self.get_enclosing_type_param_scope(Some(sup), None);
+        if let Some(t) = sp.ty {
+            return Some(self.resolve_annotation(unit, t, sfunc.library, &scope));
+        }
+        if sp.this_ {
+            return self.field_type_for_this_param(sfunc, sp.name.map(|n| n.sym));
+        }
+        if sp.super_ {
+            let sfunc2 = self.program.function(sfid);
+            return self.super_param_type(sfunc2, sctor, sp, depth + 1);
+        }
+        None
     }
 
     /// Tipo do campo para um parâmetro `this.x` sem anotação.

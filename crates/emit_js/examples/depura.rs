@@ -9,6 +9,10 @@ use dartforge_intern::Interner;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let entry = std::path::PathBuf::from(&args[0]);
+    if args.get(1).map(|s| s.as_str()) == Some("--tipos") {
+        tipos(&entry);
+        return;
+    }
     let sdk = SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
     let mut interner = Interner::new();
     let (program, diags) = load_lenient(&entry, &sdk, None, &mut interner);
@@ -48,4 +52,21 @@ fn main() {
             }
         }
     }
+}
+
+#[allow(dead_code)]
+fn tipos(entry: &std::path::Path) {
+    let sdk = SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
+    let mut interner = Interner::new();
+    let (program, _) = load_lenient(entry, &sdk, None, &mut interner);
+    let mut table = dartforge_types::TypeTable::new();
+    let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let (_bodies, diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    for (i, v) in program.variables.iter().enumerate() {
+        if program.library(v.library).is_sdk { continue; }
+        let d = &outline.variables[i];
+        println!("var {} declared={:?} inferred={:?}", interner.resolve(v.name), d.declared_type.map(|t| table.format(t, &interner, &program)), d.inferred.map(|t| table.format(t, &interner, &program)));
+    }
+    for d in diags.iter().take(10) { println!("  {d}"); }
 }

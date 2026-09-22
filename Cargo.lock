@@ -383,6 +383,7 @@ dependencies = [
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
+ "dartforge-instrument",
  "dartforge-intern",
  "dartforge-types",
  "tempfile",

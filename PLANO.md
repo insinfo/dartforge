@@ -3,7 +3,7 @@
 ## Objetivo e limites
 
 Construir em Rust um compilador Dart → JavaScript, analisador reutilizável, servidor LSP,
-compilador de templates ngdart 8 e ferramenta de desenvolvimento web.
+compilador de templates ngdart 8 e ferramenta de desenvolvimento web para substituir o webdev lento.
 Objetivos separados: baixa latência de compilação, menor memória/CPU, JavaScript pequeno e
 execução rápida no navegador. Melhorar um não implica melhorar os outros.
 
@@ -27,6 +27,16 @@ Não assumir que a branch HEAD do SDK equivale ao Dart exigido pelo ngdart escol
 7. Um bundler Rust pode otimizar módulos JS, mas não substitui resolução e semântica Dart.
 8. Rust como linguagem das ferramentas; JS como saída/runtime gerado. Node e browsers são
    runners de teste, não implementação do compilador.
+10. **Referência antes de código, correção inteira de uma vez**: ao encontrar
+   uma falha, primeiro localizar a regra na referência (emissor do DDC e
+   saída do `dartdevc`, `docs/CONTRATO-DDC.md`, especificação e CFE,
+   `runtime/lib/*.cc` da VM, `pkg/analyzer`, `PLANO.md`/`docs/`), ler o
+   código próprio envolvido inteiro, achar todas as ocorrências do mesmo
+   problema e corrigi-las juntas; compilar **uma vez** para confirmar.
+   Compilar/executar para descobrir o que fazer é proibido: cada ciclo
+   cego custa minutos numa máquina de 8 GB com vários agentes e produz
+   patches parciais em série. `cargo build` direto quando o passo seguinte
+   é executar (o `check` não é reaproveitado pelo `build`).
 9. **Regra fundamental — foco estrito em funcionar**: Não perder tempo com formatação, estilo cosmético ou minúcias de linter. O critério exclusivo de sucesso é o código compilar, funcionar, passar na suíte de testes do compilador, manter latência ultrabaixa e respeitar o limite de memória.
 
 ## Fase 0 — Fundação (iniciada)

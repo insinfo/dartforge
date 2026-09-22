@@ -88,6 +88,27 @@ executa.
   (funções estáticas do módulo), `const` canonicalizado (`dart.const`,
   tabela `CT`).
 
+## Granularidade dos módulos (decisão 2026-09-22)
+
+Um módulo do contrato DDC pode conter várias bibliotecas (o `dart_sdk.js`
+tem 36: `var core = Object.create(dart.library)` …). Então a granularidade
+do JS entregue ao navegador é **política do emissor**, separada da
+granularidade do cache (por biblioteca) e da do bundle de produção (chunks
+do linker). Política de desenvolvimento, na linha do `SmallModulesFor` do
+Scala.js:
+
+* bibliotecas do **projeto** (pacote com `rootUri` local ou arquivos fora
+  de pacote): um módulo por biblioteca — é o que muda a cada edição;
+* pacotes do **pub cache**: um módulo por pacote (`packages/intl.js`),
+  contendo todas as bibliotecas do pacote — são estáveis;
+* `dart_sdk.js`: um só.
+
+O `new_sali/core` com `package:test` tem 2.100 bibliotecas; com esta
+política o navegador recebe ~1 módulo do projeto + ~40 de pacotes + o SDK.
+`LibraryId → arquivo` deixa de ser propriedade do compilador: o emissor
+recebe um mapa biblioteca → módulo e escreve um `import`/`export` por
+módulo, não por biblioteca.
+
 ## Harness diferencial e corpus
 
 `crates/diferencial` (`cargo run -p dartforge-diferencial`) roda cada programa de
@@ -155,3 +176,43 @@ diferem da forma literal do `dartdevc` mas respeitam o contrato do runtime:
   `ctx.rs`), usando o `OutlineTypes` para assinaturas e caindo em despacho
   dinâmico (`dart.dsend/dload/dput/dcall`) quando o tipo é desconhecido — sempre
   correto, só menos direto.
+
+## Granularidade dos módulos
+
+O contrato do DDC admite várias bibliotecas por módulo (o `dart_sdk.js` é um só
+módulo com todas as `dart:*`). O emissor recebe do `Ctx` um mapa biblioteca →
+módulo (`ctx.libs[i].module_path` e `ctx.groups`), calculado assim:
+
+* **bibliotecas do projeto** (pacote com `rootUri` local, ou arquivo fora de
+  pacote, como `test/x_test.dart`) → **um módulo por biblioteca**
+  (`x_test.js`, `packages/new_sali_core/src/a.js`);
+* **pacotes do pub cache** (caminho em `Pub/Cache`, `.pub-cache` ou
+  `hosted/pub.dev`) → **um módulo por pacote**: `packages/intl.js` com todas as
+  bibliotecas do pacote; cada uma continua a ser exportada pelo seu nome
+  (`export { L$intl as intl, L$intl__src__x as intl__src__x }`);
+* `dart_sdk.js` único;
+* **ciclos de imports entre módulos** (frequentes dentro de um pacote e possíveis
+  entre bibliotecas do projeto) fundem os módulos do ciclo num só, com o caminho
+  da primeira biblioteca — as classes de bibliotecas em ciclo precisam de uma
+  ordem única de declaração (`extends`), que módulos ES separados não dão.
+
+Imports e exports são por módulo: `import { a as L$a, b as L$b } from './packages/x.js'`,
+com caminhos relativos ao diretório do módulo importador. Símbolos privados de
+outra biblioteca (`dart.privateName(L$b, "_x")`) importam o namespace dessa
+biblioteca. Medido no `arvore_processo_item_test.dart` do new_sali/core:
+2.100 → 352 módulos (1 do teste + 317 do `new_sali_core`, local + 34 pacotes),
+mesma saída no Node; corpus 205/205.
+
+## new_sali/core (2026-09-22)
+
+`dartforge compile-js core/test/X_test.dart -o dir --packages core/.dart_tool/package_config.json`
+e `node dir/main.mjs`, comparado com `dart run --enable-asserts`: **7/14 testes
+iguais** (`arvore_processo_item`, `atributo_protocolo`, `documento_despacho_model`,
+`documento_validacao`, `permissao_constants`, `processo_tramite_resumo`,
+`table_aware_delta_parser`). Os outros 7 exigem `dart:io`, que o DDC não
+suporta: `ferias_real_delta_pdf_test` importa `dart:io` e lê `File(...)`
+(`Unsupported operation: _Namespace`); os seis de PDF carregam as fontes com
+`_pdf_asset_bytes_loader_io.dart` (import condicional `if (dart.library.io)`),
+que na web cai no stub e lança `PdfFontLoadException`. Não foram contornados.
+O `main.mjs` importa um `preambulo.js` com `globalThis.self = globalThis`
+porque o `dart_sdk.js` é o do navegador (`Random.secure()` usa `self.crypto`).

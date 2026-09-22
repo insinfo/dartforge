@@ -2071,6 +2071,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => {}
         }
+        // `super == x` / `super + x`: chamada direta do operador da superclasse.
+        if let ExprKind::Super = self.expr(left).kind {
+            let sup_ty = self.super_ty();
+            let name = binop_name(op);
+            let is_eq = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
+            let mname = if is_eq { "==" } else { name };
+            let (r, _) = self.emit_expr(right, None);
+            let access = self.member_access(&sup_ty, mname, false);
+            let call = format!("{}{access}({})", self.super_ref(), r.code);
+            let ret = if is_eq {
+                self.ctx.t_bool()
+            } else {
+                self.ctx.lookup_member(&sup_ty, mname, false).map(|m| match self.ctx.member_ty(&m) {
+                    Ty::Fn { ret, .. } => (*ret).clone(),
+                    _ => Ty::Dynamic,
+                }).unwrap_or(Ty::Dynamic)
+            };
+            if op == BinaryOp::NotEq {
+                return (Js::new(format!("!{call}"), P_UNARY), ret);
+            }
+            return (Js::prim(call), ret);
+        }
         let (l, lt) = self.emit_expr(left, None);
         if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
             if let (ExprKind::Identifier(n), ExprKind::Null) = (&self.expr(left).kind, &self.expr(right).kind) {
@@ -2539,12 +2561,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         arguments: &ast::Arguments,
         expected: Option<&Ty>,
     ) -> (Js, Ty) {
-        let t = self.resolve_type(ty);
+        let mut t = self.resolve_type(ty);
         let is_const = keyword == Some(ast::CreationKeyword::Const) || (keyword.is_none() && self.in_const);
+        let mut ctor_name = constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
+        // `const C.nome(...)`: o parser pode ler `C.nome` como tipo prefixado.
+        if !matches!(t, Ty::Iface { .. }) && constructor.is_none() {
+            if let ast::TypeKind::Named { name: parts, .. } = &self.ast().ty(ty).kind {
+                if parts.len() == 2 {
+                    if let Some(Element::Class(c)) = self.ctx.program.lookup(self.lib, parts[0].sym).and_then(|b| b.getter) {
+                        t = self.ctx.this_ty_default(c);
+                        ctor_name = self.name(parts[1].sym).to_string();
+                    }
+                }
+            }
+        }
         let Ty::Iface { class, args, .. } = &t else {
             return (Js::prim("null"), Ty::Dynamic);
         };
-        let ctor_name = constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
         let explicit_args = !self.explicit_type_args(ty).is_empty();
         let class_args = if explicit_args { args.clone() } else { vec![] };
         let saved = self.in_const;
