@@ -57,7 +57,11 @@ fn main() {
     });
     let alvo = args.get(2).map(PathBuf::from).unwrap_or_else(|| entrada.clone());
     let edicoes: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(20);
-    let saida = PathBuf::from("target/dev-medir");
+    // `DARTFORGE_DEV_SAIDA` deixa o verificador apontar a sessão para o mesmo
+    // diretório que o `compile-js` completo escreveu.
+    let saida = std::env::var_os("DARTFORGE_DEV_SAIDA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/dev-medir"));
     if !entrada.exists() {
         eprintln!("entrada não existe: {}", entrada.display());
         return;
@@ -92,14 +96,35 @@ fn main() {
     detalhe("carga da primeira", &r);
     let vivos_apos_primeira = dartforge_instrument::live_bytes();
 
-    // 1. Edição de corpo: função privada nova (não muda a API pública).
-    let tamanho = acrescentar(&alvo, "\nvoid _forjaCorpo0() { print('forja 0'); }\n").expect("edição");
+    // 1. Edição de corpo. Duas funções são acrescentadas e depois um
+    // `print` é inserido **no corpo da primeira**: é a edição real (uma
+    // tecla dentro de um método) e desloca tudo o que vem depois, que era
+    // onde o hash de API por faixa de texto escorregava.
+    let base = acrescentar(&alvo, "\nvoid _forjaA() { print('a'); }\nvoid _forjaB() { print('b'); }\n").expect("edição");
+    sessao.arquivo_mudou(&alvo);
+    sessao.compilar().expect("preparo da edição de corpo");
+    restaurar(&alvo, base);
+    let tamanho = acrescentar(
+        &alvo,
+        "\nvoid _forjaA() { print('a'); print('x'); }\nvoid _forjaB() { print('b'); }\n",
+    )
+    .expect("edição");
     sessao.arquivo_mudou(&alvo);
     let r = sessao.compilar().expect("edição de corpo");
     linha("edição de corpo", &r);
     detalhe("carga da edição de corpo", &r);
+    println!(
+        "   corpo alterado: {} | API alterada: {} (+{} dependentes) | bibliotecas reemitidas: {} | módulos reemitidos: {} | contexto da emissão {:.1} ms",
+        r.corpo_alterado.len(),
+        r.api_alterada.len(),
+        r.dependentes_invalidados,
+        r.bibliotecas_reemitidas,
+        r.modulos_reemitidos,
+        r.emissao_contexto.as_secs_f64() * 1000.0
+    );
     let api_mudou_no_corpo = r.api_alterada.len();
-    restaurar(&alvo, tamanho);
+    restaurar(&alvo, base);
+    let _ = tamanho;
 
     // 2. Edição de API pública: função de topo pública nova.
     let tamanho = acrescentar(&alvo, "\nvoid forjaApi0() { print('api 0'); }\n").expect("edição");
@@ -107,9 +132,12 @@ fn main() {
     let r = sessao.compilar().expect("edição de API");
     linha("edição de API", &r);
     println!(
-        "   API alterada: {} biblioteca(s), {} dependente(s) invalidado(s)",
+        "   API alterada: {} biblioteca(s), {} dependente(s) invalidado(s) | bibliotecas reemitidas: {} | módulos reemitidos: {} | contexto da emissão {:.1} ms",
         r.api_alterada.len(),
-        r.dependentes_invalidados
+        r.dependentes_invalidados,
+        r.bibliotecas_reemitidas,
+        r.modulos_reemitidos,
+        r.emissao_contexto.as_secs_f64() * 1000.0
     );
     restaurar(&alvo, tamanho);
 

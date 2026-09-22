@@ -31,6 +31,12 @@ pub struct BodyInferrer<'a> {
     pub body_types: BodyTypes,
     /// Rastreio de variáveis declaradas para o join de análise de fluxo: `LocalId -> TypeId`
     pub local_declared_types: HashMap<LocalId, TypeId>,
+    /// Sessão residente: quando `Some`, só os corpos de funções destas
+    /// bibliotecas são inferidos — as outras não serão reemitidas, e o
+    /// emissor só consulta os corpos do que emite. Inicializadores de
+    /// variáveis continuam sendo inferidos em todas as bibliotecas, porque o
+    /// tipo inferido de uma variável (`var x = 1;`) é lido por quem a usa.
+    pub apenas_bibliotecas: Option<std::collections::HashSet<u32>>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -64,6 +70,7 @@ impl<'a> BodyInferrer<'a> {
                 units: units_body_types,
             },
             local_declared_types: HashMap::new(),
+            apenas_bibliotecas: None,
         }
     }
 
@@ -192,6 +199,11 @@ impl<'a> BodyInferrer<'a> {
             // maior parte da fase (docs/EMISSAO-DDC.md: `dart:*` vem do
             // `dart_sdk.js`). `UnitBodyTypes` dessas unidades fica no fallback.
             if self.program.library(func_elem.library).is_sdk {
+                continue;
+            }
+            // Sessão residente: corpo de biblioteca que não vai ser reemitida
+            // não é consultado por ninguém.
+            if self.apenas_bibliotecas.as_ref().is_some_and(|s| !s.contains(&func_elem.library.0)) {
                 continue;
             }
             let func_data = self.outline.functions[i].clone();

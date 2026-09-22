@@ -79,3 +79,21 @@ pub fn infer_program_bodies(
     let inferrer = BodyInferrer::new(program, interner, table, core, outline);
     inferrer.infer_all()
 }
+
+/// Como [`infer_program_bodies`], inferindo os corpos de funções **só** das
+/// bibliotecas dadas (sessão residente: as demais não serão reemitidas).
+///
+/// Inicializadores de variáveis são inferidos em todas as bibliotecas: o tipo
+/// de `var x = 1;` é lido por quem usa `x`, não só por quem a declara.
+pub fn infer_bodies_das_bibliotecas(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut OutlineTypes,
+    bibliotecas: &[dartforge_elements::model::LibraryId],
+) -> (BodyTypes, Vec<Diagnostic>) {
+    let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
+    inferrer.infer_all()
+}
