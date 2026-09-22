@@ -92,7 +92,19 @@ IdP devolve na query, que é o caminho do passo 3.
 * **O que falta**: avaliar `const bool/int/String.fromEnvironment` e
   `bool.hasEnvironment` na compilação (sem `-D`, o valor é o `defaultValue`), como
   a CFE faz, em vez de emitir a chamada.
-* Programa mínimo de corpus: cabe sem `dart:html`.
+* **Reprodução mínima** (sem `dart:html`; `dart run` imprime
+  `false/true/7/padrão/false`, o DartForge lança na primeira linha) — vira
+  programa de corpus junto com a correção:
+
+      const bool depuracao = bool.fromEnvironment('modo_depuracao');
+      void main() {
+        if (const bool.fromEnvironment('sem_cliente')) print('nunca');
+        print(depuracao);
+        print(const bool.fromEnvironment('x', defaultValue: true));
+        print(const int.fromEnvironment('n', defaultValue: 7));
+        print(const String.fromEnvironment('s', defaultValue: 'padrão'));
+        print(const bool.hasEnvironment('nao_existe'));
+      }
 
 ### 2. `@JSName` em membro nativo é ignorado (nome JS errado)
 
