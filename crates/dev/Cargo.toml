@@ -1,0 +1,21 @@
+[package]
+name = "dartforge-dev"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-intern = { path = "../intern" }
+dartforge-frontend = { path = "../frontend" }
+dartforge-elements = { path = "../elements" }
+dartforge-types = { path = "../types" }
+dartforge-emit-js = { path = "../emit_js" }
+
+[dev-dependencies]
+dartforge-instrument = { path = "../instrument" }
+tempfile = "3"

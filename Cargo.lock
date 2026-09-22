@@ -292,6 +292,7 @@ version = "0.1.0"
 dependencies = [
  "dartforge-abi",
  "dartforge-compiler",
+ "dartforge-dev",
  "dartforge-emit-js",
  "dartforge-jit",
  "dartforge-native",
@@ -349,6 +350,20 @@ dependencies = [
  "dartforge-parser",
  "dartforge-semantic",
  "dartforge-syntax",
+]
+
+[[package]]
+name = "dartforge-dev"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-elements",
+ "dartforge-emit-js",
+ "dartforge-frontend",
+ "dartforge-instrument",
+ "dartforge-intern",
+ "dartforge-types",
+ "tempfile",
 ]
 
 [[package]]

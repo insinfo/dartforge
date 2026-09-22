@@ -64,6 +64,8 @@ pub struct TemposCarga {
     /// Arquivos lidos e bytes de fonte (usuário e pacotes).
     pub arquivos_lidos: usize,
     pub bytes_lidos: usize,
+    /// Unidades que vieram prontas do cache da sessão residente.
+    pub unidades_reaproveitadas: usize,
 }
 
 /// Programa inteiro: SDK, pacotes e o projeto, num só grafo de bibliotecas.

@@ -77,6 +77,24 @@ pub fn load_lenient_com_cache(
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
 ) -> (Program, Vec<Diagnostic>) {
+    load_lenient_incremental(entry, sdk, package_config_path, interner, cache, None)
+}
+
+/// Como [`load_lenient_com_cache`], reaproveitando de `unidades` as unidades
+/// cujos arquivos não mudaram (sessão residente).
+///
+/// O `interner` tem de ser o mesmo das análises que encheram o cache.
+pub fn load_lenient_incremental(
+    entry: &Path,
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    cache: Option<crate::sdk_cache::SdkCache>,
+    mut unidades: Option<&mut crate::unidades::CacheUnidades>,
+) -> (Program, Vec<Diagnostic>) {
+    if let Some(u) = unidades.as_deref_mut() {
+        u.iniciar_carga();
+    }
     let mut diagnostics = Vec::new();
     let mut cache = cache.filter(|c| c.preparar_interner(interner));
     // Bibliotecas cujas partes já vieram do cache (a diretiva `part` não
@@ -127,6 +145,7 @@ pub fn load_lenient_com_cache(
     );
     let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
     let mut prefetch = Prefetch::default();
+    let mut considerados = 0usize;
     let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
         existing
     } else {
@@ -155,17 +174,30 @@ pub fn load_lenient_com_cache(
     while let Some(lib_id) = queue.pop_front() {
         // Onda: as bibliotecas já enfileiradas (um nível do grafo de imports)
         // são lidas e lexadas em paralelo antes de serem analisadas em série.
-        if prefetch.vazio() {
+        // `considerados` evita reexaminar a fila inteira a cada iteração: as
+        // bibliotecas ganham ids em ordem, então basta olhar as novas. (Sem
+        // isso, uma compilação em que tudo vem do cache varria a fila 2.063
+        // vezes — 11 s no `new_sali`.)
+        if prefetch.vazio() && considerados < program.libraries.len() {
             let t = std::time::Instant::now();
             let mut caminhos: Vec<PathBuf> = Vec::new();
-            for id in std::iter::once(&lib_id).chain(queue.iter()) {
-                let uri = &program.libraries[id.0 as usize].uri;
+            for i in considerados..program.libraries.len() {
+                let uri = &program.libraries[i].uri;
                 if !uri.starts_with("dart:") {
                     if let Some(p) = caminho_da_biblioteca(uri, &package_config) {
-                        caminhos.push(p);
+                        // Unidade já analisada não precisa ser lida nem lexada
+                        // aqui. Se o arquivo tiver mudado, `load_unit`
+                        // descobre pela marca e lê ele mesmo — é um arquivo.
+                        // (Conferir a marca aqui custava um `stat` por
+                        // biblioteca da fila **em cada onda**: 34 mil no
+                        // `new_sali`, 13 s de relógio no Windows.)
+                        if !unidades.as_deref().is_some_and(|u| u.contem(&p)) {
+                            caminhos.push(p);
+                        }
                     }
                 }
             }
+            considerados = program.libraries.len();
             prefetch.carregar(caminhos);
             program.tempos.leitura_lex_paralelo += t.elapsed();
             program.tempos.ondas += 1;
@@ -204,6 +236,7 @@ pub fn load_lenient_com_cache(
                     &mut program,
                     &mut diagnostics,
                     None,
+                    unidades.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -224,6 +257,7 @@ pub fn load_lenient_com_cache(
                         &mut program,
                         &mut diagnostics,
                         None,
+                        unidades.as_deref_mut(),
                     );
                     if let Some(uid) = patch_unit {
                         program.libraries[lib_id.0 as usize].units.push(uid);
@@ -249,6 +283,7 @@ pub fn load_lenient_com_cache(
                     &mut program,
                     &mut diagnostics,
                     prefetch.tirar(&path),
+                    unidades.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -358,6 +393,7 @@ pub fn load_lenient_com_cache(
                             &mut program,
                             &mut diagnostics,
                             None,
+                            unidades.as_deref_mut(),
                         );
 
                         if let Some(p_uid) = part_unit {
@@ -548,7 +584,7 @@ fn caminho_da_biblioteca(lib_uri: &str, package_config: &PackageConfig) -> Optio
 
 /// Resolve `.` e `..` sem tocar no sistema de arquivos (`Uri.resolve` do Dart
 /// é lexical; `canonicalize` custava uma chamada ao sistema por diretiva).
-fn normalizar(p: &Path) -> PathBuf {
+pub(crate) fn normalizar(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
@@ -573,7 +609,22 @@ fn load_unit(
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
     lido: Option<Lido>,
+    unidades: Option<&mut crate::unidades::CacheUnidades>,
 ) -> Option<UnitId> {
+    // Sessão residente: unidade já analisada entra direto (o que mudou já foi
+    // invalidado pelo dono do cache; a carga não consulta o disco por isso).
+    let mut unidades = unidades;
+    if let Some(cache) = unidades.as_deref_mut() {
+        if let Some(mut u) = cache.tirar(path) {
+            if crate::unidades::serve(&u, uri, role) {
+                u.library = lib_id;
+                let unit_id = UnitId(program.units.len() as u32);
+                program.units.push(u);
+                program.tempos.unidades_reaproveitadas += 1;
+                return Some(unit_id);
+            }
+        }
+    }
     let t = std::time::Instant::now();
     let lido = match lido {
         Some(l) => l,
@@ -595,6 +646,10 @@ fn load_unit(
     program.tempos.leitura += t.elapsed();
     program.tempos.arquivos_lidos += 1;
     program.tempos.bytes_lidos += source.len();
+    // Um único `stat` por arquivo lido, para a sessão saber quando ele mudar.
+    if let Some(cache) = unidades.as_deref_mut() {
+        cache.anotar_marca(path);
+    }
 
     let t = std::time::Instant::now();
     let parsed = dartforge_frontend::parser::parse_lexed(&source, tokens, interner);

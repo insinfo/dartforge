@@ -259,7 +259,9 @@ fn partes_de(unidade: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCac
         let DirectiveKind::Part { uri } = &d.kind else { continue };
         let Some(rel) = string_lit_value(uri) else { continue };
         let path = unidade.path.parent().unwrap_or(Path::new(".")).join(&rel);
-        let canonico = std::fs::canonicalize(&path).unwrap_or(path);
+        // Mesma normalização lexical do carregador: o caminho é a chave do
+        // cache da sessão residente e tem de bater com o que `load.rs` monta.
+        let canonico = crate::load::normalizar(&path);
         let part_uri = url::Url::from_file_path(&canonico)
             .map(|u| u.to_string())
             .unwrap_or_else(|_| canonico.to_string_lossy().to_string());

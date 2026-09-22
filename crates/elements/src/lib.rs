@@ -13,6 +13,7 @@ pub mod model;
 pub mod outline;
 pub mod sdk;
 pub mod sdk_cache;
+pub mod unidades;
 
 pub use config::*;
 pub use load::*;
@@ -20,3 +21,4 @@ pub use model::*;
 pub use outline::*;
 pub use sdk::*;
 pub use sdk_cache::SdkCache;
+pub use unidades::CacheUnidades;
