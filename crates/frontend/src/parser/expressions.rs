@@ -824,7 +824,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.parse_typed_collection(start, false, type_args)
             }
             Kind::Op(Op::LParen) => {
-                if self.function_expression_ahead(self.pos) {
+                // `(params) {…}` é função só se a lista de parâmetros for
+                // válida: `x = (v as T?) { … }` num inicializador de construtor
+                // é expressão parentizada seguida do corpo.
+                if self.function_expression_ahead(self.pos)
+                    && self.speculate(|p| p.parse_formal_parameters().is_ok())
+                {
                     return self.parse_function_expression(start);
                 }
                 self.parse_parenthesized_or_record(start, false)

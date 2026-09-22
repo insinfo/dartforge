@@ -478,6 +478,26 @@ fn canonical_file_uri(path: &Path, package_config: &PackageConfig) -> String {
             None => canonical.clone(),
         }
     };
+    // Arquivo gerado pelo build_runner: `<projeto>/.dart_tool/build/generated/<pkg>/lib/<rel>`.
+    if let Some(origin) = &package_config.origin {
+        if let Some(dart_tool) = origin.parent() {
+            let gen_root = dart_tool.join("build").join("generated");
+            let gen_root = std::fs::canonicalize(&gen_root).unwrap_or(gen_root);
+            let gen_root = {
+                let s = gen_root.to_string_lossy();
+                match s.strip_prefix(r"\\?\") {
+                    Some(r) => PathBuf::from(r),
+                    None => gen_root.clone(),
+                }
+            };
+            if let Ok(rel) = canonical.strip_prefix(&gen_root) {
+                let parts: Vec<String> = rel.iter().map(|c| c.to_string_lossy().into_owned()).collect();
+                if parts.len() >= 3 && parts[1] == "lib" {
+                    return format!("package:{}/{}", parts[0], parts[2..].join("/"));
+                }
+            }
+        }
+    }
     for pkg in package_config.packages.values() {
         if let Ok(pkg_path) = pkg.package_uri.to_file_path() {
             let pkg_path = std::fs::canonicalize(&pkg_path).unwrap_or(pkg_path);
@@ -515,7 +535,33 @@ fn resolve_directive_target(
         let file_path = package_config.resolve_package_uri(uri_str)?;
         Ok((uri_str.to_string(), Some(file_path)))
     } else {
-        // Relativo ao arquivo base
+        // Relativo ao arquivo base. Se o base está num pacote (real ou gerado),
+        // resolve pela URI `package:` para que gerados e originais se encontrem.
+        if let Some(bp) = base_path {
+            let base_uri = canonical_file_uri(bp, package_config);
+            if let Some(rest) = base_uri.strip_prefix("package:") {
+                // `package:` não é hierárquica para o `url`: junta-se à mão.
+                let mut segs: Vec<&str> = rest.split('/').collect();
+                segs.pop();
+                for part in uri_str.split('/') {
+                    match part {
+                        "." | "" => {}
+                        ".." => {
+                            segs.pop();
+                        }
+                        p => segs.push(p),
+                    }
+                }
+                if segs.len() >= 2 {
+                    let joined = format!("package:{}", segs.join("/"));
+                    if let Ok(file_path) = package_config.resolve_package_uri(&joined) {
+                        if file_path.is_file() {
+                            return Ok((joined, Some(file_path)));
+                        }
+                    }
+                }
+            }
+        }
         let base = base_path.and_then(|p| p.parent()).unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
         let canonical = std::fs::canonicalize(&target_path)

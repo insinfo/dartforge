@@ -21,6 +21,16 @@ pub struct PackageConfig {
 }
 
 impl PackageConfig {
+    /// Caminho de um arquivo gerado pelo build_runner, quando existe:
+    /// `<projeto>/.dart_tool/build/generated/<pacote>/lib/<rel>` (o projeto é o
+    /// dono do `package_config.json` lido).
+    pub fn generated_path(&self, pkg_name: &str, rel_path: &str) -> Option<PathBuf> {
+        let origin = self.origin.as_ref()?;
+        let dart_tool = origin.parent()?;
+        let candidate = dart_tool.join("build").join("generated").join(pkg_name).join("lib").join(rel_path);
+        candidate.is_file().then_some(candidate)
+    }
+
     /// Localiza o arquivo `package_config.json` procurando a partir do diretório
     /// de `entry` e subindo a árvore de diretórios.
     pub fn discover(entry: &Path) -> Option<PathBuf> {
@@ -145,9 +155,18 @@ impl PackageConfig {
                 .join(rel_path)
                 .map_err(|e| format!("não foi possível compor URI de arquivo para '{uri}': {e}"))?;
 
-            file_url
+            let path = file_url
                 .to_file_path()
-                .map_err(|_| format!("URL não representa um arquivo local: {file_url}"))
+                .map_err(|_| format!("URL não representa um arquivo local: {file_url}"))?;
+            if path.is_file() {
+                return Ok(path);
+            }
+            // Sobreposição de gerados do build_runner (`.template.dart` do ngdart…):
+            // `<raiz do projeto>/.dart_tool/build/generated/<pacote>/lib/<x>`.
+            if let Some(gerado) = self.generated_path(pkg_name, rel_path) {
+                return Ok(gerado);
+            }
+            Ok(path)
         } else {
             // Fallback: procura em references/pub/<pkg_name>-<versão>/lib/<rel_path>
             let pub_dir = Path::new("references/pub");
