@@ -27,10 +27,21 @@ pub struct Componente {
     /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
     /// para instanciar o componente.
     pub parametros: Vec<Parametro>,
-    /// Tipo declarado de cada campo e getter da classe. O emissor precisa
-    /// disto para escolher entre `interpolateString` e `interpolate`, que o
-    /// oficial decide pelo tipo estático da expressão do template.
-    pub membros: std::collections::HashMap<String, String>,
+    /// Cada campo e getter da classe. O emissor precisa disto para escolher
+    /// entre `interpolateString`, `interpolate` e `updateTextWithPrimitive`,
+    /// que o oficial decide pelo tipo estático da expressão do template e por
+    /// ela ser mutável ou não.
+    pub membros: std::collections::HashMap<String, Membro>,
+}
+
+/// Um campo ou getter da classe do componente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Membro {
+    /// Tipo como escrito.
+    pub tipo: String,
+    /// `final` (ou getter): conta como imutável na regra `isImmutable` do
+    /// ngcompiler, que decide se o valor primitivo vai pelo caminho rápido.
+    pub imutavel: bool,
 }
 
 /// Um parâmetro do construtor do componente.
@@ -163,19 +174,34 @@ fn tipos_dos_membros(
     fonte: &str,
     interner: &Interner,
     classe: &ast::ClassDecl,
-) -> std::collections::HashMap<String, String> {
-    let mut saida = tipos_dos_campos(arvore, fonte, interner, classe);
+) -> std::collections::HashMap<String, Membro> {
+    let mut saida = std::collections::HashMap::new();
     for &id in &classe.members {
-        let ast::MemberKind::Method(f) = &arvore.member(id).kind else { continue };
-        let funcao = arvore.function(*f);
-        if !matches!(funcao.kind, ast::FunctionKind::Getter) {
-            continue;
+        match &arvore.member(id).kind {
+            ast::MemberKind::Field(lista) => {
+                let Some(t) = lista.ty else { continue };
+                let tipo = texto_do_tipo(arvore, fonte, t);
+                let imutavel = lista.final_ || lista.const_;
+                for v in lista.variables.iter() {
+                    saida.insert(
+                        interner.resolve(v.name.sym).to_string(),
+                        Membro { tipo: tipo.clone(), imutavel },
+                    );
+                }
+            }
+            ast::MemberKind::Method(f) => {
+                let funcao = arvore.function(*f);
+                if !matches!(funcao.kind, ast::FunctionKind::Getter) {
+                    continue;
+                }
+                let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else { continue };
+                saida.insert(
+                    interner.resolve(nome.sym).to_string(),
+                    Membro { tipo: texto_do_tipo(arvore, fonte, t), imutavel: true },
+                );
+            }
+            _ => {}
         }
-        let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else { continue };
-        saida.insert(
-            interner.resolve(nome.sym).to_string(),
-            texto_do_tipo(arvore, fonte, t),
-        );
     }
     saida
 }

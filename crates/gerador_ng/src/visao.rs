@@ -223,12 +223,18 @@ struct Corpo<'a> {
     /// URI `package:` do arquivo do template, para o comentário `REF`.
     url_do_template: Option<String>,
     /// Tipos dos membros do componente, para escolher `interpolateString`.
-    membros: &'a std::collections::HashMap<String, String>,
+    membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
     /// Próximo índice de nó. Vale para elementos e textos juntos, em ordem de
     /// documento; comentário não consome índice porque some antes.
     proximo: u32,
     /// `final doc = …` sai uma vez, no primeiro elemento.
     tem_doc: bool,
+    /// `final _ctx = this.ctx;` no topo do `build()`, quando alguma expressão
+    /// imutável é calculada ali.
+    usa_ctx_no_build: bool,
+    /// Ordinal do próximo `<ng-content>` — é o segundo argumento do
+    /// `project`, e não consome índice de nó.
+    proxima_projecao: u32,
     imp: &'a mut Importacoes,
     html: String,
 }
@@ -256,21 +262,38 @@ impl Corpo<'_> {
         if !expr.chars().all(|c| c.is_alphanumeric() || c == '_') || expr.is_empty() {
             return Err(Motivo::Interpolacao);
         }
-        let Some(tipo) = self.membros.get(expr) else { return Err(Motivo::Interpolacao) };
-        // `expressionsAreString` no `expression_converter.dart` do ngcompiler:
-        // a escolha entre `interpolateString` e `interpolate` é pelo tipo
-        // estático da expressão.
-        if tipo != "String" {
-            return Err(Motivo::Interpolacao);
-        }
+        let Some(membro) = self.membros.get(expr) else { return Err(Motivo::Interpolacao) };
         let n = self.proximo;
         self.proximo += 1;
+        let nu = membro.tipo.trim_end_matches('?').to_string();
+        // `expressionsAreString` decide entre `interpolateString` e
+        // `interpolate`; `_isPrimitiveCheck` tira o primitivo mutável do
+        // caminho da interpolação.
+        let interpolar = |imp: &mut Importacoes| {
+            let alias = imp.alias(INTERPOLATE);
+            let f = if nu == "String" { "interpolateString0" } else { "interpolate0" };
+            format!("{alias}.{f}(_ctx.{expr})")
+        };
+        if membro.imutavel {
+            // Valor que não muda não tem ligação: o texto é calculado uma vez,
+            // no `build()`, como o oficial faz (`isImmutable`).
+            self.usa_ctx_no_build = true;
+            let valor = interpolar(self.imp);
+            let dom = self.dom();
+            self.linhas
+                .push(format!("    final _text_{n} = {dom}.appendText({pai}, {valor});"));
+            return Ok(());
+        }
         self.campos
             .push(format!("  final {tb}.TextBinding _textBinding_{n} = {tb}.TextBinding();"));
         self.linhas.push(format!("    {pai}.append(this._textBinding_{n}.element);"));
-        let interp = self.imp.alias(INTERPOLATE);
+        let atualizacao = if primitivo(&nu) {
+            format!("updateTextWithPrimitive(_ctx.{expr})")
+        } else {
+            format!("updateText({})", interpolar(self.imp))
+        };
         self.deteccao.push(format!(
-            "    this._textBinding_{n}.updateText({interp}.interpolateString0(_ctx.{expr})) /* REF:{url}:{inicio}:{fim} */;"
+            "    this._textBinding_{n}.{atualizacao} /* REF:{url}:{inicio}:{fim} */;"
         ));
         Ok(())
     }
@@ -352,11 +375,26 @@ impl Corpo<'_> {
                 No::Interpolacao { expr, inicio, fim } => {
                     self.interpolacao(expr, *inicio, *fim, pai)?
                 }
-                No::Conteudo { .. } => return Err(Motivo::Projecao),
+                No::Conteudo { seletor } => {
+                    // `<ng-content>` não consome índice de nó; o número é o
+                    // ordinal da projeção no template.
+                    if seletor.is_some() {
+                        return Err(Motivo::Projecao); // seletor ainda não
+                    }
+                    let i = self.proxima_projecao;
+                    self.proxima_projecao += 1;
+                    self.linhas.push(format!("    this.project({pai}, {i});"));
+                }
             }
         }
         Ok(())
     }
+}
+
+/// Tipos que o ngcompiler trata como primitivos na interpolação
+/// (`isBool`, `isNumber`, `isDouble`, `isInt`).
+fn primitivo(tipo: &str) -> bool {
+    matches!(tipo, "bool" | "num" | "double" | "int")
 }
 
 /// O template tem `{{ … }}` em algum lugar?
@@ -429,10 +467,15 @@ pub fn template_de_componente(
         membros: &c.membros,
         proximo: 0,
         tem_doc: false,
+        usa_ctx_no_build: false,
+        proxima_projecao: 0,
         imp: &mut imp,
         html: html.clone(),
     };
     corpo.nos(nos, "parentRenderNode")?;
+    let ctx_no_build =
+        if corpo.usa_ctx_no_build { "
+    final _ctx = this.ctx;" } else { "" };
     let linhas = corpo.linhas.join("\n");
     let corpo_build =
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
@@ -489,7 +532,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
   }}
 
   @override
-  void build() {{
+  void build() {{{ctx_no_build}
     final parentRenderNode = this.initViewRoot();{corpo_build}
   }}
 {deteccao}
