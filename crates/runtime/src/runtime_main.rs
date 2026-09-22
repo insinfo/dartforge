@@ -272,6 +272,18 @@ pub extern "C" fn dartforge_string_concat(a: i64, b: i64) -> i64 {
 pub extern "C" fn dartforge_string_equal(a: i64, b: i64) -> u8 {
     HEAP.with(|heap| u8::from(heap.borrow().string_equal(a, b)))
 }
+
+/// Compara igualdade (== de Dart) entre dois handles de referência.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_equal(a: i64, b: i64) -> u8 {
+    if a == b { return 1; }
+    if a == 0 || b == 0 { return 0; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        u8::from(heap.string_equal(a, b))
+    })
+}
+
 /// Imprime conteúdo da string gerenciada ou null para handle zero.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_string(handle: i64) {
@@ -304,8 +316,11 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                 return;
             }
             match heap.get(value.bits) {
-                Value::String(text) => {
+                Value::String(text) | Value::StringBuffer(text) => {
                     output.push_str(text);
+                }
+                Value::RawString(v) => {
+                    output.push_str(&String::from_utf16_lossy(v));
                 }
                 Value::List(items) => {
                     let items: Vec<TaggedValue> = items.clone();
@@ -780,7 +795,8 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
         let heap = heap.borrow();
         match heap.get(handle) {
             Value::Object { class_id, .. } => *class_id,
-            Value::String(_) => -2,
+            Value::String(_) | Value::RawString(_) => -2,
+            Value::StringBuffer(_) => -8,
             Value::List(_) => -3,
             Value::Map(_) => -4,
             Value::Set(_) => -5,
@@ -890,6 +906,8 @@ pub extern "C" fn dartforge_generic_len(handle: i64) -> i64 {
         let heap = heap.borrow();
         match heap.get(handle) {
             Value::String(s) => s.encode_utf16().count() as i64,
+            Value::RawString(r) => r.len() as i64,
+            Value::StringBuffer(b) => b.encode_utf16().count() as i64,
             Value::List(l) => l.len() as i64,
             Value::Map(m) => m.len() as i64,
             Value::Set(s) => s.len() as i64,
@@ -904,8 +922,12 @@ pub extern "C" fn dartforge_string_len(handle: i64) -> i64 {
     if handle == 0 { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::String(s) = heap.get(handle) else { return 0; };
-        s.encode_utf16().count() as i64
+        match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().count() as i64,
+            Value::RawString(r) => r.len() as i64,
+            Value::StringBuffer(b) => b.encode_utf16().count() as i64,
+            _ => 0,
+        }
     })
 }
 
@@ -915,8 +937,12 @@ pub extern "C" fn dartforge_string_code_unit_at(handle: i64, index: i64) -> i64 
     if handle == 0 || index < 0 { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::String(s) = heap.get(handle) else { return 0; };
-        s.encode_utf16().nth(index as usize).unwrap_or(0) as i64
+        match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().nth(index as usize).unwrap_or(0) as i64,
+            Value::RawString(r) => r.get(index as usize).copied().unwrap_or(0) as i64,
+            Value::StringBuffer(b) => b.encode_utf16().nth(index as usize).unwrap_or(0) as i64,
+            _ => 0,
+        }
     })
 }
 
@@ -928,14 +954,12 @@ pub extern "C" fn dartforge_string_code_units(handle: i64) -> i64 {
     }
     let code_units: Vec<TaggedValue> = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::String(s) = heap.get(handle) else { return Vec::new(); };
-        s.encode_utf16()
-            .map(|u| TaggedValue {
-                bits: u as i64,
-                tag: heap::ValueTag::Int,
-                is_ref: false,
-            })
-            .collect()
+        match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().map(|u| TaggedValue { bits: u as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::RawString(r) => r.iter().map(|&u| TaggedValue { bits: u as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::StringBuffer(b) => b.encode_utf16().map(|u| TaggedValue { bits: u as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            _ => Vec::new(),
+        }
     });
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(code_units)))
 }
@@ -948,17 +972,289 @@ pub extern "C" fn dartforge_string_runes(handle: i64) -> i64 {
     }
     let runes: Vec<TaggedValue> = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::String(s) = heap.get(handle) else { return Vec::new(); };
-        s.chars()
-            .map(|c| TaggedValue {
-                bits: c as u32 as i64,
-                tag: heap::ValueTag::Int,
-                is_ref: false,
-            })
-            .collect()
+        match heap.get(handle) {
+            Value::String(s) => s.chars().map(|c| TaggedValue { bits: c as u32 as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::RawString(r) => char::decode_utf16(r.iter().copied()).map(|res| TaggedValue { bits: res.unwrap_or('\u{FFFD}') as u32 as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::StringBuffer(b) => b.chars().map(|c| TaggedValue { bits: c as u32 as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            _ => Vec::new(),
+        }
     });
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(runes)))
 }
+
+/// Converte um inteiro para string na base indicada (ex.: base 16 para hex minúsculo).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_int_to_radix_string(value: i64, radix: i64) -> i64 {
+    let radix = radix.clamp(2, 36) as u32;
+    let s = if value == 0 {
+        "0".to_string()
+    } else {
+        let neg = value < 0;
+        let mut uval = if neg { (-(value as i128)) as u64 } else { value as u64 };
+        let mut digits = Vec::new();
+        let uradix = radix as u64;
+        while uval > 0 {
+            let rem = (uval % uradix) as u32;
+            let c = if rem < 10 { (b'0' + rem as u8) as char } else { (b'a' + (rem - 10) as u8) as char };
+            digits.push(c);
+            uval /= uradix;
+        }
+        if neg { digits.push('-'); }
+        digits.into_iter().rev().collect()
+    };
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(s)))
+}
+
+/// Retorna substring usando índices UTF-16.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_substring(handle: i64, start: i64, end: i64) -> i64 {
+    if handle == 0 {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(String::new())));
+    }
+    let units: Vec<u16> = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            Value::StringBuffer(b) => b.encode_utf16().collect(),
+            _ => Vec::new(),
+        }
+    });
+    let len = units.len();
+    let start_idx = (start.max(0) as usize).min(len);
+    let end_idx = if end < 0 { len } else { (end as usize).min(len).max(start_idx) };
+    let slice = &units[start_idx..end_idx];
+    match String::from_utf16(slice) {
+        Ok(s) => HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(s))),
+        Err(_) => HEAP.with(|heap| heap.borrow_mut().allocate(Value::RawString(slice.to_vec()))),
+    }
+}
+
+/// Cria string a partir de um code point ou code unit UTF-16.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_from_char_code(code: i64) -> i64 {
+    if (0xD800..=0xDFFF).contains(&code) {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::RawString(vec![code as u16])));
+    }
+    let s = if let Some(c) = char::from_u32(code as u32) {
+        c.to_string()
+    } else {
+        String::new()
+    };
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(s)))
+}
+
+/// Cria string a partir de lista/iterável de char codes.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_from_char_codes(list_handle: i64) -> i64 {
+    if list_handle == 0 {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(String::new())));
+    }
+    let units: Vec<u16> = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::List(items) = heap.get(list_handle) else { return Vec::new(); };
+        let mut out = Vec::new();
+        for item in items {
+            let code = item.bits;
+            if code <= 0xFFFF {
+                out.push(code as u16);
+            } else if let Some(c) = char::from_u32(code as u32) {
+                let mut buf = [0u16; 2];
+                out.extend_from_slice(c.encode_utf16(&mut buf));
+            }
+        }
+        out
+    });
+    match String::from_utf16(&units) {
+        Ok(s) => HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(s))),
+        Err(_) => HEAP.with(|heap| heap.borrow_mut().allocate(Value::RawString(units))),
+    }
+}
+
+/// Localiza substring a partir do offset `start` (em UTF-16). Devolve -1 se não encontrar.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start: i64) -> i64 {
+    if handle == 0 || pat_handle == 0 { return -1; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target_units: Vec<u16> = match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            Value::StringBuffer(b) => b.encode_utf16().collect(),
+            _ => return -1,
+        };
+        let pat_units: Vec<u16> = match heap.get(pat_handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return -1,
+        };
+        if pat_units.is_empty() { return 0; }
+        let start_pos = (start.max(0) as usize).min(target_units.len());
+        for i in start_pos..=target_units.len().saturating_sub(pat_units.len()) {
+            if target_units[i..i + pat_units.len()] == pat_units[..] {
+                return i as i64;
+            }
+        }
+        -1
+    })
+}
+
+/// Localiza última ocorrência de substring. Devolve -1 se não encontrar.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_last_index_of(handle: i64, pat_handle: i64) -> i64 {
+    if handle == 0 || pat_handle == 0 { return -1; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let target_units: Vec<u16> = match heap.get(handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            Value::StringBuffer(b) => b.encode_utf16().collect(),
+            _ => return -1,
+        };
+        let pat_units: Vec<u16> = match heap.get(pat_handle) {
+            Value::String(s) => s.encode_utf16().collect(),
+            Value::RawString(r) => r.clone(),
+            _ => return -1,
+        };
+        if pat_units.is_empty() { return target_units.len() as i64; }
+        if target_units.len() < pat_units.len() { return -1; }
+        for i in (0..=target_units.len() - pat_units.len()).rev() {
+            if target_units[i..i + pat_units.len()] == pat_units[..] {
+                return i as i64;
+            }
+        }
+        -1
+    })
+}
+
+/// Divide a string pelo separador (split).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_split(handle: i64, pat_handle: i64) -> i64 {
+    if handle == 0 {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::new())));
+    }
+    let res_items: Vec<TaggedValue> = HEAP.with(|heap| {
+        let heap_ref = heap.borrow();
+        let pat_str = if pat_handle != 0 {
+            if let Value::String(s) = heap_ref.get(pat_handle) { s.as_str() } else { "" }
+        } else { "" };
+        let mut pieces = Vec::new();
+        match heap_ref.get(handle) {
+            Value::String(s) => {
+                if pat_str.is_empty() {
+                    for u in s.encode_utf16() {
+                        let sub = match String::from_utf16(&[u]) {
+                            Ok(v) => Value::String(v),
+                            Err(_) => Value::RawString(vec![u]),
+                        };
+                        pieces.push(sub);
+                    }
+                } else {
+                    for part in s.split(pat_str) {
+                        pieces.push(Value::String(part.to_string()));
+                    }
+                }
+            }
+            Value::RawString(r) => {
+                for &u in r {
+                    pieces.push(Value::RawString(vec![u]));
+                }
+            }
+            _ => {}
+        }
+        drop(heap_ref);
+        let mut list = Vec::new();
+        for val in pieces {
+            let h = heap.borrow_mut().allocate(val);
+            list.push(TaggedValue { bits: h, tag: heap::ValueTag::Ref, is_ref: true });
+        }
+        list
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(res_items)))
+}
+
+/// Verifica se a string contém a substring.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_contains(handle: i64, pat_handle: i64) -> u8 {
+    (dartforge_string_index_of(handle, pat_handle, 0) >= 0) as u8
+}
+
+/// Substitui todas as ocorrências de `from` por `to`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_replace_all(handle: i64, from_handle: i64, to_handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let res_str = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let s = match heap.get(handle) {
+            Value::String(s) => s.as_str(),
+            _ => return String::new(),
+        };
+        let from = if from_handle != 0 {
+            if let Value::String(f) = heap.get(from_handle) { f.as_str() } else { "" }
+        } else { "" };
+        let to = if to_handle != 0 {
+            if let Value::String(t) = heap.get(to_handle) { t.as_str() } else { "" }
+        } else { "" };
+        s.replace(from, to)
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(res_str)))
+}
+
+/// Preenche à esquerda até a largura indicada.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_pad_left(handle: i64, width: i64, pad_handle: i64) -> i64 {
+    if handle == 0 { return 0; }
+    let pad_char = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if pad_handle != 0 {
+            if let Value::String(p) = heap.get(pad_handle) { p.chars().next().unwrap_or(' ') } else { ' ' }
+        } else { ' ' }
+    });
+    let s_len = dartforge_generic_len(handle);
+    if width <= s_len { return handle; }
+    let count = (width - s_len) as usize;
+    let pad_str: String = std::iter::repeat(pad_char).take(count).collect();
+    let pad_handle = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(pad_str)));
+    HEAP.with(|heap| heap.borrow_mut().string_concat(pad_handle, handle))
+}
+
+/// Retorna elementos da lista na ordem inversa.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_reversed(handle: i64) -> i64 {
+    if handle == 0 {
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::new())));
+    }
+    let rev_items: Vec<TaggedValue> = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Value::List(items) = heap.get(handle) else { return Vec::new(); };
+        items.iter().rev().copied().collect()
+    });
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(rev_items)))
+}
+
+/// Aloca um novo StringBuffer vazio.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_buffer_new() -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::StringBuffer(String::new())))
+}
+
+/// Escreve no StringBuffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_string_buffer_write(buf_handle: i64, str_handle: i64) {
+    if buf_handle == 0 || str_handle == 0 { return; }
+    HEAP.with(|heap| {
+        let mut heap_ref = heap.borrow_mut();
+        let text_to_append = match heap_ref.get(str_handle) {
+            Value::String(s) => s.clone(),
+            Value::RawString(r) => String::from_utf16_lossy(r),
+            _ => describe_handle(&heap_ref, str_handle),
+        };
+        if let Value::StringBuffer(buf) = heap_ref.get_mut(buf_handle) {
+            buf.push_str(&text_to_append);
+        }
+    });
+}
+
 
 
 /// Retorna uma nova string convertida para maiúsculas.

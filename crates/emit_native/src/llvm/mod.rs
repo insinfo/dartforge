@@ -88,6 +88,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_string_new(ptr, i64)\n");
         self.out.push_str("declare i64 @dartforge_string_concat(i64, i64)\n");
         self.out.push_str("declare i8 @dartforge_string_equal(i64, i64)\n");
+        self.out.push_str("declare i8 @dartforge_equal(i64, i64)\n");
         self.out.push_str("declare void @dartforge_register_class_name(i64, ptr, i64)\n");
         self.out.push_str("declare i64 @dartforge_object_new(i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_object_get(i64, i64)\n");
@@ -144,7 +145,20 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_list_join(i64, i64)\n");
         self.out.push_str("declare i64 @dartforge_list_new_empty()\n");
         self.out.push_str("declare i64 @dartforge_map_get_to_string(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_record_new(ptr, i64)\n\n");
+        self.out.push_str("declare i64 @dartforge_record_new(ptr, i64)\n");
+        self.out.push_str("declare i64 @dartforge_int_to_radix_string(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_substring(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_from_char_code(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_from_char_codes(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_index_of(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_last_index_of(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_split(i64, i64)\n");
+        self.out.push_str("declare i8 @dartforge_string_contains(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_replace_all(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_pad_left(i64, i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_reversed(i64)\n");
+        self.out.push_str("declare i64 @dartforge_string_buffer_new()\n");
+        self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n\n");
     }
 
     fn emit_string_constants(&mut self) {

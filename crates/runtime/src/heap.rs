@@ -82,6 +82,8 @@ impl TaggedValue {
 #[derive(Debug)]
 pub enum Value {
     String(String),
+    RawString(Vec<u16>),
+    StringBuffer(String),
     Object {
         class_id: i64,
         fields: Vec<(i64, bool)>,
@@ -113,7 +115,8 @@ impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
     fn estimated_bytes(&self) -> usize {
         let payload = match self {
-            Self::String(text) => text.capacity(),
+            Self::String(text) | Self::StringBuffer(text) => text.capacity(),
+            Self::RawString(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
             Self::Object { fields, .. } => fields
                 .capacity()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
@@ -135,7 +138,7 @@ impl Value {
     /// Igualdade de chaves de `Map`/`Set` segundo `==` observável de Dart.
     fn trace(&self, pending: &mut Vec<i64>) {
         match self {
-            Self::String(_) => {}
+            Self::String(_) | Self::RawString(_) | Self::StringBuffer(_) => {}
             Self::Object { fields, .. } => pending.extend(
                 fields
                     .iter()
@@ -390,10 +393,7 @@ impl Heap {
                 if left.bits == right.bits {
                     return true;
                 }
-                matches!(
-                    (self.get(left.bits), self.get(right.bits)),
-                    (Value::String(a), Value::String(b)) if a == b
-                )
+                self.string_equal(left.bits, right.bits)
             }
             _ => false,
         }
@@ -645,7 +645,7 @@ impl Heap {
         }
     }
     /// Obtém armazenamento mutável; não oferece acesso a slots já coletados.
-    fn get_mut(&mut self, handle: i64) -> &mut Value {
+    pub fn get_mut(&mut self, handle: i64) -> &mut Value {
         let slot = usize::try_from(handle.checked_sub(1).expect("handle inválido"))
             .expect("handle inválido");
         self.slots
@@ -722,25 +722,43 @@ impl Heap {
         if a == 0 || b == 0 {
             return a == b;
         }
-        let Value::String(left) = self.get(a) else {
-            panic!("string esperada")
-        };
-        let Value::String(right) = self.get(b) else {
-            panic!("string esperada")
-        };
-        left == right
+        match (self.get(a), self.get(b)) {
+            (Value::String(left), Value::String(right)) => left == right,
+            (Value::RawString(left), Value::RawString(right)) => left == right,
+            (Value::String(left), Value::RawString(right)) => {
+                left.encode_utf16().eq(right.iter().copied())
+            }
+            (Value::RawString(left), Value::String(right)) => {
+                left.iter().copied().eq(right.encode_utf16())
+            }
+            _ => false,
+        }
     }
 
     /// Concatena conteúdo antes da possível coleta; os operandos seguem o protocolo de raízes.
     pub fn string_concat(&mut self, a: i64, b: i64) -> i64 {
-        let Value::String(left) = self.get(a) else {
-            panic!("string esperada")
-        };
-        let Value::String(right) = self.get(b) else {
-            panic!("string esperada")
-        };
-        let result = format!("{left}{right}");
-        self.allocate(Value::String(result))
+        match (self.get(a), self.get(b)) {
+            (Value::String(left), Value::String(right)) => {
+                let result = format!("{left}{right}");
+                self.allocate(Value::String(result))
+            }
+            _ => {
+                let mut units: Vec<u16> = match self.get(a) {
+                    Value::String(s) => s.encode_utf16().collect(),
+                    Value::RawString(r) => r.clone(),
+                    _ => panic!("string esperada"),
+                };
+                match self.get(b) {
+                    Value::String(s) => units.extend(s.encode_utf16()),
+                    Value::RawString(r) => units.extend_from_slice(r),
+                    _ => panic!("string esperada"),
+                };
+                match String::from_utf16(&units) {
+                    Ok(valid_str) => self.allocate(Value::String(valid_str)),
+                    Err(_) => self.allocate(Value::RawString(units)),
+                }
+            }
+        }
     }
 }
 
