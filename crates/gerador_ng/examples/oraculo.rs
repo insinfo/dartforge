@@ -24,6 +24,11 @@ fn main() -> std::process::ExitCode {
         eprintln!("uso: oraculo <raiz do projeto> [--listar]");
         return std::process::ExitCode::FAILURE;
     };
+    // Caminho absoluto: as URIs do `package_config.json` são absolutas, e
+    // comparar com um caminho relativo não casa nada.
+    let raiz = dartforge_elements::config::sem_verbatim(
+        std::fs::canonicalize(&raiz).unwrap_or(raiz),
+    );
     let listar = args.any(|a| a == "--listar");
 
     let cfg_path = raiz.join(".dart_tool").join("package_config.json");

@@ -17,6 +17,9 @@ fn main() -> std::process::ExitCode {
         eprintln!("uso: conferir-sass <raiz do projeto>");
         return std::process::ExitCode::FAILURE;
     };
+    let raiz = dartforge_elements::config::sem_verbatim(
+        std::fs::canonicalize(&raiz).unwrap_or(raiz),
+    );
     let gerado = raiz.join(".dart_tool/build/generated");
     let pacote = raiz.file_name().unwrap_or_default().to_string_lossy().to_string();
     let mut pacotes: Vec<PathBuf> = Vec::new();
