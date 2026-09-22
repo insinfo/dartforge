@@ -82,6 +82,8 @@ pub struct FnEmitter<'m, 'a> {
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
     /// Extensão aplicada explicitamente (`Ext(x).m`), consumida no próximo acesso.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
+    /// Padrão de atribuição: variáveis já existem.
+    pub pattern_assign: bool,
     /// Dentro de uma expressão constante (instanciações implícitas viram `dart.const`).
     pub in_const: bool,
     /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
@@ -122,6 +124,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             extension_this: None,
             current_extension: None,
             forced_ext: None,
+            pattern_assign: false,
             in_const: false,
             case_labels: Vec::new(),
         }
@@ -261,6 +264,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Símbolo privado `dart.privateName(lib, name)`.
     pub fn private_sym(&self, lib: LibraryId, name: &str) -> String {
         self.m.private_sym(self.ctx, lib, name)
+    }
+
+    /// Alvo JS de atribuição para um nome não-local (campo via `this`, topo).
+    pub fn emit_assign_to_name(&mut self, sym: SymbolId) -> (String, Ty) {
+        let n = self.name(sym).to_string();
+        match self.resolve_ident(sym) {
+            crate::expr::IdentTarget::ThisMember(m) => {
+                let this_ty = self.ctx.this_ty(m.class);
+                let access = self.member_access(&this_ty, &n, true);
+                (format!("this{access}"), self.ctx.member_ty(&m))
+            }
+            crate::expr::IdentTarget::Element(Element::Variable(vid)) => {
+                let var = self.ctx.program.variable(vid);
+                (format!("{}{}", self.lib_var(var.library), js::prop_access(&n)), self.ctx.var_ty(vid))
+            }
+            _ => (js::ident(&n), Ty::Dynamic),
+        }
     }
 
     /// Nome de propriedade JS de um membro de instância (getter/método/campo).

@@ -245,16 +245,17 @@ fn emit_library(ctx: &Ctx, lib: LibraryId) -> String {
     // Prelúdio.
     let mut out = String::new();
     out.push_str(&format!("var {lvar} = Object.create(dart.library);\nexport {{ {lvar} as {} }};\n", info.ident));
+    let up = "../".repeat(info.module_path.matches('/').count());
     let mut sdk: BTreeSet<String> = m.sdk_used.borrow().clone();
     for s in ["dart", "dart_rti", "core", "dartx"] {
         sdk.insert(s.to_string());
     }
     sdk.insert("async".to_string());
     let sdk_list: Vec<String> = sdk.iter().cloned().collect();
-    out.push_str(&format!("import {{ {} }} from './dart_sdk.js';\n", sdk_list.join(", ")));
+    out.push_str(&format!("import {{ {} }} from './{up}dart_sdk.js';\n", sdk_list.join(", ")));
     for &ul in m.user_imports.borrow().iter() {
         let uinfo = &ctx.libs[ul as usize];
-        out.push_str(&format!("import {{ {} as {} }} from './{}';\n", uinfo.ident, uinfo.js_var, uinfo.module_path));
+        out.push_str(&format!("import {{ {} as {} }} from './{up}{}';\n", uinfo.ident, uinfo.js_var, uinfo.module_path));
     }
     for (var, name) in m.dartx_used.borrow().iter() {
         if js::is_js_ident(name) {
@@ -1350,7 +1351,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             if base == "core.Object" {
                 w.line(&format!("({app}.{n} = function() {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
             } else {
-                w.line(&format!("({app}.{n} = function(...args) {{ {base}.{n}.apply(this, args); if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"));
+                w.line(&format!("({app}.{n} = function(...args) {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); {base}.{n}.apply(this, args); }}).prototype = {app}.prototype;"));
             }
         }
         w.line(&format!("dart.applyMixin({app}, {mref});"));
@@ -1601,6 +1602,16 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     }
     if let Some(sc) = super_call {
         body.line(&sc);
+    }
+    // No corpo, `x` de `this.x` refere-se ao campo.
+    for p in ctor.parameters.iter() {
+        if p.this_ {
+            if let Some(n) = p.name {
+                for sc in e.scopes.iter_mut() {
+                    sc.remove(&n.sym);
+                }
+            }
+        }
     }
     // Corpo.
     e.emit_body(&ctor.body);

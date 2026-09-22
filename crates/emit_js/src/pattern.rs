@@ -43,6 +43,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 let jsn = match binds.iter().find(|(s, _, _)| *s == name.sym) {
                     Some((_, _, j)) => j.clone(),
+                    None if self.pattern_assign => match self.lookup_local(name.sym) {
+                        Some(l) => l.js.clone(),
+                        None => {
+                            // Atribuição a não-local: usa o nome como alvo simples.
+                            let (js, _) = self.emit_assign_to_name(name.sym);
+                            js
+                        }
+                    },
                     None => {
                         let j = self.declare(name.sym, bty.clone());
                         binds.push((name.sym, bty, j.clone()));

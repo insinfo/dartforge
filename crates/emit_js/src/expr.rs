@@ -364,7 +364,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (vjs, vty) = self.emit_expr(*value, None);
                 let t = self.temp();
                 let mut binds = Vec::new();
+                self.pattern_assign = true;
                 let cond = self.pattern_cond(*pattern, &t, &vty, &mut binds, true);
+                self.pattern_assign = false;
                 let code = if cond == "true" {
                     format!("{t} = {}, {t}", vjs.code)
                 } else {
@@ -517,14 +519,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let jsarr = self.ctx.js_array.map(|c| Ty::iface_args(c, vec![elem_ty.clone()])).unwrap_or(list_ty.clone());
         let rti = self.rti(&jsarr);
         self.m.use_sdk("_interceptors");
-        self.w.line(&format!("{t} = _interceptors.JSArray.of({rti}, []);"));
+        if const_ {
+            self.w.line(&format!("{t} = [];"));
+        } else {
+            self.w.line(&format!("{t} = _interceptors.JSArray.of({rti}, []);"));
+        }
         let t2 = t.clone();
         for el in elements {
             self.emit_collection_element(el, &elem_ty, None, &|s: &mut Self, v: String| {
                 s.w.line(&format!("{t2}.push({v});"));
             });
         }
-        self.w.line(&format!("return {t};"));
+        if const_ {
+            let er = self.rti(&elem_ty);
+            self.w.line(&format!("return dart.constList({er}, {t});"));
+        } else {
+            self.w.line(&format!("return {t};"));
+        }
         let body = std::mem::replace(&mut self.w, saved_w).out;
         (self.iife(&body), list_ty)
     }
@@ -828,16 +839,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let (cls, rti) = self.map_impl(&kt, &vt);
             let t = self.temp();
             let saved_w = std::mem::take(&mut self.w);
-            self.w.line(&format!("{t} = new {cls}.new({rti});"));
+            if const_ {
+                self.w.line(&format!("{t} = [];"));
+            } else {
+                self.w.line(&format!("{t} = new {cls}.new({rti});"));
+            }
             let set = self.member_access(&map_ty, "[]=", false);
             let t2 = t.clone();
             for el in elements {
                 self.emit_collection_element(el, &kt, Some(&vt), &|s: &mut Self, v: String| {
                     let (k, val) = v.split_once('\u{0}').unwrap_or((&v, "null"));
-                    s.w.line(&format!("{t2}{set}({k}, {val});"));
+                    if const_ {
+                        s.w.line(&format!("{t2}.push({k}, {val});"));
+                    } else {
+                        s.w.line(&format!("{t2}{set}({k}, {val});"));
+                    }
                 });
             }
-            self.w.line(&format!("return {t};"));
+            if const_ {
+                let kr = self.rti(&kt);
+                let vr = self.rti(&vt);
+                self.w.line(&format!("return dart.constMap({kr}, {vr}, {t});"));
+            } else {
+                self.w.line(&format!("return {t};"));
+            }
             let body = std::mem::replace(&mut self.w, saved_w).out;
             return (self.iife(&body), map_ty);
         }
@@ -873,14 +898,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let t = self.temp();
         let saved_w = std::mem::take(&mut self.w);
-        self.w.line(&format!("{t} = collection.LinkedHashSet.new({rti});"));
+        if const_ {
+            self.w.line(&format!("{t} = [];"));
+        } else {
+            self.w.line(&format!("{t} = collection.LinkedHashSet.new({rti});"));
+        }
         let t2 = t.clone();
         for el in elements {
             self.emit_collection_element(el, &et, None, &|s: &mut Self, v: String| {
-                s.w.line(&format!("{t2}.add({v});"));
+                if const_ {
+                    s.w.line(&format!("{t2}.push({v});"));
+                } else {
+                    s.w.line(&format!("{t2}.add({v});"));
+                }
             });
         }
-        self.w.line(&format!("return {t};"));
+        if const_ {
+            let er = self.rti(&et);
+            self.w.line(&format!("return dart.constSet({er}, {t});"));
+        } else {
+            self.w.line(&format!("return {t};"));
+        }
         let body = std::mem::replace(&mut self.w, saved_w).out;
         (self.iife(&body), set_ty)
     }
@@ -926,10 +964,45 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         vs.push(mt.args().get(1).cloned().unwrap_or(Ty::Dynamic));
                     }
                 }
-                CollectionElement::If { then, .. } => {
-                    if let CollectionElement::MapEntry { key, value, .. } = &**then {
-                        ks.push(self.type_of(*key));
-                        vs.push(self.type_of(*value));
+                CollectionElement::If { then, else_, .. } => {
+                    let (k, v) = self.infer_map_tys(std::slice::from_ref(then));
+                    if !k.is_dynamic() {
+                        ks.push(k);
+                        vs.push(v);
+                    }
+                    if let Some(e) = else_ {
+                        let (k, v) = self.infer_map_tys(std::slice::from_ref(e));
+                        if !k.is_dynamic() {
+                            ks.push(k);
+                            vs.push(v);
+                        }
+                    }
+                }
+                CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                    self.push_scope();
+                    if let CollectionElement::ForIn { target: ast::ForInTarget::Declared { name, ty, .. }, iterable, .. } = el {
+                        let it = self.type_of(*iterable);
+                        let et = ty.map(|t| self.resolve_type(t)).unwrap_or_else(|| {
+                            self.ctx.iterable_.and_then(|i| self.ctx.as_super(&it, i)).and_then(|t| t.args().first().cloned()).unwrap_or(Ty::Dynamic)
+                        });
+                        self.declare(name.sym, et);
+                    }
+                    if let CollectionElement::For { init: Some(ast::ForInit::Variables(list)), .. } = el {
+                        let declared = list.ty.map(|t| self.resolve_type(t));
+                        for v in list.variables.iter() {
+                            let t = match (declared.clone(), v.initializer) {
+                                (Some(d), _) => d,
+                                (None, Some(i)) => self.type_of(i),
+                                _ => Ty::Dynamic,
+                            };
+                            self.declare(v.name.sym, t);
+                        }
+                    }
+                    let (k, v) = self.infer_map_tys(std::slice::from_ref(body));
+                    self.pop_scope();
+                    if !k.is_dynamic() {
+                        ks.push(k);
+                        vs.push(v);
                     }
                 }
                 _ => {}
