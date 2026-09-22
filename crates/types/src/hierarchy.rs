@@ -39,7 +39,9 @@ impl ClassHierarchy {
 
     /// Retorna os dados da hierarquia para uma dada classe, se existirem.
     pub fn get(&self, class: ClassId) -> Option<&ClassHierarchyData> {
-        self.classes.get(class.0 as usize).and_then(|opt| opt.as_ref())
+        self.classes
+            .get(class.0 as usize)
+            .and_then(|opt| opt.as_ref())
     }
 
     /// Registra ou atualiza os dados da hierarquia de uma classe.
@@ -124,7 +126,10 @@ impl ClassHierarchy {
                     Some(substituted)
                 }
             }
-            Type::TypeParameter { param, nullable: is_null } => {
+            Type::TypeParameter {
+                param,
+                nullable: is_null,
+            } => {
                 let bound = table.param(param).bound;
                 let super_ty = self.supertype_of(bound, target, table, core)?;
                 if is_null {
@@ -183,13 +188,14 @@ fn compute_class_hierarchy(
         return;
     }
 
-    let (formals, direct_supertypes) = match immediate.get(class.0 as usize).and_then(|x| x.as_ref()) {
-        Some(data) => (data.0.clone(), data.1.clone()),
-        None => {
-            visiting.remove(&class);
-            return;
-        }
-    };
+    let (formals, direct_supertypes) =
+        match immediate.get(class.0 as usize).and_then(|x| x.as_ref()) {
+            Some(data) => (data.0.clone(), data.1.clone()),
+            None => {
+                visiting.remove(&class);
+                return;
+            }
+        };
 
     let mut supertypes_map = HashMap::new();
     let mut all_supertypes = Vec::new();
@@ -225,7 +231,9 @@ fn compute_class_hierarchy(
 
             // Propaga os supertipos transitivos do pai
             for (&ancestor_class, &ancestor_ty) in parent_data.supertypes.iter() {
-                if let std::collections::hash_map::Entry::Vacant(e) = supertypes_map.entry(ancestor_class) {
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    supertypes_map.entry(ancestor_class)
+                {
                     let substituted = substitute(ancestor_ty, &parent_subst, table);
                     e.insert(substituted);
                     all_supertypes.push(substituted);

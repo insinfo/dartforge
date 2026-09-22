@@ -21,13 +21,13 @@ pub mod resolve;
 pub mod subtyping;
 pub mod table;
 
-pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
+pub use hierarchy::{ClassHierarchy, ClassHierarchyData, build_class_hierarchy};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,
     ParameterTypeData, TypedefTypeData, VariableTypeData,
 };
-pub use subtyping::{is_subtype, SubtypeEnv};
+pub use subtyping::{SubtypeEnv, is_subtype};
 pub use table::{
     CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeParameterData, TypeTable, Variance,
 };
@@ -50,4 +50,3 @@ pub fn resolve_outline(
     let resolver = OutlineResolver::new(program, interner, table, core);
     resolver.resolve_all()
 }
-

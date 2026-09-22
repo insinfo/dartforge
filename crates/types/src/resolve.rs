@@ -8,7 +8,7 @@
 //! expansão transparente de `typedef`, *override inference* de membros herdados
 //! sem anotação explícita e acumulação de diagnósticos sem parada prematura.
 
-use crate::hierarchy::{build_class_hierarchy, ClassHierarchy};
+use crate::hierarchy::{ClassHierarchy, build_class_hierarchy};
 use crate::ops::{nullable, substitute};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeTable, Variance};
 use dartforge_diagnostics::Diagnostic;
@@ -226,12 +226,8 @@ impl<'a> OutlineResolver<'a> {
             }
             for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
-                    let bound_ty = self.resolve_annotation(
-                        unit_id,
-                        ast_ty_id,
-                        class.library,
-                        &scope,
-                    );
+                    let bound_ty =
+                        self.resolve_annotation(unit_id, ast_ty_id, class.library, &scope);
                     self.table.set_type_param_bound(pid, bound_ty);
                 }
             }
@@ -300,9 +296,7 @@ impl<'a> OutlineResolver<'a> {
         resolved_target
     }
 
-    fn resolve_classes_and_hierarchy(
-        &mut self,
-    ) -> (Vec<ClassTypeData>, ClassHierarchy) {
+    fn resolve_classes_and_hierarchy(&mut self) -> (Vec<ClassTypeData>, ClassHierarchy) {
         let mut class_type_data = Vec::with_capacity(self.program.classes.len());
         let mut hierarchy_inputs: Vec<Option<crate::hierarchy::ImmediateSupertypeInput>> =
             Vec::with_capacity(self.program.classes.len());
@@ -314,9 +308,9 @@ impl<'a> OutlineResolver<'a> {
                 scope.insert(p_elem.name, pid);
             }
 
-            let supertype = class.supertype.map(|(unit, ast_id)| {
-                self.resolve_annotation(unit, ast_id, class.library, &scope)
-            });
+            let supertype = class
+                .supertype
+                .map(|(unit, ast_id)| self.resolve_annotation(unit, ast_id, class.library, &scope));
 
             let mixins: Vec<TypeId> = class
                 .mixins
@@ -390,7 +384,8 @@ impl<'a> OutlineResolver<'a> {
                     let decl_node = self.program.unit(unit).ast.decl(decl);
                     if let DeclKind::Variables(var_list) = &decl_node.kind {
                         if let Some(ast_ty) = var_list.ty {
-                            let ty = self.resolve_annotation(unit, ast_ty, var.library, &HashMap::new());
+                            let ty =
+                                self.resolve_annotation(unit, ast_ty, var.library, &HashMap::new());
                             (Some(ty), Some(ty))
                         } else {
                             (None, None)
@@ -460,12 +455,8 @@ impl<'a> OutlineResolver<'a> {
 
         for (i, func) in self.program.functions.iter().enumerate() {
             let func_id = FunctionElementId(i as u32);
-            let (sig, ret, params, tparams) = self.resolve_function_signature(
-                func_id,
-                func,
-                hierarchy,
-                variables,
-            );
+            let (sig, ret, params, tparams) =
+                self.resolve_function_signature(func_id, func, hierarchy, variables);
 
             // Se for acessor implícito de variável, sincronizar se necessário
             if let Some(var_id) = func.variable {
@@ -492,12 +483,7 @@ impl<'a> OutlineResolver<'a> {
         func: &FunctionElement,
         hierarchy: &ClassHierarchy,
         variables: &[VariableTypeData],
-    ) -> (
-        TypeId,
-        TypeId,
-        Box<[ParameterTypeData]>,
-        Box<[TypeParamId]>,
-    ) {
+    ) -> (TypeId, TypeId, Box<[ParameterTypeData]>, Box<[TypeParamId]>) {
         let mut scope = self.get_enclosing_type_param_scope(func.class, func.extension);
 
         match func.node {
@@ -581,7 +567,12 @@ impl<'a> OutlineResolver<'a> {
                     nullable: false,
                 });
 
-                (sig, ret_ty, param_types.into_boxed_slice(), func_type_params.into_boxed_slice())
+                (
+                    sig,
+                    ret_ty,
+                    param_types.into_boxed_slice(),
+                    func_type_params.into_boxed_slice(),
+                )
             }
             FunctionRef::Constructor { unit, member } => {
                 let mem_node = &self.program.unit(unit).ast.members[member.0 as usize];
@@ -740,7 +731,8 @@ impl<'a> OutlineResolver<'a> {
                     if let FunctionRef::Function { unit, function } = super_func.node {
                         let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
                         if let Some(ast_ret) = ast_func.return_type {
-                            let super_scope = self.get_enclosing_type_param_scope(Some(super_class), None);
+                            let super_scope =
+                                self.get_enclosing_type_param_scope(Some(super_class), None);
                             let uninstantiated_ret = self.resolve_annotation(
                                 unit,
                                 ast_ret,
@@ -794,7 +786,8 @@ impl<'a> OutlineResolver<'a> {
                             if p.name.as_ref().map(|n| n.sym) == Some(p_name)
                                 && let Some(ast_ty) = p.ty
                             {
-                                let super_scope = self.get_enclosing_type_param_scope(Some(super_class), None);
+                                let super_scope =
+                                    self.get_enclosing_type_param_scope(Some(super_class), None);
                                 let uninstantiated_ty = self.resolve_annotation(
                                     unit,
                                     ast_ty,
@@ -807,8 +800,11 @@ impl<'a> OutlineResolver<'a> {
                                     self.table,
                                     self.core,
                                 )?;
-                                if let Type::Interface { args, .. } = self.table.get(super_ty).clone() {
-                                    let super_params = &self.class_type_params[super_class.0 as usize];
+                                if let Type::Interface { args, .. } =
+                                    self.table.get(super_ty).clone()
+                                {
+                                    let super_params =
+                                        &self.class_type_params[super_class.0 as usize];
                                     let mut subst = HashMap::with_capacity(super_params.len());
                                     for (&sp, &sa) in super_params.iter().zip(args.iter()) {
                                         subst.insert(sp, sa);
@@ -820,7 +816,6 @@ impl<'a> OutlineResolver<'a> {
                     }
                 }
             }
-
         }
         None
     }
@@ -886,7 +881,11 @@ impl<'a> OutlineResolver<'a> {
                         return self.core.void_;
                     }
                     if self.interner.lookup("Never") == Some(sym) {
-                        return if is_nullable { self.core.null } else { self.core.never };
+                        return if is_nullable {
+                            self.core.null
+                        } else {
+                            self.core.never
+                        };
                     }
                     if self.interner.lookup("Null") == Some(sym) {
                         return self.core.null;
@@ -917,10 +916,8 @@ impl<'a> OutlineResolver<'a> {
                     match binding {
                         Some(b) => {
                             if b.ambiguous {
-                                self.diagnostics.push(Diagnostic::new(
-                                    "Referência ambígua de tipo",
-                                    span,
-                                ));
+                                self.diagnostics
+                                    .push(Diagnostic::new("Referência ambígua de tipo", span));
                                 return self.core.dynamic_;
                             }
                             match b.getter {
@@ -937,7 +934,8 @@ impl<'a> OutlineResolver<'a> {
                                         })
                                         .collect();
 
-                                    let is_ext = self.program.class(cid).kind == ClassKind::ExtensionType;
+                                    let is_ext =
+                                        self.program.class(cid).kind == ClassKind::ExtensionType;
                                     if is_ext {
                                         self.table.intern(Type::ExtensionType {
                                             decl: cid,
@@ -1014,7 +1012,8 @@ impl<'a> OutlineResolver<'a> {
                                     })
                                     .collect();
 
-                                let is_ext = self.program.class(cid).kind == ClassKind::ExtensionType;
+                                let is_ext =
+                                    self.program.class(cid).kind == ClassKind::ExtensionType;
                                 if is_ext {
                                     self.table.intern(Type::ExtensionType {
                                         decl: cid,
@@ -1064,10 +1063,8 @@ impl<'a> OutlineResolver<'a> {
                             }
                         },
                         None => {
-                            self.diagnostics.push(Diagnostic::new(
-                                "Tipo prefixado não encontrado",
-                                span,
-                            ));
+                            self.diagnostics
+                                .push(Diagnostic::new("Tipo prefixado não encontrado", span));
                             self.core.dynamic_
                         }
                     }
@@ -1106,12 +1103,8 @@ impl<'a> OutlineResolver<'a> {
                     self.core.dynamic_
                 };
 
-                let (pos, opt, named) = self.resolve_ast_parameter_types(
-                    unit_id,
-                    parameters,
-                    library,
-                    &local_scope,
-                );
+                let (pos, opt, named) =
+                    self.resolve_ast_parameter_types(unit_id, parameters, library, &local_scope);
 
                 self.table.intern(Type::Function {
                     type_params: local_params.into_boxed_slice(),

@@ -5,8 +5,10 @@
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program};
 use dartforge_intern::Interner;
 use dartforge_types::hierarchy::build_class_hierarchy;
-use dartforge_types::subtyping::{is_subtype, SubtypeEnv};
-use dartforge_types::table::{CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeTable, Variance};
+use dartforge_types::subtyping::{SubtypeEnv, is_subtype};
+use dartforge_types::table::{
+    CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeTable, Variance,
+};
 use std::collections::HashMap;
 
 struct TestHarness {
@@ -51,28 +53,30 @@ impl TestHarness {
                 });
             }
 
-            program.classes.push(dartforge_elements::model::ClassElement {
-                name: sym,
-                library: core_lib_id,
-                decl: None,
-                kind,
-                modifiers: dartforge_frontend::ast::ClassModifiers::default(),
-                type_params,
-                supertype: None,
-                mixins: Vec::new(),
-                interfaces: Vec::new(),
-                on: Vec::new(),
-                supertype_class: None,
-                mixin_classes: Vec::new(),
-                interface_classes: Vec::new(),
-                on_classes: Vec::new(),
-                instance_members: HashMap::new(),
-                static_members: HashMap::new(),
-                constructors: HashMap::new(),
-                fields: Vec::new(),
-                enum_constants: Vec::new(),
-                representation: None,
-            });
+            program
+                .classes
+                .push(dartforge_elements::model::ClassElement {
+                    name: sym,
+                    library: core_lib_id,
+                    decl: None,
+                    kind,
+                    modifiers: dartforge_frontend::ast::ClassModifiers::default(),
+                    type_params,
+                    supertype: None,
+                    mixins: Vec::new(),
+                    interfaces: Vec::new(),
+                    on: Vec::new(),
+                    supertype_class: None,
+                    mixin_classes: Vec::new(),
+                    interface_classes: Vec::new(),
+                    on_classes: Vec::new(),
+                    instance_members: HashMap::new(),
+                    static_members: HashMap::new(),
+                    constructors: HashMap::new(),
+                    fields: Vec::new(),
+                    enum_constants: Vec::new(),
+                    representation: None,
+                });
 
             core_lib.scope.insert(
                 sym,
@@ -120,31 +124,33 @@ impl TestHarness {
 
         let fut_cid = ClassId(program.classes.len() as u32);
         let fut_sym = interner.intern("Future");
-        program.classes.push(dartforge_elements::model::ClassElement {
-            name: fut_sym,
-            library: async_lib_id,
-            decl: None,
-            kind: ClassKind::Class,
-            modifiers: dartforge_frontend::ast::ClassModifiers::default(),
-            type_params: vec![dartforge_elements::model::TypeParameterElement {
-                name: interner.intern("T"),
-                bound: None,
-            }],
-            supertype: None,
-            mixins: Vec::new(),
-            interfaces: Vec::new(),
-            on: Vec::new(),
-            supertype_class: Some(obj_cid),
-            mixin_classes: Vec::new(),
-            interface_classes: Vec::new(),
-            on_classes: Vec::new(),
-            instance_members: HashMap::new(),
-            static_members: HashMap::new(),
-            constructors: HashMap::new(),
-            fields: Vec::new(),
-            enum_constants: Vec::new(),
-            representation: None,
-        });
+        program
+            .classes
+            .push(dartforge_elements::model::ClassElement {
+                name: fut_sym,
+                library: async_lib_id,
+                decl: None,
+                kind: ClassKind::Class,
+                modifiers: dartforge_frontend::ast::ClassModifiers::default(),
+                type_params: vec![dartforge_elements::model::TypeParameterElement {
+                    name: interner.intern("T"),
+                    bound: None,
+                }],
+                supertype: None,
+                mixins: Vec::new(),
+                interfaces: Vec::new(),
+                on: Vec::new(),
+                supertype_class: Some(obj_cid),
+                mixin_classes: Vec::new(),
+                interface_classes: Vec::new(),
+                on_classes: Vec::new(),
+                instance_members: HashMap::new(),
+                static_members: HashMap::new(),
+                constructors: HashMap::new(),
+                fields: Vec::new(),
+                enum_constants: Vec::new(),
+                representation: None,
+            });
 
         async_lib.scope.insert(
             fut_sym,
@@ -224,7 +230,7 @@ impl TestHarness {
         ret: TypeId,
         pos: &[TypeId],
         opt: &[TypeId],
-        named: &[( &str, TypeId, bool )],
+        named: &[(&str, TypeId, bool)],
         nullable: bool,
     ) -> TypeId {
         let mut named_vec = Vec::new();
@@ -242,12 +248,7 @@ impl TestHarness {
         })
     }
 
-    fn record_type(
-        &mut self,
-        pos: &[TypeId],
-        named: &[(&str, TypeId)],
-        nullable: bool,
-    ) -> TypeId {
+    fn record_type(&mut self, pos: &[TypeId], named: &[(&str, TypeId)], nullable: bool) -> TypeId {
         let mut named_vec = Vec::new();
         for &(name, ty) in named {
             let sym = self.interner.intern(name);
@@ -306,14 +307,15 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         }
 
         for &iface in &class.interface_classes {
-            let iface_args: Vec<TypeId> = if class.name == h.interner.intern("List") && !formals.is_empty() {
-                vec![h.table.intern(Type::TypeParameter {
-                    param: formals[0],
-                    nullable: false,
-                })]
-            } else {
-                Vec::new()
-            };
+            let iface_args: Vec<TypeId> =
+                if class.name == h.interner.intern("List") && !formals.is_empty() {
+                    vec![h.table.intern(Type::TypeParameter {
+                        param: formals[0],
+                        nullable: false,
+                    })]
+                } else {
+                    Vec::new()
+                };
 
             direct.push(h.table.intern(Type::Interface {
                 class: iface,
@@ -380,7 +382,6 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (void_ty, void_ty, true, "void <: void"),
         (null_ty, null_ty, true, "Null <: Null"),
         (never_ty, never_ty, true, "Never <: Never"),
-
         // --- 2. Right Top ---
         (int_ty, dynamic_ty, true, "int <: dynamic"),
         (int_ty, void_ty, true, "int <: void"),
@@ -394,13 +395,11 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (object_null, dynamic_ty, true, "Object? <: dynamic"),
         (void_ty, object_null, true, "void <: Object?"),
         (object_null, void_ty, true, "Object? <: void"),
-
         // --- 3. Left Top ---
         (dynamic_ty, int_ty, false, "dynamic <: int"),
         (void_ty, int_ty, false, "void <: int"),
         (dynamic_ty, object_ty, false, "dynamic <: Object"),
         (void_ty, object_ty, false, "void <: Object"),
-
         // --- 4. Left Bottom (Never) ---
         (never_ty, int_ty, true, "Never <: int"),
         (never_ty, string_ty, true, "Never <: String"),
@@ -409,7 +408,6 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (never_ty, fut_or_int, true, "Never <: FutureOr<int>"),
         (never_ty, fn_int_to_void, true, "Never <: FunctionType"),
         (never_ty, rec_int_str, true, "Never <: RecordType"),
-
         // --- 5. Right Object ---
         (int_ty, object_ty, true, "int <: Object"),
         (num_ty, object_ty, true, "num <: Object"),
@@ -420,9 +418,13 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (int_null, object_ty, false, "int? <: Object"),
         (null_ty, object_ty, false, "Null <: Object"),
         (fut_or_int, object_ty, true, "FutureOr<int> <: Object"),
-        (fut_or_int_null, object_ty, false, "FutureOr<int?> <: Object"),
+        (
+            fut_or_int_null,
+            object_ty,
+            false,
+            "FutureOr<int?> <: Object",
+        ),
         (t_extends_num, object_ty, true, "T extends num <: Object"),
-
         // --- 6. Left Null & Nulabilidade ---
         (null_ty, int_null, true, "Null <: int?"),
         (null_ty, string_ty, false, "Null <: String"),
@@ -434,34 +436,95 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (int_null, num_null, true, "int? <: num?"),
         (int_null, num_ty, false, "int? <: num"),
         (num_null, int_null, false, "num? <: int?"),
-
         // --- 7. FutureOr ---
         (int_ty, fut_or_int, true, "int <: FutureOr<int>"),
         (fut_int, fut_or_int, true, "Future<int> <: FutureOr<int>"),
         (fut_int, fut_or_num, true, "Future<int> <: FutureOr<num>"),
         (string_ty, fut_or_int, false, "String <: FutureOr<int>"),
-        (fut_or_int, fut_or_num, true, "FutureOr<int> <: FutureOr<num>"),
-        (fut_or_int_null, fut_or_int, false, "FutureOr<int?> <: FutureOr<int>"),
-
+        (
+            fut_or_int,
+            fut_or_num,
+            true,
+            "FutureOr<int> <: FutureOr<num>",
+        ),
+        (
+            fut_or_int_null,
+            fut_or_int,
+            false,
+            "FutureOr<int?> <: FutureOr<int>",
+        ),
         // --- 8. Tipos de Função ---
-        (fn_int_to_void, fn_num_to_void, false, "void Function(int) <: void Function(num)"),
-        (fn_num_to_void, fn_int_to_void, true, "void Function(num) <: void Function(int)"),
-        (fn_void_to_int, fn_void_to_num, true, "int Function() <: num Function()"),
-        (fn_void_to_num, fn_void_to_int, false, "num Function() <: int Function()"),
-        (fn_opt_pos, fn_req_pos, true, "void Function(int, [int]) <: void Function(int)"),
-        (fn_req_pos, fn_opt_pos, false, "void Function(int) <: void Function(int, [int])"),
-        (fn_named_req, fn_named_opt, false, "({required int a}) -> void <: ({int? a}) -> void"),
-        (fn_named_opt, fn_named_req, true, "({int? a}) -> void <: ({required int a}) -> void"),
-        (fn_int_to_void, h.core.function, true, "FunctionType <: Function"),
+        (
+            fn_int_to_void,
+            fn_num_to_void,
+            false,
+            "void Function(int) <: void Function(num)",
+        ),
+        (
+            fn_num_to_void,
+            fn_int_to_void,
+            true,
+            "void Function(num) <: void Function(int)",
+        ),
+        (
+            fn_void_to_int,
+            fn_void_to_num,
+            true,
+            "int Function() <: num Function()",
+        ),
+        (
+            fn_void_to_num,
+            fn_void_to_int,
+            false,
+            "num Function() <: int Function()",
+        ),
+        (
+            fn_opt_pos,
+            fn_req_pos,
+            true,
+            "void Function(int, [int]) <: void Function(int)",
+        ),
+        (
+            fn_req_pos,
+            fn_opt_pos,
+            false,
+            "void Function(int) <: void Function(int, [int])",
+        ),
+        (
+            fn_named_req,
+            fn_named_opt,
+            false,
+            "({required int a}) -> void <: ({int? a}) -> void",
+        ),
+        (
+            fn_named_opt,
+            fn_named_req,
+            true,
+            "({int? a}) -> void <: ({required int a}) -> void",
+        ),
+        (
+            fn_int_to_void,
+            h.core.function,
+            true,
+            "FunctionType <: Function",
+        ),
         (int_ty, h.core.function, false, "int <: Function"),
-
         // --- 9. Tipos de Record ---
-        (rec_int_str, rec_num_obj, true, "(int, {String b}) <: (num, {Object b})"),
-        (rec_num_obj, rec_int_str, false, "(num, {Object b}) <: (int, {String b})"),
+        (
+            rec_int_str,
+            rec_num_obj,
+            true,
+            "(int, {String b}) <: (num, {Object b})",
+        ),
+        (
+            rec_num_obj,
+            rec_int_str,
+            false,
+            "(num, {Object b}) <: (int, {String b})",
+        ),
         (rec_int_int, h.core.record, true, "(int, int) <: Record"),
         (h.core.record, rec_int_int, false, "Record <: (int, int)"),
         (rec_int_str, int_ty, false, "RecordType <: int"),
-
         // --- 10. Tipos de Interface & Genéricos ---
         (int_ty, num_ty, true, "int <: num"),
         (num_ty, int_ty, false, "num <: int"),
@@ -471,7 +534,6 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (list_int, iter_int, true, "List<int> <: Iterable<int>"),
         (list_int, iter_num, true, "List<int> <: Iterable<num>"),
         (list_num, iter_int, false, "List<num> <: Iterable<int>"),
-
         // --- 11. Variáveis de Tipo e Bounds ---
         (t_extends_num, num_ty, true, "T extends num <: num"),
         (num_ty, t_extends_num, false, "num <: T extends num"),
@@ -489,15 +551,23 @@ fn test_tabela_60_casos_subtipagem_normativa() {
             passou += 1;
         } else {
             falhou += 1;
-            eprintln!("FALHA: {} (esperado: {}, obtido: {})", desc, esperado, resultado);
+            eprintln!(
+                "FALHA: {} (esperado: {}, obtido: {})",
+                desc, esperado, resultado
+            );
         }
     }
 
     assert_eq!(
-        falhou, 0,
+        falhou,
+        0,
         "Falharam {}/{} casos da tabela de subtipagem normativa!",
         falhou,
         passou + falhou
     );
-    assert!(passou >= 60, "Esperado pelo menos 60 casos, rodou {}", passou);
+    assert!(
+        passou >= 60,
+        "Esperado pelo menos 60 casos, rodou {}",
+        passou
+    );
 }

@@ -163,7 +163,10 @@ pub fn substitute(
     let t = table.get(ty).clone();
     match t {
         Type::Dynamic | Type::Void | Type::Never | Type::Null => ty,
-        Type::TypeParameter { param, nullable: is_null } => {
+        Type::TypeParameter {
+            param,
+            nullable: is_null,
+        } => {
             if let Some(&replacement) = mapping.get(&param) {
                 if is_null {
                     nullable(replacement, table)
@@ -174,7 +177,11 @@ pub fn substitute(
                 ty
             }
         }
-        Type::Interface { class, args, nullable: is_null } => {
+        Type::Interface {
+            class,
+            args,
+            nullable: is_null,
+        } => {
             let mut changed = false;
             let mut new_args = Vec::with_capacity(args.len());
             for &arg in args.iter() {
@@ -194,7 +201,11 @@ pub fn substitute(
                 ty
             }
         }
-        Type::ExtensionType { decl, args, nullable: is_null } => {
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable: is_null,
+        } => {
             let mut changed = false;
             let mut new_args = Vec::with_capacity(args.len());
             for &arg in args.iter() {
@@ -214,7 +225,10 @@ pub fn substitute(
                 ty
             }
         }
-        Type::FutureOr { arg, nullable: is_null } => {
+        Type::FutureOr {
+            arg,
+            nullable: is_null,
+        } => {
             let new_arg = substitute(arg, mapping, table);
             if new_arg != arg {
                 table.intern(Type::FutureOr {
@@ -341,7 +355,10 @@ pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId 
     match t {
         Type::Dynamic | Type::Void | Type::Null => ty,
         Type::Never => ty,
-        Type::FutureOr { arg, nullable: is_null } => {
+        Type::FutureOr {
+            arg,
+            nullable: is_null,
+        } => {
             let norm_arg = normalize(arg, table, core);
             if norm_arg == core.never {
                 if let Some(future_class) = core.future_class {
@@ -353,7 +370,11 @@ pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId 
                     return fut;
                 }
             } else if norm_arg == core.object {
-                return if is_null { core.object_nullable } else { core.object };
+                return if is_null {
+                    core.object_nullable
+                } else {
+                    core.object
+                };
             } else if norm_arg == core.dynamic_ {
                 return core.dynamic_;
             } else if norm_arg == core.void_ {
@@ -371,7 +392,11 @@ pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId 
                 ty
             }
         }
-        Type::Interface { class, args, nullable: is_null } => {
+        Type::Interface {
+            class,
+            args,
+            nullable: is_null,
+        } => {
             let mut changed = false;
             let mut new_args = Vec::with_capacity(args.len());
             for &a in args.iter() {
@@ -391,7 +416,11 @@ pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId 
                 ty
             }
         }
-        Type::ExtensionType { decl, args, nullable: is_null } => {
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable: is_null,
+        } => {
             let mut changed = false;
             let mut new_args = Vec::with_capacity(args.len());
             for &a in args.iter() {
@@ -427,7 +456,11 @@ pub fn erase_extension_type(
 ) -> TypeId {
     let t = table.get(ty).clone();
     match t {
-        Type::ExtensionType { decl, args, nullable: is_null } => {
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable: is_null,
+        } => {
             // Apaga os argumentos primeiro
             let mut erased_args = Vec::with_capacity(args.len());
             for &a in args.iter() {
@@ -444,7 +477,11 @@ pub fn erase_extension_type(
                 ty
             }
         }
-        Type::Interface { class, args, nullable: is_null } => {
+        Type::Interface {
+            class,
+            args,
+            nullable: is_null,
+        } => {
             let mut changed = false;
             let mut new_args = Vec::with_capacity(args.len());
             for &a in args.iter() {
@@ -464,7 +501,10 @@ pub fn erase_extension_type(
                 ty
             }
         }
-        Type::FutureOr { arg, nullable: is_null } => {
+        Type::FutureOr {
+            arg,
+            nullable: is_null,
+        } => {
             let e = erase_extension_type(arg, table, rep_fn);
             if e != arg {
                 table.intern(Type::FutureOr {
@@ -618,21 +658,22 @@ pub fn lub(a: TypeId, b: TypeId, env: &mut crate::subtyping::SubtypeEnv) -> Type
         && let (Some(data_a), Some(_)) = (env.hierarchy.get(c_a), env.hierarchy.get(c_b))
     {
         let mut candidates = Vec::new();
-            for &candidate_ty in data_a.all_supertypes.iter() {
-                if crate::subtyping::is_subtype(b, candidate_ty, env) {
-                    let depth = if let Type::Interface { class: c_cand, .. } = env.table.get(candidate_ty) {
+        for &candidate_ty in data_a.all_supertypes.iter() {
+            if crate::subtyping::is_subtype(b, candidate_ty, env) {
+                let depth =
+                    if let Type::Interface { class: c_cand, .. } = env.table.get(candidate_ty) {
                         env.hierarchy.get(*c_cand).map(|d| d.depth).unwrap_or(0)
                     } else {
                         0
                     };
-                    candidates.push((candidate_ty, depth));
-                }
+                candidates.push((candidate_ty, depth));
             }
+        }
 
-            if !candidates.is_empty() {
-                candidates.sort_by_key(|&(_, depth)| std::cmp::Reverse(depth));
-                return candidates[0].0;
-            }
+        if !candidates.is_empty() {
+            candidates.sort_by_key(|&(_, depth)| std::cmp::Reverse(depth));
+            return candidates[0].0;
+        }
     }
 
     env.core.object
@@ -670,4 +711,3 @@ pub fn glb(a: TypeId, b: TypeId, env: &mut crate::subtyping::SubtypeEnv) -> Type
 
     env.core.never
 }
-
