@@ -1480,18 +1480,26 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
         text.push('}');
         return text;
     }
-    // Campos inicializados por `this.x` e pela lista.
+    // Inicializadores de campo correm primeiro (mesmo quando `this.x` ou a
+    // lista os sobrescrevem); campos sem inicializador que serão atribuídos
+    // não precisam do `null` inicial.
     let mut skip: HashSet<String> = HashSet::new();
     for p in ctor.parameters.iter() {
         if p.this_ {
             if let Some(n) = p.name {
-                skip.insert(ctx.name(n.sym).to_string());
+                let name = ctx.name(n.sym).to_string();
+                if fields.iter().any(|f| f.name == name && f.init.is_none()) {
+                    skip.insert(name);
+                }
             }
         }
     }
     for i in ctor.initializers.iter() {
         if let ast::Initializer::Field { name, .. } = i {
-            skip.insert(ctx.name(name.sym).to_string());
+            let name = ctx.name(name.sym).to_string();
+            if fields.iter().any(|f| f.name == name && f.init.is_none()) {
+                skip.insert(name);
+            }
         }
     }
     emit_field_inits(ctx, m, c, fields, &skip, &mut body);

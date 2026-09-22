@@ -1058,6 +1058,13 @@ impl<'a> Ctx<'a> {
                 if self.is_num_like(&an) && self.is_num_like(&bn) {
                     return self.t_num().with_nullable(nullable);
                 }
+                // Mesma classe: lub dos argumentos.
+                if let (Ty::Iface { class: ca, args: aa, .. }, Ty::Iface { class: cb, args: ab, .. }) = (&an, &bn) {
+                    if ca == cb && aa.len() == ab.len() {
+                        let args = aa.iter().zip(ab.iter()).map(|(x, y)| self.lub(x, y)).collect();
+                        return Ty::Iface { class: *ca, args, nullable };
+                    }
+                }
                 // Procura superclasse comum na cadeia de `extends` de `a`.
                 if let (Ty::Iface { .. }, Ty::Iface { .. }) = (&an, &bn) {
                     let mut cur = Some(an.clone());
