@@ -35,6 +35,7 @@ export 'src/b11_after_content_init.dart';
 export 'src/b12_do_check.dart';
 export 'src/b13_after_content_checked.dart';
 export 'src/b14_ciclo_completo.dart';
+export 'src/b15_estilo_rico.dart';
 export 'src/c01_ligacao_e_texto.dart';
 export 'src/c02_evento_e_ligacao.dart';
 export 'src/c03_dois_elementos_ligados.dart';

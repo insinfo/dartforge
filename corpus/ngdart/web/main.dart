@@ -34,6 +34,7 @@ import 'package:corpus_ngdart/src/b11_after_content_init.template.dart' as b11;
 import 'package:corpus_ngdart/src/b12_do_check.template.dart' as b12;
 import 'package:corpus_ngdart/src/b13_after_content_checked.template.dart' as b13;
 import 'package:corpus_ngdart/src/b14_ciclo_completo.template.dart' as b14;
+import 'package:corpus_ngdart/src/b15_estilo_rico.template.dart' as b15;
 import 'package:corpus_ngdart/src/c01_ligacao_e_texto.template.dart' as c01;
 import 'package:corpus_ngdart/src/c02_evento_e_ligacao.template.dart' as c02;
 import 'package:corpus_ngdart/src/c03_dois_elementos_ligados.template.dart' as c03;
@@ -45,10 +46,6 @@ import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
 import 'package:corpus_ngdart/src/d04_projecao_no_filho.template.dart' as d04;
-import 'package:corpus_ngdart/src/e01_diretiva_simples.template.dart' as e01;
-import 'package:corpus_ngdart/src/e02_diretiva_com_host_binding.template.dart' as e02;
-import 'package:corpus_ngdart/src/e03_diretiva_com_entrada.template.dart' as e03;
-import 'package:corpus_ngdart/src/e04_pipe.template.dart' as e04;
 
 void main() {
   print([
@@ -85,6 +82,7 @@ void main() {
     b12.B12DoCheckNgFactory,
     b13.B13AfterContentCheckedNgFactory,
     b14.B14CicloCompletoNgFactory,
+    b15.B15EstiloRicoNgFactory,
     c01.C01LigacaoETextoNgFactory,
     c02.C02EventoELigacaoNgFactory,
     c03.C03DoisElementosLigadosNgFactory,
@@ -96,9 +94,5 @@ void main() {
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
     d04.D04ProjecaoNoFilhoNgFactory,
-    e01.E01DiretivaSimplesNgFactory,
-    e02.E02DiretivaComHostBindingNgFactory,
-    e03.E03DiretivaComEntradaNgFactory,
-    e04.E04PipeNgFactory,
   ].length);
 }

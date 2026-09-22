@@ -17,6 +17,7 @@
 //! continua vindo do `build_runner`. A aplicação funciona em todos os passos e
 //! o placar diz exatamente onde estamos.
 pub mod componente;
+pub mod css;
 pub mod dom;
 pub mod expr;
 pub mod html;
@@ -221,7 +222,7 @@ pub fn gerar_em(
     let indice = Indice::montar(pacote, &arquivos, programa);
 
     for (p, nome, achados) in &arquivos {
-        let (texto, entradas) =
+        let (texto, entradas, extras) =
             match gerar_arquivo(pacote, p, nome, achados, resolvedor, interner, &indice) {
                 Ok(x) => x,
                 Err(motivo) => {
@@ -240,7 +241,10 @@ pub fn gerar_em(
                     continue;
                 }
             };
-        c.por(caminho_do_template(p), texto, "ngdart", entradas);
+        c.por(caminho_do_template(p), texto, "ngdart", entradas.clone());
+        for (destino, conteudo) in extras {
+            c.por(destino, conteudo, "ngdart", entradas.clone());
+        }
         placar.gerados += 1;
     }
 }
@@ -370,9 +374,9 @@ fn gerar_arquivo(
     resolvedor: Option<&dyn resolucao::Resolucao>,
     nomes: &mut Interner,
     indice: &Indice,
-) -> Result<(String, Vec<PathBuf>), Motivo> {
+) -> Result<(String, Vec<PathBuf>, Vec<(PathBuf, String)>), Motivo> {
     if achados.trivial() {
-        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
+        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new()));
     }
     if !achados.injetores.is_empty() {
         return Err(Motivo::Injetor);
@@ -384,7 +388,7 @@ fn gerar_arquivo(
         if achados.tem_hospedeiro {
             return Err(Motivo::DiretivaOuPipe);
         }
-        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()]));
+        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new()));
     }
     if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
         return Err(Motivo::DiretivaOuPipe);
@@ -419,7 +423,21 @@ fn gerar_arquivo(
     let texto = visao::template_de_componente(comp, &local, &nos, resolvedor, nomes, &filhos)?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
-    Ok((texto, entradas))
+    // A folha compilada é um arquivo à parte, como o oficial gera: o
+    // `<nome>.css.shim.dart` que o template importa.
+    let mut extras = Vec::new();
+    for url in &comp.style_urls {
+        let css = fonte.parent().ok_or(Motivo::Estilos)?.join(url);
+        let texto_css = std::fs::read_to_string(&css).map_err(|_| Motivo::Estilos)?;
+        let shim = css::shim(&texto_css)?;
+        let destino = css.with_file_name(format!(
+            "{}.shim.dart",
+            css.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        extras.push((destino, format!("final List<Object> styles = ['{shim}'];")));
+        entradas.push(css);
+    }
+    Ok((texto, entradas, extras))
 }
 
 /// URI `package:` do arquivo do template — o que o oficial escreve no

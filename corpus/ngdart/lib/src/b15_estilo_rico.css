@@ -1,0 +1,22 @@
+/* um comentário */
+:host {
+  display: block;
+}
+
+.a .b {
+  color: red;
+}
+
+.c, .d {
+  margin: 0 auto;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+  .a {
+    display: none;
+  }
+}

@@ -252,6 +252,15 @@ pub struct Local<'a> {
 }
 
 impl Local<'_> {
+    /// URI `package:` do `.css.shim.dart` de uma folha do `styleUrls`.
+    fn uri_do_estilo(&self, url: &str) -> Option<String> {
+        let dentro = self.relativo.strip_prefix("lib/")?;
+        let dir = dentro.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        let caminho =
+            if dir.is_empty() { url.to_string() } else { format!("{dir}/{url}") };
+        Some(format!("package:{}/{caminho}.shim.dart", self.pacote))
+    }
+
     /// URI `asset:` deste arquivo — o espaço em que o emissor oficial calcula
     /// os caminhos de import.
     fn asset(&self) -> String {
@@ -293,6 +302,8 @@ struct Corpo<'a> {
     asset: String,
     /// Banco semântico e o arquivo, para tipar cadeias como `item.nome`.
     tipos: Option<(&'a dyn Resolucao, &'a Path)>,
+    /// O componente tem folha de estilo: cada elemento ganha `addShimC`.
+    com_estilo: bool,
     /// Para analisar as expressões do template, que são expressões Dart.
     nomes: &'a mut dartforge_intern::Interner,
     /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
@@ -675,6 +686,11 @@ impl Corpo<'_> {
                     for l in &e.propriedades {
                         self.propriedade(l, &alvo)?;
                     }
+                    if self.com_estilo {
+                        // Isolamento de estilo por atributo: o elemento entra
+                        // no escopo do componente.
+                        self.linhas.push(format!("    this.addShimC({alvo});"));
+                    }
                     self.nos(&e.filhos, &alvo)?;
                     for l in &e.eventos {
                         self.evento(l, &alvo)?;
@@ -864,8 +880,9 @@ pub fn template_de_componente(
     nomes: &mut dartforge_intern::Interner,
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> Result<String, Motivo> {
-    if !c.style_urls.is_empty() || !c.styles.is_empty() {
-        return Err(Motivo::Estilos); // mudam `styles$X` e ligam o shim
+    if !c.styles.is_empty() {
+        // `styles: ['…']` escrito na anotação ainda não.
+        return Err(Motivo::Estilos);
     }
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
@@ -874,6 +891,19 @@ pub fn template_de_componente(
     }
 
     let mut imp = Importacoes::default();
+    // A folha compilada é o primeiro import do arquivo, antes de tudo.
+    let estilo = match c.style_urls.len() {
+        0 => None,
+        1 => {
+            // A folha entra pela URI `package:` mesmo estando ao lado: é
+            // assim que o oficial escreve (o resolvedor de `styleUrls` é
+            // outro, e não passa pelo caminho relativo).
+            let uri = local.uri_do_estilo(&c.style_urls[0]).ok_or(Motivo::Estilos)?;
+            Some(imp.alias(&uri))
+        }
+        // Mais de uma folha muda a lista de `styles$X`; uma de cada vez.
+        _ => return Err(Motivo::Estilos),
+    };
     let vista = imp.alias(COMPONENT_VIEW);
     let proprio = imp.alias(local.arquivo);
     // Os campos da visão saem antes de tudo na classe, então os seus imports
@@ -910,6 +940,7 @@ pub fn template_de_componente(
         filhos,
         asset: local.asset(),
         tipos: resolvedor.map(|r| (r, local.caminho)),
+        com_estilo: !c.style_urls.is_empty(),
         campos_expr: Vec::new(),
         campos_el: Vec::new(),
         proxima_ligacao: 0,
@@ -1003,6 +1034,11 @@ pub fn template_de_componente(
     let x = &c.classe;
     let seletor = &c.seletor;
     let estado = if c.on_push { "waitingToBeChecked" } else { "checkAlways" };
+    // Sem folha, a lista é constante e o estilo não é encapsulado.
+    let (lista_de_estilos, encapsulamento) = match &estilo {
+        Some(a) => (format!("[{a}.styles]"), "scoped"),
+        None => ("const []".to_string(), "unscoped"),
+    };
     let asset = format!("asset:{}/{}", local.pacote, local.relativo);
 
     let mut s = String::with_capacity(4096);
@@ -1012,7 +1048,7 @@ pub fn template_de_componente(
     let _ = write!(
         s,
         "
-final List<Object> styles${x} = const [];
+final List<Object> styles${x} = {lista_de_estilos};
 
 class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
 {campos}  static {estilos}.ComponentStyles? _componentStyles;
@@ -1036,7 +1072,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
   void initComponentStyles() {{
     var styles = _componentStyles;
     if ((styles == null)) {{
-      _componentStyles = (styles = {estilos}.ComponentStyles.unscoped(styles${x}, _debugComponentUrl));
+      _componentStyles = (styles = {estilos}.ComponentStyles.{encapsulamento}(styles${x}, _debugComponentUrl));
       if ({util}.isDevMode) {{
         {estilos}.ComponentStyles.debugOnClear(_debugClearComponentStyles);
       }}
