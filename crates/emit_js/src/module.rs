@@ -496,20 +496,21 @@ fn emit_extension_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext:
         (tp.id, js::ident(&tp.name))
     }).collect();
     let (text, _) = if f.static_ {
-        function_text_ext(ctx, m, fid, &ext_tps, None)
+        function_text_ext(ctx, m, fid, &ext_tps, None, ext)
     } else {
-        function_text_ext(ctx, m, fid, &ext_tps, Some(&on_ty))
+        function_text_ext(ctx, m, fid, &ext_tps, Some(&on_ty), ext)
     };
     w.line(&format!("{lvar}[{}] = {text};", js::string_literal(&key)));
 }
 
-fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &[(u32, String)], this_ty: Option<&Ty>) -> (String, AsyncKind) {
+fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &[(u32, String)], this_ty: Option<&Ty>, ext: dartforge_elements::model::ExtensionId) -> (String, AsyncKind) {
     let f = ctx.program.function(fid);
     let FunctionRef::Function { unit, function } = f.node else {
         return (String::new(), AsyncKind::None);
     };
     let af = ctx.program.unit(unit).ast.function(function);
     let mut e = FnEmitter::new(ctx, m, unit, None, true);
+    e.current_extension = Some(ext);
     let data = &ctx.outline.functions[fid.0 as usize];
     let mut params_js: Vec<String> = Vec::new();
     for (id, jsn) in ext_tps {

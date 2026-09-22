@@ -56,6 +56,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let (js, ty) = self.emit_element_call(el, &n, arguments, expected);
                         (js, ty, vec![])
                     }
+                    IdentTarget::ExtThisMember(_) => {
+                        let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
+                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false);
+                        (js, ty, vec![])
+                    }
+                    IdentTarget::ExtMember(ext, fid) => {
+                        let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
+                        let _ = (ext, fid);
+                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false);
+                        (js, ty, vec![])
+                    }
+                    IdentTarget::ExtStatic(ext, _) => {
+                        let (js, ty) = self.static_extension_call(ext, &n, arguments, expected).unwrap_or((Js::prim("null"), Ty::Dynamic));
+                        (js, ty, vec![])
+                    }
                     IdentTarget::TypeParam(_) | IdentTarget::Prefix(_) | IdentTarget::Unknown => {
                         let (args, _, _) = self.emit_args_plain(arguments);
                         (Js::prim(format!("dart.dcall({}, [{}])", js::ident(&n), args.join(", "))), Ty::Dynamic, vec![])

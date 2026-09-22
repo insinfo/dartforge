@@ -479,10 +479,20 @@ pub fn decode_string(
 ) -> Result<DartStr, String> {
     let mut content = content;
     if strip_leading_newline {
-        if let Some(rest) = content.strip_prefix("\r\n") {
-            content = rest;
-        } else if let Some(rest) = content.strip_prefix('\n') {
-            content = rest;
+        // §17.7: a primeira linha é removida se só tem espaços/tabs,
+        // opcionalmente um `\`, e a quebra de linha.
+        let bytes = content.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+            i += 1;
+        }
+        if i < bytes.len() && bytes[i] == b'\\' {
+            i += 1;
+        }
+        if content[i..].starts_with("\r\n") {
+            content = &content[i + 2..];
+        } else if content[i..].starts_with('\n') {
+            content = &content[i + 1..];
         }
     }
     if raw {

@@ -688,6 +688,12 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// `C<dynamic, …>`: classe como literal de tipo sem argumentos.
+    pub fn this_ty_default(&self, c: ClassId) -> Ty {
+        let args = self.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
+        Ty::Iface { class: c, args, nullable: false }
+    }
+
     /// Tipo `this` de uma classe: `C<T1..Tn>`.
     pub fn this_ty(&self, c: ClassId) -> Ty {
         let args = self.class_params[c.0 as usize]
@@ -940,17 +946,22 @@ impl<'a> Ctx<'a> {
             if !libs.contains(&imp.library) {
                 libs.push(imp.library);
             }
-            // Exports das importadas (um nível).
-            for exp in &self.program.library(imp.library).exports {
-                if !libs.contains(&exp.library) {
-                    libs.push(exp.library);
-                }
-            }
         }
         if let Some(c) = self.program.core {
             if !libs.contains(&c) {
                 libs.push(c);
             }
+        }
+        // Exports transitivos das bibliotecas visíveis.
+        let mut i = 0;
+        while i < libs.len() {
+            let cur = libs[i];
+            for exp in &self.program.library(cur).exports {
+                if !libs.contains(&exp.library) {
+                    libs.push(exp.library);
+                }
+            }
+            i += 1;
         }
         let mut out = Vec::new();
         for (i, e) in self.program.extensions.iter().enumerate() {

@@ -25,6 +25,11 @@ pub enum IdentTarget {
     Element(Element),
     Prefix(dartforge_intern::SymbolId),
     TypeParam(Ty),
+    /// Membro do receptor implícito `$this` de uma extensão.
+    ExtThisMember(Member),
+    /// Membro de instância da própria extensão (chamado com `$this`).
+    ExtMember(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
+    ExtStatic(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
     Unknown,
 }
 
@@ -37,6 +42,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let n = self.name(sym);
         if let Some(t) = self.type_param_by_name(n) {
             return IdentTarget::TypeParam(t);
+        }
+        if let Some(t) = self.extension_this.clone() {
+            // Membros da própria extensão, depois do tipo `on`.
+            if let Some(ext) = self.current_extension {
+                let e = self.ctx.program.extension(ext);
+                if let Some(&fid) = e.instance_members.get(&sym) {
+                    return IdentTarget::ExtMember(ext, fid);
+                }
+                if let Some(&fid) = e.static_members.get(&sym) {
+                    return IdentTarget::ExtStatic(ext, fid);
+                }
+            }
+            if let Some(m) = self.ctx.lookup_member(&t, n, false) {
+                return IdentTarget::ExtThisMember(m);
+            }
+            if self.find_extension_member(&t, n, false).is_some() {
+                return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
+            }
         }
         if let Some(c) = self.class {
             if !self.is_static {
@@ -109,7 +132,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let s = if v.fract() == 0.0 && v.abs() < 1e21 {
                     format!("{v:.1}")
                 } else {
-                    text.clone()
+                    let t = text.trim_start_matches('0');
+                    if t.starts_with('.') { format!("0{t}") } else { t.to_string() }
                 };
                 (Js::prim(s), self.ctx.t_double())
             }
@@ -126,6 +150,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Identifier(name) => self.emit_identifier(name.sym, e),
             ExprKind::This => {
+                if let Some(t) = &self.extension_this {
+                    return (Js::prim("$this"), t.clone());
+                }
                 let ty = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
                 (Js::prim("this"), ty)
             }
@@ -146,6 +173,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::FunctionExpression(fid) => self.emit_function_expr(*fid, expected, true),
             ExprKind::TypeArguments { target, type_args } => {
                 let tys: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                if let ExprKind::Identifier(id) = &self.expr(*target).kind {
+                    if let IdentTarget::Element(Element::Class(c)) = self.resolve_ident(id.sym) {
+                        let t = Ty::Iface { class: c, args: tys, nullable: false };
+                        let rti = self.rti(&t);
+                        return (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type());
+                    }
+                }
                 let (fjs, fty) = self.emit_expr(*target, None);
                 let rtis: Vec<String> = tys.iter().map(|t| self.rti(t)).collect();
                 let ret_ty = match &fty {
@@ -788,16 +822,50 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut sorted = named_items.clone();
         sorted.sort_by(|a, b| a.0.cmp(&b.0));
         let in_order = named_items.iter().map(|x| &x.0).eq(sorted.iter().map(|x| &x.0));
+        // Nomeados antes de algum posicional na fonte? Então a ordem de avaliação exige temps.
+        let mut interleaved = false;
+        let mut seen_named = false;
+        for (n, e) in named.iter().map(|(n, e)| (Some(n), *e)).chain(std::iter::empty()) {
+            let _ = (n, e);
+        }
+        {
+            let mut named_spans: Vec<usize> = named.iter().map(|(_, e)| self.expr(*e).span.start).collect();
+            let pos_spans: Vec<usize> = positional.iter().map(|e| self.expr(*e).span.start).collect();
+            named_spans.sort();
+            if let (Some(&first_named), Some(&last_pos)) = (named_spans.first(), pos_spans.last()) {
+                if first_named < last_pos {
+                    interleaved = true;
+                }
+            }
+            let _ = &mut seen_named;
+        }
         let mut prefix = String::new();
-        let sorted_vals: Vec<String> = if in_order || named_items.len() <= 1 {
+        let mut pos_js = pos_js;
+        let sorted_vals: Vec<String> = if (in_order && !interleaved) || (named_items.is_empty()) {
             sorted.iter().map(|x| x.1.clone()).collect()
         } else {
+            // Avalia tudo na ordem da fonte em temps.
             let mut temps: HashMap<String, String> = HashMap::new();
-            for (n, v, _) in &named_items {
+            let mut order: Vec<(usize, Option<String>, String)> = Vec::new();
+            for (i, e) in positional.iter().enumerate() {
+                order.push((self.expr(*e).span.start, None, pos_js[i].clone()));
+            }
+            for ((n, e), (_, v, _)) in named.iter().zip(named_items.iter()) {
+                order.push((self.expr(*e).span.start, Some(self.name(n.sym).to_string()), v.clone()));
+            }
+            order.sort_by_key(|x| x.0);
+            let mut new_pos: Vec<String> = Vec::new();
+            for (_, name, v) in order {
                 let t = self.temp();
                 prefix.push_str(&format!("{t} = {v}, "));
-                temps.insert(n.clone(), t);
+                match name {
+                    Some(n) => {
+                        temps.insert(n, t);
+                    }
+                    None => new_pos.push(t),
+                }
             }
+            pos_js = new_pos;
             sorted.iter().map(|x| temps[&x.0].clone()).collect()
         };
         let names: Vec<String> = sorted.iter().map(|x| x.0.clone()).collect();
@@ -829,7 +897,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             IdentTarget::ThisMember(m) => self.emit_member_get(&Js::prim("this"), &self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic), &n, Some(m)),
             IdentTarget::Static(c, mk) => self.emit_static_get(c, &n, mk),
             IdentTarget::Element(el) => self.emit_element_get(el, &n),
-            IdentTarget::TypeParam(t) => (Js::prim(self.rti(&t)), self.ctx.t_type()),
+            IdentTarget::TypeParam(t) => (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type()),
+            IdentTarget::ExtThisMember(_) => {
+                let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
+                self.emit_member_get(&Js::prim("$this"), &t, &n, None)
+            }
+            IdentTarget::ExtMember(ext, _) | IdentTarget::ExtStatic(ext, _) => {
+                let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
+                let _ = ext;
+                match self.try_extension_get(&Js::prim("$this"), &t, &n) {
+                    Some(r) => r,
+                    None => (Js::prim("null"), Ty::Dynamic),
+                }
+            }
             IdentTarget::Prefix(_) => (Js::prim("null"), Ty::Dynamic),
             IdentTarget::Unknown => (Js::prim(js::ident(&n)), Ty::Dynamic),
         }
@@ -851,7 +931,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, ty) = self.element_ref(el).expect("variável");
                 (Js::prim(js), ty)
             }
-            Element::Class(c) => (Js::prim(self.class_ref(c)), self.ctx.t_type()),
+            Element::Class(c) => {
+                let rti = self.rti(&self.ctx.this_ty_default(c));
+                (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type())
+            }
             _ => (Js::prim(js::ident(n)), Ty::Dynamic),
         }
     }
@@ -1611,6 +1694,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&this_ty, &name, true);
                         (Js::new(format!("this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), self.ctx.member_ty(&m2))
                     }
+                    IdentTarget::ExtThisMember(_) | IdentTarget::ExtMember(..) | IdentTarget::ExtStatic(..) => {
+                        let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
+                        if let Some((ext, _, _)) = self.find_extension_member(&t, &name, true) {
+                            let e = self.ctx.program.extension(ext);
+                            let lib_var = self.lib_var(e.library);
+                            let ext_name = self.extension_js_name(ext);
+                            return (Js::prim(format!("{lib_var}[{}]($this, {})", js::string_literal(&format!("{ext_name}|set#{name}")), v.code)), vty.clone());
+                        }
+                        let access = self.member_access(&t, &name, true);
+                        (Js::new(format!("$this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
+                    }
                     IdentTarget::Static(c, _) => {
                         let cls = self.class_ref(c);
                         (Js::new(format!("{cls}{} = {}", js::prop_access(&static_member_name(&name)), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
@@ -1735,7 +1829,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Some(_) => {
                 let access = self.member_access(recv_ty, "[]=", false);
                 let t = self.temp();
-                Js::new(format!("{t} = {}, {}{access}({}, {t}), {t}", v.code, recv.at(P_PRIMARY), idx.code), P_COMMA).paren()
+                let mut parts = Vec::new();
+                let recv_js = if is_simple(&recv.code) {
+                    recv.at(P_PRIMARY)
+                } else {
+                    let tr = self.temp();
+                    parts.push(format!("{tr} = {}", recv.code));
+                    tr
+                };
+                let idx_js = if is_simple(&idx.code) {
+                    idx.code.clone()
+                } else {
+                    let ti = self.temp();
+                    parts.push(format!("{ti} = {}", idx.code));
+                    ti
+                };
+                parts.push(format!("{t} = {}", v.code));
+                parts.push(format!("{recv_js}{access}({idx_js}, {t})"));
+                parts.push(t);
+                Js::new(parts.join(", "), P_COMMA).paren()
             }
             None => {
                 if let Some((ext, _, _)) = self.find_extension_member(recv_ty, "[]=", false) {
@@ -2088,7 +2200,8 @@ fn parse_int(text: &str) -> String {
             Err(_) => text.to_string(),
         }
     } else {
-        text.to_string()
+        let t = text.trim_start_matches('0');
+        if t.is_empty() { "0".to_string() } else { t.to_string() }
     }
 }
 

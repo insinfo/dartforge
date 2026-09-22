@@ -71,6 +71,9 @@ pub struct FnEmitter<'m, 'a> {
     pub pending_promotions: Vec<(SymbolId, Ty)>,
     pub pending_prefix: Vec<String>,
     pub extension_this: Option<Ty>,
+    pub current_extension: Option<dartforge_elements::model::ExtensionId>,
+    /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
+    pub case_labels: Vec<(String, String, String)>,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -104,6 +107,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             pending_promotions: Vec::new(),
             pending_prefix: Vec::new(),
             extension_this: None,
+            current_extension: None,
+            case_labels: Vec::new(),
         }
     }
 
@@ -1009,6 +1014,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     if let Some(Some(l)) = self.switch_labels.last() {
                         let l = l.clone();
                         self.w.line(&format!("break {l};"));
+                    } else if let Some((_, loop_label, _)) = self.case_labels.last().cloned() {
+                        self.w.line(&format!("break {loop_label};"));
                     } else {
                         self.w.line("break;");
                     }
@@ -1016,8 +1023,14 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             },
             StmtKind::Continue(label) => match label {
                 Some(l) => {
-                    let js = self.js_label(self.name(l.sym));
-                    self.w.line(&format!("continue {js};"));
+                    let n = self.name(l.sym).to_string();
+                    if let Some((_, loop_label, state)) = self.case_labels.iter().rev().find(|(k, _, _)| *k == n).cloned() {
+                        self.w.line(&format!("t$state = {state};"));
+                        self.w.line(&format!("continue {loop_label};"));
+                    } else {
+                        let js = self.js_label(&n);
+                        self.w.line(&format!("continue {js};"));
+                    }
                 }
                 None => self.w.line("continue;"),
             },
@@ -1276,15 +1289,61 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             || matches!(vty, Ty::Iface { class, .. } if Some(class) == self.ctx.type_);
         if all_const && prim {
             let label = self.fresh_label();
+            let has_case_labels = cases.iter().any(|c| !c.labels.is_empty());
             self.switch_labels.push(None);
+            if has_case_labels {
+                // `continue rótulo` para outro case: laço com variável de estado.
+                self.w.line(&format!("t$state = {};", vjs.code));
+                self.temps.push("t$state".into());
+                self.temps.dedup();
+                self.w.line(&format!("{label}:"));
+                self.w.open("while (true) {");
+                self.w.open("switch (t$state) {");
+                let mut n_pushed = 0;
+                for c in cases {
+                    if let Some(p) = c.pattern {
+                        let consts = self.const_pattern_values(p);
+                        if let Some(first) = consts.first() {
+                            for l in c.labels.iter() {
+                                self.case_labels.push((self.name(l.sym).to_string(), label.clone(), first.clone()));
+                                n_pushed += 1;
+                            }
+                        }
+                    }
+                }
+                for c in cases {
+                    match c.pattern {
+                        None => self.w.line("default:"),
+                        Some(p) => {
+                            for cv in self.const_pattern_values(p) {
+                                self.w.line(&format!("case {}:", cv));
+                            }
+                        }
+                    }
+                    self.w.open("{");
+                    self.push_scope();
+                    for &s in c.body.iter() {
+                        self.emit_stmt(s);
+                    }
+                    self.pop_scope();
+                    if !self.ends_with_jump(&c.body) {
+                        self.w.line(&format!("break {label};"));
+                    }
+                    self.w.close("}");
+                }
+                self.w.close("}");
+                self.w.line("break;");
+                self.w.close("}");
+                for _ in 0..n_pushed {
+                    self.case_labels.pop();
+                }
+                self.switch_labels.pop();
+                return;
+            }
             self.w.line(&format!("{label}:"));
             self.w.open(&format!("switch ({}) {{", vjs.code));
             for c in cases {
                 let has_stmts = !c.body.is_empty();
-                for l in c.labels.iter() {
-                    let jl = self.fresh_label();
-                    self.labels.push((self.name(l.sym).to_string(), jl));
-                }
                 match c.pattern {
                     None => self.w.line("default:"),
                     Some(p) => {
@@ -1306,9 +1365,6 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         self.w.line(&format!("break {label};"));
                     }
                     self.w.close("}");
-                }
-                for _ in c.labels.iter() {
-                    self.labels.pop();
                 }
             }
             self.w.close("}");
