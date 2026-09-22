@@ -56,10 +56,18 @@ O emissor de desenvolvimento passa **214/214** no corpus e roda dois
 projetos reais no navegador (`new_sali/frontend` e `limitless_ui/example`).
 Leia `docs/EMISSAO-DDC.md`, `docs/CONTRATO-DDC.md` e `ESTADO.md` §1.3.
 
-**Medição que motiva o trabalho** (em `ESTADO.md`): a compilação de
-produção do `limitless_ui/example` pelo `build_web_compilers --release`
-(que é o `dart2js`) leva **3m33s**; a nossa de desenvolvimento leva 4m11s
-mas não otimiza nada. Não há hoje perfil de produção nosso.
+**Medição que motiva o trabalho.** A nossa compilação de desenvolvimento é
+rápida: **8,8 s** para os 616 módulos do `new_sali/frontend` e **9,7 s**
+para o `limitless_ui/example`, a frio, contra **2m59s** do
+`dart run build_runner build` no mesmo new_sali — e **464 ms** para uma
+edição de componente na sessão residente, contra 1m20s do `build_runner`.
+Velocidade de compilação não é o problema.
+
+O problema é que essa saída **não otimiza nada**: é um módulo ES por
+biblioteca, com despacho dinâmico, sem árvore podada e sem minificação —
+o contrato do DDC, que é de desenvolvimento. Não existe perfil de produção
+nosso. (Os 4m11s contra 3m33s que aparecem no `ESTADO.md` são o tempo da
+**suíte e2e** no puppeteer, não da compilação; não confunda.)
 
 ---
 
