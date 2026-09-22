@@ -271,7 +271,7 @@ dependencies = [
  "dartforge-abi",
  "dartforge-dev",
  "dartforge-emit-js",
- "dartforge-jit",
+ "dartforge-emit-native",
  "dartforge-native",
  "serde_json",
 ]
@@ -376,6 +376,22 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
+ "dartforge-types",
+ "tempfile",
+]
+
+[[package]]
+name = "dartforge-emit-native"
+version = "0.1.0"
+dependencies = [
+ "dartforge-abi",
+ "dartforge-diagnostics",
+ "dartforge-elements",
+ "dartforge-frontend",
+ "dartforge-instrument",
+ "dartforge-intern",
+ "dartforge-native",
+ "dartforge-runtime",
  "dartforge-types",
  "tempfile",
 ]

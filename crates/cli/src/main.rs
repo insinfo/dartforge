@@ -15,6 +15,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "dev" {
         return run_dev(&args[1..]);
     }
+    if args[0] == "compile-native" { return nativo::run_compile_native(&args[1..]); }
     if args[0] == "compile-js" {
         return run_compile_js(&args[1..]);
     }
