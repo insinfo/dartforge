@@ -432,14 +432,202 @@ pub extern "C" fn dartforge_string_equal(a: i64, b: i64) -> u8 {
 }
 
 /// Compara igualdade (== de Dart) entre dois handles de referência.
+///
+/// Caixas comparam por valor, com a regra de `num`: `1 == 1.0` (R9).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_equal(a: i64, b: i64) -> u8 {
     if a == b { return 1; }
     if a == 0 || b == 0 { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        u8::from(heap.string_equal(a, b))
+        match (heap.get(a), heap.get(b)) {
+            (Value::BoxedInt(x), Value::BoxedInt(y)) => u8::from(x == y),
+            (Value::BoxedDouble(x), Value::BoxedDouble(y)) => u8::from(x == y),
+            (Value::BoxedInt(x), Value::BoxedDouble(y)) | (Value::BoxedDouble(y), Value::BoxedInt(x)) => {
+                u8::from((*x as f64) == *y)
+            }
+            (Value::BoxedBool(x), Value::BoxedBool(y)) => u8::from(x == y),
+            _ => u8::from(heap.string_equal(a, b)),
+        }
     })
+}
+
+/// `identical(a, b)` sobre referências, com a semântica da VM
+/// (`Instance::IsIdenticalTo`): mesmo handle, ou dois inteiros de mesmo
+/// valor, ou dois `double` bit a bit iguais (R9).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_identical(a: i64, b: i64) -> u8 {
+    if a == b { return 1; }
+    if a == 0 || b == 0 { return 0; }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match (heap.get(a), heap.get(b)) {
+            (Value::BoxedInt(x), Value::BoxedInt(y)) => u8::from(x == y),
+            (Value::BoxedDouble(x), Value::BoxedDouble(y)) => u8::from(x.to_bits() == y.to_bits()),
+            _ => 0,
+        }
+    })
+}
+
+/// `double` como a VM imprime (`1.0`, `0.5`, `NaN`, `Infinity`).
+fn formatar_double(d: f64) -> String {
+    if d.is_nan() {
+        "NaN".to_string()
+    } else if d.is_infinite() {
+        if d > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }
+    } else if d.fract() == 0.0 {
+        format!("{d:.1}")
+    } else {
+        d.to_string()
+    }
+}
+
+/// `Box` (R3): `int` numa posição `Ref`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_box_int(v: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedInt(v)))
+}
+
+/// `Box`: `double` numa posição `Ref`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_box_double(v: f64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedDouble(v)))
+}
+
+/// `Box`: `bool` numa posição `Ref` (um dos dois singletons).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_box_bool(v: u8) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().caixa_bool(v != 0))
+}
+
+/// Lança o `TypeError` de uma coerção implícita que falhou (`null` ou
+/// outro tipo onde se esperava o escalar).
+fn lancar_type_error() {
+    let err = dartforge_type_error_new();
+    dartforge_exception_throw(err, 3);
+}
+
+/// `Unbox` (R3): `int` de uma referência; null ou outro tipo lança TypeError.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_unbox_int(h: i64) -> i64 {
+    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
+        Some(Value::BoxedInt(i)) => Some(*i),
+        _ => None,
+    });
+    v.unwrap_or_else(|| {
+        lancar_type_error();
+        0
+    })
+}
+
+/// `Unbox`: `double` de uma referência (um `int` encaixotado não é `double`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_unbox_double(h: i64) -> f64 {
+    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
+        Some(Value::BoxedDouble(d)) => Some(*d),
+        _ => None,
+    });
+    v.unwrap_or_else(|| {
+        lancar_type_error();
+        0.0
+    })
+}
+
+/// `Unbox`: `bool` de uma referência.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_unbox_bool(h: i64) -> u8 {
+    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
+        Some(Value::BoxedBool(b)) => Some(*b),
+        _ => None,
+    });
+    v.map_or_else(
+        || {
+            lancar_type_error();
+            0
+        },
+        u8::from,
+    )
+}
+
+/// Elemento como referência (R5/R8): escalar é encaixotado na saída.
+fn valor_como_ref(v: TaggedValue) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().como_ref(v))
+}
+
+/// `lista[i]` numa posição `Ref`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_get_ref(handle: i64, index: i64) -> i64 {
+    let v = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::List(items) => usize::try_from(index).ok().and_then(|i| items.get(i).copied()),
+            _ => None,
+        }
+    });
+    match v {
+        Some(v) => valor_como_ref(v),
+        None => {
+            // Fora dos limites: mesmo RangeError do acessor de bits.
+            dartforge_list_get_bits(handle, index)
+        }
+    }
+}
+
+/// `first`/`last`/`single` numa posição `Ref`: o acessor de bits valida e
+/// lança; aqui só se lê o elemento com a tag.
+fn elemento_extremo_ref(handle: i64, qual: u8) -> i64 {
+    let v = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(handle) {
+            Value::List(items) => match qual {
+                0 => items.first().copied(),
+                1 => items.last().copied(),
+                _ => (items.len() == 1).then(|| items[0]),
+            },
+            _ => None,
+        }
+    });
+    match (v, qual) {
+        (Some(v), _) => valor_como_ref(v),
+        (None, 0) => dartforge_list_first(handle),
+        (None, 1) => dartforge_list_last(handle),
+        (None, _) => dartforge_list_single(handle),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_first_ref(handle: i64) -> i64 {
+    elemento_extremo_ref(handle, 0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_last_ref(handle: i64) -> i64 {
+    elemento_extremo_ref(handle, 1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_list_single_ref(handle: i64) -> i64 {
+    elemento_extremo_ref(handle, 2)
+}
+
+/// `mapa[chave]` (sempre anulável, logo `Ref`): ausente é null.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_map_get_ref(handle: i64, bits: i64, tag: u8) -> i64 {
+    let key = tagged(bits, tag);
+    let v = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        heap.map_contains(handle, key).then(|| heap.map_get(handle, key))
+    });
+    v.map_or(0, valor_como_ref)
+}
+
+/// A exceção pendente como referência (o valor da variável do `catch`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_peek_ref() -> i64 {
+    match EXCEPTION.with(|slot| *slot.borrow()) {
+        Some(v) => valor_como_ref(v),
+        None => 0,
+    }
 }
 
 /// Imprime conteúdo da string gerenciada ou null para handle zero.
@@ -493,6 +681,9 @@ fn safe_to_string(heap: &Heap, handle: i64, output: &mut String) {
             output.push_str(&format!("Instance(length:{}) of '_GrowableList'", items.len()))
         }
         Value::Map(pares) => output.push_str(&format!("_Map len:{}", pares.len())),
+        Value::BoxedInt(i) => output.push_str(&i.to_string()),
+        Value::BoxedDouble(d) => output.push_str(&formatar_double(*d)),
+        Value::BoxedBool(b) => output.push_str(if *b { "true" } else { "false" }),
         Value::Set(items) => output.push_str(&format!("_Set len:{}", items.len())),
         Value::Object { class_id, .. } => {
             let nome = CLASS_NAMES
@@ -575,6 +766,10 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                 | Value::Cell(_) => {
                     output.push_str("Instance");
                 }
+                // Caixas (R3): imprimem como o escalar que carregam.
+                Value::BoxedInt(i) => output.push_str(&i.to_string()),
+                Value::BoxedDouble(d) => output.push_str(&formatar_double(*d)),
+                Value::BoxedBool(b) => output.push_str(if *b { "true" } else { "false" }),
                 Value::Record(items) => {
                     let items: Vec<TaggedValue> = items.clone();
                     output.push('(');
@@ -1394,6 +1589,11 @@ pub extern "C" fn dartforge_set_add(handle: i64, bits: i64, tag: u8) -> u8 {
 /// são lançáveis pelo subconjunto e devolvem -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
+    // null tem classe própria (`Null`): os testes de tipo sobre `Ref`
+    // perguntam a classe sem precisar desviar antes (R, testar_tipo).
+    if handle == 0 {
+        return -12;
+    }
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(handle) {
@@ -1404,6 +1604,9 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
             Value::Map(_) => -4,
             Value::Set(_) => -5,
             Value::Closure { .. } => -6,
+            Value::BoxedInt(_) => -9,
+            Value::BoxedDouble(_) => -10,
+            Value::BoxedBool(_) => -11,
             Value::Record(_) => -7,
             Value::Cell(_) | Value::Environment(_) | Value::RegExp(_) | Value::Match(_) => -1,
         }
@@ -1496,7 +1699,11 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
             .map(|chunk| tagged(chunk[0], chunk[1] as u8))
             .collect()
     };
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::Record(items)))
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let items: Vec<TaggedValue> = items.into_iter().map(|v| heap.normalizar(v)).collect();
+        heap.allocate(Value::Record(items))
+    })
 }
 
 /// Converte um inteiro para string gerenciada no heap.
@@ -2393,14 +2600,7 @@ pub extern "C" fn dartforge_int_try_parse(handle: i64) -> i64 {
         }
     });
     match text.parse::<i64>() {
-        Ok(val) => {
-            HEAP.with(|heap| {
-                heap.borrow_mut().allocate(Value::Object {
-                    class_id: 1013,
-                    fields: vec![(val, false)],
-                })
-            })
-        }
+        Ok(val) => HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedInt(val))),
         Err(_) => 0,
     }
 }
@@ -2672,11 +2872,18 @@ pub extern "C" fn dartforge_error_get_name(handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_error_get_invalid_value(handle: i64) -> i64 {
-    HEAP.with(|heap| {
+    // `invalidValue` é `dynamic`: devolve referência (R5), encaixotando o
+    // inteiro que o `RangeError` guarda como escalar.
+    let campo = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
-        fields.get(2).map_or(0, |(bits, _)| *bits)
-    })
+        let Value::Object { fields, .. } = heap.get(handle) else { return None; };
+        fields.get(2).copied()
+    });
+    match campo {
+        Some((bits, true)) => bits,
+        Some((bits, false)) => valor_como_ref(TaggedValue::scalar(bits)),
+        None => 0,
+    }
 }
 
 #[unsafe(no_mangle)]

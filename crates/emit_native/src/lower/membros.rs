@@ -291,6 +291,77 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         None
     }
 
+    /// `E` de uma `List<E>`/`Iterable<E>` (o primeiro argumento de tipo).
+    pub fn tipo_elemento(&self, ty: TypeId) -> Option<TypeId> {
+        let dartforge_types::table::Type::Interface { class, args, .. } = self.ctx.table.get(ty) else {
+            return None;
+        };
+        let iter = self.ctx.core.iterable_class?;
+        if *class == iter || self.ctx.core.list_class == Some(*class) {
+            return args.first().copied();
+        }
+        // Subtipo de `Iterable<E>` (p. ex. `Runes`): o `E` vem do supertipo
+        // instanciado; sem argumentos a substituir, ele já é o tipo final.
+        let dados = self.ctx.outline.hierarchy.get(*class)?;
+        let sup = *dados.supertypes.get(&iter)?;
+        if !dados.type_params.is_empty() {
+            return None;
+        }
+        match self.ctx.table.get(sup) {
+            dartforge_types::table::Type::Interface { args, .. } => args.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// `lista[i]` lido na representação `repr` (R5): referência pelo
+    /// acessor que encaixota, escalar pelos bits. Índice fora da faixa lança
+    /// `RangeError` (exceção pendente).
+    pub fn ler_elemento_lista(&mut self, lista: Operand, idx: Operand, repr: Type) -> Operand {
+        if repr == Type::Ref {
+            return self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_list_get_ref".to_string(),
+                    args: vec![(lista, Type::Ref), (idx, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+        }
+        let bits = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_list_get_bits".to_string(),
+                args: vec![(lista, Type::Ref), (idx, Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        self.bits_para(bits, repr)
+    }
+
+    /// `first`/`last`/`single` na representação do tipo da expressão.
+    pub fn ler_extremo_lista(&mut self, lista: Operand, qual: &str, expr: ExprId) -> Operand {
+        let repr = self.repr_da_expressao(expr).unwrap_or(Type::Ref);
+        if repr == Type::Ref {
+            return self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: format!("dartforge_list_{qual}_ref"),
+                    args: vec![(lista, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+        }
+        let bits = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: format!("dartforge_list_{qual}"),
+                args: vec![(lista, Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        self.bits_para(bits, repr)
+    }
+
     /// Membro de instância por nome, subindo a cadeia de superclasses.
     pub fn membro_na_classe(&self, cid: ClassId, nome: &str) -> Option<usize> {
         let sym = self.ctx.interner.lookup(nome)?;
@@ -307,14 +378,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     // ------------------------------------------------------------------
     // Leitura de identificadores
-
-    /// Local (ou parâmetro) pelo nome, no escopo corrente.
-    pub fn ler_local_por_nome(&mut self, sym: SymbolId) -> Option<Operand> {
-        if let Some(ptr) = self.local_ptrs.get(&sym).cloned() {
-            return Some(self.emit(Instruction::Load { ptr, ty: Type::I64 }, Type::I64));
-        }
-        self.named_locals.get(&sym).cloned()
-    }
 
     /// Id de classe usado nos testes de tipo do runtime: o `class_id` de um
     /// objeto do usuário, ou o código que `dartforge_value_class` devolve
@@ -967,10 +1030,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.nao_suportado("parâmetro this.x sem campo", p.span);
                 continue;
             };
-            let v = self
-                .named_locals
-                .get(&n.sym)
-                .cloned()
+            let v = self.ler_local_por_nome(n.sym)
                 .expect("parâmetro declarado");
             self.gravar_campo(this.clone(), vid, v, p.span);
         }
@@ -1012,10 +1072,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             super_explicito.unwrap_or((None, Vec::new(), span_ctor));
         for p in ctor.parameters.iter().filter(|p| p.super_) {
             let Some(n) = p.name else { continue };
-            let v = self
-                .named_locals
-                .get(&n.sym)
-                .cloned()
+            let v = self.ler_local_por_nome(n.sym)
                 .expect("parâmetro declarado");
             let nome = if p.kind == ParameterKind::Named {
                 Some(n.sym)
@@ -1033,7 +1090,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for p in ctor.parameters.iter() {
             if p.this_ {
                 if let Some(n) = p.name {
-                    self.named_locals.remove(&n.sym);
+                    self.remover_local(n.sym);
                 }
             }
         }

@@ -5,7 +5,9 @@
 
 pub mod atribuicao;
 pub mod fn_builder;
+pub mod locais;
 pub mod membros;
+pub mod operadores;
 
 use crate::context::Context;
 use crate::hir::*;

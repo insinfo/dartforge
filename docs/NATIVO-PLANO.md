@@ -399,7 +399,14 @@ representação ser honesta transforma cada escalar em posição `Ref` num
   runtime escolhe o **acessor** pela representação de destino (`*_get_ref`
   encaixota escalares; `*_get_bits` devolve os bits para `I64`/`F64`/`I1`) —
   nunca lê bits como `I64` para depois "coagir" a `Ref`, o que encaixotaria
-  um handle.
+  um handle. Duas exceções medidas no passo 2: (a) expressão de tipo
+  `dynamic` (ou sem tipo — corpo que a inferência ainda não visita) não é
+  forçada a `Ref`; ela fica na representação em que foi produzida, e as
+  fronteiras coagem pela representação **real** do operando; (b) a
+  inferência ainda não grava a promoção de fluxo no tipo da leitura
+  (`if (x != null) x + 1` lê `x` como `int?`), então o operando `Ref` de um
+  operador aritmético cujo tipo estático é `int?`/`double?` volta ao escalar
+  por `Unbox` ali — num programa válido ele não é null nesse ponto.
 * **R6.** Cada variável local declarada tem um `alloca` no tipo da sua
   representação, criado no bloco de entrada da função; leitura é `Load` no
   mesmo tipo, escrita é `Store` depois de `coagir`. Parâmetros também moram

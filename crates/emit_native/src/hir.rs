@@ -27,6 +27,8 @@ pub enum Type {
     Ref,
     /// Retorno vazio.
     Void,
+    /// Endereço de um `alloca` (local em memória, R6). Nunca é valor Dart.
+    Ptr,
 }
 
 impl Type {
@@ -39,6 +41,7 @@ impl Type {
             Self::I1 => "i1",
             Self::Ref => "i64",
             Self::Void => "void",
+            Self::Ptr => "ptr",
         }
     }
 }
@@ -122,6 +125,11 @@ pub enum Instruction {
     /// Reinterpreta os bits entre `i64` e `double` (valor lido do heap ou
     /// gravado nele). Não é conversão numérica: essa é `IntToDouble`.
     Bitcast { op: Operand, to: Type },
+    /// Escalar (`I64`/`F64`/`I1`) numa posição `Ref`: caixa no heap (R3).
+    Box { op: Operand, from: Type },
+    /// Caixa de volta ao escalar; null ou outro tipo lança `TypeError`
+    /// (exceção pendente — quem emite verifica, como numa chamada).
+    Unbox { op: Operand, to: Type },
 
     // Alocações de heap
     AllocObject {

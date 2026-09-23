@@ -14,6 +14,8 @@ pub struct LlvmEmitter<'a> {
     /// Conversoes que uma entrada de phi exige, atribuidas ao bloco de ORIGEM:
     /// (bloco, nome do temporario, tipo de origem, valor, tipo do phi).
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
+    /// Tipo guardado por cada `alloca` da função (para o `store`).
+    apontado: std::collections::HashMap<ValueId, Type>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -25,6 +27,7 @@ impl<'a> LlvmEmitter<'a> {
             tipos: std::collections::HashMap::new(),
             prox_coercao: 0,
             conv_phi: Vec::new(),
+            apontado: std::collections::HashMap::new(),
         }
     }
 
@@ -142,6 +145,19 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare void @dartforge_gc_pop_frame(i64)\n");
         self.out.push_str("declare void @dartforge_gc_collect()\n");
         self.out.push_str("declare void @dartforge_gc_global_root(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_box_int(i64)\n");
+        self.out.push_str("declare i64 @dartforge_box_double(double)\n");
+        self.out.push_str("declare i64 @dartforge_box_bool(i8)\n");
+        self.out.push_str("declare i64 @dartforge_unbox_int(i64)\n");
+        self.out.push_str("declare double @dartforge_unbox_double(i64)\n");
+        self.out.push_str("declare i8 @dartforge_unbox_bool(i64)\n");
+        self.out.push_str("declare i8 @dartforge_identical(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_get_ref(i64, i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_first_ref(i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_last_ref(i64)\n");
+        self.out.push_str("declare i64 @dartforge_list_single_ref(i64)\n");
+        self.out.push_str("declare i64 @dartforge_map_get_ref(i64, i64, i8)\n");
+        self.out.push_str("declare i64 @dartforge_exception_peek_ref()\n");
         self.out.push_str("declare void @dartforge_null_assert_fail() noreturn\n");
         self.out.push_str("declare void @dartforge_exception_throw(i64, i8)\n");
         self.out.push_str("declare i8 @dartforge_exception_pending()\n");
@@ -278,6 +294,14 @@ impl<'a> LlvmEmitter<'a> {
         // i1 (resultado de icmp) ou um i64, e imprime "ret i64 %v8" para um
         // valor i1 — modulo inteiro recusado pelo Clang.
         self.tipos.clear();
+        self.apontado.clear();
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                if let Instruction::Alloca(t) = inst {
+                    self.apontado.insert(*vid, *t);
+                }
+            }
+        }
         self.prox_coercao = 0;
         for (vid, _, ty) in &func.params {
             self.tipos.insert(*vid, *ty);
@@ -629,9 +653,47 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = load {}, ptr {sp}", ty.llvm_ir()).unwrap();
                     }
                     Instruction::Store { ptr, val } => {
+                        // O local guarda a representação do seu tipo (R6); o
+                        // valor chega já coagido pelo lowering, e aqui só se
+                        // acerta a largura.
+                        let t = match ptr {
+                            Operand::Val(p) => self.apontado.get(p).copied().unwrap_or(Type::I64),
+                            _ => Type::I64,
+                        };
                         let sp = self.operand_str(ptr);
-                        let sv = self.coagir(val, Type::I64);
-                        writeln!(self.out, "  store i64 {sv}, ptr {sp}").unwrap();
+                        let sv = self.coagir(val, t);
+                        writeln!(self.out, "  store {} {sv}, ptr {sp}", t.llvm_ir()).unwrap();
+                    }
+                    Instruction::Box { op, from } => {
+                        match from {
+                            Type::F64 => {
+                                let so = self.coagir(op, Type::F64);
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_double(double {so})").unwrap();
+                            }
+                            Type::I1 | Type::I8 => {
+                                let so = self.coagir(op, Type::I8);
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_bool(i8 {so})").unwrap();
+                            }
+                            _ => {
+                                let so = self.coagir(op, Type::I64);
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_int(i64 {so})").unwrap();
+                            }
+                        }
+                    }
+                    Instruction::Unbox { op, to } => {
+                        let so = self.coagir(op, Type::Ref);
+                        match to {
+                            Type::F64 => {
+                                writeln!(self.out, "  %v{v} = call double @dartforge_unbox_double(i64 {so})").unwrap();
+                            }
+                            Type::I1 => {
+                                writeln!(self.out, "  %u{v} = call i8 @dartforge_unbox_bool(i64 {so})").unwrap();
+                                writeln!(self.out, "  %v{v} = trunc i8 %u{v} to i1").unwrap();
+                            }
+                            _ => {
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_unbox_int(i64 {so})").unwrap();
+                            }
+                        }
                     }
                     Instruction::LShr(a, b) => {
                         let sa = self.coagir(a, Type::I64);
@@ -711,10 +773,15 @@ impl<'a> LlvmEmitter<'a> {
                     }
                 }
                 Terminator::Return(None) => {
+                    let zero = match func.return_ty {
+                        Type::F64 => "0.0",
+                        Type::I1 => "false",
+                        _ => "0",
+                    };
                     if func.return_ty == Type::Void {
                         writeln!(self.out, "  ret void").unwrap();
                     } else {
-                        writeln!(self.out, "  ret {} 0", func.return_ty.llvm_ir()).unwrap();
+                        writeln!(self.out, "  ret {} {zero}", func.return_ty.llvm_ir()).unwrap();
                     }
                 }
                 Terminator::Branch(target) => {
@@ -876,7 +943,8 @@ impl<'a> LlvmEmitter<'a> {
         match inst {
             Instruction::Const(Constant::Bool(_)) => Type::I1,
             Instruction::Const(Constant::Double(_)) => Type::F64,
-            Instruction::Const(_) => Type::I64,
+            Instruction::Const(Constant::Int(_)) => Type::I64,
+            Instruction::Const(_) => Type::Ref,
             Instruction::Add(..)
             | Instruction::Sub(..)
             | Instruction::Mul(..)
@@ -890,12 +958,15 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Neg(..)
             | Instruction::Not(..)
             | Instruction::LShr(..)
-            | Instruction::DoubleToInt(..)
-            | Instruction::AllocObject { .. }
-            | Instruction::GetField { .. }
+            | Instruction::DoubleToInt(..) => Type::I64,
+            Instruction::AllocObject { .. }
             | Instruction::AllocList { .. }
             | Instruction::AllocMap { .. }
-            | Instruction::AllocRecord { .. } => Type::I64,
+            | Instruction::AllocRecord { .. }
+            | Instruction::Box { .. } => Type::Ref,
+            Instruction::Unbox { to, .. } => *to,
+            Instruction::Alloca(_) => Type::Ptr,
+            Instruction::GetField { .. } => Type::I64,
             Instruction::FAdd(..)
             | Instruction::FSub(..)
             | Instruction::FMul(..)

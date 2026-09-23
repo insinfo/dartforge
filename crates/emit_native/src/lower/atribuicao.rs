@@ -127,17 +127,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 .nao_suportado("atribuição composta a local desconhecido", span);
                         }
                         let v = self.combinar(ast, op, cur, value);
-                        if let Some(ptr) = self.local_ptrs.get(&sym).cloned() {
-                            self.emit(
-                                Instruction::Store {
-                                    ptr,
-                                    val: v.clone(),
-                                },
-                                Type::Void,
-                            );
+                        match self.gravar_local(sym, v) {
+                            Some(v) => v,
+                            None => self.nao_suportado("atribuição a local desconhecido", span),
                         }
-                        self.named_locals.insert(sym, v.clone());
-                        v
                     }
                 }
             }
