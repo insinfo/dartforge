@@ -45,14 +45,69 @@ struct Execucao {
     stderr: String,
 }
 
-/// Executa um processo e normaliza as quebras de linha do stdout.
+/// Limite de tempo de cada processo executado pelos testes.
+///
+/// Um programa que não termina não pode travar a bateria. No CI isso aconteceu
+/// e o job só parou no limite de 60 min, sem dizer onde estava.
+const LIMITE_PROCESSO: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Executa um processo com limite de tempo e normaliza as quebras de linha.
+///
+/// stdout e stderr são lidos em threads próprias, para que um pipe cheio não
+/// bloqueie o filho. Estourado o limite, o processo é morto e o teste falha
+/// dizendo qual comando era.
 fn executar(comando: &mut Command) -> Execucao {
-    let saida = comando.output().expect("processo não iniciou");
+    use std::io::Read;
+    use std::process::Stdio;
+    let descricao = format!("{comando:?}");
+    let mut filho = comando
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("processo não iniciou");
+    let mut out = filho.stdout.take().unwrap();
+    let mut err = filho.stderr.take().unwrap();
+    let leitor_out = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = out.read_to_end(&mut b);
+        b
+    });
+    let leitor_err = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = err.read_to_end(&mut b);
+        b
+    });
+    let inicio = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = filho.try_wait().unwrap() {
+            break status;
+        }
+        if inicio.elapsed() > LIMITE_PROCESSO {
+            let _ = filho.kill();
+            let _ = filho.wait();
+            panic!("{descricao} passou de {LIMITE_PROCESSO:?} e foi morto");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let stdout = leitor_out.join().unwrap();
+    let stderr = leitor_err.join().unwrap();
     Execucao {
-        stdout: String::from_utf8_lossy(&saida.stdout).replace("\r\n", "\n"),
-        codigo: saida.status.code(),
-        stderr: String::from_utf8_lossy(&saida.stderr).replace("\r\n", "\n"),
+        stdout: String::from_utf8_lossy(&stdout).replace("\r\n", "\n"),
+        codigo: status.code(),
+        stderr: String::from_utf8_lossy(&stderr).replace("\r\n", "\n"),
     }
+}
+
+/// Registra em stderr a etapa do diferencial e o tempo desde o início.
+///
+/// Sem isso, um teste lento ou travado no CI não diz em que etapa está. A
+/// escrita vai direto ao `stderr` do processo, e não por `eprintln!`, que o
+/// harness de teste captura e só mostra se o teste falhar. Assim a linha
+/// aparece no log enquanto o teste roda.
+fn etapa(inicio: std::time::Instant, nome: &str) {
+    use std::io::Write;
+    let linha = format!("[diferencial {:>7.1?}] {nome}\n", inicio.elapsed());
+    let _ = std::io::stderr().write_all(linha.as_bytes());
 }
 
 /// Executa um IR pelo executor isolado do JIT.
@@ -341,9 +396,11 @@ fn emitir_ir(entrada: &Path) -> String {
 #[test]
 #[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
 fn jit_e_aot_concordam_no_mesmo_ir() {
+    let inicio = std::time::Instant::now();
     let dir = OutputDir::new("diferencial");
     let fonte = dir.0.join("programa.dart");
     std::fs::write(&fonte, PROGRAMA).unwrap();
+    etapa(inicio, "emitir_ir");
     // Pilha grande como a CLI: o lowering é recursivo sobre a AST.
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -351,8 +408,10 @@ fn jit_e_aot_concordam_no_mesmo_ir() {
         .unwrap()
         .join()
         .unwrap();
+    etapa(inicio, &format!("IR com {} bytes; executar pelo JIT", ir.len()));
 
     let jit = executar_pelo_jit(&dir.0, &ir);
+    etapa(inicio, &format!("JIT terminou ({:?}); compilar e ligar pelo AOT", jit.codigo));
 
     let executavel = dir.0.join("programa.exe");
     dartforge_emit_native::driver::compile_and_link(
@@ -361,7 +420,9 @@ fn jit_e_aot_concordam_no_mesmo_ir() {
         &dartforge_emit_native::driver::NativeDriverOptions::default(),
     )
     .unwrap_or_else(|erro| panic!("o driver AOT falhou: {erro}"));
+    etapa(inicio, "executar o AOT");
     let aot = executar(&mut Command::new(&executavel));
+    etapa(inicio, &format!("AOT terminou ({:?})", aot.codigo));
 
     assert_eq!(jit.stdout, aot.stdout, "JIT {jit:?}\nAOT {aot:?}");
     assert_eq!(jit.codigo, aot.codigo, "JIT {jit:?}\nAOT {aot:?}");
