@@ -40,7 +40,7 @@ final class _Timer implements Timer {
   int _tick = 0;
 
   _Timer._(int milliseconds, this._callback, this._periodico) {
-    _id = _novo(milliseconds, this, _periodico);
+    _id = _novo(milliseconds, _disparar, _periodico);
   }
 
   bool get isActive => _id != 0;
@@ -65,10 +65,13 @@ final class _Timer implements Timer {
     _callback(this);
   }
 
-  /// Agenda o timer; devolve o id (nunca 0). O runtime guarda o `_Timer`
-  /// como raiz enquanto ele estiver agendado.
+  /// Agenda o timer; devolve o id (nunca 0). O runtime guarda `disparar` (o
+  /// tear-off de `_disparar`, com este `_Timer` no ambiente) como raiz
+  /// enquanto ele estiver agendado e o chama no prazo — o laço de eventos só
+  /// chama closures sem argumentos, o único ponto em que o runtime chama Dart.
   @pragma("vm:external-name", "DartForge_Timer_novo")
-  external static int _novo(int milliseconds, _Timer timer, bool periodico);
+  external static int _novo(
+      int milliseconds, void Function() disparar, bool periodico);
 
   /// Tira o timer do heap de timers (a raiz é solta).
   @pragma("vm:external-name", "DartForge_Timer_cancelar")
