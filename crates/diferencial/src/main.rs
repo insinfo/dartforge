@@ -7,14 +7,17 @@ use std::time::Duration;
 use dartforge_diferencial::{Ambiente, Opcoes, contrato, executar_corpus, listar, relatorio};
 
 const USO: &str = "uso:
-  dartforge-diferencial [--nativo] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
+  dartforge-diferencial [--nativo] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
       roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
       (código 0 se todos batem; 1 se algum falha)
+      --producao acrescenta o quarto executor: o perfil de produção
+      (dartforge-jsprod, arquivo único e podado) — o relatório passa a comparar
+      VM × nosso desenvolvimento × nossa produção (docs/JS-PRODUCAO.md)
   dartforge-diferencial contrato [--corpus DIR] [-o ARQUIVO]
       compila cada programa com o dartdevc e escreve docs/CONTRATO-DDC.md
   dartforge-diferencial verificar [--corpus DIR] [--filtro TEXTO]
       só os oráculos: cada programa tem de rodar no dart run e bater com ddc+node
-  dartforge-diferencial determinismo [--nativo] [--filtro TEXTO] [--trabalhadores 1,4,8]
+  dartforge-diferencial determinismo [--nativo] [--producao] [--filtro TEXTO] [--trabalhadores 1,4,8]
       roda o mesmo corpus com cada número de trabalhadores e exige relatório
       idêntico (e, no modo nativo, o mesmo LLVM IR emitido)";
 
@@ -120,6 +123,7 @@ fn main() {
             }
             "--sem-forge" => op.com_forge = false,
             "--nativo" => op.nativo = true,
+            "--producao" => op.com_producao = true,
             "--sem-cache" => amb.usar_cache = false,
             "--silencioso" => silencioso = true,
             "-h" | "--help" => {
@@ -137,7 +141,10 @@ fn main() {
     // seis em paralelo ja tomaram a memoria da maquina inteira. Enquanto o
     // backend nativo nao esta estavel, o padrao e dois — quem quiser mais passa
     // `--jobs` explicitamente e assume o risco.
-    if op.nativo && op.threads == 0 {
+    // O mesmo vale para o perfil de produção do JS: cada programa vira um
+    // processo `dartforge-jsprod`, que carrega o SDK e classifica os 7 MB do
+    // `dart_sdk.js`. A máquina tem 7,7 GB e é compartilhada.
+    if (op.nativo || op.com_producao) && op.threads == 0 {
         op.threads = 2;
     }
     let programas = listar(&corpus, filtro.as_deref());
@@ -218,7 +225,9 @@ fn main() {
                 if silencioso {
                     return;
                 }
-                let estado = if r.forge.is_some() {
+                let estado = if r.producao.is_some() {
+                    if r.ok() { "ok" } else if r.forge_vs_referencia().is_some() { "FALHA" } else { "PROD!" }
+                } else if r.forge.is_some() {
                     if r.ok() { "ok" } else { "FALHA" }
                 } else if r.dart.codigo != 0 {
                     "DART!"

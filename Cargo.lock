@@ -385,6 +385,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dartforge-emit-js-producao"
+version = "0.1.0"
+dependencies = [
+ "dartforge-emit-js",
+]
+
+[[package]]
 name = "dartforge-emit-native"
 version = "0.1.0"
 dependencies = [

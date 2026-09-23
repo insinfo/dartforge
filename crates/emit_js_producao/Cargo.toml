@@ -1,0 +1,19 @@
+[package]
+name = "dartforge-emit-js-producao"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+dartforge-emit-js = { path = "../emit_js" }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "dartforge-jsprod"
+path = "src/main.rs"

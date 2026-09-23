@@ -6,14 +6,18 @@ use std::fmt::Write;
 use crate::corpus::Programa;
 use crate::processo::Saida;
 
-/// Resultado de um programa nos três executores. `forge` é `None` com `--sem-forge`.
+/// Resultado de um programa nos executores. `forge` é `None` com
+/// `--sem-forge`; `producao` só existe com `--producao`.
 #[derive(Debug, Clone)]
 pub struct Resultado {
     pub programa: Programa,
     pub dart: Saida,
     pub ddc: Saida,
     pub forge: Option<Saida>,
+    /// O `forge` é o backend nativo, e não o JS de desenvolvimento.
     pub nativo: bool,
+    /// O perfil de produção do JS (`dartforge-jsprod`, arquivo único e podado).
+    pub producao: Option<Saida>,
 }
 
 /// Onde duas saídas divergem.
@@ -126,9 +130,27 @@ impl Resultado {
         self.forge.as_ref().and_then(|f| comparar(self.referencia(), f))
     }
 
-    /// `true` quando o DartForge reproduz a referência.
+    /// Divergência produção × referência.
+    pub fn producao_vs_referencia(&self) -> Option<Divergencia> {
+        self.producao.as_ref().and_then(|f| comparar(self.referencia(), f))
+    }
+
+    /// Divergência produção × desenvolvimento. Esta é a que mais interessa ao
+    /// perfil de produção: se ela aparecer, foi a poda (ou a montagem do
+    /// arquivo único) que mudou o comportamento, não a emissão.
+    pub fn producao_vs_forge(&self) -> Option<Divergencia> {
+        match (&self.forge, &self.producao) {
+            (Some(d), Some(p)) => comparar(d, p),
+            _ => None,
+        }
+    }
+
+    /// `true` quando o DartForge reproduz a referência — nos dois perfis que
+    /// foram executados.
     pub fn ok(&self) -> bool {
-        self.forge.is_some() && self.forge_vs_referencia().is_none()
+        self.forge.is_some()
+            && self.forge_vs_referencia().is_none()
+            && self.producao.as_ref().is_none_or(|_| self.producao_vs_referencia().is_none())
     }
 }
 
@@ -175,7 +197,10 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     let nativo = resultados.first().map_or(false, |r| r.nativo);
     let mut ok = 0usize;
     let mut avisos_ddc = 0usize;
+    let mut ok_prod = 0usize;
+    let com_producao = resultados.iter().any(|r| r.producao.is_some());
     let mut grupos: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut grupos_prod: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for r in resultados {
         let nome = &r.programa.nome;
         if r.dart.codigo != 0 {
@@ -199,7 +224,9 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
         match r.forge_vs_referencia() {
             None => {
                 ok += 1;
-                let _ = writeln!(out, "ok     {nome}");
+                if r.producao.is_none() {
+                    let _ = writeln!(out, "ok     {nome}");
+                }
             }
             Some(d) => {
                 let _ = writeln!(out, "FALHA  {nome}  ({})", descrever(d));
@@ -220,20 +247,51 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
                 grupos.entry(chave).or_default().push(nome.clone());
             }
         }
+        let Some(prod) = &r.producao else { continue };
+        match r.producao_vs_referencia() {
+            None => {
+                ok_prod += 1;
+                let _ = writeln!(out, "ok     {nome}");
+            }
+            Some(d) => {
+                // Distingue o defeito que importa: produção que difere do
+                // desenvolvimento é defeito **da poda**; produção que difere só
+                // da VM, com o desenvolvimento igual, também é — mas a primeira
+                // linha de stderr é o que agrupa.
+                let culpa = if r.producao_vs_forge().is_some() { "produção≠desenvolvimento" } else { "produção≠VM" };
+                let _ = writeln!(out, "PROD!  {nome}  ({}, {culpa})", descrever(d));
+                let _ = write!(out, "{}", lado_a_lado(&[("dart run", &r.dart.stdout), ("dartforge dev", &forge.stdout), ("dartforge prod", &prod.stdout)], foco(d)));
+                let _ = writeln!(out, "       códigos: dart={} dev={} prod={}", r.dart.codigo, forge.codigo, prod.codigo);
+                let chave = prod.primeira_linha_stderr();
+                let chave = if chave.is_empty() { "(stderr vazio)".to_string() } else { truncar(chave, 120) };
+                let _ = writeln!(out, "       stderr: {chave}");
+                grupos_prod.entry(chave).or_default().push(nome.clone());
+            }
+        }
     }
     let total = resultados.len();
     let _ = writeln!(out);
     if com_forge {
-        let label = if nativo { "DartForge Nativo" } else { "DartForge" };
-        let _ = writeln!(out, "{label}: {ok}/{total} ok");
+        let label = if nativo { "DartForge Nativo:          " } else { "DartForge desenvolvimento: " };
+        let _ = writeln!(out, "{label}{ok}/{total} ok");
+    }
+    if com_producao {
+        let _ = writeln!(out, "DartForge produção:        {ok_prod}/{total} ok");
     }
     if !nativo {
         let _ = writeln!(out, "DDC×VM: {}/{total} batem (sem contar {} com divergência declarada)", total - avisos_ddc - resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count(), resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count());
     }
-    if !grupos.is_empty() {
+    // Dois agrupamentos, porque as causas são diferentes: falha do executor
+    // principal é construto que falta no emissor; falha da produção é poda ou
+    // montagem do arquivo único.
+    let titulo_forge = if nativo { "do DartForge Nativo" } else { "do DartForge" };
+    for (titulo, grupos) in [(titulo_forge, grupos), ("do perfil de produção", grupos_prod)] {
+        if grupos.is_empty() {
+            continue;
+        }
         let mut lista: Vec<(String, Vec<String>)> = grupos.into_iter().collect();
         lista.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
-        let _ = writeln!(out, "\nFalhas por primeira linha do stderr do DartForge (prioridade = tamanho do grupo):");
+        let _ = writeln!(out, "\nFalhas por primeira linha do stderr {titulo} (prioridade = tamanho do grupo):");
         for (chave, nomes) in lista {
             let _ = writeln!(out, "  {:>4}  {chave}", nomes.len());
             let _ = writeln!(out, "        {}", nomes.join(", "));
@@ -277,14 +335,14 @@ mod testes {
     fn relatorio_agrupa() {
         let p = |nome: &str| Programa { nome: nome.into(), entrada: "x.dart".into(), arquivos: vec![], diverge_ddc: None };
         let r = vec![
-            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false },
-            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false },
-            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false },
+            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false, producao: None },
+            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },
+            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },
         ];
         let t = relatorio(&r);
         assert!(t.contains("ok     a"), "{t}");
         assert!(t.contains("FALHA  b  (stdout linha 2)"), "{t}");
-        assert!(t.contains("DartForge: 1/3 ok"), "{t}");
+        assert!(t.contains("DartForge desenvolvimento: 1/3 ok"), "{t}");
         assert!(t.contains("   2  erro: X"), "{t}");
         assert!(t.contains("b, c"), "{t}");
     }

@@ -326,6 +326,58 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
     executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra)
 }
 
+// ---------------------------------------------------------------- produção
+
+/// O **perfil de produção**: `dartforge-jsprod arquivo -o dir/saida.js` e depois
+/// `node dir/saida.js`. Um arquivo só, com o `dart_sdk.js` podado pelo mundo
+/// fechado (`docs/JS-PRODUCAO.md`).
+///
+/// Sem cache, pelo mesmo motivo do perfil de desenvolvimento: o que está sendo
+/// desenvolvido é justamente este executor.
+pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
+    let _ = std::fs::create_dir_all(dir);
+    let entrada = programa.entrada.to_string_lossy().into_owned();
+    let saida = dir.join("saida.js");
+    let saida_s = saida.to_string_lossy().into_owned();
+    let exe = if cfg!(windows) { "dartforge-jsprod.exe" } else { "dartforge-jsprod" };
+    // O binário certo é o que está ao lado deste executável (mesmo
+    // `target/<perfil>/`), como em `Ambiente::detectar`.
+    let bin = std::env::var("DARTFORGE_JSPROD_BIN")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.is_file()));
+    let mut args = vec![entrada, "-o".into(), saida_s];
+    let pacotes = programa.diretorio().join(".dart_tool/package_config.json");
+    if pacotes.is_file() {
+        args.push("--packages".into());
+        args.push(pacotes.to_string_lossy().into_owned());
+    }
+    let s = match &bin {
+        Some(b) => executar_com_path(&b.to_string_lossy(), &args, programa.diretorio(), amb.limite, &amb.path_extra),
+        None => {
+            let mut a: Vec<String> = vec!["run".into(), "-q".into(), "--release".into(), "-p".into(), "dartforge-emit-js-producao".into(), "--".into()];
+            a.extend(args);
+            executar_com_path("cargo", &a, &amb.raiz, Duration::from_secs(1800), &amb.path_extra)
+        }
+    };
+    if s.codigo != 0 {
+        let primeira = s.primeira_linha_stderr().to_string();
+        let primeira = if primeira.is_empty() { s.stdout.lines().next().unwrap_or("").to_string() } else { primeira };
+        return Saida { stderr: format!("[jsprod código {}] {primeira}
+{}", s.codigo, s.stderr), ..s };
+    }
+    if !saida.is_file() {
+        return Saida::erro("[jsprod] devolveu 0 mas não escreveu o arquivo");
+    }
+    // Um bundle que nem parseia tem de falhar com mensagem própria, não com um
+    // erro de execução a dez quadros de profundidade (docs/JS-PRODUCAO.md §5.2).
+    let check = executar("node", &["--check".into(), "saida.js".into()], dir, amb.limite);
+    if check.codigo != 0 {
+        return Saida::erro(format!("[jsprod] node --check reprovou o bundle: {}", check.primeira_linha_stderr()));
+    }
+    executar("node", &["saida.js".into()], dir, amb.limite)
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;

@@ -10,7 +10,7 @@ pub mod processo;
 pub mod relatorio;
 
 pub use corpus::{Programa, listar};
-pub use oraculos::{Ambiente, dartforge, dartforge_nativo, oraculo_dart, oraculo_ddc};
+pub use oraculos::{Ambiente, dartforge, dartforge_nativo, dartforge_producao, oraculo_dart, oraculo_ddc};
 pub use processo::Saida;
 pub use relatorio::{Divergencia, Resultado, comparar, relatorio};
 
@@ -25,25 +25,35 @@ pub struct Opcoes {
     pub threads: usize,
     /// Executar no modo nativo AOT (comparando contra o oráculo Dart VM).
     pub nativo: bool,
+    /// Executar também o **perfil de produção** do backend JavaScript
+    /// (`dartforge-jsprod`): arquivo único, `dart_sdk.js` podado pelo mundo
+    /// fechado. Ver `docs/JS-PRODUCAO.md`. Independente de `nativo`: os dois
+    /// executores são backends diferentes do mesmo programa.
+    pub com_producao: bool,
 }
 
 impl Default for Opcoes {
     fn default() -> Self {
-        Opcoes { com_forge: true, threads: 0, nativo: false }
+        Opcoes { com_forge: true, threads: 0, nativo: false, com_producao: false }
     }
 }
 
 /// Executa um programa nos executores pedidos.
 pub fn executar_programa(amb: &Ambiente, programa: &Programa, op: Opcoes) -> Resultado {
     let dart = oraculo_dart(amb, programa);
+    // O perfil de produção do JS é independente do backend escolhido: é um
+    // quarto executor do mesmo programa, e pode rodar ao lado do nativo.
+    let producao = op.com_producao.then(|| dartforge_producao(amb, programa, &amb.dir_saida("producao", programa)));
     if op.nativo {
+        // No modo nativo não há contrato do DDC para comparar; a referência é
+        // sempre a VM (ver `Resultado::referencia`).
         let ddc = Saida { stdout: String::new(), stderr: String::new(), codigo: 0 };
         let forge = op.com_forge.then(|| dartforge_nativo(amb, programa, &amb.dir_saida("nativo", programa)));
-        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true }
+        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true, producao }
     } else {
         let ddc = oraculo_ddc(amb, programa, &amb.dir_saida("ddc", programa));
         let forge = op.com_forge.then(|| dartforge(amb, programa, &amb.dir_saida("forge", programa)));
-        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: false }
+        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: false, producao }
     }
 }
 
