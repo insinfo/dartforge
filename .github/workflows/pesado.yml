@@ -204,9 +204,31 @@ jobs:
           # Placar abaixo de 214 é o estado do backend, não quebra do CI.
           aceitar-placar-parcial: 'true'
 
+  # O portão G7 do contrato de raízes (docs/NATIVO-PLANO.md §6.5): o corpus
+  # nativo inteiro com DARTFORGE_GC_STRESS=1 — coleta antes de TODA
+  # alocação, então uma raiz faltando vira "handle já coletado" em vez de
+  # passar por sorte. O `nativo-placar` compara: um programa que passa sem
+  # estresse e falha com ele reprova a rodada. O tempo-limite de execução é
+  # maior (a coleta a cada alocação multiplica o tempo dos programas).
+  nativo-gc-stress:
+    name: nativo --gc-stress (corpus inteiro)
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: nativo-gc-stress
+          titulo: Nativo sob --gc-stress (coleta antes de toda alocação)
+          args: --nativo --gc-stress --jobs 4 --limite-exec 120
+          nativo: 'true'
+          aceitar-placar-parcial: 'true'
+
   nativo-placar:
     name: nativo (placar consolidado)
-    needs: [compilar, nativo]
+    needs: [compilar, nativo, nativo-gc-stress]
     if: always() && needs.compilar.result == 'success' && contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -221,12 +243,16 @@ jobs:
         env:
           N: ${{ needs.compilar.outputs.n }}
         run: |
-          $rels = @(Get-ChildItem fragmentos -Recurse -Filter relatorio.txt | Sort-Object FullName)
+          # O relatório do --gc-stress vem no mesmo padrão de artefato, mas
+          # não é fragmento: fica de fora da soma e é comparado abaixo.
+          $todos = @(Get-ChildItem fragmentos -Recurse -Filter relatorio.txt | Sort-Object FullName)
+          $rels = @($todos | Where-Object { $_.FullName -notmatch 'relatorio-nativo-gc-stress' })
+          $estresse = $todos | Where-Object { $_.FullName -match 'relatorio-nativo-gc-stress' } | Select-Object -First 1
           New-Item -ItemType Directory -Force placar | Out-Null
           $md = & ./scripts/ci-placar.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
           $uma = & ./scripts/ci-placar.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
           # Tempo de cada fragmento, para dimensionar N (ver ESTADO.md §3.2).
-          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Sort-Object FullName) {
+          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Where-Object { $_.FullName -notmatch 'relatorio-nativo-gc-stress' } | Sort-Object FullName) {
             $t = (Get-Content $f -Encoding utf8) -join ' '
             if ($t -match 'Tempo do harness no runner: (.+?)\. Memória livre mínima: (.+? GB)') { "| $($f.Directory.Name) | $($Matches[1]) | $($Matches[2]) |" }
           }
@@ -237,6 +263,19 @@ jobs:
           Write-Host $md
           Write-Host "::notice title=Placar nativo::$uma"
           if ($rels.Count -eq 0) { Write-Host '::error::nenhum fragmento produziu relatório'; exit 1 }
+          # Portão G7: o que passa sem estresse passa com ele.
+          if (!$estresse) { Write-Host '::error::o job nativo-gc-stress não produziu relatório'; exit 1 }
+          $falhas = { param($arqs) $arqs | Get-Content -Encoding utf8 | ForEach-Object { if ($_ -match '^\s*FALHA\s+(\S+)') { $Matches[1] } } | Sort-Object -Unique }
+          $normal = @(& $falhas $rels)
+          $sob = @(& $falhas @($estresse))
+          $so_sob = @($sob | Where-Object { $normal -notcontains $_ })
+          $g7 = "--gc-stress: $($sob.Count) falhas (sem estresse: $($normal.Count)); só com estresse: $($so_sob.Count)"
+          Add-Content $env:GITHUB_STEP_SUMMARY "`n$g7`n" -Encoding utf8
+          Write-Host "::notice title=Placar nativo --gc-stress::$g7"
+          if ($so_sob.Count -gt 0) {
+            Write-Host "::error::passam sem estresse e falham com --gc-stress (raiz faltando?): $($so_sob -join ', ')"
+            exit 1
+          }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: placar-nativo

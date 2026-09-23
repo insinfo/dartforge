@@ -27,6 +27,14 @@ pub struct Context<'a> {
     /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
     /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
     raiz: Option<std::path::PathBuf>,
+    /// P6: as bibliotecas do SDK compiladas da fonte com o programa
+    /// (`fonte.rs`); o `is_sdk` delas já está desligado na cópia do
+    /// `Program`. Vazio para quem não usa `dart:async`.
+    pub da_fonte: std::collections::HashSet<LibraryId>,
+    /// RTI: a posição de cada classe do SDK (sem id de classe do heap) na
+    /// ordem do caminho estável — o id RTI é `0x2000_0000 +` ela
+    /// (`lower::rti`, `Context::id_rti`).
+    pub ids_rti_sdk: std::collections::HashMap<dartforge_elements::model::ClassId, u32>,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -87,6 +95,8 @@ impl<'a> Context<'a> {
             ids_de_classe: Vec::new(),
             formas_de_record: Vec::new(),
             raiz,
+            da_fonte: std::collections::HashSet::new(),
+            ids_rti_sdk: std::collections::HashMap::new(),
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do
@@ -160,6 +170,20 @@ impl<'a> Context<'a> {
             prox += 1;
         }
         ctx.ids_de_classe = ids;
+        // RTI: as classes do SDK, na ordem do caminho estável.
+        let mut sdk: Vec<(String, String, usize)> = program
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| program.library(c.library).is_sdk)
+            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .collect();
+        sdk.sort();
+        ctx.ids_rti_sdk = sdk
+            .into_iter()
+            .enumerate()
+            .map(|(k, (_, _, i))| (dartforge_elements::model::ClassId(i as u32), k as u32))
+            .collect();
         ctx
     }
 

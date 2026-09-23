@@ -4,6 +4,7 @@ pub mod cache;
 pub mod cache_objeto;
 pub mod context;
 pub mod driver;
+pub mod fonte;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
@@ -112,17 +113,28 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
         None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
 
-    let sdk = SdkLayout::load(&sdk_dir, "vm")
+    // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): o `dart:async` que
+    // o programa compila da fonte (P6) é o dela.
+    let sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
         .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
 
     let mut interner = Interner::new();
-    let (program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
+    let (mut program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
     if let Some((primeiro, resto)) = elements_diags.split_first() {
         let mut msg = format!("erro ao carregar o programa: {primeiro}");
         for d in resto {
             msg.push_str(&format!("\nerro: {d}"));
         }
         return Err(msg);
+    }
+    // P6: as bibliotecas do SDK que este programa compila da fonte deixam de
+    // ser "do SDK" nesta cópia do programa (`fonte.rs`).
+    let mut da_fonte = fonte::bibliotecas_da_fonte(&program, &interner);
+    for l in &da_fonte {
+        program.libraries[l.0 as usize].is_sdk = false;
+    }
+    if !da_fonte.is_empty() {
+        da_fonte.extend(fonte::separar_partes_do_core(&mut program));
     }
 
     let mut table = TypeTable::new();
@@ -131,7 +143,8 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     let (bodies, _body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
 
-    let ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    ctx.da_fonte = da_fonte.into_iter().collect();
     let front_duration = t_front.elapsed();
 
     // 2. Lowering para HIR
