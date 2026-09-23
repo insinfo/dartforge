@@ -251,6 +251,18 @@ sem nenhuma mudança real no programa. Para nós isso é direto — o
 `dartforge serve` recarrega por geração, e geração que muda à toa é um
 defeito visível.
 
+**Onde está implementado.** `dartforge-diferencial determinismo` roda o
+teste acima sobre o corpus. No backend nativo o artefato comparado é o
+LLVM IR de cada programa (resumo FNV-1a de 128 bits, ou o erro inteiro),
+sem Clang nem execução: o executável é função do IR, do Clang e do runtime,
+e o que pode variar com a ordem de conclusão é o nosso código. O mesmo IR
+é a entrada da chave do cache de objeto (`crates/emit_native/src/cache_objeto.rs`),
+que é a razão prática do teste: IR instável faria o cache errar sempre. O
+harness separa **trabalhadores** (1, 4, 8, que disputam a fila e mudam a
+ordem de conclusão) de **emissões simultâneas** (`DARTFORGE_IR_PARALELO_MAX`,
+por memória) — o teste precisa da primeira coisa, não da segunda. Medido
+em `ESTADO.md` §3.2: 214 programas em 0,2–0,5 s por passada.
+
 ## 12. Equivalência é no grafo, não no arquivo
 
 Comparação que inclui os identificadores dos símbolos chamados rejeita
