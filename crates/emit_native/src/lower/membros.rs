@@ -274,10 +274,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             if setter {
                 let nome_setter = format!("{}=", self.ctx.symbol_name(nome));
-                if let Some(s) = self.ctx.interner.lookup(&nome_setter) {
-                    if let Some(&f) = classe.instance_members.get(&s) {
-                        return Some((c, MemberRef::Function(f)));
-                    }
+                if let Some(s) = self.ctx.interner.lookup(&nome_setter)
+                    && let Some(&f) = classe.instance_members.get(&s)
+                {
+                    return Some((c, MemberRef::Function(f)));
                 }
             }
             if let Some(&v) = classe.fields.iter().find(|&&v| {
@@ -1088,10 +1088,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // 5. Corpo. Os `this.x` não estão no escopo do corpo: `x` ali é o
         //    campo, e a resolução (`Resolved::Member`) já diz isso.
         for p in ctor.parameters.iter() {
-            if p.this_ {
-                if let Some(n) = p.name {
-                    self.remover_local(n.sym);
-                }
+            if p.this_
+                && let Some(n) = p.name
+            {
+                self.remover_local(n.sym);
             }
         }
         match &ctor.body {

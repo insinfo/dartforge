@@ -573,10 +573,10 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  store {} {sv}, ptr {sp}", t.llvm_ir()).unwrap();
                         // G2: o local `Ref` tem slot próprio, atualizado a
                         // cada gravação — ele vive mais que o SSA que o gravou.
-                        if let Operand::Val(pv) = ptr {
-                            if let Some(&slot) = self.slots.get(pv) {
-                                writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 {sv})").unwrap();
-                            }
+                        if let Operand::Val(pv) = ptr
+                            && let Some(&slot) = self.slots.get(pv)
+                        {
+                            writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 {sv})").unwrap();
                         }
                     }
                     Instruction::Box { op, from } => {

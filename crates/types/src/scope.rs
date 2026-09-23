@@ -38,10 +38,10 @@ pub fn supertipos_ordenados(
     let mut saida: Vec<(ClassId, TypeId)> = Vec::new();
     let mut vistos: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
     let mut empurrar = |c: ClassId, saida: &mut Vec<(ClassId, TypeId)>| {
-        if let Some(&t) = data.supertypes.get(&c) {
-            if vistos.insert(c) {
-                saida.push((c, t));
-            }
+        if let Some(&t) = data.supertypes.get(&c)
+            && vistos.insert(c)
+        {
+            saida.push((c, t));
         }
     };
     let mut atual = program.classes[class.0 as usize].supertype_class;

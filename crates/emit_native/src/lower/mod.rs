@@ -223,13 +223,12 @@ pub fn lower_program(ctx: &Context) -> Module {
                     module.entry_symbol = Some(symbol.clone());
                 }
 
-                if let Some(c_id) = func_elem.class {
-                    if name == "toString" && !func_elem.static_ {
-                        let class_id = c_id.0 + 1;
-                        if let Some(c) = module.classes.iter_mut().find(|c| c.id == class_id) {
-                            c.to_string_symbol = Some(symbol.clone());
-                        }
-                    }
+                if let Some(c_id) = func_elem.class
+                    && name == "toString"
+                    && !func_elem.static_
+                    && let Some(c) = module.classes.iter_mut().find(|c| c.id == c_id.0 + 1)
+                {
+                    c.to_string_symbol = Some(symbol.clone());
                 }
 
                 let ret_ty = if is_main {
