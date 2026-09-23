@@ -83,6 +83,7 @@ const DEVTOOLS: &str = "package:ngdart/src/devtools.dart";
 const VIEW_CONTAINER: &str = "package:ngdart/src/core/linker/view_container.dart";
 const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
 const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
+const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
 const EMBEDDED_VIEW: &str = "package:ngdart/src/core/linker/views/embedded_view.dart";
 const RENDER_VIEW: &str = "package:ngdart/src/core/linker/views/render_view.dart";
 
@@ -338,14 +339,18 @@ struct Corpo<'a> {
     tipos: Option<(&'a dyn Resolucao, &'a Path)>,
     /// O componente tem folha de estilo: cada elemento ganha `addShimC`.
     com_estilo: bool,
-    /// Classes de visão embutida já emitidas (`*ngIf`), com as suas fábricas.
-    embutidas: Vec<String>,
+    /// Visões embutidas a emitir. Só a especificação: o texto é gerado
+    /// depois do `angular.dart`, que é onde o oficial escreve essas classes —
+    /// e é a ordem de escrita que numera os imports.
+    embutidas: Vec<EspecEmbutida>,
     /// Nome da classe da visão (`ViewX`), para numerar as embutidas.
     classe_da_visao: String,
     /// `_appEl_n` de cada `ViewContainer`, para a detecção e a destruição.
     ancoras: Vec<String>,
     /// Esta visão é embutida: a raiz é registrada com `initRootNode`.
     embutida: bool,
+    /// Locais do escopo (`let item of itens`), que sombreiam os membros.
+    locais: std::collections::HashMap<String, crate::expr::Local>,
     /// Tipo do contexto da visão (`import1.X`), para a embutida declarar
     /// `EmbeddedView<X>`.
     tipo_do_contexto: String,
@@ -382,7 +387,7 @@ impl Corpo<'_> {
     /// para a mensagem de "expressão mudou depois da checagem".
     fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
         let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
-        let convertida = crate::expr::converter_com_metodos(&l.valor, self.membros, self.metodos, self.nomes, self.tipos)?;
+        let convertida = crate::expr::converter_com_locais(&l.valor, self.membros, self.metodos, &self.locais, self.nomes, self.tipos)?;
         let expr = l.valor.trim();
         let (ini, fim) = (l.inicio, l.fim);
         // Valor que não muda é escrito uma vez, na primeira checagem, sem
@@ -445,7 +450,7 @@ impl Corpo<'_> {
             "$event" => 1,
             _ => return Err(Motivo::Ligacao),
         };
-        let metodo = crate::expr::converter_com_metodos(nome.trim(), self.membros, self.metodos, self.nomes, self.tipos)?
+        let metodo = crate::expr::converter_com_locais(nome.trim(), self.membros, self.metodos, &self.locais, self.nomes, self.tipos)?
             .texto;
         self.usa_ctx_no_build = true;
         let evento = &l.nome;
@@ -548,7 +553,7 @@ impl Corpo<'_> {
             return Err(Motivo::LigacaoEmFilho);
         };
         let convertida =
-            crate::expr::converter_com_metodos(&l.valor, self.membros, self.metodos, self.nomes, self.tipos)
+            crate::expr::converter_com_locais(&l.valor, self.membros, self.metodos, &self.locais, self.nomes, self.tipos)
                 .map_err(|_| Motivo::LigacaoEmFilho)?;
         let k = self.proxima_ligacao;
         self.proxima_ligacao += 1;
@@ -566,33 +571,45 @@ impl Corpo<'_> {
         Ok(())
     }
 
-    /// `*ngIf="cond"`: âncora, `ViewContainer`, `TemplateRef` e a diretiva,
-    /// com o conteúdo numa visão embutida à parte.
+    /// `*dir="..."`: âncora, `ViewContainer`, `TemplateRef` e a diretiva
+    /// estrutural, com o conteúdo numa visão embutida à parte.
     ///
-    /// A entrada do `NgIf` é escrita **sem** `checkBinding`: é a exceção que o
-    /// `binding_converter.dart` do ngcompiler declara em `_isDirectBinding`,
-    /// porque a própria diretiva já compara o valor antes de agir.
-    fn ng_if(
+    /// Só as duas diretivas do próprio ngdart. Generalizar exige o índice de
+    /// diretivas (seletor de atributo, construtor, entradas, ciclo de vida) —
+    /// e a numeração dos provedores muda com o que a diretiva injeta, então
+    /// não dá para chutar.
+    fn estrutural(
         &mut self,
         e: &crate::html::Elemento,
         estrela: &crate::html::Ligacao,
         pai: &str,
     ) -> Result<(), Motivo> {
         let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
-        let convertida =
-            crate::expr::converter_com_metodos(&estrela.valor, self.membros, self.metodos, self.nomes, self.tipos)?;
+        let Some(dir) = Estrutural::conhecida(&estrela.nome) else { return Err(Motivo::Ligacao) };
+        // Visão embutida dentro de visão embutida: o oficial numera as
+        // classes com um contador único, em profundidade
+        // (`_view.viewIndex + _nestedViewCount` em `view_builder.dart`), e
+        // isso ainda não está verificado por nenhum caso do corpus. Recusar
+        // é melhor que emitir numeração errada.
+        if tem_estrutural(&e.filhos) {
+            return Err(Motivo::Ligacao);
+        }
+        let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
         let n = self.proximo;
         self.proximo += 1;
         let dom = self.dom();
         let vc = self.imp.q(VIEW_CONTAINER);
         let tr = self.imp.q(TEMPLATE_REF);
-        let ngif = self.imp.q(NG_IF);
+        let qd = self.imp.q(dir.uri);
         let dev = self.imp.alias(DEVTOOLS);
-        // A visão embutida é uma classe irmã, numerada a partir de 1.
+        let classe_dir = dir.classe;
         let indice = self.embutidas.len() + 1;
         let nome_fabrica = format!("viewFactory_{}{indice}", &self.classe_da_visao[4..]);
+        let campo = format!("_{classe_dir}_{n}_9");
+        // Num `<template>` os provedores embutidos ocupam 0..7 e o
+        // `TemplateRef` é o 8 — ver docs/GERADOR-NG.md §2.
         self.campos_filho.push(format!("  late final {vc}ViewContainer _appEl_{n};"));
-        self.campos_filho.push(format!("  late final {ngif}NgIf _NgIf_{n}_9;"));
+        self.campos_filho.push(format!("  late final {qd}{classe_dir} {campo};"));
         self.ancoras.push(format!("_appEl_{n}"));
         self.linhas.push(format!("    final _anchor_{n} = {dom}.appendAnchor({pai});"));
         self.linhas
@@ -600,93 +617,86 @@ impl Corpo<'_> {
         self.linhas.push(format!(
             "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
         ));
-        self.linhas
-            .push(format!("    this._NgIf_{n}_9 = {ngif}NgIf(this._appEl_{n}, _TemplateRef_{n}_8);"));
         self.linhas.push(format!(
-            "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this._NgIf_{n}_9);\n    }}"
+            "    this.{campo} = {qd}{classe_dir}(this._appEl_{n}, _TemplateRef_{n}_8);"
         ));
-        let valor = convertida.texto;
-        let (ini, fim) = (estrela.inicio, estrela.fim);
-        self.usa_ctx_na_deteccao = true;
-        self.deteccao.push(format!(
-            "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.recordInput(this._NgIf_{n}_9, 'ngIf', {valor});\n    }}\n    this._NgIf_{n}_9.ngIf = {valor} /* REF:{url}:{ini}:{fim} */;"
+        self.linhas.push(format!(
+            "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this.{campo});\n    }}"
         ));
-        // O conteúdo vai para a visão embutida, sem o `*ngIf`.
+
+        // As entradas da diretiva, na ordem em que a microssintaxe as declara.
+        let mut tipo_da_colecao = None;
+        for (prop, expr) in &micro.propriedades {
+            let c = crate::expr::converter_com_locais(
+                expr,
+                self.membros,
+                self.metodos,
+                &self.locais,
+                self.nomes,
+                self.tipos,
+            )?;
+            if prop.ends_with("Of") {
+                tipo_da_colecao = c.tipo.clone();
+            }
+            let valor = c.texto;
+            let (ini, fim) = (estrela.inicio, estrela.fim);
+            self.usa_ctx_na_deteccao = true;
+            if dir.direta {
+                // `_isDirectBinding` do ngcompiler: o `NgIf` já compara o
+                // valor antes de agir, então não há `checkBinding` fora.
+                self.deteccao.push(format!(
+                    "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', {valor});\n    }}\n    this.{campo}.{prop} = {valor} /* REF:{url}:{ini}:{fim} */;"
+                ));
+            } else {
+                let k = self.proxima_ligacao;
+                self.proxima_ligacao += 1;
+                self.campos_expr.push(format!("  Object? _expr_{k};"));
+                let chk = self.imp.alias(CHECK_BINDING);
+                // O nome que vai na verificação é a expressão desta
+                // propriedade (`itens`), não o valor inteiro do `*`.
+                let texto = expr.trim();
+                self.deteccao.push(format!(
+                    "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{texto}', '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', currVal_{k});\n      }}\n      this.{campo}.{prop} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
+                ));
+            }
+        }
+        if dir.do_check {
+            let chk = self.imp.alias(CHECK_BINDING);
+            self.deteccao.push(format!(
+                "    if ((!{chk}.debugThrowIfChanged)) {{\n      this.{campo}.ngDoCheck();\n    }}"
+            ));
+        }
+
+        // Os locais do laço, tipados pelo elemento da coleção.
+        let mut locais = self.locais.clone();
+        for (nome, chave) in &micro.locais {
+            let tipo = match chave.as_str() {
+                "$implicit" => {
+                    let Some(t) = tipo_da_colecao.as_deref().and_then(tipo_do_elemento) else {
+                        return Err(Motivo::Ligacao);
+                    };
+                    t
+                }
+                "index" | "count" => "int".to_string(),
+                "first" | "last" | "even" | "odd" => "bool".to_string(),
+                _ => return Err(Motivo::Ligacao),
+            };
+            locais.insert(
+                nome.clone(),
+                crate::expr::Local { dart: format!("local_{nome}"), tipo },
+            );
+        }
+
         let mut sem_estrela = e.clone();
         sem_estrela.estrela = None;
-        let classe = format!("_{}{indice}", self.classe_da_visao);
-        let texto = self.visao_embutida(&classe, &nome_fabrica, &[No::Elemento(sem_estrela)])?;
-        self.embutidas.push(texto);
+        self.embutidas.push(EspecEmbutida {
+            classe: format!("_{}{indice}", self.classe_da_visao),
+            fabrica: nome_fabrica,
+            nos: vec![No::Elemento(sem_estrela)],
+            locais,
+            micro,
+        });
         Ok(())
-    }
-
-    /// Emite a classe de uma visão embutida e a sua fábrica.
-    fn visao_embutida(
-        &mut self,
-        classe: &str,
-        fabrica: &str,
-        nos: &[No],
-    ) -> Result<String, Motivo> {
-        // As classes embutidas saem depois das fábricas no arquivo, e é lá
-        // que o oficial aloca estes dois imports — depois do `angular.dart`.
-        // Os prefixos entram no fim, por marcação.
-        let ev = "%%EV%%".to_string();
-        let rv = "%%RV%%".to_string();
-        let tipo = self.tipo_do_contexto.clone();
-        let mut dentro = Corpo {
-            linhas: Vec::new(),
-            campos: Vec::new(),
-            campos_filho: Vec::new(),
-            vistas_filhas: Vec::new(),
-            campos_expr: Vec::new(),
-            campos_el: Vec::new(),
-            proxima_ligacao: 0,
-            deteccao: Vec::new(),
-            nomes: self.nomes,
-            usa_primeira_checagem: false,
-            usa_ctx_na_deteccao: false,
-            tb: self.tb.clone(),
-            url_do_template: self.url_do_template.clone(),
-            membros: self.membros,
-            metodos: self.metodos,
-            filhos: self.filhos,
-            asset: self.asset.clone(),
-            tipos: self.tipos,
-            com_estilo: self.com_estilo,
-            embutidas: Vec::new(),
-            classe_da_visao: self.classe_da_visao.clone(),
-            ancoras: Vec::new(),
-            embutida: true,
-            proximo: 0,
-            tem_doc: false,
-            usa_ctx_no_build: false,
-            proxima_projecao: 0,
-            imp: self.imp,
-            html: self.html.clone(),
-            tipo_do_contexto: self.tipo_do_contexto.clone(),
-        };
-        dentro.nos(nos, "")?;
-        if dentro.proximo == 0 {
-            return Err(Motivo::Ligacao);
-        }
-        let corpo = dentro.linhas.join("\n");
-        let campos = if dentro.campos.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n", dentro.campos.join("\n"))
-        };
-        let deteccao = if dentro.deteccao.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "\n  @override\n  void detectChangesInternal() {{\n{}\n  }}\n",
-                dentro.deteccao.join("\n")
-            )
-        };
-        let embutidas = dentro.embutidas.join("");
-        Ok(format!(
-            "\nclass {classe} extends {ev}.EmbeddedView<{tipo}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n{embutidas}"
-        ))
     }
 
     /// Emite a ligação de texto de `{{ … }}`: o campo `TextBinding`, o
@@ -701,7 +711,7 @@ impl Corpo<'_> {
         let (Some(tb), Some(url)) = (self.tb.clone(), self.url_do_template.clone()) else {
             return Err(Motivo::Interpolacao);
         };
-        let convertida = crate::expr::converter_com_metodos(expr, self.membros, self.metodos, self.nomes, self.tipos)
+        let convertida = crate::expr::converter_com_locais(expr, self.membros, self.metodos, &self.locais, self.nomes, self.tipos)
             .map_err(|_| Motivo::Interpolacao)?;
         // Sem o tipo estático não dá para escolher entre `interpolateString`,
         // `interpolate` e `updateTextWithPrimitive` — e escolher errado muda o
@@ -781,10 +791,7 @@ impl Corpo<'_> {
                         return Err(Motivo::Diretiva);
                     }
                     if let Some(estrela) = &e.estrela {
-                        if estrela.nome != "ngIf" {
-                            return Err(Motivo::Ligacao); // outro `*` ainda não
-                        }
-                        self.ng_if(e, estrela, pai)?;
+                        self.estrutural(e, estrela, pai)?;
                         continue;
                     }
                     if !e.bananas.is_empty() || !e.referencias.is_empty() {
@@ -980,6 +987,8 @@ fn tem_elemento_ligado(nos: &[No], filhos: &std::collections::HashMap<String, Fi
     nos.iter().any(|n| match n {
         // Componente filho não vira campo de elemento: quem guarda a raiz
         // dele é a visão-filha.
+        // Subárvore de `*` é da visão embutida.
+        No::Elemento(e) if e.estrela.is_some() => false,
         No::Elemento(e) if !filhos.contains_key(&e.nome) => {
             !e.propriedades.is_empty() || tem_elemento_ligado(&e.filhos, filhos)
         }
@@ -991,7 +1000,8 @@ fn tem_elemento_ligado(nos: &[No], filhos: &std::collections::HashMap<String, Fi
 /// O que gera campo na classe da visão, na ordem em que aparece.
 enum CampoDaVisao<'a> {
     Filho(&'a Filho),
-    NgIf,
+    /// Diretiva estrutural, com a URI da classe dela.
+    Estrutural(&'static str),
 }
 
 /// Os campos que o template vai gerar, em ordem de documento. A ordem dos
@@ -1004,9 +1014,11 @@ fn campos_em_ordem<'a>(
     let mut saida = Vec::new();
     for no in nos {
         let No::Elemento(e) = no else { continue };
-        if e.estrela.is_some() {
+        if let Some(estrela) = &e.estrela {
             // O conteúdo vai para a visão embutida; os campos dele são de lá.
-            saida.push(CampoDaVisao::NgIf);
+            if let Some(d) = Estrutural::conhecida(&estrela.nome) {
+                saida.push(CampoDaVisao::Estrutural(d.uri));
+            }
             continue;
         }
         if let Some(f) = filhos.get(&e.nome) {
@@ -1017,17 +1029,240 @@ fn campos_em_ordem<'a>(
     saida
 }
 
+/// O que é preciso para emitir uma visão embutida, guardado durante a
+/// varredura e usado depois.
+struct EspecEmbutida {
+    classe: String,
+    fabrica: String,
+    nos: Vec<No>,
+    locais: std::collections::HashMap<String, crate::expr::Local>,
+    micro: crate::micro::Micro,
+}
+
+/// Emite a classe de uma visão embutida, a sua fábrica e — recursivamente —
+/// as visões embutidas dentro dela.
+///
+/// Roda **depois** do `angular.dart`, porque é aí que o oficial escreve
+/// essas classes; os imports que ela aloca (`embedded_view`, o
+/// `text_binding` dos campos, `render_view` do construtor, `dart:core` do
+/// argumento de tipo, `interpolate`) saem nessa ordem.
+#[allow(clippy::too_many_arguments)]
+fn emitir_embutida(
+    espec: EspecEmbutida,
+    imp: &mut Importacoes,
+    membros: &std::collections::HashMap<String, crate::componente::Membro>,
+    metodos: &std::collections::HashMap<String, String>,
+    filhos: &std::collections::HashMap<String, Filho>,
+    asset: &str,
+    tipos: Option<(&dyn Resolucao, &Path)>,
+    com_estilo: bool,
+    url_do_template: Option<String>,
+    classe_da_visao: &str,
+    tipo_do_contexto: &str,
+    html: &str,
+    nomes: &mut dartforge_intern::Interner,
+) -> Result<String, Motivo> {
+    let ev = imp.alias(EMBEDDED_VIEW);
+    let classe = espec.classe.clone();
+    let fabrica = espec.fabrica.clone();
+    let mut dentro = Corpo {
+        linhas: Vec::new(),
+        campos: Vec::new(),
+        campos_filho: Vec::new(),
+        vistas_filhas: Vec::new(),
+        campos_expr: Vec::new(),
+        campos_el: Vec::new(),
+        proxima_ligacao: 0,
+        deteccao: Vec::new(),
+        nomes,
+        usa_primeira_checagem: false,
+        usa_ctx_na_deteccao: false,
+        tb: None,
+        url_do_template: url_do_template.clone(),
+        membros,
+        metodos,
+        filhos,
+        asset: asset.to_string(),
+        tipos,
+        com_estilo,
+        embutidas: Vec::new(),
+        classe_da_visao: classe_da_visao.to_string(),
+        ancoras: Vec::new(),
+        embutida: true,
+        locais: espec.locais.clone(),
+        tipo_do_contexto: tipo_do_contexto.to_string(),
+        proximo: 0,
+        tem_doc: false,
+        usa_ctx_no_build: false,
+        proxima_projecao: 0,
+        imp,
+        html: html.to_string(),
+    };
+    // O campo de ligação de texto é declarado antes do construtor, então o
+    // import dele entra aqui.
+    if tem_interpolacao(&espec.nos) {
+        dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
+    }
+    // O construtor vem depois dos campos e antes do `build()`, e é ele que
+    // nomeia a `RenderView`.
+    let rv = dentro.imp.alias(RENDER_VIEW);
+    // As declarações de local abrem o `detectChangesInternal`, antes de
+    // qualquer ligação; o argumento de tipo do `unsafeCast` é que traz o
+    // `dart:core`.
+    let util = dentro.imp.alias(UTILITIES);
+    let usados: Vec<&(String, String)> = espec
+        .micro
+        .locais
+        .iter()
+        .filter(|(nome, _)| local_citado(&espec.nos, nome))
+        .collect();
+    for (nome, _) in &usados {
+        if let Some(l) = espec.locais.get(nome.as_str()) {
+            if matches!(l.tipo.as_str(), "String" | "int" | "double" | "bool" | "num" | "Object") {
+                dentro.imp.alias("dart:core");
+            }
+        }
+    }
+    dentro.nos(&espec.nos, "")?;
+    if dentro.proximo == 0 {
+        return Err(Motivo::Ligacao);
+    }
+    // O local só é declarado se for usado, como no oficial.
+    let mut declaracoes = Vec::new();
+    for (nome, chave) in &usados {
+        let Some(l) = espec.locais.get(nome.as_str()) else { continue };
+        let (d, t) = (&l.dart, &l.tipo);
+        // A chave sai como literal escapado (`'\$implicit'`): sem o escape,
+        // o `$` viraria interpolação em Dart.
+        let chave = literal(chave);
+        declaracoes.push(format!("    final {d} = {util}.unsafeCast<{t}>(this.locals[{chave}]);"));
+    }
+    let corpo = dentro.linhas.join("\n");
+    let campos = if dentro.campos.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", dentro.campos.join("\n"))
+    };
+    let deteccao = if dentro.deteccao.is_empty() && declaracoes.is_empty() {
+        String::new()
+    } else {
+        let mut linhas = declaracoes;
+        linhas.extend(dentro.deteccao.clone());
+        format!(
+            "\n  @override\n  void detectChangesInternal() {{\n{}\n  }}\n",
+            linhas.join("\n")
+        )
+    };
+    let aninhadas = std::mem::take(&mut dentro.embutidas);
+    // Tira os dois emprestados de dentro da estrutura: a recursão precisa
+    // deles, e `dentro` não vive além daqui.
+    let imp = dentro.imp;
+    let nomes = dentro.nomes;
+    let mut texto = format!(
+        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+    );
+    for a in aninhadas {
+        texto.push_str(&emitir_embutida(
+            a,
+            imp,
+            membros,
+            metodos,
+            filhos,
+            asset,
+            tipos,
+            com_estilo,
+            url_do_template.clone(),
+            classe_da_visao,
+            tipo_do_contexto,
+            html,
+            nomes,
+        )?);
+    }
+    Ok(texto)
+}
+
+/// Há outra diretiva estrutural na subárvore?
+fn tem_estrutural(nos: &[No]) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) => e.estrela.is_some() || tem_estrutural(&e.filhos),
+        _ => false,
+    })
+}
+
+/// O local aparece em alguma expressão da subárvore?
+///
+/// A declaração dele abre o `detectChangesInternal` e traz o `dart:core`
+/// junto, então a decisão precisa ser tomada antes de percorrer o corpo.
+fn local_citado(nos: &[No], nome: &str) -> bool {
+    let cita = |texto: &str| {
+        texto.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '$').any(|t| t == nome)
+    };
+    nos.iter().any(|n| match n {
+        No::Interpolacao { expr, .. } => cita(expr),
+        No::Elemento(e) => {
+            e.propriedades.iter().chain(e.eventos.iter()).any(|l| cita(&l.valor))
+                || e.estrela.as_ref().is_some_and(|l| cita(&l.valor))
+                || local_citado(&e.filhos, nome)
+        }
+        _ => false,
+    })
+}
+
+/// As diretivas estruturais que o gerador conhece, com o que muda em cada
+/// uma. O que faz `NgIf` e `NgFor` diferirem está declarado no ngcompiler:
+/// `_isDirectBinding` (em `semantic_analysis/binding_converter.dart`) isenta
+/// o `NgIf` do `checkBinding`, e o `NgFor` implementa `DoCheck`.
+struct Estrutural {
+    classe: &'static str,
+    uri: &'static str,
+    /// A entrada é escrita direto, sem `checkBinding`.
+    direta: bool,
+    /// Implementa `DoCheck`: a visão chama `ngDoCheck()` na detecção.
+    do_check: bool,
+}
+
+impl Estrutural {
+    fn conhecida(nome: &str) -> Option<Estrutural> {
+        match nome {
+            "ngIf" => Some(Estrutural { classe: "NgIf", uri: NG_IF, direta: true, do_check: false }),
+            "ngFor" => {
+                Some(Estrutural { classe: "NgFor", uri: NG_FOR, direta: false, do_check: true })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// `List<String>` -> `String`. Sem argumento de tipo não dá para tipar o
+/// local do laço, e o oficial escreve `unsafeCast<T>` com T explícito.
+fn tipo_do_elemento(tipo: &str) -> Option<String> {
+    let t = tipo.trim().trim_end_matches('?');
+    let abre = t.find('<')?;
+    let base = &t[..abre];
+    if !matches!(base, "List" | "Iterable" | "Set") {
+        return None;
+    }
+    let dentro = t[abre + 1..].strip_suffix('>')?;
+    if dentro.contains(',') || dentro.contains('<') {
+        return None;
+    }
+    Some(dentro.trim().to_string())
+}
+
 /// Nome que pertence a uma diretiva do ecossistema, não ao DOM.
 fn e_de_diretiva(nome: &str) -> bool {
     let base = nome.split('.').next().unwrap_or(nome);
     base.starts_with("ng") || base.starts_with("form") && base != "form"
 }
 
-/// O template tem `{{ … }}` em algum lugar?
+/// O template tem `{{ … }}` nesta visão?
+///
+/// Não desce na subárvore de um `*`: aquele conteúdo é da visão embutida, e
+/// os campos dele são declarados lá.
 fn tem_interpolacao(nos: &[No]) -> bool {
     nos.iter().any(|n| match n {
         No::Interpolacao { .. } => true,
-        No::Elemento(e) => tem_interpolacao(&e.filhos),
+        No::Elemento(e) if e.estrela.is_none() => tem_interpolacao(&e.filhos),
         _ => false,
     })
 }
@@ -1107,9 +1342,9 @@ pub fn template_de_componente(
                     imp.alias(&caminho);
                 }
             }
-            CampoDaVisao::NgIf => {
+            CampoDaVisao::Estrutural(uri) => {
                 imp.alias(VIEW_CONTAINER);
-                imp.alias(NG_IF);
+                imp.alias(uri);
             }
         }
     }
@@ -1137,6 +1372,7 @@ pub fn template_de_componente(
         classe_da_visao: format!("View{}", c.classe),
         ancoras: Vec::new(),
         embutida: false,
+        locais: Default::default(),
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         campos_expr: Vec::new(),
         campos_el: Vec::new(),
@@ -1165,7 +1401,7 @@ pub fn template_de_componente(
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
     // Ordem dos campos na classe, como o oficial escreve: ligações de texto,
     // depois os valores anteriores das ligações, depois os elementos.
-    let embutidas = corpo.embutidas.join("");
+    let especs = std::mem::take(&mut corpo.embutidas);
     let mut todos = corpo.campos.clone();
     todos.extend(corpo.campos_filho.clone());
     todos.extend(corpo.campos_expr.clone());
@@ -1222,15 +1458,31 @@ pub fn template_de_componente(
 ", linhas.join("
 "))
     };
+    // `corpo` empresta o interner e a tabela de imports; a emissão das
+    // visões embutidas precisa dos dois.
+    drop(corpo);
 
     imp.sem_alias(ANGULAR);
-    let embutidas = if embutidas.is_empty() {
-        embutidas
-    } else {
-        let ev = imp.alias(EMBEDDED_VIEW);
-        let rv = imp.alias(RENDER_VIEW);
-        embutidas.replace("%%EV%%", &ev).replace("%%RV%%", &rv)
-    };
+    // As visões embutidas são escritas aqui, depois das fábricas — e é por
+    // isso que os imports delas vêm depois do `angular.dart`.
+    let mut embutidas = String::new();
+    for espec in especs {
+        embutidas.push_str(&emitir_embutida(
+            espec,
+            &mut imp,
+            &c.membros,
+            &c.metodos,
+            filhos,
+            &local.asset(),
+            resolvedor.map(|r| (r, local.caminho)),
+            !c.style_urls.is_empty(),
+            local.url_do_template.clone(),
+            &format!("View{}", c.classe),
+            &format!("{proprio}.{}", c.classe),
+            &html,
+            nomes,
+        )?);
+    }
     let hosp = imp.alias(HOST_VIEW);
     let construcao = construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
         .ok_or(Motivo::InjecaoNaoResolvida)?;

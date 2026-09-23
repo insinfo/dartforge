@@ -21,6 +21,7 @@ pub mod css;
 pub mod dom;
 pub mod expr;
 pub mod html;
+pub mod micro;
 pub mod resolucao;
 pub mod sass;
 pub mod visao;

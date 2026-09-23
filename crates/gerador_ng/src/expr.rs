@@ -16,6 +16,15 @@ use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
+/// Um local de visão embutida: o nome em Dart e o tipo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Local {
+    /// Como sai no código gerado: `local_item`.
+    pub dart: String,
+    /// Tipo estático, para a escolha da forma de interpolação.
+    pub tipo: String,
+}
+
 /// Uma expressão de template já convertida.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Convertida {
@@ -52,6 +61,20 @@ pub fn converter_com_metodos(
     interner: &mut Interner,
     tipos: Option<(&dyn Resolucao, &Path)>,
 ) -> Result<Convertida, Motivo> {
+    converter_com_locais(expressao, membros, metodos, &HashMap::new(), interner, tipos)
+}
+
+/// Como [`converter_com_metodos`], com os locais de uma visão embutida
+/// (`let item of itens` põe `item` no escopo). Um local vence o membro do
+/// componente, como manda o escopo do template.
+pub fn converter_com_locais(
+    expressao: &str,
+    membros: &HashMap<String, Membro>,
+    metodos: &HashMap<String, String>,
+    locais: &HashMap<String, Local>,
+    interner: &mut Interner,
+    tipos: Option<(&dyn Resolucao, &Path)>,
+) -> Result<Convertida, Motivo> {
     // Um `var` de topo é o menor contexto em que o parser aceita uma
     // expressão qualquer.
     let fonte = format!("var _e = {expressao};");
@@ -65,7 +88,7 @@ pub fn converter_com_metodos(
     };
     let Some(v) = lista.variables.first() else { return Err(Motivo::Ligacao) };
     let Some(inicial) = v.initializer else { return Err(Motivo::Ligacao) };
-    let c = Conversor { ast: &analisada.ast, fonte: &fonte, interner, membros, metodos, tipos };
+    let c = Conversor { ast: &analisada.ast, fonte: &fonte, interner, membros, metodos, locais, tipos };
     c.expr(inicial, true)
 }
 
@@ -75,6 +98,7 @@ struct Conversor<'a> {
     interner: &'a Interner,
     membros: &'a HashMap<String, Membro>,
     metodos: &'a HashMap<String, String>,
+    locais: &'a HashMap<String, Local>,
     /// Banco semântico e o arquivo em que a expressão foi escrita, para
     /// perguntar o tipo de um membro que está noutra classe.
     tipos: Option<(&'a dyn Resolucao, &'a Path)>,
@@ -115,6 +139,14 @@ impl Conversor<'_> {
                 let nome = self.interner.resolve(n.sym);
                 if !raiz {
                     return Ok(Convertida { texto: nome.to_string(), imutavel: false, tipo: None });
+                }
+                // O local do laço sombreia o membro do componente.
+                if let Some(l) = self.locais.get(nome) {
+                    return Ok(Convertida {
+                        texto: l.dart.clone(),
+                        imutavel: false,
+                        tipo: Some(l.tipo.clone()),
+                    });
                 }
                 let Some(m) = self.membros.get(nome) else { return Err(Motivo::Ligacao) };
                 Ok(Convertida {
