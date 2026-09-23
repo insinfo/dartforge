@@ -59,15 +59,36 @@ pub extern "C" fn dartforge_null_assert_fail() -> ! {
 }
 
 // SAFETY: o emissor define esta entrada com assinatura C void(void).
+//
+// Só no executável AOT. Quando este arquivo é compilado como módulo do crate
+// `dartforge-runtime` (cfg `dartforge_runtime_embutido`, posta pelo build.rs),
+// quem chama a entrada é o JIT, e um `main` C colidiria com o do binário Rust.
+#[cfg(not(dartforge_runtime_embutido))]
 unsafe extern "C" {
     fn dartforge_entry();
 }
 
 /// Invoca uma vez o programa ligado ao runtime Rust.
+#[cfg(not(dartforge_runtime_embutido))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     // SAFETY: o objeto foi emitido para esta ABI e ligado pelo mesmo driver nativo.
     unsafe { dartforge_entry() };
+    let codigo = finalizar_programa();
+    if codigo != 0 {
+        std::process::exit(codigo);
+    }
+    0
+}
+
+/// O que acontece depois que `dartforge_entry` retorna, nos DOIS perfis.
+///
+/// Exceção pendente: escreve `Uncaught exception: …` em stderr e devolve 101.
+/// Senão, com `DARTFORGE_GC_STATS=1`, escreve as estatísticas do coletor, e
+/// devolve 0. Quem chama encerra o processo com o código (o `main` acima, no
+/// AOT; o executor, no JIT). Não chama `exit` aqui: é o único trecho do
+/// runtime que os dois perfis dirigem, e fica escrito uma vez só.
+pub fn finalizar_programa() -> i32 {
     let pending = EXCEPTION.with(|slot| slot.borrow().is_some());
     if pending {
         let (bits, tag) = EXCEPTION.with(|slot| {
@@ -87,7 +108,7 @@ pub extern "C" fn main() -> i32 {
                 "Uncaught exception: {detail}"
             );
         });
-        std::process::exit(101);
+        return 101;
     }
     if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
         HEAP.with(|heap| {
@@ -101,7 +122,7 @@ pub extern "C" fn main() -> i32 {
     0
 }
 
-use heap::{Heap, TaggedValue, Value};
+use crate::heap::{Heap, TaggedValue, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -319,7 +340,7 @@ fn tagged(bits: i64, tag: u8) -> TaggedValue {
         4 => TaggedValue {
             bits,
             is_ref: false,
-            tag: heap::ValueTag::Double,
+            tag: crate::heap::ValueTag::Double,
         },
         _ => panic!("tag de valor inválida"),
     }
@@ -327,7 +348,7 @@ fn tagged(bits: i64, tag: u8) -> TaggedValue {
 
 /// Separa um valor na ABI plana (bits, tag) para chamadas LLVM.
 fn untag(value: TaggedValue) -> (i64, u8) {
-    use heap::ValueTag;
+    use crate::heap::ValueTag;
     let tag = match value.tag {
         ValueTag::Int => 1,
         ValueTag::Bool => 2,
@@ -1049,7 +1070,7 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
             }
             return;
         }
-        use heap::ValueTag;
+        use crate::heap::ValueTag;
         match value.tag {
             ValueTag::Bool => output.push_str(if value.bits != 0 { "true" } else { "false" }),
             ValueTag::Int => output.push_str(&value.bits.to_string()),
@@ -1450,9 +1471,9 @@ pub extern "C" fn dartforge_tagged_to_string(bits: i64, tag: u8) -> i64 {
         let heap_ref = heap.borrow();
         let mut out = String::new();
         match value.tag {
-            heap::ValueTag::Int => out.push_str(&value.bits.to_string()),
-            heap::ValueTag::Bool => out.push_str(if value.bits != 0 { "true" } else { "false" }),
-            heap::ValueTag::Double => {
+            crate::heap::ValueTag::Int => out.push_str(&value.bits.to_string()),
+            crate::heap::ValueTag::Bool => out.push_str(if value.bits != 0 { "true" } else { "false" }),
+            crate::heap::ValueTag::Double => {
                 let d = f64::from_bits(value.bits as u64);
                 if d.fract() == 0.0 && !d.is_infinite() && !d.is_nan() {
                     out.push_str(&format!("{d:.1}"));
@@ -1460,7 +1481,7 @@ pub extern "C" fn dartforge_tagged_to_string(bits: i64, tag: u8) -> i64 {
                     out.push_str(&d.to_string());
                 }
             }
-            heap::ValueTag::Ref => {
+            crate::heap::ValueTag::Ref => {
                 if value.bits != 0 {
                     if let Value::String(_) = heap_ref.get(value.bits) {
                         return value.bits;
@@ -1531,10 +1552,10 @@ pub extern "C" fn dartforge_map_remove(handle: i64, key_bits: i64, key_tag: u8) 
             bits: key_bits,
             is_ref: key_tag == 3,
             tag: match key_tag {
-                1 => heap::ValueTag::Int,
-                2 => heap::ValueTag::Bool,
-                3 => heap::ValueTag::Ref,
-                _ => heap::ValueTag::Int,
+                1 => crate::heap::ValueTag::Int,
+                2 => crate::heap::ValueTag::Bool,
+                3 => crate::heap::ValueTag::Ref,
+                _ => crate::heap::ValueTag::Int,
             },
         };
         let Value::Map(entries) = heap.get_mut(handle) else { return 0; };
@@ -1844,9 +1865,9 @@ pub extern "C" fn dartforge_string_code_units(handle: i64) -> i64 {
     let code_units: Vec<TaggedValue> = HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(handle) {
-            Value::String(s) => s.encode_utf16().map(|u| TaggedValue { bits: u as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
-            Value::RawString(r) => r.iter().map(|&u| TaggedValue { bits: u as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
-            Value::StringBuffer(b) => b.encode_utf16().map(|u| TaggedValue { bits: u as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::String(s) => s.encode_utf16().map(|u| TaggedValue { bits: u as i64, tag: crate::heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::RawString(r) => r.iter().map(|&u| TaggedValue { bits: u as i64, tag: crate::heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::StringBuffer(b) => b.encode_utf16().map(|u| TaggedValue { bits: u as i64, tag: crate::heap::ValueTag::Int, is_ref: false }).collect(),
             _ => Vec::new(),
         }
     });
@@ -1862,9 +1883,9 @@ pub extern "C" fn dartforge_string_runes(handle: i64) -> i64 {
     let runes: Vec<TaggedValue> = HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(handle) {
-            Value::String(s) => s.chars().map(|c| TaggedValue { bits: c as u32 as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
-            Value::RawString(r) => char::decode_utf16(r.iter().copied()).map(|res| TaggedValue { bits: res.unwrap_or('\u{FFFD}') as u32 as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
-            Value::StringBuffer(b) => b.chars().map(|c| TaggedValue { bits: c as u32 as i64, tag: heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::String(s) => s.chars().map(|c| TaggedValue { bits: c as u32 as i64, tag: crate::heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::RawString(r) => char::decode_utf16(r.iter().copied()).map(|res| TaggedValue { bits: res.unwrap_or('\u{FFFD}') as u32 as i64, tag: crate::heap::ValueTag::Int, is_ref: false }).collect(),
+            Value::StringBuffer(b) => b.chars().map(|c| TaggedValue { bits: c as u32 as i64, tag: crate::heap::ValueTag::Int, is_ref: false }).collect(),
             _ => Vec::new(),
         }
     });
@@ -2374,9 +2395,9 @@ pub extern "C" fn dartforge_list_join(handle: i64, sep_handle: i64) -> i64 {
         for item in items {
             let mut out = String::new();
             match item.tag {
-                heap::ValueTag::Int => out.push_str(&item.bits.to_string()),
-                heap::ValueTag::Bool => out.push_str(if item.bits != 0 { "true" } else { "false" }),
-                heap::ValueTag::Double => {
+                crate::heap::ValueTag::Int => out.push_str(&item.bits.to_string()),
+                crate::heap::ValueTag::Bool => out.push_str(if item.bits != 0 { "true" } else { "false" }),
+                crate::heap::ValueTag::Double => {
                     let d = f64::from_bits(item.bits as u64);
                     if d.fract() == 0.0 && !d.is_infinite() && !d.is_nan() {
                         out.push_str(&format!("{d:.1}"));
@@ -2384,7 +2405,7 @@ pub extern "C" fn dartforge_list_join(handle: i64, sep_handle: i64) -> i64 {
                         out.push_str(&d.to_string());
                     }
                 }
-                heap::ValueTag::Ref => {
+                crate::heap::ValueTag::Ref => {
                     if item.bits != 0 {
                         if let Value::String(s) = heap_ref.get(item.bits) {
                             out.push_str(s);

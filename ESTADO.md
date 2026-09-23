@@ -242,8 +242,13 @@ o executável passa a exigir a `LLVM-C.dll` da distribuição completa no
   `--nativo`); `--jit-aot` passa o MESMO IR também pelo AOT, lista todo
   `JIT≠AOT` (é defeito) e mede os tempos. No CI é o job `jit` do `pesado.yml`.
 
-A fonte única do runtime ainda espera o merge do nativo: até lá o
-`crates/jit` compila uma cópia gerada de `runtime_main.rs` (`build.rs`).
+O runtime é **fonte única**: o mesmo `runtime_main.rs` vira a `.lib` do AOT e
+o módulo `dartforge_runtime::abi` do JIT, com a tabela de símbolos gerada
+(`crates/runtime/build.rs`). No corpus inteiro, JIT e AOT deram **222/222
+idênticos** a partir do mesmo IR. O JIT até executar leva 43 ms por programa, e
+o Clang + ligação 156 ms (medianas, Pesado 35824630444; `docs/JIT.md`). A
+biblioteca `crates/jit` já serve de executor persistente: `compile_module`
+para o cache, `add_compiled_module`, e várias execuções com estado limpo.
 O `crates/cranelift-jit` continua na trilha velha, fora do CI.
 
 ### 1.5.2 Runtime Dart — `crates/runtime`
