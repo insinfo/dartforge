@@ -255,15 +255,19 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
             }
             Some(d) => {
                 // Distingue o defeito que importa: produção que difere do
-                // desenvolvimento é defeito **da poda**; produção que difere só
-                // da VM, com o desenvolvimento igual, também é — mas a primeira
-                // linha de stderr é o que agrupa.
-                let culpa = if r.producao_vs_forge().is_some() { "produção≠desenvolvimento" } else { "produção≠VM" };
+                // outro executor é defeito **da poda**; produção que difere só
+                // da VM, com o outro igual, também é — mas quem agrupa é a
+                // chave de falha.
+                let culpa = if r.producao_vs_forge().is_some() { "produção≠executor" } else { "produção≠VM" };
                 let _ = writeln!(out, "PROD!  {nome}  ({}, {culpa})", descrever(d));
-                let _ = write!(out, "{}", lado_a_lado(&[("dart run", &r.dart.stdout), ("dartforge dev", &forge.stdout), ("dartforge prod", &prod.stdout)], foco(d)));
-                let _ = writeln!(out, "       códigos: dart={} dev={} prod={}", r.dart.codigo, forge.codigo, prod.codigo);
-                let chave = prod.primeira_linha_stderr();
-                let chave = if chave.is_empty() { "(stderr vazio)".to_string() } else { truncar(chave, 120) };
+                let rotulo = if nativo { "dartforge nativo" } else { "dartforge dev" };
+                let _ = write!(out, "{}", lado_a_lado(&[("dart run", &r.dart.stdout), (rotulo, &forge.stdout), ("dartforge prod", &prod.stdout)], foco(d)));
+                let _ = writeln!(out, "       códigos: dart={} outro={} prod={}", r.dart.codigo, forge.codigo, prod.codigo);
+                // A mesma chave do executor principal, e pelo mesmo motivo: um
+                // `dartforge-jsprod` que entra em pânico traz o id da thread na
+                // primeira linha, que quebraria um defeito em vários grupos e
+                // faria o relatório mudar de execução para execução.
+                let chave = truncar(&chave_de_falha(prod), 120);
                 let _ = writeln!(out, "       stderr: {chave}");
                 grupos_prod.entry(chave).or_default().push(nome.clone());
             }
