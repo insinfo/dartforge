@@ -456,7 +456,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Os parâmetros de uma função do programa, para a entrada uniforme.
-    fn params_da_funcao(&self, fid: usize) -> Vec<ParamEntrada> {
+    pub(super) fn params_da_funcao(&self, fid: usize) -> Vec<ParamEntrada> {
         let Some(dados) = self.ctx.outline.functions.get(fid) else {
             return Vec::new();
         };

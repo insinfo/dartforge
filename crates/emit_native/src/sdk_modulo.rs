@@ -98,6 +98,81 @@ pub fn medir_inferencia_do_sdk(lib_dir: &Path) -> Result<Vec<InferenciaDaBibliot
     Ok(saida)
 }
 
+/// O resultado do lowering de um membro do SDK da fonte.
+#[derive(Debug, Clone)]
+pub struct MembroDoSdk {
+    pub biblioteca: String,
+    pub simbolo: String,
+    /// Diagnósticos do lowering (vazio: baixou), ou o pânico.
+    pub diagnosticos: Vec<String>,
+}
+
+/// Medição de P5c: baixa cada função das [`BIBLIOTECAS_DA_FONTE`] (mundo
+/// aberto) e devolve, por membro, os diagnósticos do lowering.
+pub fn medir_lowering_do_sdk(lib_dir: &Path) -> Result<Vec<MembroDoSdk>, String> {
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    let sdk = carregar_sdk_nativo(lib_dir)?;
+    let tmp = std::env::temp_dir().join(format!("dartforge-lower-sdk-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let entrada = tmp.join("main.dart");
+    let mut fonte = String::new();
+    for b in BIBLIOTECAS_DA_FONTE {
+        fonte.push_str(&format!("import 'dart:{b}';\n"));
+    }
+    fonte.push_str("void main() {}\n");
+    std::fs::write(&entrada, fonte).map_err(|e| format!("{}: {e}", entrada.display()))?;
+    let mut interner = Interner::new();
+    let (program, diags_carga) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+    let _ = std::fs::remove_dir_all(&tmp);
+    if let Some(d) = diags_carga.first() {
+        return Err(format!("carga do SDK com a sobreposição: {}", d.message));
+    }
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &program, &interner);
+    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let libs: Vec<_> = program
+        .libraries
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.uri.strip_prefix("dart:").is_some_and(|n| BIBLIOTECAS_DA_FONTE.contains(&n)))
+        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+        .collect();
+    let (corpos, _) =
+        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &libs);
+    let ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos).com_sdk_da_fonte();
+    let mut saida = Vec::new();
+    for f in 0..program.functions.len() {
+        if !libs.contains(&program.functions[f].library) {
+            continue;
+        }
+        let simbolo = crate::lower::simbolo_de(&ctx, f);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut m = crate::hir::Module::new();
+            crate::lower::lower_funcao(&ctx, &mut m, f);
+            m.erros
+        }));
+        let diagnosticos = match r {
+            Ok(e) => e,
+            Err(p) => {
+                let msg = p
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_default();
+                vec![format!("pânico: {msg}")]
+            }
+        };
+        saida.push(MembroDoSdk {
+            biblioteca: program.library(program.functions[f].library).uri.clone(),
+            simbolo,
+            diagnosticos,
+        });
+    }
+    Ok(saida)
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -152,5 +227,56 @@ mod testes {
             }
         }
         println!("total de diagnósticos: {total}");
+    }
+
+    /// A medição de P5c: quantos membros do SDK da fonte o lowering baixa.
+    /// `cargo test -p dartforge-emit-native medir_lowering -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "medição; roda à parte"]
+    fn medir_lowering_das_bibliotecas_da_fonte() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            return;
+        }
+        std::panic::set_hook(Box::new(|_| {}));
+        let membros = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| medir_lowering_do_sdk(Path::new(SDK)).unwrap())
+            .unwrap()
+            .join()
+            .unwrap();
+        let mut por_lib: std::collections::BTreeMap<&str, (usize, usize)> = Default::default();
+        let mut por_construto: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+        for m in &membros {
+            let e = por_lib.entry(&m.biblioteca).or_default();
+            e.0 += 1;
+            if m.diagnosticos.is_empty() {
+                e.1 += 1;
+            }
+            let mut vistos = std::collections::BTreeSet::new();
+            for d in &m.diagnosticos {
+                let d = d.strip_prefix(crate::PREFIXO_NAO_SUPORTADO).unwrap_or(d);
+                let chave: String = d.rsplit_once(" (").map_or(d, |(a, _)| a).chars().take(90).collect();
+                let c = por_construto.entry(chave.clone()).or_default();
+                c.1 += 1;
+                if vistos.insert(chave) {
+                    c.0 += 1;
+                }
+            }
+        }
+        for (l, (n, ok)) in &por_lib {
+            println!("{l:<20} membros {n:>5}  baixados {ok:>5}");
+        }
+        let mut v: Vec<_> = por_construto.into_iter().collect();
+        v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        for (c, (membros, ocorr)) in v.iter().take(80) {
+            println!("{membros:>5} {ocorr:>6}  {c}");
+        }
+        if let Ok(arq) = std::env::var("DARTFORGE_MEDIR_SAIDA") {
+            let mut t = String::new();
+            for m in &membros {
+                t.push_str(&format!("{}\t{}\t{}\n", m.biblioteca, m.simbolo, m.diagnosticos.join(" | ")));
+            }
+            std::fs::write(arq, t).unwrap();
+        }
     }
 }

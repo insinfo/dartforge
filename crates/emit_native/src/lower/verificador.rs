@@ -219,6 +219,14 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
                 }
             }
         }
+        Instruction::CallSeletor { recv, args, .. } => {
+            c.checar_ref("chamada por seletor", recv, Type::Ref);
+            for a in args {
+                if c.tipo(a) != Type::Ref {
+                    c.erro(format!("argumento de seletor não é Ref: {a:?}"));
+                }
+            }
+        }
         Instruction::AllocSet { .. }
         | Instruction::GetListElement { .. }
         | Instruction::SetListElement { .. }

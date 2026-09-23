@@ -93,6 +93,9 @@ pub fn subclasse_de(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
 pub fn tem_corpo(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     match f.node {
+        // SDK da fonte (P5c): um `external` é implementado pelo patch ou
+        // pelo native (`sdk_fonte::chamar_externo`).
+        FunctionRef::Function { .. } if f.external && ctx.sdk_da_fonte => true,
         FunctionRef::Function { unit, function } => !matches!(
             ctx.program.unit(unit).ast.function(function).body,
             FunctionBody::Empty | FunctionBody::Native(_)
@@ -630,6 +633,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Campo lido; se `late` com inicializador, inicializa na primeira leitura.
     pub fn ler_campo_com_late(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
+        if let Some(r) = self.ler_campo_fonte(obj.clone(), vid) {
+            return r;
+        }
         let atual = self.ler_campo(obj.clone(), vid, span);
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.late {
@@ -868,6 +874,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         this: Option<Operand>,
         args: Vec<Operand>,
     ) -> Operand {
+        if let Some(r) = self.chamar_externo(fid, this.clone(), &args) {
+            return r;
+        }
         let symbol = super::simbolo_de(self.ctx, fid);
         let ret_ty = self.repr_retorno(fid);
         let mut todos = Vec::with_capacity(args.len() + 1);
@@ -936,6 +945,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         avaliados: &[Avaliado],
         span: Span,
     ) -> Operand {
+        if let Some(r) = self.chamar_membro_fonte(recv.clone(), decl_fid, avaliados) {
+            return r;
+        }
         let impls = self.implementacoes(decl_fid);
         let mut distintos: Vec<usize> = impls.iter().map(|(_, f)| *f).collect();
         distintos.sort_unstable();
@@ -1410,6 +1422,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let repr = self.repr(tipo_da_variavel(self.ctx, vid));
         let val = self.coagir(val, repr);
+        if self.ctx.sdk_da_fonte
+            && !self.ctx.biblioteca_no_modulo(self.ctx.program.variables[vid.0 as usize].library)
+        {
+            // O global mora em outro módulo (SDK da fonte): pelo setter dele.
+            self.emit_call_with_check(
+                Instruction::CallStatic {
+                    symbol: format!("{}$set", super::simbolo_global(self.ctx, vid)),
+                    args: vec![val.clone()],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+            return val;
+        }
         self.emit(
             Instruction::StoreGlobal {
                 simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),

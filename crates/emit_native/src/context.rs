@@ -34,6 +34,10 @@ pub struct Context<'a> {
     /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
     /// com `sdk_da_fonte`, também as do SDK da fonte).
     pub compiladas: Vec<bool>,
+    /// Por biblioteca: as funções dela são baixadas **neste** módulo (as do
+    /// programa; num módulo do SDK da fonte, só a biblioteca dele). As outras
+    /// compiladas moram em outro objeto e são chamadas pelo símbolo.
+    pub no_modulo: Vec<bool>,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -96,6 +100,7 @@ impl<'a> Context<'a> {
             raiz,
             sdk_da_fonte: false,
             compiladas: program.libraries.iter().map(|l| !l.is_sdk).collect(),
+            no_modulo: program.libraries.iter().map(|l| !l.is_sdk).collect(),
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do
@@ -170,9 +175,33 @@ impl<'a> Context<'a> {
         self
     }
 
+    /// O módulo de uma biblioteca do SDK da fonte (P5c): só ela é baixada
+    /// aqui; o programa e as outras bibliotecas ficam de fora.
+    pub fn so_a_biblioteca(mut self, lib: LibraryId) -> Self {
+        self.no_modulo = vec![false; self.program.libraries.len()];
+        self.no_modulo[lib.0 as usize] = true;
+        self
+    }
+
     /// O corpo das funções da biblioteca é compilado?
     pub fn biblioteca_compilada(&self, lib: LibraryId) -> bool {
         self.compiladas[lib.0 as usize]
+    }
+
+    /// As funções da biblioteca são baixadas neste módulo?
+    pub fn biblioteca_no_modulo(&self, lib: LibraryId) -> bool {
+        self.no_modulo[lib.0 as usize]
+    }
+
+    /// A classe `nome` de `dart:<lib>` (SDK da fonte), se carregada.
+    pub fn classe_do_sdk(&self, lib: &str, nome: &str) -> Option<dartforge_elements::model::ClassId> {
+        let uri = format!("dart:{lib}");
+        let sym = self.interner.lookup(nome)?;
+        self.program
+            .classes
+            .iter()
+            .position(|c| c.name == sym && self.program.library(c.library).uri == uri)
+            .map(|i| dartforge_elements::model::ClassId(i as u32))
     }
 
     /// Ids de classe estáveis (P2): as classes compiladas pela ordem do

@@ -336,6 +336,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                             Type::Ref,
                                         )
                                     }
+                                    Type::Ref if self.ctx.sdk_da_fonte => self.texto_por_seletor(raw_op),
                                     Type::Ref => self.emit(
                                         Instruction::CallStatic {
                                             symbol: "dartforge_dispatch_toString".to_string(),

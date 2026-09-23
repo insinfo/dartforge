@@ -22,6 +22,7 @@ pub mod membros;
 pub mod operadores;
 pub mod padroes;
 pub mod registros;
+pub mod sdk_fonte;
 pub mod sdk_por_nome;
 pub mod verificador;
 
@@ -166,6 +167,11 @@ pub fn lower_program(ctx: &Context) -> Module {
         to_string_symbol: None,
     });
 
+    module.modo_sdk = ctx.sdk_da_fonte;
+    if ctx.sdk_da_fonte {
+        // As classes de erro são as do SDK da fonte (P5c).
+        return lower_classes_e_funcoes(ctx, module);
+    }
     // Classes e interfaces de erro da biblioteca padrão
     module.classes.push(ClassDef { id: 1000, name: "Exception".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
     module.classes.push(ClassDef { id: 1001, name: "FormatException".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
@@ -206,11 +212,14 @@ pub fn lower_program(ctx: &Context) -> Module {
     module.subtyping_edges.push((1012, 1007)); // NoSuchMethodError <: Error
     module.subtyping_edges.push((1012, 0));
     module.subtyping_edges.push((1006, 0)); // StackTrace <: Object
+    lower_classes_e_funcoes(ctx, module)
+}
 
+fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         // Classes do SDK não viram objetos do nosso heap (o runtime tem as
         // suas próprias representações); só as do usuário são registradas.
-        if !ctx.biblioteca_compilada(class.library) {
+        if !ctx.biblioteca_no_modulo(class.library) {
             continue;
         }
         let name = ctx.symbol_name(class.name).to_string();
@@ -248,6 +257,10 @@ pub fn lower_program(ctx: &Context) -> Module {
             nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[iface.0 as usize].name));
         }
         for sup_name in nomes_de_supertipo {
+            if ctx.sdk_da_fonte {
+                // As classes de erro são as do SDK da fonte: arestas reais.
+                break;
+            }
             let builtin = match sup_name {
                 "Exception" => Some(1000),
                 "FormatException" => Some(1001),
@@ -272,17 +285,19 @@ pub fn lower_program(ctx: &Context) -> Module {
 
     // 2. Funções do usuário
     for f_idx in 0..ctx.program.functions.len() {
-        if !funcao_do_usuario(ctx, f_idx) {
+        if !ctx.biblioteca_no_modulo(ctx.program.functions[f_idx].library) {
             continue;
         }
-        let antes = module.erros.len();
-        lower_funcao(ctx, &mut module, f_idx);
-        if ctx.sdk_da_fonte && module.erros.len() > antes {
-            let s = simbolo_de(ctx, f_idx);
-            for e in &mut module.erros[antes..] {
-                *e = format!("{s}: {e}");
-            }
+        if ctx.sdk_da_fonte && ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
+            // Módulo do SDK da fonte (P5c): o membro que não baixa é
+            // recusado sozinho, com o motivo (`sdk_fonte.rs`).
+            sdk_fonte::lower_funcao_ou_recusa(ctx, &mut module, f_idx);
+        } else {
+            lower_funcao(ctx, &mut module, f_idx);
         }
+    }
+    if ctx.sdk_da_fonte {
+        sdk_fonte::lower_adaptadores_e_tabelas(ctx, &mut module);
     }
     lower_globais_e_resto(ctx, module)
 }
@@ -460,7 +475,7 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
     // preguiçoso por global (N6).
     for (v_idx, v) in ctx.program.variables.iter().enumerate() {
         let vid = VariableId(v_idx as u32);
-        if !ctx.biblioteca_compilada(v.library) || !e_global(ctx, vid) {
+        if !ctx.biblioteca_no_modulo(v.library) || !e_global(ctx, vid) {
             continue;
         }
         let unit = match v.node {
@@ -487,6 +502,12 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         let repr = ctx.to_hir_type(ty);
         let repr = if repr == Type::Void { Type::Ref } else { repr };
         module.globais.push((vid.0, repr, simbolo_valor_global(ctx, vid)));
+        if ctx.sdk_da_fonte {
+            // SDK da fonte (P5c): o getter (ou a recusa dele) e o setter que
+            // outro módulo chama para gravar.
+            sdk_fonte::lower_global_ou_recusa(ctx, &mut module, vid, unit, repr);
+            continue;
+        }
         let mut builder = fn_builder::FnBuilder::new(
             ctx,
             unit,
@@ -551,7 +572,7 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
     // enum não declara o seu.
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         let cid = dartforge_elements::model::ClassId(c_idx as u32);
-        if !enums::e_enum(ctx, cid) {
+        if !enums::e_enum(ctx, cid) || !ctx.biblioteca_no_modulo(class.library) {
             continue;
         }
         let Some(id) = ctx.id_de_classe(cid) else { continue };

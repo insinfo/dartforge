@@ -87,6 +87,10 @@ pub struct FnBuilder<'a, 'c> {
     pub padrao_refutavel: bool,
     /// O teste de tipo corrente é o de um `as` (confere só a classe).
     pub cast_so_pela_classe: bool,
+    // --- P5c (SDK da fonte, δ) ---
+    /// Esta função é um adaptador da tabela de métodos (`sdk_fonte.rs`): o
+    /// membro que ele adapta é chamado direto, nunca pelo seletor de novo.
+    pub em_adaptador: bool,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -184,6 +188,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             chaves_de_const_locais: HashMap::new(),
             padrao_refutavel: false,
             cast_so_pela_classe: false,
+            em_adaptador: false,
         }
     }
 

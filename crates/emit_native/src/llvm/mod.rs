@@ -1,6 +1,7 @@
 //! Gerador de LLVM IR a partir da HIR nativa.
 
 pub mod externs;
+mod seletores;
 #[cfg(test)]
 mod testes;
 
@@ -25,13 +26,19 @@ pub struct LlvmEmitter<'a> {
     /// A função abriu um frame de raízes (`%gcf`).
     tem_frame: bool,
     // --- P1 (closures, α) ---
-    /// Entradas uniformes na ordem da `@df_code_table` (o índice 0 é a
-    /// entrada inválida).
-    codigos: Vec<String>,
-    codigo_de: std::collections::HashMap<String, usize>,
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
     vetores: Vec<Vec<i64>>,
     vetor_de: std::collections::HashMap<Vec<i64>, usize>,
+    // --- P5c (SDK da fonte, δ; `seletores.rs`) ---
+    /// Pontos de chamada por seletor já emitidos (um cache cada).
+    caches_de_seletor: usize,
+    /// Textos dos seletores, na ordem do primeiro uso.
+    nomes_de_seletor: Vec<String>,
+    /// Assinatura de cada símbolo chamado, para declarar o que o módulo não
+    /// define.
+    externos: std::collections::BTreeMap<String, String>,
+    /// Símbolos definidos em `comdat` (`seletores::ligacao_de`).
+    comdats: Vec<String>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -46,10 +53,13 @@ impl<'a> LlvmEmitter<'a> {
             apontado: std::collections::HashMap::new(),
             slots: std::collections::HashMap::new(),
             tem_frame: false,
-            codigos: Vec::new(),
-            codigo_de: std::collections::HashMap::new(),
+
             vetores: Vec::new(),
             vetor_de: std::collections::HashMap::new(),
+            caches_de_seletor: 0,
+            nomes_de_seletor: Vec::new(),
+            externos: std::collections::BTreeMap::new(),
+            comdats: Vec::new(),
         }
     }
 
@@ -83,12 +93,29 @@ impl<'a> LlvmEmitter<'a> {
             self.emit_function(func);
         }
 
+        if self.module.biblioteca_sdk {
+            // Uma biblioteca do SDK da fonte (P5c): sem entrada nem despacho
+            // de `toString`, que são do programa; a função de registro das
+            // classes dela, que a entrada do programa chama.
+            let reg = self.module.registro.clone().unwrap_or_else(|| "df.registrar".to_string());
+            self.emitir_registro(&reg);
+            self.emitir_globais_de_seletores();
+            self.emitir_declaracoes_externas();
+            return self.out;
+        }
+
         // 6. Funções de despacho polimórfico
-        self.emit_dispatch_functions();
+        if self.module.modo_sdk {
+            self.emitir_to_string_por_seletor();
+        } else {
+            self.emit_dispatch_functions();
+        }
 
         // 7. Entrada global @dartforge_entry
         self.emit_entry();
 
+        self.emitir_globais_de_seletores();
+        self.emitir_declaracoes_externas();
         self.out
     }
 
@@ -226,7 +253,8 @@ impl<'a> LlvmEmitter<'a> {
             .collect();
         let params_str = params.join(", ");
 
-        writeln!(self.out, "define {ret_ty} @{}({}) {{", func.symbol, params_str).unwrap();
+        let (ligacao, comdat) = self.ligacao_de(&func.symbol);
+        writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){comdat} {{", func.symbol, params_str).unwrap();
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot fixo por `alloca` de
         // tipo `Ref` e por valor SSA `Ref` (parâmetro, resultado de chamada,
@@ -475,12 +503,21 @@ impl<'a> LlvmEmitter<'a> {
                         let modulo = self.module;
                         let target_func = modulo.functions.iter().find(|f| f.symbol == *symbol);
                         let mut args_str: Vec<String> = Vec::with_capacity(args.len());
+                        let mut tipos_args = Vec::with_capacity(args.len());
                         for (idx, a) in args.iter().enumerate() {
+                            // Função de outro módulo (SDK da fonte): o tipo do
+                            // operando, que o lowering já coagiu para a
+                            // representação do parâmetro.
                             let alvo = target_func
                                 .and_then(|f| f.params.get(idx))
-                                .map_or(Type::I64, |p| p.2);
+                                .map_or_else(|| self.tipo_de(a), |p| p.2);
+                            let alvo = if alvo == Type::Void { Type::I64 } else { alvo };
                             let s = self.coagir(a, alvo);
                             args_str.push(format!("{} {s}", alvo.llvm_ir()));
+                            tipos_args.push(alvo);
+                        }
+                        if target_func.is_none() {
+                            self.anotar_externo(symbol, *ret_ty, &tipos_args);
                         }
                         let joined = args_str.join(", ");
                         let r = ret_ty.llvm_ir();
@@ -491,6 +528,10 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
+                        if name.starts_with("dartforge_nativo_") {
+                            let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                            self.anotar_externo(name, *ret_ty, &tipos);
+                        }
                         let mut args_formatted = Vec::new();
                         for (a, ty) in args {
                             let s = self.coagir(a, *ty);
@@ -648,8 +689,15 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::StoreGlobal { simbolo, val, ty, raiz } => {
                         let sv = self.coagir(val, *ty);
                         writeln!(self.out, "  store {} {sv}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
-                        if let Some(id) = raiz {
-                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 {id}, i64 {sv})").unwrap();
+                        if raiz.is_some() {
+                            // A raiz é identificada pelo endereço do global:
+                            // única entre os módulos (o SDK da fonte e o
+                            // programa), sem numeração combinada.
+                            writeln!(
+                                self.out,
+                                "  call void @dartforge_gc_global_root(i64 ptrtoint (ptr @{simbolo} to i64), i64 {sv})"
+                            )
+                            .unwrap();
                         }
                     }
                     Instruction::Phi { incoming, ty } => {
@@ -773,6 +821,20 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "}}\n").unwrap();
     }
 
+    /// `%cf<v>`: o ponteiro da entrada uniforme da closure `c` — o código
+    /// dela, ou `@df_clo_invalido` quando o valor não é closure (o runtime
+    /// devolve 0 e deixa o `NoSuchMethodError` pendente).
+    fn entrada_da_closure(&mut self, v: u32, c: &str) {
+        writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
+        writeln!(self.out, "  %cz{v} = icmp eq i64 %cc{v}, 0").unwrap();
+        writeln!(
+            self.out,
+            "  %cq{v} = select i1 %cz{v}, i64 ptrtoint (ptr @df_clo_invalido to i64), i64 %cc{v}"
+        )
+        .unwrap();
+        writeln!(self.out, "  %cf{v} = inttoptr i64 %cq{v} to ptr").unwrap();
+    }
+
     /// O descritor de uma chamada pela convenção uniforme:
     /// [n_posicionais, n_nomeados, hash(nome)…].
     fn descritor(args: usize, nomes: &[String]) -> Vec<i64> {
@@ -791,27 +853,19 @@ impl<'a> LlvmEmitter<'a> {
         k
     }
 
-    /// @df_code_table (a entrada uniforme de cada closure e tear-off, na
-    /// ordem em que aparecem no módulo; o índice 0 é @df_clo_invalido, que
-    /// a chamada usa quando o valor não é closure — o runtime já deixou o
-    /// NoSuchMethodError pendente) e os vetores constantes.
+    /// `@df_clo_invalido` (a entrada que a chamada usa quando o valor não é
+    /// closure — o runtime já deixou o `NoSuchMethodError` pendente) e os
+    /// vetores constantes.
     fn emit_closures(&mut self) {
-        self.codigos.push("df_clo_invalido".to_string());
         let modulo = self.module;
         for func in &modulo.functions {
             for block in &func.blocks {
                 for (_, inst, _) in &block.instructions {
                     match inst {
-                        Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => {
-                            if !self.codigo_de.contains_key(code_symbol) {
-                                self.codigo_de.insert(code_symbol.clone(), self.codigos.len());
-                                self.codigos.push(code_symbol.clone());
-                            }
-                        }
                         Instruction::ConstArray(v) => {
                             self.registrar_vetor(v.clone());
                         }
-                        Instruction::CallClosure { args, nomes, .. } => {
+                        Instruction::CallClosure { args, nomes, .. } | Instruction::CallSeletor { args, nomes, .. } => {
                             self.registrar_vetor(Self::descritor(args.len(), nomes));
                         }
                         _ => {}
@@ -819,16 +873,12 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
         }
-        self.out.push_str("; Closures: entrada inválida, tabela de código e vetores constantes\n");
+        if self.module.modo_sdk {
+            // O descritor sem argumentos do `dartforge_dispatch_toString`.
+            self.registrar_vetor(vec![0, 0]);
+        }
+        self.out.push_str("; Closures: entrada inválida e vetores constantes\n");
         self.out.push_str("define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n");
-        let lista: Vec<String> = self.codigos.iter().map(|s| format!("ptr @{s}")).collect();
-        writeln!(
-            self.out,
-            "@df_code_table = internal constant [{} x ptr] [{}]",
-            lista.len(),
-            lista.join(", ")
-        )
-        .unwrap();
         for (k, v) in self.vetores.iter().enumerate() {
             let itens: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
             writeln!(
@@ -911,14 +961,21 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_env_new(ptr %envbuf{v}, i64 {n})").unwrap();
                 }
             }
+            // O código de uma closure é o endereço da entrada uniforme: vale
+            // entre módulos (uma closure criada no SDK da fonte é chamada no
+            // programa) e não depende da ordem de nada.
             Instruction::AllocClosure { code_symbol, env } => {
-                let idx = self.codigo_de[code_symbol];
+                self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
                 let e = self.coagir(env, Type::Ref);
-                writeln!(self.out, "  %v{v} = call i64 @dartforge_closure_new(i64 {idx}, i64 {e})").unwrap();
+                writeln!(
+                    self.out,
+                    "  %v{v} = call i64 @dartforge_closure_new(i64 ptrtoint (ptr @{code_symbol} to i64), i64 {e})"
+                )
+                .unwrap();
             }
             Instruction::TearOff { code_symbol } => {
-                let idx = self.codigo_de[code_symbol];
-                writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 {idx})").unwrap();
+                self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))").unwrap();
             }
             Instruction::CallClosure { closure, args, nomes, .. } => {
                 let k = self.vetor_de[&Self::descritor(args.len(), nomes)];
@@ -929,11 +986,18 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  store i64 {s}, ptr %ca{v}_{i}").unwrap();
                 }
                 let c = self.coagir(closure, Type::Ref);
-                let t = self.codigos.len();
-                writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
-                writeln!(self.out, "  %cp{v} = getelementptr [{t} x ptr], ptr @df_code_table, i64 0, i64 %cc{v}").unwrap();
-                writeln!(self.out, "  %cf{v} = load ptr, ptr %cp{v}").unwrap();
+                self.entrada_da_closure(v, &c);
                 writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
+            }
+            Instruction::CallClosureRepasse { closure, args, desc } => {
+                let c = self.coagir(closure, Type::Ref);
+                let a = self.operand_str(args);
+                let d = self.operand_str(desc);
+                self.entrada_da_closure(v, &c);
+                writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
+            }
+            Instruction::CallSeletor { seletor, recv, args, nomes } => {
+                self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes);
             }
             Instruction::LoadIndexed { base, index } => {
                 let b = self.operand_str(base);
@@ -959,6 +1023,9 @@ impl<'a> LlvmEmitter<'a> {
                 match inst {
                     Instruction::CallClosure { args, .. } => {
                         writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
+                    }
+                    Instruction::CallSeletor { args, .. } => {
+                        writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
                     }
                     Instruction::AllocEnv { values } if !values.is_empty() => {
                         writeln!(self.out, "  %envbuf{} = alloca [{} x i64]", vid.0, values.len() * 2).unwrap();
@@ -1023,6 +1090,36 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_entry(&mut self) {
+        if self.module.modo_sdk {
+            self.emitir_registro("df.registrar.programa");
+            let ids: Vec<String> = self.module.cids_do_runtime.iter().map(|c| format!("i64 {c}")).collect();
+            writeln!(
+                self.out,
+                "@df.cids = private unnamed_addr constant [{} x i64] [{}]",
+                ids.len(),
+                ids.join(", ")
+            )
+            .unwrap();
+            writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+            writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
+            for r in &self.module.registros_do_sdk {
+                writeln!(self.out, "  call void @{r}()").unwrap();
+                self.externos.insert(r.clone(), format!("declare void @{r}()"));
+            }
+            writeln!(self.out, "  call void @df.registrar.programa()").unwrap();
+            if let Some(entry) = &self.module.entry_symbol {
+                writeln!(self.out, "  call void @{entry}()").unwrap();
+            }
+            writeln!(self.out, "  ret void\n}}\n").unwrap();
+            // O runtime e o SDK moram na DLL do SDK da fonte: o `main` do
+            // executável é este, e entrega a entrada ao runtime.
+            writeln!(
+                self.out,
+                "define i32 @main() {{\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry)\n  ret i32 %r\n}}\n"
+            )
+            .unwrap();
+            return;
+        }
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
         // Registra classes
         for class in &self.module.classes {
@@ -1086,7 +1183,9 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::AllocEnv { .. }
             | Instruction::AllocClosure { .. }
             | Instruction::TearOff { .. }
-            | Instruction::CallClosure { .. } => Type::Ref,
+            | Instruction::CallClosure { .. }
+            | Instruction::CallSeletor { .. }
+            | Instruction::CallClosureRepasse { .. } => Type::Ref,
             Instruction::CellSet { .. } => Type::Void,
             Instruction::ConstArray(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,

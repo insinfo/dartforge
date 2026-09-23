@@ -99,6 +99,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I64 => ("dartforge_to_string_i64", Type::I64),
             Type::F64 => ("dartforge_to_string_f64", Type::F64),
             Type::I1 | Type::I8 => ("dartforge_to_string_bool", Type::I8),
+            _ if self.ctx.sdk_da_fonte => return self.texto_por_seletor(op),
             _ => {
                 let op = self.coagir(op, Type::Ref);
                 return self.emit_call_with_check(
@@ -143,6 +144,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let a = self.coagir(a, Type::Ref);
         let b = self.coagir(b, Type::Ref);
+        if self.ctx.sdk_da_fonte {
+            return self.igualdade_fonte(a, b);
+        }
         // `operator ==` de uma classe do programa (§17.26: com um lado null
         // vale `identical`; senão, `a.==(b)` pela classe dinâmica de `a`).
         let alvos: Vec<(i64, super::despacho::Alvo)> = self
