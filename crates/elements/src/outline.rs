@@ -1255,7 +1255,41 @@ fn merge_class_patch(
                 }
                 constructors.insert(ctor_sym, fn_id);
             }
-            _ => {}
+            MemberKind::Field(_) => {
+                // Campos declarados no patch (`final int _value;` do
+                // `DateTime` da VM): entram na classe de origem como os da
+                // declaração, pelo mesmo caminho.
+                let idx = class_id.0 as usize;
+                let c = &mut pools.classes[idx];
+                let mut tmp = ClassElement {
+                    name: c.name,
+                    library: c.library,
+                    decl: c.decl,
+                    kind: c.kind,
+                    modifiers: c.modifiers,
+                    type_params: Vec::new(),
+                    supertype: None,
+                    mixins: Vec::new(),
+                    interfaces: Vec::new(),
+                    on: Vec::new(),
+                    supertype_class: None,
+                    mixin_classes: Vec::new(),
+                    interface_classes: Vec::new(),
+                    on_classes: Vec::new(),
+                    instance_members: std::mem::take(&mut c.instance_members),
+                    static_members: std::mem::take(&mut c.static_members),
+                    constructors: std::mem::take(&mut c.constructors),
+                    fields: std::mem::take(&mut c.fields),
+                    enum_constants: Vec::new(),
+                    representation: None,
+                };
+                extract_members(pools, ast, &mut tmp, class_id, unit_id, &[mid], empty_sym, interner);
+                let c = &mut pools.classes[idx];
+                c.instance_members = tmp.instance_members;
+                c.static_members = tmp.static_members;
+                c.constructors = tmp.constructors;
+                c.fields = tmp.fields;
+            }
         }
     }
 }
