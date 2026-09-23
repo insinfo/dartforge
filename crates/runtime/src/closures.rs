@@ -80,3 +80,96 @@ pub extern "C" fn dartforge_closure_env(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().closure_parts(handle).1)
 }
 
+
+// --- P1: convenção uniforme das closures (docs/NATIVO-PLANO.md §7.4) --------
+
+/// Lê uma captura mutável como referência: um escalar guardado sai
+/// encaixotado (R5), nunca como bits lidos por handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_cell_get_ref(handle: i64) -> i64 {
+    let v = HEAP.with(|heap| heap.borrow().cell_get(handle));
+    valor_como_ref(v)
+}
+
+/// Lê a posição `index` do ambiente como referência (escalar encaixotado).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_env_get_ref(handle: i64, index: i64) -> i64 {
+    let v = HEAP.with(|heap| {
+        heap.borrow()
+            .environment_get(handle, usize::try_from(index).expect("índice inválido"))
+    });
+    valor_como_ref(v)
+}
+
+/// O índice da entrada uniforme de uma closure na `@df_code_table`. Um
+/// valor que não é closure (null, ou outro objeto chamado como função) deixa
+/// `NoSuchMethodError` pendente e devolve 0, a entrada que só retorna.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
+    let codigo = HEAP.with(|heap| match heap.borrow().try_get(handle) {
+        Some(Value::Closure { code_id, .. }) => Some(*code_id),
+        _ => None,
+    });
+    codigo.unwrap_or_else(|| {
+        dartforge_nsm_chamada();
+        0
+    })
+}
+
+/// Lança o `NoSuchMethodError` de uma chamada de valor função que não casa
+/// (valor que não é função, ou aridade/nomes errados).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nsm_chamada() {
+    let nome = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str("call"))));
+    let erro = com_raizes(&[nome], || dartforge_no_such_method_error_new(nome));
+    com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
+}
+
+/// Confere um descritor de chamada `[n_pos, n_nom, hash…]` contra a
+/// assinatura `[n_obrig, n_pos, n_nom, hash…, obrigatório…]` da função
+/// chamada: posicionais entre os obrigatórios e o total, todo nomeado
+/// passado existe, todo nomeado `required` foi passado.
+///
+/// # Safety
+/// Os dois ponteiros são vetores constantes emitidos pelo compilador, com o
+/// tamanho que os seus próprios cabeçalhos dizem.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_args_casam(desc: *const i64, sig: *const i64) -> u8 {
+    // SAFETY: cabeçalhos de vetores constantes do emissor.
+    let (npos, nnom) = unsafe { (*desc, *desc.add(1)) };
+    let (obrig, total, snom) = unsafe { (*sig, *sig.add(1), *sig.add(2)) };
+    if npos < obrig || npos > total {
+        return 0;
+    }
+    let nnom = usize::try_from(nnom).unwrap_or(0);
+    let snom = usize::try_from(snom).unwrap_or(0);
+    // SAFETY: os tamanhos vêm dos cabeçalhos.
+    let passados = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) };
+    let nomes = unsafe { std::slice::from_raw_parts(sig.add(3), snom) };
+    let exigidos = unsafe { std::slice::from_raw_parts(sig.add(3 + snom), snom) };
+    if passados.iter().any(|h| !nomes.contains(h)) {
+        return 0;
+    }
+    for (h, req) in nomes.iter().zip(exigidos) {
+        if *req != 0 && !passados.contains(h) {
+            return 0;
+        }
+    }
+    1
+}
+
+/// A posição (entre os nomeados) do argumento de nome `hash` no descritor,
+/// ou -1 se ele não foi passado.
+///
+/// # Safety
+/// `desc` é um descritor constante emitido pelo compilador.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arg_indice(desc: *const i64, hash: i64) -> i64 {
+    // SAFETY: cabeçalho e nomes do descritor constante.
+    let nnom = usize::try_from(unsafe { *desc.add(1) }).unwrap_or(0);
+    let passados = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) };
+    passados
+        .iter()
+        .position(|h| *h == hash)
+        .map_or(-1, |p| p as i64)
+}
