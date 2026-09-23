@@ -1,0 +1,1 @@
+final List<Object> styles = ['.a._ngcontent-%ID%{background:rgba(var(--x),0.14);color:light-dark(white,#2b2d33)}.b._ngcontent-%ID%{border:1px solid gray;margin:var(--m, #fff);width:calc(100% - 2px)}.c._ngcontent-%ID%{color:black;outline-color:#abc;font-family:"A, B",sans-serif}.d._ngcontent-%ID%{background:url("x.png") no-repeat;list-style-image:url("y.png")}'];

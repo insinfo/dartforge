@@ -79,6 +79,12 @@ pub struct Elemento {
 }
 
 impl Elemento {
+    /// Tem ligação de propriedade: `[x]` ou atributo com `{{ }}` — o que
+    /// faz o elemento virar campo da visão.
+    pub fn liga_propriedade(&self) -> bool {
+        !self.propriedades.is_empty() || self.atributos.iter().any(|a| a.valor.contains("{{"))
+    }
+
     fn em_linha(&self) -> bool {
         EM_LINHA.contains(&self.nome.to_ascii_lowercase().as_str())
     }
@@ -93,6 +99,23 @@ pub fn tem_projecao(nos: &[No]) -> bool {
         No::Elemento(e) => tem_projecao(&e.filhos),
         _ => false,
     })
+}
+
+/// Os `<ng-content>` do template, em ordem de documento, com o `select` de
+/// cada um — os `ngContentSelectors` do componente.
+pub fn projecoes(nos: &[No]) -> Vec<Option<String>> {
+    let mut saida = Vec::new();
+    fn andar(nos: &[No], saida: &mut Vec<Option<String>>) {
+        for n in nos {
+            match n {
+                No::Conteudo { seletor } => saida.push(seletor.clone()),
+                No::Elemento(e) => andar(&e.filhos, saida),
+                _ => {}
+            }
+        }
+    }
+    andar(nos, &mut saida);
+    saida
 }
 
 /// Analisa um template. Erros de forma não interrompem: o parser recupera e

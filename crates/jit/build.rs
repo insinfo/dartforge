@@ -42,7 +42,7 @@ fn main() {
 /// Prefixo da distribuição completa do LLVM 22.1.x.
 ///
 /// `DARTFORGE_LLVM_DIR` é o nome preferido do projeto, no mesmo espírito de
-/// `DARTFORGE_CLANG` em `crates/native`. `LLVM_SYS_221_PREFIX` é aceito porque é
+/// `DARTFORGE_CLANG` em `crates/emit_native`. `LLVM_SYS_221_PREFIX` é aceito porque é
 /// o nome que o `build.rs` do `llvm-sys` já exige, e manter as duas apontando
 /// para lugares diferentes só produziria confusão.
 fn prefix() -> PathBuf {

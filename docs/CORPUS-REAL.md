@@ -1,5 +1,12 @@
 # Aferição contra código Dart de produção
 
+> Esta aferição foi feita com o front-end da trilha velha
+> (`crates/compiler/tests/corpus_real.rs`), removido em 2026-09-23 e
+> preservado na branch `exploracao-inicial`. O que ela ensinou sobre a
+> frequência dos recursos no código real continua citado no `PLANO.md`; a
+> aferição da trilha nova é `cargo test -p dartforge-frontend --test corpus
+> -- --ignored` (`ESTADO.md` §1.1).
+
 Uma sondagem de construções isoladas diz **quais recursos existem**. Ela não diz
 se o compilador aguenta um arquivo real, nem — o que importa mais — **quais
 recursos o código de verdade usa e com que frequência**. Este documento registra

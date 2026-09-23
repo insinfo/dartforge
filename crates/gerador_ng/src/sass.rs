@@ -126,7 +126,7 @@ fn achar_modulo(dir: &Path, nome: &str) -> Option<PathBuf> {
 /// | `white` | `#fff` |
 /// | `transparent` | `rgba(0,0,0,0)` |
 /// | `"\e9fe"` | o caractere U+E9FE |
-fn normalizar(decls: &str) -> String {
+fn normalizar(decls: &str) -> Result<String, Motivo> {
     let mut saida = String::with_capacity(decls.len());
     let mut resto = decls;
     // Percorre declaração a declaração para não mexer no nome da propriedade.
@@ -139,30 +139,55 @@ fn normalizar(decls: &str) -> String {
             Some((prop, valor)) if !prop.trim().starts_with("--") => {
                 saida.push_str(prop);
                 saida.push(':');
-                saida.push_str(&valor_normalizado(valor));
+                saida.push_str(&valor_normalizado(valor)?);
             }
             _ => saida.push_str(decl),
         }
     }
-    saida
+    Ok(saida)
 }
 
-/// Normaliza os tokens de um valor, preservando strings e parênteses.
+/// Normaliza os tokens de um valor como o Sass comprimido os escreve,
+/// preservando strings.
 ///
-/// Valor que chama função CSS (`var()`, `calc()`, `rgba()`) sai como foi
-/// escrito: o Sass não o reescreve, porque não o interpreta.
-fn valor_normalizado(valor: &str) -> String {
-    if valor.contains("var(") || valor.contains("calc(") || valor.contains('(') {
-        return valor.to_string();
-    }
+/// Uma chamada de função tem a regra do tipo dela, vista comparando a saída
+/// do `sass_builder` no new_sali (`--example conferir-sass`):
+/// - `var()`, `url()`, `env()` e função com `var()` dentro são especiais: o
+///   texto como veio (`rgba(var(--x), 0.14)`);
+/// - `calc`/`min`/`max`/`clamp` são cálculos: número sem o zero à esquerda,
+///   vírgula sem espaço (`clamp(3rem,12vmin,8rem)`); o que o Sass
+///   simplificaria (um termo só, `*`, `/`) é recusado;
+/// - `rgba()`/`rgb()`/`hsl()`/`hsla()` o Sass avalia e escreve na forma
+///   mais curta (`hsla(0,0%,100%,.2)` para `rgba(255, 255, 255, 0.2)`):
+///   recusa;
+/// - função CSS comum sai como veio (`scaleX(0.75)`), a não ser que traga
+///   outra função dentro.
+fn valor_normalizado(valor: &str) -> Result<String, Motivo> {
     let mut saida = String::with_capacity(valor.len());
     let mut resto = valor;
     while !resto.is_empty() {
         let c = resto.chars().next().unwrap();
         if c == '"' || c == '\'' {
-            // String: só os escapes mudam.
+            // String: os escapes viram o caractere, e as aspas simples viram
+            // duplas (o Sass escreve a string com aspas duplas quando o
+            // conteúdo não tem uma: `content: '✓'` sai `"✓"`). Aspas ou
+            // barra dentro da simples têm regra própria: recusa.
             let fim = fim_da_string(resto, c);
-            saida.push_str(&decodificar_escapes(&resto[..fim]));
+            let texto = decodificar_escapes(&resto[..fim]);
+            if c == '\'' {
+                let dentro = texto
+                    .strip_prefix('\'')
+                    .and_then(|t| t.strip_suffix('\''))
+                    .ok_or(Motivo::Estilos)?;
+                if dentro.contains(['"', '\\', '\'']) {
+                    return Err(Motivo::Estilos);
+                }
+                saida.push('"');
+                saida.push_str(dentro);
+                saida.push('"');
+            } else {
+                saida.push_str(&texto);
+            }
             resto = &resto[fim..];
             continue;
         }
@@ -180,6 +205,19 @@ fn valor_normalizado(valor: &str) -> String {
             })
             .map(|(i, _)| i)
             .unwrap_or(resto.len());
+        // Nome de função: a chamada inteira, parênteses balanceados.
+        if fim > 0 && resto[fim..].starts_with('(') {
+            let nome = &resto[..fim];
+            let fecha = fim_dos_parenteses(resto, fim).ok_or(Motivo::Estilos)?;
+            let dentro = &resto[fim + 1..fecha];
+            saida.push_str(&chamada_normalizada(nome, dentro)?);
+            resto = &resto[fecha + 1..];
+            continue;
+        }
+        if c == '(' || c == ')' {
+            // Parêntese solto (agrupamento): fora do subconjunto.
+            return Err(Motivo::Estilos);
+        }
         let token = if fim == 0 {
             &resto[..c.len_utf8()]
         } else {
@@ -188,7 +226,106 @@ fn valor_normalizado(valor: &str) -> String {
         saida.push_str(&token_normalizado(token));
         resto = &resto[token.len()..];
     }
-    saida
+    Ok(saida)
+}
+
+/// Índice do `)` que fecha o `(` em `abre`.
+fn fim_dos_parenteses(texto: &str, abre: usize) -> Option<usize> {
+    let mut nivel = 0usize;
+    let mut aspas: Option<char> = None;
+    for (i, c) in texto[abre..].char_indices() {
+        if let Some(q) = aspas {
+            if c == q {
+                aspas = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => aspas = Some(c),
+            '(' => nivel += 1,
+            ')' => {
+                nivel -= 1;
+                if nivel == 0 {
+                    return Some(abre + i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Uma chamada `nome(dentro)` como o Sass comprimido a escreve.
+fn chamada_normalizada(nome: &str, dentro: &str) -> Result<String, Motivo> {
+    let n = nome.to_ascii_lowercase();
+    let especial = matches!(n.as_str(), "var" | "url" | "env") || dentro.contains("var(");
+    if especial {
+        return Ok(format!("{nome}({dentro})"));
+    }
+    if matches!(n.as_str(), "calc" | "min" | "max" | "clamp") {
+        return Ok(format!("{nome}({})", calculo(dentro)?));
+    }
+    // Cor com alfa: o Sass escolhe a forma mais curta (`rgba(0,0,0,.1)`,
+    // mas `hsla(0,0%,100%,.2)` para o branco), regra ainda não modelada.
+    if matches!(n.as_str(), "rgba" | "rgb" | "hsl" | "hsla") {
+        return Err(Motivo::Estilos);
+    }
+    // Função CSS comum: os argumentos são avaliados e escritos no estilo
+    // expandido dentro dela (`scaleX(0.75)`, `transparent` ficam); função
+    // aninhada seria reescrita (`rgb(255 255 255 / 41%)`): recusa.
+    if dentro.contains('(') {
+        return Err(Motivo::Estilos);
+    }
+    Ok(format!("{nome}({dentro})"))
+}
+
+/// O conteúdo de um cálculo (`calc`, `min`, `max`, `clamp`): números sem o
+/// zero à esquerda, vírgula sem espaço, `+`/`-` com espaço. O que o Sass
+/// simplificaria é recusado.
+fn calculo(dentro: &str) -> Result<String, Motivo> {
+    if dentro.contains(['*', '/']) {
+        return Err(Motivo::Estilos);
+    }
+    let mut partes = Vec::new();
+    for arg in dentro.split(',') {
+        let termos: Vec<&str> = arg.split_whitespace().collect();
+        // Um termo só (`calc(1.3rem)`) o Sass reduz ao número.
+        if termos.len() == 1 && !termos[0].contains('(') && n_de_argumentos(dentro) == 1 {
+            return Err(Motivo::Estilos);
+        }
+        let mut saida = Vec::new();
+        let mut unidades = Vec::new();
+        for t in &termos {
+            if t.contains('(') || t.contains(')') {
+                // `env(...)`, função dentro do cálculo: só as especiais.
+                if !(t.starts_with("env(") || t.starts_with("var(")) {
+                    return Err(Motivo::Estilos);
+                }
+                saida.push(t.to_string());
+                continue;
+            }
+            if matches!(*t, "+" | "-") {
+                saida.push(t.to_string());
+                continue;
+            }
+            let unidade: String = t
+                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-')
+                .to_string();
+            unidades.push(unidade);
+            saida.push(token_normalizado(t));
+        }
+        // Dois números da mesma unidade o Sass soma: recusa.
+        let mut vistas = std::collections::HashSet::new();
+        if !unidades.iter().all(|u| vistas.insert(u.clone())) {
+            return Err(Motivo::Estilos);
+        }
+        partes.push(saida.join(" "));
+    }
+    Ok(partes.join(","))
+}
+
+fn n_de_argumentos(dentro: &str) -> usize {
+    dentro.split(',').count()
 }
 
 /// Fim da string literal aberta em 0 (índice depois da aspa de fechamento).
@@ -254,33 +391,34 @@ fn token_normalizado(t: &str) -> String {
         return hex.to_string();
     }
     // `#ffffff` -> `#fff`, quando os três pares se repetem.
-    if let Some(d) = t.strip_prefix('#') {
-        if d.len() == 6 && d.chars().all(|c| c.is_ascii_hexdigit()) {
-            let b = d.as_bytes();
-            if b[0].eq_ignore_ascii_case(&b[1])
-                && b[2].eq_ignore_ascii_case(&b[3])
-                && b[4].eq_ignore_ascii_case(&b[5])
-            {
-                return format!(
-                    "#{}{}{}",
-                    d.as_bytes()[0] as char,
-                    d.as_bytes()[2] as char,
-                    d.as_bytes()[4] as char
-                )
-                .to_lowercase();
-            }
+    if let Some(d) = t.strip_prefix('#')
+        && d.len() == 6
+        && d.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        let b = d.as_bytes();
+        if b[0].eq_ignore_ascii_case(&b[1])
+            && b[2].eq_ignore_ascii_case(&b[3])
+            && b[4].eq_ignore_ascii_case(&b[5])
+        {
+            return format!(
+                "#{}{}{}",
+                d.as_bytes()[0] as char,
+                d.as_bytes()[2] as char,
+                d.as_bytes()[4] as char
+            )
+            .to_lowercase();
         }
     }
     // `0.5rem` -> `.5rem`, `-0.5rem` -> `-.5rem`.
-    if let Some(r) = t.strip_prefix("0.") {
-        if r.starts_with(|c: char| c.is_ascii_digit()) {
-            return format!(".{r}");
-        }
+    if let Some(r) = t.strip_prefix("0.")
+        && r.starts_with(|c: char| c.is_ascii_digit())
+    {
+        return format!(".{r}");
     }
-    if let Some(r) = t.strip_prefix("-0.") {
-        if r.starts_with(|c: char| c.is_ascii_digit()) {
-            return format!("-.{r}");
-        }
+    if let Some(r) = t.strip_prefix("-0.")
+        && r.starts_with(|c: char| c.is_ascii_digit())
+    {
+        return format!("-.{r}");
     }
     t.to_string()
 }
@@ -340,25 +478,24 @@ fn blocos(
         // Declaração ou variável soltas neste nível.
         let proximo_abre = resto.find('{');
         let proximo_ponto = resto.find(';');
-        if let Some(pv) = proximo_ponto {
-            if proximo_abre.is_none_or(|a| pv < a) {
-                let decl = resto[..pv].trim().to_string();
-                resto = resto[pv + 1..].trim_start();
-                if let Some((nome, valor)) = decl.strip_prefix('$').and_then(|d| d.split_once(':'))
-                {
-                    if valor.contains("!default") {
-                        return Err(Motivo::Estilos);
-                    }
-                    let valor = substituir(valor.trim(), variaveis)?;
-                    variaveis.insert(nome.trim().to_string(), valor);
-                    continue;
-                }
-                // Declaração fora de regra não existe em CSS.
-                if pai.is_empty() {
+        if let Some(pv) = proximo_ponto
+            && proximo_abre.is_none_or(|a| pv < a)
+        {
+            let decl = resto[..pv].trim().to_string();
+            resto = resto[pv + 1..].trim_start();
+            if let Some((nome, valor)) = decl.strip_prefix('$').and_then(|d| d.split_once(':')) {
+                if valor.contains("!default") {
                     return Err(Motivo::Estilos);
                 }
+                let valor = substituir(valor.trim(), variaveis)?;
+                variaveis.insert(nome.trim().to_string(), valor);
+                continue;
+            }
+            // Declaração fora de regra não existe em CSS.
+            if pai.is_empty() {
                 return Err(Motivo::Estilos);
             }
+            return Err(Motivo::Estilos);
         }
         let Some(abre) = proximo_abre else {
             if resto.trim().is_empty() {
@@ -385,7 +522,7 @@ fn blocos(
         if cabeca.contains("#{") {
             return Err(Motivo::Estilos); // interpolação de seletor
         }
-        let seletor = juntar(pai, &cabeca);
+        let seletor = atributos_sem_aspas(&juntar(pai, &cabeca))?;
         // Declarações deste nível saem antes das regras aninhadas, como o
         // Sass emite.
         let (decls, aninhados) = separar(corpo)?;
@@ -395,7 +532,7 @@ fn blocos(
         if !decls.trim().is_empty() {
             saida.push_str(&seletor);
             saida.push('{');
-            saida.push_str(&normalizar(&substituir(&decls, variaveis)?));
+            saida.push_str(&normalizar(&substituir(&decls, variaveis)?)?);
             saida.push('}');
         }
         blocos(&aninhados, &seletor, variaveis, saida)?;
@@ -424,6 +561,56 @@ fn separar(corpo: &str) -> Result<(String, String), Motivo> {
         resto = &resto[fim + 1..];
     }
     Ok((decls, aninhados))
+}
+
+/// `[a='b']` como o Sass escreve: o valor que é identificador sai sem aspas
+/// (`[data-color-theme=dark]`), o resto entre aspas duplas. Valor com aspas
+/// dentro fica de fora.
+fn atributos_sem_aspas(seletor: &str) -> Result<String, Motivo> {
+    let mut saida = String::with_capacity(seletor.len());
+    let mut resto = seletor;
+    while let Some(i) = resto.find('=') {
+        let depois = &resto[i + 1..];
+        let aspa = depois.chars().next();
+        match aspa {
+            Some(q @ ('"' | '\'')) => {
+                let Some(f) = depois[1..].find(q) else {
+                    return Err(Motivo::Estilos);
+                };
+                let valor = &depois[1..1 + f];
+                saida.push_str(&resto[..=i]);
+                if e_identificador(valor) {
+                    saida.push_str(valor);
+                } else if valor.contains('"') {
+                    return Err(Motivo::Estilos);
+                } else {
+                    saida.push('"');
+                    saida.push_str(valor);
+                    saida.push('"');
+                }
+                resto = &depois[f + 2..];
+            }
+            _ => {
+                saida.push_str(&resto[..=i]);
+                resto = depois;
+            }
+        }
+    }
+    saida.push_str(resto);
+    Ok(saida)
+}
+
+/// Identificador CSS simples: letra, `_` ou `-` seguido de letra, e o resto
+/// letras, dígitos, `_` e `-`.
+fn e_identificador(v: &str) -> bool {
+    let mut c = v.chars();
+    let primeiro = match c.next() {
+        Some('-') => c.next(),
+        x => x,
+    };
+    primeiro.is_some_and(|p| p.is_ascii_alphabetic() || p == '_')
+        && v.chars()
+            .all(|x| x.is_ascii_alphanumeric() || x == '_' || x == '-')
 }
 
 /// Junta o seletor do pai com o do filho, resolvendo `&`.
@@ -516,7 +703,10 @@ mod testes {
 }
 ";
         let shim = crate::css::shim(&compilar(fonte).unwrap()).unwrap();
-        assert_eq!(shim, ".a._ngcontent-%ID%{background:url(http://x/y.png)}");
+        assert_eq!(
+            shim,
+            ".a._ngcontent-%ID%{background:url(\"http://x/y.png\")}"
+        );
     }
 
     #[test]
@@ -558,6 +748,36 @@ mod testes {
             shim,
             ".tema._ngcontent-%ID%{color:red}.a._ngcontent-%ID%{color:red}"
         );
+    }
+
+    /// As formas que o `conferir-sass` achou diferentes do `sass_builder`
+    /// no new_sali, com a saída dele.
+    #[test]
+    fn funcoes_como_o_sass_comprimido() {
+        let shim = |f: &str| crate::css::shim(&compilar(f).unwrap()).unwrap();
+        assert!(compilar(".a { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1); }").is_err());
+        assert_eq!(
+            shim(".a { transform: translate(25%) scaleX(0.75); margin: 0.5rem; }"),
+            ".a._ngcontent-%ID%{transform:translate(25%) scaleX(0.75);margin:.5rem}"
+        );
+        assert_eq!(
+            shim(".a { font-size: clamp(3rem, 12vmin, 8rem); }"),
+            ".a._ngcontent-%ID%{font-size:clamp(3rem,12vmin,8rem)}"
+        );
+        assert_eq!(
+            shim(".a { padding: 0.65rem calc(0.75rem + env(safe-area-inset-bottom)); }"),
+            ".a._ngcontent-%ID%{padding:.65rem calc(.75rem + env(safe-area-inset-bottom))}"
+        );
+        assert_eq!(
+            shim(".a[data-t='dark'] { color: red; }"),
+            ".a[data-t=dark]._ngcontent-%ID%{color:red}"
+        );
+        assert_eq!(
+            shim(".a::after { content: '✓'; }"),
+            ".a._ngcontent-%ID%::after{content:\"✓\"}"
+        );
+        assert!(compilar(".a { width: calc(1.3rem); }").is_err());
+        assert!(compilar(".a { width: calc(1rem + 2rem); }").is_err());
     }
 
     #[test]

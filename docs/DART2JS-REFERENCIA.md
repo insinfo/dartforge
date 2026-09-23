@@ -28,5 +28,5 @@ DartForge imprimiu 0. Em -O1/-O2/-O3, esse caso imprimiu 0, concordando com Dart
 A VM também confirmou zero inteiro nos exemplos de investigação; produtos grandes da VM
 não servem de oráculo web por terem diferenças de representação.
 
-Essa divergência fica registrada em docs/conformance-optimization-matrix.json. Não prova
+Essa divergência fica registrada em docs/historico/dados/conformance-optimization-matrix.json. Não prova
 correção completa do DartForge nem é apagada por adotar -O2 como baseline principal.

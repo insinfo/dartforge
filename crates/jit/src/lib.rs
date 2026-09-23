@@ -8,7 +8,7 @@
 //! | | AOT (`crates/emit_native`) | JIT (este crate) |
 //! | --- | --- | --- |
 //! | Geração de código | Clang `-O0`, em processo separado | ORCv2 em memória, `CodeGenLevelNone`, CPU `x86-64` |
-//! | Runtime | `rustc` compila `runtime_main.rs` e o linker resolve | a mesma fonte, compilada neste crate; endereços publicados como símbolos absolutos |
+//! | Runtime | `rustc` compila `runtime_main.rs` e o linker resolve | a mesma fonte, compilada em `dartforge_runtime::abi`; endereços publicados como símbolos absolutos |
 //! | `main` | o `main` C do harness chama `@dartforge_entry` e `finalizar_programa` | a sessão chama `@dartforge_entry` numa thread própria, e depois o mesmo `finalizar_programa` |
 //! | Saída | executável em disco | nada em disco |
 //!
@@ -69,7 +69,7 @@ pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 /// Nomes do runtime nativo que a sessão publica para o código gerado.
 ///
 /// Gerado por `build.rs` a partir dos `#[unsafe(no_mangle)]` de
-/// `crates/runtime/src/runtime_main.rs` — a mesma fonte que o AOT liga —, na
+/// os fragmentos de `crates/runtime/src` — a mesma fonte que o AOT liga —, na
 /// ordem da fonte. Nenhum nome é mantido à mão.
 ///
 /// ```
