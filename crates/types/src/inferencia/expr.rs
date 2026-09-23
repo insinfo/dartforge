@@ -133,7 +133,10 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
 pub(crate) enum RefTipo {
     Classe(ClassId, Option<Vec<ast::TypeId>>),
     /// Alias de tipo que nomeia uma classe (`typedef A = B<int>`).
-    Alias(ClassId, Vec<TypeId>),
+    /// Typedef para classe: argumentos da classe (`None`: o typedef só
+    /// renomeia os parâmetros, e os argumentos são os explícitos ou
+    /// inferidos como os da classe).
+    Alias(ClassId, Option<Vec<TypeId>>, dartforge_elements::model::TypedefId),
     Extensao(ExtensionId),
 }
 
@@ -156,7 +159,10 @@ pub(crate) fn referencia_a_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprI
             let targs = type_args.to_vec();
             return match referencia_a_tipo(inf, cx, *target)? {
                 RefTipo::Classe(c, None) => Some(RefTipo::Classe(c, Some(targs))),
-                RefTipo::Alias(c, _) => Some(RefTipo::Alias(c, Vec::new())),
+                RefTipo::Alias(_, _, td) => {
+                    let ex: Vec<TypeId> = targs.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect();
+                    alias_de(inf, td, Some(ex))
+                }
                 _ => None,
             };
         }
@@ -165,25 +171,39 @@ pub(crate) fn referencia_a_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprI
     match el {
         Element::Class(c) => Some(RefTipo::Classe(c, None)),
         Element::Extension(x) => Some(RefTipo::Extensao(x)),
-        Element::Typedef(td) => {
-            let alvo = inf.outline.typedefs[td.0 as usize].target_type;
-            let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
-            match inf.table.get(alvo).clone() {
-                Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
-                    let args = if params.is_empty() {
-                        args.to_vec()
-                    } else {
-                        let inst = inf.instanciar_para_limites(&params);
-                        let mapa = inf.mapa(&params, &inst);
-                        args.iter().map(|a| inf.subst(*a, &mapa)).collect()
-                    };
-                    Some(RefTipo::Alias(class, args))
-                }
-                _ => None,
-            }
-        }
+        Element::Typedef(td) => alias_de(inf, td, None),
         _ => None,
     }
+}
+
+/// Classe e argumentos de um typedef usado como classe, com os argumentos
+/// explícitos do typedef (ou sem eles).
+fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicitos: Option<Vec<TypeId>>) -> Option<RefTipo> {
+    let alvo = inf.outline.typedefs[td.0 as usize].target_type;
+    let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
+    let (class, args) = match inf.table.get(alvo).clone() {
+        Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, args),
+        _ => return None,
+    };
+    if params.is_empty() {
+        return Some(RefTipo::Alias(class, Some(args.to_vec()), td));
+    }
+    let inst = match explicitos {
+        Some(ex) if ex.len() == params.len() => ex,
+        _ => {
+            // Typedef que só renomeia (`typedef M<K, V> = _M<K, V>`): os
+            // argumentos se inferem como os da classe.
+            let renomeia = args.len() == params.len()
+                && args.iter().zip(params.iter()).all(|(&a, &p)| matches!(inf.table.get(a), Type::TypeParameter { param, nullable: false } if *param == p));
+            if renomeia {
+                return Some(RefTipo::Alias(class, None, td));
+            }
+            inf.instanciar_para_limites(&params)
+        }
+    };
+    let mapa = inf.mapa(&params, &inst);
+    let args = args.iter().map(|a| inf.subst(*a, &mapa)).collect();
+    Some(RefTipo::Alias(class, Some(args), td))
 }
 
 /// Registra os nós de uma referência a tipo (tipo `Type`, resolução do elemento).
@@ -393,6 +413,12 @@ fn alvo_de_campo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, base: Ba
 /// privado, não `external`, e nenhuma outra declaração da biblioteca com o
 /// mesmo nome o impede (getter concreto ou campo não final).
 fn campo_promovivel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<dartforge_elements::model::VariableId> {
+    // Só em biblioteca com versão de linguagem 3.2 ou mais (o recurso
+    // `inference-update-2`; pacote antigo como o built_collection não
+    // promove, e o `!` dele é necessário).
+    if inf.program.library(cx.lib).features.versao() < dartforge_frontend::LanguageVersion::new(3, 2) {
+        return None;
+    }
     let r = inf.body_types.units[cx.unit.0 as usize].get_resolved(e)?.clone();
     let Resolved::Member { member: MemberRef::Function(f), .. } = r else { return None };
     let fe = inf.program.function(f);
@@ -726,6 +752,18 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, nu
     }
 }
 
+/// Busca de membro no receptor `target`: sobreposição explícita de
+/// extensão (`E(x).m`) consulta só a extensão; senão a busca normal.
+pub(crate) fn buscar_membro_do_alvo(inf: &mut BodyInferrer<'_>, cx: &Corpo, target: ExprId, recv: TypeId, nome: SymbolId, setter: bool) -> Busca {
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        return match inf.membro_de_extensao_explicita(x, &args, nome, setter) {
+            Some(m) => Busca::Achado(m),
+            None => Busca::Ausente,
+        };
+    }
+    inf.buscar_membro(cx.lib, recv, nome, setter)
+}
+
 /// `target.name` (leitura).
 fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
@@ -770,7 +808,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
             _ => None,
         }
     };
-    let t = match inf.buscar_membro(cx.lib, recv, name.sym, false) {
+    let t = match buscar_membro_do_alvo(inf, cx, target, recv, name.sym, false) {
         Busca::Achado(m) => {
             resolver(inf, cx, e, m.resolved.clone());
             match base {
@@ -820,12 +858,12 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
             let args = targs.map(|v| v.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect::<Vec<_>>());
             tearoff_de_construtor(inf, cx, e, c, args, name)
         }
-        RefTipo::Alias(c, args) => {
+        RefTipo::Alias(c, args, _) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
             }
-            tearoff_de_construtor(inf, cx, e, c, Some(args), name)
+            tearoff_de_construtor(inf, cx, e, c, args, name)
         }
     }
 }
@@ -835,13 +873,15 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
 fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name) -> TypeId {
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
-    let Some(&f) = inf.program.class(c).constructors.get(&chave) else {
+    let Some(f) = inf.construtor_de(c, chave) else {
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
     };
-    resolver(inf, cx, e, Resolved::Constructor(f));
-    let sig = inf.outline.functions[f.0 as usize].signature;
+    if inf.program.function(f).class == Some(c) {
+        resolver(inf, cx, e, Resolved::Constructor(f));
+    }
+    let sig = inf.assinatura_construtor(c, f);
     let params = inf.outline.classes[c.0 as usize].type_params.clone();
     match args {
         Some(args) if args.len() == params.len() => {
@@ -1418,7 +1458,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
         registrar_ref_tipo(inf, cx, target);
         let m = match rt {
-            RefTipo::Classe(c, _) | RefTipo::Alias(c, _) => inf.membro_estatico(c, name.sym, true),
+            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, true),
             RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, true),
         };
         return match m {
@@ -1547,8 +1587,30 @@ pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) ->
             let b = inf.core.bool_;
             inferir(inf, cx, e, b);
             let f = cx.fluxo.clone();
+            // Leitura de variável de condição não reescrita (§7.10).
+            if let ExprKind::Identifier(n) = &ast(inf, cx).expr(e).kind
+                && let Some(Nome::Local(id)) = cx.buscar(n.sym)
+                && let Some((sim, nao, versao)) = cx.condicoes.get(&id).cloned()
+                && f.versao(id) == Some(versao)
+                && !f.modelo(id).is_some_and(|m| m.capturada)
+            {
+                let v = inf.reaplicar(&f, &sim);
+                let fa = inf.reaplicar(&f, &nao);
+                return (v, fa);
+            }
             (f.clone(), f)
         }
+    }
+}
+
+/// Expressão cuja informação de condição não é trivial (`==`, `!=`, `&&`,
+/// `||`, `!`, `is`), para guardar numa variável de condição.
+pub(crate) fn e_forma_de_condicao(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    match &ast(inf, cx).expr(e).kind {
+        ExprKind::Parenthesized(i) => e_forma_de_condicao(inf, cx, *i),
+        ExprKind::Unary { op: UnaryOp::Not, .. } | ExprKind::Is { .. } => true,
+        ExprKind::Binary { op, .. } => matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq),
+        _ => false,
     }
 }
 
@@ -1653,9 +1715,7 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
         let decl = cx.local(id).tipo;
         inf.promover(&mut sim, id, decl, t);
         let fatorado = fator(inf, v, t);
-        if fatorado != v {
-            inf.promover(&mut nao, id, decl, fatorado);
-        }
+        inf.promover_testado(&mut nao, id, decl, fatorado, t);
     }
     if negado {
         (nao, sim)
@@ -1703,4 +1763,91 @@ pub(crate) fn declarar_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, local: 
     }
     inf.body_types.units[cx.unit.0 as usize].set_tipo_local(offset, tipo);
     id
+}
+
+impl<'a> BodyInferrer<'a> {
+    /// Expressão constante (especificação, "Constants"), sobre a resolução
+    /// já feita: literais, constantes referidas, construtores e coleções
+    /// `const`, operadores sobre constantes, `?:`, interpolação, tipos.
+    pub(crate) fn e_constante(&self, cx: &Corpo, e: ExprId) -> bool {
+        let a = &self.program.unit(cx.unit).ast;
+        let bt = &self.body_types.units[cx.unit.0 as usize];
+        let var_const = |v: dartforge_elements::model::VariableId| self.program.variable(v).const_;
+        let fun_const = |f: dartforge_elements::model::FunctionElementId| {
+            let fe = self.program.function(f);
+            match (fe.kind, fe.variable) {
+                (FunctionKind::ImplicitAccessor, Some(v)) => var_const(v),
+                (FunctionKind::Getter | FunctionKind::Setter, _) => false,
+                // Tear-off de função de topo ou estática é constante.
+                _ => fe.static_ || fe.class.is_none(),
+            }
+        };
+        let ref_const = |r: Option<&Resolved>| match r {
+            Some(Resolved::Local(id)) => cx.locais.get(id.0 as usize).is_some_and(|l| l.const_),
+            Some(Resolved::Element(Element::Variable(v))) => var_const(*v),
+            Some(Resolved::Element(Element::Function(f))) => fun_const(*f),
+            Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))) => true,
+            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => var_const(*v),
+            Some(Resolved::Member { member: MemberRef::Function(f), .. }) => fun_const(*f),
+            Some(Resolved::Constructor(_)) => true,
+            _ => false,
+        };
+        match &a.expr(e).kind {
+            ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Symbol(_) => true,
+            ExprKind::String(lit) => lit.parts.iter().all(|p| match p {
+                ast::StringPart::Interpolation(x) => self.e_constante(cx, *x),
+                _ => true,
+            }),
+            ExprKind::Parenthesized(x) => self.e_constante(cx, *x),
+            ExprKind::Identifier(_) => ref_const(bt.get_resolved(e)),
+            ExprKind::Property { target, name, .. } => {
+                if ref_const(bt.get_resolved(e)) {
+                    return true;
+                }
+                // `s.length` de string constante.
+                self.interner.resolve(name.sym) == "length" && self.e_constante(cx, *target)
+            }
+            ExprKind::TypeArguments { .. } => true,
+            ExprKind::List { const_, elements, .. } | ExprKind::SetOrMap { const_, elements, .. } => {
+                *const_ || elements.iter().all(|el| match el {
+                    ast::CollectionElement::Expression(x) => self.e_constante(cx, *x),
+                    ast::CollectionElement::MapEntry { key, value, .. } => self.e_constante(cx, *key) && self.e_constante(cx, *value),
+                    _ => false,
+                })
+            }
+            ExprKind::Record { positional, named, .. } => {
+                positional.iter().all(|x| self.e_constante(cx, *x)) && named.iter().all(|(_, x)| self.e_constante(cx, *x))
+            }
+            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+                matches!(keyword, Some(ast::CreationKeyword::Const)) || arguments.args.iter().all(|x| self.e_constante(cx, x.value)) && self.construtor_const(bt.get_resolved(e))
+            }
+            ExprKind::Call { target, arguments } => {
+                // Construtor `const` sem `new` em contexto constante, ou `identical`.
+                let ok_args = arguments.args.iter().all(|x| self.e_constante(cx, x.value));
+                if !ok_args {
+                    return false;
+                }
+                if self.construtor_const(bt.get_resolved(e)) {
+                    return true;
+                }
+                matches!(&a.expr(*target).kind, ExprKind::Identifier(n) if self.interner.resolve(n.sym) == "identical")
+            }
+            ExprKind::Unary { op, operand } => {
+                matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot) && self.e_constante(cx, *operand)
+            }
+            ExprKind::Binary { left, right, .. } => self.e_constante(cx, *left) && self.e_constante(cx, *right),
+            ExprKind::Conditional { condition, then, else_ } => {
+                self.e_constante(cx, *condition) && self.e_constante(cx, *then) && self.e_constante(cx, *else_)
+            }
+            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.e_constante(cx, *value),
+            _ => false,
+        }
+    }
+
+    fn construtor_const(&self, r: Option<&Resolved>) -> bool {
+        match r {
+            Some(Resolved::Constructor(f)) => self.program.function(*f).const_,
+            _ => false,
+        }
+    }
 }

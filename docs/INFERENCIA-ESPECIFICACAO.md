@@ -55,14 +55,14 @@ Cada regra `R-XXX-nn` tem um programa mínimo `corpus/inferencia/<seção>/
 <id>_<nome>.dart` e, ao lado, `<id>_<nome>.esperado.tsv` **gravado pelo
 oráculo** (nunca escrito à mão):
 
-    python tools/oraculo_tipos/gravar_corpus.py \
+    cargo run --release -p dartforge-types --example gravar_corpus -- \
         --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json
 
 (qualquer `package_config.json` que resolva `analyzer` 6.11.0 e `path`
 serve; um único processo `dart` para o corpus inteiro, ~20 s.) Colunas do
 `.esperado.tsv`: `linha coluna offset comprimento nó tipo elemento marca
-trecho` — `offset`/`comprimento` em unidades UTF-16 (as do analyzer; o nosso
-despejo é em bytes UTF-8, `comparar.py` converte), `tipo` é o
+trecho` — `offset`/`comprimento` em unidades UTF-16 (as do analyzer e as do
+nosso despejo, `dartforge_types::despejo`), `tipo` é o
 `staticType.getDisplayString()` do analyzer, `elemento` o elemento resolvido
 (`KIND:dono.nome`). `marca = 1` nas expressões que começam logo depois de um
 comentário `/*@*/`: são as que a regra quer verificar; as demais linhas
@@ -70,9 +70,12 @@ também são verdade do oráculo e podem ser comparadas. Todos os programas
 analisam sem erro no 3.6.2 (`dart analyze corpus/inferencia`); os casos que
 são **erro** no 3.6 estão só no texto, com exemplo.
 
-Uso previsto (dono do `crates/types`): o despejo `despejo_tipos` sobre cada
-programa comparado com o `.esperado.tsv` por `comparar.py` — uma divergência
-num programa mínimo aponta a regra exata.
+Uso (dono do `crates/types`): o teste `crates/types/tests/corpus_inferencia.rs`
+despeja cada programa (`dartforge_types::despejo`) e o compara com o
+`.esperado.tsv` — uma divergência num programa mínimo aponta a regra exata.
+As divergências e avisos ainda conhecidos ficam em
+`corpus/inferencia/divergencias.txt` (catraca: o teste falha com item novo e
+com item que deixou de acontecer; `ATUALIZAR_DIVERGENCIAS=1` regrava).
 
 ### 0.4 Notação
 

@@ -1,7 +1,7 @@
 //! Despejo de tipos: grava, por expressão de corpo, o tipo estático que a
 //! nossa inferência deu, no mesmo formato do oráculo do `package:analyzer`
 //! (`tools/oraculo_tipos/oraculo.dart`). É ferramenta de diagnóstico da
-//! inferência, não produto.
+//! inferência, não produto (a lógica fica em `dartforge_types::despejo`).
 //!
 //! ```text
 //! cargo run --release -p dartforge-types --example despejo_tipos -- \
@@ -12,15 +12,10 @@
 //! Linha: `caminho \t offset \t comprimento \t nó \t tipo \t resolução`.
 //! Expressão que a inferência nunca visitou sai com o tipo `?`.
 //! `--arquivos` recebe a lista de unidades (não-SDK) para o oráculo;
-//! `--avisos` recebe os avisos, um por linha, com o arquivo.
+//! `--avisos` recebe os avisos, um por linha, com o offset.
 
-use dartforge_elements::load::load_lenient;
-use dartforge_elements::model::Program;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_frontend::ast::ExprKind;
-use dartforge_intern::Interner;
-use dartforge_types::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_types::{resolve_outline, BodyInferrer, Resolved};
+use dartforge_types::despejo::despejar;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -53,227 +48,29 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let mut interner = Interner::new();
-            let (prog, _) = load_lenient(&entrada, &sdk, packages.as_deref(), &mut interner);
-            let mut table = TypeTable::new();
-            let core = CoreTypes::init(&mut table, &prog, &interner);
-            let (mut outline, diags_outline) = resolve_outline(&prog, &interner, &mut table, &core);
-            let t = std::time::Instant::now();
-            let mut inf = BodyInferrer::new(&prog, &interner, &mut table, &core, &mut outline);
-            // Sentinela: o que continuar com ela não foi visitado.
-            for u in &mut inf.body_types.units {
-                u.static_types.fill(NAO_VISITADA);
-            }
-            let (bodies, diags) = inf.infer_all();
-            eprintln!(
-                "inferência: {:?}; avisos: {} (outline {} + corpos {})",
-                t.elapsed(),
-                diags_outline.len() + diags.len(),
-                diags_outline.len(),
-                diags.len()
-            );
-
+            let d = despejar(&entrada, &sdk, packages.as_deref());
+            eprintln!("inferência: {:?}; avisos: {}", d.tempo_inferencia, d.avisos.len());
             let mut out = std::io::BufWriter::new(std::fs::File::create(saida.expect("-o")).unwrap());
-            // Ordem estável dos dois lados (o comparador faz merge em fluxo):
-            // unidades pelo caminho, linhas por (offset, comprimento), e
-            // offsets em unidades UTF-16, como os do analyzer.
-            let mut unidades: Vec<(String, usize)> = prog
-                .units
-                .iter()
-                .enumerate()
-                .filter(|(_, u)| !prog.library(u.library).is_sdk)
-                .filter_map(|(ui, u)| u.path.as_ref().map(|p| (p.to_string_lossy().replace('\\', "/"), ui)))
-                .collect();
-            unidades.sort();
-            unidades.dedup_by(|a, b| a.0 == b.0);
-            let mut lista = Vec::new();
-            let (mut total, mut nao_visitadas) = (0usize, 0usize);
-            for (caminho, ui) in unidades {
-                let unit = &prog.units[ui];
-                lista.push(caminho.clone());
-                let bt = &bodies.units[ui];
-                let utf16 = mapa_utf16(&unit.source);
-                let mut linhas: Vec<(usize, usize, String)> = Vec::with_capacity(unit.ast.exprs.len());
-                for (i, e) in unit.ast.exprs.iter().enumerate() {
-                    let ty = bt.static_types.get(i).copied().unwrap_or(NAO_VISITADA);
-                    let tipo = if ty == NAO_VISITADA {
-                        nao_visitadas += 1;
-                        "?".to_string()
-                    } else {
-                        formatar(&table, ty, &interner, &prog)
-                    };
-                    total += 1;
-                    let res = bt.resolved.get(i).and_then(|r| r.as_ref()).map(|r| resolucao(r, &prog, &interner)).unwrap_or_else(|| "-".into());
-                    let (ini, fim) = (utf16(e.span.start), utf16(e.span.end));
-                    linhas.push((ini, fim - ini, format!("{}	{tipo}	{res}", nome_no(&e.kind))));
+            let mut total = 0usize;
+            for u in &d.unidades {
+                for l in &u.linhas {
+                    writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}", u.caminho, l.offset, l.comprimento, l.no, l.tipo, l.resolucao).unwrap();
                 }
-                linhas.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
-                for (ini, comp, resto) in linhas {
-                    writeln!(out, "{caminho}	{ini}	{comp}	{resto}").unwrap();
-                }
+                total += u.linhas.len();
             }
-            eprintln!("despejo: {} unidades, {total} expressões, {nao_visitadas} não visitadas", lista.len());
+            eprintln!("despejo: {} unidades, {total} expressões, {} não visitadas", d.unidades.len(), d.nao_visitadas);
             if let Some(a) = arquivos {
+                let lista: Vec<&str> = d.unidades.iter().map(|u| u.caminho.as_str()).collect();
                 std::fs::write(a, lista.join("\n")).unwrap();
             }
             if let Some(a) = avisos {
                 let mut f = std::io::BufWriter::new(std::fs::File::create(a).unwrap());
-                for d in diags_outline.iter().chain(diags.iter()) {
-                    writeln!(f, "{}\t{}", d.span.start, d.message.replace('\n', " ")).unwrap();
+                for x in &d.avisos {
+                    writeln!(f, "{}\t{}", x.span.start, x.message.replace('\n', " ")).unwrap();
                 }
             }
         })
         .unwrap()
         .join()
         .unwrap();
-}
-
-const NAO_VISITADA: TypeId = TypeId(u32::MAX);
-
-/// Offset em bytes UTF-8 → offset em unidades UTF-16.
-fn mapa_utf16(fonte: &str) -> impl Fn(usize) -> usize + '_ {
-    let mut acumulado = Vec::with_capacity(fonte.len() + 1);
-    let mut u = 0usize;
-    for c in fonte.chars() {
-        for _ in 0..c.len_utf8() {
-            acumulado.push(u);
-        }
-        u += c.len_utf16();
-    }
-    acumulado.push(u);
-    move |b| acumulado.get(b).copied().unwrap_or(u)
-}
-
-fn nome_no(k: &ExprKind) -> &'static str {
-    match k {
-        ExprKind::Int(_) => "Int",
-        ExprKind::Double(_) => "Double",
-        ExprKind::Bool(_) => "Bool",
-        ExprKind::Null => "Null",
-        ExprKind::String(_) => "String",
-        ExprKind::Symbol(_) => "Symbol",
-        ExprKind::Identifier(_) => "Identifier",
-        ExprKind::This => "This",
-        ExprKind::Super => "Super",
-        ExprKind::Parenthesized(_) => "Parenthesized",
-        ExprKind::List { .. } => "List",
-        ExprKind::SetOrMap { .. } => "SetOrMap",
-        ExprKind::Record { .. } => "Record",
-        ExprKind::InstanceCreation { .. } => "InstanceCreation",
-        ExprKind::FunctionExpression(_) => "FunctionExpression",
-        ExprKind::Property { .. } => "Property",
-        ExprKind::Index { .. } => "Index",
-        ExprKind::Call { .. } => "Call",
-        ExprKind::TypeArguments { .. } => "TypeArguments",
-        ExprKind::Unary { .. } => "Unary",
-        ExprKind::Binary { .. } => "Binary",
-        ExprKind::Conditional { .. } => "Conditional",
-        ExprKind::Is { .. } => "Is",
-        ExprKind::As { .. } => "As",
-        ExprKind::Assign { .. } => "Assign",
-        ExprKind::PatternAssign { .. } => "PatternAssign",
-        ExprKind::Cascade { .. } => "Cascade",
-        ExprKind::CascadeTarget => "CascadeTarget",
-        ExprKind::Await(_) => "Await",
-        ExprKind::Throw(_) => "Throw",
-        ExprKind::Rethrow => "Rethrow",
-        ExprKind::Switch { .. } => "Switch",
-        ExprKind::DotShorthand { .. } => "DotShorthand",
-    }
-}
-
-fn resolucao(r: &Resolved, prog: &Program, i: &Interner) -> String {
-    match r {
-        Resolved::Local(_) => "LOCAL".into(),
-        Resolved::Parameter { name, .. } => format!("PARAMETER:{}", i.resolve(*name)),
-        Resolved::TypeParameter(_) => "TYPE_PARAMETER".into(),
-        Resolved::Element(e) => format!("ELEMENT:{e:?}"),
-        Resolved::Member { class, member, .. } => {
-            let c = i.resolve(prog.class(*class).name);
-            let n = match member {
-                dartforge_types::MemberRef::Function(f) => i.resolve(prog.function(*f).name),
-                dartforge_types::MemberRef::Variable(v) => i.resolve(prog.variable(*v).name),
-            };
-            format!("MEMBER:{c}.{n}")
-        }
-        Resolved::Prefix(_) => "PREFIX".into(),
-        Resolved::Dynamic => "DYNAMIC".into(),
-        Resolved::ExtensionMember { member, .. } => format!("EXTENSION:{}", i.resolve(prog.function(*member).name)),
-        Resolved::Constructor(f) => format!("CONSTRUCTOR:{}", i.resolve(prog.function(*f).name)),
-    }
-}
-
-/// Formata como o `DartType.getDisplayString()` do analyzer.
-fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String {
-    let q = |n: bool| if n { "?" } else { "" };
-    match t.get(ty) {
-        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), formatar(t, *bound, i, p)),
-        Type::Dynamic => "dynamic".into(),
-        Type::Void => "void".into(),
-        Type::Never => "Never".into(),
-        Type::Null => "Null".into(),
-        Type::Interface { class, args, nullable } | Type::ExtensionType { decl: class, args, nullable } => {
-            let nome = i.resolve(p.class(*class).name);
-            if args.is_empty() {
-                format!("{nome}{}", q(*nullable))
-            } else {
-                let a: Vec<String> = args.iter().map(|&x| formatar(t, x, i, p)).collect();
-                format!("{nome}<{}>{}", a.join(", "), q(*nullable))
-            }
-        }
-        Type::FutureOr { arg, nullable } => format!("FutureOr<{}>{}", formatar(t, *arg, i, p), q(*nullable)),
-        Type::TypeParameter { param, nullable } => format!("{}{}", i.resolve(t.param(*param).name), q(*nullable)),
-        Type::Record { positional, named, nullable } => {
-            let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
-            let mut nomeados: Vec<(String, String)> =
-                named.iter().map(|(n, x)| (i.resolve(*n).to_string(), formatar(t, *x, i, p))).collect();
-            nomeados.sort();
-            if !nomeados.is_empty() {
-                let n: Vec<String> = nomeados.iter().map(|(n, x)| format!("{x} {n}")).collect();
-                partes.push(format!("{{{}}}", n.join(", ")));
-            } else if positional.len() == 1 {
-                return format!("({},){}", partes[0], q(*nullable));
-            }
-            format!("({}){}", partes.join(", "), q(*nullable))
-        }
-        Type::Function { type_params, ret, positional, optional, named, nullable } => {
-            let mut s = format!("{} Function", formatar(t, *ret, i, p));
-            if !type_params.is_empty() {
-                let tps: Vec<String> = type_params
-                    .iter()
-                    .map(|&tp| {
-                        let d = t.param(tp);
-                        let nome = i.resolve(d.name).to_string();
-                        match t.get(d.bound) {
-                            Type::Interface { nullable: true, class, .. }
-                                if i.resolve(p.class(*class).name) == "Object" =>
-                            {
-                                nome
-                            }
-                            Type::Dynamic => nome,
-                            _ => format!("{nome} extends {}", formatar(t, d.bound, i, p)),
-                        }
-                    })
-                    .collect();
-                s.push_str(&format!("<{}>", tps.join(", ")));
-            }
-            let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
-            if !optional.is_empty() {
-                let o: Vec<String> = optional.iter().map(|&x| formatar(t, x, i, p)).collect();
-                partes.push(format!("[{}]", o.join(", ")));
-            }
-            if !named.is_empty() {
-                let mut n: Vec<(String, String)> = named
-                    .iter()
-                    .map(|(n, x, r)| {
-                        (i.resolve(*n).to_string(), format!("{}{} {}", if *r { "required " } else { "" }, formatar(t, *x, i, p), i.resolve(*n)))
-                    })
-                    .collect();
-                n.sort();
-                let n: Vec<String> = n.into_iter().map(|(_, s)| s).collect();
-                partes.push(format!("{{{}}}", n.join(", ")));
-            }
-            format!("{s}({}){}", partes.join(", "), q(*nullable))
-        }
-    }
 }

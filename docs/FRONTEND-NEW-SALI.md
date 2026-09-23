@@ -180,11 +180,43 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | variável de tipo promovida `X & B` (`Type::Intersection`) | 724 | 783 | 197 | 248 |
 | promoção de campo privado final (Dart 3.2) | 720 | 776 | 176 | 224 |
 | `?.` promove dentro da cadeia, contexto de `clamp`, captura em função local | 712 | 767 | 136 | 183 |
+| corpos do SDK: limites de extensão, typedef que renomeia, `super.x`, `is!`, sombra em função local, funções genéricas, aplicação de mixin | 347 | 375 | 131 | 178 |
+| tipo de extensão subtipo de tipo de extensão (`Element implements JSObject`) | 69 | 97 | 128 | 175 |
+| `FutureOr` cru (`FutureOr<dynamic>`) | 65 | 96 | 125 | 175 |
+| tipos de extensão: construtor primário, campo de representação, UP (R-EXT-04, R-UP-w) | 60 | 91 | 120 | 170 |
+| escrita no membro inteiro demove dentro de closure (R-FLU-07) | 49 | 82 | 109 | 162 |
+| `if-case`/`switch` promovem o escrutínio (R-FLU-14) | 29 | 62 | 56 | 109 |
+| promoção de campo só com versão de linguagem ≥ 3.2 (R-FLU-12) — `crates/elements` preenche a versão | 29 | 59 | 52 | 101 |
+| variáveis de condição (§7.10: `final bool v = d != null; if (v) d`) | 26 | 41 | 34 | 61 |
+| chamada genérica recursiva com parâmetros frescos (R-GEN-04) | 18 | 31 | 34 | 59 |
+| sobreposição explícita de extensão `E(x).m` (R-EXT-02) | 15 | 28 | 31 | 56 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
-com as sete bibliotecas, sobreposição `vm`): **4.447 → 275** diagnósticos
-(`core` 193, `convert` 37, `async` 26, `_internal` 7, `collection` 5,
-`_compact_hash` 4, `math` 3).
+com as sete bibliotecas, sobreposição `vm`): **4.447 → 275 → 18**
+diagnósticos. Os 18 restantes são os que o analyzer também dá: 13 casts
+desnecessários (`implementation.function as RunHandler` em `zone.dart`,
+`.remainder(...) as int` em `date_time.dart`) e 5 código morto (`throw`
+depois de chamada `Never` em `uri.dart`, `s is! String` com `s: String` em
+`string_patch.dart`, `return -1` depois de `while (true)` em
+`convert_patch.dart`). Ferramenta: `cargo run --release -p dartforge-types
+--example avisos -- sdk <sdk/lib> sdk_nativo dartforge_nativo _internal core
+_compact_hash collection math convert async`.
+
+Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
+sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
+**0/95 → 83/95** (antes do `FutureOr` cru todo programa tinha um aviso);
+35 expressões divergentes e 3 avisos, listados em
+`corpus/inferencia/divergencias.txt`.
+
+Avisos restantes no new_sali por causa (frontend 28 / core 15):
+
+| causa | avisos | regra / lacuna |
+|---|---:|---|
+| `?.`/`!` sobre receptor não anulável em template gerado (`.dart_tool/build/generated`, fora do `dart analyze`): o analyzer também acusa | 17 / – | legítimo no código gerado |
+| nomes `s`/`suffix` no `page_label` (`pdf_plus`) | 3 / 3 | a investigar |
+| código morto depois de `fail()`/`return` (`test_api`, `test_core`, `archive`) | 1 / 5 | a conferir com o analyzer |
+| `callAsConstructor` em `JSFunction`, `call` em `Function`, `dynamic` como tipo em `injector.dart` | 4 / 1 | a investigar |
+| `const` com `PdfImageOrientation.values`, `int?` em `dict.dart`, cast em `only_number_directive` | 3 / 2 | a investigar |
 
 Grupos restantes no new_sali (causas; frontend / core):
 

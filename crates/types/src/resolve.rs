@@ -371,6 +371,13 @@ impl<'a> OutlineResolver<'a> {
             for (p_elem, &pid) in ext.type_params.iter().zip(params.iter()) {
                 scope.insert(p_elem.name, pid);
             }
+            // Limites escritos (`extension X<T extends Enum> on ...`).
+            for (p_elem, &pid) in ext.type_params.iter().zip(params.iter()) {
+                if let Some((unit_id, ast_ty_id)) = p_elem.bound {
+                    let b = self.resolve_annotation(unit_id, ast_ty_id, ext.library, &scope);
+                    self.table.set_type_param_bound(pid, b);
+                }
+            }
             let on_ty = self.resolve_annotation(ext.on.0, ext.on.1, ext.library, &scope);
             data.push(ExtensionTypeData {
                 type_params: params,
@@ -607,7 +614,7 @@ impl<'a> OutlineResolver<'a> {
                     } else if p.this_ {
                         self.field_type_for_this_param(func, p_name).unwrap_or(self.core.dynamic_)
                     } else if p.super_ {
-                        self.super_param_type(func, ctor, p, 0).unwrap_or(self.core.dynamic_)
+                        self.super_param_type(func, ctor, p, 0, hierarchy).unwrap_or(self.core.dynamic_)
                     } else {
                         self.core.dynamic_
                     };
@@ -998,6 +1005,12 @@ impl<'a> OutlineResolver<'a> {
                                 arg: arg_ty,
                                 nullable: is_nullable,
                             });
+                        } else if args.is_empty() {
+                            // `FutureOr` cru: instanciado para o limite.
+                            return self.table.intern(Type::FutureOr {
+                                arg: self.core.dynamic_,
+                                nullable: is_nullable,
+                            });
                         } else {
                             self.diagnostics.push(Diagnostic::new(
                                 "FutureOr exige exatamente um argumento de tipo",
@@ -1282,9 +1295,15 @@ impl<'a> OutlineResolver<'a> {
 
     /// Tipo de um parâmetro `super.x` sem anotação: o do parâmetro homónimo do
     /// construtor da superclasse chamado (`super(...)`/`super.nome(...)`; sem
-    /// inicializador, o sem nome). Parâmetros de tipo da superclasse ficam
-    /// como estão (aproximação): o emissor só precisa da classe.
-    fn super_param_type(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32) -> Option<TypeId> {
+    /// inicializador, o sem nome), com os parâmetros de tipo da superclasse
+    /// substituídos pelo que a classe lhe passa.
+    fn super_param_type(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32, hierarchy: &ClassHierarchy) -> Option<TypeId> {
+        let t = self.super_param_type_cru(func, ctor, p, depth, hierarchy)?;
+        let sup = self.program.class(func.class?).supertype_class?;
+        Some(self.instanciar_do_super(func, sup, t, hierarchy).unwrap_or(t))
+    }
+
+    fn super_param_type_cru(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32, hierarchy: &ClassHierarchy) -> Option<TypeId> {
         if depth > 8 {
             return None;
         }
@@ -1329,7 +1348,7 @@ impl<'a> OutlineResolver<'a> {
         }
         if sp.super_ {
             let sfunc2 = self.program.function(sfid);
-            return self.super_param_type(sfunc2, sctor, sp, depth + 1);
+            return self.super_param_type(sfunc2, sctor, sp, depth + 1, hierarchy);
         }
         None
     }

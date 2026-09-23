@@ -44,6 +44,10 @@ motor novo: **4.447 → 275** diagnósticos nas sete bibliotecas (`core` 193,
 `convert` 37, `async` 26, `_internal` 7, `collection` 5, `_compact_hash` 4,
 `math` 3); o resto entra na fila da inferência.
 
+**Atualização:** 275 → **18**, e os 18 são os que o analyzer também dá
+(13 casts desnecessários, 5 código morto; lista em
+docs/FRONTEND-NEW-SALI.md). Nenhum é erro de tipo.
+
 ## δ → α: texto dos literais sem perda (`lower/expressoes.rs`)
 
 **Onde:** `lower/expressoes.rs`, braço `ExprKind::String`, as duas linhas

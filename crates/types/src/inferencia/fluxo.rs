@@ -9,6 +9,15 @@
 use super::BodyInferrer;
 use crate::resolved::LocalId;
 use crate::table::{Type, TypeId};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Versões de escrita (o SSA do `flow-analysis.md`): cada escrita e cada
+/// junção de versões diferentes ganha um número novo; só a igualdade importa.
+static PROXIMA_VERSAO: AtomicU32 = AtomicU32::new(1);
+
+fn nova_versao() -> u32 {
+    PROXIMA_VERSAO.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Estado de uma variável num ponto do programa (`PromotionModel`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +30,8 @@ pub(crate) struct ModeloVar {
     pub nao_atribuida: bool,
     /// Escrita por uma closure: não promove mais.
     pub capturada: bool,
+    /// Versão da última escrita (0: declarada e nunca escrita).
+    pub versao: u32,
 }
 
 /// Estado de fluxo num ponto (`FlowModel`).
@@ -56,6 +67,7 @@ impl Fluxo {
             atribuida: false,
             nao_atribuida: true,
             capturada: false,
+            versao: 0,
         });
     }
 
@@ -64,7 +76,13 @@ impl Fluxo {
         if let Some(m) = self.slot(id) {
             m.atribuida = true;
             m.nao_atribuida = false;
+            m.versao = nova_versao();
         }
+    }
+
+    /// Versão de escrita atual de uma variável.
+    pub fn versao(&self, id: LocalId) -> Option<u32> {
+        self.modelo(id).map(|m| m.versao)
     }
 
     pub fn modelo(&self, id: LocalId) -> Option<&ModeloVar> {
@@ -88,6 +106,7 @@ impl Fluxo {
         if let Some(m) = self.slot(id) {
             m.capturada = true;
             m.cadeia.clear();
+            m.versao = nova_versao();
         }
     }
 
@@ -98,12 +117,14 @@ impl Fluxo {
                 m.cadeia.clear();
                 m.nao_atribuida = false;
                 m.capturada = true;
+                m.versao = nova_versao();
             }
         }
         for &id in escritas {
             if let Some(m) = self.slot(id) {
                 m.cadeia.clear();
                 m.nao_atribuida = false;
+                m.versao = nova_versao();
             }
         }
     }
@@ -145,6 +166,13 @@ impl<'a> BodyInferrer<'a> {
 
     /// `promote(x, T)`: promoção por teste de tipo (`is`, `as`, `!= null`).
     pub(crate) fn promover(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, t: TypeId) {
+        self.promover_testado(fluxo, id, declarado, t, t);
+    }
+
+    /// Promove para `t` registrando `testado` como tipo de interesse (o ramo
+    /// falso de `x is T` testa `T` e promove para `factor(S, T)`;
+    /// `_finishTypeTest` do analisador).
+    pub(crate) fn promover_testado(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, t: TypeId, testado: TypeId) {
         if !fluxo.alcancavel {
             return;
         }
@@ -155,9 +183,9 @@ impl<'a> BodyInferrer<'a> {
         let s = m.cadeia.last().copied().unwrap_or(declarado);
         if self.sub(s, t) {
             // Já é subtipo: não promove, mas registra o tipo de interesse.
-            if !m.testados.contains(&t) {
+            if !m.testados.contains(&testado) {
                 if let Some(Some(mm)) = fluxo.vars.get_mut(id.0 as usize) {
-                    mm.testados.push(t);
+                    mm.testados.push(testado);
                 }
             }
             return;
@@ -186,8 +214,8 @@ impl<'a> BodyInferrer<'a> {
             }
         };
         if let Some(Some(mm)) = fluxo.vars.get_mut(id.0 as usize) {
-            if !mm.testados.contains(&t) {
-                mm.testados.push(t);
+            if !mm.testados.contains(&testado) {
+                mm.testados.push(testado);
             }
             if let Some(t1) = t1 {
                 mm.cadeia.push(t1);
@@ -229,6 +257,36 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
+    /// `rebaseForward` (§7.10): as promoções guardadas numa variável de
+    /// condição valem de novo sobre o estado atual, para as variáveis que
+    /// não foram escritas desde então (mesma versão).
+    pub(crate) fn reaplicar(&mut self, atual: &Fluxo, guardado: &Fluxo) -> Fluxo {
+        if !guardado.alcancavel {
+            return atual.inalcancavel();
+        }
+        let mut r = atual.clone();
+        for (i, g) in guardado.vars.iter().enumerate() {
+            let Some(g) = g else { continue };
+            let Some(Some(c)) = r.vars.get(i) else { continue };
+            if g.versao != c.versao || c.capturada {
+                continue;
+            }
+            let mut c = c.clone();
+            for &t in &g.cadeia {
+                if !c.cadeia.contains(&t) && c.cadeia.last().is_none_or(|&l| self.sub(t, l)) {
+                    c.cadeia.push(t);
+                }
+            }
+            for &t in &g.testados {
+                if !c.testados.contains(&t) {
+                    c.testados.push(t);
+                }
+            }
+            r.vars[i] = Some(c);
+        }
+        r
+    }
+
     /// `assign(x, T)`: demove e aplica a promoção por tipo de interesse.
     pub(crate) fn atribuir_fluxo(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, escrito: TypeId) {
         self.escrever_fluxo(fluxo, id, declarado, escrito, true);
@@ -241,6 +299,7 @@ impl<'a> BodyInferrer<'a> {
         let mut m = m;
         m.atribuida = true;
         m.nao_atribuida = false;
+        m.versao = nova_versao();
         if !m.capturada {
             // Escrita de `dynamic` num local tipado é cast implícito: o tipo
             // escrito efetivo é o declarado.
@@ -325,5 +384,6 @@ fn juntar_modelo(a: &ModeloVar, b: &ModeloVar) -> ModeloVar {
         atribuida: a.atribuida && b.atribuida,
         nao_atribuida: a.nao_atribuida && b.nao_atribuida,
         capturada: a.capturada || b.capturada,
+        versao: if a.versao == b.versao { a.versao } else { nova_versao() },
     }
 }

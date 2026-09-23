@@ -92,6 +92,12 @@ pub(crate) struct Corpo {
     pub campos: HashMap<(Base, VariableId), LocalId>,
     /// Fluxos de antes de cada `?.` das cadeias em curso.
     pub cadeias: Vec<super::fluxo::Fluxo>,
+    /// Variáveis de condição (§7.10): `(verdadeiro, falso, versão)` do
+    /// valor escrito na variável, restaurados na leitura como condição.
+    pub condicoes: HashMap<LocalId, (Fluxo, Fluxo, u32)>,
+    /// Sobreposições explícitas de extensão (`E(x)`, R-EXT-02): a chamada
+    /// `E(x)` → a extensão e os argumentos de tipo dela.
+    pub sobreposicoes: HashMap<ast::ExprId, (ExtensionId, Vec<TypeId>)>,
 }
 
 /// Base de uma referência a campo promovível.
@@ -122,6 +128,7 @@ pub(crate) struct AlvoSalto {
 impl Corpo {
     pub fn novo(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, extensao: Option<ExtensionId>, estatico: bool) -> Self {
         let lib = inf.program.unit(unit).library;
+        inf.unidade_corrente = Some(unit);
         let mut cx = Corpo {
             unit,
             lib,
@@ -143,6 +150,8 @@ impl Corpo {
             raiz: Raiz::Nada,
             campos: HashMap::new(),
             cadeias: Vec::new(),
+            condicoes: HashMap::new(),
+            sobreposicoes: HashMap::new(),
         };
         if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
             cx.curinga = inf.interner.lookup("_");

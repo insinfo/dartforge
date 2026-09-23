@@ -62,7 +62,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 Some(p) => {
                     let t = inferir_livre(inf, cx, *condition);
                     cx.empurrar_escopo();
-                    padroes::caso(inf, cx, *p, t, *guard)
+                    padroes::caso(inf, cx, *p, t, *guard, Some(*condition))
                 }
                 None => expr::condicao_verificada(inf, cx, *condition),
             };
@@ -186,7 +186,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     cx.fluxo = nao_casou.clone();
                     match c.pattern {
                         Some(p) => {
-                            let (vf, ff) = padroes::caso(inf, cx, p, t, c.guard);
+                            let (vf, ff) = padroes::caso(inf, cx, p, t, c.guard, Some(*value));
                             entradas.push(vf);
                             nao_casou = ff;
                         }
@@ -397,8 +397,19 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
     for v in vl.variables.iter() {
         let mut tipo = declarado;
         let mut escrito = None;
+        let mut condicao_guardada = None;
         if let Some(init) = v.initializer {
-            let t = inferir(inf, cx, init, declarado.unwrap_or(u));
+            // Inicializador que é condição (`x != null && …`): os modelos
+            // verdadeiro/falso ficam guardados na variável (§7.10); `late`
+            // nunca guarda.
+            let t = if !vl.late && expr::e_forma_de_condicao(inf, cx, init) {
+                let (sim, nao) = expr::condicao(inf, cx, init);
+                cx.fluxo = inf.juntar(&sim, &nao);
+                condicao_guardada = Some((sim, nao));
+                inf.body_types.units[cx.unit.0 as usize].get_type(init).unwrap_or(inf.core.bool_)
+            } else {
+                inferir(inf, cx, init, declarado.unwrap_or(u))
+            };
             escrito = Some(t);
             if let Some(d) = declarado {
                 let sp = inf.span_expr(cx.unit, init);
@@ -407,7 +418,7 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
                 tipo = Some(if matches!(inf.table.get(t), Type::Null) { inf.core.dynamic_ } else { t });
             }
             if vl.const_ {
-                colecoes_const(inf, cx.unit, init);
+                colecoes_const(inf, cx, init);
             }
         }
         let tipo = tipo.unwrap_or(inf.core.dynamic_);
@@ -427,11 +438,15 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             Some(_) => cx.fluxo.inicializar(id),
             None => {}
         }
+        if let (Some((sim, nao)), Some(versao)) = (condicao_guardada, cx.fluxo.versao(id)) {
+            cx.condicoes.insert(id, (sim, nao, versao));
+        }
     }
 }
 
-fn colecoes_const(inf: &mut BodyInferrer<'_>, unit: UnitId, init: ExprId) {
-    super::colecoes::validar_colecao_const(inf, unit, init);
+fn colecoes_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, init: ExprId) {
+    let unit = cx.unit;
+    super::colecoes::validar_colecao_const(inf, cx, init);
     let mut av = crate::constant::ConstantEvaluator::new(inf.program, inf.interner, inf.table, inf.core);
     let r = av.evaluate_expr(unit, init);
     let erro = av.error_thrown.clone();
@@ -440,7 +455,8 @@ fn colecoes_const(inf: &mut BodyInferrer<'_>, unit: UnitId, init: ExprId) {
         let sp = inf.span_expr(unit, init);
         match erro {
             Some(e) => inf.aviso(format!("{}: {}", CONST_EVAL_THROWS_EXCEPTION.template, e), sp),
-            None => inf.aviso(CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), sp),
+            None if !inf.e_constante(cx, init) => inf.aviso(CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), sp),
+            None => {}
         }
     }
 }
@@ -587,9 +603,34 @@ fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<Loc
     (ids(&nomes), ids(&em_closure))
 }
 
-/// Nomes escritos dentro de uma função (para a captura de escrita).
+/// Nomes escritos dentro de uma função (para a captura de escrita); os
+/// parâmetros dela sombreiam os de fora no corpo inteiro.
 pub(crate) fn nomes_escritos_em_funcao(inf: &BodyInferrer<'_>, unit: UnitId, f: &ast::Function) -> Vec<SymbolId> {
-    nomes_escritos_em_corpo(inf, unit, &f.body)
+    let mut v = nomes_escritos_em_corpo(inf, unit, &f.body);
+    let ps = parametros_de(f);
+    v.retain(|n| !ps.contains(n));
+    v
+}
+
+fn parametros_de(f: &ast::Function) -> Vec<SymbolId> {
+    f.parameters.iter().flat_map(|ps| ps.iter()).filter_map(|p| p.name.map(|n| n.sym)).collect()
+}
+
+/// Closure ou função local: o que ela escreve, menos os próprios
+/// parâmetros, conta como escrito em closure.
+fn varrer_funcao_aninhada(a: &ast::Ast, f: &ast::Function, em_closure: &mut Vec<SymbolId>) {
+    let (mut n, mut em) = (Vec::new(), Vec::new());
+    match &f.body {
+        ast::FunctionBody::Block(b) => varrer_stmt(a, *b, &mut n, &mut em, true),
+        ast::FunctionBody::Expression(x) => varrer_expr(a, *x, &mut n, &mut em, true),
+        _ => {}
+    }
+    let ps = parametros_de(f);
+    for x in n.into_iter().chain(em) {
+        if !ps.contains(&x) && !em_closure.contains(&x) {
+            em_closure.push(x);
+        }
+    }
 }
 
 /// Nomes escritos num corpo (inclusive dentro de closures dele).
@@ -678,14 +719,7 @@ fn varrer_expr(a: &ast::Ast, e: ExprId, nomes: &mut Vec<SymbolId>, em_closure: &
             varrer_padrao(a, *pattern, nomes, em_closure, dentro);
             rec(*value, nomes, em_closure);
         }
-        ExprKind::FunctionExpression(f) => {
-            let f = a.function(*f);
-            match &f.body {
-                ast::FunctionBody::Block(s) => varrer_stmt(a, *s, nomes, em_closure, true),
-                ast::FunctionBody::Expression(x) => varrer_expr(a, *x, nomes, em_closure, true),
-                _ => {}
-            }
-        }
+        ExprKind::FunctionExpression(f) => varrer_funcao_aninhada(a, a.function(*f), em_closure),
         ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => rec(*x, nomes, em_closure),
         ExprKind::Property { target, .. } => rec(*target, nomes, em_closure),
         ExprKind::Index { target, index, .. } => {
@@ -811,14 +845,7 @@ fn varrer_stmt(a: &ast::Ast, s: StmtId, nomes: &mut Vec<SymbolId>, em_closure: &
             }
         }
         StmtKind::PatternVariables { value, .. } => re(*value, nomes, em_closure),
-        StmtKind::Function(f) => {
-            let f = a.function(*f);
-            match &f.body {
-                ast::FunctionBody::Block(b) => varrer_stmt(a, *b, nomes, em_closure, true),
-                ast::FunctionBody::Expression(x) => varrer_expr(a, *x, nomes, em_closure, true),
-                _ => {}
-            }
-        }
+        StmtKind::Function(f) => varrer_funcao_aninhada(a, a.function(*f), em_closure),
         StmtKind::Expression(e) => re(*e, nomes, em_closure),
         StmtKind::If { condition, guard, then, else_, .. } => {
             re(*condition, nomes, em_closure);
