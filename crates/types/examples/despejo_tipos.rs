@@ -184,6 +184,7 @@ fn resolucao(r: &Resolved, prog: &Program, i: &Interner) -> String {
 fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
+        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), formatar(t, *bound, i, p)),
         Type::Dynamic => "dynamic".into(),
         Type::Void => "void".into(),
         Type::Never => "Never".into(),

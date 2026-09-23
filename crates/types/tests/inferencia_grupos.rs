@@ -79,6 +79,7 @@ fn inferir_arquivo(main: &std::path::Path) -> Resultado {
 fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::model::Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
+        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), formatar(t, *bound, i, p)),
         Type::Dynamic => "dynamic".into(),
         Type::Void => "void".into(),
         Type::Never => "Never".into(),
@@ -355,5 +356,28 @@ import 'lib.dart';
 void main() { var d = Duration(3); var n = d.n; }").unwrap();
     let r = inferir_arquivo(&main);
     assert_eq!(r.tipo("d.n"), "int");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Promoção de variável de tipo: interseção `X & B` (`T?` testado contra
+/// `null` vira `T & Object`; `is int` vira `T & int`).
+#[test]
+fn promocao_de_variavel_de_tipo() {
+    let r = ou_pula!(inferir(
+        r#"
+T f<T>(T? a, T b, Map<String, T> m) {
+  if (a != null) { var x = a; }
+  if (b is int) { var y = b; }
+  var z = m['k']!;
+  return b;
+}
+"#
+    ));
+    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "a").map(|(_, ty)| ty.as_str()).collect();
+    assert_eq!(tipos, ["T?", "T & Object"]);
+    let tb: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "b").map(|(_, ty)| ty.as_str()).collect();
+    assert_eq!(tb, ["T", "T & int", "T"]);
+    assert_eq!(r.tipo("m['k']"), "T?");
+    assert_eq!(r.tipo("m['k']!"), "T & Object");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }

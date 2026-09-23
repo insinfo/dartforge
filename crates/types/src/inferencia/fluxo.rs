@@ -165,12 +165,19 @@ impl<'a> BodyInferrer<'a> {
         let t1 = if self.sub(t, s) {
             Some(t)
         } else {
-            // `S` é variável de tipo: `X & T` quando `T <: limite(X)`.
+            // S é X (limite R) ou X & R: promove para X & T se T <: R.
             match self.table.get(s).clone() {
-                Type::TypeParameter { param, nullable: false } => {
+                Type::TypeParameter { param, nullable: false } if param != self.core.unknown_param => {
                     let b = self.table.param(param).bound;
                     if self.sub(t, b) {
-                        None // interseção não representada: mantém X.
+                        Some(self.table.intern(Type::Intersection { param, bound: t }))
+                    } else {
+                        None
+                    }
+                }
+                Type::Intersection { param, bound } => {
+                    if self.sub(t, bound) {
+                        Some(self.table.intern(Type::Intersection { param, bound: t }))
                     } else {
                         None
                     }
@@ -207,6 +214,17 @@ impl<'a> BodyInferrer<'a> {
         match self.table.get(t).clone() {
             Type::Null => self.core.never,
             Type::FutureOr { arg, nullable: true } => self.table.intern(Type::FutureOr { arg, nullable: false }),
+            // NonNull(X) = X & NonNull(B) quando o limite B é anulável
+            // (promoteToNonNull do analyzer): T? vira T & Object.
+            Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
+                let b = self.table.param(param).bound;
+                let nb = self.nao_nulo_promocao(b);
+                if nb != b && !matches!(self.table.get(b), Type::Dynamic) {
+                    self.table.intern(Type::Intersection { param, bound: nb })
+                } else {
+                    self.table.intern(Type::TypeParameter { param, nullable: false })
+                }
+            }
             _ => self.nao_nulo(t),
         }
     }

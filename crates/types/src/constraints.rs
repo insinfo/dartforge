@@ -172,6 +172,10 @@ impl GenericInferrer {
         if matches!(tp, Type::Null) {
             return matches!(tq, Type::Null) || tq.is_declared_nullable();
         }
+        // P é X & B: pelo limite promovido.
+        if let Type::Intersection { bound, .. } = tp {
+            return self.try_match(bound, q, left, env);
+        }
         // P é variável de tipo fora de L: pelo limite.
         if let Type::TypeParameter { param, .. } = tp {
             if param == env.core.unknown_param {

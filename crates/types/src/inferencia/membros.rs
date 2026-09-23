@@ -127,6 +127,7 @@ impl<'a> BodyInferrer<'a> {
                     de_extensao: false,
                 })
             }
+            Type::Intersection { bound, .. } => self.membro_de_interface(bound, nome, setter),
             Type::TypeParameter { param, .. } => {
                 if param == self.core.unknown_param {
                     return None;

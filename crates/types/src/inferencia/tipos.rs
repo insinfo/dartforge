@@ -152,6 +152,7 @@ impl<'a> BodyInferrer<'a> {
         match self.table.get(t).clone() {
             Type::Interface { class: c, args, .. } if c == class => return Some(args.to_vec()),
             Type::Interface { .. } | Type::ExtensionType { .. } => {}
+            Type::Intersection { bound, .. } => return self.como_instancia_de(bound, Some(class)),
             Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
                 let b = self.table.param(param).bound;
                 if b == t {
@@ -172,6 +173,10 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn flatten(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Dynamic | Type::Void => t,
+            Type::Intersection { bound, .. } => match self.como_instancia_de(bound, self.core.future_class) {
+                Some(a) => a[0],
+                None => t,
+            },
             Type::FutureOr { arg, nullable: n } => {
                 if n {
                     self.anulavel(arg)

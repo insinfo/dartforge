@@ -579,6 +579,11 @@ impl<'a> Motor<'a> {
                 let a = *arg;
                 self.tipo_de(a);
             }
+            Type::Intersection { param, bound } => {
+                let (b, pb) = (*bound, table.param(*param).bound);
+                self.tipo_de(b);
+                self.tipo_de(pb);
+            }
         }
     }
 
