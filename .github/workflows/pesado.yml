@@ -12,11 +12,19 @@
 #   * o agendamento diário roda `todos` no main de madrugada — é também o que
 #     mantém os caches no escopo do main, que toda branch ci/** pode ler.
 #
-# Jobs de uma rodada `todos` com N fragmentos: compilar, depois js, producao,
-# determinismo e N nativos EM PARALELO, depois nativo-placar. Pico de
-# simultaneidade = 3 + N; com N = 8, 11 jobs. O plano gratuito permite 20 jobs
-# simultâneos na conta inteira (Linux e Windows juntos): cabem uma rodada
-# completa e mais uma quase inteira; o excedente espera na fila, não falha.
+# Jobs de uma rodada `todos` com N fragmentos: compilar; depois, EM PARALELO,
+# js, producao, determinismo (produção), determinismo (nativo) e N nativos;
+# depois nativo-placar (Linux, segundos). Pico de simultaneidade = 4 + N.
+# O plano gratuito permite 20 jobs simultâneos na conta inteira (Linux e
+# Windows juntos); o excedente espera na fila, não falha.
+#
+# N padrão = 2, pela medição (ESTADO.md §3.2): no runner o corpus nativo
+# inteiro leva ~45 s de harness somando os fragmentos, e cada job gasta ~1,3 min
+# só preparando o ambiente — mais fragmentos só compram fila. Com N = 2 a rodada
+# ocupa 6 jobs no pico e cabem três frentes ao mesmo tempo. Subir N (input
+# `fragmentos` ou `gh variable set FRAGMENTOS_NATIVO --body N`) quando o tempo
+# de um fragmento passar de ~20 min, o que acontecerá quando os programas
+# nativos passarem a rodar até o fim em vez de falhar cedo.
 name: Pesado
 on:
   workflow_dispatch:
@@ -29,7 +37,7 @@ on:
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
         type: number
-        default: 8
+        default: 2
   push:
     branches: ['ci/**']
   schedule:
@@ -62,8 +70,8 @@ jobs:
         shell: pwsh
         env:
           SUITE: ${{ inputs.suite || 'todos' }}
-          # workflow_dispatch > variável do repositório > 8.
-          N: ${{ inputs.fragmentos || vars.FRAGMENTOS_NATIVO || 8 }}
+          # workflow_dispatch > variável do repositório > 2.
+          N: ${{ inputs.fragmentos || vars.FRAGMENTOS_NATIVO || 2 }}
         run: |
           $n = [int]$env:N
           if ($n -lt 1 -or $n -gt 32) { throw "fragmentos fora de 1..32: $n" }
@@ -185,7 +193,7 @@ jobs:
         with:
           nome: nativo-${{ matrix.fragmento }}
           titulo: Nativo, fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
-          args: --nativo --jobs 3 --fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
+          args: --nativo --jobs 4 --fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
           nativo: 'true'
           # Placar abaixo de 214 é o estado do backend, não quebra do CI.
           aceitar-placar-parcial: 'true'
@@ -244,25 +252,20 @@ jobs:
           args: determinismo --producao --trabalhadores 1,4,8
           exige: '^determinismo: '
 
-  # Determinismo do NATIVO: preparado e DESLIGADO. Hoje o modo executa o corpus
-  # nativo inteiro três vezes (~horas); o modo que compara só o LLVM IR emitido
-  # (ESTADO.md §3.2, caminho 1) está sendo escrito em crates/diferencial. Quando
-  # ele entrar, ligar com `gh variable set DETERMINISMO_NATIVO --body 1` e,
-  # se o modo ganhar uma flag própria, acrescentá-la em `args`.
+  # Determinismo do NATIVO pelo LLVM IR emitido de cada programa, sem Clang,
+  # ligação nem execução (crates/diferencial, `determinismo --nativo`; o modo
+  # antigo, que executa tudo, é `--executar`). Não precisa de Rust nem de LLVM.
   determinismo-nativo:
-    name: determinismo (nativo)
+    name: determinismo (nativo, IR)
     needs: compilar
-    if: vars.DETERMINISMO_NATIVO == '1' && contains(fromJSON('["todos","determinismo"]'), needs.compilar.outputs.suite)
+    if: contains(fromJSON('["todos","determinismo"]'), needs.compilar.outputs.suite)
     runs-on: windows-latest
-    timeout-minutes: 180
-    env:
-      DARTFORGE_KEEP_IR: '1'
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: determinismo-nativo
-          titulo: Determinismo — nativo (LLVM IR), 1/4/8 trabalhadores
+          titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
           args: determinismo --nativo --trabalhadores 1,4,8
-          nativo: 'true'
-          exige: '^determinismo: '
+          exige: '^determinismo \(IR\): '
