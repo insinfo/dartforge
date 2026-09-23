@@ -1,0 +1,5 @@
+name: corpus_sem_builders
+description: Controle do custo zero — sem build_runner e sem build.yaml.
+publish_to: none
+environment:
+  sdk: ^3.6.0

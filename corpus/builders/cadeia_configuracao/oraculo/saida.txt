@@ -1,0 +1,1 @@
+cadeia de configuração: runs_before + required_inputs + applies_builders + global_options

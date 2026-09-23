@@ -1,0 +1,457 @@
+// **************************************************************************
+// RiverpodGenerator
+// **************************************************************************
+
+String _$saudacaoHash() => r'6144d110f162ed812c47814bb1c4f009c67bb6ac';
+
+/// See also [saudacao].
+@ProviderFor(saudacao)
+final saudacaoProvider = AutoDisposeProvider<String>.internal(
+  saudacao,
+  name: r'saudacaoProvider',
+  debugGetCreateSourceHash:
+      const bool.fromEnvironment('dart.vm.product') ? null : _$saudacaoHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+typedef SaudacaoRef = AutoDisposeProviderRef<String>;
+String _$saudarHash() => r'b105b0c93e7396e89f97b48293ca5236ace14f24';
+
+/// Copied from Dart SDK
+class _SystemHash {
+  _SystemHash._();
+
+  static int combine(int hash, int value) {
+    // ignore: parameter_assignments
+    hash = 0x1fffffff & (hash + value);
+    // ignore: parameter_assignments
+    hash = 0x1fffffff & (hash + ((0x0007ffff & hash) << 10));
+    return hash ^ (hash >> 6);
+  }
+
+  static int finish(int hash) {
+    // ignore: parameter_assignments
+    hash = 0x1fffffff & (hash + ((0x03ffffff & hash) << 3));
+    // ignore: parameter_assignments
+    hash = hash ^ (hash >> 11);
+    return 0x1fffffff & (hash + ((0x00003fff & hash) << 15));
+  }
+}
+
+/// See also [saudar].
+@ProviderFor(saudar)
+const saudarProvider = SaudarFamily();
+
+/// See also [saudar].
+class SaudarFamily extends Family<String> {
+  /// See also [saudar].
+  const SaudarFamily();
+
+  /// See also [saudar].
+  SaudarProvider call(
+    String nome, {
+    int vezes = 1,
+  }) {
+    return SaudarProvider(
+      nome,
+      vezes: vezes,
+    );
+  }
+
+  @override
+  SaudarProvider getProviderOverride(
+    covariant SaudarProvider provider,
+  ) {
+    return call(
+      provider.nome,
+      vezes: provider.vezes,
+    );
+  }
+
+  static const Iterable<ProviderOrFamily>? _dependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
+
+  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
+      _allTransitiveDependencies;
+
+  @override
+  String? get name => r'saudarProvider';
+}
+
+/// See also [saudar].
+class SaudarProvider extends AutoDisposeProvider<String> {
+  /// See also [saudar].
+  SaudarProvider(
+    String nome, {
+    int vezes = 1,
+  }) : this._internal(
+          (ref) => saudar(
+            ref as SaudarRef,
+            nome,
+            vezes: vezes,
+          ),
+          from: saudarProvider,
+          name: r'saudarProvider',
+          debugGetCreateSourceHash:
+              const bool.fromEnvironment('dart.vm.product')
+                  ? null
+                  : _$saudarHash,
+          dependencies: SaudarFamily._dependencies,
+          allTransitiveDependencies: SaudarFamily._allTransitiveDependencies,
+          nome: nome,
+          vezes: vezes,
+        );
+
+  SaudarProvider._internal(
+    super._createNotifier, {
+    required super.name,
+    required super.dependencies,
+    required super.allTransitiveDependencies,
+    required super.debugGetCreateSourceHash,
+    required super.from,
+    required this.nome,
+    required this.vezes,
+  }) : super.internal();
+
+  final String nome;
+  final int vezes;
+
+  @override
+  Override overrideWith(
+    String Function(SaudarRef provider) create,
+  ) {
+    return ProviderOverride(
+      origin: this,
+      override: SaudarProvider._internal(
+        (ref) => create(ref as SaudarRef),
+        from: from,
+        name: null,
+        dependencies: null,
+        allTransitiveDependencies: null,
+        debugGetCreateSourceHash: null,
+        nome: nome,
+        vezes: vezes,
+      ),
+    );
+  }
+
+  @override
+  AutoDisposeProviderElement<String> createElement() {
+    return _SaudarProviderElement(this);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SaudarProvider &&
+        other.nome == nome &&
+        other.vezes == vezes;
+  }
+
+  @override
+  int get hashCode {
+    var hash = _SystemHash.combine(0, runtimeType.hashCode);
+    hash = _SystemHash.combine(hash, nome.hashCode);
+    hash = _SystemHash.combine(hash, vezes.hashCode);
+
+    return _SystemHash.finish(hash);
+  }
+}
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+mixin SaudarRef on AutoDisposeProviderRef<String> {
+  /// The parameter `nome` of this provider.
+  String get nome;
+
+  /// The parameter `vezes` of this provider.
+  int get vezes;
+}
+
+class _SaudarProviderElement extends AutoDisposeProviderElement<String>
+    with SaudarRef {
+  _SaudarProviderElement(super.provider);
+
+  @override
+  String get nome => (origin as SaudarProvider).nome;
+  @override
+  int get vezes => (origin as SaudarProvider).vezes;
+}
+
+String _$dobroHash() => r'2f7d723e91ae61b7a49443c5e92168352ce7a533';
+
+/// See also [dobro].
+@ProviderFor(dobro)
+const dobroProvider = DobroFamily();
+
+/// See also [dobro].
+class DobroFamily extends Family<AsyncValue<int>> {
+  /// See also [dobro].
+  const DobroFamily();
+
+  /// See also [dobro].
+  DobroProvider call(
+    int valor,
+  ) {
+    return DobroProvider(
+      valor,
+    );
+  }
+
+  @override
+  DobroProvider getProviderOverride(
+    covariant DobroProvider provider,
+  ) {
+    return call(
+      provider.valor,
+    );
+  }
+
+  static const Iterable<ProviderOrFamily>? _dependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
+
+  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
+      _allTransitiveDependencies;
+
+  @override
+  String? get name => r'dobroProvider';
+}
+
+/// See also [dobro].
+class DobroProvider extends FutureProvider<int> {
+  /// See also [dobro].
+  DobroProvider(
+    int valor,
+  ) : this._internal(
+          (ref) => dobro(
+            ref as DobroRef,
+            valor,
+          ),
+          from: dobroProvider,
+          name: r'dobroProvider',
+          debugGetCreateSourceHash:
+              const bool.fromEnvironment('dart.vm.product')
+                  ? null
+                  : _$dobroHash,
+          dependencies: DobroFamily._dependencies,
+          allTransitiveDependencies: DobroFamily._allTransitiveDependencies,
+          valor: valor,
+        );
+
+  DobroProvider._internal(
+    super._createNotifier, {
+    required super.name,
+    required super.dependencies,
+    required super.allTransitiveDependencies,
+    required super.debugGetCreateSourceHash,
+    required super.from,
+    required this.valor,
+  }) : super.internal();
+
+  final int valor;
+
+  @override
+  Override overrideWith(
+    FutureOr<int> Function(DobroRef provider) create,
+  ) {
+    return ProviderOverride(
+      origin: this,
+      override: DobroProvider._internal(
+        (ref) => create(ref as DobroRef),
+        from: from,
+        name: null,
+        dependencies: null,
+        allTransitiveDependencies: null,
+        debugGetCreateSourceHash: null,
+        valor: valor,
+      ),
+    );
+  }
+
+  @override
+  FutureProviderElement<int> createElement() {
+    return _DobroProviderElement(this);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is DobroProvider && other.valor == valor;
+  }
+
+  @override
+  int get hashCode {
+    var hash = _SystemHash.combine(0, runtimeType.hashCode);
+    hash = _SystemHash.combine(hash, valor.hashCode);
+
+    return _SystemHash.finish(hash);
+  }
+}
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+mixin DobroRef on FutureProviderRef<int> {
+  /// The parameter `valor` of this provider.
+  int get valor;
+}
+
+class _DobroProviderElement extends FutureProviderElement<int> with DobroRef {
+  _DobroProviderElement(super.provider);
+
+  @override
+  int get valor => (origin as DobroProvider).valor;
+}
+
+String _$contadorHash() => r'95007a25072eee42997757ab8cde765277ad6d2a';
+
+abstract class _$Contador extends BuildlessAutoDisposeNotifier<int> {
+  late final int inicio;
+
+  int build(
+    int inicio,
+  );
+}
+
+/// See also [Contador].
+@ProviderFor(Contador)
+const contadorProvider = ContadorFamily();
+
+/// See also [Contador].
+class ContadorFamily extends Family<int> {
+  /// See also [Contador].
+  const ContadorFamily();
+
+  /// See also [Contador].
+  ContadorProvider call(
+    int inicio,
+  ) {
+    return ContadorProvider(
+      inicio,
+    );
+  }
+
+  @override
+  ContadorProvider getProviderOverride(
+    covariant ContadorProvider provider,
+  ) {
+    return call(
+      provider.inicio,
+    );
+  }
+
+  static const Iterable<ProviderOrFamily>? _dependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
+
+  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
+      _allTransitiveDependencies;
+
+  @override
+  String? get name => r'contadorProvider';
+}
+
+/// See also [Contador].
+class ContadorProvider extends AutoDisposeNotifierProviderImpl<Contador, int> {
+  /// See also [Contador].
+  ContadorProvider(
+    int inicio,
+  ) : this._internal(
+          () => Contador()..inicio = inicio,
+          from: contadorProvider,
+          name: r'contadorProvider',
+          debugGetCreateSourceHash:
+              const bool.fromEnvironment('dart.vm.product')
+                  ? null
+                  : _$contadorHash,
+          dependencies: ContadorFamily._dependencies,
+          allTransitiveDependencies: ContadorFamily._allTransitiveDependencies,
+          inicio: inicio,
+        );
+
+  ContadorProvider._internal(
+    super._createNotifier, {
+    required super.name,
+    required super.dependencies,
+    required super.allTransitiveDependencies,
+    required super.debugGetCreateSourceHash,
+    required super.from,
+    required this.inicio,
+  }) : super.internal();
+
+  final int inicio;
+
+  @override
+  int runNotifierBuild(
+    covariant Contador notifier,
+  ) {
+    return notifier.build(
+      inicio,
+    );
+  }
+
+  @override
+  Override overrideWith(Contador Function() create) {
+    return ProviderOverride(
+      origin: this,
+      override: ContadorProvider._internal(
+        () => create()..inicio = inicio,
+        from: from,
+        name: null,
+        dependencies: null,
+        allTransitiveDependencies: null,
+        debugGetCreateSourceHash: null,
+        inicio: inicio,
+      ),
+    );
+  }
+
+  @override
+  AutoDisposeNotifierProviderElement<Contador, int> createElement() {
+    return _ContadorProviderElement(this);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ContadorProvider && other.inicio == inicio;
+  }
+
+  @override
+  int get hashCode {
+    var hash = _SystemHash.combine(0, runtimeType.hashCode);
+    hash = _SystemHash.combine(hash, inicio.hashCode);
+
+    return _SystemHash.finish(hash);
+  }
+}
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+mixin ContadorRef on AutoDisposeNotifierProviderRef<int> {
+  /// The parameter `inicio` of this provider.
+  int get inicio;
+}
+
+class _ContadorProviderElement
+    extends AutoDisposeNotifierProviderElement<Contador, int> with ContadorRef {
+  _ContadorProviderElement(super.provider);
+
+  @override
+  int get inicio => (origin as ContadorProvider).inicio;
+}
+// ignore_for_file: type=lint
+// ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

@@ -1,0 +1,6 @@
+builder: contagem/palavras
+entrada: corpus_cadeia_configuracao|lib/entrada/ignorar_gama.maiusculas.txt
+isRoot: true
+opcoes: {}
+---
+20

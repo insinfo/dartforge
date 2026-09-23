@@ -1,0 +1,7 @@
+// Entrada nova: usa a parcial já existente.
+@use 'package:corpus_sass_builder/estilos/variaveis' as v;
+
+.aviso {
+  @include v.cartao;
+  margin: v.$espaco;
+}

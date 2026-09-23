@@ -1,0 +1,6 @@
+builder: contagem/linhas
+entrada: corpus_cadeia_configuracao|lib/entrada/sub/beta.maiusculas.txt
+isRoot: true
+opcoes: {}
+---
+6

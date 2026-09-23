@@ -1,0 +1,6 @@
+builder: carimbo
+entrada: corpus_cadeia_configuracao|lib/cadeia.dart
+isRoot: true
+opcoes: {"global":"sim","origem":"alvo"}
+---
+// Biblioteca do caso: entrada do carimbo (apoio_cadeia) e do programa.

@@ -1,0 +1,13 @@
+// Parcial (começa com _): o sass_builder não escreve saída para ela.
+$primaria: #3366cc !default;
+$espaco: 8px;
+$quebra-media: 768px;
+
+@mixin cartao($sombra: 2px) {
+  border-radius: $espaco * .5;
+  box-shadow: 0 $sombra ($sombra * 2) rgba(0, 0, 0, .2);
+}
+
+@function dobro($valor) {
+  @return $valor * 2;
+}
