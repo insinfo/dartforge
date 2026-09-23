@@ -160,19 +160,18 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
 ///
 /// Mede quanto do módulo seria compartilhável entre programas se o SDK virasse
 /// um módulo à parte (ESTADO.md §2.5). Cada `define` é atribuído ao elemento
-/// pelo índice no símbolo (`df_fn_<índice>_…`, que os fechos locais herdam da
-/// função que os contém); o resto — entrada, despacho, declarações do runtime,
+/// pelo nome da biblioteca no símbolo estável (`df.<biblioteca>.…`, que os
+/// fechos locais herdam da função que os contém); o resto — entrada, despacho, declarações do runtime,
 /// strings — conta como do programa.
 fn bytes_do_sdk(texto: &str, program: &Program) -> usize {
     let mut total = 0usize;
     let mut no_sdk = false;
     for linha in texto.split_inclusive('\n') {
         if let Some(resto) = linha.strip_prefix("define ") {
-            no_sdk = resto
-                .split_once("@df_fn_")
-                .and_then(|(_, s)| s.split('_').next()?.parse::<usize>().ok())
-                .and_then(|i| program.functions.get(i))
-                .is_some_and(|f| program.library(f.library).uri.starts_with("dart:"));
+            // O símbolo estável começa pelo nome da biblioteca (P2):
+            // `@df.dart$3a…` é função de uma biblioteca `dart:`.
+            let _ = program;
+            no_sdk = resto.contains("@df.dart$3a");
         }
         if no_sdk {
             total += linha.len();
@@ -273,7 +272,7 @@ mod testes {
         }
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
-        std::fs::write(&entrada, "void main() {\n  var f = () => 1;\n  var g = () => 2;\n  print(1);\n}\n").unwrap();
+        std::fs::write(&entrada, "void main() {\n  var f = #a;\n  var g = #b;\n  print(1);\n}\n").unwrap();
         let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
@@ -281,12 +280,58 @@ mod testes {
             .unwrap()
             .join()
             .unwrap()
-            .expect_err("closure não é suportada");
+            .expect_err("literal de símbolo não é suportado");
         let linhas: Vec<&str> = erro.lines().collect();
-        assert_eq!(linhas[0], "erro de compilação: não suportado no backend nativo: closure", "{erro}");
-        assert_eq!(linhas[1], "  não suportado no backend nativo: closure (main.dart:2:11)", "{erro}");
-        assert_eq!(linhas[2], "  não suportado no backend nativo: closure (main.dart:3:11)", "{erro}");
-        assert_eq!(construtos_do_erro(&erro), ["closure", "closure"]);
+        assert_eq!(linhas[0], "erro de compilação: não suportado no backend nativo: literal de símbolo", "{erro}");
+        assert_eq!(linhas[1], "  não suportado no backend nativo: literal de símbolo (main.dart:2:11)", "{erro}");
+        assert_eq!(linhas[2], "  não suportado no backend nativo: literal de símbolo (main.dart:3:11)", "{erro}");
+        assert_eq!(construtos_do_erro(&erro), ["literal de símbolo", "literal de símbolo"]);
+    }
+
+    /// Os símbolos definidos (`define … @<símbolo>(`) de um IR.
+    fn simbolos(ir: &str) -> std::collections::BTreeSet<String> {
+        ir.lines()
+            .filter_map(|l| {
+                let r = l.strip_prefix("define ")?;
+                let i = r.find('@')? + 1;
+                let f = r[i..].find('(')? + i;
+                Some(r[i..f].to_string())
+            })
+            .collect()
+    }
+
+    /// T-ID (PESQUISA-HOT-RELOAD §4.2, P2): o símbolo vem do caminho da
+    /// declaração. Inserir uma função e uma classe não muda o símbolo de
+    /// nenhuma outra declaração, e o mesmo programa em outro diretório tem os
+    /// mesmos símbolos.
+    #[test]
+    fn t_id_simbolos_estaveis() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            eprintln!("SDK ausente em {SDK}; teste pulado");
+            return;
+        }
+        let a = "int a() => 1;\nclass C {\n  int v = 3;\n  int m() => v;\n  static int s() => 4;\n}\nint g = 5;\nvoid main() {\n  var f = () => a();\n  print(f());\n  print(C().m() + C.s() + g);\n}\n";
+        let b = "int z() => 0;\nclass D {}\nint a() => 1;\nclass C {\n  int v = 3;\n  int m() => v;\n  static int s() => 4;\n}\nint h = 6;\nint g = 5;\nvoid main() {\n  var f = () => a();\n  print(f());\n  print(C().m() + C.s() + g + z() + h);\n}\n";
+        let emitir_em = |fonte: &'static str| {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn(move || {
+                    let dir = tempfile::tempdir().unwrap();
+                    let entrada = dir.path().join("main.dart");
+                    std::fs::write(&entrada, fonte).unwrap();
+                    emitir(&entrada).texto
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        let (ia, ib, ia2) = (emitir_em(a), emitir_em(b), emitir_em(a));
+        let (sa, sb) = (simbolos(&ia), simbolos(&ib));
+        for s in ["df.main$2edart..a", "df.main$2edart.C.m", "df.main$2edart.C.s", "df.main$2edart.C.new", "df.main$2edart..g", "dart_main"] {
+            assert!(sa.contains(s), "{s} em {sa:?}");
+        }
+        assert!(sa.is_subset(&sb), "símbolos de A que sumiram em B: {:?}", sa.difference(&sb).collect::<Vec<_>>());
+        assert_eq!(ia, ia2, "o mesmo programa em outro diretório dá o mesmo IR");
     }
 
     #[test]

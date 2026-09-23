@@ -36,10 +36,8 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     fs::write(tmp.path().join("parte.dart"), "part of 'main.dart';\nint dobro(int a) => a * 2;\n").unwrap();
 
     // 1. Pelos arquivos.
-    let t0 = Instant::now();
     let mut i1 = Interner::new();
     let (p1, d1) = load_lenient(&entry, &sdk, None, &mut i1);
-    let t_arquivos = t0.elapsed();
     assert!(d1.is_empty(), "{d1:?}");
 
     // 2. Constrói o cache (uma vez) e carrega por ele.
@@ -48,26 +46,34 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     SdkCache::construir_e_gravar(&sdk, &caminho).expect("constrói o cache");
     let t_construir = t1.elapsed();
     assert!(caminho.exists());
-
-    let t2 = Instant::now();
     let cache = SdkCache::abrir(&caminho).expect("abre o cache");
     let mut i2 = Interner::new();
     let (p2, d2) = load_lenient_com_cache(&entry, &sdk, None, &mut i2, Some(cache));
-    let mut t_cache = t2.elapsed();
     assert!(d2.is_empty(), "{d2:?}");
-    // Segunda medição de cada caminho (mínimo), para o ruído da máquina não
-    // decidir o teste.
-    let t3 = Instant::now();
-    let cache = SdkCache::abrir(&caminho).expect("abre o cache");
-    let _ = load_lenient_com_cache(&entry, &sdk, None, &mut Interner::new(), Some(cache));
-    t_cache = t_cache.min(t3.elapsed());
-    let t4 = Instant::now();
-    let _ = load_lenient(&entry, &sdk, None, &mut Interner::new());
-    let t_arquivos = t_arquivos.min(t4.elapsed());
+
+    // 3. Tempo: o mínimo de N execuções de cada caminho, intercaladas (o
+    // ruído do runner só soma; o mínimo é o custo do trabalho). No perfil
+    // `dev` do teste, o cache com a decodificação em paralelo fica em ~45% dos
+    // arquivos (75 ms × 165 ms na máquina de desenvolvimento; em série
+    // empatava, 150 × 155 ms, e o teste reprovava ao acaso); em `release`,
+    // 15 × 44 ms (em série, 22 ms). A margem exige que continue claramente mais rápido.
+    const N: usize = 5;
+    let mut t_arquivos = std::time::Duration::MAX;
+    let mut t_cache = std::time::Duration::MAX;
+    for _ in 0..N {
+        let t = Instant::now();
+        let _ = load_lenient(&entry, &sdk, None, &mut Interner::new());
+        t_arquivos = t_arquivos.min(t.elapsed());
+        let t = Instant::now();
+        let cache = SdkCache::abrir(&caminho).expect("abre o cache");
+        let _ = load_lenient_com_cache(&entry, &sdk, None, &mut Interner::new(), Some(cache));
+        t_cache = t_cache.min(t.elapsed());
+    }
 
     eprintln!(
-        "arquivos: {t_arquivos:.1?}; construir cache: {t_construir:.1?}; abrir+carregar pelo cache: {t_cache:.1?}; \
+        "mínimo de {N}: arquivos {t_arquivos:.1?}; abrir+carregar pelo cache {t_cache:.1?} ({:.0}%); construir cache {t_construir:.1?}; \
          unidades {} / bibliotecas {} / classes {} / funções {} / variáveis {}",
+        100.0 * t_cache.as_secs_f64() / t_arquivos.as_secs_f64(),
         p2.units.len(), p2.libraries.len(), p2.classes.len(), p2.functions.len(), p2.variables.len()
     );
 
@@ -99,7 +105,10 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     // A unidade do usuário e a sua parte continuam a vir dos arquivos.
     assert!(p2.units.iter().any(|u| u.uri.ends_with("/parte.dart") && !p2.library(u.library).is_sdk));
 
-    assert!(t_cache < t_arquivos, "cache {t_cache:?} deveria ser mais rápido que arquivos {t_arquivos:?}");
+    assert!(
+        t_cache.as_secs_f64() < 0.75 * t_arquivos.as_secs_f64(),
+        "abrir+carregar pelo cache ({t_cache:?}, mínimo de {N}) deveria custar menos de 75% da carga pelos arquivos ({t_arquivos:?})"
+    );
 }
 
 #[test]

@@ -48,10 +48,9 @@ fn raiz_do_corpus() -> PathBuf {
 }
 
 /// Casos do corpus que o gerador tem de recusar, com a sub-forma da recusa.
-const RECUSADOS: &[(&str, &str)] = &[(
-    "g02_select_ng_model.dart",
-    "diretiva NgSelectOption (OnDestroy)",
-)];
+/// (O g02, `<select>` com `<option>`, saiu daqui na rodada 3: o
+/// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.)
+const RECUSADOS: &[(&str, &str)] = &[];
 
 #[test]
 fn o_que_geramos_e_igual_ao_oficial() {

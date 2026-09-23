@@ -899,3 +899,150 @@ do merge de P1–P4. O `RegExp` com `regress` exige tirar o runtime do `rustc`
 avulso para uma `staticlib` do cargo (decisão 3), o que muda a distribuição do
 runtime do AOT; fica com P9, como o plano já previa, e o casador atual está
 isolado em `regexp_casa_em`/`regexp_proxima` (`runtime/src/strings.rs`).
+### 7.5 P1–P4 (α): closures, símbolos estáveis, despacho, padrões, herança
+
+O que entrou, as decisões e o porquê de cada uma. O placar medido fica em
+§7.6.
+
+**Closures (P1).** `lower/captura.rs` decide, antes de baixar cada função
+(a de topo e cada closure, na hora dela), quais variáveis declaradas **nela**
+moram numa `Cell`: as capturadas por uma função aninhada **e** atribuídas em
+qualquer ponto (fora ou dentro de uma closure, antes ou depois da captura; o
+nome de uma função local conta como atribuído — é ligado depois de a closure
+existir, e é assim que ela chama a si mesma). Capturada e nunca atribuída, a
+variável é copiada para o ambiente. É a divisão do `dartdevc`/`dart2js`, e é
+conservadora (uma variável atribuída só antes da captura também vai para a
+célula): a análise fina fica para quando a medição pedir. A variável de um
+`for` clássico que mora numa célula ganha uma célula nova a cada volta,
+copiada da anterior, antes das atualizações (a especificação do `for`); a
+do `for-in` e as do corpo de um laço já nascem por volta.
+
+A **convenção uniforme** de chamada de um valor função é a de chamada
+dinâmica da VM: `i64 @<entrada>(i64 closure, ptr args, ptr desc)`, com os
+argumentos todos `Ref` num vetor na pilha do chamador (posicionais e depois
+nomeados, na ordem do descritor) e o descritor `[n_posicionais, n_nomeados,
+hash(nome)…]` (FNV-1a de 64 bits do nome, com os nomes ordenados: o mesmo
+em qualquer módulo). A entrada confere a aridade contra a assinatura da
+função (`dartforge_args_casam`), preenche os padrões dos opcionais ausentes e
+chama o **corpo** `i64 @<símbolo>(i64 env, i64 p0, …)`. O código de uma
+closure é o índice da entrada em `@df_code_table` (o índice 0 é a entrada que
+só retorna: `dartforge_closure_entry` deixa `NoSuchMethodError` pendente
+quando o valor não é closure). O tear-off de função de topo ou estática é
+canônico (`TearOff`, `identical(f, f)`); o de método de instância é uma
+closure nova com o receptor no ambiente, e a entrada dele chama o membro com
+o despacho do receptor. Os corpos de closure ainda não são inferidos
+(`crates/types`, pedido em `docs/NATIVO-PEDIDOS.md`): neles tudo é `dynamic`,
+e os nomes são refeitos pelo escopo léxico no lowering (`resolver_por_nome`:
+local, membro da classe envolvente pela linearização, topo da biblioteca).
+
+**Símbolos estáveis (P2).** O símbolo vem do **caminho** da declaração, nunca
+de índices do `crates/elements`: `df.<biblioteca>.<dono>.<membro>`, cada
+parte escapada (letras, dígitos e `_` ficam; o resto vira `$` e dois dígitos
+hexadecimais por byte UTF-8 — o `.` separa, então o símbolo é injetivo). A
+biblioteca é a URI (`dart:core`, `package:a/b.dart`) ou, para `file:`, o
+caminho relativo ao diretório da biblioteca de entrada (o mesmo programa tem
+os mesmos símbolos em qualquer checkout). O dono é a classe, `ext:<nome>`
+para uma extensão, e vazio para o topo; o membro é o nome, o setter termina
+em `=`, o construtor é `new` ou `new:<nome>`. Closures:
+`<função>$clo<k>` (k conta as anônimas na ordem do texto) e
+`<função>$<nome>` para as funções locais; as entradas somam `$ent`, `$tear`
+(função) e `$tearm` (método). Globais: o getter preguiçoso é
+`df.<caminho>`, o valor `dfg.<caminho>` e a bandeira `dfg.<caminho>$ok`.
+`main` da entrada continua `dart_main`. O teste `t_id_simbolos_estaveis`
+(`crates/emit_native/src/lib.rs`) prova que inserir uma função e uma classe
+não muda nenhum outro símbolo e que outro diretório dá o mesmo IR. Os ids de
+classe do runtime são a ordem desse caminho (a partir de 1, pulando a faixa
+1000–1012 das classes de erro do runtime, que saem em P5d).
+
+**Despacho (P2).** A chamada de membro com um só alvo continua direta; com
+vários, o `switch` sobre a classe do receptor (mundo fechado). O receptor sem
+tipo útil (`dynamic`, `Object`, corpo de closure) usa o **despacho por nome**
+(`lower/despacho.rs`): as classes do programa que têm o membro (pela
+linearização, com campos, getters, setters e os campos implícitos de enum)
+viram casos do `switch`; o resto vai ao membro do SDK casado pelo nome
+(congelado) ou, se ele não existe, a `NoSuchMethodError` em tempo de
+execução. Os operadores sobre `num`/`dynamic` vão ao `operator` da classe do
+programa ou a `dartforge_dyn_op` (tapa-buraco com a semântica da VM, marcado
+para sair em P5 — `%` euclidiano, `~/` truncado, `/` sempre `double`), e o
+`==` sobre referências chama o `operator ==` do programa (com um lado null
+vale a identidade, §17.26). **A tabela global de despacho** (`@df.sel.*`,
+deslocamento por seletor) **fica para P5c**: ela só é necessária quando
+código compilado à parte (o módulo do SDK) chama um membro do programa; até
+lá o `switch` em mundo fechado tem a mesma semântica e nenhum consumidor a
+mais.
+
+**`switch`, padrões e enums (P3).** `lower/padroes.rs` casa um padrão como
+árvore de decisão sobre os testes que já existiam (tipo, `==` da constante,
+comparação), com as variáveis ligadas à medida que o casamento avança;
+`switch` como comando (casos vazios compartilham o corpo, `continue
+rótulo`, `break`) e como expressão, `if-case`, declaração e atribuição por
+padrão, `for-in` com padrão. Record com campo nomeado (literal e padrão) é
+diagnóstico: o runtime não tem a forma (pedido a δ). O valor de um enum é um
+objeto canônico num global preguiçoso (`index` e `_name` nas posições 0 e 1,
+depois os campos declarados, criado pelo construtor que o valor escolhe);
+`values`, `index`, `name` e o `toString()` `Enum.valor`.
+
+**Herança e cascata (P4).** Cascata (`..`, `?..`) avalia o alvo uma vez; as
+seções vão pelo despacho dinâmico (o alvo implícito ainda não tem tipo).
+`super.m()`/`super.x`/`super.x = v`/`super op e` é chamada direta a partir do
+que vem depois da classe na **linearização** (`membros::linearizacao`: a
+classe, os mixins do último para o primeiro, a superclasse). Mixins **sem
+cópia**: o código do mixin é compilado uma vez; os campos dele ficam no
+layout de cada classe que o aplica, entre os da superclasse e os da classe, e
+o índice é escolhido pela classe dinâmica de `this` (`switch`) — o mesmo
+mecanismo do despacho, sem gerar uma cópia por aplicação. `super` dentro de
+um mixin ainda é diagnóstico. Membros de extensão: o receptor é o primeiro
+parâmetro, na representação do tipo `on`. Fábrica redirecionadora, campo
+`late` escalar com inicializador (em caixa: null é "não inicializado") e a
+chamada de valor função (`f()`, `obj.campo()`, `f.call()`, `(e)(…)`).
+
+**Correções de caminho.** `try/finally` sem `catch`: as exceções do corpo
+iam direto ao `finally` sem registrar a entrada do phi dele (o Clang recusava
+o módulo); agora passam por um bloco de pouso que registra, e as exceções
+dentro de um `catch` também passam pelo `finally` antes de subir. A exceção
+que sai do `finally` sobe para o tratador mais interno (antes ia ao
+`finally` de fora pulando o `catch` de fora).
+
+**Também em P3/P4.** `const` canônico (`lower/constantes.rs`): a chave de uma
+constante é o valor estrutural dela escrito como texto (`o:<construtor>(…)`,
+`l<tipo>:[…]`, `i:2`…, com o tipo estático nas coleções — `const <int>[]` e
+`const <String>[]` são objetos diferentes); cada chave é um global
+preguiçoso `dfc.<hash>` e as coleções constantes saem imutáveis. Contexto
+constante: inicializador `const` (de topo, estático ou local), valor padrão
+de parâmetro e argumentos de `const C(…)`. Literais de coleção com `...`,
+`...?`, `?e`, `if`, `for` e `for-in`, e o literal de conjunto (antes `{a, b}`
+virava um mapa vazio). Num padrão de casamento, um nome solto é padrão
+constante (`case base:`), e `const (e)` é a expressão. Records com campo
+nomeado (`lower/registros.rs`): cada forma do programa é uma "classe" com
+`toString` e `==` estrutural gerados. O `for-in` e o espalhamento leem lista
+ou conjunto (`dartforge_iteravel_get_*`). `break`/`continue` (com rótulo)
+que atravessam um `finally` passam por ele e continuam o salto; um salto para
+um laço dentro do próprio `try` não passa. O corpo do `finally` roda com a
+exceção guardada fora da pendência (antes a primeira chamada dele desviava).
+Um global cujo inicializador lança volta a não inicializado.
+
+**RTI ainda não.** `x is List<int>`, `case <int>[…]` e `List<int>()` num
+padrão são **diagnóstico** ("teste de tipo genérico (RTI)"): responder pela
+classe daria a resposta errada. É o item de P4 que falta, com o `super`
+dentro de um mixin.
+
+### 7.6 Placar da rodada 2 (α), medido no CI
+
+| passo | commit | Pesado (run) | nativo | JIT | JIT × AOT |
+| --- | --- | --- | ---: | ---: | --- |
+| P0 (base) | 87be22b | 35836380647 | 50/223 | 50/223 | 0 divergentes |
+| P1–P2 | b156dd2 | 35861971349 | 68/223 | 68/223 | — |
+| P1–P4 parcial | b60a219 | 35863053512 | 74/223 | 74/223 | 0 divergentes |
+| P3 (const, padrões) | 8c313a9 | 35866264097 | 81/223 | 81/223 | 0 divergentes |
+| P4 (RTI como diagnóstico, cast pela classe) | a276d6c | 35871381320 | 81/223 | 81/223 | job verde |
+
+Os 81 passam também com `--gc-stress` (coleta antes de toda alocação),
+rodado localmente programa a programa sobre a lista do CI. O determinismo do
+IR é idêntico com 1, 4 e 8 trabalhadores (88 programas com IR). JS 223/223
+nos dois perfis.
+
+O que sobra, pelo relatório de construtos: quase tudo é membro do SDK sem
+implementação (`where`, `map`, `fold`, `toStringAsFixed`, `sort`,
+`List.filled`/`List.generate`, `parse`, `hashCode`…) — P5, o SDK da fonte —,
+`await`/`yield` (P6/P7) e o `toString()` de objeto do programa dentro de uma
+coleção impressa (o runtime não chama código Dart; também P5).

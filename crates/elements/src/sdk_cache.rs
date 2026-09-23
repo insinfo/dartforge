@@ -9,7 +9,9 @@
 //! Formato: cabeçalho `postcard` com a lista de símbolos internados (na
 //! ordem em que o `Interner` os criou ao analisar o SDK inteiro) e, por
 //! biblioteca, um blob `postcard` independente com as unidades — só as
-//! bibliotecas que o programa importa são decodificadas.
+//! bibliotecas que o programa importa são decodificadas. Cada biblioteca leva
+//! também as `dart:` que importa ou exporta, para a carga decodificar de uma
+//! vez, em paralelo, o fecho de tudo o que vai precisar.
 //!
 //! Invalidação: o nome do arquivo leva um hash de `libraries.json`, do
 //! arquivo `version` do SDK, do nome da seção (`dartdevc`) e do próprio
@@ -25,7 +27,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Versão do formato; mudar invalida todos os caches.
-const FORMATO: u32 = 2; // 2: partes de patch com papel `Patch`
+const FORMATO: u32 = 3; // 3: partes de patch com papel `Patch` (o main já tinha ido a 2)
 
 /// Uma unidade do SDK já analisada.
 #[derive(Serialize, Deserialize)]
@@ -44,9 +46,10 @@ struct Cabecalho<'a> {
     /// Textos do `Interner` na ordem dos `SymbolId`.
     #[serde(borrow)]
     simbolos: Vec<&'a str>,
-    /// Nome da biblioteca (`core`) → blob `postcard` de `Vec<UnitCache>`.
+    /// Nome da biblioteca (`core`) → blob `postcard` de `Vec<UnitCache>` e
+    /// nomes das `dart:` que as suas unidades importam ou exportam.
     #[serde(borrow)]
-    bibliotecas: Vec<(&'a str, &'a [u8])>,
+    bibliotecas: Vec<(&'a str, &'a [u8], Vec<&'a str>)>,
 }
 
 /// Cache aberto: o arquivo inteiro em memória e, por cima dele, os intervalos
@@ -56,6 +59,8 @@ pub struct SdkCache {
     bytes: Vec<u8>,
     simbolos: Vec<(usize, usize)>,
     blobs: HashMap<String, (usize, usize)>,
+    /// `dart:` importadas ou exportadas por biblioteca (sem o prefixo).
+    dependencias: HashMap<String, Vec<String>>,
     /// Blobs já decodificados, retirados pela carga.
     pub unidades_decodificadas: usize,
 }
@@ -65,7 +70,7 @@ impl SdkCache {
     fn de_bytes(bytes: Vec<u8>) -> Option<SdkCache> {
         let base = bytes.as_ptr() as usize;
         let intervalo = |p: *const u8, n: usize| ((p as usize) - base, (p as usize) - base + n);
-        let (simbolos, blobs) = {
+        let (simbolos, blobs, dependencias) = {
             let cab: Cabecalho<'_> = postcard::from_bytes(&bytes).ok()?;
             if cab.formato != FORMATO {
                 return None;
@@ -74,11 +79,16 @@ impl SdkCache {
             let blobs = cab
                 .bibliotecas
                 .iter()
-                .map(|(nome, b)| (nome.to_string(), intervalo(b.as_ptr(), b.len())))
+                .map(|(nome, b, _)| (nome.to_string(), intervalo(b.as_ptr(), b.len())))
                 .collect();
-            (simbolos, blobs)
+            let dependencias = cab
+                .bibliotecas
+                .iter()
+                .map(|(nome, _, deps)| (nome.to_string(), deps.iter().map(|d| d.to_string()).collect()))
+                .collect();
+            (simbolos, blobs, dependencias)
         };
-        Some(SdkCache { bytes, simbolos, blobs, unidades_decodificadas: 0 })
+        Some(SdkCache { bytes, simbolos, blobs, dependencias, unidades_decodificadas: 0 })
     }
     /// Hash FNV-1a de tudo o que invalida o cache.
     pub fn hash(sdk: &SdkLayout, target: &str) -> String {
@@ -182,13 +192,30 @@ impl SdkCache {
                 i += 1;
             }
             let blob = postcard::to_allocvec(&unidades).map_err(|e| format!("serializar dart:{nome}: {e}"))?;
-            bibliotecas.push((nome.clone(), blob));
+            let mut deps: Vec<String> = Vec::new();
+            for u in &unidades {
+                for d in &u.unit.directives {
+                    let uri = match &d.kind {
+                        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => uri,
+                        _ => continue,
+                    };
+                    if let Some(dep) = string_lit_value(uri).and_then(|v| v.strip_prefix("dart:").map(str::to_string)) {
+                        if !deps.contains(&dep) {
+                            deps.push(dep);
+                        }
+                    }
+                }
+            }
+            bibliotecas.push((nome.clone(), blob, deps));
         }
         let bytes = {
             let cab = Cabecalho {
                 formato: FORMATO,
                 simbolos: interner.textos().collect(),
-                bibliotecas: bibliotecas.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect(),
+                bibliotecas: bibliotecas
+                    .iter()
+                    .map(|(n, b, d)| (n.as_str(), b.as_slice(), d.iter().map(String::as_str).collect()))
+                    .collect(),
             };
             postcard::to_allocvec(&cab).map_err(|e| format!("serializar cache do SDK: {e}"))?
         };
@@ -235,6 +262,66 @@ impl SdkCache {
         let unidades: Vec<UnitCache> = postcard::from_bytes(&self.bytes[a..b]).ok()?;
         self.unidades_decodificadas += unidades.len();
         Some(unidades)
+    }
+
+    /// Retira e decodifica de uma vez as bibliotecas de `nomes` e o fecho das
+    /// `dart:` que elas importam ou exportam (o que ainda está no cache), em
+    /// até 8 threads: os blobs são independentes e a decodificação não toca no
+    /// `Interner`. As que não decodificam ficam de fora — como em
+    /// [`SdkCache::retirar`], a carga então as lê dos arquivos. Uma do fecho
+    /// que a carga não peça (import condicional resolvido para outra) só custa
+    /// a decodificação.
+    ///
+    /// Decodificar em série custava tanto quanto reanalisar o SDK no perfil
+    /// `dev` (`serde` sem otimização: ~120 ms contra ~145 ms de leitura +
+    /// parse nas 21 bibliotecas que `dart:core`/`convert`/`math`… puxam), e o
+    /// teste de desempenho do cache virava cara ou coroa no runner.
+    pub fn retirar_varios(&mut self, nomes: &[&str]) -> HashMap<String, Vec<UnitCache>> {
+        let mut pedidos: Vec<(String, (usize, usize))> = Vec::new();
+        let mut pendentes: Vec<String> = nomes.iter().map(|n| n.to_string()).collect();
+        while let Some(nome) = pendentes.pop() {
+            let Some(r) = self.blobs.remove(&nome) else { continue };
+            if let Some(deps) = self.dependencias.get(&nome) {
+                pendentes.extend(deps.iter().filter(|d| self.blobs.contains_key(*d)).cloned());
+            }
+            pedidos.push((nome, r));
+        }
+        // Maiores primeiro: o maior blob (`dart:core`) não fica para o fim.
+        pedidos.sort_by_key(|(_, (a, b))| std::cmp::Reverse(b - a));
+        let bytes = &self.bytes;
+        let decodificar = |(a, b): (usize, usize)| postcard::from_bytes::<Vec<UnitCache>>(&bytes[a..b]).ok();
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8).min(pedidos.len());
+        let mut saida = HashMap::new();
+        if threads < 2 {
+            for (nome, r) in pedidos {
+                if let Some(u) = decodificar(r) {
+                    saida.insert(nome, u);
+                }
+            }
+        } else {
+            let proximo = std::sync::atomic::AtomicUsize::new(0);
+            let lotes: Vec<Vec<(String, Vec<UnitCache>)>> = std::thread::scope(|s| {
+                let handles: Vec<_> = (0..threads)
+                    .map(|_| {
+                        s.spawn(|| {
+                            let mut meus = Vec::new();
+                            loop {
+                                let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some((nome, r)) = pedidos.get(i) else { break };
+                                if let Some(u) = decodificar(*r) {
+                                    meus.push((nome.clone(), u));
+                                }
+                            }
+                            meus
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+            });
+            saida.extend(lotes.into_iter().flatten());
+        }
+        self.unidades_decodificadas += saida.values().map(Vec::len).sum::<usize>();
+        saida
     }
 
     pub fn tem(&self, nome: &str) -> bool {
