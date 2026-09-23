@@ -526,10 +526,66 @@ pub fn load_lenient_gerados(
             .saturating_sub(program.tempos.parse - parse_antes);
     }
 
+    // 5b. Versão de linguagem de cada biblioteca: recursos como a promoção
+    // de campo privado (3.2) só valem a partir da versão da biblioteca.
+    preencher_versoes_de_linguagem(&mut program, &package_config);
+
     // 6. Constrói outline, namespaces e resolve supertipos
     outline::build_outline(&mut program, interner, &mut diagnostics);
 
     (program, diagnostics)
+}
+
+/// Versão de linguagem de cada biblioteca fora do SDK: o comentário
+/// `// @dart = x.y` antes do código, senão o `languageVersion` do pacote
+/// (`package:` pelo nome; arquivo pela raiz de pacote mais longa que o
+/// contém). O SDK fica em `None` (a versão corrente).
+fn preencher_versoes_de_linguagem(program: &mut Program, cfg: &PackageConfig) {
+    let raizes: Vec<(PathBuf, Option<(u8, u8)>)> = cfg
+        .packages
+        .values()
+        .filter_map(|p| {
+            let r = p.root_uri.to_file_path().ok()?;
+            Some((crate::config::sem_verbatim(std::fs::canonicalize(&r).unwrap_or(r)), p.language_version))
+        })
+        .collect();
+    for i in 0..program.libraries.len() {
+        let lib = &program.libraries[i];
+        if lib.is_sdk {
+            continue;
+        }
+        let unidade = lib.units.first().map(|u| &program.units[u.0 as usize]);
+        let v = unidade.and_then(|u| versao_do_comentario(&u.source)).or_else(|| {
+            if let Some(resto) = lib.uri.strip_prefix("package:") {
+                let nome = resto.split('/').next()?;
+                return cfg.packages.get(nome)?.language_version;
+            }
+            let path = unidade?.path.as_ref()?;
+            raizes
+                .iter()
+                .filter(|(r, _)| path.starts_with(r))
+                .max_by_key(|(r, _)| r.as_os_str().len())
+                .and_then(|(_, v)| *v)
+        });
+        program.libraries[i].language_version = v;
+    }
+}
+
+/// `// @dart = x.y` entre os comentários do início do arquivo.
+fn versao_do_comentario(src: &str) -> Option<(u8, u8)> {
+    for linha in src.lines() {
+        let l = linha.trim();
+        if l.is_empty() || l.starts_with("/*") || l.starts_with('*') {
+            continue;
+        }
+        let Some(r) = l.strip_prefix("//") else { break };
+        if let Some(v) = r.trim().strip_prefix("@dart") {
+            let v = v.trim().strip_prefix('=')?.trim();
+            let mut p = v.split('.');
+            return Some((p.next()?.trim().parse().ok()?, p.next()?.trim().parse().ok()?));
+        }
+    }
+    None
 }
 
 /// Carrega um programa a partir de um arquivo de entrada e seu SDK.
