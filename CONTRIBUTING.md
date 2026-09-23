@@ -24,7 +24,8 @@ semântica demonstrável por testes, incluindo efeitos, ordem de avaliação e e
 
 Os testes ignorados por padrão exigem Node. No PowerShell, `scripts/check.ps1` reúne
 verificações e exige geração de documentação sem avisos.
-Use `scripts/conformance.ps1` com Dart 3.6.2 para a comparação JavaScript em `-O2`.
+A comparação diferencial com o Dart 3.6.2 (VM, `dartdevc` e produção) é o
+`crates/diferencial` (`cargo run --release -p dartforge-diferencial`); ver `ESTADO.md` §3.
 
 ## Referências
 

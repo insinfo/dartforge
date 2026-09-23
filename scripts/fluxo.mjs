@@ -16,9 +16,13 @@
 
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, statSync, mkdtempSync, writeFileSync, cpSync } from 'node:fs';
-import { join, extname, resolve, sep } from 'node:path';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, statSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, cpSync } from 'node:fs';
+import { join, extname, resolve, sep, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Temporários no `target/` do repositório (D:), nunca no %TEMP% do C:.
+const DIR_TEMPORARIO = join(dirname(fileURLToPath(import.meta.url)), '..', 'target');
+mkdirSync(DIR_TEMPORARIO, { recursive: true });
 
 // --------------------------------------------------------------- argumentos
 
@@ -293,7 +297,7 @@ async function main() {
 
   const edge = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(existsSync);
   if (!edge) throw new Error('Edge não encontrado');
-  const perfil = mkdtempSync(join(tmpdir(), 'dartforge-edge-'));
+  const perfil = mkdtempSync(join(DIR_TEMPORARIO, 'tmp-edge-'));
   const portaCdp = op.porta + 1;
   const navegador = spawn(edge, [
     ...(op.visivel ? [] : ['--headless=new']),
@@ -477,6 +481,8 @@ async function main() {
   } finally {
     navegador.kill();
     srv.close();
+    // O Edge segura arquivos do perfil por um instante depois do kill.
+    rmSync(perfil, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 
   // Relatório.

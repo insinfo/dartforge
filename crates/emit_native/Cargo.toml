@@ -15,8 +15,6 @@ dartforge-frontend = { path = "../frontend" }
 dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
 dartforge-runtime = { path = "../runtime" }
-dartforge-native = { path = "../native" }
-dartforge-abi = { path = "../abi" }
 dartforge-instrument = { path = "../instrument" }
 
 [dev-dependencies]

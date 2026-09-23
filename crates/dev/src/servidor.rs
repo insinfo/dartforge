@@ -398,27 +398,25 @@ mod testes {
     /// módulo mais o script de recarga.
     #[test]
     fn index_troca_bootstrap_e_injeta_recarga() {
-        let dir = std::env::temp_dir().join(format!("dfserve{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
+        // `tempfile` apaga o diretório no `Drop`, inclusive quando uma asserção falha.
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         std::fs::write(
             dir.join("index.html"),
             "<html><head><title>x</title><script defer src=\"main.dart.js\"></script></head><body></body></html>",
         )
         .unwrap();
-        let html = index_html(&dir, Some(&dir)).expect("index");
+        let html = index_html(dir, Some(dir)).expect("index");
         assert!(!html.contains("main.dart.js"), "{html}");
         assert!(html.contains("src=\"main.mjs\""), "{html}");
         assert!(html.contains(ROTA_RECARGA), "{html}");
         assert!(html.contains("<title>x</title>"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Sem `index.html` e sem `main.mjs` não há o que servir.
     #[test]
     fn sem_saida_nao_ha_index() {
-        let dir = std::env::temp_dir().join(format!("dfserve_vazio{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        assert!(index_html(&dir, None).is_none());
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(index_html(tmp.path(), None).is_none());
     }
 }
