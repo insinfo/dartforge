@@ -40,16 +40,16 @@ conjunto de bits. Medido em §7.
 
 | ver. | recurso (`experimental_features.yaml`) | natureza | onde entra | o que os emissores veem |
 | --- | --- | --- | --- | --- |
-| 3.7 | curingas `_` (`wildcard-variables`) | escopo | `types` (escopo), `emit_js` (nome JS), `emit_native` (slot) | local sem nome; nenhuma forma nova |
+| 3.7 | curingas `_` (`wildcard-variables`) | escopo | `types` (escopo), `emit_js` (nome JS) | local sem nome; nenhuma forma nova |
 | 3.7 | inferência usando bounds (`inference-using-bounds`) | inferência | `types/constraints.rs`, inferência de argumentos de tipo do `emit_js` | argumentos de tipo reificados diferentes |
 | 3.7 | #56893: campo promovido a `Null` conta na alcançabilidade | fluxo | `types/flow.rs` | nada (só aceita/recusa programas) |
-| 3.8 | elementos null-aware `?e`, `?k: ?v` (`null-aware-elements`) | sintaxe + tipos | parser (gating), `types`, `emit_js`, `emit_native` | `CollectionElement::NullAwareExpression` / `MapEntry{null_aware_*}` |
+| 3.8 | elementos null-aware `?e`, `?k: ?v` (`null-aware-elements`) | sintaxe + tipos | parser (gating), `types`, `emit_js`; o nativo recusa | `CollectionElement::NullAwareExpression` / `MapEntry{null_aware_*}` |
 | 3.9 | fluxo sólido (`sound-flow-analysis`) | fluxo | `types/flow.rs` | nada |
 | 3.9 | getter/setter com tipos diferentes deixa de ser erro (`getter-setter-error`) | diagnóstico | `types` | nada |
 | 3.10 | atalhos de ponto (`dot-shorthands`) | sintaxe + inferência | parser (`ExprKind::DotShorthand`), `types` (resolução), `emit_js`, `mundo`, `emit_native` | um caso por consumidor: "`.id` é `D.id`", `D` gravado em `Resolved` |
 | 3.10 | tipo de retorno de gerador sem `Null` espúrio | inferência | `types/infer.rs` | tipo reificado |
 | 3.12 | parâmetros nomeados privados (`private-named-parameters`) | nomes | parser (`Parameter::public_name`), consumidores do nome externo | o nome externo do parâmetro |
-| 3.13 | construtores primários, `new`/`factory` sem o nome da classe, corpo `;` (`primary-constructors`) | sintaxe + elaboração + escopo | parser + elaboração sintática (`frontend/src/elaboracao.rs`) | **membros comuns**: campos e um construtor (E) |
+| 3.13 | construtores primários, `new`/`factory` sem o nome da classe, corpo `;` (`primary-constructors`) | sintaxe + elaboração + escopo | parser, que também elabora (`parser/declarations.rs`) | **membros comuns**: campos e um construtor (E) |
 | 3.13 | quebra: `var`/`final` só em parâmetro declarante; `factory() {}` vira construtor | gramática | parser, decidido pela versão | — |
 | 3.13 | #62889: ajuste de promoção | fluxo | `types/flow.rs` | nada |
 
@@ -106,21 +106,27 @@ parâmetro.
 
 Os diagnósticos de `elements` (carga e sintaxe, inclusive os de versão)
 abortam a compilação; os de `types` são avisos, porque a inferência ainda tem
-lacunas. Os erros **semânticos** dos recursos novos — o que o CFE recusa e um
-programa negativo do corpus precisa ver recusado — saem de `types` com o
-prefixo [`codes::ERRO_DE_LINGUAGEM`] e abortam `compile-js`, `dartforge-jsprod`
-e o nativo como os de carga. São só estes (a lista não cresce por
-conveniência: cada um tem programa negativo no corpus conferido contra o CFE):
+lacunas. Os erros dos recursos novos — o que o CFE recusa e um programa
+negativo do corpus precisa ver recusado — saem de três lugares, sempre com a
+posição, e todos abortam `compile-js`, `dartforge-jsprod` e o nativo (a lista
+não cresce por conveniência: cada um tem programa negativo no corpus
+conferido contra o CFE, na mesma linha):
 
-* ler `_` quando só curingas o declaram (`Undefined name '_'`);
-* atalho de ponto sem contexto que denote declaração, ou sem membro com esse
-  nome (`No type was provided to find the dot shorthand 'x'`);
-* parâmetro nomeado privado sem nome público, ou colidindo com outro
-  parâmetro; `super._x`;
-* construtor primário: corpo `this` sem cabeçalho primário, dois corpos,
-  construtor generativo não redirecionador no corpo (fora de extension type),
-  `const` com corpo, `var` em extension type, atribuição a parâmetro primário
-  em inicializador.
+* **parser** (sintáticos): recurso desligado pela versão; `var`/`final` em
+  parâmetro comum na 3.13; nomeado privado que não inicializa campo, sem nome
+  público ou colidindo com outro parâmetro (inclusive `super._x`); construtor
+  primário com parte `this` sem cabeçalho, duas partes `this`, construtor
+  generativo não redirecionador no corpo, `const` com corpo na parte `this`,
+  parte `this` com `=>`/`async`, `covariant` sem `var`, `var` em extension
+  type, `const .x` sem argumentos;
+* **`types`**, com o prefixo [`codes::ERRO_DE_LINGUAGEM`]: ler `_` quando só
+  curingas o declaram (`Undefined name '_'`);
+* **`emit_js`** (`Ctx::erros`), com o mesmo prefixo: atalho de ponto sem
+  contexto que denote declaração, ou sem membro com esse nome (`No type was
+  provided to find the dot shorthand 'x'`). É o emissor que tem a inferência
+  completa do contexto; `types` só registra `D` quando a acha, sem acusar
+  nada (a inferência dele não leva contexto a todo lugar, e um erro falso
+  abortaria um programa válido). Emissão especulativa (`type_of`) não conta.
 
 ## 4. Contrato de cada recurso
 
@@ -148,7 +154,11 @@ Em biblioteca < 3.7, `_` é nome comum (`// @dart=3.6`).
   `this._`/`super._` curinga guarda o nome JS pelo intervalo do parâmetro para
   o construtor inicializar o campo/encaminhar. Parâmetros de tipo curinga de
   função genérica também ganham nome único.
-* `emit_native`: local curinga ganha slot e não entra no mapa de nomes.
+* `emit_native`: **não muda** — `_` continua ligando nome no nativo. Só é
+  observável quando o programa lê um `_` de fora com um curinga no caminho,
+  e o nativo não roda o `corpus/moderno`; o `this._`/`super._` do
+  construtor nativo lê o parâmetro pelo nome, e desligá-lo exigiria o mesmo
+  registro por intervalo do `emit_js`.
 
 ### 4.2 Elementos null-aware (3.8)
 
@@ -158,8 +168,11 @@ já os representava (`CollectionElement::NullAwareExpression`,
 §2), o `Set`, o contexto anulável, o curto-circuito do **valor** quando a
 chave null-aware é `null` (conferido na VM: o valor não é avaliado) e o
 nativo. Tipos: contexto `Ps?` para o operando, elemento `NonNull(U)`.
-Constante quando o operando é constante. `emit_native` rebaixa para `if (t
-!= null) add(t)` no próprio laço de construção do literal.
+Constante quando o operando é constante. `emit_native` **recusa** o
+elemento null-aware com diagnóstico explícito: o literal nativo é uma
+alocação com elementos fixos (`AllocList`/`AllocMap`), sem inserção
+condicional — a mesma lacuna de `if`/`for`/spread em coleção no nativo, e
+fica junto dela.
 
 ### 4.3 Atalhos de ponto (3.10)
 
@@ -177,14 +190,21 @@ Spec: `accepted/3.10/dot-shorthands/feature-specification.md`.
   quando é `C`/`C<…>` de classe, mixin, enum ou extension type, ou `S?`/
   `FutureOr<S>` com `S` denotando `D`.
 * **Contrato com os consumidores** (T): `types` grava, para cada nó
-  `DotShorthand`, `Resolved::Element(Element::Class(D))`. Cada consumidor
-  trata `.id` exatamente como `D.id` (e `.new` como `D.new`/`D(…)`), sem
-  instanciar `D` com os argumentos do contexto — a inferência do construtor
-  usa o contexto da chamada, como `List<int> l = .filled(2, 0)` →
-  `List<int>.filled`. `emit_js` refaz a mesma derivação sobre o seu próprio
-  `Ty` (ele não lê `Resolved`), `mundo` e `emit_native` leem `Resolved`.
-* Erros: sem contexto que denote declaração; membro inexistente; `const` sem
-  construtor constante.
+  `DotShorthand` cuja declaração acha, `Resolved::Element(Element::Class(D))`
+  (e `Resolved::Constructor` na chamada `.nome(args)` que é construção).
+  Cada consumidor trata `.id` exatamente como `D.id` (e `.new` como
+  `D.new`/`D(…)`), sem instanciar `D` com os argumentos do contexto — a
+  inferência do construtor usa o contexto da chamada, como
+  `List<int> l = .filled(2, 0)` → `List<int>.filled`. `emit_js` refaz a mesma
+  derivação sobre o seu próprio `Ty` (ele não lê `Resolved`): o nó mais
+  externo da cadeia registra o contexto da raiz, `==` e o padrão `== .x`
+  registram o tipo da esquerda/do valor casado, e o `=>` de função `async`
+  registra `FutureOr<T>`. `mundo` lê `Resolved`; nos padrões de `switch`,
+  onde `types` não chega, marca vivo `nome` em toda declaração que o tem
+  (mais vivo, nunca menos). `emit_native`: a construção sai pela
+  `Resolved::Constructor`; atalho como valor e método estático por atalho
+  caem no "não suportado" dele.
+* Erros: sem contexto que denote declaração; membro inexistente (§3).
 
 ### 4.4 Parâmetros nomeados privados (3.12)
 
@@ -220,27 +240,40 @@ corrigido lá e vale este.
   construtor primário (`Can't have modifier 'final' here`); < 3.13 é o
   contrário (`factory` é nome de método).
 * **Elaboração (E)** — derivação D → D2 (`:926-1025`), feita
-  **sintaticamente** logo após o parse, na arena da própria unidade: cada
-  `var`/`final T p` vira um campo `T p;`/`final T p;` (o `covariant` passa ao
-  campo) e o parâmetro vira `T this.p` com o mesmo default; `this.p`,
-  `super.p` e parâmetros simples são copiados; o construtor k2 recebe o nome
-  (`C` ou `C.id`), o `const` do cabeçalho (ou do `enum`), a lista de
-  inicializadores e o corpo da parte `this`. Tipo omitido num parâmetro
-  declarante: o do getter herdado de mesmo nome (override inference do
-  campo, em `types`), senão o do default (literal), senão `Object?`
-  (`:945-962`). Os três consumidores veem **código comum**; nenhum emissor
-  sabe que houve construtor primário.
+  **sintaticamente** pelo parser ao fim de cada `class`/`enum`
+  (`parser/declarations.rs`, `elaborar_construtor_primario`), na arena da
+  própria unidade: cada `var`/`final T p` vira um campo `T p;`/`final T p;`
+  (o `covariant` passa ao campo) e o parâmetro vira `T this.p` com o mesmo
+  default; `this.p`, `super.p` e parâmetros simples são copiados; o
+  construtor k2 recebe o nome (`C` ou `C.id`), o `const` do cabeçalho (ou do
+  `enum`), a lista de inicializadores e o corpo da parte `this`, e ocupa o
+  lugar dela (os campos vêm antes dos membros do corpo). Tipo omitido num
+  parâmetro declarante (`:945-962`: o do getter herdado de mesmo nome,
+  senão o do default, senão `Object?`): a parte sintática é feita aqui —
+  default literal dá o tipo dele, `null` ou nenhum dá `Object?` — só quando
+  a classe não declara supertipo; com supertipo, o campo fica sem tipo, e a
+  override inference de campo é do `types` (P6). Os três consumidores veem
+  **código comum**; nenhum emissor sabe que houve construtor primário.
+* **Extension type**: a representação já era o construtor primário dele
+  (3.3); a 3.13 só acrescenta `final` (e recusa `var`) e o corpo `;`.
 * **Escopo primário** (`:817-890`): os inicializadores de campo **não-`late`**
   e a lista de inicializadores veem os parâmetros (o `this.p` elaborado é o
   parâmetro, como num construtor comum); o corpo da parte `this` vê só os
   parâmetros simples — `p` declarante é o **campo**, que é exatamente a regra
   de `this.p` num construtor comum. O que falta a um construtor comum é o
-  primeiro ponto: `ClassDecl::primario` marca o k2, e `types` e `emit_js`
-  avaliam os inicializadores de campo não-`late` de uma classe com
-  construtor primário **no escopo dos parâmetros de k2** (o `emit_js` já os
-  emite dentro do construtor, como o DDC: `this[up] = cru.toUpperCase()`).
+  primeiro ponto: `ClassDecl`/`EnumDecl::primary_constructor` marca o k2, e o
+  `emit_js` emite os inicializadores de campo não-`late` de uma classe com
+  construtor primário **pelo emissor do próprio k2**, com os parâmetros em
+  escopo, dentro do construtor, como o DDC (`this[up] = cru.toUpperCase()`);
+  `late` continua preguiçoso e fora dele. `types` não mudou aqui: o tipo de
+  um campo sem tipo que lê parâmetro fica `dynamic` para ele (aviso), sem
+  efeito na saída.
 
 ### 4.6 Inferência e fluxo (3.7–3.13)
+
+> **Passou ao dono de `crates/types`** (decisão de 2026-09-23, durante a
+> rodada): o contrato abaixo continua valendo, e os programas 350–352 do
+> `corpus/moderno` ficam em `PENDENTES` até ele.
 
 * **Bounds (3.7)**: `design-document.md` de `inference-using-bounds`. Ao
   resolver uma variável de tipo sem solução pelas restrições, o bound declarado
@@ -284,10 +317,19 @@ corrigido lá e vale este.
 
 ## 6. Fora desta rodada
 
-Macros e augmentations (P7+), o adaptador dos 220 testes de
-`references/dart-sdk/tests/language/{wildcard_variables,…}` (§6.2 do plano;
-dependem de `package:expect`, que importa `dart:io` via `package:smith`) e a
-biblioteca de plataforma 3.13 (D1).
+* Macros e augmentations (P7+).
+* Inferência e fluxo 3.7–3.13 (P6, §4.6): com o dono de `crates/types`.
+* O adaptador dos 220 testes de
+  `references/dart-sdk/tests/language/{wildcard_variables,…}` (§6.2 do
+  plano): dependem de `package:expect`, que importa `dart:io` via
+  `package:smith`.
+* A biblioteca de plataforma 3.13 (D1).
+* **Membros de extension type** (Dart 3.3, anterior à rodada): `Id(21).dobro`
+  sai `21.dobro` no `emit_js` e `i.tri()` falha — só o interop JS de extension
+  type funciona. O programa 347 (a gramática 3.13 de extension type) fica em
+  `PENDENTES` por isso.
+* No nativo: curingas (`_` liga nome), elementos null-aware (recusa explícita)
+  e atalho de ponto que não é construção (§4.1–4.3).
 
 ## 7. Placar e medições
 
