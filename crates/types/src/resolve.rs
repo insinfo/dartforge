@@ -998,6 +998,12 @@ impl<'a> OutlineResolver<'a> {
                                 arg: arg_ty,
                                 nullable: is_nullable,
                             });
+                        } else if args.is_empty() {
+                            // `FutureOr` cru: instanciado para o limite.
+                            return self.table.intern(Type::FutureOr {
+                                arg: self.core.dynamic_,
+                                nullable: is_nullable,
+                            });
                         } else {
                             self.diagnostics.push(Diagnostic::new(
                                 "FutureOr exige exatamente um argumento de tipo",
