@@ -1,0 +1,5 @@
+olá
+olá, Ana / olá, Ana
+42
+7
+true contadorProvider saudarProvider

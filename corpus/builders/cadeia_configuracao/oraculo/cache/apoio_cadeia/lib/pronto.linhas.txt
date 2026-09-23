@@ -1,0 +1,6 @@
+builder: contagem/linhas
+entrada: apoio_cadeia|lib/pronto.maiusculas.txt
+isRoot: false
+opcoes: {}
+---
+2

@@ -1,0 +1,6 @@
+builder: limpeza
+entrada: corpus_cadeia_configuracao|lib/entrada/notas.rascunho
+isRoot: true
+opcoes: {"alvo":"sim","apagar":false}
+---
+nota do post_process_builder limpeza

@@ -78,6 +78,23 @@ jobs:
       #   corpus_roda_no_dart_run, ddc_bate_com_dart_run
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
+      # Os corpora do motor de build (corpus/builders, oráculo do build_runner
+      # oficial) e do ngdart precisam do package_config.json de cada caso:
+      # `pub get` com o lock commitado (versões fixadas). Os testes
+      # #[ignore] do crates/build (plano, placar, determinismo, incremental,
+      # transparência do ngdart) rodam no passo seguinte.
+      - name: pub get dos corpora do motor de build
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          $casos = @(Get-ChildItem corpus/builders -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart)
+          foreach ($c in $casos) {
+            Push-Location $c.FullName
+            dart pub get --enforce-lockfile | Out-Null
+            if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pub get falhou em $($c.Name)" }
+            Pop-Location
+          }
+          Write-Host "$($casos.Count) casos com package_config.json"
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-

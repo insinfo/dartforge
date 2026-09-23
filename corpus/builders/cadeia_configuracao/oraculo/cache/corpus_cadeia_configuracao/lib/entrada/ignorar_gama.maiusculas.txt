@@ -1,0 +1,6 @@
+builder: maiusculas
+entrada: corpus_cadeia_configuracao|lib/entrada/ignorar_gama.txt
+isRoot: true
+opcoes: {"alvo":"sim","global":"sim","modo":"dev_alvo","nivel":3,"origem":"alvo","so_dev":"global"}
+---
+EXCLUÍDO DO ESPELHO PELO GENERATE_FOR DO ALVO, MAS NÃO DO MAIUSCULAS
