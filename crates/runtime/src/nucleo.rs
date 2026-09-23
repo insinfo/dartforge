@@ -60,10 +60,10 @@ pub fn finalizar_programa() -> i32 {
     if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
         HEAP.with(|heap| {
             let s = heap.borrow().stats();
-            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{},\"permanent_roots\":{}}}}}",
+            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{},\"permanent_roots\":{},\"smi_caixas_evitadas\":{}}}}}",
                 s.allocations, s.collections, s.reclaimed, s.live_objects, s.reserved_slots,
                 s.root_slots, s.peak_root_slots, s.live_roots, s.peak_roots,
-                s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots);
+                s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots, s.caixas_evitadas);
         });
     }
     0
