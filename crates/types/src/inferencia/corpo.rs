@@ -86,6 +86,9 @@ pub(crate) struct Corpo {
     pub campos: HashMap<(Base, VariableId), LocalId>,
     /// Fluxos de antes de cada `?.` das cadeias em curso.
     pub cadeias: Vec<super::fluxo::Fluxo>,
+    /// Variáveis de condição (§7.10): `(verdadeiro, falso, versão)` do
+    /// valor escrito na variável, restaurados na leitura como condição.
+    pub condicoes: HashMap<LocalId, (Fluxo, Fluxo, u32)>,
 }
 
 /// Base de uma referência a campo promovível.
@@ -136,6 +139,7 @@ impl Corpo {
             raiz: Raiz::Nada,
             campos: HashMap::new(),
             cadeias: Vec::new(),
+            condicoes: HashMap::new(),
         };
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).

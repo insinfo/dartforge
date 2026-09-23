@@ -1,6 +1,6 @@
 # Divergências e avisos conhecidos do corpus/inferencia contra o oráculo
 # (catraca de crates/types/tests/corpus_inferencia.rs; só encolhe).
-# programas iguais ao oráculo: 81/95; expressões comparadas: 2433; divergentes: 39; avisos: 5
+# programas iguais ao oráculo: 82/95; expressões comparadas: 2433; divergentes: 38; avisos: 5
 01_contexto/ctx11_override.dart:461:2	List	nós=List<dynamic>	oráculo=List<double>
 01_contexto/ctx11_override.dart:490:32	List	nós=List<dynamic>	oráculo=List<Object>
 01_contexto/ctx11_override.dart:512:9	Property	nós=dynamic	oráculo=List<double>
@@ -27,7 +27,6 @@
 05_closures/clo04_geradores.dart:267:39	FunctionExpression	nós=Iterable<int> Function()	oráculo=Iterable<int?> Function()
 05_closures/clo04_geradores.dart:434:1	Identifier	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()
 05_closures/clo04_geradores.dart:437:1	Identifier	nós=Iterable<int> Function()	oráculo=Iterable<int?> Function()
-06_fluxo/flu03_logicos.dart:311:1	Identifier	nós=int?	oráculo=int
 06_fluxo/flu16_se_nulo_atribuicao.dart:163:16	List	nós=List<int?>	oráculo=List<int>
 06_fluxo/flu16_se_nulo_atribuicao.dart:177:1	Identifier	nós=int?	oráculo=int
 06_fluxo/flu20_finally_factor_cadeia.dart:273:1	Identifier	nós=Object	oráculo=int

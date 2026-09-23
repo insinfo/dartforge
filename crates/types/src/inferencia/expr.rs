@@ -1556,8 +1556,30 @@ pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) ->
             let b = inf.core.bool_;
             inferir(inf, cx, e, b);
             let f = cx.fluxo.clone();
+            // Leitura de variável de condição não reescrita (§7.10).
+            if let ExprKind::Identifier(n) = &ast(inf, cx).expr(e).kind
+                && let Some(Nome::Local(id)) = cx.buscar(n.sym)
+                && let Some((sim, nao, versao)) = cx.condicoes.get(&id).cloned()
+                && f.versao(id) == Some(versao)
+                && !f.modelo(id).is_some_and(|m| m.capturada)
+            {
+                let v = inf.reaplicar(&f, &sim);
+                let fa = inf.reaplicar(&f, &nao);
+                return (v, fa);
+            }
             (f.clone(), f)
         }
+    }
+}
+
+/// Expressão cuja informação de condição não é trivial (`==`, `!=`, `&&`,
+/// `||`, `!`, `is`), para guardar numa variável de condição.
+pub(crate) fn e_forma_de_condicao(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    match &ast(inf, cx).expr(e).kind {
+        ExprKind::Parenthesized(i) => e_forma_de_condicao(inf, cx, *i),
+        ExprKind::Unary { op: UnaryOp::Not, .. } | ExprKind::Is { .. } => true,
+        ExprKind::Binary { op, .. } => matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq),
+        _ => false,
     }
 }
 

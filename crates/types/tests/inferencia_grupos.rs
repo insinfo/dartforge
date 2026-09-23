@@ -506,6 +506,29 @@ class A {
     assert_eq!(tipos, ["int?", "int?"]);
 }
 
+/// Variável de condição (§7.10): `final bool v = d != null; if (v) d` promove
+/// `d`; escrever `d` depois invalida.
+#[test]
+fn variavel_de_condicao() {
+    let r = ou_pula!(inferir(
+        r#"
+double f(double? d, double? e) {
+  var soma = 0.0;
+  final bool v = d != null;
+  if (v) soma += d;
+  var w = e != null && soma > 0;
+  e = null;
+  if (w) print(e);
+  return soma;
+}
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
+    // Escrita depois da condição: a variável não restaura a promoção.
+    assert_eq!(tipos.last(), Some(&"double?"));
+}
+
 /// Extension type que implementa outro extension type (`Element implements
 /// JSObject`, `JSString implements JSAny` no package:web).
 #[test]

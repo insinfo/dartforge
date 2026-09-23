@@ -397,8 +397,19 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
     for v in vl.variables.iter() {
         let mut tipo = declarado;
         let mut escrito = None;
+        let mut condicao_guardada = None;
         if let Some(init) = v.initializer {
-            let t = inferir(inf, cx, init, declarado.unwrap_or(u));
+            // Inicializador que é condição (`x != null && …`): os modelos
+            // verdadeiro/falso ficam guardados na variável (§7.10); `late`
+            // nunca guarda.
+            let t = if !vl.late && expr::e_forma_de_condicao(inf, cx, init) {
+                let (sim, nao) = expr::condicao(inf, cx, init);
+                cx.fluxo = inf.juntar(&sim, &nao);
+                condicao_guardada = Some((sim, nao));
+                inf.body_types.units[cx.unit.0 as usize].get_type(init).unwrap_or(inf.core.bool_)
+            } else {
+                inferir(inf, cx, init, declarado.unwrap_or(u))
+            };
             escrito = Some(t);
             if let Some(d) = declarado {
                 let sp = inf.span_expr(cx.unit, init);
@@ -426,6 +437,9 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             }
             Some(_) => cx.fluxo.inicializar(id),
             None => {}
+        }
+        if let (Some((sim, nao)), Some(versao)) = (condicao_guardada, cx.fluxo.versao(id)) {
+            cx.condicoes.insert(id, (sim, nao, versao));
         }
     }
 }
