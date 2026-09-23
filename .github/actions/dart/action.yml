@@ -1,0 +1,44 @@
+name: Dart SDK 3.6.2
+description: >
+  Instala o SDK Dart 3.6.2 (dart-lang/setup-dart) e exporta o caminho dele nas
+  variáveis que o projeto lê: DARTFORGE_DART_SDK (harness diferencial),
+  DARTFORGE_SDK_LIB e DART_SDK (SdkLayout::discover, testes).
+  Com gerar-dart-sdk-js, gera runtime/ddc/dart_sdk.js (fora do git).
+
+# Sem cache: o setup-dart baixa o zip do SDK de storage.googleapis.com em
+# poucos segundos, e a versão é fixa — um cache só trocaria um download por
+# outro.
+
+inputs:
+  gerar-dart-sdk-js:
+    description: Gerar runtime/ddc/dart_sdk.js com scripts/gerar-dart-sdk.ps1
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+      with:
+        sdk: '3.6.2'
+        # O problem matcher do setup-dart é procurado relativo ao diretório
+        # da ação que o chama — dentro de uma ação composta, este diretório,
+        # onde o JSON não existe, e o passo falha. Não usamos `dart analyze`.
+        problem-matcher: false
+
+    - name: Exportar o caminho do SDK
+      shell: pwsh
+      run: |
+        # O executável fica em <sdk>/bin/dart(.exe); a raiz é dois níveis acima.
+        $dart = (Get-Command dart).Source
+        $sdk = Split-Path (Split-Path $dart -Parent) -Parent
+        & $dart --version
+        if (!(Test-Path (Join-Path $sdk 'lib/libraries.json'))) { throw "SDK sem lib/libraries.json em $sdk" }
+        "DARTFORGE_DART_SDK=$sdk" >> $env:GITHUB_ENV
+        "DARTFORGE_SDK_LIB=$(Join-Path $sdk 'lib')" >> $env:GITHUB_ENV
+        "DART_SDK=$sdk" >> $env:GITHUB_ENV
+        Write-Host "SDK Dart em $sdk"
+
+    - name: Gerar runtime/ddc/dart_sdk.js
+      if: inputs.gerar-dart-sdk-js == 'true'
+      shell: pwsh
+      run: pwsh scripts/gerar-dart-sdk.ps1 -Sdk $env:DARTFORGE_DART_SDK

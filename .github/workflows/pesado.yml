@@ -1,0 +1,271 @@
+# Testes PESADOS da trilha nova, no GitHub Actions e não na máquina de
+# desenvolvimento: o corpus diferencial (crates/diferencial) nos perfis JS de
+# desenvolvimento e de produção, no backend nativo (em fragmentos paralelos) e
+# o teste de determinismo. Ver ESTADO.md §3 (convenção ci/<frente>, limites) e
+# scripts/ci.ps1 (disparar, acompanhar, ler o placar).
+#
+# Como pedir uma rodada:
+#   * empurrar para uma branch ci/<frente> (roda `todos`):
+#       pwsh scripts/ci.ps1 -Frente nativo        # git push origin HEAD:ci/nativo
+#   * workflow_dispatch, escolhendo a suíte e o número de fragmentos:
+#       gh workflow run pesado.yml --ref <branch> -f suite=nativo -f fragmentos=8
+#   * o agendamento diário roda `todos` no main de madrugada — é também o que
+#     mantém os caches no escopo do main, que toda branch ci/** pode ler.
+#
+# Jobs de uma rodada `todos` com N fragmentos: compilar; depois, EM PARALELO,
+# js, producao, determinismo (produção), determinismo (nativo) e N nativos;
+# depois nativo-placar (Linux, segundos). Pico de simultaneidade = 4 + N.
+# O plano gratuito permite 20 jobs simultâneos na conta inteira (Linux e
+# Windows juntos); o excedente espera na fila, não falha.
+#
+# N padrão = 2, pela medição (ESTADO.md §3.2): no runner o corpus nativo
+# inteiro leva ~45 s de harness somando os fragmentos, e cada job gasta ~1,3 min
+# só preparando o ambiente — mais fragmentos só compram fila. Com N = 2 a rodada
+# ocupa 6 jobs no pico e cabem três frentes ao mesmo tempo. Subir N (input
+# `fragmentos` ou `gh variable set FRAGMENTOS_NATIVO --body N`) quando o tempo
+# de um fragmento passar de ~20 min, o que acontecerá quando os programas
+# nativos passarem a rodar até o fim em vez de falhar cedo.
+name: Pesado
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: O que rodar
+        type: choice
+        options: [todos, js, producao, nativo, determinismo]
+        default: todos
+      fragmentos:
+        description: Fragmentos do corpus nativo (um job cada)
+        type: number
+        default: 2
+  push:
+    branches: ['ci/**']
+  schedule:
+    # 06:17 UTC = 03:17 em Brasília.
+    - cron: '17 6 * * *'
+permissions:
+  contents: read
+# Uma rodada nova cancela a anterior DA MESMA branch; branches diferentes
+# (uma por frente de trabalho) nunca se cancelam.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  # Teto do heap do runtime nativo por programa (crates/runtime/src/heap.rs).
+  DARTFORGE_HEAP_MAX_MB: '256'
+jobs:
+  compilar:
+    name: compilar
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      suite: ${{ steps.plano.outputs.suite }}
+      n: ${{ steps.plano.outputs.n }}
+      fragmentos: ${{ steps.plano.outputs.fragmentos }}
+    steps:
+      - name: Plano da rodada
+        id: plano
+        shell: pwsh
+        env:
+          SUITE: ${{ inputs.suite || 'todos' }}
+          # workflow_dispatch > variável do repositório > 2.
+          N: ${{ inputs.fragmentos || vars.FRAGMENTOS_NATIVO || 2 }}
+        run: |
+          $n = [int]$env:N
+          if ($n -lt 1 -or $n -gt 32) { throw "fragmentos fora de 1..32: $n" }
+          # -InputObject, não -AsArray: este embrulharia a lista noutra ([[1,…]]).
+          $lista = ConvertTo-Json -Compress -InputObject @(1..$n)
+          "suite=$env:SUITE" >> $env:GITHUB_OUTPUT
+          "n=$n" >> $env:GITHUB_OUTPUT
+          "fragmentos=$lista" >> $env:GITHUB_OUTPUT
+          Write-Host "suite $env:SUITE; $n fragmentos nativos: $lista"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/dart
+        with:
+          gerar-dart-sdk-js: 'true'
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-release
+          # Só o main grava; as branches ci/** restauram o do main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Compilar harness, dartforge e dartforge-jsprod (release)
+        env:
+          # O perfil release do workspace (LTO thin, 1 unidade de geração de
+          # código) é para medir desempenho; aqui só a correção importa, e ele
+          # multiplica o tempo de compilação num runner de 4 núcleos.
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: binarios
+          path: |
+            target/release/dartforge-diferencial.exe
+            target/release/dartforge.exe
+            target/release/dartforge-jsprod.exe
+            runtime/ddc/dart_sdk.js
+          retention-days: 1
+          if-no-files-found: error
+
+      # Os oráculos (`dart run` e `dartdevc`+Node) não dependem do nosso
+      # código: o harness os guarda em target/diferencial/cache por hash do
+      # conteúdo de cada programa. Este job completa o cache uma vez, e os
+      # jobs seguintes só o leem. A chave muda com o corpus; o restore-keys
+      # traz o cache anterior, e só os programas alterados são recalculados.
+      - name: Oráculos (cache)
+        id: oraculos
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: target/diferencial/cache
+          key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
+          restore-keys: oraculos-${{ runner.os }}-dart3.6.2-
+      - name: Completar os oráculos (dartforge-diferencial verificar)
+        shell: pwsh
+        run: |
+          $inicio = Get-Date
+          ./target/release/dartforge-diferencial.exe verificar --silencioso > verificar.txt
+          $codigo = $LASTEXITCODE
+          Get-Content verificar.txt -Encoding utf8 | Select-Object -Last 5
+          Write-Host ("código {0}; {1:N0} s" -f $codigo, ((Get-Date) - $inicio).TotalSeconds)
+          # Código 1 aqui é divergência dos ORÁCULOS entre si (DDC × VM), não
+          # defeito nosso: fica registrado no resumo, mas não impede o resto.
+          if ($codigo -ne 0) {
+            $md = @('### Oráculos', '', "verificar saiu com código $codigo", '', '```text')
+            $md += Get-Content verificar.txt -Encoding utf8
+            $md += '```'
+            Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
+          }
+          exit 0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: steps.oraculos.outputs.cache-hit != 'true'
+        with:
+          path: target/diferencial/cache
+          key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
+
+  js:
+    name: js (desenvolvimento)
+    needs: compilar
+    if: contains(fromJSON('["todos","js"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: js
+          titulo: JS desenvolvimento — dart run × ddc+node × dartforge+node
+          args: --jobs 4
+
+  producao:
+    name: js (produção)
+    needs: compilar
+    if: contains(fromJSON('["todos","producao"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: producao
+          titulo: JS produção — VM × desenvolvimento × produção (dartforge-jsprod)
+          args: --producao --jobs 4
+
+  nativo:
+    name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        fragmento: ${{ fromJSON(needs.compilar.outputs.fragmentos) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: nativo-${{ matrix.fragmento }}
+          titulo: Nativo, fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
+          args: --nativo --jobs 4 --fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
+          nativo: 'true'
+          # Placar abaixo de 214 é o estado do backend, não quebra do CI.
+          aceitar-placar-parcial: 'true'
+
+  nativo-placar:
+    name: nativo (placar consolidado)
+    needs: [compilar, nativo]
+    if: always() && needs.compilar.result == 'success' && contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: relatorio-nativo-*
+          path: fragmentos
+      - name: Somar os fragmentos
+        shell: pwsh
+        env:
+          N: ${{ needs.compilar.outputs.n }}
+        run: |
+          $rels = @(Get-ChildItem fragmentos -Recurse -Filter relatorio.txt | Sort-Object FullName)
+          New-Item -ItemType Directory -Force placar | Out-Null
+          $md = & ./scripts/ci-placar.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
+          $uma = & ./scripts/ci-placar.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
+          # Tempo de cada fragmento, para dimensionar N (ver ESTADO.md §3.2).
+          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Sort-Object FullName) {
+            $t = (Get-Content $f -Encoding utf8) -join ' '
+            if ($t -match 'Tempo do harness no runner: (.+?)\. Memória livre mínima: (.+? GB)') { "| $($f.Directory.Name) | $($Matches[1]) | $($Matches[2]) |" }
+          }
+          $md += "`n`n| fragmento | tempo do harness | memória livre mínima |`n| --- | --- | --- |`n" + ($tempos -join "`n") + "`n"
+          Set-Content placar/placar.md $md -Encoding utf8
+          $rels | Get-Content -Encoding utf8 | Set-Content placar/relatorios-concatenados.txt -Encoding utf8
+          Add-Content $env:GITHUB_STEP_SUMMARY $md -Encoding utf8
+          Write-Host $md
+          Write-Host "::notice title=Placar nativo::$uma"
+          if ($rels.Count -eq 0) { Write-Host '::error::nenhum fragmento produziu relatório'; exit 1 }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: placar-nativo
+          path: placar
+          retention-days: 14
+
+  determinismo:
+    name: determinismo (produção)
+    needs: compilar
+    if: contains(fromJSON('["todos","determinismo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: determinismo-producao
+          titulo: Determinismo — produção, 1/4/8 trabalhadores
+          args: determinismo --producao --trabalhadores 1,4,8
+          exige: '^determinismo: '
+
+  # Determinismo do NATIVO pelo LLVM IR emitido de cada programa, sem Clang,
+  # ligação nem execução (crates/diferencial, `determinismo --nativo`; o modo
+  # antigo, que executa tudo, é `--executar`). Não precisa de Rust nem de LLVM.
+  determinismo-nativo:
+    name: determinismo (nativo, IR)
+    needs: compilar
+    if: contains(fromJSON('["todos","determinismo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: determinismo-nativo
+          titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
+          args: determinismo --nativo --trabalhadores 1,4,8
+          exige: '^determinismo \(IR\): '

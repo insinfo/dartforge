@@ -146,13 +146,20 @@ pub fn run_hot_reload(_args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::e
 
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize]";
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize]
+       dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]
+       dartforge compile-native <input.dart> --resumo [...]
+  --emit-ir  grava o LLVM IR em -o, sem Clang nem ligação
+  --resumo   imprime `<hash de 32 dígitos>  <bytes>` do LLVM IR (o mesmo resumo
+             do `dartforge-diferencial determinismo --nativo`), sem Clang";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
     let mut optimize = false;
+    let mut emit_ir = false;
+    let mut resumo = false;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -162,11 +169,22 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
             Some("--optimize") => optimize = true,
+            Some("--emit-ir") => emit_ir = true,
+            Some("--resumo") => resumo = true,
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
     }
-    let (Some(input), Some(out)) = (input, out) else {
+    let Some(input) = input else {
+        return Err(usage.into());
+    };
+    if emit_ir || resumo {
+        if emit_ir && out.is_none() {
+            return Err(usage.into());
+        }
+        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo);
+    }
+    let Some(out) = out else {
         return Err(usage.into());
     };
 
@@ -188,6 +206,46 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         .join()
         .map_err(|_| "a compilação nativa abortou".to_string())??;
 
+    Ok(())
+}
+
+#[cfg(feature = "nativo")]
+/// `compile-native --emit-ir` / `--resumo`: só a emissão, sem Clang nem
+/// ligação — o que o teste de determinismo compara, e o que muda quando o
+/// emissor muda.
+fn emitir_ir_nativo(
+    input: PathBuf,
+    out: Option<PathBuf>,
+    sdk: Option<PathBuf>,
+    packages: Option<PathBuf>,
+    timings: bool,
+    resumo: bool,
+) -> Resultado {
+    let ir = std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = dartforge_emit_native::CompileOptions {
+                sdk: sdk.as_deref(),
+                packages: packages.as_deref(),
+                timings,
+                optimize: false,
+            };
+            dartforge_emit_native::emitir_ir(&input, &options)
+        })
+        .map_err(|e| e.to_string())?
+        .join()
+        .map_err(|_| "a emissão do LLVM IR abortou".to_string())??;
+    if timings {
+        eprintln!("--- Tempos da Emissão Nativa ---");
+        ir.imprimir_tempos();
+    }
+    if let Some(out) = out {
+        fs::write(&out, &ir.texto).map_err(|e| format!("falha ao escrever {}: {e}", out.display()))?;
+    }
+    if resumo {
+        let r = dartforge_emit_native::resumo::ResumoIr::de(&ir.texto);
+        println!("{}  {}", r.hex(), r.bytes);
+    }
     Ok(())
 }
 
