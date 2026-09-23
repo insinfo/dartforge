@@ -52,6 +52,113 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// quando a unidade é a mesma que este builder está baixando, porque
     /// `lower_expr` recebe o `ast` corrente — uma `ExprId` de outra unidade
     /// indexaria a árvore errada e produziria código silenciosamente errado.
+    /// Converte um operando qualquer para i1, para servir de condicao.
+    ///
+    /// Locais passam por alloca/store/load como i64, entao um bool guardado
+    /// numa variavel volta como i64 0/1; comparar com zero recupera o i1 sem
+    /// supor nada sobre a largura de origem.
+    pub fn para_bool(&mut self, op: Operand) -> Operand {
+        if self.operand_type(&op) == Type::I1 {
+            return op;
+        }
+        self.emit(
+            Instruction::ICmp(ICmpOp::Ne, op, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        )
+    }
+
+    /// Baixa os tres operadores de curto-circuito do Dart: &&, || e ??.
+    ///
+    /// A semantica esta na especificacao da linguagem: em `a && b` o `b` so e
+    /// avaliado quando `a` e verdadeiro, em `a || b` so quando `a` e falso, e
+    /// em `a ?? b` so quando `a` e nulo. Nao e otimizacao: o lado direito pode
+    /// ter efeito colateral (ou lancar), e avaliar cedo muda o programa.
+    ///
+    /// Antes desta funcao, && e || caiam no ramo `_` do match de operadores
+    /// binarios e viravam a constante 0 — ou seja, toda condicao composta do
+    /// corpus era falsa.
+    fn lower_curto_circuito(
+        &mut self,
+        ast: &ast::Ast,
+        op: BinaryOp,
+        left: ExprId,
+        right: ExprId,
+    ) -> Operand {
+        let lop = self.lower_expr(ast, left);
+        let bloco_esq = self.current_block;
+        let bloco_dir = self.new_block();
+        let bloco_fim = self.new_block();
+
+        match op {
+            BinaryOp::IfNull => {
+                let e_nulo = self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        lop.clone(),
+                        Operand::Constant(Constant::Int(0)),
+                    ),
+                    Type::I1,
+                );
+                self.terminate(Terminator::CondBranch {
+                    cond: e_nulo,
+                    then_block: bloco_dir,
+                    else_block: bloco_fim,
+                });
+            }
+            BinaryOp::And => {
+                let cond = self.para_bool(lop.clone());
+                self.terminate(Terminator::CondBranch {
+                    cond,
+                    then_block: bloco_dir,
+                    else_block: bloco_fim,
+                });
+            }
+            _ => {
+                let cond = self.para_bool(lop.clone());
+                self.terminate(Terminator::CondBranch {
+                    cond,
+                    then_block: bloco_fim,
+                    else_block: bloco_dir,
+                });
+            }
+        }
+
+        self.set_block(bloco_dir);
+        let rop = self.lower_expr(ast, right);
+        let rop = if op == BinaryOp::IfNull { rop } else { self.para_bool(rop) };
+        let bloco_dir_fim = self.current_block;
+        let direita_alcanca = !self.is_terminated();
+        if direita_alcanca {
+            self.terminate(Terminator::Branch(bloco_fim));
+        }
+
+        self.set_block(bloco_fim);
+        if !direita_alcanca {
+            // O lado direito nao volta (lancou ou retornou): o valor que chega
+            // ao fim so pode vir da esquerda.
+            return match op {
+                BinaryOp::IfNull => lop,
+                BinaryOp::And => Operand::Constant(Constant::Bool(false)),
+                _ => Operand::Constant(Constant::Bool(true)),
+            };
+        }
+
+        // O valor que vem do lado esquerdo quando ele decide sozinho: em `&&`
+        // a esquerda so pula o direito sendo falsa, em `||` sendo verdadeira.
+        let (de_esquerda, ty) = match op {
+            BinaryOp::IfNull => (lop, self.operand_type(&rop)),
+            BinaryOp::And => (Operand::Constant(Constant::Bool(false)), Type::I1),
+            _ => (Operand::Constant(Constant::Bool(true)), Type::I1),
+        };
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(bloco_esq, de_esquerda), (bloco_dir_fim, rop)],
+                ty,
+            },
+            ty,
+        )
+    }
+
     /// Indice do elemento de funcao de um membro de instancia que de fato
     /// vira simbolo no modulo.
     ///
@@ -1603,6 +1710,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Parenthesized(sub) => self.lower_expr(ast, *sub),
             ExprKind::Binary { op, left, right } => {
+                // Curto-circuito vem antes do lowering dos dois lados: && e ||
+                // nao podem avaliar a direita quando a esquerda ja decide, e ??
+                // so avalia a direita quando a esquerda e nula. O caminho
+                // aritmetico abaixo avalia os dois de uma vez, entao esses tres
+                // nao podem passar por ele.
+                if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {
+                    return self.lower_curto_circuito(ast, *op, *left, *right);
+                }
                 let lop = self.lower_expr(ast, *left);
                 let rop = self.lower_expr(ast, *right);
 
@@ -1744,45 +1859,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             self.emit(Instruction::ICmp(ICmpOp::Sge, lop, rop), Type::I1)
                         }
                     }
-                    BinaryOp::IfNull => {
-                        let left_block = self.current_block;
-                        let null_block = self.new_block();
-                        let merge_block = self.new_block();
-                        let is_null = self.emit(
-                            Instruction::ICmp(
-                                ICmpOp::Eq,
-                                lop.clone(),
-                                Operand::Constant(Constant::Int(0)),
-                            ),
-                            Type::I1,
-                        );
-                        self.terminate(Terminator::CondBranch {
-                            cond: is_null,
-                            then_block: null_block,
-                            else_block: merge_block,
-                        });
-                        self.set_block(null_block);
-                        let rop = self.lower_expr(ast, *right);
-                        let rop_block = self.current_block;
-                        let right_reaches = !self.is_terminated();
-                        if right_reaches {
-                            self.terminate(Terminator::Branch(merge_block));
-                        }
-
-                        self.set_block(merge_block);
-                        if right_reaches {
-                            let ty = self.operand_type(&rop);
-                            self.emit(
-                                Instruction::Phi {
-                                    incoming: vec![(left_block, lop), (rop_block, rop)],
-                                    ty,
-                                },
-                                ty,
-                            )
-                        } else {
-                            lop
-                        }
-                    }
+                    // BinaryOp::And, Or e IfNull foram desviados no inicio deste
+                    // arm, para lower_curto_circuito.
                     _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
                 }
             }
@@ -2368,7 +2446,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if self.ctx.symbol_name(name.sym) == "print" {
                         if let Some(first_arg) = arguments.args.first() {
                             let arg_op = self.lower_expr(ast, first_arg.value);
+                            // O tipo ESTATICO do argumento manda, e so depois o
+                            // tipo do operando. Um local passa por alloca/store/
+                            // load como i64, entao `bool x = a < b; print(x)`
+                            // chegava aqui como i64 e imprimia 1 em vez de true.
+                            let ty_estatico = self.ctx.get_type(self.unit_id, first_arg.value);
+                            let e_bool = ty_estatico.map_or(false, |t| self.ctx.is_bool(t));
+                            let e_int = ty_estatico.map_or(false, |t| self.ctx.is_int(t));
+                            let e_double = ty_estatico.map_or(false, |t| self.ctx.is_double(t));
                             let op_ty = self.operand_type(&arg_op);
+                            let op_ty = if e_bool {
+                                if op_ty == Type::I1 { Type::I1 } else { Type::I8 }
+                            } else if e_int {
+                                Type::I64
+                            } else if e_double {
+                                Type::F64
+                            } else {
+                                op_ty
+                            };
 
                             if op_ty == Type::F64 {
                                 return self.emit(
