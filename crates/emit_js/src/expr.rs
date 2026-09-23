@@ -1019,7 +1019,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Classe de implementação de mapa (`IdentityMap` para chaves primitivas) e seu rti.
-    fn map_impl(&mut self, kt: &Ty, vt: &Ty) -> (String, String) {
+    pub(crate) fn map_impl(&mut self, kt: &Ty, vt: &Ty) -> (String, String) {
         self.m.use_sdk("_js_helper");
         let identity = self.ctx.is_js_primitive(kt);
         let name = if identity { "IdentityMap" } else { "LinkedMap" };
