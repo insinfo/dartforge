@@ -369,3 +369,238 @@ mod testes_nativos_numeros {
         assert_eq!(dartforge_nativo_Integer_greaterThanFromInteger(3, 10), 1, "10 > 3");
     }
 }
+
+/// A expansão decimal EXATA de `|d|` (finito, não zero): os dígitos (sem
+/// zeros à esquerda) e a posição do ponto (quantos dígitos há antes dele;
+/// ≤ 0 é `0.000ddd`). `|d| = m·2^e`; para `e < 0` é `m·5^k / 10^k`.
+/// Inteiros grandes em base 10^9, só com multiplicação por 2 e por 5.
+fn decimal_exato(d: f64) -> (Vec<u8>, i32) {
+    let bits = d.abs().to_bits();
+    let exp_bits = ((bits >> 52) & 0x7FF) as i32;
+    let frac = bits & ((1u64 << 52) - 1);
+    let (m, e) = if exp_bits == 0 { (frac, -1074) } else { (frac | (1u64 << 52), exp_bits - 1075) };
+    let mut limbs: Vec<u32> = vec![(m % 1_000_000_000) as u32, ((m / 1_000_000_000) % 1_000_000_000) as u32, (m / 1_000_000_000_000_000_000) as u32];
+    let mut mul = |f: u64, vezes: i32, limbs: &mut Vec<u32>| {
+        for _ in 0..vezes {
+            let mut vai = 0u64;
+            for l in limbs.iter_mut() {
+                let v = u64::from(*l) * f + vai;
+                *l = (v % 1_000_000_000) as u32;
+                vai = v / 1_000_000_000;
+            }
+            if vai > 0 {
+                limbs.push(vai as u32);
+            }
+        }
+    };
+    let k = if e >= 0 {
+        mul(2, e, &mut limbs);
+        0
+    } else {
+        mul(5, -e, &mut limbs);
+        -e
+    };
+    while limbs.len() > 1 && *limbs.last().unwrap() == 0 {
+        limbs.pop();
+    }
+    let mut texto = limbs.last().unwrap().to_string();
+    for l in limbs.iter().rev().skip(1) {
+        texto.push_str(&format!("{l:09}"));
+    }
+    let digitos: Vec<u8> = texto.bytes().map(|b| b - b'0').collect();
+    let ponto = digitos.len() as i32 - k;
+    (digitos, ponto)
+}
+
+/// Mantém `n` dígitos arredondando **meio para cima** sobre a expansão
+/// exata (o que o double-conversion faz em `ToFixed`/`ToExponential`/
+/// `ToPrecision`: `0.125.toStringAsFixed(2)` é `0.13`, `2.5` → `3`).
+/// Devolve os dígitos (exatamente `n`, ou `n + 1` com vai-um) e o ponto.
+fn arredondar(digitos: &[u8], ponto: i32, n: i32) -> (Vec<u8>, i32) {
+    if n < 0 {
+        return (Vec::new(), ponto);
+    }
+    let n = n as usize;
+    let mut v: Vec<u8> = digitos.iter().copied().take(n).collect();
+    v.resize(n, 0);
+    if digitos.get(n).is_some_and(|&x| x >= 5) {
+        let mut i = n;
+        loop {
+            if i == 0 {
+                v.insert(0, 1);
+                return (v, ponto + 1);
+            }
+            i -= 1;
+            if v[i] == 9 {
+                v[i] = 0;
+            } else {
+                v[i] += 1;
+                break;
+            }
+        }
+    }
+    (v, ponto)
+}
+
+fn texto_dos_digitos(v: &[u8]) -> String {
+    v.iter().map(|d| char::from(b'0' + d)).collect()
+}
+
+/// `toStringAsFixed` (native `Double_toStringAsFixed`, o `ToFixed` da VM):
+/// o Dart já conferiu `0 <= f <= 20`, NaN e `|d| >= 1e21`. O sinal vem do
+/// bit de sinal (`(-0.0).toStringAsFixed(2)` é `-0.00`).
+pub fn double_com_fixo(d: f64, f: i64) -> String {
+    let f = f.clamp(0, 20) as i32;
+    let mut s = String::new();
+    if d.is_sign_negative() {
+        s.push('-');
+    }
+    let (digitos, ponto) = if d == 0.0 { (vec![0], 1) } else { decimal_exato(d) };
+    let (v, ponto) = arredondar(&digitos, ponto, ponto + f);
+    // `v` tem os dígitos até a casa `f` depois do ponto; completa à esquerda.
+    let inteiros = ponto.max(0) as usize;
+    let mut todos: Vec<u8> = Vec::new();
+    if ponto < 0 {
+        todos.extend(std::iter::repeat(0).take((-ponto) as usize));
+    }
+    todos.extend(&v);
+    todos.resize(inteiros + f as usize, 0);
+    let (int, fr) = todos.split_at(inteiros);
+    if int.is_empty() {
+        s.push('0');
+    } else {
+        s.push_str(&texto_dos_digitos(int));
+    }
+    if f > 0 {
+        s.push('.');
+        s.push_str(&texto_dos_digitos(fr));
+    }
+    s
+}
+
+/// `toStringAsExponential(r)` (`ToExponential`): `r + 1` dígitos
+/// significativos, expoente com sinal (`1.250e-1`, `0.000e+0`).
+pub fn double_com_expoente(d: f64, r: i64) -> String {
+    let r = r.clamp(0, 20) as i32;
+    let mut s = String::new();
+    if d.is_sign_negative() {
+        s.push('-');
+    }
+    let (v, expoente) = if d == 0.0 {
+        (vec![0; (r + 1) as usize], 0)
+    } else {
+        let (digitos, ponto) = decimal_exato(d);
+        let (mut v, ponto) = arredondar(&digitos, ponto, r + 1);
+        v.truncate((r + 1) as usize);
+        (v, ponto - 1)
+    };
+    s.push(char::from(b'0' + v[0]));
+    if r > 0 {
+        s.push('.');
+        s.push_str(&texto_dos_digitos(&v[1..]));
+    }
+    s.push('e');
+    s.push(if expoente < 0 { '-' } else { '+' });
+    s.push_str(&expoente.abs().to_string());
+    s
+}
+
+/// `toStringAsPrecision(p)` (`ToPrecision`, com até 6 zeros à esquerda e
+/// nenhum à direita): notação exponencial quando o expoente é `< -6` ou
+/// `>= p`.
+pub fn double_com_precisao(d: f64, p: i64) -> String {
+    let p = p.clamp(1, 21) as i32;
+    if d == 0.0 {
+        let mut s = String::from(if d.is_sign_negative() { "-0" } else { "0" });
+        if p > 1 {
+            s.push('.');
+            s.push_str(&"0".repeat((p - 1) as usize));
+        }
+        return s;
+    }
+    let (digitos, ponto) = decimal_exato(d);
+    let (mut v, ponto) = arredondar(&digitos, ponto, p);
+    v.truncate(p as usize);
+    let expoente = ponto - 1;
+    let mut s = String::new();
+    if d.is_sign_negative() {
+        s.push('-');
+    }
+    if expoente < -6 || expoente >= p {
+        s.push(char::from(b'0' + v[0]));
+        if p > 1 {
+            s.push('.');
+            s.push_str(&texto_dos_digitos(&v[1..]));
+        }
+        s.push('e');
+        s.push(if expoente < 0 { '-' } else { '+' });
+        s.push_str(&expoente.abs().to_string());
+    } else if ponto <= 0 {
+        s.push_str("0.");
+        s.push_str(&"0".repeat((-ponto) as usize));
+        s.push_str(&texto_dos_digitos(&v));
+    } else if ponto >= p {
+        s.push_str(&texto_dos_digitos(&v));
+    } else {
+        s.push_str(&texto_dos_digitos(&v[..ponto as usize]));
+        s.push('.');
+        s.push_str(&texto_dos_digitos(&v[ponto as usize..]));
+    }
+    s
+}
+
+/// `Double_toStringAsFixed`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Double_toStringAsFixed(this: f64, digitos: i64) -> i64 {
+    alocar_str(&double_com_fixo(this, digitos))
+}
+
+/// `Double_toStringAsExponential`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Double_toStringAsExponential(this: f64, digitos: i64) -> i64 {
+    alocar_str(&double_com_expoente(this, digitos))
+}
+
+/// `Double_toStringAsPrecision`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Double_toStringAsPrecision(this: f64, precisao: i64) -> i64 {
+    alocar_str(&double_com_precisao(this, precisao))
+}
+
+#[cfg(test)]
+mod testes_to_string_as {
+    //! Os esperados são os da VM 3.6.2 (medidos): `toStringAsFixed(0)`,
+    //! `(2)`, `(5)`, `toStringAsExponential(3)`, `toStringAsPrecision(4)`.
+    use super::*;
+
+    #[test]
+    fn as_tres_formas_sao_as_da_vm() {
+        let casos: [(f64, [&str; 5]); 18] = [
+            (0.0, ["0", "0.00", "0.00000", "0.000e+0", "0.000"]),
+            (-0.0, ["-0", "-0.00", "-0.00000", "-0.000e+0", "-0.000"]),
+            (1.0, ["1", "1.00", "1.00000", "1.000e+0", "1.000"]),
+            (0.125, ["0", "0.13", "0.12500", "1.250e-1", "0.1250"]),
+            (0.25, ["0", "0.25", "0.25000", "2.500e-1", "0.2500"]),
+            (0.35, ["0", "0.35", "0.35000", "3.500e-1", "0.3500"]),
+            (2.5, ["3", "2.50", "2.50000", "2.500e+0", "2.500"]),
+            (-2.5, ["-3", "-2.50", "-2.50000", "-2.500e+0", "-2.500"]),
+            (1.005, ["1", "1.00", "1.00500", "1.005e+0", "1.005"]),
+            (123.456, ["123", "123.46", "123.45600", "1.235e+2", "123.5"]),
+            (-0.001, ["-0", "-0.00", "-0.00100", "-1.000e-3", "-0.001000"]),
+            (1e20, ["100000000000000000000", "100000000000000000000.00", "100000000000000000000.00000", "1.000e+20", "1.000e+20"]),
+            (0.1, ["0", "0.10", "0.10000", "1.000e-1", "0.1000"]),
+            (3.14159, ["3", "3.14", "3.14159", "3.142e+0", "3.142"]),
+            (999.9999, ["1000", "1000.00", "999.99990", "1.000e+3", "1000"]),
+            (5e-324, ["0", "0.00", "0.00000", "4.941e-324", "4.941e-324"]),
+            (0.5, ["1", "0.50", "0.50000", "5.000e-1", "0.5000"]),
+            (1.5, ["2", "1.50", "1.50000", "1.500e+0", "1.500"]),
+        ];
+        for (d, e) in casos {
+            assert_eq!(double_com_fixo(d, 0), e[0], "{d}.toStringAsFixed(0)");
+            assert_eq!(double_com_fixo(d, 2), e[1], "{d}.toStringAsFixed(2)");
+            assert_eq!(double_com_fixo(d, 5), e[2], "{d}.toStringAsFixed(5)");
+            assert_eq!(double_com_expoente(d, 3), e[3], "{d}.toStringAsExponential(3)");
+            assert_eq!(double_com_precisao(d, 4), e[4], "{d}.toStringAsPrecision(4)");
+        }
+    }
+}
