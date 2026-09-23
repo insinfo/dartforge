@@ -1,7 +1,7 @@
 //! Mede o consumo de memória, pico e tempo de resolução do sistema de tipos e inferência de corpos.
 //!
 //! Execução:
-//! `cargo run -q --release -p dartforge-types --example memoria -- C:/MyDartProjects/new_sali/frontend/web/main.dart`
+//! `cargo run -q --release -p dartforge-types --example memoria_types -- C:/MyDartProjects/new_sali/frontend/web/main.dart`
 
 #[global_allocator]
 static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;

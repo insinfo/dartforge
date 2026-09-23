@@ -1,8 +1,8 @@
 //! Mede memória (vivos e pico) e tempo de cada fase do `compile-js`, com o
 //! alocador contador de `crates/instrument` — o mesmo harness das fases
-//! anteriores (`crates/frontend/examples/memoria.rs`, `crates/types/examples/memoria.rs`).
+//! anteriores (`crates/frontend/examples/memoria_frontend.rs`, `crates/types/examples/memoria_types.rs`).
 //!
-//! `cargo run -q --release -p dartforge-emit-js --example memoria -- <entrada.dart> [package_config.json] [dir_saida]`
+//! `cargo run -q --release -p dartforge-emit-js --example memoria_emit_js -- <entrada.dart> [package_config.json] [dir_saida]`
 //!
 //! Sem argumentos usa `C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart`
 //! e o `package_config.json` de `new_sali/core`.

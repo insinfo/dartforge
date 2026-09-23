@@ -1,11 +1,11 @@
 //! Mede memória e tempo do servidor LSP sobre um projeto inteiro, pelo protocolo.
 //!
-//! `cargo run -q --release -p dartforge-lsp --example memoria -- C:/MyDartProjects/new_sali`
+//! `cargo run -q --release -p dartforge-lsp --example memoria_lsp -- C:/MyDartProjects/new_sali`
 //!
 //! Abre todos os `.dart` do projeto com quadros `didOpen` de verdade,
 //! aplica uma edição incremental em cada um e fecha tudo, imprimindo bytes
 //! de fonte, bytes vivos com tudo retido, pico, alocações e tempo. É o par
-//! da medição do front-end (`dartforge-frontend --example memoria`), com a
+//! da medição do front-end (`dartforge-frontend --example memoria_frontend`), com a
 //! diferença de que aqui o custo inclui transporte, documentos e
 //! diagnósticos publicados — o que um editor faz com o projeto aberto.
 #[global_allocator]

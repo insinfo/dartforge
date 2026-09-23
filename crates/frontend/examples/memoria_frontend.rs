@@ -1,7 +1,7 @@
 //! Mede memória e tempo do front-end novo sobre um projeto inteiro, com todas
 //! as árvores retidas — o que um servidor de linguagem faz com o projeto aberto.
 //!
-//! `cargo run -q --release -p dartforge-frontend --example memoria -- C:/MyDartProjects/new_sali`
+//! `cargo run -q --release -p dartforge-frontend --example memoria_frontend -- C:/MyDartProjects/new_sali`
 //!
 //! Imprime bytes de fonte, bytes vivos com tudo retido, pico, razão vivo/fonte,
 //! alocações e tempo. A referência que este número enfrenta está no PLANO.md:
