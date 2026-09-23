@@ -2340,11 +2340,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Type::I64,
                         );
                     }
-                    // Getter inexistente em dynamic: lança NoSuchMethodError
+                    // Getter inexistente: lanca NoSuchMethodError carregando o
+                    // NOME do membro. Sem o nome, 31 programas do corpus caiam
+                    // todos no mesmo grupo do relatorio ("Uncaught exception:
+                    // NoSuchMethodError") e nao dava para saber o que falta
+                    // implementar; com o nome, o agrupamento por primeira linha
+                    // do stderr vira a lista de membros do dart:core a fazer.
+                    let nome_op = self.emit(
+                        Instruction::Const(Constant::String(
+                            self.ctx.symbol_name(name.sym).to_string(),
+                        )),
+                        Type::Ref,
+                    );
                     let err_op = self.emit(
                         Instruction::CallRuntime {
                             name: "dartforge_no_such_method_error_new".to_string(),
-                            args: Vec::new(),
+                            args: vec![(nome_op, Type::Ref)],
                             ret_ty: Type::Ref,
                         },
                         Type::Ref,

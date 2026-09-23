@@ -212,7 +212,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_assertion_error_new(i64, i8)\n");
         self.out.push_str("declare i64 @dartforge_concurrent_modification_error_new(i64)\n");
         self.out.push_str("declare i64 @dartforge_type_error_new()\n");
-        self.out.push_str("declare i64 @dartforge_no_such_method_error_new()\n");
+        self.out.push_str("declare i64 @dartforge_no_such_method_error_new(i64)\n");
         self.out.push_str("declare i64 @dartforge_error_get_message(i64)\n");
         self.out.push_str("declare i64 @dartforge_error_get_name(i64)\n");
         self.out.push_str("declare i64 @dartforge_error_get_invalid_value(i64)\n");

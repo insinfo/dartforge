@@ -766,7 +766,25 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                     } else if name == "TypeError" {
                         output.push_str("TypeError");
                     } else if name == "NoSuchMethodError" {
-                        output.push_str("NoSuchMethodError");
+                        // PENDENTE: a VM imprime
+                        // "NoSuchMethodError: Class 'X' has no instance getter
+                        // 'y'." — para isso falta o nome da classe do receptor
+                        // no ponto do lancamento. Ate la, o nome do membro ja
+                        // e o que torna a falha diagnosticavel no placar.
+                        let nome_membro = fields
+                            .first()
+                            .and_then(|(b, _)| if *b != 0 {
+                                match heap.get(*b) {
+                                    Value::String(s) => Some(s.clone()),
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            });
+                        match nome_membro {
+                            Some(m) => output.push_str(&format!("NoSuchMethodError: {m}")),
+                            None => output.push_str("NoSuchMethodError"),
+                        }
                     } else if name == "StackTrace" || name == "_StackTrace" {
                         if let Some(m) = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None }) {
                             output.push_str(&m);
@@ -2603,12 +2621,12 @@ pub extern "C" fn dartforge_type_error_new() -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_no_such_method_error_new() -> i64 {
+pub extern "C" fn dartforge_no_such_method_error_new(nome: i64) -> i64 {
     HEAP.with(|h| {
         let st = dartforge_stack_trace_get();
         h.borrow_mut().allocate(Value::Object {
             class_id: 1012,
-            fields: vec![(0, false), (st, true)],
+            fields: vec![(nome, true), (st, true)],
         })
     })
 }
