@@ -20,6 +20,9 @@ import 'package:corpus_ngdart/src/a16_entrada_e_saida.template.dart' as a16;
 import 'package:corpus_ngdart/src/a17_projecao_com_select.template.dart' as a17;
 import 'package:corpus_ngdart/src/a18_interpolacao_nula.template.dart' as a18;
 import 'package:corpus_ngdart/src/a19_atributo_sem_valor.template.dart' as a19;
+import 'package:corpus_ngdart/src/a20_getter_mutavel.template.dart' as a20;
+import 'package:corpus_ngdart/src/a21_imutabilidade_composta.template.dart' as a21;
+import 'package:corpus_ngdart/src/a22_form_com_forms_directives.template.dart' as a22;
 import 'package:corpus_ngdart/src/b01_ciclo_de_vida.template.dart' as b01;
 import 'package:corpus_ngdart/src/b02_providers.template.dart' as b02;
 import 'package:corpus_ngdart/src/b03_view_child.template.dart' as b03;
@@ -80,6 +83,9 @@ void main() {
     a17.A17ProjecaoComSelectNgFactory,
     a18.A18InterpolacaoNulaNgFactory,
     a19.A19AtributoSemValorNgFactory,
+    a20.A20GetterMutavelNgFactory,
+    a21.A21ImutabilidadeCompostaNgFactory,
+    a22.A22FormComFormsDirectivesNgFactory,
     b01.B01CicloDeVidaNgFactory,
     b02.B02ProvidersNgFactory,
     b03.B03ViewChildNgFactory,
