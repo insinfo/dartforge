@@ -131,8 +131,6 @@ pub struct Relatorio {
     pub bibliotecas: usize,
     /// Fontes Dart vindas da geração em memória, não do disco.
     pub fontes_geradas: usize,
-    /// `(gerados por nós, examinados)` quando o gerador do ngdart correu.
-    pub gerador_ng: Option<(usize, usize)>,
     pub avisos_outline: usize,
     pub avisos_corpos: usize,
     pub modulos: usize,
@@ -242,7 +240,24 @@ pub fn compilar_com_relatorio(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<(Emitido, Relatorio), String> {
-    let (emitido, mut rel) = compilar_com(entrada, sdk_lib, packages, |a| {
+    compilar_com_relatorio_e_gerador(entrada, sdk_lib, packages, None)
+}
+
+/// Quem produz as fontes geradas (o motor de build, `crates/build`) a partir
+/// do programa carregado sem elas — o `BuildStep.resolver` numa passada.
+pub type Gerador<'a> = &'a dyn Fn(
+    &dartforge_elements::model::Program,
+    &Interner,
+) -> Result<std::sync::Arc<dartforge_elements::gerado::Geracao>, String>;
+
+/// Como [`compilar_com_relatorio`], com o gerador de fontes do projeto.
+pub fn compilar_com_relatorio_e_gerador(
+    entrada: &std::path::Path,
+    sdk_lib: Option<&std::path::Path>,
+    packages: Option<&std::path::Path>,
+    gerador: Option<Gerador<'_>>,
+) -> Result<(Emitido, Relatorio), String> {
+    let (emitido, mut rel) = compilar_com_gerador(entrada, sdk_lib, packages, gerador, |a| {
         emitir_programa(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
             .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     })?;
@@ -257,6 +272,17 @@ pub fn compilar_com<R>(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
+) -> Result<(R, Relatorio), String> {
+    compilar_com_gerador(entrada, sdk_lib, packages, None, fim)
+}
+
+/// Como [`compilar_com`], com o gerador de fontes (o motor de build).
+pub fn compilar_com_gerador<R>(
+    entrada: &std::path::Path,
+    sdk_lib: Option<&std::path::Path>,
+    packages: Option<&std::path::Path>,
+    gerador: Option<Gerador<'_>>,
     fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
     use dartforge_elements::sdk::SdkLayout;
@@ -289,53 +315,33 @@ pub fn compilar_com<R>(
     rel.fase("cache do SDK", t);
     let t = Instant::now();
     let mut interner = Interner::new();
-    // Fontes geradas em memória. `DARTFORGE_GERADOS=build_runner` monta a
-    // geração a partir do que o `build_runner` já escreveu — é como se verifica
-    // que ler de memória dá exatamente o mesmo JS que ler do disco, antes de
-    // trocar quem produz as strings.
+    // Fontes geradas em memória. Com `gerador` (o motor de build, ligado
+    // pelo `compile-js` quando o projeto usa `build_runner`), a geração vem
+    // dele. `DARTFORGE_GERADOS` fica um ciclo como sinônimo:
+    // `build_runner` = só o apoio (o que o `build_runner` já escreveu — é
+    // como se verifica que ler de memória dá o mesmo JS que ler do disco),
+    // `ng` = o motor (o padrão quando há gerador), `nenhum` = desliga.
     let modo = std::env::var("DARTFORGE_GERADOS").ok();
-    let gerados = match modo.as_deref() {
-        Some("ng") => {
-            // Nosso gerador do ngdart, com o build_runner de apoio no que ele
-            // ainda não sabe gerar. A aplicação compila em todos os passos.
-            let cfg = configuracao_de_pacotes(entrada, packages);
-            cfg.and_then(|c| {
-                let apoio = dartforge_elements::gerado::do_build_runner(
-                    &c,
-                    &[".template.dart", ".css.shim.dart"],
-                    filtro_de_pacotes().as_ref(),
-                );
-                let raiz = c.origin.as_ref()?.parent()?.parent()?.to_path_buf();
-                let nome = dartforge_gerador_ng::nome_do_pacote(&raiz)?;
-                let pacote = dartforge_gerador_ng::Pacote { nome, raiz };
-                // Fase 1: carregar o projeto sem os gerados, só para o
-                // gerador ter banco semântico — é o equivalente ao
-                // `BuildStep.resolver` do `package:build`. A carga é
-                // tolerante, então os `.template.dart` que faltam viram
-                // diagnóstico e o resto do programa fica de pé.
-                let t_fase1 = Instant::now();
-                let mut nomes_fase1 = Interner::new();
-                let (programa, _) = dartforge_elements::load::load_lenient(
-                    entrada,
-                    &sdk,
-                    packages,
-                    &mut nomes_fase1,
-                );
-                let resolvedor =
-                    dartforge_gerador_ng::resolucao::Resolvedor::novo(&programa, &nomes_fase1);
-                rel.fase("gerador: carga de resolução", t_fase1);
-                let mut nomes = Interner::new();
-                let (g, placar) = dartforge_gerador_ng::gerar_com_apoio(
-                    &pacote,
-                    &mut nomes,
-                    Some(&apoio),
-                    Some(&resolvedor),
-                );
-                rel.gerador_ng = Some((placar.gerados, placar.examinados));
-                Some(g)
-            })
+    let gerados = match (modo.as_deref(), gerador) {
+        (Some("nenhum"), _) => None,
+        (Some("ng"), None) => {
+            return Err("DARTFORGE_GERADOS=ng exige o motor de build: o projeto não usa build_runner".into());
         }
-        Some("build_runner") => {
+        (Some("ng") | None, Some(g)) => {
+            // Fase 1: carregar o projeto sem os gerados, só para o motor ter
+            // banco semântico — é o `BuildStep.resolver` do `package:build`.
+            // A carga é tolerante: os `.template.dart` que faltam viram
+            // diagnóstico e o resto do programa fica de pé.
+            let t_fase1 = Instant::now();
+            let mut nomes_fase1 = Interner::new();
+            let (programa, _) = dartforge_elements::load::load_lenient(entrada, &sdk, packages, &mut nomes_fase1);
+            rel.fase("motor: carga de resolução", t_fase1);
+            let t_motor = Instant::now();
+            let g = g(&programa, &nomes_fase1)?;
+            rel.fase("motor de build", t_motor);
+            Some(g)
+        }
+        (Some("build_runner"), _) => {
             let cfg = configuracao_de_pacotes(entrada, packages);
             cfg.map(|c| {
                 dartforge_elements::gerado::do_build_runner(

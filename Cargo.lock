@@ -329,9 +329,12 @@ name = "dartforge-cli"
 version = "0.1.0"
 dependencies = [
  "dartforge-abi",
+ "dartforge-build",
  "dartforge-dev",
+ "dartforge-elements",
  "dartforge-emit-js",
  "dartforge-emit-native",
+ "dartforge-intern",
  "dartforge-native",
  "serde_json",
 ]
@@ -392,6 +395,8 @@ dependencies = [
 name = "dartforge-dev"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "dartforge-build",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-emit-js",
@@ -437,7 +442,6 @@ dependencies = [
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
- "dartforge-gerador-ng",
  "dartforge-instrument",
  "dartforge-intern",
  "dartforge-types",
