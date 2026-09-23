@@ -12,7 +12,7 @@ abstract class Forma {
 abstract class Colorida {
   String get cor;
   set cor(String v);
-  String pinta(String tinta, bool brilho);
+  String pinta(String tinta, {bool brilho = false});
 }
 
 mixin Registro {
@@ -43,6 +43,7 @@ class Fantasma extends Base with Registro, Contagem implements Forma, Colorida {
     #cor: 'cor',
     const Symbol('cor='): 'cor',
     #pinta: 'pinta',
+    #brilho: 'brilho',
     #historico: 'historico',
     #registra: 'registra',
     #total: 'total',
@@ -74,7 +75,7 @@ class Fantasma extends Base with Registro, Contagem implements Forma, Colorida {
         : i.isSetter
             ? 'set'
             : 'metodo';
-    final nomeados = i.namedArguments.entries.map((e) => '${_nomes[e.key] ?? 'brilho'}=${e.value}').join(',');
+    final nomeados = i.namedArguments.entries.map((e) => '${_nomes[e.key] ?? '?'}=${e.value}').join(',');
     chamadas.add('$tipo $n ${i.positionalArguments} {$nomeados}');
     return _respostas[n];
   }
@@ -89,7 +90,8 @@ void main() {
   print(f.lados);
   print(f.cor);
   f.cor = 'verde';
-  print(f.pinta('tinta', true));
+  print(f.pinta('tinta', brilho: true));
+  print(f.pinta('sem brilho'));
   print(f.historico);
   f.registra('evento');
   print(f.total);
@@ -102,6 +104,6 @@ void main() {
   }
   final Forma forma = f;
   final Colorida colorida = f;
-  print('${forma.area() + forma.perimetro()} ${colorida.pinta('x', false)}');
+  print('${forma.area() + forma.perimetro()} ${colorida.pinta('x', brilho: false)}');
   print(f.chamadas.length);
 }

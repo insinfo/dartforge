@@ -58,20 +58,20 @@ fn encaminhadores_saem_na_ordem_do_cfe() {
     let texto = &modulos.iter().find(|(c, _)| c.ends_with("p8_nosuchmethod_ordem.js")).expect("módulo do programa").1;
     let classe = &texto[texto.find("class Fantasma").expect("classe Fantasma")..];
     let esperado = [
-        "incrementa(...args)",
+        "incrementa() {",
         "get dobro()",
         "get historico()",
-        "registra(...args)",
+        "registra(evento) {",
         "get total()",
-        "soma(...args)",
-        "area(...args)",
-        "perimetro(...args)",
+        "soma(a, b) {",
+        "area() {",
+        "perimetro() {",
         "get nome()",
         "set nome(v)",
         "get lados()",
         "get cor()",
         "set cor(v)",
-        "pinta(...args)",
+        "pinta(tinta, opts) {",
     ];
     let mut ultimo = 0;
     for m in esperado {

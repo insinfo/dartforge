@@ -728,6 +728,116 @@ fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, head_name: Opt
     (e.wrap_async_head(kind, &head, &extra_prologue, &body, &ret_ty), kind)
 }
 
+/// Encaminhador de `noSuchMethod` de um método abstrato (sem o nome), no
+/// contrato do DDC: o CFE o sintetiza com a assinatura completa do membro e
+/// o DDC o emite como um método comum — parâmetros de tipo primeiro,
+/// opcionais posicionais com o default da declaração, nomeados lidos de
+/// `opts` com o default — cujo corpo monta a `Invocation` com os tipos
+/// (`createRuntimeType`), **todos** os posicionais e um
+/// `LinkedMap<Symbol, dynamic>` com **todos** os nomeados, na ordem da
+/// declaração:
+///
+/// ```js
+/// pinta(x, opts) {
+///   let brilho = opts && 'brilho' in opts ? opts.brilho : false;
+///   return String[_as](dart.noSuchMethod(this, new core._Invocation.method(
+///     #pinta, null, [x], new _js_helper.LinkedMap.from(LinkedMap<Symbol,dynamic>, [#brilho, brilho]))));
+/// }
+/// ```
+///
+/// O retorno é convertido para o tipo declarado quando ele não depende de
+/// parâmetros de tipo da classe (os do próprio método estão em escopo).
+fn encaminhador_nsm(ctx: &Ctx, m: &ModState, c: ClassId, unit_classe: UnitId, fid: FunctionElementId, sym: &str) -> String {
+    let f = ctx.program.function(fid);
+    let data = &ctx.outline.functions[fid.0 as usize];
+    // Os defaults são constantes da biblioteca (e da classe) que declara o
+    // membro abstrato: resolvem-se no escopo dela.
+    let (unit, classe) = match f.node {
+        FunctionRef::Function { unit, .. } => (unit, f.class.unwrap_or(c)),
+        _ => (unit_classe, c),
+    };
+    let mut e = FnEmitter::new(ctx, m, unit, Some(classe), false);
+    let mut params_js: Vec<String> = Vec::new();
+    let mut tipos: Vec<Ty> = Vec::new();
+    for &pid in data.type_params.iter() {
+        let p = ctx.ty_param_of(pid);
+        let jsn = js::ident(&p.name);
+        e.fn_type_params.push((p.id, jsn.clone()));
+        params_js.push(jsn);
+        tipos.push(Ty::Param { id: p.id, name: p.name.clone(), nullable: false });
+    }
+    let sig = ctx.fn_ty(fid);
+    let (pjs, mut prologo, nomes) = match f.node {
+        FunctionRef::Function { unit, function } => {
+            let af = ctx.program.unit(unit).ast.function(function);
+            let ps: &[ast::Parameter] = af.parameters.as_deref().unwrap_or(&[]);
+            e.declare_params_nomes(ps, Some(&sig))
+        }
+        _ => {
+            // Sem nó (sintético): a assinatura dá os parâmetros, sem defaults.
+            let mut nomes = Vec::new();
+            let mut js_ps = Vec::new();
+            let mut prologo = String::new();
+            if let Ty::Fn { pos, opt, named, .. } = &sig {
+                for i in 0..pos.len() {
+                    let n = format!("p{i}");
+                    js_ps.push(n.clone());
+                    nomes.push((ast::ParameterKind::Required, n.clone(), n));
+                }
+                for i in 0..opt.len() {
+                    let n = format!("p{}", pos.len() + i);
+                    js_ps.push(format!("{n} = null"));
+                    nomes.push((ast::ParameterKind::Optional, n.clone(), n));
+                }
+                for (i, (n, _, _)) in named.iter().enumerate() {
+                    let jsn = format!("n{i}");
+                    prologo.push_str(&format!("let {jsn} = opts && {} in opts ? opts{} : null;
+", js::string_literal(n), js::prop_access(n)));
+                    nomes.push((ast::ParameterKind::Named, n.clone(), jsn));
+                }
+                if !named.is_empty() {
+                    js_ps.push("opts".into());
+                }
+            }
+            (js_ps.join(", "), prologo, nomes)
+        }
+    };
+    if !pjs.is_empty() {
+        params_js.push(pjs);
+    }
+    let posicionais: Vec<&str> = nomes.iter().filter(|(k, _, _)| *k != ast::ParameterKind::Named).map(|(_, _, j)| j.as_str()).collect();
+    let nomeados: Vec<(&str, &str)> = nomes.iter().filter(|(k, _, _)| *k == ast::ParameterKind::Named).map(|(_, n, j)| (n.as_str(), j.as_str())).collect();
+    let tipos_js = if tipos.is_empty() {
+        "null".to_string()
+    } else {
+        format!("[{}]", tipos.iter().map(|t| format!("dart_rti.createRuntimeType({})", e.rti(t))).collect::<Vec<_>>().join(", "))
+    };
+    let mapa = match ctx.symbol_ {
+        Some(simbolo) if !nomeados.is_empty() => {
+            let (cls, rti) = e.map_impl(&Ty::iface(simbolo), &Ty::Dynamic);
+            let pares: Vec<String> = nomeados
+                .iter()
+                .map(|(n, j)| format!("dart.const(new _internal.Symbol.new({})), {j}", js::string_literal(n)))
+                .collect();
+            format!("new {cls}.from({rti}, [{}])", pares.join(", "))
+        }
+        _ => "null".to_string(),
+    };
+    let ret = ctx.ty_of(data.return_type);
+    let mut usados = Vec::new();
+    ret.collect_params(&mut usados);
+    let so_do_metodo = usados.iter().all(|id| tipos.iter().any(|t| matches!(t, Ty::Param { id: p, .. } if p == id)));
+    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || !so_do_metodo { String::new() } else { format!("{}[_as]", e.rti(&ret)) };
+    prologo.push_str(&finish_body(&mut e));
+    format!(
+        "({}) {{
+{prologo}return {cast}(dart.noSuchMethod(this, new core._Invocation.method({sym}, {tipos_js}, [{}], {mapa})));
+}}",
+        params_js.join(", "),
+        posicionais.join(", ")
+    )
+}
+
 /// Fecha o corpo: declara temps.
 fn finish_body(e: &mut FnEmitter) -> String {
     let mut body = String::new();
@@ -1239,10 +1349,9 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let sym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&name));
             match mk {
                 crate::ctx::MemberKind::Method(fid) => {
-                    let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
-                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || ret.mentions_params() { String::new() } else { format!("{}[_as]", se.rti(&ret)) };
                     let jsname = js_member_name(&name);
-                    cw.line(&format!("{}(...args) {{ return {cast}(dart.noSuchMethod(this, new core._Invocation.method({sym}, null, args, null))); }}", js::prop_key(&jsname)));
+                    let texto = encaminhador_nsm(ctx, m, c, unit, fid, &sym);
+                    cw.line(&format!("{}{texto}", js::prop_key(&jsname)));
                     method_sigs.push((jsname.clone(), ctx.fn_ty(fid)));
                     if natives.contains(&name) {
                         ext_methods.push(jsname);

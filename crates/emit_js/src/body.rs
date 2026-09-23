@@ -801,6 +801,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Declara os parâmetros de uma função no escopo atual e devolve a lista
     /// de parâmetros JS (`a, b = 1, opts`) e o prólogo (nomeados).
     pub fn declare_params(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String) {
+        let (js, prologo, _) = self.declare_params_nomes(params, tys);
+        (js, prologo)
+    }
+
+    /// Como [`Self::declare_params`], devolvendo também, na ordem da
+    /// declaração, `(tipo do parâmetro, nome Dart, nome JS)` de cada um — o
+    /// encaminhador de `noSuchMethod` repassa cada parâmetro à `Invocation`.
+    pub fn declare_params_nomes(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String, Vec<(ast::ParameterKind, String, String)>) {
+        let mut nomes: Vec<(ast::ParameterKind, String, String)> = Vec::new();
         let mut js_params: Vec<String> = Vec::new();
         let mut prologue = String::new();
         let mut has_named = false;
@@ -839,6 +848,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ast::ParameterKind::Required => {
                     pi += 1;
                     let jsn = self.declare(name.sym, ty);
+                    nomes.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
                     js_params.push(jsn);
                 }
                 ast::ParameterKind::Optional => {
@@ -851,6 +861,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         None => "null".to_string(),
                     };
                     self.in_const = saved_const;
+                    nomes.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
                     js_params.push(format!("{jsn} = {def}"));
                 }
                 ast::ParameterKind::Named => {
@@ -864,6 +875,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     };
                     self.in_const = saved_const;
                     let key = self.name(name.sym);
+                    nomes.push((p.kind, key.to_string(), jsn.clone()));
                     prologue.push_str(&format!(
                         "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
                         js::string_literal(key),
@@ -875,7 +887,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if has_named {
             js_params.push("opts".to_string());
         }
-        (js_params.join(", "), prologue)
+        (js_params.join(", "), prologue, nomes)
     }
 
     /// Emite um corpo de função (bloco ou expressão) no escritor atual.
