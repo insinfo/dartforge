@@ -44,6 +44,13 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
+      # O corpus do ngdart (crates/gerador_ng/tests/corpus.rs) carrega o ngdart
+      # e o ngforms pelo .dart_tool/package_config.json, que fica fora do git.
+      # Sem ele o teste falha de propósito (antes, degradava em silêncio e só
+      # o caso que exige uma recusa específica acusava).
+      - name: pub get do corpus do ngdart
+        working-directory: corpus/ngdart
+        run: dart pub get
       # Clang 22.1.8 para os testes que compilam IR (abi, emit_native, jit).
       # `desenvolvimento`: llvm-config, LLVM-C.dll/.lib e os cabeçalhos da API C
       # para o llvm-sys do crates/jit (~73 MB a mais no cache).
