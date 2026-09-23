@@ -1616,3 +1616,15 @@ prejudicada, ou a análise nunca alcança 1.258 arquivos de uma vez). O 6 GB
 do relato de campo não foi reproduzido aqui; o afirmado é só o medido:
 in-process, 8,52 MiB de fonte → 19,94 MiB vivos (2,34×) com tudo retido, e
 o teste `plato_pelo_protocolo` trava o platô sob edição repetida.
+
+## Experimentos futuros — fora da trilha, com pré-condições
+
+Registrados para não se perderem; nenhum entra antes das suas pré-condições.
+
+* **ARC com coleta de ciclos no backend nativo** — `docs/EXPERIMENTO-ARC.md`.
+  Contagem de referências introduzida pelo compilador, sem sintaxe nova, com
+  coletor de ciclos no runtime (ARC puro vazaria os ciclos que o Dart
+  permite, inclusive os do próprio `async`). Depende do contrato R/E/N/G do
+  nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
+  `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
+  corpus, atrás de `--memoria tracing|arc`.

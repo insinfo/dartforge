@@ -36,7 +36,7 @@ pub enum Divergencia {
 /// Duas razoes. A primeira e determinismo: o relatorio tem de ser identico
 /// com 1, 4 e 8 trabalhadores, e um identificador de processo ou de thread na
 /// mensagem faz o texto mudar sozinho. A segunda e utilidade: um panico do
-/// runtime traz "thread '<unnamed>' (11220) panicked at ..." e o numero
+/// runtime traz `thread '<unnamed>' (11220) panicked at ...` e o numero
 /// quebrava UM defeito em varios grupos de dois programas, escondendo o
 /// tamanho real dele.
 ///
