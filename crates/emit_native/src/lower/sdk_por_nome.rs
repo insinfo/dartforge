@@ -221,13 +221,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             )
         } else if prop_name == "runtimeType" {
-            self.emit(
+            // RTI: o objeto `Type` canônico do tipo do valor (o mesmo caso de
+            // antes, agora com o tipo inteiro em vez do id da classe).
+            let v = self.coagir(target_op, Type::Ref);
+            let t = self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_value_class".to_string(),
-                    args: vec![(target_op, Type::Ref)],
+                    name: "dartforge_rti_do_valor".to_string(),
+                    args: vec![(v, Type::Ref)],
                     ret_ty: Type::I64,
                 },
                 Type::I64,
+            );
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_rti_objeto_tipo".to_string(),
+                    args: vec![(t, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
             )
         } else if prop_name == "keys" {
             self.emit(

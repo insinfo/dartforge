@@ -167,6 +167,19 @@ Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
 
+**Rodada 2, P6 + RTI: corpus nativo 91/223 (Pesado 35904857766, CI
+35904857783), JIT 91/223 sem divergência, os 91 também sob `--gc-stress`
+(job novo do `pesado.yml`, que reprova se um programa só falha com
+estresse).** `async`/`await` como máquina de estados com o quadro no heap,
+sobre o `dart:async` **compilado da fonte** (com `dart:_internal` e a
+`Duration`; só para quem usa `dart:async`), laço de eventos no runtime
+(microtarefas antes de timers, timers na ordem da VM); tipos em tempo de
+execução no desenho do dart2js (receitas, universo canônico, regras de
+supertipo; `is`/`as`/padrões genéricos, o cast inteiro, `Type`); `super`
+dentro de mixin. Um defeito do carregador corrigido: a parte de um arquivo
+de patch do SDK era carregada como parte comum. Detalhes em
+`docs/NATIVO-PLANO.md` §7.7–§7.8. Antes disto:
+
 **Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35871381320), JIT
 81/223 com zero divergências JIT × AOT; os 81 passam também sob
 `--gc-stress`.** Closures com captura em célula e a convenção uniforme de

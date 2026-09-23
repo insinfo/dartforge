@@ -137,3 +137,47 @@ em `tipos_de_locais` pelo offset do nome, como as demais locais.
    caminho estável (P2) e pula essa faixa, que continua sendo a das classes
    de erro que o runtime cria (`excecoes.rs`). Em P5d elas vêm da fonte e a
    faixa sai dos dois lados.
+
+## Do agente de P6/RTI (rodada 2, continuação)
+
+### Para o dono de `crates/types`: inferir bibliotecas do SDK pedidas (o pedido de δ, com o uso real)
+
+**O que o nativo faz até lá.** P6 compila o `dart:async` (e o
+`dart:_internal`, e as partes puras do `dart:core` que o `dart:async` exige,
+hoje só `Duration`) **da fonte**, com os corpos inferidos. Como a inferência
+pula toda biblioteca `is_sdk` (`BodyInferrer::new`, `infer_all`), o nativo
+desliga `is_sdk` dessas bibliotecas **na sua própria cópia do `Program`**,
+antes de `resolve_outline` (`crates/emit_native/src/fonte.rs`,
+`bibliotecas_da_fonte` e `separar_partes_do_core`). O único efeito de `is_sdk`
+no `crates/types` é esse (mais a preferência de extensão do SDK em
+`inferencia/membros.rs:272`, que não muda nada aqui).
+
+**Pedido:** o parâmetro que δ descreveu (inferir os corpos de bibliotecas do
+SDK pedidas explicitamente), e também a alocação da tabela de cada unidade
+dessas bibliotecas em `BodyInferrer::new` (hoje `UnitBodyTypes::default()`
+para toda unidade do SDK, então `set_*` é ignorado mesmo quando o corpo é
+visitado). Quando existir, `fonte.rs` troca o desligar de `is_sdk` pela
+chamada, e nada mais muda.
+
+**Também útil:** gravar os argumentos de tipo inferidos de cada invocação
+genérica (`f(x)` com `f<T>` inferido `T = int`). O nativo precisa deles para
+a tupla de argumentos de tipo (RTI, `lower/rti.rs::armar_tupla`) e hoje os
+deduz casando o retorno declarado com o tipo estático da chamada (e os
+parâmetros com os argumentos); o que não se deduz fica `dynamic`.
+
+### Para δ: mudanças mínimas aplicadas nos arquivos dele (registro)
+
+1. **`crates/runtime/src/heap.rs`: `Heap::metadados`** — um `i64` por slot
+   (o `metadata_ptr` do cabeçalho, NATIVO.md §2), zerado a cada alocação do
+   slot, com `metadado`/`set_metadado`. Guarda o tipo em tempo de execução
+   (RTI) de objetos genéricos, coleções com tipo de elemento e closures
+   (`tipos.rs`). Não é aresta do heap (é um id do universo de tipos), então o
+   coletor não o percorre.
+2. **`crates/emit_native/src/nativos.rs`:** `DartForge_scheduleImmediate`,
+   `DartForge_Timer_novo`, `DartForge_Timer_cancelar` e
+   `Error_trySetStackTrace` passam a `Runtime` (implementados em
+   `runtime/src/eventos.rs`).
+3. **`sdk_nativo/async/timer_patch.dart`:** `_Timer._novo` recebe o tear-off
+   `_disparar` (uma closure) em vez do próprio `_Timer`: o laço de eventos só
+   chama closures sem argumentos — o único ponto em que o runtime chama Dart
+   (`dartforge_laco_de_eventos`), sem precisar chamar um método pelo nome.

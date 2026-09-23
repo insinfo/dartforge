@@ -355,6 +355,21 @@ pub struct Module {
     /// Construtos que o lowering não sabe baixar (N1). Não vazio = o
     /// programa não compila; o emissor produz só a mensagem.
     pub erros: Vec<String>,
+    // --- P6 (bibliotecas da fonte, `fonte.rs`) ---------------------------
+    /// Diagnósticos das funções de bibliotecas do SDK compiladas da fonte,
+    /// pelo símbolo da função que os produziu: só viram `erros` se a poda
+    /// (`fonte::podar`) mantiver a função.
+    pub erros_da_fonte: Vec<(String, Vec<String>)>,
+    /// Funções da fonte que o runtime chama sem que o programa as referencie
+    /// (raízes da poda, além das funções do programa).
+    pub raizes_da_fonte: Vec<String>,
+    /// A função que o laço de eventos do runtime usa para chamar uma
+    /// closure sem argumentos (`dartforge_laco_de_eventos`, depois do
+    /// `main`). `None`: o programa não usa `dart:async` e não há laço.
+    pub chamar_dart: Option<String>,
+    /// RTI: a função que registra o universo de tipos antes do `main`
+    /// (`lower::rti::registrar_universo`); `None` sem receitas.
+    pub iniciar_rti: Option<String>,
 }
 
 impl Module {
