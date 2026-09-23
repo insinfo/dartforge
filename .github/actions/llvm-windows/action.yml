@@ -1,0 +1,75 @@
+name: LLVM 22.1.8 (Windows)
+description: >
+  Instala a MESMA versão de LLVM usada localmente (22.1.8) a partir do pacote
+  oficial clang+llvm-22.1.8-x86_64-pc-windows-msvc, só com o que o projeto usa,
+  e exporta DARTFORGE_CLANG, LLVM_SYS_221_PREFIX e DARTFORGE_LLVM_DIR.
+
+# Por que a mesma versão e não o LLVM que já vem no runner: o backend nativo
+# emite LLVM IR TEXTUAL, e o formato textual muda entre versões — um Clang de
+# outra versão pode recusar (ou aceitar diferente) o que o nosso emissor gera.
+#
+# O que se extrai, e para quê:
+#   bin/clang*.exe       o backend nativo (IR -> objeto -> ligação) e os testes
+#                        nativos. `clang*` e não só `clang.exe` porque o pacote
+#                        pode guardar os executáveis irmãos como hardlinks de um
+#                        deles, e extrair um hardlink sem o alvo falha.
+#   bin/llvm-config.exe  o build.rs do llvm-sys (crates/jit) exige; sem ele o
+#                        workspace inteiro não compila.
+#   bin/LLVM-C.dll       o crates/jit liga a API C como biblioteca compartilhada
+#   lib/LLVM-C.lib       (ver crates/jit/build.rs).
+#   include/             o llvm-sys compila wrappers/target.c com os cabeçalhos.
+# O pacote inteiro tem 862 MB comprimidos; o recorte cabe num cache pequeno,
+# com chave fixa pela versão (não muda com o código).
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: C:\llvm-22.1.8
+        key: llvm-22.1.8-windows-x64-recorte-v1
+
+    - name: Baixar e extrair o LLVM 22.1.8
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        raiz=clang+llvm-22.1.8-x86_64-pc-windows-msvc
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/$raiz.tar.xz"
+        inicio=$SECONDS
+        curl -fsSL --retry 3 -o "$RUNNER_TEMP/llvm.tar.xz" "$url"
+        echo "download: $((SECONDS - inicio)) s"
+        mkdir -p /c/llvm-22.1.8
+        membros=("$raiz/bin/clang*.exe" "$raiz/bin/llvm-config.exe" "$raiz/bin/LLVM-C.dll"
+                 "$raiz/lib/LLVM-C.lib" "$raiz/include")
+        # O tar do Git Bash é o GNU tar, que chama `xz` para -J; se o xz não
+        # estiver no PATH, o 7-Zip do runner descomprime para o pipe.
+        if command -v xz >/dev/null; then
+          tar -xJf "$RUNNER_TEMP/llvm.tar.xz" -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${membros[@]}"
+        else
+          7z x -so "$RUNNER_TEMP/llvm.tar.xz" | tar -xf - -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${membros[@]}"
+        fi
+        rm -f "$RUNNER_TEMP/llvm.tar.xz"
+        # Ferramentas que casaram com clang*.exe mas não são usadas.
+        rm -f /c/llvm-22.1.8/bin/clang-tidy.exe /c/llvm-22.1.8/bin/clang-format.exe \
+              /c/llvm-22.1.8/bin/clang-doc.exe /c/llvm-22.1.8/bin/clang-query.exe \
+              /c/llvm-22.1.8/bin/clang-include-cleaner.exe /c/llvm-22.1.8/bin/clang-apply-replacements.exe \
+              /c/llvm-22.1.8/bin/clang-change-namespace.exe /c/llvm-22.1.8/bin/clang-reorder-fields.exe \
+              /c/llvm-22.1.8/bin/clang-move.exe /c/llvm-22.1.8/bin/clang-include-fixer.exe \
+              /c/llvm-22.1.8/bin/clangd.exe /c/llvm-22.1.8/bin/clang-installapi.exe
+        echo "extração: $((SECONDS - inicio)) s no total"
+        du -sh /c/llvm-22.1.8 /c/llvm-22.1.8/*
+
+    - name: Exportar o LLVM para os passos seguintes
+      shell: pwsh
+      run: |
+        $raiz = 'C:\llvm-22.1.8'
+        $versao = & "$raiz\bin\clang.exe" --version | Select-Object -First 1
+        Write-Host $versao
+        if ($versao -notmatch '22\.1\.8') { throw "Clang inesperado: $versao" }
+        "DARTFORGE_CLANG=$raiz\bin\clang.exe" >> $env:GITHUB_ENV
+        "LLVM_SYS_221_PREFIX=$raiz" >> $env:GITHUB_ENV
+        "DARTFORGE_LLVM_DIR=$raiz" >> $env:GITHUB_ENV
+        # LLVM-C.dll tem de estar alcançável pelo carregador (testes do jit).
+        "$raiz\bin" >> $env:GITHUB_PATH

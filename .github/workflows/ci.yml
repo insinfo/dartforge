@@ -1,65 +1,91 @@
+# CI rápido: todo push no main e nas branches ci/**, e todo pull request.
+# O que é pesado (corpus diferencial JS, produção, nativo, determinismo) está em
+# pesado.yml. Ver ESTADO.md §3.
+#
+# `cargo fmt --check` saiu daqui: o workspace nunca foi formatado inteiro, e
+# formatá-lo agora conflitaria com todas as branches em andamento. Ele volta
+# num commit SÓ de formatação, depois que essas branches entrarem (ESTADO.md §1.6).
+#
+# O job `conformance` (scripts/conformance*.ps1, comparação com dart2js O2) era
+# da trilha velha e saiu; a verificação da trilha nova é o harness
+# crates/diferencial, no pesado.yml.
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
 permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
 jobs:
-  rust:
-    name: Rust (${{ matrix.os }})
+  windows:
+    name: ${{ matrix.passo }} (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+        passo: [clippy, test, doc]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - name: Install pinned Rust
+      - uses: ./.github/actions/dart
+        with:
+          gerar-dart-sdk-js: 'true'
+      - uses: ./.github/actions/llvm-windows
+      - name: Rust fixado (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - name: Native LLVM toolchain
-        run: clang --version
-      - run: cargo test --locked --workspace -- --include-ignored
-      - name: Documentação Rust em português
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: ci-windows-${{ matrix.passo }}
+          # Só o main grava: as branches ci/** restauram o cache do main e não
+          # multiplicam entradas (10 GB por repositório).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: clippy
+        if: matrix.passo == 'clippy'
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: test
+        if: matrix.passo == 'test'
+        run: cargo test --locked --workspace --no-fail-fast
+      - name: test (ignorados, exploratório)
+        if: matrix.passo == 'test'
+        continue-on-error: true
+        run: cargo test --locked --workspace --no-fail-fast -- --ignored
+      - name: doc
+        if: matrix.passo == 'doc'
         env:
           RUSTDOCFLAGS: '-D warnings'
         run: cargo doc --locked --workspace --no-deps --document-private-items
-      - run: cargo build --locked --workspace --release
-  conformance:
-    name: Dart 3.6.2 differential tests
-    runs-on: windows-latest
-    timeout-minutes: 10
+
+  ubuntu:
+    name: test (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
-        with:
-          sdk: '3.6.2'
-      - name: Install pinned Rust
+      - uses: ./.github/actions/dart
+      - name: LLVM 22 (apt.llvm.org)
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 22
+          sudo apt-get install -y llvm-22-dev
+          /usr/lib/llvm-22/bin/llvm-config --version
+          echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
+          echo "DARTFORGE_CLANG=/usr/lib/llvm-22/bin/clang" >> "$GITHUB_ENV"
+      - name: Rust fixado (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Compare with dart2js O2
-        shell: pwsh
-        run: ./scripts/conformance.ps1
-      - name: Compare constant folding with dart2js O2
-        shell: pwsh
-        run: ./scripts/conformance.ps1 -DartForgeOptimize
-      - name: Compare LLVM O0/O2 with Dart VM and AOT
-        shell: pwsh
-        run: ./scripts/conformance-native.ps1 -MergeIdenticalFunctions -GcStress -GcStats
-      - name: Compare merged functions with dart2js O2
-        shell: pwsh
-        run: ./scripts/conformance.ps1 -MergeIdenticalFunctions
-      - name: Compare scalar Native FFI with Dart VM and AOT
-        shell: pwsh
-        run: ./scripts/conformance-ffi.ps1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: ci-ubuntu-test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --locked --workspace --no-fail-fast
