@@ -50,10 +50,14 @@ function Compilar($item, $saida, $extra) {
 
 function Rodar($js) {
   Push-Location (Split-Path $js)
-  $out = & node $js 2>$env:TEMP/verificar-poda-err.txt
+  # stderr num arquivo do diretório de trabalho (D:), apagado logo depois de lido.
+  $err = Join-Path $trabalho 'node-stderr.txt'
+  $out = & node $js 2>$err
   $codigo = $LASTEXITCODE
   Pop-Location
-  [pscustomobject]@{ Stdout = ($out -join "`n"); Codigo = $codigo; Stderr = (Get-Content $env:TEMP/verificar-poda-err.txt -Raw) }
+  $stderr = Get-Content $err -Raw
+  Remove-Item $err -ErrorAction SilentlyContinue
+  [pscustomobject]@{ Stdout = ($out -join "`n"); Codigo = $codigo; Stderr = $stderr }
 }
 
 $falhas = 0

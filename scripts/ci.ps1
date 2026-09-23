@@ -86,7 +86,9 @@ if ($Acompanhar) {
 
 if ($Placar) {
     gh run view $Placar
-    $dir = Join-Path ([IO.Path]::GetTempPath()) "dartforge-ci-$Placar"
+    # No target/ do repositório (D:), nunca no %TEMP% do C:. Fica para leitura;
+    # a próxima -Placar do mesmo run o substitui e scripts/limpar.ps1 -Limpar o apaga.
+    $dir = Join-Path (Split-Path $PSScriptRoot -Parent) "target/tmp-ci-$Placar"
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     # Os artefatos relatorio-* e placar-* são texto pequeno; os binários não vêm.
     gh run download $Placar -D $dir -p 'relatorio-*' -p 'placar-*'
