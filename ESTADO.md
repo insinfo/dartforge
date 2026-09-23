@@ -88,8 +88,10 @@ estudada e o que ele ainda não faz estão em `docs/JS-PRODUCAO.md`.
   `var L$…` içados. **Bibliotecas nunca são fundidas** — dois arquivos
   vendorizados byte a byte iguais continuam com estado global separado e
   tipos de identidade distinta (`docs/PESQUISA-OTIMIZACAO.md` §3).
-* **Determinismo** por construção, com teste: duas montagens das mesmas
-  entradas dão o mesmo arquivo byte a byte.
+* **Determinismo** por construção, com teste de unidade (duas montagens das
+  mesmas entradas dão o mesmo arquivo byte a byte) e pelo modo
+  `dartforge-diferencial determinismo --producao --trabalhadores 1,4,8`,
+  que o backend nativo trouxe e que o perfil de produção passa.
 
 Contra o oficial (`dart compile js -O4`, SDK 3.6.2), amostra do corpus por
 `pwsh scripts/medir-js-producao.ps1`:

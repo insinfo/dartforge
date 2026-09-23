@@ -537,8 +537,18 @@ Nada entra sem passar por aqui.
      `frequency_namer.dart:72-86`); sem isso, dois builds iguais geram
      nomes diferentes.
 
-   O teste entra no `crates/diferencial`: compilar o mesmo programa com
-   1, 4 e 8 trabalhadores e comparar o arquivo byte a byte.
+   O teste já existe no `crates/diferencial`, trazido pelo backend nativo, e
+   o perfil de produção entra nele:
+
+   ```
+   dartforge-diferencial determinismo --producao --trabalhadores 1,4,8
+   ```
+
+   Verificado: saída idêntica com 1, 4 e 8. Duas peças do relatório
+   precisaram ser as mesmas dos dois executores para isso valer — a chave de
+   agrupamento de falhas normaliza o id de thread de um pânico do Rust e usa
+   a segunda linha do stderr, senão o texto do relatório mudaria sozinho
+   entre execuções.
 
 6. **Os cenários de `docs/PESQUISA-OTIMIZACAO.md` §9**, que são mais do que
    o corpus mede. Os que este perfil tem de responder:
