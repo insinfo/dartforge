@@ -12,8 +12,8 @@ publish = false
 workspace = true
 
 [dependencies]
-# O `heap` do runtime vem daqui; o harness (`runtime_main.rs`) é compilado neste
-# crate a partir da mesma fonte, por `build.rs` (provisório até a fonte única).
+# O runtime: `abi` (o mesmo `runtime_main.rs` que o AOT liga) e a tabela de
+# símbolos gerada dele (`simbolos`). Fonte única, ver crates/runtime/src/lib.rs.
 dartforge-runtime = { path = "../runtime" }
 # `no-llvm-linking`: as assinaturas e os invólucros de inicialização vêm daqui,
 # mas quem emite as diretivas de ligação é o `build.rs` deste crate, que liga a

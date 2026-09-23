@@ -20,6 +20,10 @@ const USO: &str = "uso:
       --producao acrescenta o quarto executor: o perfil de produção
       (dartforge-jsprod, arquivo único e podado) — o relatório passa a comparar
       VM × nosso desenvolvimento × nossa produção (docs/JS-PRODUCAO.md)
+      --jit executa o backend nativo pelo JIT ORCv2 (dartforge-executar-ir, ao
+      lado deste binário ou em DARTFORGE_EXECUTAR_IR) em vez do AOT; --jit-aot
+      executa também o AOT do MESMO IR, lista todo programa em que os dois
+      divergem (JIT≠AOT) e mede o tempo de cada perfil (docs/JIT.md)
   dartforge-diferencial contrato [--corpus DIR] [-o ARQUIVO]
       compila cada programa com o dartdevc e escreve docs/CONTRATO-DDC.md
   dartforge-diferencial verificar [--corpus DIR] [--filtro TEXTO]
@@ -221,6 +225,10 @@ fn main() {
             }
             "--sem-forge" => op.com_forge = false,
             "--nativo" => op.nativo = true,
+            // JIT: o mesmo modo nativo (VM como referência), executado pelo
+            // dartforge-executar-ir; --jit-aot também liga o AOT do mesmo IR.
+            "--jit" => (op.nativo, op.jit) = (true, true),
+            "--jit-aot" => (op.nativo, op.jit, op.jit_aot) = (true, true, true),
             "--gc-stress" => amb.gc_stress = true,
             "--executar" => executar = true,
             "--producao" => op.com_producao = true,
