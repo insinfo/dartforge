@@ -89,6 +89,9 @@ pub(crate) struct Corpo {
     /// Variáveis de condição (§7.10): `(verdadeiro, falso, versão)` do
     /// valor escrito na variável, restaurados na leitura como condição.
     pub condicoes: HashMap<LocalId, (Fluxo, Fluxo, u32)>,
+    /// Sobreposições explícitas de extensão (`E(x)`, R-EXT-02): a chamada
+    /// `E(x)` → a extensão e os argumentos de tipo dela.
+    pub sobreposicoes: HashMap<ast::ExprId, (ExtensionId, Vec<TypeId>)>,
 }
 
 /// Base de uma referência a campo promovível.
@@ -140,6 +143,7 @@ impl Corpo {
             campos: HashMap::new(),
             cadeias: Vec::new(),
             condicoes: HashMap::new(),
+            sobreposicoes: HashMap::new(),
         };
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).

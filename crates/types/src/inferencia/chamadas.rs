@@ -296,6 +296,31 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         return (t, false);
     }
     let u = inf.core.unknown;
+    // `E(x)` / `E<T>(x)`: sobreposição explícita de extensão (R-EXT-02).
+    if let Some(RefTipo::Extensao(x)) = referencia_a_tipo(inf, cx, target)
+        && args.args.len() == 1
+        && args.args[0].name.is_none()
+    {
+        let dados = inf.outline.extensions[x.0 as usize].clone();
+        let ext_args = match &explicitos {
+            Some(ex) if ex.len() == dados.type_params.len() => Some(ex.clone()),
+            _ => None,
+        };
+        let ctx_arg = match &ext_args {
+            Some(ex) => {
+                let mapa = inf.mapa(&dados.type_params, ex);
+                inf.subst(dados.on, &mapa)
+            }
+            None => u,
+        };
+        let t = inferir(inf, cx, args.args[0].value, ctx_arg);
+        let ext_args = match ext_args {
+            Some(ex) => ex,
+            None => inf.extensao_aplicavel(x, t).unwrap_or_else(|| inf.instanciar_para_limites(&dados.type_params)),
+        };
+        cx.sobreposicoes.insert(e, (x, ext_args));
+        return (t, false);
+    }
     match &a.expr(target).kind {
         ExprKind::Property { target: recv, name, null_aware } => {
             let (recv, name, null_aware) = (*recv, *name, *null_aware);
@@ -323,7 +348,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
-            match inf.buscar_membro(cx.lib, r_ty, name.sym, false) {
+            match expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, target, m.resolved.clone());
                     registrar(inf, cx, target, m.tipo);

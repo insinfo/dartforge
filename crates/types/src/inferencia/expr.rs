@@ -739,6 +739,18 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, nu
     }
 }
 
+/// Busca de membro no receptor `target`: sobreposição explícita de
+/// extensão (`E(x).m`) consulta só a extensão; senão a busca normal.
+pub(crate) fn buscar_membro_do_alvo(inf: &mut BodyInferrer<'_>, cx: &Corpo, target: ExprId, recv: TypeId, nome: SymbolId, setter: bool) -> Busca {
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        return match inf.membro_de_extensao_explicita(x, &args, nome, setter) {
+            Some(m) => Busca::Achado(m),
+            None => Busca::Ausente,
+        };
+    }
+    inf.buscar_membro(cx.lib, recv, nome, setter)
+}
+
 /// `target.name` (leitura).
 fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
@@ -783,7 +795,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
             _ => None,
         }
     };
-    let t = match inf.buscar_membro(cx.lib, recv, name.sym, false) {
+    let t = match buscar_membro_do_alvo(inf, cx, target, recv, name.sym, false) {
         Busca::Achado(m) => {
             resolver(inf, cx, e, m.resolved.clone());
             match base {

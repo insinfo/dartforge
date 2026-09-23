@@ -335,6 +335,22 @@ impl<'a> BodyInferrer<'a> {
         Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo, funcao: Some(f), de_extensao: true })
     }
 
+    /// Membro de instância da extensão `e` já instanciada (`E(x).m`,
+    /// sobreposição explícita, R-EXT-02): só essa extensão é consultada.
+    pub(crate) fn membro_de_extensao_explicita(&mut self, e: ExtensionId, args: &[TypeId], nome: SymbolId, setter: bool) -> Option<Membro> {
+        let chave = if setter { self.chave_setter(nome)? } else { nome };
+        let &f = self.program.extension(e).instance_members.get(&chave)?;
+        let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
+        let dados = self.outline.extensions[e.0 as usize].clone();
+        let t = if dados.type_params.len() == args.len() {
+            let mapa = self.mapa(&dados.type_params, args);
+            self.subst(t, &mapa)
+        } else {
+            t
+        };
+        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo, funcao: Some(f), de_extensao: true })
+    }
+
     /// Membro estático de uma classe (literal de classe como receptor):
     /// estáticos declarados, constantes de enum e tear-off de construtor.
     pub(crate) fn membro_estatico(&mut self, classe: ClassId, nome: SymbolId, setter: bool) -> Option<Membro> {
