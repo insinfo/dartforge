@@ -1640,6 +1640,9 @@ impl Corpo<'_> {
             if a.valor.contains("{{") {
                 return Err(em_filho("atributo interpolado no filho"));
             }
+            if a.nome.eq_ignore_ascii_case("tabindex") {
+                return Err(em_filho("tabindex no filho"));
+            }
             if a.nome == "style" && e.propriedades.iter().any(|p| p.nome.starts_with("style")) {
                 return Err(recusa(
                     Motivo::EstiloEmLinha,
@@ -3172,6 +3175,16 @@ impl Corpo<'_> {
             if a.nome == "class" {
                 self.linhas
                     .push(format!("    this.updateChildClass({alvo}, {valor});"));
+            } else if a.nome == "tabindex" || a.nome == "tabIndex" {
+                // `TabIndexBinding` (`binding_converter.dart`): o literal vira
+                // `el.tabIndex = N` (`visitTabIndexBinding`); não inteiro é
+                // erro de compilação no oficial.
+                match a.valor.trim().parse::<i64>() {
+                    Ok(n) if a.valor.trim() == a.valor => {
+                        self.linhas.push(format!("    {alvo}.tabIndex = {n};"));
+                    }
+                    _ => self.anotar(recusa(Motivo::Ligacao, "tabindex que não é inteiro"))?,
+                }
             } else if a.nome == "style"
                 && e.propriedades.iter().any(|p| p.nome.starts_with("style"))
             {
