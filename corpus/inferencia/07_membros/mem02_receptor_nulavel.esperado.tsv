@@ -1,0 +1,25 @@
+# 07_membros/mem02_receptor_nulavel.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	100	108	FunctionExpression	void Function(int?)	-	0	(int? x) { print([/*@*/x.toString(), /*@*/x.hashCode, /*@*
+4	3	113	92	MethodInvocation	void	FUNCTION:print	0	print([/*@*/x.toString(), /*@*/x.hashCode, /*@*/x?.isEven, /
+4	3	113	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+4	9	119	85	ListLiteral	List<Object?>	-	0	[/*@*/x.toString(), /*@*/x.hashCode, /*@*/x?.isEven, /*@*/x.
+4	15	125	12	MethodInvocation	String	METHOD:Object.toString	1	x.toString()
+4	15	125	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+4	17	127	8	SimpleIdentifier	String Function()	METHOD:Object.toString	0	toString
+4	34	144	10	PrefixedIdentifier	int	GETTER:Object.hashCode	1	x.hashCode
+4	34	144	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+4	36	146	8	SimpleIdentifier	int	GETTER:Object.hashCode	0	hashCode
+4	51	161	9	PropertyAccess	bool?	GETTER:int.isEven	1	x?.isEven
+4	51	161	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+4	54	164	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+4	67	177	13	PrefixedIdentifier	Type	GETTER:Object.runtimeType	1	x.runtimeType
+4	67	177	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+4	69	179	11	SimpleIdentifier	Type	GETTER:Object.runtimeType	0	runtimeType
+4	87	197	6	BinaryExpression	bool	METHOD:num.==	1	x == 1
+4	87	197	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+4	92	202	1	IntegerLiteral	int	-	0	1
+7	10	219	11	FunctionExpression	void Function()	-	0	() => f(1);
+7	16	225	4	MethodInvocation	void	FUNCTION:f	0	f(1)
+7	16	225	1	SimpleIdentifier	void Function(int?)	FUNCTION:f	0	f
+7	18	227	1	IntegerLiteral	int	-	0	1

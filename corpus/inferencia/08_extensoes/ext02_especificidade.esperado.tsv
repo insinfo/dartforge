@@ -1,0 +1,25 @@
+# 08_extensoes/ext02_especificidade.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	19	181	3	SimpleStringLiteral	String	-	0	'a'
+8	16	231	1	IntegerLiteral	int	-	0	1
+12	24	284	2	SimpleStringLiteral	String	-	0	''
+15	10	300	81	FunctionExpression	void Function()	-	0	() { print([/*@*/[1].q, /*@*/A([1]).q, /*@*/'a'.length, /*
+16	3	307	71	MethodInvocation	void	FUNCTION:print	0	print([/*@*/[1].q, /*@*/A([1]).q, /*@*/'a'.length, /*@*/X('a
+16	3	307	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+16	9	313	64	ListLiteral	List<Object>	-	0	[/*@*/[1].q, /*@*/A([1]).q, /*@*/'a'.length, /*@*/X('a').len
+16	15	319	5	PropertyAccess	int	GETTER:B.q	1	[1].q
+16	15	319	3	ListLiteral	List<int>	-	1	[1]
+16	16	320	1	IntegerLiteral	int	-	0	1
+16	19	323	1	SimpleIdentifier	int	GETTER:B.q	0	q
+16	27	331	8	PropertyAccess	String	GETTER:A.q	1	A([1]).q
+16	27	331	6	ExtensionOverride	-	-	1	A([1])
+16	29	333	3	ListLiteral	List<int>	-	0	[1]
+16	30	334	1	IntegerLiteral	int	-	0	1
+16	34	338	1	SimpleIdentifier	String	GETTER:A.q	0	q
+16	42	346	10	PropertyAccess	int	GETTER:String.length	1	'a'.length
+16	42	346	3	SimpleStringLiteral	String	-	1	'a'
+16	46	350	6	SimpleIdentifier	int	GETTER:String.length	0	length
+16	59	363	13	PropertyAccess	String	GETTER:X.length	1	X('a').length
+16	59	363	6	ExtensionOverride	-	-	1	X('a')
+16	61	365	3	SimpleStringLiteral	String	-	0	'a'
+16	66	370	6	SimpleIdentifier	String	GETTER:X.length	0	length

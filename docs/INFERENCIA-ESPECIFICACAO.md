@@ -1289,6 +1289,470 @@ Ex. (3.9+): `String y; if (i != null) y = 'a'; y` (`int i`) é válido; em 3.6
 é erro "y precisa ser atribuída" (`sdk:tools/experimental_features.yaml:
 258-264`).
 
-## 8–12. (parte seguinte)
+## 8. Membros: busca, extensões, `call`, tear-offs, operadores, cascatas
 
-Membros, extensões, `call`, tear-offs e operadores (§8), null safety (§9), padrões (§10), casos de borda do SDK (§11) e a tabela 3.6 → 3.14 (§12) entram na parte 3 desta especificação.
+Implementação: `an611:lib/src/dart/resolver/` (`type_property_resolver.dart`,
+`method_invocation_resolver.dart`, `property_element_resolver.dart`,
+`extension_member_resolver.dart`, `applicable_extensions.dart`,
+`function_reference_resolver.dart`, `binary_expression_resolver.dart`,
+`prefix_expression_resolver.dart`, `postfix_expression_resolver.dart`,
+`assignment_expression_resolver.dart`) e
+`an611:lib/src/dart/element/inheritance_manager3.dart`. Em 3.14 vários
+resolvedores foram divididos (`increment_or_decrement_resolver.dart`,
+`unary_operator_invocation_resolver.dart`, `logical_not_resolver.dart`,
+`null_assertion_expression_resolver.dart`) com as mesmas regras de tipo;
+onde só há citação `sdk:` a linha de 3.6 não foi conferida uma a uma, mas a
+regra é a mesma (as diferenças estão em §12).
+
+### 8.1 O despachante: `TypePropertyResolver.resolve` (R-MEM-01..04)
+
+Todo acesso a membro de instância (leitura, escrita, chamada, operador,
+padrão relacional, getter de padrão de objeto) passa por aqui
+(`an611:…/type_property_resolver.dart:62-231`; `sdk:…:64-243`), nesta ordem:
+
+| passo | condição | resultado | 3.6 |
+|---|---|---|---|
+| 1 | nome `new` | erro | 75-79 |
+| 2 | receptor limitado por `dynamic` (ou inválido) | busca **só em `Object`**, sem erro para nome desconhecido (resultado `dynamic`) | 81-90 |
+| 3 | anulabilidade: tipo de extensão só é anulável se escrito `V?`; os outros por `isPotentiallyNullable` | | 92-97 |
+| 4 | receptor **anulável**: (a) membros de `Object`; (b) senão extensões aplicáveis ao tipo anulável; (c) senão erro `UNCHECKED_*_OF_NULLABLE_VALUE` e recuperação por `resolveToBound` | | 99-177 |
+| 5 | não anulável: `resolveToBound(receptor)` | | 179 |
+| 5a | interface | `_lookupInterfaceType`; **membro da interface vence extensão** | 181-185 |
+| 5b | `Function` e nome `call` | sem erro, sem elemento | 186-191 |
+| 5c | tipo de função e nome `call` | o próprio tipo de função | 194-201 |
+| 5d | `Never` | busca em `Object`, erros suprimidos | 203-208 |
+| 5e | registro | `fieldByName` → campo | 210-220 |
+| 5f | nada ainda | extensões sobre o tipo **não resolvido** | 222-225 |
+| 5g | nada ainda | membros de `Object` | 227 |
+
+Regra do nome-base: se há o getter mas se pede o setter (ou o contrário),
+extensões **não** são consultadas ([3.6] `_lookupInterfaceType` sempre busca
+os dois nomes, `an611:…:251-268`; texto `lang:accepted/2.7/
+static-extension-methods/feature-specification.md:256`).
+
+**Interface (InheritanceManager3).** [3.6] `getMember(InterfaceType, …)`
+sobre `getMember2(InterfaceElement, …)` (`an611:…/inheritance_manager3.dart:
+278-298, 311-338`); [3.14] os nomes trocaram (`getMember3` sobre
+`getMember`, `sdk:…:223-288`). A interface guarda os membros declarados e,
+para cada outro nome, a assinatura mais específica herdada. Construção
+(`sdk:…:547-744`): superclasse, depois cada mixin (o membro do mixin
+**substitui** — `class X extends S with M1, M2` é a cadeia `S&M1`, `S&M2`),
+depois as interfaces; declarados vencem; nome não declarado →
+`_findMostSpecificFromNamedCandidates` (conflito getter/método é erro) →
+**assinatura combinada** (`_combineSignaturesImpl`, `sdk:…:433-471`): os
+candidatos cujo tipo é subtipo do tipo de **todos** os outros; nenhum →
+conflito; um (ou vários do mesmo tipo) → ele; senão `NNBD_TOP_MERGE` dos
+tipos de função normalizados ([3.6] `an611:…:94-108`, `topMerge` em `:1120`;
+texto `lang:accepted/2.12/nnbd/feature-specification.md:930-947`).
+`super.m` lê `superImplemented.last[nome]` (nulo para tipos de extensão;
+`an611:…:319-333`).
+
+Oráculo (mem01): `d.valor()` (sobrescrito com retorno `int`) → `int`, elemento
+`METHOD:D.valor`; `d.mm()` do mixin → `String`, `METHOD:M.mm`;
+`J implements I1 (num get v), I2 (int get v)`: `j.v` → **`int`**, elemento
+`GETTER:I2.v` (assinatura combinada).
+
+**Receptor anulável** (texto `nnbd/feature-specification.md:540-550,
+785-793`). Oráculo (mem02): `int? x`: `x.toString()` → `String`
+(`Object.toString`); `x.hashCode` → `int`; `x?.isEven` → `bool?`;
+`x.runtimeType` → `Type`; `x == 1` → `bool` (elemento `num.==`).
+
+**Receptor `dynamic`** (`spec:DartLangSpecDraft.txt:9334-9336,
+14689-14728`): resultado `dynamic`, salvo membros de `Object`: `d.hashCode` →
+`int`, `d.runtimeType` → `Type`, `d.toString()` → `String` **só se** o número
+de posicionais bate e não há nomeados (`_hasMatchingObjectMethod`,
+`an611:…/method_invocation_resolver.dart:197-201, 450-487`); `d == 1` →
+`bool`. Oráculo (mem03): `d.foo()`, `d.bar`, `d[0]`, `d + 1` → `dynamic`;
+`d.toString()` → `String`; `d.hashCode` → `int`; `d.runtimeType` → `Type`;
+`d == 1` → `bool`.
+
+**Receptor `Never`** (texto `nnbd/feature-specification.md:596-604,
+799-803`): chamada → `Never` (`an611:…/method_invocation_resolver.dart:
+532-549`); operador binário com esquerda `Never` → `Never`, **inclusive
+`==`**. Oráculo (mem03): `falha()` → `Never`; mas `falha().x` (propriedade
+inexistente, código morto) → **`InvalidType`** no 6.11 — não usar `Never`
+aqui para bater com o oráculo.
+
+**Variável de tipo** (`resolveToBound`, `sdk:…/type_system.dart:1681-1704`:
+`X & S` → S; `X` sem limite → `Object?`; senão o limite). Oráculo (mem04):
+`T extends List<int>`: `t.first` → `int`; `t.map((e) => e * 2.5)` →
+`Iterable<double>`; `t[0]` → `int`; `U` sem limite: `u.toString()` →
+`String`.
+
+**Tipo de função e `Function`**: `f.call(a)` tipa como `f(a)`; `f.call` → o
+tipo de função; `Function g; g.call(1)` → `dynamic`
+(`an611:…/method_invocation_resolver.dart:813-834`). **Registros**: `$1…$n`
+e getter por nome (`lang:accepted/3.0/records/feature-specification.md:
+397-403`); `r.$1(x)` chama o valor do campo (`an611:…:836-839`).
+
+### 8.2 Extensões (R-EXT-01..04)
+
+**Aplicabilidade** (texto `static-extension-methods/feature-specification.md:
+251-260`; `nnbd/…:908-917`): acesso de instância; o tipo não tem membro com
+o nome-base (`dynamic` "tem todos"; `Never`/`void` nunca têm extensão);
+`findExtension` = acessíveis → com o membro → `applicableTo(receptor)`
+(`sdk:…/extension_member_resolver.dart:93-104`). `applicableTo`
+(`an611:…/applicable_extensions.dart:186-245`; `sdk:…:205-281`): vazio para
+`Never`; para cada extensão, parâmetros de tipo novos e `GenericInferrer` com
+`constrainArgument(receptor, on-type cru)`; `tryChooseFinalTypes()` nulo →
+não aplicável; depois exige **`receptor <: on-type instanciado`**. Extensão
+`on int` não se aplica a `int?`.
+
+**Especificidade** (texto `:262-274`; `an611:…/extension_member_resolver.
+dart:382-414`; `sdk:…:465-503`): E1 mais específica que E2 se E2 é de
+biblioteca da plataforma e E1 não; ou, ambas (ou nenhuma) da plataforma,
+`T1 <: T2` (on-types instanciados) e (não `T2 <: T1`, ou os on-types
+instanciados para os limites estão estritamente ordenados). Torneio com
+conjunto de ambíguas (`sdk:…:346-387`); ambiguidade → erro
+(`AMBIGUOUS_EXTENSION_MEMBER_ACCESS` em 3.6).
+
+**Override explícito** `E(x).m` / `E<T>(x).m` (texto `:99-120, 169-215`;
+`an611:…/extension_member_resolver.dart:60-80, 142-209`): inferido como o
+construtor `E(this.$target)` sem contexto; `E(e)?.m` promove `e` a não nulo
+antes e torna o resultado anulável; fora de alvo de acesso é erro (tipo
+`dynamic`). Membros de extensão **não** recebem o refinamento numérico
+(`sdk:…/type_system.dart:1918-1924, 2020-2026`).
+
+**`call`, operadores, getters/setters de extensão**: mesmo caminho; `e(args)`
+usa o `call` de extensão se o tipo não tem `call`; **o tear-off implícito não
+usa `call` de extensão** (só membros da interface,
+`sdk:pkg/analyzer/lib/src/generated/error_detection_helpers.dart:315-347`);
+a instanciação explícita `e<T>` usa (`an611:…/function_reference_resolver.
+dart:152-170`).
+
+**Tipos de extensão (3.3)** (`lang:accepted/3.3/extension-types/
+feature-specification.md:535-670`; `sdk:…/inheritance_manager3.dart:746-778`):
+membros da declaração e das superinterfaces tipo de extensão; membros de
+`Object` sempre pelo caminho de não extensão; tipo de extensão é anulável só
+se escrito `V?`; exaustividade usa o apagamento.
+
+Oráculo: (ext01) `'a'.dobro` → `int` (extensão sem nome, elemento
+`GETTER:null.dobro`); `[1].primeiro` (`E<T> on List<T>`) → `int`;
+`[1.5].soma()` (`N<T extends num> on Iterable<T>`) → `double`;
+`[1].mapa((x) => '$x')` → `List<String>`. (ext02) `A on Iterable<int>` e `B on
+List<int>`: `[1].q` → `int` (B, mais específica); `A([1]).q` → `String`;
+`X on String { String get length }`: `'a'.length` → `int` (interface vence);
+`X('a').length` → `String`. (ext03) `on int?`: `x.vazio` → `bool`; operador
+`'abc' - 1` → `String`; `'abc'()` (`call` de extensão) → `int`. (ext04)
+`extension type Id(int v)`: `Id(1)` → `Id`; `i.proximo()` → `Id`; `i.v` →
+`int`; `Nome('a').length` (`implements String`) → `int`; `i as int` →
+`int`.
+
+### 8.3 `call` (R-MEM-05, R-MEM-11)
+
+| forma | regra | onde |
+|---|---|---|
+| `o(args)`, `o` interface com método `call` | como `o.call(args)` | `spec:DartLangSpecDraft.txt:9357-9365` |
+| `f.call(args)` em tipo de função; em `Function` | o tipo de função; `dynamic` | `an611:…/method_invocation_resolver.dart:813-834` |
+| tear-off implícito `F f = o;` | se o contexto **aceita tipo de função** (`F`, `Function` ou `FutureOr` deles, `an611:…/type_system.dart:126-131`), `o` é não anulável (variáveis de tipo pelo limite) e a **interface** tem `call`: vira `o.call` (`ImplicitCallReference`); `call` genérico é instanciado pelo contexto; não em alvo de cascata, ramo de `?:` ou operando de `??` | `an611:lib/src/generated/resolver.dart:4085-4146, 4195-4221`; `an611:lib/src/generated/error_detection_helpers.dart:312-334` |
+| explícito `o<T>` | `o.call<T>` (interface ou extensão) | `lang:accepted/2.15/constructor-tearoffs/feature-specification.md:362-364` |
+
+Nota do oráculo (mem05): o nó `ImplicitCallReference` não aparece no despejo
+(o visitante genérico não o visita); o identificador `f` em `int
+Function(String) g = f` fica com tipo `F`. `f('a')` →
+`FunctionExpressionInvocation` `int`; `f.call` → `int Function(String)`.
+(mem11) `T f<T>(T Function() g)`, `f(C())` com `C.call() → int` → `T = int`
+(o tear-off implícito entra na inferência como `int Function()`).
+
+### 8.4 Invocação genérica, tear-offs e instanciação (R-MEM-06)
+
+* Invocação `o.m<…>(args)`: o condutor de §2.1.
+* **Instanciação implícita pelo contexto** (`insertGenericFunctionInstantiation`,
+  `an611:lib/src/generated/resolver.dart:1171-1224`;
+  `an611:…/type_system.dart:635-670`; `an611:…/generic_inferrer.dart:199-226`):
+  tipo estático **genérico** de função e `flatten(K)` tipo de função **não
+  genérico** → casa o tipo sem os parâmetros de tipo com K e `chooseFinalTypes`;
+  embrulha num `FunctionReference`. Aplicado depois de identificadores,
+  acesso a propriedade, invocações, `as`, `await`, `=`, binárias, índice e
+  literais de função (RV 1867-3658).
+* **Explícita** `f<int>` (`an611:…/function_reference_resolver.dart:39-150,
+  225-285`): contagem errada → `dynamic`.
+* **Tear-off de construtor** (`an611:…/constructor_reference_resolver.dart:
+  88-146`; `invocation_inference_helper.dart:126-149`): classe genérica sem
+  argumentos → instanciada só se K é tipo de função; senão fica genérico.
+
+Oráculo (mem06, gen01): `int Function(int) f = id` → `FunctionReference`
+`int Function(int)` (o `SimpleIdentifier` interno guarda `T Function<T>(T)`);
+`id<String>` → `String Function(String)`; `var h = id` → `T Function<T>(T)`;
+`C.new` → `C<T> Function<T>()`; `C<int>.nomeado` → `C<int> Function()`;
+`C<num> Function() m = C.new` → `C<num> Function()`; `[1].map<String>` →
+`Iterable<String> Function(String Function(int))`. **Em toda chamada o
+identificador da função genérica guarda o tipo genérico** (`id` em `id(1)` →
+`T Function<T>(T)`), não o instanciado. (mem11) `S Function<S>(S) g = id` é
+válido (subtipagem de funções genéricas com renomeação dos parâmetros de
+tipo).
+
+### 8.5 Operadores (R-MEM-07..10)
+
+* **Binário** = chamada do operador do operando esquerdo
+  (`spec:DartLangSpecDraft.txt:10838-10845`); esquerda com contexto `_`,
+  direita com o parâmetro refinado; tipo (`an611:…/binary_expression_resolver.
+  dart:461-488`): esquerda `Never` → `Never`; `==` → `bool`; esquerda
+  dinâmica sem elemento → `dynamic`; senão o retorno do operador, refinado.
+* **Refinamento numérico** (`+ - * % remainder`, `clamp`; não para membros de
+  extensão) — contexto do operando direito (`an611:…/type_system.dart:
+  1880-1935`): `int` se `int <: C`, `num` não `<: C` e `T <: int?`; senão
+  `double` se `double <: C`, `num` não `<: C` e `T` não `<: double?`; senão
+  `num`. Tipo (`an611:…/type_system.dart:1982-2034`): `T <: double?` →
+  `double`; `S <: double?` (S não fundo) → `double`; `T, S <: int?` → `int`;
+  senão `num`; `clamp`: tudo `int` → `int`, tudo `double` → `double`, senão
+  `num`. ⚠ O texto dá `D` para `D extends double` e `d + i`; a implementação
+  e o teste dão `double` (`sdk:tests/language/operator/
+  number_operator_typing_test.dart:523-578`). Variáveis de tipo passam por
+  `resolveToBound` antes.
+* **Unários**: `-e`/`~e` → retorno de `unary-`/`~` (`-<literal>` repassa K);
+  `!e` → `bool` (`an611:…/prefix_expression_resolver.dart:77-148, 300-311`).
+* **`++`/`--`**: prefixo → resultado do operador; **sufixo → tipo de leitura
+  do operando** (`an611:…/prefix_expression_resolver.dart:211-247`;
+  `postfix_expression_resolver.dart:161-187`).
+* **Composta** `a op= b`: `refineBinaryExpressionType(leitura, op, b,
+  retorno)`; `=` → tipo do lado direito
+  (`an611:…/assignment_expression_resolver.dart:258-293`).
+* **Índice**: `[]` → retorno; alvo `Never` → `Never`; dinâmico → `dynamic`
+  (`an611:lib/src/generated/resolver.dart:2988-3041`).
+* `==`/`!=` → `bool`, busca em NonNull(esquerda), argumento contra parâmetro
+  anulável (`nnbd/feature-specification.md:807-824`); `is` → `bool`; `as T` →
+  `T`; `&&`/`||` → `bool`.
+
+Oráculo (mem07): `a + a` → `int`; `a + b` → `double`; `a + c` → `num`; `b + a`
+→ `double`; `a / a` → `double`; `a ~/ b` → `int`; `a % b` → `double`; `-a`,
+`~a` → `int`; `a.remainder(b)` → `double`; `a.clamp(1, 2)` → `int`;
+`a.clamp(1.5, 2)` → `num`; `T extends int`: `t + t` → `int`, `t + 1.5` →
+`double`, `t - a` → `int`, `a * t` → `int`; `U extends num`: `u * u` → `num`.
+(mem08) `i++`, `++i`, `i += 1` → `int`; `d += 1` → `double`; `num n; n +=
+1.5` → **`double`**; `l[0]` → `int`; `l[0] += 1`, `l[0]++` → `int`; `m['a']` →
+`int?`; `m['a'] ??= 2` → `int`; `ln?[0]` → `int?`. (mem09) `a == o`, `a <
+2`, `o is int`, `!b`, `a != 1`, `identical(a, o)` → `bool`; `o as num` →
+`num`.
+
+### 8.6 Cascatas, `this`, `super` (R-MEM-10)
+
+Cascata: alvo com o contexto da cascata, seções com `_`, tipo = tipo do alvo
+(`an611:lib/src/generated/resolver.dart:2145-2172`;
+`static_type_analyzer.dart:80-82`); `?..` mantém `T?`. Oráculo (mem10):
+`[1]..add(2)..length` → `List<int>`; `StringBuffer()..write('a')` →
+`StringBuffer`; `super.nome()` → `String` (nó `SuperExpression` com tipo da
+classe atual `B`); `this` → `B`.
+
+## 9. Null safety: `!`, `??`, `??=`, encurtamento nulo, `Never`/`Null`
+
+### 9.1 NonNull e `e!` (R-NUL-01)
+
+NonNull (texto `lang:accepted/2.12/nnbd/feature-specification.md:1055-1069`;
+`an611:…/type_system.dart:1500-1531`): `Null` → `Never`; `X & T` → `X &
+NonNull(T)`; `X` → `X & NonNull(limite)` (sem limite: `X & Object`; se não
+muda, `X`); `T?` → NonNull(T); o resto sem `?`. `e!`: operando com `K?`,
+**continua o encurtamento** (`a?.b!` fica na cadeia), tipo NonNull(T)
+(`an611:…/postfix_expression_resolver.dart:189-210`). Oráculo (nul01): `x!` →
+`int`; `l!.first` → `int`; `T? t; t!` → `T & Object`; `T t2; t2!` → `T &
+Object`; `U extends Object?; u!` → `U & Object`.
+
+### 9.2 `??` e `??=` (R-NUL-02, R-UP-08)
+
+§1.3 e §4.6: `e1` com `K?`; `e2` com K (ou T1 sem contexto); tipo
+`UP(NonNull(T1), T2)` com a regra de contexto de *inference-update-3*
+(`an611:…/binary_expression_resolver.dart:153-217`; `??=`
+`assignment_expression_resolver.dart:292-324`). Oráculo (nul02): `a ?? b`
+(`int?`, `double`) → `num`; `a ?? null` → `int?`; `s ?? 'x'` → `String`;
+`n ??= 1` (`num?`) → `num`; `a ?? a` → `int?`.
+
+### 9.3 Encurtamento nulo (R-NUL-03)
+
+Texto (`nnbd/feature-specification.md:1407-1546`): `?.` inicia; `.f`, `.m()`,
+`(args)`, `[e]`, `!` e atribuições continuam (PASSTHRU); **operadores
+terminam** (`e?.f + b` é erro). O tipo da cadeia inteira fica anulável **uma
+vez**, no término; **dentro da cadeia os tipos intermediários não são
+anuláveis**. [3.6] pilha local `_unfinishedNullShorts` e
+`nullShortingTermination` (`an611:lib/src/generated/resolver.dart:259,
+1241-1253`; cascatas não ficam anuláveis ali, `:1248`); a extensão da cadeia
+por nó está em `an611:lib/src/dart/ast/ast.dart` (`_extendsNullShorting`:
+atribuição `:968`, cascata `:2280`, chamada de função `:8720`, índice
+`:10390`, invocação de método `:12262`, sufixo `:14324`, prefixo `++/--`
+`:14535`, acesso a propriedade `:14689`). [3.14] `NullShortingMixin`
+compartilhado (`sdk:pkg/_fe_analyzer_shared/lib/src/type_inference/
+null_shorting.dart:36-128`). `?.` em receptor não anulável é aviso, e o tipo
+ainda fica anulável.
+
+Oráculo (nul03): `a?.b.c` → `int?` e o `a?.b` **interno** → `B`; `a?.b.m()`
+→ `int?`; `a?.b` sozinho → `B?`; `a?.bn?.c` → `int?` (interno `a?.bn` →
+`B?`); `a?.b.c.isEven` → `bool?` (internos `B`, `int`); `l?..add(1)` →
+`List<int>?`; `l?[0]` → `int?`; `l?.length` → `int?`.
+
+### 9.4 `throw`, `null`, `Never`, `Null`, `late` (R-NUL-04)
+
+`throw e` → `Never` (operando com contexto `Object`); `rethrow` → `Never`;
+`null` → `Null`; expressão `Never` torna o fluxo inalcançável
+(`an611:lib/src/generated/static_type_analyzer.dart:212-214, 225-227`).
+`var x = null` → `dynamic`; `var x = throw …` → `Never`
+(`sdk:tests/language/nnbd/never/never_error_test.dart:96-99`). Oráculo
+(nul04): `b ? 1 : throw 0` → `int`; `null` → `Null`; `[null]` → `List<Null>`.
+
+## 10. Padrões
+
+Texto: `lang:accepted/3.0/patterns/feature-specification.md` (esquemas
+`:1753-1890`, tipo requerido e fluxo do valor `:1892-2154`, `switch`
+`:2156-2163`, exaustividade `:2476-2534`) e `exhaustiveness.md`.
+Implementação: `fas76:lib/src/type_inference/type_analyzer.dart` (3.6) /
+`sdk:pkg/_fe_analyzer_shared/lib/src/type_inference/type_analyzer.dart`
+(3.14), com a cola do analyzer em `generated/resolver.dart`.
+
+### 10.1 Esquema do padrão (contexto do inicializador) (R-PAD-02)
+
+Só em declaração e atribuição de padrão. Linhas de 3.14 (`type_analyzer.dart`;
+as funções existem com os mesmos nomes em `fas76`):
+
+| padrão | esquema | 3.14 |
+|---|---|---|
+| e-lógico | DOWN dos lados | 1367-1372 |
+| `p!` | `esquema(p)?` | 1716-1723 |
+| variável / curinga `T x` | T; sem tipo → `_` | 752-758, 2747-2753 |
+| cast | `_` | 593 |
+| lista `<T>[…]` | `List<T>`; vazia → `List<_>`; senão DOWN dos esquemas dos elementos (resto `...s` contribui o T de `Iterable<T>`) | 1294-1330 |
+| mapa | `Map<K,V>` explícito; senão `Map<_, DOWN(valores)>` | 1623-1655 |
+| registro | registro dos esquemas dos campos | 2208-2223 |
+| objeto `C(…)` | o tipo escrito, instanciado para os limites provisoriamente | 1832-1834 |
+| ou-lógico, `p?`, constante, relacional | só em contexto refutável (recuperação) | |
+
+Declaração: esquema → inicializador com esse contexto (`:2024-2045`);
+atribuição `:1846-1860`. Oráculo (pad02): `var (double a, b) = (1, 2)` → o
+`1` é `double`, o `2` `int`; `final [double x] = [1]` → `List<double>`; `var
+(num c, int d) = (1, 2)` → `(int, int)` (o literal é o mais específico).
+(pad07) `var Caixa(:valor) = Caixa(1)` → `valor: dynamic` (esquema
+`Caixa<dynamic>` pelo tipo cru instanciado para os limites); `var
+Caixa<num>(valor: w) = Caixa(2)` → `Caixa<num>`, `w: num`.
+
+### 10.2 Tipo requerido e fluxo do valor casado M (R-PAD-01, 04, 05, 06)
+
+* **Variável `T x`/`var x`/`final x`**: tipo T, ou
+  `variableTypeFromInitializerType(M)` (Null → `dynamic`, rebaixado) sem
+  tipo; em contexto irrefutável, `M` não `<: T` é erro salvo `dynamic`
+  (`sdk:…:686-745`; [3.6] `fas76:…:501`).
+* **Curinga**: não liga; tipado promove.
+* **Cast `p as T`**: subpadrão casa `T`; requerido `Object?`.
+* **`p?` / `p!`**: o subpadrão casa NonNull(M); `p?` em contexto irrefutável
+  é erro.
+* **Constante**: valor com contexto M. **Relacional `op c`**: operador buscado
+  em M (`TypePropertyResolver`); operando com `A?` para `==`/`!=`, `A` senão;
+  retorno não atribuível a `bool` é erro. Em valor anulável, `> 0` é erro
+  (`unchecked_use_of_nullable_value` — medido ao escrever pad05).
+* **E-lógico**: esquerda com M, direita com o tipo promovido.
+  **Ou-lógico**: só refutável; variáveis fundidas.
+* **Lista**: E = argumento explícito, senão o de `List<T>` supertipo de M
+  (`asInstanceOf(List)`), senão `dynamic`/`Object?`; requerido `List<E>`;
+  elementos casam E; resto casa `List<E>` (`sdk:…:1197-1287`; [3.6]
+  `fas76:…:798-806`).
+* **Mapa**: K, V explícitos ou de M; chaves com contexto K; valores casam V;
+  resto é erro (`sdk:…:1496-1616`; [3.6] `fas76:…:1074-1089`).
+* **Registro**: requerido = mesma forma com campos `Object?`; campos casam os
+  de M se M tem a mesma forma, senão `dynamic`/`Object?`; depois o valor é
+  promovido ao tipo de registro demonstrado (`sdk:…:2124-2195`; [3.6]
+  `fas76:…:1612`).
+* **Objeto `C(f: p)`**: requerido X = C com argumentos de tipo inferidos
+  **para baixo a partir de M** (`constrainReturnType(C<T…>, M)` +
+  `chooseFinalTypes`, `sdk:pkg/analyzer/lib/src/generated/resolver.dart:
+  864-908, 5693-5717`); cada campo é getter ou tear-off buscado por
+  `TypePropertyResolver`; X `dynamic`/inválido/`Never` → todos os campos com
+  esse tipo. Teste: `sdk:tests/language/patterns/
+  object_pattern_inference_test.dart:24-117`.
+
+Oráculo: (pad01) `var (a, b) = (1, 'x')` → `int`, `String`; `final [x, y] =
+[1, 2.5]` → `num`, `num`; `var {'k': v} = {'k': 1.5}` → `double`; `var (n:
+z)` → `bool`; `var (p, q: r) = (1, q: [1])` → `int`, `List<int>`. (pad04)
+`Ponto(x: var px, :var y)` → `int`, `double`; `[var h, ...var t]` (`List<int>`)
+→ `int`, `List<int>`; `{'a': var a}` (`Map<String, num>`) → `num`; `List<int>
+li` → `List<int>`; `o` `Object` e `[var e]` → `e: Object?`. (pad05) `case var
+v? when v > 0` → `int`; `var (a!, b) = (n, 1)` → `int`, `int`; `var [c as int,
+d as String] = <Object>[…]` → `int`, `String`; `int j && > 3` → `int`; `int()
+|| double()` não promove `o` (`Object`). (pad06) `for (var (i, s) in l)` →
+`int`, `String`; `for (var MapEntry(:key, :value) in m.entries)` → `String`,
+`int`.
+
+### 10.3 Expressão `switch` e guardas (R-PAD-03)
+
+`sdk:…/type_analyzer.dart:2354-2501` ([3.6] `fas76:…:1779-1894`): escrutínio
+com `_`; **sem casos → `Never`**; braços com K; T = UP em dobra; S = fecho maior
+de K; regra de *inference-update-3* (§4.6). Guardas com contexto `bool`.
+Oráculo (pad03): `switch (o) { int i => i, String s => s.length.toDouble(), _
+=> 0 }` → `num`; `switch (fo) { Q() => 1, R() => 'r' }` → `Object`; (up08) com
+contexto `B1` → `B1`.
+
+### 10.4 Exaustividade (esboço)
+
+Obrigatória em `switch` **expressão** sempre; em **instrução** só para tipos
+*sempre exaustivos*: `bool`, `Null`, enums, `sealed`, `T?`, `FutureOr<T>`,
+registros desses, variáveis de tipo e `X & T` com esses limites
+(`isAlwaysExhaustive`, `an611:…/type_system.dart:832-844`; `sdk:…:844-888`;
+tipos de extensão pelo apagamento). Algoritmo (`exhaustiveness.md:272-885`;
+`fas76:lib/src/exhaustiveness/exhaustive.dart`, entrada `:39`): espaço
+`Space(raiz, tipo do valor)`; casos **com guarda não cobrem** (`:58`); cada
+caso é testado contra os anteriores sem guarda (inalcançável); `_unmatched`
+por colunas: sem colunas → coberto se sobra linha, senão **testemunha**;
+na primeira coluna, cada espaço: pula subtipos de `Never` (`:137`); tipo
+"selado" (se divide) testado inteiro e, se não coberto, dividido
+(`getSubtypes`); senão `_filterByType` mantém as linhas cujo tipo é
+**supertipo** do valor e expande propriedades (getters, campos de registro,
+cabeça/cauda/resto de lista) em colunas novas. Tipos que se dividem: `bool`;
+enum (valores); classe `sealed` (subclasses diretas); `T?` → `T | Null`;
+`FutureOr<T>` → `T | Future<T>`; `List<T>` por comprimentos `0..n-1` + `n+`
+(`sdk:pkg/_fe_analyzer_shared/lib/src/exhaustiveness/types/*.dart`). Fora do
+escopo do `crates/types` hoje (é diagnóstico, não tipo), mas o tipo `Never`
+de `switch` sem casos e a alcançabilidade depois de `switch` exaustivo
+dependem dele.
+
+## 11. Casos de borda dos testes do SDK
+
+`references/dart-sdk/tests/language/` (3.14; a regra é a mesma em 3.6 salvo
+indicação):
+
+| # | teste | afirma |
+|---|---|---|
+| 1 | `inference_update_3/if_null_test.dart:97-99` | `(int? ?? double)` com contexto `Object` → `num` (T <: S, fica T) |
+| 2 | `inference_update_3/if_null_test.dart:133-153` | `C1<int>? ?? C2<double>` com contexto `B1<_>` → `B1<Object?>`; com `B1<Object>` → `B1<Object>` |
+| 3 | `inference_update_3/if_null_test.dart:167-172` | `Iterable<int>? ?? List<num>` com contexto `Iterable<num>` → `Iterable<num>` (UP seria `Object`) |
+| 4 | `inference_update_3/switch_expression_test.dart:117-121, 185-188` | braços `C1<int>`/`C2<double>` com `B1<_>` → `B1<Object?>`; braços `null`/`int` → `int?` |
+| 5 | `inference_update_1/horizontal_inference_enabled_test.dart:13-16, 64` | parâmetro de closure inferido de argumento anterior; `f(0, (x) => [x])` → `List<int>` |
+| 6 | `inference_using_bounds/restricting_choices_using_bounds_test.dart:20-39` | [3.7+] limites restringem a escolha: `foo1<T extends Object>(FutureOr<Object?>)` → `Object`; `foo2<T extends num>(Null)` → `num` |
+| 7 | `inference_update_2/basic_field_promotion_test.dart:46-56` | campo final privado promove (`int`); público não (`int?`) |
+| 8 | `inference_update_2/promotion_makes_new_extension_available_via_non_nullability_test.dart:16-51` | depois de `_a != null`, getter, método, `call`, `[]`, `[]=` e `+` de extensão em `A` se aplicam |
+| 9 | `inference_update_4/assignment_promotion_in_if_statement_test.dart:22-30` | [não liberado] `(x ??= f()) == null` promove `x` no `else` |
+| 10 | `nnbd/static_errors/unchecked_use_of_nullable_test.dart:19-50` | em `int?`: `isEven`, `round()`, `+`, `-`, `++`, `[]`, `+=`, tear-off são erro; `toString()`, `hashCode`, `runtimeType`, `??=`, `x?.isEven` ok; `bool?` em condição é erro |
+| 11 | `nnbd/static_errors/equals_parameter_made_nullable_at_invoke_test.dart:21-31` | `Object == null` e `== FutureOr<int?>` válidos |
+| 12 | `nnbd/resolution/null_assertion_null_type_test.dart:12-15` | `Null n; f(n!)` ok: NonNull(Null) = `Never` |
+| 13 | `nnbd/resolution/question_dot_produces_nullable_type_test.dart:13-26` | `x?.bitLength + 1` é erro (anulável, operador termina a cadeia) |
+| 14 | `nnbd/resolution/question_question_lub_test.dart:10-24` | `int? ?? int` → `int`; `int ?? int?` → `int?` + código morto |
+| 15 | `nnbd/never/never_error_test.dart:16-99` | todo membro de `Never` é `Never` (inclusive `x == x`); `3 == x` → `bool`; extensões não se aplicam implicitamente a `Never`; `var t = throw "x"` → `Never` |
+| 16 | `nnbd/inference/variables_initialized_to_null_test.dart:49-55` | `var local0 = null;` e `var local1 = null as Null;` → `dynamic` |
+| 17 | `operator/number_operator_typing_test.dart:55-224` | `int+int` `int`, `int+double` `double`, `int+num` `num`, `int+dynamic` `num`, `int+Never` `num`, `Never+d` `Never`, `clamp` |
+| 18 | `operator/number_operator_typing_test.dart:523-578` | `I extends int`: `i+i` `int`; `D extends double`: `d+i` `double` (o texto diria `D`) |
+| 19 | `extension_methods/static_extension_resolution_test.dart:167-229` | interface vence extensão; on-type instanciado mais específico vence; `on T` instanciado ao receptor é o mais específico |
+| 20 | `extension_methods/static_extension_silly_types_test.dart:28-57` | extensões `on void`, `on dynamic`, `on FutureOr<Object>`, `on Null` casam `null`; `on Function` casa funções |
+| 21 | `call/implicit_tearoff_exceptions_test.dart:39-74` | tear-off de `call` aplicado à cascata inteira e ao condicional inteiro (`(b ? c : a)` tem tipo `A`) |
+| 22 | `call/method_implicit_tear_off_nullable_test.dart:14-23` | sem tear-off de `C?` |
+| 23 | `generic_methods/explicit_instantiated_tearoff_test.dart:17-24` | `staticMethod<int, String>` → `int Function(String, [String?])` |
+| 24 | `patterns/schema_test.dart:17-107` | esquema: DOWN de tipos de função (`void Function(num)`), `p!` anulável, `var [int x]` → `List<int>` |
+| 25 | `patterns/object_pattern_inference_test.dart:24-117` | argumentos do padrão de objeto do escrutínio (`C<num>`; `C<dynamic>` de `Object`; `D<num>` pelo limite; F-limitado `F1<F1<Object?>>`) |
+| 26 | `patterns/empty_switch_expression_test.dart:16-27` | `switch` vazio em `sealed` sem subtipos → `Never`, depois inalcançável |
+| 27 | `patterns/exhaustiveness/null_type_test.dart:8-46` | `Null _`/`null` cobre a metade nula de `int?`; duplicado inalcançável; faltando → não exaustivo |
+| 28 | `sdk:pkg/analyzer/test/src/dart/resolution/type_inference/function_expression_test.dart:19-1109` | retorno de closures: `() {}` → `Null`; `if (b) return 0;` → `int?`; `num Function() v = () => 0` → `int Function()`; `() sync* { yield 0; return; }` → [3.14] `Iterable<int>` ([3.6] `Iterable<int?>`, clo04) |
+
+## 12. O que muda de 3.6 a 3.14
+
+| área | 3.6 (oráculo) | 3.x+ | onde |
+|---|---|---|---|
+| *inference-using-bounds* | desligado | 3.7: restrição do limite `Mb <# B`; guarda em R-RES-03 | §2.8 |
+| restrições de funções genéricas | sem fecho sobre os Z | com fecho | §2.2 R-RES-18 |
+| substituição do limite na solução | `_` para os posteriores | os já fixados | §2.4 |
+| elementos nulos `?e` | indisponível | 3.8 | §3.3 |
+| *dot shorthands* (`.nome` pelo contexto) | indisponível | 3.10 | — |
+| `return;` em gerador | acrescenta `Null` | ignorado | §5.3 |
+| contexto de gerador/async pelo tipo imposto | `asInstanceOf` direto | `unionFreeType` | §5.2 |
+| DOWN: teste de subtipo | cru | fechos maiores de `_` | §4.3 |
+| UP: profundidade de aplicação de mixin nomeada | sem ajuste | −1 | §4.2.4 |
+| UP: guarda de profundidade | nenhuma | `Object?` no estouro | §4.2 |
+| `switch` expressão: fecho de K | `Object?` | `topType: dynamic` só no CFE | §4.6 |
+| `sound-flow-analysis` | ausente | 3.9 (10 regras) | §7.18 |
+| suspensão (`await`/`yield` em função local) | não demove | demove | §7.11 |
+| campo promovido a `Null` e alcance | não | 3.7 | §6.1 |
+| `?.` em `Never?` com nome fora de `Object` | resolução normal | `Never?` | §8.1 |
+| extensões estáticas | não | experimental | — |
+| nomes internos | `getMember`/`getMember2`, resolvedores unidos, pilha local de encurtamento | `getMember3`/`getMember`, resolvedores divididos, `NullShortingMixin` | §8, §9.3 |

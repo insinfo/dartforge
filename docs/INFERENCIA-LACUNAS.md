@@ -14,6 +14,25 @@ corpus indicado e comparar com o `.esperado.tsv` pelo `comparar.py`
 Situação: **confirmada** = o código lido faz outra coisa que o oráculo grava;
 **provável** = o código lido diverge da regra, sem programa no corpus ainda.
 
+## Prioridade (as 10 de maior impacto)
+
+Ordem pelo que o oráculo mede no `new_sali` (docs/FRONTEND-NEW-SALI.md) e
+pelo alcance da regra:
+
+1. **L11** interseção `X & S` (sem `Type::Intersection`; ~170 causas medidas
+   e bloqueia NonNull de variável de tipo, UP R-UP-g/h e `flatten`).
+2. **L22** tear-off genérico como alvo de chamada guarda o tipo instanciado
+   (~800 causas medidas).
+3. **L16** promoção de `?.` vaza para fora da cadeia (~450 causas medidas).
+4. **L12** promoção de campo final privado (3.2).
+5. **L05** *override inference* por nome, só com anotações escritas, ordem
+   não determinística.
+6. **L20** assinatura combinada de membros herdados.
+7. **L03** inferência horizontal sem fases por dependência.
+8. **L19** override explícito de extensão `E(x).m`.
+9. **L14/L15/L13** captura por closure, `finally`, escrutínio de padrão.
+10. **L02/L01/L04** spread na desambiguação conjunto/mapa, contexto de `e!`,
+    instanciar para os limites.
 ## Parte 1 — contexto, argumentos de tipo, literais, UP/DOWN, closures
 
 | # | regra | exemplo → oráculo | nosso código | situação |
@@ -53,3 +72,18 @@ Não são lacunas (conferido com o oráculo; o levantamento inicial as apontava)
 | L16 | R-FLU-15 / §7.15: a promoção do alvo de `?.` vale só dentro da cadeia; `a?.v != null` não promove `a` em 3.6 | `y?.isEven; y` → `int?` (flu20); `if (a?.v != null) a` → `A?` (flu15) | `inferencia/expr.rs:583-588` promove o alvo no fluxo corrente sem restaurar no fim da cadeia (docs/FRONTEND-NEW-SALI.md diz "corrigido na árvore de trabalho"; não está em `0ac6357`) | confirmada (leitura) |
 | L17 | §7.10: variáveis de condição — a leitura de `var t = x != null && …` restaura a informação de promoção | `var t = x != null && o.isEmpty; if (t) x` → `int` (flu03) | nenhum estado de condição por versão em `inferencia/fluxo.rs` | provável |
 | L18 | §7.1 R-FLU-P1: no ramo verdadeiro, `T` só entra em `tested` se promoveu (no falso, sempre) | efeito só em tipos de interesse posteriores | `inferencia/fluxo.rs:155-162` acrescenta `T` a `testados` também quando já era subtipo | provável, impacto baixo |
+
+## Parte 3 — membros, extensões, `call`, tear-offs, null safety, padrões
+
+| # | regra | exemplo → oráculo | nosso código | situação |
+|---|---|---|---|---|
+| L19 | §8.2: override explícito de extensão `E(x).m` / `E<T>(x).m` | `A([1]).q` → `String`; `X('a').length` → `String` (ext02) | `inferencia/chamadas.rs:395-398` devolve `None` quando o alvo é referência a extensão, e `inferencia/expr.rs:147` resolve `E` como `Type` → "não invocável", `dynamic` | confirmada (leitura) |
+| L20 | §8.1: assinatura combinada de membros herdados de várias interfaces (o candidato cujo tipo é subtipo de todos; senão `topMerge`) | `J implements I1 (num get v), I2 (int get v)`: `j.v` → `int`, elemento `GETTER:I2.v` (mem01) | `inferencia/membros.rs:73-84` devolve a primeira declaração na ordem de `supertipos_ordenados` (aqui `I1.v`: `num`) | confirmada (leitura) |
+| L21 | §8.3: tear-off implícito de `call` tem o tipo de `call` e entra na inferência assim | `T f<T>(T Function() g)`; `f(C())` (`int call()`) → `T = int`, `int` (mem11) | `inferencia/tipos.rs:219-233` só aceita na verificação de atribuibilidade; o tipo do argumento fica `C` e a restrição `C <# T Function()` não gera `T :> int` → `dynamic` | provável |
+| L22 | §8.4: o identificador de função genérica chamada guarda o tipo **genérico** (a instanciação fica na invocação) | `id(1)`: `id` → `T Function<T>(T)` (gen01, e todo `SimpleIdentifier` de chamada genérica no corpus) | `inferencia/chamadas.rs:279-282, 289-292` (e `:376-378`) registram o tipo instanciado no alvo (docs/FRONTEND-NEW-SALI.md: "corrigido na árvore de trabalho"; não está em `0ac6357`) | confirmada (leitura) |
+| L23 | subtipagem de funções genéricas: renomear os parâmetros de tipo (limites iguais) antes de comparar | `S Function<S>(S) g = id;` válido (mem11) | `subtyping.rs:272-275` só compara as quantidades; os tipos dos parâmetros são comparados por identidade de `TypeParamId` | provável (aviso espúrio) |
+| L24 | §8.1: `super.m` usa `superImplemented` (implementações concretas da cadeia de superclasses e mixins), não interfaces | `class B extends A implements I`: `super.m()` só acha `m` concreto de `A`/mixins | `inferencia/expr.rs:742-749` percorre `supertipos_ordenados` (inclui interfaces) | provável |
+| L25 | §8.2: especificidade de extensões — regra da plataforma e desempate pelos on-types instanciados para os limites | `E1<T> on SubTarget<T>` vence `E5<T> on T` (`sdk:tests/language/extension_methods/static_extension_resolution_test.dart:29, 210`) | `inferencia/membros.rs:252-292` compara só os on-types instanciados | provável |
+| L26 | §4.6 / §9.2: `??=` também usa a regra de contexto de *inference-update-3* | (sem caso sem erro de atribuição no corpus) | `inferencia/expr.rs:1212-1214` usa `UP` puro | provável, impacto baixo |
+| L27 | §10.1: esquema do e-lógico é DOWN dos dois lados | `var (void Function(int) x && void Function(double) y) = …` → contexto `void Function(num)` (`sdk:tests/language/patterns/schema_test.dart:17-19`) | `inferencia/padroes.rs:25-33` toma o primeiro lado conhecido | provável |
+| L28 | §8.1: propriedade inexistente em receptor `Never` | `falha().x` → `InvalidType` no 6.11 (mem03) | o nosso resolve membro em `Never` como `Never` (`inferencia/membros.rs`, receptor `Never`) | provável, impacto baixo |

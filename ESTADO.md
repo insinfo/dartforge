@@ -554,6 +554,10 @@ arquivo oficial correspondente serve de teste byte a byte.
    `frontend` 57.883 → **1.322**; divergências de tipo estático por
    expressão 137.428 → 1.625 (core) e 316.756 → 2.454 (frontend). Os
    grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
+   O contrato é `docs/INFERENCIA-ESPECIFICACAO.md` (regras do analyzer
+   6.11 com arquivo:linha, e o que muda até 3.14), com o corpus de
+   conformidade `corpus/inferencia/` (95 programas, tipos gravados pelo
+   oráculo) e a fila de lacunas do motor em `docs/INFERENCIA-LACUNAS.md`.
 2. **Escrita em disco** no `limitless_ui`: 233 s para 484 arquivos, contra
    10,5 s de compilação. É I/O do Windows com antivírus, não compilador —
    o `dartforge dev` já contorna (reescreveu 58 arquivos na recompilação),

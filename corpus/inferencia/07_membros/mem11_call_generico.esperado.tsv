@@ -1,0 +1,18 @@
+# 07_membros/mem11_call_generico.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	17	154	1	IntegerLiteral	int	-	0	1
+7	4	163	27	FunctionExpression	T Function<T>(T Function())	-	0	<T>(T Function() g) => g();
+7	27	186	3	FunctionExpressionInvocation	T	-	0	g()
+7	27	186	1	SimpleIdentifier	T Function()	PARAMETER:f.g	0	g
+8	5	195	14	FunctionExpression	T Function<T>(T)	-	0	<T>(T x) => x;
+8	17	207	1	SimpleIdentifier	T	PARAMETER:id.x	0	x
+9	10	219	78	FunctionExpression	void Function()	-	0	() { var a = /*@*/f(C()); S Function<S>(S) g = /*@*/id;
+10	16	239	6	MethodInvocation	int	FUNCTION:f	1	f(C())
+10	16	239	1	SimpleIdentifier	T Function<T>(T Function())	FUNCTION:f	1	f
+10	18	241	3	InstanceCreationExpression	C	CONSTRUCTOR:C.	0	C()
+11	29	275	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+12	3	281	13	MethodInvocation	void	FUNCTION:print	0	print([a, g])
+12	3	281	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	9	287	6	ListLiteral	List<Object>	-	0	[a, g]
+12	10	288	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.a	0	a
+12	13	291	1	SimpleIdentifier	S Function<S>(S)	LOCAL_VARIABLE:main.g	0	g

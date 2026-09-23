@@ -1,0 +1,55 @@
+# 07_membros/mem08_incremento_composto.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	72	244	FunctionExpression	void Function(int, double, num, List<int>, Map<String, int>, List<int>?)	-	0	(int i, double d, num n, List<int> l, Map<String, int> m, Li
+3	3	149	68	MethodInvocation	void	FUNCTION:print	0	print([/*@*/i++, /*@*/++i, /*@*/i += 1, /*@*/d += 1, /*@*/n
+3	3	149	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+3	9	155	61	ListLiteral	List<num>	-	0	[/*@*/i++, /*@*/++i, /*@*/i += 1, /*@*/d += 1, /*@*/n += 1.5
+3	15	161	3	PostfixExpression	int	-	1	i++
+3	15	161	1	SimpleIdentifier	-	PARAMETER:f.i	1	i
+3	25	171	3	PrefixExpression	int	-	1	++i
+3	27	173	1	SimpleIdentifier	-	PARAMETER:f.i	0	i
+3	35	181	6	AssignmentExpression	int	PARAMETER:f.i	1	i += 1
+3	35	181	1	SimpleIdentifier	-	PARAMETER:f.i	1	i
+3	40	186	1	IntegerLiteral	int	-	0	1
+3	48	194	6	AssignmentExpression	double	PARAMETER:f.d	1	d += 1
+3	48	194	1	SimpleIdentifier	-	PARAMETER:f.d	1	d
+3	53	199	1	IntegerLiteral	int	-	0	1
+3	61	207	8	AssignmentExpression	double	PARAMETER:f.n	1	n += 1.5
+3	61	207	1	SimpleIdentifier	-	PARAMETER:f.n	1	n
+3	66	212	3	DoubleLiteral	double	-	0	1.5
+4	3	221	92	MethodInvocation	void	FUNCTION:print	0	print([/*@*/l[0], /*@*/l[0] += 1, /*@*/l[0]++, /*@*/m['a'],
+4	3	221	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+4	9	227	85	ListLiteral	List<int?>	-	0	[/*@*/l[0], /*@*/l[0] += 1, /*@*/l[0]++, /*@*/m['a'], /*@*/m
+4	15	233	4	IndexExpression	int	METHOD:List.[]	1	l[0]
+4	15	233	1	SimpleIdentifier	List<int>	PARAMETER:f.l	1	l
+4	17	235	1	IntegerLiteral	int	-	0	0
+4	26	244	9	AssignmentExpression	int	METHOD:List.[]=	1	l[0] += 1
+4	26	244	4	IndexExpression	-	-	1	l[0]
+4	26	244	1	SimpleIdentifier	List<int>	PARAMETER:f.l	1	l
+4	28	246	1	IntegerLiteral	int	-	0	0
+4	34	252	1	IntegerLiteral	int	-	0	1
+4	42	260	6	PostfixExpression	int	-	1	l[0]++
+4	42	260	4	IndexExpression	-	-	1	l[0]
+4	42	260	1	SimpleIdentifier	List<int>	PARAMETER:f.l	1	l
+4	44	262	1	IntegerLiteral	int	-	0	0
+4	55	273	6	IndexExpression	int?	METHOD:Map.[]	1	m['a']
+4	55	273	1	SimpleIdentifier	Map<String, int>	PARAMETER:f.m	1	m
+4	57	275	3	SimpleStringLiteral	String	-	0	'a'
+4	68	286	12	AssignmentExpression	int	METHOD:Map.[]=	1	m['a'] ??= 2
+4	68	286	6	IndexExpression	-	-	1	m['a']
+4	68	286	1	SimpleIdentifier	Map<String, int>	PARAMETER:f.m	1	m
+4	70	288	3	SimpleStringLiteral	String	-	0	'a'
+4	79	297	1	IntegerLiteral	int	-	0	2
+4	87	305	6	IndexExpression	int?	METHOD:List.[]	1	ln?[0]
+4	87	305	2	SimpleIdentifier	List<int>?	PARAMETER:f.ln	1	ln
+4	91	309	1	IntegerLiteral	int	-	0	0
+7	10	327	32	FunctionExpression	void Function()	-	0	() => f(1, 2, 3, [1], {}, null);
+7	16	333	25	MethodInvocation	void	FUNCTION:f	0	f(1, 2, 3, [1], {}, null)
+7	16	333	1	SimpleIdentifier	void Function(int, double, num, List<int>, Map<String, int>, List<int>?)	FUNCTION:f	0	f
+7	18	335	1	IntegerLiteral	int	-	0	1
+7	21	338	1	IntegerLiteral	double	-	0	2
+7	24	341	1	IntegerLiteral	int	-	0	3
+7	27	344	3	ListLiteral	List<int>	-	0	[1]
+7	28	345	1	IntegerLiteral	int	-	0	1
+7	32	349	2	SetOrMapLiteral	Map<String, int>	-	0	{}
+7	36	353	4	NullLiteral	Null	-	0	null
