@@ -169,3 +169,22 @@ void main() {
     assert_eq!(r.tipo("super.f()"), "int");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// Tipo cru numa anotação do outline é instanciado para os limites
+/// (`Map` → `Map<dynamic, dynamic>`, `C` com `T extends num` → `C<num>`).
+#[test]
+fn tipo_cru_instanciado_para_os_limites() {
+    let r = ou_pula!(inferir(
+        r#"
+class C<T extends num> { T? v; }
+Map dados = {};
+C c = C();
+void main() {
+  var d = dados;
+  var v = c.v;
+}
+"#
+    ));
+    assert_eq!(r.tipo("dados"), "Map<dynamic, dynamic>");
+    assert_eq!(r.tipo("c.v"), "num?");
+}
