@@ -166,9 +166,7 @@ impl Diretiva {
         if self.e_componente {
             return Some("componente como diretiva".into());
         }
-        if !self.ligacoes_do_hospedeiro.is_empty() {
-            return Some("@HostBinding".into());
-        }
+
         if self.consultas {
             return Some("consulta de conteúdo ou de visão".into());
         }
@@ -270,6 +268,14 @@ pub struct Instancia {
     /// Os `ExistingProvider` do nó que apontam para esta instância, visíveis
     /// ou não: também por eles uma consulta a acha.
     pub apelidos: Vec<Token>,
+    /// Nenhum provedor ansioso (diretiva, componente) depende dele: o
+    /// oficial o cria no `afterElement` com `eager: false`, como campo
+    /// `late` com inicializador (`late List<T> _X_n_m = [..];`), e não no
+    /// `build()`.
+    pub preguicosa: bool,
+    /// Como a instância é lida: o campo, ou `campo.instance` quando a
+    /// diretiva tem `@HostBinding` e o campo guarda o `XNgCd` dela.
+    pub leitura: String,
 }
 
 /// Os provedores de diretivas de um nó, resolvidos.
@@ -278,7 +284,8 @@ pub struct NoResolvido {
     /// Os campos, na ordem de criação.
     pub instancias: Vec<Instancia>,
     /// As diretivas, na ordem em que o oficial as liga
-    /// (`transformedDirectiveAsts`: a dos provedores), com o campo de cada.
+    /// (`transformedDirectiveAsts`: a dos provedores), com a leitura da
+    /// instância de cada (o campo, ou `campo.instance` com `XNgCd`).
     pub diretivas: Vec<(Arc<Diretiva>, String)>,
 }
 
@@ -387,6 +394,7 @@ pub fn resolver(
             criar(&todos, i, &mut ordem, &mut vistos)?;
         }
     }
+    let ansiosos = ordem.len();
     // `afterElement`: o que sobrou (os apelidos, em geral).
     for i in 0..todos.len() {
         criar(&todos, i, &mut ordem, &mut vistos)?;
@@ -398,8 +406,9 @@ pub fn resolver(
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
     let mut saida = NoResolvido::default();
-    for &i in &ordem {
+    for (posicao, &i) in ordem.iter().enumerate() {
         let r = &todos[i];
+        let preguicosa = posicao >= ansiosos;
         if let (false, [Fonte::Existente(alvo)]) = (r.multi, r.fontes.as_slice())
             && let Some(real) = campos
                 .iter()
@@ -417,6 +426,14 @@ pub fn resolver(
             continue;
         }
         let campo = format!("_{}_{n}_{tamanho}", r.token.nome());
+        // Diretiva com `@HostBinding`: o campo é o `XNgCd` que a embrulha
+        // (`createProvider`, `providerHasChangeDetector`).
+        let leitura = match r.fontes.as_slice() {
+            [Fonte::Diretiva(d)] if !d.ligacoes_do_hospedeiro.is_empty() => {
+                format!("{campo}.instance")
+            }
+            _ => campo.clone(),
+        };
         let campo_de = |t: &Token| -> Option<String> {
             let t = apelidos
                 .iter()
@@ -438,7 +455,7 @@ pub fn resolver(
                         },
                     });
                 }
-                saida.diretivas.push((d.clone(), campo.clone()));
+                saida.diretivas.push((d.clone(), leitura.clone()));
                 Criacao::Diretiva {
                     diretiva: d.clone(),
                     args,
@@ -466,8 +483,10 @@ pub fn resolver(
                 Vec::new()
             },
             apelidos: Vec::new(),
+            preguicosa,
+            leitura: leitura.clone(),
         });
-        campos.push((r.token.clone(), campo));
+        campos.push((r.token.clone(), leitura));
         tamanho += 1;
     }
     for (apelido, real) in apelidos {

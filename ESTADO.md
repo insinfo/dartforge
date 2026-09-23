@@ -354,9 +354,9 @@ antes de toda alocação.
   gerou no `new_sali/frontend`
   (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
 
-  **new_sali/frontend: 174 arquivos gerados por nós (188 iguais byte a
-  byte contando os `.css.shim.dart`), 0 diferentes, 126 pendentes. Corpus:
-  97 de 103 oráculos conferidos, os 6 restantes recusados de propósito.**
+  **new_sali/frontend: 186 arquivos gerados por nós (212 iguais byte a
+  byte contando os `.css.shim.dart`), 0 diferentes, 114 pendentes. Corpus:
+  99 de 106 oráculos conferidos, os 7 restantes recusados de propósito.**
   (Medido em 2026-09-23, rodada 3; antes dela: 162 gerados, corpus 94/100;
   antes da rodada 2: 145, corpus 58/66.)
 
@@ -498,60 +498,50 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
 ### 2.0 O compilador de visões do ngdart
 
 Sem ele, `dartforge serve` ainda depende de o `build_runner` ter rodado
-uma vez no projeto (os 126 arquivos pendentes vêm do disco). Medido no
-new_sali/frontend em 2026-09-23 (`oraculo --listar`, rodada 3), com o
-conjunto completo de recusas de cada arquivo e cada uma contada pela
+uma vez no projeto (os 114 arquivos pendentes vêm do disco). Medido no
+new_sali/frontend em 2026-09-23 (`oraculo --listar`, fim da rodada 3),
+com o conjunto completo de recusas de cada arquivo e cada uma contada pela
 sub-forma:
 
 | motivo | aparece em | destrava sozinho |
 |---|---|---|
-| ligação no template | 63 | 3 |
-| diretiva casada por seletor | 61 | 9 |
+| ligação no template | 65 | 3 |
+| diretiva casada por seletor | 40 | 4 |
 | interpolação | 37 | 1 |
-| `style` em linha | 34 | 5 |
-| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 1 |
-| ligação em componente filho | 33 | 3 |
-| `@ViewChild` de componente ou diretiva | 31 | 3 |
-| folha de estilo | 27 | 4 |
-| evento | 18 | 0 |
+| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 3 |
+| ligação em componente filho | 31 | 3 |
+| `@ViewChild` de componente ou diretiva | 31 | 4 |
+| folha de estilo | 27 | 5 |
+| evento | 21 | 0 |
 | `providers: [..]` | 11 | 2 |
 
 As sub-formas mais frequentes:
 
 | sub-forma | aparece em | destrava sozinha |
 |---|---|---|
-| `style="..."` em linha | 34 | 5 |
 | interpolação: tipo desconhecido de propriedade | 31 | 0 |
-| `NgModel` no elemento de um componente | 28 | 3 |
-| `@ViewChild` de `#ref` em componente filho | 27 | 3 |
-| Sass ou CSS fora do subconjunto | 25 | 4 |
+| `@ViewChild` de `#ref` em componente filho | 27 | 4 |
+| Sass ou CSS fora do subconjunto | 25 | 5 |
 | local de `*ngFor` sem o tipo do elemento | 23 | 1 |
-| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 1 / 0 |
-| `MaxLengthValidator` (`@HostBinding`) | 17 | 2 |
-| nome fora do componente (ligação / evento) | 17 / 14 | 0 / 0 |
+| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 3 / 0 |
+| nome fora do componente (ligação / evento) | 17 / 17 | 0 / 0 |
 | `#ref` usado em expressão / em visão embutida | 15 / 14 | 0 / 0 |
-| filho com `providers` | 14 | 1 |
-| dependência de diretiva de fora do nó (injetor) | 12 | 1 |
+| dependência de diretiva de fora do nó (injetor) | 13 | 2 |
+| `<template>` escrito no template | 11 | 0 |
+| `providers:` no próprio componente | 11 | 2 |
+| `#ref` com valor (`#f="ngForm"`) | 10 | 0 |
 
 O que a rodada 3 destravou, sobre os 162 de antes: metadados lidos do
 programa no lugar do catálogo +0 (a mesma saída, 0 diferentes); page
 header (seletor composto, diretiva em tag não HTML, `@ContentChildren`
 preenchido) +8; `select`/`option` e diretivas do projeto (`@Host`,
-`OnDestroy`, ouvintes agrupados) +4. As sub-formas "diretiva X" que
-dominavam (page header 47/43, `CustomSelectControlValueAccessor` 28,
-`CustomNgSelectOption` 20) saíram da lista; o que resta de diretiva é
-forma que o emissor ainda não escreve (`@HostBinding` em diretiva usada,
-`@SkipSelf`, injeção de fora do nó, `NgModel` em componente).
-
-O que a rodada do plano 2 destravou, acumulado sobre os 145 de antes
-(estimativa do plano entre parênteses): imutabilidade e guarda +0 (+1),
-eventos +1 (+2), interpolação tipada +4 (+6), pipes +6 (+9), componente
-filho +15 (+21), ngforms +17 (+38). O plano contava a interpolação "simples" em embutida como
-resolvida e não via as diretivas do projeto (`CustomSelectControlValueAccessor`,
-`CustomNgSelectOption`, `PageHeader*`), que agora dominam a lista: o
-próximo passo é o page-header (passo 6) e um catálogo de diretivas lido
-do programa, não escrito à mão.
-
+`OnDestroy`, ouvintes agrupados) +4; `NgModel` em componente, provedor
+preguiçoso, `XNgCd` de validador usado, `style`/`tabindex` escritos +12.
+As sub-formas "diretiva X" que dominavam (page header 47/43,
+`CustomSelectControlValueAccessor` 28, `CustomNgSelectOption` 20,
+`NgModel` em componente 28, `MaxLengthValidator` 17, `style` 34) saíram
+da lista. O que domina agora é tipagem de expressão (membro de tipo
+desconhecido, local de `*ngFor`) e `#ref`/`@ViewChild` fora da visão raiz.
 Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
 arquivo oficial correspondente serve de teste byte a byte.
 
