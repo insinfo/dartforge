@@ -288,9 +288,23 @@ impl AnalisadorSintatico {
 impl Analisador for AnalisadorSintatico {
     /// Analisa com o parser completo, na versão de linguagem do arquivo, com
     /// recuperação por declaração.
+    ///
+    /// Depois da sintaxe, os verificadores de `crates/analise` que não
+    /// dependem de tipos (nomes duplicados, locais não usados) sobre o próprio
+    /// arquivo; destes, só sai o que a regra de publicação deixa
+    /// (`dartforge_analise::publicacao`): código verificado contra o oráculo.
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, texto);
         let mut nomes = dartforge_intern::Interner::new();
-        dartforge_frontend::parser::parse_com(texto, &mut nomes, features).diagnostics
+        let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
+        let mut saida = parsed.diagnostics;
+        let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit };
+        let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+        let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga)
+            .into_iter()
+            .map(|(_, d)| d)
+            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga));
+        saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));
+        saida
     }
 }

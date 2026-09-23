@@ -8,6 +8,7 @@ publish = false
 workspace = true
 [dependencies]
 dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-analise = { path = "../analise" }
 dartforge-elements = { path = "../elements" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
