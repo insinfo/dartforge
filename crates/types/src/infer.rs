@@ -37,6 +37,10 @@ pub struct BodyInferrer<'a> {
     /// variáveis continuam sendo inferidos em todas as bibliotecas, porque o
     /// tipo inferido de uma variável (`var x = 1;`) é lido por quem a usa.
     pub apenas_bibliotecas: Option<std::collections::HashSet<u32>>,
+    /// Atalhos de ponto (3.10): o tipo de contexto da cadeia de seletores,
+    /// registrado pelo nó mais externo da cadeia para o `DotShorthand` da
+    /// raiz, por `(unidade, expressão)`.
+    contexto_atalho: HashMap<(u32, u32), Option<TypeId>>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -71,6 +75,7 @@ impl<'a> BodyInferrer<'a> {
             },
             local_declared_types: HashMap::new(),
             apenas_bibliotecas: None,
+            contexto_atalho: HashMap::new(),
         }
     }
 
@@ -91,6 +96,109 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn erro_de_linguagem(&mut self, unit: UnitId, span: dartforge_diagnostics::Span, msg: String) {
         let arquivo = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         self.diagnostics.push(Diagnostic::new(format!("{ERRO_DE_LINGUAGEM}{arquivo}:{}: {msg}", span.start), span));
+    }
+
+    /// A declaração `D` que o contexto de um atalho de ponto denota (spec
+    /// 3.10, "Declaration denoted by a type scheme"): `C`/`C<…>` de classe,
+    /// mixin, enum ou extension type; `S?` e `FutureOr<S>` denotam o que `S`
+    /// denota. `Future<S>` também cai para `S` quando `Future` não tem o
+    /// membro: esta fase não achata o contexto do retorno de função `async`
+    /// (é aproximação só desta fase; o `emit_js` usa o contexto exato).
+    fn declaracao_do_atalho(&self, ctx: Option<TypeId>, nome: SymbolId) -> Option<dartforge_elements::model::ClassId> {
+        let mut t = ctx?;
+        loop {
+            match self.table.get(t) {
+                Type::Interface { class, args, .. } => {
+                    let c = *class;
+                    if Some(c) == self.core.future_class && args.len() == 1 && self.tipo_do_membro_de_atalho_existe(c, nome).is_none() {
+                        t = args[0];
+                        continue;
+                    }
+                    return Some(c);
+                }
+                Type::ExtensionType { decl, .. } => return Some(*decl),
+                Type::FutureOr { arg, .. } => t = *arg,
+                _ => return None,
+            }
+        }
+    }
+
+    /// O membro estático, a constante de enum ou o construtor `nome` de `d`
+    /// (`new` = o sem nome), se existir: o que um atalho de ponto encontra.
+    fn tipo_do_membro_de_atalho_existe(&self, d: dartforge_elements::model::ClassId, nome: SymbolId) -> Option<()> {
+        let class = self.program.class(d);
+        let chave_ctor = if self.interner.resolve(nome) == "new" { self.interner.lookup("") } else { Some(nome) };
+        (class.static_members.contains_key(&nome)
+            || class.enum_constants.iter().any(|v| self.program.variable(*v).name == nome)
+            || chave_ctor.is_some_and(|k| class.constructors.contains_key(&k)))
+        .then_some(())
+    }
+
+    /// O tipo de `D.nome` como valor: getter/campo estático, constante de
+    /// enum, método estático (tear-off) ou construtor (tear-off).
+    fn tipo_do_membro_de_atalho(&mut self, d: dartforge_elements::model::ClassId, nome: SymbolId) -> Option<TypeId> {
+        let class = self.program.class(d);
+        if let Some(&fid) = class.static_members.get(&nome) {
+            let f = self.program.function(fid);
+            return Some(match (f.kind, f.variable) {
+                (dartforge_elements::model::FunctionKind::ImplicitAccessor, Some(vid)) => {
+                    let v = &self.outline.variables[vid.0 as usize];
+                    v.declared_type.or(v.inferred).unwrap_or(self.core.dynamic_)
+                }
+                (dartforge_elements::model::FunctionKind::Getter, _) => self.outline.functions[fid.0 as usize].return_type,
+                _ => self.outline.functions[fid.0 as usize].signature,
+            });
+        }
+        if class.enum_constants.iter().any(|v| self.program.variable(*v).name == nome) {
+            return Some(self.table.intern(Type::Interface { class: d, args: Box::new([]), nullable: false }));
+        }
+        let chave = if self.interner.resolve(nome) == "new" { self.interner.lookup("")? } else { nome };
+        let fid = *class.constructors.get(&chave)?;
+        Some(self.outline.functions[fid.0 as usize].signature)
+    }
+
+    /// `.nome(args)` / `const .nome(args)` que é construção (spec 3.10: o
+    /// construtor de `D`, com os argumentos de tipo inferidos do contexto da
+    /// chamada, não do atalho). Método estático fica para o caminho comum da
+    /// chamada, que tipa o alvo pelo braço do `DotShorthand`.
+    #[allow(clippy::too_many_arguments)]
+    fn inferir_construcao_por_atalho(
+        &mut self,
+        unit: UnitId,
+        expr_id: ExprId,
+        alvo: ExprId,
+        nome: SymbolId,
+        arguments: &ast::Arguments,
+        context_type: Option<TypeId>,
+        scope: &mut ScopeStack,
+        flow: &mut FlowState,
+    ) -> Option<TypeId> {
+        let ctx = self.contexto_atalho.get(&(unit.0, alvo.0)).copied().unwrap_or(context_type);
+        let d = self.declaracao_do_atalho(ctx, nome)?;
+        let class = self.program.class(d);
+        if class.static_members.contains_key(&nome) {
+            return None;
+        }
+        let chave = if self.interner.resolve(nome) == "new" { self.interner.lookup("")? } else { nome };
+        let fid = *class.constructors.get(&chave)?;
+        self.contexto_atalho.remove(&(unit.0, alvo.0));
+        self.body_types.units[unit.0 as usize].set_resolved(alvo, Resolved::Element(Element::Class(d)));
+        self.body_types.units[unit.0 as usize].set_resolved(expr_id, Resolved::Constructor(fid));
+        let params = self.outline.classes[d.0 as usize].type_params.clone();
+        let args: Vec<TypeId> = match context_type.map(|c| self.table.get(c).clone()) {
+            Some(Type::Interface { class: cc, args, .. }) if cc == d && args.len() == params.len() => args.to_vec(),
+            _ => params.iter().map(|_| self.core.dynamic_).collect(),
+        };
+        let esperados: Vec<_> = self.outline.functions[fid.0 as usize].parameters.iter().map(|p| p.ty).collect();
+        for (i, arg) in arguments.args.iter().enumerate() {
+            let esperado = if arg.name.is_none() { esperados.get(i).copied() } else { None };
+            self.infer_expr(unit, arg.value, esperado, scope, flow);
+        }
+        Some(if class.kind == dartforge_elements::model::ClassKind::ExtensionType {
+            self.table.intern(Type::ExtensionType { decl: d, args: args.into_boxed_slice(), nullable: false })
+        } else {
+            self.table.intern(Type::Interface { class: d, args: args.into_boxed_slice(), nullable: false })
+        })
     }
 
     /// O símbolo `_` se a biblioteca da unidade tem curingas (Dart 3.7).
@@ -378,7 +486,32 @@ impl<'a> BodyInferrer<'a> {
         let expr = &self.program.unit(unit).ast.exprs[expr_id.0 as usize];
         let current_library = self.program.unit(unit).library;
 
+        // Atalho de ponto (3.10): o nó mais externo de uma cadeia de
+        // seletores cuja raiz é `.id` registra o contexto dela (o primeiro
+        // registro vale; `==` e padrões registram o deles antes).
+        if matches!(
+            expr.kind,
+            ExprKind::Property { .. } | ExprKind::Call { .. } | ExprKind::Index { .. } | ExprKind::TypeArguments { .. } | ExprKind::Unary { .. }
+        ) && self.program.library(current_library).features.tem(dartforge_frontend::Feature::DotShorthands)
+        {
+            if let Some(raiz) = self.program.unit(unit).ast.raiz_de_atalho(expr_id) {
+                self.contexto_atalho.entry((unit.0, raiz.0)).or_insert(context_type);
+            }
+        }
+
         let ty = match &expr.kind {
+            // Atalho de ponto sem chamada: `.id` (getter, campo, constante de
+            // enum, tear-off) ou `.new` (tear-off do construtor sem nome).
+            ExprKind::DotShorthand { name, .. } => {
+                let ctx = self.contexto_atalho.remove(&(unit.0, expr_id.0)).unwrap_or(context_type);
+                match self.declaracao_do_atalho(ctx, name.sym) {
+                    Some(d) => {
+                        self.body_types.units[unit.0 as usize].set_resolved(expr_id, Resolved::Element(Element::Class(d)));
+                        self.tipo_do_membro_de_atalho(d, name.sym).unwrap_or(self.core.dynamic_)
+                    }
+                    None => self.core.dynamic_,
+                }
+            }
             // 1. Literais numéricos: adaptação por contexto (int -> double)
             ExprKind::Int(_) => {
                 if let Some(ctx) = context_type {
@@ -792,6 +925,14 @@ impl<'a> BodyInferrer<'a> {
             }
             // 7. Chamadas de função / método
             ExprKind::Call { target, arguments } => {
+                // `.nome(args)`: construção pelo atalho de ponto (3.10).
+                if let ExprKind::DotShorthand { name, .. } = &self.program.unit(unit).ast.exprs[target.0 as usize].kind {
+                    let nome = name.sym;
+                    if let Some(t) = self.inferir_construcao_por_atalho(unit, expr_id, *target, nome, arguments, context_type, scope, flow) {
+                        self.body_types.units[unit.0 as usize].set_type(expr_id, t);
+                        return t;
+                    }
+                }
                 // `C(...)`, `C<T>(...)`, `C.nome(...)`, `p.C(...)`: instanciação sem `new`.
                 if let Some(t) = self.try_infer_constructor_call(unit, expr_id, *target, arguments, context_type, scope, flow) {
                     self.body_types.units[unit.0 as usize].set_type(expr_id, t);
@@ -991,6 +1132,12 @@ impl<'a> BodyInferrer<'a> {
             // 9. Operadores binários
             ExprKind::Binary { op, left, right } => {
                 let left_ty = self.infer_expr(unit, *left, None, scope, flow);
+                // `e == .x`: o atalho à direita usa o tipo da esquerda (3.10).
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+                    if let Some(r) = self.program.unit(unit).ast.raiz_de_atalho(*right) {
+                        self.contexto_atalho.insert((unit.0, r.0), Some(left_ty));
+                    }
+                }
                 let right_ty = self.infer_expr(unit, *right, None, scope, flow);
 
                 match op {
