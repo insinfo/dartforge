@@ -1,0 +1,2 @@
+@Deprecated.implement()
+mixin M {}

@@ -1,0 +1,6 @@
+extension type E(int i) {
+  abstract int foo;
+//             ^^^
+// [diag.inducedGetterWithoutBody] The getter induced by 'foo' must have a body.
+// [diag.inducedSetterWithoutBody] The setter induced by 'foo' must have a body.
+}

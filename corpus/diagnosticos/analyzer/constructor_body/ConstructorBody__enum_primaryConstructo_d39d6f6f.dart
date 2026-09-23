@@ -1,0 +1,3 @@
+enum const E() {
+  v;
+}

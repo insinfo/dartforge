@@ -1,0 +1,5 @@
+main() {
+  var v = 1;
+  print(++v);
+}
+print(x) {}

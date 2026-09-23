@@ -1,0 +1,6 @@
+mixin M {
+  static set foo(_) {}
+//           ^^^
+// [diag.conflictingStaticAndInstance] Class 'M' can't define static member 'foo' and have instance member 'M.foo' with the same name.
+  int get foo => 0;
+}

@@ -1,0 +1,2 @@
+@Deprecated.extend()
+class C {}

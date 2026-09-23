@@ -1,0 +1,5 @@
+extension A<T> on String {
+//          ^
+// [diag.conflictingTypeVariableAndMemberExtension] 'T' can't be used to name both a type parameter and a member in this extension.
+  set T(x) {}
+}

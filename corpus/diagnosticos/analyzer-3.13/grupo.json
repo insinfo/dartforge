@@ -1,0 +1,8 @@
+{
+  "sdk": "3.13.4",
+  "pacotes": [
+    "expect",
+    "meta"
+  ],
+  "origem": "references/dart-sdk/pkg/analyzer/test/src/diagnostics (um arquivo por trecho)"
+}
