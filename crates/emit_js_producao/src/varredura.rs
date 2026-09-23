@@ -195,6 +195,15 @@ pub fn entradas_de_classe(corpo: &str) -> Vec<(usize, usize)> {
 
 /// Índice da chave que fecha a que começa em `abre` (que aponta para `{`).
 pub fn fecha_chave(src: &str, abre: usize) -> Option<usize> {
+    fecha(src, abre, b'{', b'}')
+}
+
+/// Índice do colchete que fecha o que começa em `abre` (que aponta para `[`).
+pub fn fecha_colchete(src: &str, abre: usize) -> Option<usize> {
+    fecha(src, abre, b'[', b']')
+}
+
+fn fecha(src: &str, abre: usize, ab: u8, fe: u8) -> Option<usize> {
     let b = src.as_bytes();
     let mut i = abre;
     let mut d = 0i32;
@@ -210,9 +219,9 @@ pub fn fecha_chave(src: &str, abre: usize) -> Option<usize> {
                 continue;
             }
         }
-        if c == b'{' {
+        if c == ab {
             d += 1;
-        } else if c == b'}' {
+        } else if c == fe {
             d -= 1;
             if d == 0 {
                 return Some(i);
