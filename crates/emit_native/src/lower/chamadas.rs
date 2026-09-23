@@ -251,54 +251,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
-            // Receptor sem tipo útil: o membro pela classe dinâmica.
-            if self.receptor_dinamico(*inner_target) {
-                let alvos = self.alvos_por_nome(m_name);
-                if !alvos.is_empty() {
-                    let nome = m_name.to_string();
-                    let r2 = recv_op.clone();
-                    return self.despachar(
-                        recv_op,
-                        &alvos,
-                        super::despacho::Uso::Chamar,
-                        &mut |s: &mut Self| s.avaliar_args(ast, &arguments.args),
-                        &mut |s: &mut Self| {
-                            let n = s.erros.len();
-                            let r = s.metodo_sdk_por_nome(
-                                ast,
-                                expr,
-                                target,
-                                inner_target,
-                                &nome,
-                                r2.clone(),
-                                arguments,
-                            );
-                            if s.erros.len() > n {
-                                s.erros.truncate(n);
-                                return s.lancar_nsm(&nome);
-                            }
-                            r
-                        },
-                        expr.span,
-                    );
-                }
+            // Campo de record (com forma) de tipo função: `r.f(args)`.
+            if !self.formas_com_campo(m_name).is_empty() {
+                let nome = m_name.to_string();
+                let r2 = recv_op.clone();
+                return self.chamar_campo_de_registro(
+                    recv_op,
+                    m_name,
+                    &mut |s: &mut Self| s.avaliar_args(ast, &arguments.args),
+                    &mut |s: &mut Self| {
+                        s.chamada_sem_membro(ast, expr, target, inner_target, &nome, r2.clone(), arguments)
+                    },
+                );
             }
-
-            // `f.call(…)` sobre um valor função.
-            if m_name == "call" && self.e_valor_funcao(*inner_target) {
-                let avaliados = self.avaliar_args(ast, &arguments.args);
-                return self.chamar_valor_funcao(recv_op, &avaliados);
-            }
-
-            return self.metodo_sdk_por_nome(
-                ast,
-                expr,
-                target,
-                inner_target,
-                m_name,
-                recv_op,
-                arguments,
-            );
+            return self.chamada_sem_membro(ast, expr, target, inner_target, m_name, recv_op, arguments);
         }
 
         // Qualquer outra expressão como alvo (`f()()`, m['k']!(x),
@@ -339,5 +305,68 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => "chamada de valor de função".to_string(),
         };
         self.nao_suportado(&oque, expr.span)
+    }
+
+    /// `alvo.m(args)` quando `m` não é membro estático do tipo do alvo: o
+    /// membro pela classe dinâmica (receptor sem tipo útil), `f.call(…)`, ou
+    /// o membro do SDK casado pelo nome.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn chamada_sem_membro(
+        &mut self,
+        ast: &ast::Ast,
+        expr: &ast::Expr,
+        target: &ExprId,
+        inner_target: &ExprId,
+        m_name: &str,
+        recv_op: Operand,
+        arguments: &ast::Arguments,
+    ) -> Operand {        // Receptor sem tipo útil: o membro pela classe dinâmica.
+        if self.receptor_dinamico(*inner_target) {
+            let alvos = self.alvos_por_nome(m_name);
+            if !alvos.is_empty() {
+                let nome = m_name.to_string();
+                let r2 = recv_op.clone();
+                return self.despachar(
+                    recv_op,
+                    &alvos,
+                    super::despacho::Uso::Chamar,
+                    &mut |s: &mut Self| s.avaliar_args(ast, &arguments.args),
+                    &mut |s: &mut Self| {
+                        let n = s.erros.len();
+                        let r = s.metodo_sdk_por_nome(
+                            ast,
+                            expr,
+                            target,
+                            inner_target,
+                            &nome,
+                            r2.clone(),
+                            arguments,
+                        );
+                        if s.erros.len() > n {
+                            s.erros.truncate(n);
+                            return s.lancar_nsm(&nome);
+                        }
+                        r
+                    },
+                    expr.span,
+                );
+            }
+        }
+
+        // `f.call(…)` sobre um valor função.
+        if m_name == "call" && self.e_valor_funcao(*inner_target) {
+            let avaliados = self.avaliar_args(ast, &arguments.args);
+            return self.chamar_valor_funcao(recv_op, &avaliados);
+        }
+
+        self.metodo_sdk_por_nome(
+            ast,
+            expr,
+            target,
+            inner_target,
+            m_name,
+            recv_op,
+            arguments,
+        )
     }
 }

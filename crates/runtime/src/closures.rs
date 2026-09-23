@@ -107,7 +107,7 @@ pub extern "C" fn dartforge_env_get_ref(handle: i64, index: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
     let codigo = HEAP.with(|heap| match heap.borrow().try_get(handle) {
-        Some(Value::Closure { code_id, .. }) if handle != 0 => Some(*code_id),
+        Some(Value::Closure { code_id, .. }) => Some(*code_id),
         _ => None,
     });
     codigo.unwrap_or_else(|| {
@@ -120,7 +120,7 @@ pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
 /// (valor que não é função, ou aridade/nomes errados).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nsm_chamada() {
-    let nome = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String("call".to_string())));
+    let nome = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str("call"))));
     let erro = com_raizes(&[nome], || dartforge_no_such_method_error_new(nome));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
 }

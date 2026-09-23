@@ -1406,9 +1406,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let dartforge_frontend::ast::TypeKind::Named { name, .. } = &ty.kind else {
             return None;
         };
-        let ultimo = name.last()?;
         let lib = self.ctx.program.unit(self.unit_id).library;
-        let Some(Element::Class(c)) = self.ctx.program.lookup(lib, ultimo.sym)?.getter else {
+        // `= Alvo` ou `= Alvo.nome` (o parser lê `Alvo.nome` como um nome
+        // de tipo em duas partes).
+        let (classe, nome) = match (&name[..], nome) {
+            ([c, n], None)
+                if matches!(
+                    self.ctx.program.lookup(lib, c.sym).and_then(|b| b.getter),
+                    Some(Element::Class(_))
+                ) =>
+            {
+                (c.sym, Some(n.sym))
+            }
+            (partes, n) => (partes.last()?.sym, n),
+        };
+        let Some(Element::Class(c)) = self.ctx.program.lookup(lib, classe)?.getter else {
             return None;
         };
         let chave = nome.or_else(|| self.ctx.interner.lookup(""))?;

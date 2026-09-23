@@ -808,6 +808,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Call { target, arguments } => {
                 self.lower_chamada(ast, expr_id, expr, target, arguments)
             }
+            ExprKind::List { elements, .. }
+                if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_))) =>
+            {
+                self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span)
+            }
+            ExprKind::SetOrMap { elements, .. } if self.literal_e_conjunto(expr_id, elements) => {
+                self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span)
+            }
+            ExprKind::SetOrMap { elements, .. }
+                if !elements.iter().all(|e| {
+                    matches!(
+                        e,
+                        ast::CollectionElement::MapEntry {
+                            null_aware_key: false,
+                            null_aware_value: false,
+                            ..
+                        }
+                    )
+                }) =>
+            {
+                self.lower_literal_de_colecao(ast, super::literais::Colecao::Mapa, elements, expr.span)
+            }
             ExprKind::List { elements, .. } => {
                 let mut elem_ops = Vec::new();
                 for el in elements.iter() {

@@ -15,6 +15,7 @@ pub mod expressoes;
 pub mod extensoes;
 pub mod fn_builder;
 pub mod heranca;
+pub mod literais;
 pub mod locais;
 pub mod membros;
 pub mod operadores;

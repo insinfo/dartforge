@@ -545,6 +545,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 reason_phi,
                 ret_val_phi,
                 incoming: Vec::new(),
+                prof_break: self.break_targets.len(),
+                prof_continue: self.continue_targets.len(),
+                rotulos_break: self.labeled_break_targets.keys().copied().collect(),
+                rotulos_continue: self.labeled_continue_targets.keys().copied().collect(),
+                saltos: Vec::new(),
             });
         }
 
@@ -771,13 +776,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let b_norm = merge_block;
                 let b_ret = self.new_block();
                 let b_exc = self.new_block();
-                let b_brk = self.new_block();
-                let b_cont = self.new_block();
-
+                let b_saltos: Vec<BlockId> = scope.saltos.iter().map(|_| self.new_block()).collect();
+                let mut casos = vec![(0, b_norm), (1, b_ret), (2, b_exc)];
+                for (k, b) in b_saltos.iter().enumerate() {
+                    casos.push((5 + k as i64, *b));
+                }
                 self.terminate(Terminator::Switch {
                     val: Operand::Val(reason_phi),
                     default: b_norm,
-                    cases: vec![(0, b_norm), (1, b_ret), (2, b_exc), (3, b_brk), (4, b_cont)],
+                    cases: casos,
                 });
 
                 self.set_block(b_ret);
@@ -817,11 +824,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.terminate(Terminator::Return(self.default_return_operand_opt()));
                 }
 
-                self.set_block(b_brk);
-                self.route_break();
-
-                self.set_block(b_cont);
-                self.route_continue();
+                // Os saltos que atravessaram este `finally` continuam.
+                for (k, b) in b_saltos.into_iter().enumerate() {
+                    self.set_block(b);
+                    let (e_continue, rotulo) = scope.saltos[k];
+                    self.saltar(e_continue, rotulo);
+                }
             }
         }
 

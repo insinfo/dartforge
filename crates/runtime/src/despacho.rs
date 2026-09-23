@@ -60,10 +60,16 @@ enum Num {
 }
 
 fn ler_num(h: i64) -> Option<Num> {
-    HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::BoxedInt(i)) if h != 0 => Some(Num::I(*i)),
-        Some(Value::BoxedDouble(d)) if h != 0 => Some(Num::D(*d)),
-        _ => None,
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        // `Smi` ou `_Mint` (R10); senão a caixa de `double`.
+        if let Some(i) = heap.int_de_ref(h) {
+            return Some(Num::I(i));
+        }
+        match heap.try_get(h) {
+            Some(Value::BoxedDouble(d)) => Some(Num::D(*d)),
+            _ => None,
+        }
     })
 }
 
@@ -72,13 +78,13 @@ fn e_string(h: i64) -> bool {
         && HEAP.with(|heap| {
             matches!(
                 heap.borrow().try_get(h),
-                Some(Value::String(_) | Value::RawString(_))
+                Some(Value::String(_))
             )
         })
 }
 
 fn caixa_int(v: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedInt(v)))
+    HEAP.with(|heap| heap.borrow_mut().caixa_int(v))
 }
 
 fn caixa_double(v: f64) -> i64 {
@@ -93,7 +99,7 @@ fn caixa_bool(v: bool) -> i64 {
 fn nsm_operador(op: i64) -> i64 {
     let nome = HEAP.with(|heap| {
         heap.borrow_mut()
-            .allocate(Value::String(nome_do_operador(op).to_string()))
+            .allocate(Value::String(Texto::de_str(nome_do_operador(op))))
     });
     let erro = com_raizes(&[nome], || dartforge_no_such_method_error_new(nome));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
@@ -103,7 +109,7 @@ fn nsm_operador(op: i64) -> i64 {
 fn divisao_por_zero() -> i64 {
     let msg = HEAP.with(|heap| {
         heap.borrow_mut()
-            .allocate(Value::String("IntegerDivisionByZeroException".to_string()))
+            .allocate(Value::String(Texto::de_str("IntegerDivisionByZeroException")))
     });
     let erro = com_raizes(&[msg], || dartforge_unsupported_error_new(msg));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
@@ -218,7 +224,7 @@ pub extern "C" fn dartforge_dyn_unario(op: i64, a: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_record_len(h: i64) -> i64 {
     HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::Record(v)) if h != 0 => v.len() as i64,
+        Some(Value::Record(v)) => v.len() as i64,
         _ => -1,
     })
 }

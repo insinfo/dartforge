@@ -183,16 +183,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Branch(juncao));
             }
             None => {
-                let v = padrao(self);
-                let v = self.coagir(v, Type::Ref);
-                if !self.is_terminated() {
-                    entradas.push((self.current_block, v));
-                    self.terminate(Terminator::Branch(juncao));
-                }
+                // Record posicional do runtime não tem campo nomeado.
+                self.lancar_nsm(nome);
             }
         }
         self.set_block(b_padrao);
-        let v = padrao(self);
+        // O que não é record: o caminho de sempre; se ele não sabe o nome
+        // (o membro só existe em records), `NoSuchMethodError`.
+        let n_erros = self.erros.len();
+        let mut v = padrao(self);
+        if self.erros.len() > n_erros {
+            self.erros.truncate(n_erros);
+            v = self.lancar_nsm(nome);
+        }
         if !matches!(self.operand_type(&v), Type::Void | Type::Ptr) {
             let v = self.coagir(v, Type::Ref);
             if !self.is_terminated() {
@@ -342,5 +345,74 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I1,
         );
         self.terminate(Terminator::Return(Some(r)));
+    }
+
+    /// `r.f(args)` onde `f` é campo de alguma forma de record: nos records
+    /// com o campo, lê e chama o valor; nos demais receptores, `padrao`.
+    pub fn chamar_campo_de_registro(
+        &mut self,
+        recv: Operand,
+        nome: &str,
+        args: &mut dyn FnMut(&mut Self) -> Vec<super::membros::Avaliado>,
+        padrao: &mut dyn FnMut(&mut Self) -> Operand,
+    ) -> Operand {
+        let formas = self.formas_com_campo(nome);
+        let recv = self.coagir(recv, Type::Ref);
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(recv.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let juncao = self.new_block();
+        let b_padrao = self.new_block();
+        let blocos: Vec<(i64, usize, BlockId)> = formas.iter().map(|&(id, i)| (id, i, self.new_block())).collect();
+        self.terminate(Terminator::Switch {
+            val: cls,
+            default: b_padrao,
+            cases: blocos.iter().map(|&(id, _, b)| (id, b)).collect(),
+        });
+        let mut entradas = Vec::new();
+        for (_, i, b) in blocos {
+            self.set_block(b);
+            let f = self.campo_de_forma(recv.clone(), i);
+            let av = args(self);
+            let r = self.chamar_valor_funcao(f, &av);
+            if !self.is_terminated() {
+                entradas.push((self.current_block, r));
+                self.terminate(Terminator::Branch(juncao));
+            }
+        }
+        self.set_block(b_padrao);
+        let n_erros = self.erros.len();
+        let mut v = padrao(self);
+        if self.erros.len() > n_erros {
+            self.erros.truncate(n_erros);
+            v = self.lancar_nsm(nome);
+        }
+        if !self.is_terminated() {
+            let v = if matches!(self.operand_type(&v), Type::Void | Type::Ptr) {
+                Operand::Constant(Constant::Null)
+            } else {
+                self.coagir(v, Type::Ref)
+            };
+            if !self.is_terminated() {
+                entradas.push((self.current_block, v));
+                self.terminate(Terminator::Branch(juncao));
+            }
+        }
+        self.set_block(juncao);
+        if entradas.is_empty() {
+            return Operand::Constant(Constant::Null);
+        }
+        self.emit(
+            Instruction::Phi {
+                incoming: entradas,
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 }

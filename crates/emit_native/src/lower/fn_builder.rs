@@ -14,6 +14,17 @@ pub struct FinallyScope {
     pub reason_phi: ValueId,
     pub ret_val_phi: ValueId,
     pub incoming: Vec<(BlockId, i64, Operand)>,
+    /// Quantos alvos de `break`/`continue` sem rótulo existiam quando o
+    /// `try` começou: um salto para um deles atravessa este `finally`.
+    pub prof_break: usize,
+    pub prof_continue: usize,
+    /// Rótulos que já existiam quando o `try` começou (os de fora).
+    pub rotulos_break: std::collections::HashSet<SymbolId>,
+    pub rotulos_continue: std::collections::HashSet<SymbolId>,
+    /// Saltos (`break`/`continue`, com o rótulo) que atravessam este
+    /// `finally`: o de índice `k` entra com a razão `5 + k` e, no fim do
+    /// `finally`, continua o salto.
+    pub saltos: Vec<(bool, Option<SymbolId>)>,
 }
 
 pub struct FnBuilder<'a, 'c> {
@@ -519,6 +530,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_break_to(&mut self, label: Option<SymbolId>) {
+        self.saltar(false, label);
+    }
+
+    /// `break`/`continue` (com ou sem rótulo): direto ao alvo, ou pelo
+    /// `finally` mais interno que o salto atravessa (a razão `5 + k` do
+    /// salto `k` desse `finally`; no fim dele o salto continua — por outros
+    /// `finally` de fora, se atravessar mais). Um salto para um alvo DENTRO
+    /// do `try` (o laço do próprio corpo) não passa pelo `finally`.
+    pub fn saltar(&mut self, e_continue: bool, label: Option<SymbolId>) {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_exception_clear".to_string(),
@@ -527,16 +547,44 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        let target_opt = label
-            .and_then(|sym| self.labeled_break_targets.get(&sym).copied())
-            .or_else(|| self.break_targets.last().copied());
+        let (pilha, rotulados) = if e_continue {
+            (&self.continue_targets, &self.labeled_continue_targets)
+        } else {
+            (&self.break_targets, &self.labeled_break_targets)
+        };
+        let target_opt = match label {
+            Some(sym) => rotulados.get(&sym).copied(),
+            None => pilha.last().copied(),
+        };
+        let indice = pilha.len().checked_sub(1);
         if let Some(target) = target_opt {
-            if self.finally_scopes.is_empty() {
+            let atravessa = self.finally_scopes.last().is_some_and(|fin| match label {
+                Some(sym) => {
+                    if e_continue {
+                        fin.rotulos_continue.contains(&sym)
+                    } else {
+                        fin.rotulos_break.contains(&sym)
+                    }
+                }
+                None => {
+                    let prof = if e_continue { fin.prof_continue } else { fin.prof_break };
+                    indice.is_some_and(|i| i < prof)
+                }
+            });
+            if !atravessa {
                 self.terminate(Terminator::Branch(target));
             } else {
                 let default_ret = self.default_return_operand();
+                let atual = self.current_block;
                 let fin = self.finally_scopes.last_mut().unwrap();
-                fin.incoming.push((self.current_block, 3, default_ret));
+                let k = match fin.saltos.iter().position(|s| *s == (e_continue, label)) {
+                    Some(k) => k,
+                    None => {
+                        fin.saltos.push((e_continue, label));
+                        fin.saltos.len() - 1
+                    }
+                };
+                fin.incoming.push((atual, 5 + k as i64, default_ret));
                 let fin_entry = fin.entry_block;
                 self.terminate(Terminator::Branch(fin_entry));
             }
@@ -550,30 +598,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_continue_to(&mut self, label: Option<SymbolId>) {
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_exception_clear".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
-        let target_opt = label
-            .and_then(|sym| self.labeled_continue_targets.get(&sym).copied())
-            .or_else(|| self.continue_targets.last().copied());
-        if let Some(target) = target_opt {
-            if self.finally_scopes.is_empty() {
-                self.terminate(Terminator::Branch(target));
-            } else {
-                let default_ret = self.default_return_operand();
-                let fin = self.finally_scopes.last_mut().unwrap();
-                fin.incoming.push((self.current_block, 4, default_ret));
-                let fin_entry = fin.entry_block;
-                self.terminate(Terminator::Branch(fin_entry));
-            }
-        }
-        let dead = self.new_block();
-        self.set_block(dead);
+        self.saltar(true, label);
     }
 
     pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
