@@ -25,6 +25,68 @@ pub enum Divergencia {
     Linha(usize),
 }
 
+/// Tira da chave de agrupamento o que muda de execucao para execucao.
+///
+/// Duas razoes. A primeira e determinismo: o relatorio tem de ser identico
+/// com 1, 4 e 8 trabalhadores, e um identificador de processo ou de thread na
+/// mensagem faz o texto mudar sozinho. A segunda e utilidade: um panico do
+/// runtime traz "thread '<unnamed>' (11220) panicked at ..." e o numero
+/// quebrava UM defeito em varios grupos de dois programas, escondendo o
+/// tamanho real dele.
+///
+/// So numeros entre parenteses logo depois de `thread` e caminhos do cache do
+/// runtime (que tem o hash do fonte no nome) sao normalizados; o resto da
+/// linha fica como esta, porque e o que identifica o defeito.
+pub fn chave_de_falha(s: &Saida) -> String {
+    let mut linhas = s
+        .stderr
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty());
+    let Some(primeira) = linhas.next() else {
+        return "(stderr vazio)".to_string();
+    };
+    // Um panico do Rust tem a mensagem util na SEGUNDA linha; a primeira e
+    // `thread '<unnamed>' (11220) panicked at <caminho>:346:14:`, que so diz o
+    // arquivo do cache do runtime. Agrupar por ela junta 89 programas num
+    // grupo so e esconde qual e o defeito.
+    if primeira.starts_with("thread '") && primeira.contains("panicked at") {
+        if let Some(msg) = linhas.next() {
+            return format!("panic no runtime: {}", estabilizar_chave(msg));
+        }
+    }
+    estabilizar_chave(primeira)
+}
+
+pub fn estabilizar_chave(linha: &str) -> String {
+    let mut saida = String::with_capacity(linha.len());
+    let mut resto = linha;
+    while !resto.is_empty() {
+        // `runtime_cc150463840c488f.rs` -> `runtime_<hash>.rs`
+        if let Some(sem) = resto.strip_prefix("runtime_") {
+            let hex: usize = sem.chars().take_while(|c| c.is_ascii_hexdigit()).count();
+            if hex > 0 {
+                saida.push_str("runtime_<hash>");
+                resto = &sem[hex..];
+                continue;
+            }
+        }
+        // `thread '<unnamed>' (11220) panicked` -> `thread '<unnamed>' (N) panicked`
+        if let Some(sem) = resto.strip_prefix('(') {
+            let dig: usize = sem.chars().take_while(|c| c.is_ascii_digit()).count();
+            if dig > 0 && sem[dig..].starts_with(')') {
+                saida.push_str("(N)");
+                resto = &sem[dig + 1..];
+                continue;
+            }
+        }
+        let c = resto.chars().next().unwrap();
+        saida.push(c);
+        resto = &resto[c.len_utf8()..];
+    }
+    saida
+}
+
 /// `None` quando stdout e código de saída são idênticos.
 pub fn comparar(esperado: &Saida, obtido: &Saida) -> Option<Divergencia> {
     if esperado.stdout != obtido.stdout {
@@ -153,8 +215,7 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
                     format!("códigos: dart={} ddc={} forge={}", r.dart.codigo, r.ddc.codigo, forge.codigo)
                 };
                 let _ = writeln!(out, "       {codigos}");
-                let chave = forge.primeira_linha_stderr();
-                let chave = if chave.is_empty() { "(stderr vazio)".to_string() } else { truncar(chave, 120) };
+                let chave = truncar(&chave_de_falha(forge), 120);
                 let _ = writeln!(out, "       stderr: {chave}");
                 grupos.entry(chave).or_default().push(nome.clone());
             }
