@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use dartforge_diferencial::{
-    Ambiente, IrPrograma, Limitador, Opcoes, Programa, contrato, dartforge_nativo_ir, diferencas_ir, em_paralelo,
+    Ambiente, IrPrograma, Limitador, Opcoes, Programa, contrato, corpus, dartforge_nativo_ir, diferencas_ir, em_paralelo,
     emitir_ir_corpus, executar_corpus, listar, relatorio, relatorio_ir,
 };
 
@@ -13,6 +13,8 @@ const USO: &str = "uso:
   dartforge-diferencial [--nativo] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
       roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
       (código 0 se todos batem; 1 se algum falha)
+      --fragmento K/N roda só o fragmento K de N do corpus (índice % N == K-1;
+      vale em todos os modos — é como o CI divide o corpus nativo entre máquinas)
       --producao acrescenta o quarto executor: o perfil de produção
       (dartforge-jsprod, arquivo único e podado) — o relatório passa a comparar
       VM × nosso desenvolvimento × nossa produção (docs/JS-PRODUCAO.md)
@@ -161,6 +163,7 @@ fn main() {
     let mut amb = Ambiente::detectar();
     let mut corpus = amb.raiz.join("corpus/js");
     let mut filtro: Option<String> = None;
+    let mut fragmento: Option<(usize, usize)> = None;
     let mut op = Opcoes::default();
     let mut saida_doc = amb.raiz.join("docs/CONTRATO-DDC.md");
     let mut silencioso = false;
@@ -189,6 +192,13 @@ fn main() {
             "--filtro" => {
                 i += 1;
                 filtro = Some(args[i].clone());
+            }
+            "--fragmento" => {
+                i += 1;
+                fragmento = Some(corpus::ler_fragmento(&args[i]).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(2)
+                }));
             }
             "-o" => {
                 i += 1;
@@ -234,7 +244,11 @@ fn main() {
     if (op.nativo || op.com_producao) && op.threads == 0 {
         op.threads = 2;
     }
-    let programas = listar(&corpus, filtro.as_deref());
+    let mut programas = listar(&corpus, filtro.as_deref());
+    if let Some((k, n)) = fragmento {
+        programas = corpus::fragmento(programas, k, n);
+        eprintln!("fragmento {k}/{n}: {} programas", programas.len());
+    }
     if programas.is_empty() {
         eprintln!("nenhum programa em {}", corpus.display());
         std::process::exit(2);

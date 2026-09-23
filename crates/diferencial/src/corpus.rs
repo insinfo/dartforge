@@ -90,6 +90,32 @@ pub fn listar(dir: &Path, filtro: Option<&str>) -> Vec<Programa> {
     programas
 }
 
+/// Lê `K/N` (fragmento K de N, contado a partir de 1) — o argumento de `--fragmento`.
+pub fn ler_fragmento(texto: &str) -> Result<(usize, usize), String> {
+    let erro = || format!("--fragmento espera K/N com 1 <= K <= N, recebeu `{texto}`");
+    let (k, n) = texto.split_once('/').ok_or_else(erro)?;
+    let k: usize = k.trim().parse().map_err(|_| erro())?;
+    let n: usize = n.trim().parse().map_err(|_| erro())?;
+    if n == 0 || k == 0 || k > n {
+        return Err(erro());
+    }
+    Ok((k, n))
+}
+
+/// Fragmento `k` de `n` da lista (já na ordem de [`listar`]): os programas de
+/// índice `i` com `i % n == k - 1`.
+///
+/// Partição por resto, e não por blocos contíguos, porque o custo de um
+/// programa acompanha o tema (o prefixo numérico): blocos dariam a um
+/// fragmento todo o `async` e a outro só literais. Os `n` fragmentos cobrem a
+/// lista sem repetir nenhum programa, e cada um preserva a ordem original —
+/// é o que permite ao CI rodar o corpus nativo em `n` máquinas e somar os
+/// relatórios.
+pub fn fragmento(programas: Vec<Programa>, k: usize, n: usize) -> Vec<Programa> {
+    assert!(n > 0 && (1..=n).contains(&k), "fragmento {k}/{n} inválido");
+    programas.into_iter().enumerate().filter(|(i, _)| i % n == k - 1).map(|(_, p)| p).collect()
+}
+
 fn numero(nome: &str) -> u32 {
     nome.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(u32::MAX)
 }
@@ -141,5 +167,35 @@ mod testes {
         assert_eq!(tema("01_print"), "Literais e strings");
         assert_eq!(tema("113_imports"), "Extensions, typedef e bibliotecas");
         assert_eq!(tema("abc"), "Outros");
+    }
+
+    #[test]
+    fn fragmentos_particionam_o_corpus() {
+        let p = |nome: String| Programa { nome, entrada: PathBuf::new(), arquivos: vec![], diverge_ddc: None };
+        let todos: Vec<Programa> = (0..23).map(|i| p(format!("{i:02}_x"))).collect();
+        let n = 4;
+        let mut vistos: Vec<String> = Vec::new();
+        for k in 1..=n {
+            let f = fragmento(todos.clone(), k, n);
+            // Ordem preservada e tamanhos equilibrados (23 = 6 + 6 + 6 + 5).
+            assert!(f.windows(2).all(|w| w[0].nome < w[1].nome));
+            assert!(f.len() == 5 || f.len() == 6, "fragmento {k}: {}", f.len());
+            vistos.extend(f.into_iter().map(|p| p.nome));
+        }
+        vistos.sort();
+        let esperado: Vec<String> = todos.iter().map(|p| p.nome.clone()).collect();
+        assert_eq!(vistos, esperado, "a união dos fragmentos é o corpus, sem repetição");
+        assert_eq!(fragmento(todos.clone(), 1, 1).len(), 23);
+        assert_eq!(fragmento(todos, 2, 4)[0].nome, "01_x");
+    }
+
+    #[test]
+    fn argumento_do_fragmento() {
+        assert_eq!(ler_fragmento("3/8"), Ok((3, 8)));
+        assert!(ler_fragmento("0/8").is_err());
+        assert!(ler_fragmento("9/8").is_err());
+        assert!(ler_fragmento("1/0").is_err());
+        assert!(ler_fragmento("3").is_err());
+        assert!(ler_fragmento("a/b").is_err());
     }
 }
