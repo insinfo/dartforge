@@ -391,6 +391,10 @@ pub fn gerar_em(
 /// primeira passada. É o que permite casar `<a02-texto-estatico>` com a
 /// classe que declara esse seletor e emitir a visão-filha — e saber que um
 /// `<form>` recebe `NgForm`.
+///
+/// É incremental: [`Indice::atualizar`] e [`Indice::remover`] trocam o que
+/// um arquivo pôs, sem reler o resto — o motor de build o mantém vivo na
+/// sessão.
 #[derive(Default)]
 pub struct Indice {
     por_classe: std::collections::HashMap<(String, String), visao::Filho>,
@@ -403,87 +407,174 @@ pub struct Indice {
     /// (`metadados.rs`): é por eles que o emissor instancia a diretiva num
     /// nó. Sem programa, vazio — e toda diretiva casada é recusada.
     metadados: std::collections::HashMap<(String, String), std::sync::Arc<diretivas::Diretiva>>,
-    /// Mesmo índice por nome de classe, para quando não há banco semântico
-    /// (o teste do corpus). Só vale quando o nome é único no pacote — com
-    /// duas classes de mesmo nome, resolver pelo nome seria chute.
-    por_nome: std::collections::HashMap<String, Vec<visao::Filho>>,
+    /// As chaves que cada arquivo pôs, para `remover`/`atualizar`.
+    por_arquivo: std::collections::HashMap<PathBuf, Vec<(String, String)>>,
 }
 
 impl Indice {
+    /// Um índice vazio.
+    pub fn novo() -> Indice {
+        Indice::default()
+    }
+
     fn montar(
         pacote: &Pacote,
         arquivos: &[(PathBuf, String, Achados)],
         programa: Option<&resolucao::Resolvedor>,
     ) -> Self {
-        let mut por_classe = std::collections::HashMap::new();
-        let mut diretivas = std::collections::HashMap::new();
-        let mut pipes = std::collections::HashMap::new();
-        let mut metadados = std::collections::HashMap::new();
         // Com o programa carregado, o índice cobre todos os pacotes: um
         // `<li-select>` do limitless_ui é tão componente quanto um do próprio
         // projeto. Sem ele, só o que a varredura de arquivos viu.
-        if let Some(r) = programa {
-            let interner = r.interner();
-            for (uri, arvore, unidade, fonte, caminho) in r.bibliotecas() {
-                let achados = achar(arvore, unidade, fonte, interner);
-                for comp in &achados.componentes {
-                    indexar(&mut por_classe, uri, comp, caminho, Some(r));
-                }
-                for d in achados.diretivas {
-                    if let Some(m) = r
-                        .classe_por_uri(uri, &d.classe)
-                        .and_then(|id| crate::metadados::ler(r, id))
-                    {
-                        metadados.insert((uri.to_string(), d.classe.clone()), std::sync::Arc::new(m));
-                    }
-                    diretivas.insert((uri.to_string(), d.classe.clone()), d);
-                }
-                for p in achados.pipes {
-                    pipes.insert((uri.to_string(), p.classe.clone()), p);
-                }
-            }
-        }
+        let mut indice = match programa {
+            Some(r) => Indice::do_programa(r),
+            None => Indice::novo(),
+        };
         for (caminho, _nome, achados) in arquivos {
             let Some(uri) = uri_de_biblioteca(pacote, caminho) else {
                 continue;
             };
-            for comp in &achados.componentes {
-                if comp.seletor.is_empty() {
-                    continue;
-                }
-                indexar(
-                    &mut por_classe,
-                    &uri,
-                    comp,
-                    Some(caminho),
-                    programa.map(|r| r as &dyn resolucao::Resolucao),
-                );
-            }
-            for d in &achados.diretivas {
-                diretivas
-                    .entry((uri.clone(), d.classe.clone()))
-                    .or_insert_with(|| d.clone());
-            }
-            for p in &achados.pipes {
-                pipes
-                    .entry((uri.clone(), p.classe.clone()))
-                    .or_insert_with(|| p.clone());
-            }
+            indice.juntar(&uri, Some(caminho), achados, programa, false);
         }
-        let mut por_nome: std::collections::HashMap<String, Vec<visao::Filho>> =
-            std::collections::HashMap::new();
-        for ((_, classe), f) in &por_classe {
-            por_nome.entry(classe.clone()).or_default().push(f.clone());
+        indice
+    }
+
+    /// O índice de todas as bibliotecas carregadas no programa (as
+    /// dependências inclusive), cada uma registrada pelo seu arquivo: depois,
+    /// [`Indice::atualizar`] troca só o que muda.
+    pub fn do_programa(r: &resolucao::Resolvedor) -> Indice {
+        let mut indice = Indice::novo();
+        let interner = r.interner();
+        for (uri, arvore, unidade, fonte, caminho) in r.bibliotecas() {
+            let achados = achar(arvore, unidade, fonte, interner);
+            indice.juntar(uri, caminho, &achados, Some(r), true);
         }
-        Indice {
-            por_classe,
-            diretivas,
-            pipes,
-            metadados,
-            por_nome,
+        indice
+    }
+
+    /// Os achados de `arquivo` entram no índice, no lugar dos anteriores. Com
+    /// o programa, os metadados das diretivas também são relidos dele (e a
+    /// injeção dos componentes resolvida); sem, os componentes ficam com a
+    /// injeção sem resolução e as diretivas sem metadados — o que recusa quem
+    /// os usa.
+    pub fn atualizar(
+        &mut self,
+        pacote: &Pacote,
+        arquivo: &Path,
+        achados: &Achados,
+        programa: Option<&resolucao::Resolvedor>,
+    ) {
+        self.remover(arquivo);
+        let Some(uri) = uri_de_biblioteca(pacote, arquivo) else {
+            return;
+        };
+        self.juntar(&uri, Some(arquivo), achados, programa, true);
+    }
+
+    /// Tira do índice tudo o que `arquivo` tinha posto.
+    pub fn remover(&mut self, arquivo: &Path) {
+        let Some(chaves) = self
+            .por_arquivo
+            .remove(&dartforge_elements::gerado::chave(arquivo))
+        else {
+            return;
+        };
+        for k in chaves {
+            self.por_classe.remove(&k);
+            self.diretivas.remove(&k);
+            self.pipes.remove(&k);
+            self.metadados.remove(&k);
         }
     }
 
+    /// Os componentes que `comp` pode usar no template, na ordem de
+    /// `directives:` expandida (as diretivas ficam de fora).
+    pub fn filhos_de(
+        &self,
+        comp: &componente::Componente,
+        fonte: &Path,
+        resolvedor: Option<&dyn resolucao::Resolucao>,
+    ) -> Vec<visao::Filho> {
+        self.diretivas_de(comp, fonte, resolvedor)
+            .0
+            .into_iter()
+            .filter_map(|u| u.filho)
+            .collect()
+    }
+
+    /// Quem declara exatamente este seletor: (biblioteca, classe). Com mais
+    /// de um, o de menor chave — a resposta não depende da ordem do mapa.
+    pub fn declarante(&self, seletor: &str) -> Option<(String, String)> {
+        self.por_classe
+            .iter()
+            .filter(|(_, f)| f.seletor == seletor)
+            .map(|(k, _)| k)
+            .chain(
+                self.diretivas
+                    .iter()
+                    .filter(|(_, d)| d.seletor == seletor)
+                    .map(|(k, _)| k),
+            )
+            .min()
+            .cloned()
+    }
+
+    /// Põe os achados de uma biblioteca. `substitui`: diretivas e pipes
+    /// trocam o que houver (senão, o que já está fica — a passada de arquivos
+    /// não sobrescreve o que o programa leu).
+    fn juntar(
+        &mut self,
+        uri: &str,
+        caminho: Option<&Path>,
+        achados: &Achados,
+        programa: Option<&resolucao::Resolvedor>,
+        substitui: bool,
+    ) {
+        let mut chaves = Vec::new();
+        for comp in &achados.componentes {
+            if comp.seletor.is_empty() {
+                continue;
+            }
+            indexar(
+                &mut self.por_classe,
+                uri,
+                comp,
+                caminho,
+                programa.map(|r| r as &dyn resolucao::Resolucao),
+            );
+            chaves.push((uri.to_string(), comp.classe.clone()));
+        }
+        for d in &achados.diretivas {
+            let k = (uri.to_string(), d.classe.clone());
+            if let Some(r) = programa
+                && let Some(m) = r
+                    .classe_por_uri(uri, &d.classe)
+                    .and_then(|id| crate::metadados::ler(r, id))
+            {
+                self.metadados.insert(k.clone(), std::sync::Arc::new(m));
+            }
+            if substitui {
+                self.diretivas.insert(k.clone(), d.clone());
+            } else {
+                self.diretivas.entry(k.clone()).or_insert_with(|| d.clone());
+            }
+            chaves.push(k);
+        }
+        for p in &achados.pipes {
+            let k = (uri.to_string(), p.classe.clone());
+            if substitui {
+                self.pipes.insert(k.clone(), p.clone());
+            } else {
+                self.pipes.entry(k.clone()).or_insert_with(|| p.clone());
+            }
+            chaves.push(k);
+        }
+        if let Some(c) = caminho {
+            self.por_arquivo
+                .entry(dartforge_elements::gerado::chave(c))
+                .or_default()
+                .extend(chaves);
+        }
+    }
     /// Os pipes que este componente usa, na ordem de `pipes:` expandida em
     /// profundidade (as listas constantes, como `commonPipes`, pelo banco
     /// semântico). O oficial procura o nome do fim para o começo
@@ -630,15 +721,17 @@ impl Indice {
             None => {
                 // Sem resposta do banco semântico: só um componente de nome
                 // único no pacote (o caminho de antes, sem programa).
-                match self.por_nome.get(&simples).map(Vec::as_slice) {
-                    Some([f]) if !nome.contains('.') => {
+                let por_nome: Vec<&visao::Filho> =
+                    self.por_classe.values().filter(|f| f.classe == simples).collect();
+                match por_nome.as_slice() {
+                    [f] if !nome.contains('.') => {
                         let chave = (f.uri_dart.clone(), f.classe.clone());
                         if vistos.insert(chave) {
                             saida.push(visao::Usada {
                                 classe: f.classe.clone(),
                                 uri: f.uri_dart.clone(),
                                 seletores: seletor::Seletor::analisar(&f.seletor),
-                                filho: Some(f.clone()),
+                                filho: Some((*f).clone()),
                         diretiva: None,
                             });
                         }
@@ -1196,6 +1289,51 @@ final InjectorFactory injector = self.injector$Injector;
         );
         assert_eq!(a.injetores.len(), 1);
         assert!(!a.trivial());
+    }
+
+    /// O índice do motor de build: um arquivo entra, é achado pelo seletor,
+    /// é trocado e sai, sem mexer no dos outros.
+    #[test]
+    fn indice_incremental() {
+        let pacote = Pacote {
+            nome: "p".into(),
+            raiz: PathBuf::from("/r"),
+        };
+        let a = Path::new("/r/lib/a.dart");
+        let b = Path::new("/r/lib/src/b.dart");
+        let mut indice = Indice::novo();
+        indice.atualizar(
+            &pacote,
+            a,
+            &achados_de("@Component(selector: 'x-a', template: '')\nclass A {}\n"),
+            None,
+        );
+        indice.atualizar(
+            &pacote,
+            b,
+            &achados_de("@Directive(selector: '[b]')\nclass B {}\n"),
+            None,
+        );
+        assert_eq!(
+            indice.declarante("x-a"),
+            Some(("package:p/a.dart".into(), "A".into()))
+        );
+        assert_eq!(
+            indice.declarante("[b]"),
+            Some(("package:p/src/b.dart".into(), "B".into()))
+        );
+        // O arquivo mudou de seletor: o antigo some.
+        indice.atualizar(
+            &pacote,
+            a,
+            &achados_de("@Component(selector: 'x-novo', template: '')\nclass A {}\n"),
+            None,
+        );
+        assert_eq!(indice.declarante("x-a"), None);
+        assert!(indice.declarante("x-novo").is_some());
+        indice.remover(a);
+        assert_eq!(indice.declarante("x-novo"), None);
+        assert!(indice.declarante("[b]").is_some());
     }
 
     #[test]
