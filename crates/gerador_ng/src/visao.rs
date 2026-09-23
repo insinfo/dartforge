@@ -830,7 +830,7 @@ pub struct Filho {
     pub parametros: Vec<Injetado>,
     /// `@ContentChild`/`@ContentChildren` do filho, com o alvo resolvido:
     /// (campo, lista, alvo). Quem projeta conteúdo nele atualiza a consulta.
-    pub consultas: Vec<(String, bool, AlvoDeConsulta)>,
+    pub consultas: Vec<ConsultaDoFilho>,
     /// O que no filho muda o código de quem o usa e o emissor ainda não
     /// escreve: injeção no construtor, `@HostBinding`, consulta de conteúdo,
     /// provedores, projeção com seletor. Qualquer uma recusa o uso.
@@ -853,6 +853,16 @@ pub enum Injetado {
         classe: String,
         opcional: bool,
     },
+}
+
+/// Um `@ContentChild`/`@ContentChildren` de um filho.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsultaDoFilho {
+    pub campo: String,
+    /// `@ContentChildren`.
+    pub lista: bool,
+    pub alvo: AlvoDeConsulta,
+    pub descendentes: bool,
 }
 
 /// O que uma consulta de conteúdo de um filho procura.
@@ -1003,6 +1013,13 @@ struct Corpo<'a> {
     locais_proprios: Vec<(String, String)>,
     /// Os locais das visões ancestrais, com de onde vêm.
     ancestrais: std::collections::HashMap<String, Origem>,
+    /// Os provedores injetáveis dos elementos acima do nó, o mais longe
+    /// primeiro: (token, campo, e a visão ancestral que o tem — classe e
+    /// quantos `parentView` até ela — ou nada, se é desta).
+    acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
+    /// Quantos elementos de componente há acima (provedores que o emissor
+    /// não modela).
+    componentes_acima: u32,
     /// Componentes que este template pode usar, por seletor.
     filhos: &'a std::collections::HashMap<String, Filho>,
     /// Todas as diretivas e componentes de `directives:`, para saber o que
@@ -1103,9 +1120,57 @@ struct Corpo<'a> {
     /// Os nós com provedores injetáveis (`ProviderNode`), em pré-ordem:
     /// (primeiro índice, último índice da subárvore, [(tokens, campo)]).
     injetores: Vec<NoInjetor>,
+    /// Os elementos em que estamos (índice, se tem diretiva ou componente):
+    /// a cadeia de `parent` do `_getQueriesFor`.
+    pilha: Vec<(u32, bool)>,
+    /// Os provedores criados nesta visão, em pré-ordem, com a cadeia de
+    /// elementos acima de cada um: é deles que sai o resultado estático de
+    /// uma consulta de conteúdo (`addQueryResult`).
+    registros: Vec<Registro>,
+}
+
+/// Um nó com provedores, para as consultas de conteúdo: os tokens pelos
+/// quais cada instância casa uma consulta e o campo dela.
+#[derive(Debug, Clone)]
+struct Registro {
+    acima: Vec<(u32, bool)>,
+    /// (token, campo, componente `onPush`).
+    provedores: Vec<(crate::diretivas::Token, String, bool)>,
 }
 
 impl Corpo<'_> {
+    /// A classe desta visão, para o `unsafeCast` de quem a lê de baixo.
+    fn classe_desta_visao(&self) -> String {
+        if self.classe_desta.is_empty() {
+            format!("{}0", self.classe_da_visao)
+        } else {
+            self.classe_desta.clone()
+        }
+    }
+
+    /// Os provedores acima, do mais próximo ao mais longe, com a leitura
+    /// vista desta visão (`getPropertyInView`).
+    fn provedores_acima(&mut self) -> Vec<crate::diretivas::ProvedorAcima> {
+        let util = self.imp.alias(UTILITIES);
+        self.acima
+            .iter()
+            .rev()
+            .map(|(t, campo, v)| crate::diretivas::ProvedorAcima {
+                token: t.clone(),
+                leitura: match v {
+                    None => format!("this.{campo}"),
+                    Some((classe, n)) => {
+                        let mut vista = "(this.parentView!)".to_string();
+                        for _ in 1..*n {
+                            vista = format!("({vista}.parentView!)");
+                        }
+                        format!("{util}.unsafeCast<{classe}>({vista}).{campo}")
+                    }
+                },
+            })
+            .collect()
+    }
+
     fn dom(&mut self) -> String {
         self.imp.alias(DOM_HELPERS)
     }
@@ -1612,6 +1677,19 @@ impl Corpo<'_> {
         let construcao = self.construcao_do_filho(filho, n, &vd, &campo_vista)?;
         self.linhas
             .push(format!("    this.{campo_inst} = {construcao};"));
+        let mut acima = self.pilha.clone();
+        acima.push((n, true));
+        self.registros.push(Registro {
+            acima,
+            provedores: vec![(
+                crate::diretivas::Token::Classe {
+                    uri: filho.uri_dart.clone(),
+                    classe: filho.classe.clone(),
+                },
+                campo_inst.clone(),
+                filho.on_push,
+            )],
+        });
         for r in &e.referencias {
             self.refs
                 .insert(r.nome.clone(), format!("this.{campo_inst}"));
@@ -1628,7 +1706,7 @@ impl Corpo<'_> {
                     "conteúdo em filho que não projeta",
                 ));
             }
-            self.consultas_do_filho(e, filho, &campo_inst)?;
+            self.consultas_do_filho(e, filho, &campo_inst, n)?;
             self.depois_dos_filhos(filho, &campo_inst);
             self.linhas
                 .push(format!("    this.{campo_vista}.create(this.{campo_inst});"));
@@ -1647,6 +1725,8 @@ impl Corpo<'_> {
         self.filhos_acima
             .push((filho.uri_dart.clone(), filho.classe.clone()));
         let pai_antes = self.pai_projetado.replace(n);
+        self.pilha.push((n, true));
+        self.componentes_acima += 1;
         let mut r = Ok(());
         for no in &e.filhos {
             let indice = match no {
@@ -1665,24 +1745,36 @@ impl Corpo<'_> {
                 }
                 _ => curinga,
             };
-            let Some(indice) = indice else {
-                r = Err(recusa(
-                    Motivo::Projecao,
-                    "conteúdo que nenhuma projeção recebe",
-                ));
-                break;
+            // Elemento que nenhuma projeção recebe é criado e descartado
+            // (`ngContentIndex` nulo: `addContentNode` não é chamado) — as
+            // diretivas dele existem e entram nas consultas.
+            let descartado = match (indice, no) {
+                (Some(_), _) => false,
+                (None, No::Elemento(x)) if x.estrela.is_none() => true,
+                (None, _) => {
+                    r = Err(recusa(
+                        Motivo::Projecao,
+                        "conteúdo que nenhuma projeção recebe",
+                    ));
+                    break;
+                }
             };
             let antes = self.raizes.len();
             if let Err(x) = self.nos(std::slice::from_ref(no), "") {
                 r = Err(x);
                 break;
             }
-            listas[indice].extend(self.raizes.drain(antes..));
+            let criados: Vec<String> = self.raizes.drain(antes..).collect();
+            if let (false, Some(i)) = (descartado, indice) {
+                listas[i].extend(criados);
+            }
         }
         self.pai_projetado = pai_antes;
         self.filhos_acima.pop();
+        self.pilha.pop();
+        self.componentes_acima -= 1;
         r?;
-        self.consultas_do_filho(e, filho, &campo_inst)?;
+        self.consultas_do_filho(e, filho, &campo_inst, n)?;
         self.depois_dos_filhos(filho, &campo_inst);
         // Todas vazias: uma linha só, constantes. Senão, uma lista por
         // linha (o `dart format` quebra a lista que tem outra não vazia).
@@ -1790,44 +1882,91 @@ impl Corpo<'_> {
     }
 
     /// As consultas de conteúdo do filho, no `afterChildren` do nó
-    /// (`updateQueryAtStartup`): sem resultado, a lista recebe `[]` e a
-    /// única nada. Com resultado no conteúdo — um filho da classe procurada,
-    /// o `#ref` procurado —, a forma é outra, ainda recusada.
+    /// (`updateQueryAtStartup`). O resultado estático é o das instâncias
+    /// criadas no conteúdo que casam o tipo procurado, em pré-ordem
+    /// (`addQueryResult`), filtradas pela distância do `_getQueriesFor`
+    /// quando a consulta não é `descendants`: a lista recebe `[a, b]` (ou
+    /// `[]`), a única nada quando vazia. Resultado dentro de `*` (o
+    /// `mapNestedViews`), `#ref` achado e consulta única com resultado ainda
+    /// são recusados.
     fn consultas_do_filho(
         &mut self,
         e: &crate::html::Elemento,
         filho: &Filho,
         campo_inst: &str,
+        n: u32,
     ) -> Result<(), Recusa> {
-        fn acha(
-            nos: &[No],
-            alvo: &AlvoDeConsulta,
-            filhos: &std::collections::HashMap<String, Filho>,
-        ) -> bool {
-            nos.iter().any(|n| {
-                let No::Elemento(x) = n else { return false };
-                let aqui = match alvo {
-                    AlvoDeConsulta::Referencia(r) => x.referencias.iter().any(|y| &y.nome == r),
-                    AlvoDeConsulta::Classe(uri, classe) => filhos
-                        .get(&x.nome)
-                        .is_some_and(|f| &f.uri_dart == uri && &f.classe == classe),
-                };
-                aqui || acha(&x.filhos, alvo, filhos)
-            })
-        }
-        for (campo, lista, alvo) in &filho.consultas {
-            if acha(&e.filhos, alvo, self.filhos) {
-                return Err(recusa(
-                    Motivo::LigacaoEmFilho,
-                    "@ContentChild do filho com resultado no conteúdo",
-                ));
+        let fora = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
+        for q in &filho.consultas {
+            let (uri, classe) = match &q.alvo {
+                AlvoDeConsulta::Referencia(r) => {
+                    if referencia_no_conteudo(&e.filhos, r) {
+                        return Err(fora("@ContentChild do filho com #ref no conteúdo"));
+                    }
+                    if q.lista {
+                        self.linhas
+                            .push(format!("    this.{campo_inst}.{} = [];", q.campo));
+                    }
+                    continue;
+                }
+                AlvoDeConsulta::Classe(uri, classe) => (uri, classe),
+            };
+            if self.classe_em_embutida(&e.filhos, uri, classe, false) {
+                return Err(fora("@ContentChild do filho com resultado em visão embutida"));
             }
-            if *lista {
-                self.linhas
-                    .push(format!("    this.{campo_inst}.{campo} = [];"));
+            let token = crate::diretivas::Token::Classe {
+                uri: uri.clone(),
+                classe: classe.clone(),
+            };
+            let mut valores = Vec::new();
+            for r in &self.registros {
+                let Some(pos) = r.acima.iter().position(|(k, _)| *k == n) else {
+                    continue;
+                };
+                let distancia = r.acima[pos + 1..].iter().filter(|(_, d)| *d).count();
+                if !q.descendentes && distancia > 1 {
+                    continue;
+                }
+                for (t, campo, on_push) in &r.provedores {
+                    if *t != token {
+                        continue;
+                    }
+                    if *on_push {
+                        return Err(fora("@ContentChild do filho que acha componente onPush"));
+                    }
+                    valores.push(format!("this.{campo}"));
+                }
+            }
+            if q.lista {
+                self.linhas.push(format!(
+                    "    this.{campo_inst}.{} = [{}];",
+                    q.campo,
+                    valores.join(", ")
+                ));
+            } else if !valores.is_empty() {
+                return Err(fora("@ContentChild único com resultado no conteúdo"));
             }
         }
         Ok(())
+    }
+
+    /// Algum elemento dentro de um `*` do conteúdo casa a classe procurada
+    /// (componente pela tag ou diretiva pelo seletor)?
+    fn classe_em_embutida(&self, nos: &[No], uri: &str, classe: &str, dentro: bool) -> bool {
+        nos.iter().any(|no| {
+            let No::Elemento(x) = no else { return false };
+            let dentro = dentro || x.estrela.is_some();
+            let mut sem = x.clone();
+            sem.estrela = None;
+            let casa = self
+                .filhos
+                .get(&x.nome)
+                .is_some_and(|f| f.uri_dart == uri && f.classe == classe)
+                || diretivas_casadas(self.usadas, &sem)
+                    .iter()
+                    .any(|d| d.uri == uri && d.classe == classe);
+            (dentro && casa) || self.classe_em_embutida(&x.filhos, uri, classe, dentro)
+        })
     }
 
     /// Os ganchos que o oficial liga depois de visitar o conteúdo do filho
@@ -2249,6 +2388,18 @@ impl Corpo<'_> {
             locais,
             micro,
             ancestrais,
+            acima: self
+                .acima
+                .iter()
+                .map(|(t, c, v)| {
+                    let v = match v {
+                        Some((classe, n)) => (classe.clone(), n + 1),
+                        None => (self.classe_desta_visao(), 1),
+                    };
+                    (t.clone(), c.clone(), Some(v))
+                })
+                .collect(),
+            componentes_acima: self.componentes_acima,
         });
         Ok(())
     }
@@ -2367,8 +2518,8 @@ impl Corpo<'_> {
             // Diretiva num elemento HTML: o emissor a instancia se os
             // metadados lidos do programa não têm nada fora do que ele
             // escreve (`Diretiva::pendencia`).
-            let pendencia = if filho.is_some() || !dom::tag_html(&e.nome) {
-                Some("em elemento que não é HTML".to_string())
+            let pendencia = if filho.is_some() {
+                Some("no elemento de um componente".to_string())
             } else {
                 match &u.diretiva {
                     None => Some("sem metadados".to_string()),
@@ -2716,7 +2867,9 @@ impl Corpo<'_> {
                 if let Some(filho) = self.filhos.get(&e.nome).cloned() {
                     return self.componente_filho(e, &filho, pai);
                 }
-                if !dom::tag_html(&e.nome) {
+                // Tag que não é HTML só com diretiva (`<pg-breadcrumb-item>`): é
+                // um elemento tipado `Element` (`identifierFromTagName`).
+                if !dom::tag_html(&e.nome) && diretivas_casadas(self.usadas, e).is_empty() {
                     return Err(recusa(
                         Motivo::ComponenteNoTemplate,
                         "tag que não é HTML nem componente conhecido",
@@ -2823,7 +2976,12 @@ impl Corpo<'_> {
         let resolvido = if casadas.is_empty() {
             None
         } else {
-            match crate::diretivas::resolver(&casadas, n) {
+            let provedores = self.provedores_acima();
+            let acima = crate::diretivas::Acima {
+                provedores: &provedores,
+                incerto: self.componentes_acima > 0,
+            };
+            match crate::diretivas::resolver(&casadas, n, Some(acima)) {
                 Ok(r) => Some(r),
                 Err(f) => {
                     self.anotar(recusa(Motivo::DiretivaPorSeletor, f))?;
@@ -2944,7 +3102,10 @@ impl Corpo<'_> {
             }
             self.eventos(&do_no, &alvo)?;
             // Os `@HostListener` na ordem das diretivas em `directives:`
-            // (`_collectHostListeners`).
+            // (`_collectHostListeners`), agrupados por evento na ordem em
+            // que cada um aparece primeiro: dois ouvintes do mesmo evento
+            // viram um `_handleEvent_N` que chama os dois.
+            let mut grupos: Vec<(String, Vec<(String, crate::diretivas::Ouvinte)>)> = Vec::new();
             for d in &casadas {
                 let Some((_, campo)) = r
                     .diretivas
@@ -2954,17 +3115,28 @@ impl Corpo<'_> {
                     continue;
                 };
                 for o in &d.ouvintes {
-                    let h = self.handler_de_hospedeiro(campo, o);
-                    self.ouvinte(&o.evento, &alvo, &h);
+                    match grupos.iter_mut().find(|(ev, _)| *ev == o.evento) {
+                        Some((_, l)) => l.push((campo.clone(), o.clone())),
+                        None => grupos.push((o.evento.clone(), vec![(campo.clone(), o.clone())])),
+                    }
                 }
+            }
+            for (evento, lista) in &grupos {
+                let h = match lista.as_slice() {
+                    [(campo, o)] => self.handler_de_hospedeiro(campo, o),
+                    varios => self.handler_de_grupo(varios),
+                };
+                self.ouvinte(evento, &alvo, &h);
             }
         } else {
             self.eventos(&do_no, &alvo)?;
         }
         if self.com_estilo {
             // Isolamento de estilo por atributo: o elemento entra
-            // no escopo do componente.
-            self.linhas.push(format!("    this.addShimC({alvo});"));
+            // no escopo do componente (`shimCssForNode`: `addShimE` no nó
+            // tipado `Element`, a tag que não é HTML).
+            let metodo = if tipo == "Element" { "addShimE" } else { "addShimC" };
+            self.linhas.push(format!("    this.{metodo}({alvo});"));
         }
         let mut injetor = None;
         if let Some(r) = &resolvido {
@@ -2979,13 +3151,63 @@ impl Corpo<'_> {
                 injetor = Some(self.injetores.len());
                 self.injetores.push((n, n, injetaveis));
             }
+            let mut acima = self.pilha.clone();
+            acima.push((n, true));
+            let provedores = r
+                .instancias
+                .iter()
+                .flat_map(|i| {
+                    std::iter::once(&i.token)
+                        .chain(&i.apelidos)
+                        .map(|t| (t.clone(), i.campo.clone(), false))
+                })
+                .collect();
+            self.registros.push(Registro { acima, provedores });
         }
+        // Os provedores injetáveis deste nó ficam acima dos filhos
+        // (`injetavel_por`: os visíveis e os apelidos).
+        let antes_acima = self.acima.len();
+        if let Some(r) = &resolvido {
+            for i in &r.instancias {
+                for t in &i.injetavel_por {
+                    self.acima.push((t.clone(), i.campo.clone(), None));
+                }
+            }
+        }
+        self.pilha.push((n, resolvido.is_some()));
         let r = self.nos(&e.filhos, &alvo);
+        self.pilha.pop();
+        self.acima.truncate(antes_acima);
+        // `ngOnDestroy` das diretivas do nó, depois dos filhos
+        // (`bindDirectiveAfterChildrenCallbacks`), na ordem delas.
+        if let Some(res) = &resolvido {
+            for (d, campo) in &res.diretivas {
+                if d.ganchos.on_destroy {
+                    self.destruir
+                        .push(format!("    this.{campo}.ngOnDestroy();"));
+                }
+            }
+        }
         // `ProviderNode(nodeIndex, nodeIndex + childNodeCount)`.
         if let Some(i) = injetor {
             self.injetores[i].1 = self.proximo - 1;
         }
         r
+    }
+
+    /// Os `@HostListener` de várias diretivas do nó para o mesmo evento: um
+    /// `_handleEvent_N` que chama cada um, na ordem.
+    fn handler_de_grupo(&mut self, lista: &[(String, crate::diretivas::Ouvinte)]) -> String {
+        let n = self.metodos_evento.len();
+        let corpo: Vec<String> = lista
+            .iter()
+            .map(|(campo, o)| format!("    this.{campo}.{}({});", o.metodo, o.args))
+            .collect();
+        self.metodos_evento.push(format!(
+            "\n  void _handleEvent_{n}($event) {{\n{}\n  }}\n",
+            corpo.join("\n")
+        ));
+        format!("this.eventHandler1(this._handleEvent_{n})")
     }
 
     /// O handler de um `@HostListener` de diretiva: método sem parâmetro ou
@@ -3021,14 +3243,14 @@ impl Corpo<'_> {
         for inst in &r.instancias {
             let tipo = match (&inst.criacao, &inst.token) {
                 (Criacao::Diretiva { diretiva, .. }, _) => {
-                    format!("{}{}", self.imp.q(&diretiva.uri), diretiva.classe)
+                    format!("{}{}", self.imp.q(&import_de(&diretiva.uri, &self.asset)), diretiva.classe)
                 }
                 (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.e_object() => {
                     format!("List<{}Object>", self.imp.q("dart:core"))
                 }
                 (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.genericos > 0 => {
                     let args = vec!["dynamic"; tipo.genericos].join(", ");
-                    format!("List<{}{}<{args}>>", self.imp.q(&tipo.uri), tipo.classe)
+                    format!("List<{}{}<{args}>>", self.imp.q(&import_de(&tipo.uri, &self.asset)), tipo.classe)
                 }
                 _ => return Err(recusa(Motivo::DiretivaPorSeletor, "provedor sem tipo")),
             };
@@ -3043,11 +3265,12 @@ impl Corpo<'_> {
                             Argumento::Detector => "this".to_string(),
                             Argumento::Nulo => "null".to_string(),
                             Argumento::Campo(c) => format!("this.{c}"),
+                            Argumento::Acima(leitura) => leitura.clone(),
                         })
                         .collect();
                     format!(
                         "{}{}({})",
-                        self.imp.q(&diretiva.uri),
+                        self.imp.q(&import_de(&diretiva.uri, &self.asset)),
                         diretiva.classe,
                         args.join(", ")
                     )
@@ -3284,7 +3507,7 @@ fn diretivas_casadas(
     usadas: &[Usada],
     e: &crate::html::Elemento,
 ) -> Vec<std::sync::Arc<crate::diretivas::Diretiva>> {
-    if usadas.is_empty() || !dom::tag_html(&e.nome) {
+    if usadas.is_empty() {
         return Vec::new();
     }
     let desc = crate::seletor::Elemento::do_template(e);
@@ -3330,11 +3553,37 @@ fn sem_valor(a: &crate::html::Ligacao) -> bool {
 /// subárvore, [(tokens, campo)]).
 type NoInjetor = (u32, u32, Vec<(Vec<crate::diretivas::Token>, String)>);
 
-fn metodo_injetor(injetores: &[NoInjetor]) -> String {
+fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
     use crate::diretivas::Token;
     if injetores.is_empty() {
         return String::new();
     }
+    // As URIs dos tokens viram o caminho do import visto deste arquivo.
+    let convertido = |t: &Token| match t {
+        Token::Classe { uri, classe } => Token::Classe {
+            uri: import_de(uri, asset),
+            classe: classe.clone(),
+        },
+        Token::Multi { nome, tipo } => Token::Multi {
+            nome: nome.clone(),
+            tipo: crate::diretivas::TipoDeToken {
+                uri: import_de(&tipo.uri, asset),
+                ..tipo.clone()
+            },
+        },
+        outro => outro.clone(),
+    };
+    let convertidos: Vec<NoInjetor> = injetores
+        .iter()
+        .map(|(a, b, ps)| {
+            let ps = ps
+                .iter()
+                .map(|(ts, c)| (ts.iter().map(convertido).collect(), c.clone()))
+                .collect();
+            (*a, *b, ps)
+        })
+        .collect();
+    let injetores = &convertidos[..];
     // A floresta: cada nó é filho do mais próximo antes dele que o contém.
     let mut pais: Vec<Option<usize>> = Vec::new();
     for (i, (ini, fim, _)) in injetores.iter().enumerate() {
@@ -3471,7 +3720,7 @@ fn campos_em_ordem<'a>(
             saida.push(CampoDaVisao::Filho(f));
         } else {
             let casadas = diretivas_casadas(usadas, e);
-            if let (false, Ok(r)) = (casadas.is_empty(), crate::diretivas::resolver(&casadas, 0)) {
+            if let (false, Ok(r)) = (casadas.is_empty(), crate::diretivas::resolver(&casadas, 0, None)) {
                 let uris = r
                     .instancias
                     .iter()
@@ -3507,6 +3756,9 @@ struct EspecEmbutida {
     micro: crate::micro::Micro,
     /// Os locais declarados em visões ancestrais, com de onde vêm.
     ancestrais: std::collections::HashMap<String, Origem>,
+    /// Os provedores acima da âncora, vistos da visão nova.
+    acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
+    componentes_acima: u32,
 }
 
 /// De onde vem um local de visão ancestral: a chave em `locals`, a classe
@@ -3575,6 +3827,8 @@ impl<'a> Contexto<'a> {
             classe_desta: String::new(),
             locais_proprios: Vec::new(),
             ancestrais: Default::default(),
+            acima: Vec::new(),
+            componentes_acima: 0,
             filhos: self.filhos,
             usadas: self.usadas,
             coleta,
@@ -3606,6 +3860,8 @@ impl<'a> Contexto<'a> {
             detectores: Default::default(),
             raizes: Vec::new(),
             pai_projetado: None,
+            pilha: Vec::new(),
+            registros: Vec::new(),
             nivel_do_topo: 0,
             injetores: Vec::new(),
         }
@@ -3683,6 +3939,8 @@ fn corpo_da_embutida(
     dentro.classe_desta = espec.classe.clone();
     dentro.locais_proprios = espec.micro.locais.clone();
     dentro.ancestrais = espec.ancestrais.clone();
+    dentro.acima = espec.acima.clone();
+    dentro.componentes_acima = espec.componentes_acima;
     for (nome, origem) in &espec.ancestrais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
             continue;
@@ -3801,7 +4059,7 @@ fn corpo_da_embutida(
         )
     };
     // O `injectorGetInternal` vem depois do `build()` e antes da detecção.
-    let injetor = resolver_tardios(dentro.imp, &metodo_injetor(&dentro.injetores));
+    let injetor = resolver_tardios(dentro.imp, &metodo_injetor(&dentro.injetores, &dentro.asset));
     let deteccao = resolver_tardios(dentro.imp, &deteccao);
     // Visão embutida também destrói o que pendurou nela.
     let destruicao = if dentro.ancoras.is_empty()
@@ -3979,7 +4237,7 @@ fn alocar_imports_dos_campos(
             }
             CampoDaVisao::Diretivas(uris) => {
                 for uri in uris {
-                    imp.alias(&uri);
+                    imp.alias(&import_de(&uri, asset));
                 }
             }
         }
@@ -4745,7 +5003,7 @@ fn gerar_componente(
         )
     };
     // O `injectorGetInternal` vem depois do `build()` e antes da detecção.
-    let injetor = resolver_tardios(corpo.imp, &metodo_injetor(&corpo.injetores));
+    let injetor = resolver_tardios(corpo.imp, &metodo_injetor(&corpo.injetores, &corpo.asset));
     // Os imports da detecção entram agora, depois dos do `build()`.
     let deteccao = resolver_tardios(corpo.imp, &deteccao);
     // Visão-filha precisa ser destruída com a visão que a criou.
@@ -5260,4 +5518,21 @@ mod testes {
         let esperado = include_str!("../testes/callback_com_injecao.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
+}
+
+/// Como o arquivo gerado em `asset` importa a biblioteca `uri`
+/// (`getImportModulePath`): relativo no mesmo pacote e pasta, `package:`
+/// fora; `dart:` como está.
+fn import_de(uri: &str, asset: &str) -> String {
+    asset_de_uri(uri, "", Path::new(""))
+        .and_then(|alvo| caminho_do_import(asset, &alvo))
+        .unwrap_or_else(|| uri.to_string())
+}
+
+/// Algum elemento do conteúdo tem o `#ref`?
+fn referencia_no_conteudo(nos: &[No], r: &str) -> bool {
+    nos.iter().any(|n| {
+        let No::Elemento(x) = n else { return false };
+        x.referencias.iter().any(|y| y.nome == r) || referencia_no_conteudo(&x.filhos, r)
+    })
 }

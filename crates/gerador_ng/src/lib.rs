@@ -752,12 +752,17 @@ impl Indice {
 /// elemento. O resto da lista só serve à guarda de diretivas.
 fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, visao::Filho> {
     let mut saida = std::collections::HashMap::new();
+    // Seletor composto (`page-header-comp,pg-header`): cada alternativa que
+    // é só a tag casa o elemento com essa tag. As outras alternativas ficam
+    // com a guarda de diretivas.
     for u in usadas {
-        let (Some(f), [s]) = (&u.filho, u.seletores.as_slice()) else {
+        let Some(f) = &u.filho else {
             continue;
         };
-        if let Some(tag) = s.so_tag() {
-            saida.entry(tag.to_string()).or_insert_with(|| f.clone());
+        for s in &u.seletores {
+            if let Some(tag) = s.so_tag() {
+                saida.entry(tag.to_string()).or_insert_with(|| f.clone());
+            }
         }
     }
     saida
@@ -864,11 +869,12 @@ fn indexar(
         Some(lidas) => {
             for q in lidas {
                 if q.referencia {
-                    consultas.push((
-                        q.campo.clone(),
-                        q.lista,
-                        visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
-                    ));
+                    consultas.push(visao::ConsultaDoFilho {
+                        campo: q.campo.clone(),
+                        lista: q.lista,
+                        alvo: visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
+                        descendentes: q.descendentes,
+                        });
                     continue;
                 }
                 let uri = match (caminho, resolvedor) {
@@ -878,11 +884,12 @@ fn indexar(
                 match uri {
                     Some(u) if !u.starts_with("package:ngdart/") && !u.starts_with("dart:") => {
                         let simples = q.alvo.rsplit('.').next().unwrap_or(&q.alvo);
-                        consultas.push((
-                            q.campo.clone(),
-                            q.lista,
-                            visao::AlvoDeConsulta::Classe(u, simples.to_string()),
-                        ));
+                        consultas.push(visao::ConsultaDoFilho {
+                            campo: q.campo.clone(),
+                            lista: q.lista,
+                            alvo: visao::AlvoDeConsulta::Classe(u, simples.to_string()),
+                            descendentes: q.descendentes,
+                            });
                     }
                     _ => {
                         pendencias.push(em_filho("filho com @ContentChild de tipo não resolvido"));
@@ -981,7 +988,29 @@ pub(crate) fn gerar_interno(
     // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
     // `DirectiveChangeDetector` dela.
     if achados.componentes.is_empty() {
-        if achados.hospedeiro_herdado {
+        // Diretiva que herda e tem `@HostBinding`/`@HostListener`: o
+        // `XNgCd` depende também das ligações herdadas. Os metadados lidos
+        // do programa as veem; se nenhuma diretiva do arquivo tem ligação
+        // além das que a própria classe declara, o arquivo é o de sempre.
+        let so_as_proprias = uri_de_biblioteca(pacote, fonte).is_some_and(|uri| {
+            achados.diretivas.iter().all(|d| {
+                let Some(m) = indice.metadados.get(&(uri.clone(), d.classe.clone())) else {
+                    return false;
+                };
+                let proprias: Vec<String> = achados
+                    .hospedeiras
+                    .iter()
+                    .filter(|h| h.classe == d.classe)
+                    .flat_map(|h| h.classes.iter().map(|(c, _)| format!("class.{c}")))
+                    .collect();
+                m.fora.is_empty()
+                    && m.ligacoes_do_hospedeiro.len() == proprias.len()
+                    && m.ligacoes_do_hospedeiro
+                        .iter()
+                        .all(|(n, _)| proprias.contains(n))
+            })
+        });
+        if achados.hospedeiro_herdado && !so_as_proprias {
             return Err(recusa(
                 Motivo::HostBindingEmDiretiva,
                 "@HostBinding/@HostListener em diretiva que herda",
