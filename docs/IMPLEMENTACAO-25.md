@@ -1,5 +1,17 @@
 # Incremento 25 — sintaxe moderna posterior ao Dart 3.6.2
 
+> **Correção (2026-09-23).** Este incremento é da trilha velha
+> (`crates/syntax`/`crates/parser`) e o seu §4 está **errado**: `Tipo nome`
+> num construtor primário é parâmetro **simples**, que não declara campo
+> (spec aceita, `accepted/3.13/primary-constructors`, `:1000-1002`; oráculo
+> 3.13.4: `class Nome(String cru)` não tem campo `cru`); só `var`/`final`
+> declaram. `this.nome` não exige nada além do campo; a parte `this : … { }`,
+> `new`/`factory` sem o nome da classe, `enum` e `extension type` também têm
+> construtor primário. O §1 também deixava de fora `catch (_, _)` e
+> parâmetros de tipo `<_>`, que a 3.7 aceita. O contrato vigente, conferido
+> contra o SDK 3.13.4, é o de [`VERSOES-LINGUAGEM.md`](VERSOES-LINGUAGEM.md)
+> §4, implementado na trilha nova (`crates/frontend` → `emit_js`).
+
 Dart 3.6.2 continua sendo o **mínimo** de compatibilidade do projeto, não um teto.
 Este incremento implementa quatro recursos que entraram na linguagem depois desse
 alvo. Cada um é identificado pela versão mínima em que existe, conforme a política
