@@ -90,6 +90,15 @@ name = "dartforge-abi"
 version = "0.1.0"
 
 [[package]]
+name = "dartforge-analise"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-frontend",
+ "dartforge-intern",
+]
+
+[[package]]
 name = "dartforge-build"
 version = "0.1.0"
 dependencies = [
@@ -246,6 +255,7 @@ dependencies = [
 name = "dartforge-lsp"
 version = "0.1.0"
 dependencies = [
+ "dartforge-analise",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
@@ -270,6 +280,7 @@ dependencies = [
 name = "dartforge-paridade"
 version = "0.1.0"
 dependencies = [
+ "dartforge-analise",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
