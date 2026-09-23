@@ -12,7 +12,9 @@ param(
     [string]$Packages = 'C:/MyDartProjects/new_sali/core/.dart_tool/package_config.json',
     [int]$Rodadas = 5,
     [double]$Tolerancia = 0.03,
-    [string]$Ref = 'main'
+    [string]$Ref = 'main',
+    # Reaproveita os binários da base de uma rodada anterior.
+    [switch]$ReusarBase
 )
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path $PSScriptRoot -Parent
@@ -40,15 +42,18 @@ function Compilar([string]$fonte, [string]$alvo, [string]$destino) {
 $alvoAtual = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $raiz 'target' }
 Compilar $raiz $alvoAtual (Join-Path $trabalho 'bin-atual')
 
-$fonteBase = Join-Path $trabalho 'base-src'
-if (Test-Path $fonteBase) { Remove-Item -Recurse -Force $fonteBase }
-New-Item -ItemType Directory -Force $fonteBase | Out-Null
-$tar = Join-Path $trabalho 'base.tar'
-git -C $raiz archive --format=tar -o $tar $Ref
-if ($LASTEXITCODE -ne 0) { throw "git archive $Ref falhou" }
-tar -xf $tar -C $fonteBase
-Remove-Item $tar
-Compilar $fonteBase (Join-Path $trabalho 'base-target') (Join-Path $trabalho 'bin-base')
+$binBase = Join-Path $trabalho 'bin-base'
+if (-not ($ReusarBase -and (Test-Path (Join-Path $binBase 'medir.exe')))) {
+    $fonteBase = Join-Path $trabalho 'base-src'
+    if (Test-Path $fonteBase) { Remove-Item -Recurse -Force $fonteBase }
+    New-Item -ItemType Directory -Force $fonteBase | Out-Null
+    $tar = Join-Path $trabalho 'base.tar'
+    git -C $raiz archive --format=tar -o $tar $Ref
+    if ($LASTEXITCODE -ne 0) { throw "git archive $Ref falhou" }
+    tar -xf $tar -C $fonteBase
+    Remove-Item $tar
+    Compilar $fonteBase (Join-Path $trabalho 'base-target') $binBase
+}
 
 & (Join-Path $PSScriptRoot 'custo-zero.ps1') -Atual (Join-Path $trabalho 'bin-atual') -Base (Join-Path $trabalho 'bin-base') -Entrada $Entrada -Packages $Packages -Rodadas $Rodadas -Tolerancia $Tolerancia
 exit $LASTEXITCODE

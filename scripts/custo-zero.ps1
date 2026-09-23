@@ -58,7 +58,8 @@ function Sessao([string]$dir, [string]$entrada, [string]$cfg, [string]$alvo) {
     if ($cfg) { $a += $cfg } else { $a += '' }
     $a += @($alvo, "$Edicoes")
     $saida = & $exe @a 2>&1 | Out-String
-    if ($saida -notmatch 'média (\d+) ms/edição') { throw "medir sem a linha de média:`n$saida" }
+    # Tolerante à página de código do console (a saída do exemplo é UTF-8).
+    if ($saida -notmatch 'm\S*dia (\d+) ms/edi') { throw "medir sem a linha de média:`n$saida" }
     return [double]$Matches[1]
 }
 

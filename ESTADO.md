@@ -449,13 +449,18 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   nenhum motor construído (`instancias() == 0`), relatório sem motor e a
   **mesma contagem de alocações** por edição que uma sessão construída sem
   etapas; portão de tempo no `pesado.yml` (job `custo-zero`, commit × main,
-  5 rodadas alternadas, tolerância 3%), verde na rodada 35847625760:
-  corpus JS inteiro **11,36 s × 11,56 s** (razão 1,017) e edição de corpo
-  numa sessão sintética de 300 bibliotecas **34 × 35 ms** (1,029). O ruído
-  entre rodadas do mesmo binário chegou a 14% (11,1–12,7 s) — a mediana de 5
-  cabe nos 3%, mas por pouco; se o portão oscilar, a tolerância sobe com a
-  medição registrada aqui. Local no `new_sali/core`
-  (`scripts/medir-custo-zero.ps1`): ver abaixo.
+  5 rodadas alternadas, tolerância 3%), verde nas duas rodadas:
+  35847625760 — corpus JS inteiro **11,36 × 11,56 s** (razão 1,017), edição
+  de corpo numa sessão sintética de 300 bibliotecas **34 × 35 ms** (1,029);
+  35850781174 (depois do merge do `main`) — **11,53 × 11,62 s** (1,008) e
+  **35 × 34 ms** (0,971). O ruído entre rodadas do mesmo binário chegou a 14%
+  (11,1–12,7 s): a mediana de 5 cabe nos 3%, mas por pouco; se o portão
+  oscilar, a tolerância sobe com a medição registrada aqui. Local no
+  `new_sali/core` (`scripts/medir-custo-zero.ps1`, média do platô de 20
+  edições de corpo, 5 rodadas alternadas, máquina carregada por outros
+  agentes): base **536 ms** × atual **465 ms** de mediana (0,87; faixas
+  419–714 e 393–613 ms) — sem piora; os 227 ms do §1.3 são de máquina
+  livre.
 
 ---
 
