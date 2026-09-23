@@ -15,6 +15,16 @@ use std::path::PathBuf;
 
 pub struct NgEstagioA;
 
+/// Algo no texto que pode ser Angular (conservador: qualquer menção ao
+/// ngdart, às anotações ou a injetor).
+fn marca_angular(texto: &str) -> bool {
+    const MARCAS: &[&str] = &[
+        "ngdart", "angular", "@Component", "@Directive", "@Pipe", "@Injectable", "GenerateInjector", "Injector",
+        "@Input", "@Output", "@HostBinding", "@HostListener", "@View", "@Content", "OpaqueToken", "Provider",
+    ];
+    MARCAS.iter().any(|m| texto.contains(m))
+}
+
 const EXTENSOES: &[&str] = &["dart", "html", "scss", "sass", "css"];
 
 fn arquivos(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
@@ -63,14 +73,40 @@ impl GeradorNativo for NgEstagioA {
         if !e_raiz {
             return Err("ngdart (estágio A): só o pacote da entrada".into());
         }
+        let t = std::time::Instant::now();
         let mut v = Vec::new();
         for d in ["lib", "web", "test"] {
             let dir = raiz.join(d);
             ctx.registrar(Consulta::Glob { dir: dartforge_elements::gerado::chave(&dir), padrao: "**".into() });
             arquivos(&dir, &mut v);
         }
+        // Um `.dart` sem nenhuma marca de Angular só entra na geração pela
+        // API (o `Resolvedor` pergunta onde um tipo é declarado e o tipo de
+        // um membro público; o template dele é o trivial, que só depende do
+        // nome). Para ele a consulta é a API da biblioteca: editar um corpo
+        // ali não reexecuta o ngdart. O resto — componente, diretiva, pipe,
+        // injetor, `.html`, `.scss`, `.css` — é o texto inteiro.
+        let biblioteca_de: std::collections::HashMap<std::path::PathBuf, &str> = programa
+            .units
+            .iter()
+            .filter_map(|u| {
+                let p = u.path.as_ref()?;
+                Some((dartforge_elements::gerado::chave(p), programa.library(u.library).uri.as_str()))
+            })
+            .collect();
         for p in &v {
-            ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(p)));
+            let k = dartforge_elements::gerado::chave(p);
+            let dart = p.extension().is_some_and(|x| x == "dart");
+            let uri = biblioteca_de.get(&k).copied();
+            match (dart, uri) {
+                (true, Some(uri)) if !marca_angular(&std::fs::read_to_string(p).unwrap_or_default()) => {
+                    ctx.registrar(Consulta::ApiBiblioteca(uri.to_string()));
+                    // O nome do arquivo decide o template trivial: a
+                    // existência dele também é consulta.
+                    ctx.registrar(Consulta::Existe(k));
+                }
+                _ => ctx.registrar(Consulta::Arquivo(k)),
+            }
         }
         // O que o `Resolvedor` pode perguntar de fora do pacote.
         for l in &programa.libraries {
@@ -86,10 +122,19 @@ impl GeradorNativo for NgEstagioA {
                 ctx.registrar(Consulta::FonteBiblioteca(l.uri.clone()));
             }
         }
+        let t_consultas = t.elapsed();
         let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: raiz.clone() };
         let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         let mut nomes = dartforge_intern::Interner::new();
         let (g, placar) = dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
+        if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
+            eprintln!(
+                "ngdart (estágio A): consultas {:.1} ms ({} arquivos), gerar_com_apoio {:.1} ms",
+                t_consultas.as_secs_f64() * 1000.0,
+                v.len(),
+                (t.elapsed() - t_consultas).as_secs_f64() * 1000.0
+            );
+        }
         let mut s = SaidaNativa::default();
         for (p, f) in g.iter() {
             if f.gerador == "ngdart" {

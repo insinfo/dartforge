@@ -92,19 +92,25 @@ pub struct RelMotor {
     pub apoio: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
     pub tempo: Duration,
+    /// Revalidação das rodadas por pacote (digests das consultas afetadas).
+    pub tempo_revalidar: Duration,
+    /// Geradores nativos por pacote (o estágio A do ngdart).
+    pub tempo_nativo: Duration,
 }
 
 impl RelMotor {
     pub fn texto(&self) -> String {
         let mut s = format!(
-            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio), {} consultas reavaliadas, {} saídas alteradas, {:.1} ms",
+            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio), {} consultas reavaliadas, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
             self.acoes_verificadas,
             self.acoes_executadas,
             self.nativas,
             self.apoio,
             self.consultas_reavaliadas,
             self.saidas_alteradas,
-            self.tempo.as_secs_f64() * 1000.0
+            self.tempo.as_secs_f64() * 1000.0,
+            self.tempo_revalidar.as_secs_f64() * 1000.0,
+            self.tempo_nativo.as_secs_f64() * 1000.0,
         );
         for (m, n) in &self.pendentes_por_motivo {
             s.push_str(&format!("\n  pendentes ({n}): {m}"));
@@ -167,6 +173,8 @@ pub struct Motor {
     /// Arquivos de configuração: mudou um, o plano é refeito.
     configuracao: Vec<PathBuf>,
     marcas: HashMap<PathBuf, Option<Marca>>,
+    /// O que [`Motor::mudancas`] olha (recalculado a cada atualização).
+    observados: Vec<PathBuf>,
     geracao: Arc<Geracao>,
     avisados: HashSet<PathBuf>,
     rotulos: HashMap<String, &'static str>,
@@ -230,9 +238,11 @@ fn indices(gp: &GrafoPacotes, grafo: &Grafo, n_fases: usize) -> Indices {
 }
 
 /// A consulta pode ter mudado com estes eventos?
-fn afetada(c: &Consulta, mudados: &HashSet<PathBuf>, dart_mudou: bool) -> bool {
+fn afetada(c: &Consulta, mudados: &HashSet<PathBuf>, dart_mudou: bool, estruturais: &HashSet<PathBuf>) -> bool {
     match c {
-        Consulta::Glob { dir, .. } => mudados.iter().any(|m| m.starts_with(dir)),
+        // Uma listagem só muda quando entra ou sai arquivo (diretório observado
+        // que mudou, ou arquivo novo/apagado).
+        Consulta::Glob { dir, .. } => estruturais.iter().any(|m| m.starts_with(dir)),
         _ => c.caminho().is_some_and(|p| mudados.contains(p)) || (c.semantica() && dart_mudou),
     }
 }
@@ -279,6 +289,7 @@ impl Motor {
             dirs,
             configuracao,
             marcas: HashMap::new(),
+            observados: Vec::new(),
             geracao: Arc::new(Geracao::default()),
             avisados: HashSet::new(),
             rotulos: HashMap::new(),
@@ -286,6 +297,7 @@ impl Motor {
         for c in m.configuracao.iter().chain(&m.dirs) {
             m.marcas.insert(c.clone(), Marca::ler(c));
         }
+        m.recalcular_observados();
         #[cfg(feature = "nativos")]
         {
             for g in crate::nativos::todos() {
@@ -321,6 +333,22 @@ impl Motor {
     /// observa os `.dart`): os arquivos de configuração e o que as ações
     /// consultaram fora da memória.
     pub fn observados(&self) -> Vec<PathBuf> {
+        self.observados.clone()
+    }
+
+    /// Recalcula a lista observada (depois de cada atualização) e anota a
+    /// marca de quem entrou nela agora — o estado que as ações leram.
+    fn recalcular_observados(&mut self) {
+        let v = self.calcular_observados();
+        for p in &v {
+            if !self.marcas.contains_key(p) {
+                self.marcas.insert(p.clone(), Marca::ler(p));
+            }
+        }
+        self.observados = v;
+    }
+
+    fn calcular_observados(&self) -> Vec<PathBuf> {
         let mut v: BTreeSet<PathBuf> = self.configuracao.iter().chain(&self.dirs).cloned().collect();
         let consultas = self
             .registros
@@ -344,17 +372,29 @@ impl Motor {
 
     /// Observados cuja marca mudou desde a última olhada (mtime e tamanho).
     pub fn mudancas(&mut self) -> Vec<PathBuf> {
+        // Um `stat` por observado, em paralelo como o `CacheUnidades`
+        // (no Windows cada `stat` passa pelo antivírus).
+        let caminhos = &self.observados;
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+        let agora: Vec<Option<Marca>> = if caminhos.len() < 64 || threads < 2 {
+            caminhos.iter().map(|p| Marca::ler(p)).collect()
+        } else {
+            let pedaco = caminhos.len().div_ceil(threads);
+            std::thread::scope(|s| {
+                let hs: Vec<_> = caminhos
+                    .chunks(pedaco)
+                    .map(|c| s.spawn(move || c.iter().map(|p| Marca::ler(p)).collect::<Vec<_>>()))
+                    .collect();
+                hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+            })
+        };
         let mut v = Vec::new();
-        for p in self.observados() {
-            let agora = Marca::ler(&p);
-            match self.marcas.get(&p) {
-                Some(antes) if *antes == agora => {}
-                Some(_) => {
+        for (p, m) in self.observados.iter().zip(agora) {
+            match self.marcas.get(p) {
+                Some(antes) if *antes == m => {}
+                _ => {
                     v.push(p.clone());
-                    self.marcas.insert(p, agora);
-                }
-                None => {
-                    self.marcas.insert(p, agora);
+                    self.marcas.insert(p.clone(), m);
                 }
             }
         }
@@ -370,7 +410,7 @@ impl Motor {
         r
     }
 
-    fn caminho_de_apoio(&self, id: &AssetId, oculto: bool) -> PathBuf {
+    pub fn caminho_de_apoio(&self, id: &AssetId, oculto: bool) -> PathBuf {
         if oculto {
             self.grafo_pacotes
                 .dir_raiz
@@ -413,22 +453,19 @@ impl Motor {
 
     /// Arquivo que entrou ou saiu (ou diretório observado que mudou): as
     /// fontes, e com elas as saídas esperadas, podem ter mudado.
-    fn estrutura_mudou(&self, mudados: &HashSet<PathBuf>) -> bool {
-        mudados.iter().any(|m| {
-            if self.dirs.contains(m) {
-                return true;
-            }
-            let conhecida = self.fontes.contains(m);
-            if conhecida {
-                return !m.is_file();
-            }
-            // Arquivo novo num pacote listado (fora do `.dart_tool` e sem ser
-            // saída conhecida escrita no disco).
-            let listado = self.grafo.listados.iter().any(|p| {
-                self.grafo_pacotes.no(p).is_some_and(|n| m.starts_with(&n.raiz) && !m.starts_with(n.raiz.join(".dart_tool")))
-            });
-            listado && m.is_file() && !self.naturais.values().any(|n| n == m)
-        })
+    fn estrutural(&self, m: &Path) -> bool {
+        if self.dirs.iter().any(|d| d == m) {
+            return true;
+        }
+        if self.fontes.contains(m) {
+            return !m.is_file();
+        }
+        // Arquivo novo num pacote listado (fora do `.dart_tool` e sem ser
+        // saída conhecida escrita no disco).
+        let listado = self.grafo.listados.iter().any(|p| {
+            self.grafo_pacotes.no(p).is_some_and(|n| m.starts_with(&n.raiz) && !m.starts_with(n.raiz.join(".dart_tool")))
+        });
+        listado && m.is_file() && !self.naturais.values().any(|n| n == m)
     }
 
     /// Refaz a listagem de fontes e as saídas esperadas com o mesmo plano;
@@ -486,7 +523,11 @@ impl Motor {
                 mudados.insert(k.clone());
             }
             self.memoria = antiga;
-        } else if self.estrutura_mudou(&mudados) {
+        }
+        // Eventos que mudam listagens: diretório observado, arquivo novo ou
+        // apagado. Também refazem as fontes e as saídas esperadas.
+        let estruturais: HashSet<PathBuf> = mudados.iter().filter(|m| self.estrutural(m)).cloned().collect();
+        if !estruturais.is_empty() {
             self.reconstruir_grafo(&mut mudados)?;
         }
         let mut rel = RelMotor::default();
@@ -515,7 +556,7 @@ impl Motor {
                 let k = (g, pacote.clone());
                 if !pacotes_feitos.contains(&k) {
                     pacotes_feitos.insert(k.clone());
-                    if self.rodar_pacote(ctx, g, &pacote, &mudados, dart_mudou, &mut rel)? {
+                    if self.rodar_pacote(ctx, g, &pacote, &mudados, dart_mudou, &estruturais, &mut rel)? {
                         pacotes_rodaram.insert(k.clone());
                     }
                 }
@@ -530,12 +571,12 @@ impl Motor {
                     // Coberta por rodada de pacote: refaz se a rodada refez.
                     (Some(_), Some(r)) => r,
                     (Some(r), None) => {
-                        let talvez = r.consultas.iter().any(|(c, _)| afetada(c, &mudados, dart_mudou));
-                        talvez && {
-                            let memoria = |p: &Path| self.memoria.get(p).cloned();
-                            rel.consultas_reavaliadas += r.consultas.len();
-                            r.consultas.iter().any(|(c, d)| digest_de(c, ctx.banco, &memoria) != *d)
-                        }
+                        // Só as consultas que os eventos podem ter mudado.
+                        let memoria = |p: &Path| self.memoria.get(p).cloned();
+                        r.consultas.iter().filter(|(c, _)| afetada(c, &mudados, dart_mudou, &estruturais)).any(|(c, d)| {
+                            rel.consultas_reavaliadas += 1;
+                            digest_de(c, ctx.banco, &memoria) != *d
+                        })
                     }
                 };
                 if sujo {
@@ -620,6 +661,7 @@ impl Motor {
             self.publicar();
         }
         rel.tempo = t0.elapsed();
+        self.recalcular_observados();
         Ok(Atualizacao { geracao: self.geracao.clone(), alterados: alterados.into_iter().collect(), rel, avisos })
     }
 
@@ -661,20 +703,32 @@ impl Motor {
         pacote: &Arc<str>,
         mudados: &HashSet<PathBuf>,
         dart_mudou: bool,
+        estruturais: &HashSet<PathBuf>,
         rel: &mut RelMotor,
     ) -> Result<bool, String> {
         let k = (g, pacote.clone());
         if let Some(r) = self.pacotes.get(&k) {
-            let talvez = r.registro_consultas.iter().any(|(c, _)| afetada(c, mudados, dart_mudou));
+            let talvez = r.registro_consultas.iter().any(|(c, _)| afetada(c, mudados, dart_mudou, estruturais));
             if !talvez {
                 return Ok(false);
             }
+            // Só as consultas que os eventos podem ter mudado são refeitas.
+            let t = Instant::now();
             let memoria = |p: &Path| self.memoria.get(p).cloned();
-            rel.consultas_reavaliadas += r.registro_consultas.len();
-            if r.registro_consultas.iter().all(|(c, d)| digest_de(c, ctx.banco, &memoria) == *d) {
+            let mut iguais = true;
+            for (c, d) in r.registro_consultas.iter().filter(|(c, _)| afetada(c, mudados, dart_mudou, estruturais)) {
+                rel.consultas_reavaliadas += 1;
+                if digest_de(c, ctx.banco, &memoria) != *d {
+                    iguais = false;
+                    break;
+                }
+            }
+            rel.tempo_revalidar += t.elapsed();
+            if iguais {
                 return Ok(false);
             }
         }
+        let t_gerar = Instant::now();
         let gerador = self.nativos[g].clone();
         // Todas as ações das fases que o gerador cobre no pacote.
         let mut acoes = Vec::new();
@@ -716,6 +770,7 @@ impl Motor {
             },
         };
         self.pacotes.insert(k, rodada);
+        rel.tempo_nativo += t_gerar.elapsed();
         Ok(true)
     }
 
@@ -732,7 +787,9 @@ impl Motor {
             .map(|s| (s.clone(), rodada.and_then(|r| r.saidas.get(&self.naturais[s])).cloned()))
             .collect();
         let entrada = natural(&self.grafo_pacotes, &acao.entrada);
-        let consultas = rodada.map(|r| r.registro_consultas.clone()).unwrap_or_default();
+        // As consultas ficam na rodada do pacote (é ela que se revalida);
+        // copiá-las para cada ação custava centenas de ms por edição.
+        let consultas = Vec::new();
         // Nativo cobre a ação quando gerou alguma saída dela e não a recusou.
         let recusa = rodada.and_then(|r| r.erro.clone().or_else(|| r.recusas.get(&entrada).cloned()));
         let gerou_algo = saidas.iter().any(|(_, c)| c.is_some());
@@ -748,7 +805,17 @@ impl Motor {
                 medido: Vec::new(),
             };
         }
-        let mut r = self.apoio(a, motivo_dart);
+        // O apoio de uma ação que já vinha dele não é relido: o disco do
+        // `build_runner` não muda sob a sessão (limitação declarada: rodá-lo
+        // à parte pede reiniciar a sessão).
+        let mut r = match &self.registros[a] {
+            Some(ant) if ant.origem == Origem::Apoio => {
+                let mut r = ant.clone();
+                r.motivo = motivo_dart.map(|m| format!("apoio do build_runner: {m}"));
+                r
+            }
+            _ => self.apoio(a, motivo_dart),
+        };
         if !gerador.verificado() {
             r.medido = saidas.into_iter().filter_map(|(s, c)| c.map(|c| (s, c))).collect();
         }
@@ -907,7 +974,11 @@ impl Motor {
             }
             for (s, conteudo) in &r.saidas {
                 let Some(conteudo) = conteudo else { continue };
-                rotulos.push((a, self.plano.aplicacoes[f.aplicacao].chave.clone()));
+                let rotulo = match r.origem {
+                    Origem::Nativo(_) => self.plano.aplicacoes[f.aplicacao].chave.clone(),
+                    _ => "build_runner".to_string(),
+                };
+                rotulos.push((a, rotulo));
                 itens.push((self.naturais[s].clone(), conteudo.clone(), "", natural(&self.grafo_pacotes, &acao.entrada)));
             }
         }
@@ -947,8 +1018,32 @@ impl Motor {
             }
             let _ = ctx;
             self.registros[g.acao] = Some(r);
+            self.recalcular_observados();
         }
         self.memoria.get(&k).cloned()
+    }
+
+    /// Saídas `build_to: source` de gerador nativo entre `alterados`, com o
+    /// conteúdo: vão ao disco (D-B2). As de apoio já estão lá.
+    pub fn saidas_source_nativas(&self, alterados: &[PathBuf]) -> Vec<(PathBuf, Arc<[u8]>)> {
+        if alterados.is_empty() {
+            return Vec::new();
+        }
+        let alt: HashSet<&PathBuf> = alterados.iter().collect();
+        let mut v = Vec::new();
+        for (a, r) in self.registros.iter().enumerate() {
+            let Some(r) = r else { continue };
+            if !matches!(r.origem, Origem::Nativo(_)) || self.fases[self.grafo.acoes[a].fase].oculta {
+                continue;
+            }
+            for (s, c) in &r.saidas {
+                let n = &self.naturais[s];
+                if let (true, Some(c)) = (alt.contains(n), c) {
+                    v.push((n.clone(), c.clone()));
+                }
+            }
+        }
+        v
     }
 
     /// Estado canônico (ações, origem, motivo, digest de cada saída e a
