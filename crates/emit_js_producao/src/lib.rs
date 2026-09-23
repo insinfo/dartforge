@@ -86,6 +86,14 @@ pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes)
     let sdk_depois = sdk_podado.len();
 
     let js = bundle::montar(&sdk_podado, &modulos, &entrada);
+    debug_assert!(
+        // Determinismo é requisito (`docs/PESQUISA-OTIMIZACAO.md` §11): o
+        // `dartforge serve` recarrega por geração, e geração que muda à toa é
+        // um defeito que o usuário vê. Em depuração, confere de graça que o
+        // arquivo não depende da ordem interna de nada.
+        bundle::montar(&sdk_podado, &modulos, &entrada) == js,
+        "a montagem não é determinística"
+    );
     Producao {
         js,
         modulos: modulos.len(),
@@ -94,5 +102,96 @@ pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes)
         sdk_depois,
         sdk_unidades: unidades,
         sdk_vivas: vivas,
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn emitido() -> dartforge_emit_js::Emitido {
+        dartforge_emit_js::Emitido {
+            modulos: vec![
+                (
+                    "main.js".into(),
+                    concat!(
+                        "var L$main = Object.create(dart.library);\n",
+                        "export { L$main as main };\n",
+                        "import { core, dart } from './dart_sdk.js';\n",
+                        "import { util as L$util } from './util.js';\n",
+                        "L$main.main = function main() { core.print(L$util.dobro(21)); };\n",
+                    )
+                    .into(),
+                ),
+                (
+                    "util.js".into(),
+                    concat!(
+                        "var L$util = Object.create(dart.library);\n",
+                        "export { L$util as util };\n",
+                        "import { dart } from './dart_sdk.js';\n",
+                        "L$util.dobro = function dobro(x) { return x * 2; };\n",
+                    )
+                    .into(),
+                ),
+                ("preambulo.js".into(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".into()),
+            ],
+            entrada: "import { main as m } from './main.js';\nm.main();\n".into(),
+        }
+    }
+
+    const SDK: &str = concat!(
+        "var core = Object.create(dart.library);\n",
+        "export { dart, core };\n",
+        "core.print = function print(o) { console.log(o); };\n",
+        "core.Morta = class Morta {};\n",
+    );
+
+    #[test]
+    fn monta_um_arquivo_na_ordem_topologica() {
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false });
+        assert!(p.ciclos.is_empty());
+        assert_eq!(p.modulos, 2);
+        // `util.js` não importa ninguém, então vem antes de `main.js`.
+        let a = p.js.find("L$util.dobro").unwrap();
+        let b = p.js.find("L$main.main").unwrap();
+        assert!(a < b, "dependência tem de vir antes de quem a importa");
+        // Nada de `import`/`export` no arquivo final.
+        assert!(!p.js.contains("\nimport "), "sobrou import");
+        assert!(!p.js.contains("\nexport "), "sobrou export");
+        // Os namespaces são içados; os corpos ficam em IIFE.
+        assert!(p.js.contains("var L$util = Object.create(dart.library);\n"));
+        assert!(p.js.contains("(function () {"));
+        assert!(p.js.trim_end().ends_with("L$main.main();"));
+    }
+
+    /// As bibliotecas continuam **separadas** depois do empacotamento: é a
+    /// regra do topo de `docs/JS-PRODUCAO.md` (compartilhar representação,
+    /// sim; unificar identidade de biblioteca, não).
+    #[test]
+    fn empacotar_nao_funde_bibliotecas() {
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false });
+        assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + as duas do usuário");
+    }
+
+    /// Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): duas montagens das
+    /// mesmas entradas dão o mesmo arquivo, byte a byte.
+    #[test]
+    fn montagem_e_deterministica() {
+        let op = Opcoes::default();
+        let a = montar(&emitido(), SDK, op);
+        let b = montar(&emitido(), SDK, op);
+        assert_eq!(a.js, b.js);
+        assert_eq!(a.sdk_depois, b.sdk_depois);
+    }
+
+    /// A poda tira do runtime o que o programa não alcança, e mantém o que
+    /// alcança — no arquivo único, não num `dart_sdk.js` ao lado.
+    #[test]
+    fn poda_o_runtime_embutido() {
+        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false });
+        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false });
+        assert!(com.js.contains("core.print = function"), "o que o programa usa fica");
+        assert!(!com.js.contains("core.Morta"), "o que ele não usa sai");
+        assert!(com.sdk_depois < sem.sdk_depois);
     }
 }
