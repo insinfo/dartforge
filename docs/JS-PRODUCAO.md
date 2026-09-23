@@ -609,6 +609,43 @@ entra no caminho do `serve`.
 
 ---
 
+## 6.0 O placar, medido
+
+`cargo run --release -p dartforge-diferencial -- --producao`:
+
+```
+DartForge desenvolvimento: 214/214 ok
+DartForge produção:        214/214 ok
+```
+
+Mesmo `stdout` da VM, byte a byte, nos dois perfis.
+
+Tamanho e tempo contra o `dart compile js -O4` do SDK 3.6.2
+(`pwsh scripts/medir-js-producao.ps1`):
+
+| programa | dart2js | jsprod | razão | dart2js | jsprod |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `01_print` | 34,1 KB | 1.527 KB | 45× | 2,58 s | 0,88 s |
+| `20_if_else_encadeado` | 6,3 KB | 1.530 KB | 245× | 1,97 s | 0,57 s |
+| `40_classes_basico` | 34,4 KB | 1.538 KB | 45× | 2,32 s | 0,60 s |
+| `60_list_basico` | 45,1 KB | 1.533 KB | 34× | 3,98 s | 0,76 s |
+| `80_async_await_basico` | 48,3 KB | 1.534 KB | 32× | 3,32 s | 0,68 s |
+| `100_records_basico` | 43,2 KB | 1.537 KB | 36× | 2,12 s | 0,42 s |
+| `120_convert_json` | 57,2 KB | 1.728 KB | 30× | 1,81 s | 0,41 s |
+
+Duas leituras, e as duas importam:
+
+* **somos 3 a 5× mais rápidos** que o `dart2js` — e isso com a
+  classificação do runtime refeita do zero a cada compilação, que é
+  justamente o que a §1.6 diz para pôr em cache;
+* **o tamanho tem piso fixo de ~1,5 MB**, qualquer que seja o programa.
+  O `20_if_else_encadeado` não usa quase nada do SDK e mesmo assim paga
+  1.530 KB. Isso confirma a §1.5 por medição: o que sobra não é código do
+  programa, é o mínimo do `dart_sdk.js` do DDC sob a nossa granularidade.
+  As próximas etapas deste plano (mundo fechado sobre a nossa trilha,
+  minificação) mexem na parte pequena da conta; o que mexe na grande é
+  compilar o SDK pela nossa trilha.
+
 ## 6.1 O que já está implementado
 
 Etapas 1 a 4 do quadro acima, em `crates/emit_js_producao`

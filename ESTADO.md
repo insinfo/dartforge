@@ -65,6 +65,48 @@ exceções, `async`/`await`/`async*`/`sync*`/`await for`, `dynamic` por
 com prefixos/`show`/`hide`/`part`, interop (`package:js`,
 `dart:js_interop`, `@JSName`, `@anonymous`), `dart:html`.
 
+### 1.2.1 Perfil de **produção** — `crates/emit_js_producao`
+
+`dartforge-jsprod <entrada.dart> -o <saida.js>` escreve **um arquivo**, com
+o runtime embutido e podado pelo mundo fechado. O plano, a referência
+estudada e o que ele ainda não faz estão em `docs/JS-PRODUCAO.md`.
+
+* **Corpus diferencial: 214/214**, com o **mesmo stdout da VM**, byte a
+  byte — o mesmo placar do perfil de desenvolvimento.
+  `cargo run --release -p dartforge-diferencial -- --producao` compara os
+  três (VM × nosso desenvolvimento × nossa produção) e agrupa as falhas em
+  duas listas, porque as causas são diferentes: falha do desenvolvimento é
+  construto que falta no emissor, falha da produção é poda ou montagem.
+* **Poda do `dart_sdk.js`**: a varredura parte os 7.087.858 B em 14.735
+  declarações de topo **sem perder um byte**, sub-divide as três que
+  sozinhas referenciam o programa inteiro (as 549 constantes do `CT`, os
+  315 KB de regras de subtipagem do `addRules`, o `copyProperties`), extrai
+  as referências — inclusive os nomes de classe dentro das **receitas
+  rti**, que nenhum analisador de JS enxerga — e roda o ponto fixo.
+  No `01_print`: **6.922 KB → 1.474 KB**, 8.450 de 44.965 unidades vivas.
+* **Empacotamento**: uma IIFE por módulo, em ordem topológica, com os
+  `var L$…` içados. **Bibliotecas nunca são fundidas** — dois arquivos
+  vendorizados byte a byte iguais continuam com estado global separado e
+  tipos de identidade distinta (`docs/PESQUISA-OTIMIZACAO.md` §3).
+* **Determinismo** por construção, com teste: duas montagens das mesmas
+  entradas dão o mesmo arquivo byte a byte.
+
+Contra o oficial (`dart compile js -O4`, SDK 3.6.2), amostra do corpus por
+`pwsh scripts/medir-js-producao.ps1`:
+
+| programa | dart2js | jsprod | dart2js | jsprod |
+| --- | ---: | ---: | ---: | ---: |
+| `01_print` | 34,1 KB | 1.527 KB | 2,58 s | **0,88 s** |
+| `40_classes_basico` | 34,4 KB | 1.538 KB | 2,32 s | **0,60 s** |
+| `60_list_basico` | 45,1 KB | 1.533 KB | 3,98 s | **0,76 s** |
+| `80_async_await_basico` | 48,3 KB | 1.534 KB | 3,32 s | **0,68 s** |
+| `120_convert_json` | 57,2 KB | 1.728 KB | 1,81 s | **0,41 s** |
+
+**Somos 3 a 5× mais rápidos e 30 a 45× maiores**, e o tamanho tem piso fixo
+de ~1,5 MB qualquer que seja o programa: é o que resta do `dart_sdk.js` do
+DDC depois da poda. Ver §2.3 — fechar esse buraco é compilar o SDK pela
+nossa trilha, não otimizar mais.
+
 ### 1.3 Latência e memória — `crates/dev`
 
 `dartforge dev` mantém a sessão viva e recompila o mínimo.
@@ -260,13 +302,20 @@ arquivo oficial correspondente serve de teste byte a byte.
 
 ### 2.3 Modo de produção
 
-Nada feito. O modo atual é o de desenvolvimento (um módulo por biblioteca,
-sem otimização global). Falta, na ordem do PLANO: alcance por símbolos
-(tree shaking), inferência global de tipos, desvirtualização,
-especialização, `const` propagado, minificação, code splitting (com
-`deferred` virando `import()`), e o agrupamento em poucos chunks. A
-referência é dart2js e Scala.js; a qualidade-alvo do JS emitido é a do
-ReScript.
+**Existe, e é o de §1.2.1.** O que ainda falta, na ordem do
+`docs/JS-PRODUCAO.md` §6: mundo fechado sobre a nossa trilha (hoje só o
+runtime é podado; o código do usuário vai inteiro), despacho direto por
+alvo único, minificação, deduplicação de funções na trilha tipada, e code
+splitting (`deferred` virando `import()`).
+
+E o limite estrutural, medido e registrado: **enquanto o runtime for o
+`dart_sdk.js` do DDC, o piso é da ordem de 1 MB, não os 35 KB do
+`dart2js`**. Ele chega lá porque compila o SDK do fonte com inferência
+global; o nosso vem pré-compilado, com tabela de assinaturas, receitas rti
+e métodos de extensão emitidos para qualquer uso possível — dá para apagar
+a classe ou o membro inteiro, nunca a metade do metadado que sobra. Fechar
+esses 30× é o passo 4 do PLANO (compilar o SDK pela nossa trilha), não uma
+otimização a mais.
 
 ### 2.4 LSP
 
