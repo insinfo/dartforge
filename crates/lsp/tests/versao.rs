@@ -25,9 +25,16 @@ fn versao_do_pacote_e_do_marcador() {
     let fonte = "void f(final int x) {}";
     std::fs::write(&arquivo, fonte).unwrap();
     let mut a = AnalisadorSintatico::new();
-    assert!(a.diagnosticar(&uri(&arquivo), fonte).is_empty(), "o pacote está na 3.6");
+    assert!(
+        a.diagnosticar(&uri(&arquivo), fonte).is_empty(),
+        "o pacote está na 3.6"
+    );
     let com_marcador = format!("// @dart=3.13\n{fonte}");
-    assert_eq!(a.diagnosticar(&uri(&arquivo), &com_marcador).len(), 1, "o marcador vale mais");
+    assert_eq!(
+        a.diagnosticar(&uri(&arquivo), &com_marcador).len(),
+        1,
+        "o marcador vale mais"
+    );
     // Fora de pacote: a versão corrente (3.13).
     assert_eq!(a.diagnosticar("file:///nao/existe/b.dart", fonte).len(), 1);
     let _ = std::fs::remove_dir_all(&raiz);

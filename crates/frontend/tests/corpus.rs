@@ -24,11 +24,22 @@ fn coletar(dir: &Path, saida: &mut Vec<PathBuf>) {
 /// inferior de `sdk:` no `pubspec.yaml` mais próximo (`^3.8.0`,
 /// `'>=3.8.0 <4.0.0'`), como o `languageVersion` que o `pub get` grava.
 fn versao_do_pacote(arquivo: &Path) -> Option<dartforge_frontend::LanguageVersion> {
-    let pubspec = arquivo.ancestors().skip(1).map(|d| d.join("pubspec.yaml")).find(|p| p.is_file())?;
+    let pubspec = arquivo
+        .ancestors()
+        .skip(1)
+        .map(|d| d.join("pubspec.yaml"))
+        .find(|p| p.is_file())?;
     let texto = std::fs::read_to_string(pubspec).ok()?;
     let linha = texto.lines().find(|l| l.trim_start().starts_with("sdk:"))?;
-    let valor = linha.trim_start().trim_start_matches("sdk:").trim().trim_matches(['\'', '"']);
-    let inferior = valor.trim_start_matches('^').trim_start_matches(">=").trim();
+    let valor = linha
+        .trim_start()
+        .trim_start_matches("sdk:")
+        .trim()
+        .trim_matches(['\'', '"']);
+    let inferior = valor
+        .trim_start_matches('^')
+        .trim_start_matches(">=")
+        .trim();
     let mut partes = inferior.split(['.', ' ']);
     let maior: u16 = partes.next()?.parse().ok()?;
     let menor: u16 = partes.next()?.parse().ok()?;

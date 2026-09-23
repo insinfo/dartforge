@@ -9,8 +9,8 @@
 //! Regras de memória (docs/FRONTEND-ARQUITETURA.md §2): tudo em `Vec` indexado
 //! por id `u32`; nomes são [`SymbolId`]; nós da árvore são referenciados por
 //! `(UnitId, id na arena)`, nunca copiados.
-use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_frontend::LibraryFeatures;
+use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_intern::SymbolId;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

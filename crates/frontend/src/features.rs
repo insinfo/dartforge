@@ -14,7 +14,9 @@
 use dartforge_diagnostics::Span;
 
 /// Versão de linguagem `maior.menor` (a de patch não existe para a linguagem).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct LanguageVersion {
     pub major: u16,
     pub minor: u16,
@@ -42,7 +44,11 @@ impl LanguageVersion {
     /// Espaços em volta são tolerados; qualquer outra coisa é `None`.
     pub fn parse(texto: &str) -> Option<LanguageVersion> {
         let (a, b) = texto.trim().split_once('.')?;
-        if a.is_empty() || b.is_empty() || !a.bytes().all(|c| c.is_ascii_digit()) || !b.bytes().all(|c| c.is_ascii_digit()) {
+        if a.is_empty()
+            || b.is_empty()
+            || !a.bytes().all(|c| c.is_ascii_digit())
+            || !b.bytes().all(|c| c.is_ascii_digit())
+        {
             return None;
         }
         Some(LanguageVersion::new(a.parse().ok()?, b.parse().ok()?))
@@ -132,9 +138,13 @@ impl Feature {
     /// partir da qual o recurso vale sem sinal nenhum. `None` = experimento.
     pub const fn habilitado_em(self) -> Option<LanguageVersion> {
         match self {
-            Feature::WildcardVariables | Feature::InferenceUsingBounds => Some(LanguageVersion::new(3, 7)),
+            Feature::WildcardVariables | Feature::InferenceUsingBounds => {
+                Some(LanguageVersion::new(3, 7))
+            }
             Feature::NullAwareElements => Some(LanguageVersion::new(3, 8)),
-            Feature::SoundFlowAnalysis | Feature::GetterSetterError => Some(LanguageVersion::new(3, 9)),
+            Feature::SoundFlowAnalysis | Feature::GetterSetterError => {
+                Some(LanguageVersion::new(3, 9))
+            }
             Feature::DotShorthands => Some(LanguageVersion::new(3, 10)),
             Feature::PrivateNamedParameters => Some(LanguageVersion::new(3, 12)),
             Feature::PrimaryConstructors => Some(LanguageVersion::new(3, 13)),
@@ -279,7 +289,13 @@ pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
                 fim += 1;
             }
             if let Some(v) = versao_do_comentario(&b[inicio..fim]) {
-                return Some((v, Span { start: inicio, end: fim }));
+                return Some((
+                    v,
+                    Span {
+                        start: inicio,
+                        end: fim,
+                    },
+                ));
             }
             i = fim;
         } else if b[i..].starts_with(b"/*") {
@@ -350,9 +366,18 @@ mod testes {
 
     #[test]
     fn marcador_simples_e_com_espacos() {
-        assert_eq!(marcador_versao("// @dart=3.6\nvoid main() {}").map(|m| m.0), Some(v(3, 6)));
-        assert_eq!(marcador_versao("//@dart = 2.12   \nx").map(|m| m.0), Some(v(2, 12)));
-        assert_eq!(marcador_versao("// @dart = 3.13").map(|m| m.0), Some(v(3, 13)));
+        assert_eq!(
+            marcador_versao("// @dart=3.6\nvoid main() {}").map(|m| m.0),
+            Some(v(3, 6))
+        );
+        assert_eq!(
+            marcador_versao("//@dart = 2.12   \nx").map(|m| m.0),
+            Some(v(2, 12))
+        );
+        assert_eq!(
+            marcador_versao("// @dart = 3.13").map(|m| m.0),
+            Some(v(3, 13))
+        );
         let (_, span) = marcador_versao("\n\n// @dart=3.7\r\nmain(){}").unwrap();
         assert_eq!(span, Span { start: 2, end: 14 });
     }
@@ -361,31 +386,40 @@ mod testes {
     fn marcador_depois_de_script_e_comentarios() {
         let f = "#!/usr/bin/env dart\n// licença\n/* bloco\n// @dart=2.1 não conta */\n// @dart=3.8\nimport 'x.dart';";
         assert_eq!(marcador_versao(f).map(|m| m.0), Some(v(3, 8)));
-        assert_eq!(marcador_versao("\u{FEFF}// @dart=3.7\n").map(|m| m.0), Some(v(3, 7)));
+        assert_eq!(
+            marcador_versao("\u{FEFF}// @dart=3.7\n").map(|m| m.0),
+            Some(v(3, 7))
+        );
     }
 
     #[test]
     fn so_o_primeiro_vale_e_so_antes_do_primeiro_token() {
-        assert_eq!(marcador_versao("// @dart=3.6\n// @dart=3.13\n").map(|m| m.0), Some(v(3, 6)));
+        assert_eq!(
+            marcador_versao("// @dart=3.6\n// @dart=3.13\n").map(|m| m.0),
+            Some(v(3, 6))
+        );
         assert_eq!(marcador_versao("library a;\n// @dart=3.6\n"), None);
     }
 
     #[test]
     fn formas_que_nao_sao_marcador() {
         for f in [
-            "/// @dart=3.6\n",           // documentação
-            "// @dart=3.6 extra\n",      // lixo depois da versão
-            "//\t@dart=3.6\n",           // tabulação
-            "// @dart=3\n",              // sem menor
-            "// @dart=.6\n",             // sem maior
-            "// @ dart=3.6\n",           // espaço dentro de `@dart`
-            "/* // @dart=3.6 */ x",      // dentro de bloco
+            "/// @dart=3.6\n",      // documentação
+            "// @dart=3.6 extra\n", // lixo depois da versão
+            "//\t@dart=3.6\n",      // tabulação
+            "// @dart=3\n",         // sem menor
+            "// @dart=.6\n",        // sem maior
+            "// @ dart=3.6\n",      // espaço dentro de `@dart`
+            "/* // @dart=3.6 */ x", // dentro de bloco
             "// @dartx=3.6\n",
         ] {
             assert_eq!(marcador_versao(f), None, "{f:?}");
         }
         // Um comentário comum antes não impede o marcador seguinte.
-        assert_eq!(marcador_versao("// @dart=3.6 extra\n// @dart=3.7\n").map(|m| m.0), Some(v(3, 7)));
+        assert_eq!(
+            marcador_versao("// @dart=3.6 extra\n// @dart=3.7\n").map(|m| m.0),
+            Some(v(3, 7))
+        );
     }
 
     #[test]
@@ -393,15 +427,24 @@ mod testes {
         let f36 = LibraryFeatures::new(v(3, 6), &[]);
         assert!(Feature::TODOS.iter().all(|f| !f36.tem(*f)));
         let f310 = LibraryFeatures::new(v(3, 10), &[]);
-        assert!(f310.tem(Feature::WildcardVariables) && f310.tem(Feature::NullAwareElements) && f310.tem(Feature::DotShorthands));
-        assert!(!f310.tem(Feature::PrivateNamedParameters) && !f310.tem(Feature::PrimaryConstructors));
+        assert!(
+            f310.tem(Feature::WildcardVariables)
+                && f310.tem(Feature::NullAwareElements)
+                && f310.tem(Feature::DotShorthands)
+        );
+        assert!(
+            !f310.tem(Feature::PrivateNamedParameters) && !f310.tem(Feature::PrimaryConstructors)
+        );
         let atual = LibraryFeatures::atual();
         assert!(atual.tem(Feature::PrimaryConstructors) && !atual.tem(Feature::Macros));
         assert!(LibraryFeatures::new(v(3, 6), &[Feature::Macros]).tem(Feature::Macros));
         assert_eq!(LanguageVersion::parse(" 3.13 "), Some(v(3, 13)));
         assert_eq!(LanguageVersion::parse("3"), None);
         assert_eq!(LanguageVersion::parse("3.x"), None);
-        assert_eq!(Feature::do_nome("dot-shorthands"), Some(Feature::DotShorthands));
+        assert_eq!(
+            Feature::do_nome("dot-shorthands"),
+            Some(Feature::DotShorthands)
+        );
     }
 
     #[test]
@@ -409,7 +452,9 @@ mod testes {
         let atual = LanguageVersion::ATUAL;
         let exp = [Feature::Macros];
         assert!(LibraryFeatures::para_biblioteca(None, atual, atual, &exp).tem(Feature::Macros));
-        assert!(!LibraryFeatures::para_biblioteca(Some(atual), atual, atual, &exp).tem(Feature::Macros));
+        assert!(
+            !LibraryFeatures::para_biblioteca(Some(atual), atual, atual, &exp).tem(Feature::Macros)
+        );
         assert!(!LibraryFeatures::para_biblioteca(None, v(3, 6), atual, &exp).tem(Feature::Macros));
     }
 
@@ -417,20 +462,34 @@ mod testes {
     /// quando o clone de referência existe (`references/` fica fora do git).
     #[test]
     fn tabela_confere_com_o_yaml_do_sdk() {
-        let yaml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../references/dart-sdk/tools/experimental_features.yaml");
+        let yaml = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../references/dart-sdk/tools/experimental_features.yaml");
         let Ok(texto) = std::fs::read_to_string(&yaml) else {
             eprintln!("{} ausente; conferência pulada", yaml.display());
             return;
         };
         for f in Feature::TODOS {
             let cab = format!("\n  {}:\n", f.nome());
-            let inicio = texto.find(&cab).unwrap_or_else(|| panic!("{} fora do yaml", f.nome())) + cab.len();
-            let bloco: String = texto[inicio..].lines().take_while(|l| l.starts_with("    ") || l.is_empty()).collect::<Vec<_>>().join("\n");
-            let habilitado = bloco.lines().find_map(|l| l.trim().strip_prefix("enabledIn:")).map(|s| {
-                let s = s.trim().trim_matches('\'');
-                let mut p = s.split('.');
-                LanguageVersion::new(p.next().unwrap().parse().unwrap(), p.next().unwrap().parse().unwrap())
-            });
+            let inicio = texto
+                .find(&cab)
+                .unwrap_or_else(|| panic!("{} fora do yaml", f.nome()))
+                + cab.len();
+            let bloco: String = texto[inicio..]
+                .lines()
+                .take_while(|l| l.starts_with("    ") || l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let habilitado = bloco
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("enabledIn:"))
+                .map(|s| {
+                    let s = s.trim().trim_matches('\'');
+                    let mut p = s.split('.');
+                    LanguageVersion::new(
+                        p.next().unwrap().parse().unwrap(),
+                        p.next().unwrap().parse().unwrap(),
+                    )
+                });
             assert_eq!(habilitado, f.habilitado_em(), "{}", f.nome());
         }
     }

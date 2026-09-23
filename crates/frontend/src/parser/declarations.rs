@@ -29,6 +29,7 @@
 //! * **Ordem das diretivas.** Não é imposta: qualquer diretiva é aceita em
 //!   qualquer ponto do nível de topo (superconjunto; a fase seguinte valida).
 use super::{ComposedGt, PResult, ParseError, Parser};
+use crate::ast::ExprId;
 use crate::ast::{
     Annotation, AsyncModifier, ClassDecl, ClassModifiers, Combinator, CompilationUnit,
     Configuration, Constructor, Decl, DeclId, DeclKind, Directive, DirectiveKind, EnumConstant,
@@ -36,7 +37,6 @@ use crate::ast::{
     Initializer, Member, MemberId, MemberKind, MixinDecl, Name, RedirectTarget, TypeId,
     TypedefDecl, TypedefKind, Variable, VariableList,
 };
-use crate::ast::ExprId;
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -609,7 +609,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         let implements = self.parse_implements_opt()?;
         let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
-        let primary_constructor = self.elaborar_construtor_primario(name, primario, &mut members, Elaborando::Classe { tem_supertipos });
+        let primary_constructor = self.elaborar_construtor_primario(
+            name,
+            primario,
+            &mut members,
+            Elaborando::Classe { tem_supertipos },
+        );
         Ok(ClassDecl {
             modifiers,
             name,
@@ -626,8 +631,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `(.id)? (params)` depois do nome e dos parâmetros de tipo de uma
     /// classe ou enum: o cabeçalho de um construtor primário (Dart 3.13,
     /// `<primaryConstructor>`). `var`/`final` nos parâmetros declaram campo.
-    fn parse_cabecalho_primario_opt(&mut self, inicio: Span, const_: Option<Span>) -> PResult<Option<CabecalhoPrimario>> {
-        if !self.at_op(Op::LParen) && !(self.at_op(Op::Dot) && self.kind_at(1) != Kind::Op(Op::Dot)) {
+    fn parse_cabecalho_primario_opt(
+        &mut self,
+        inicio: Span,
+        const_: Option<Span>,
+    ) -> PResult<Option<CabecalhoPrimario>> {
+        if !self.at_op(Op::LParen) && !(self.at_op(Op::Dot) && self.kind_at(1) != Kind::Op(Op::Dot))
+        {
             if let Some(c) = const_ {
                 return Err(self.error_at(c, "'const' antes do nome exige um construtor primário"));
             }
@@ -648,7 +658,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         let span = self.span_from(comeco);
         self.exigir(Feature::PrimaryConstructors, span);
         Ok(Some(CabecalhoPrimario {
-            span: Span { start: inicio.start, end: span.end },
+            span: Span {
+                start: inicio.start,
+                end: span.end,
+            },
             const_: const_.is_some(),
             nome,
             params,
@@ -696,7 +709,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         for &i in partes.iter().skip(1) {
             let span = self.ast.member(members[i]).span;
-            self.diagnostics.push(Diagnostic::new("só pode haver uma parte 'this' de construtor primário", span));
+            self.diagnostics.push(Diagnostic::new(
+                "só pode haver uma parte 'this' de construtor primário",
+                span,
+            ));
         }
         // Construtor generativo não redirecionador no corpo: proibido (o k2 é
         // o único, para os inicializadores de campo poderem ler os
@@ -706,7 +722,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if c.parte_primaria {
                     continue;
                 }
-                let redireciona = c.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. }));
+                let redireciona = c
+                    .initializers
+                    .iter()
+                    .any(|i| matches!(i, Initializer::Redirect { .. }));
                 if !c.factory && !redireciona {
                     let span = self.ast.member(m).span;
                     self.diagnostics.push(Diagnostic::new(
@@ -716,7 +735,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 if c.name.map(|n| n.sym) == cab.nome.map(|n| n.sym) {
                     let span = self.ast.member(m).span;
-                    self.diagnostics.push(Diagnostic::new("o construtor primário já tem esse nome", span));
+                    self.diagnostics.push(Diagnostic::new(
+                        "o construtor primário já tem esse nome",
+                        span,
+                    ));
                 }
             }
         }
@@ -735,13 +757,18 @@ impl<'s, 'i> Parser<'s, 'i> {
                 ));
             }
             if p.required && p.default_value.is_some() {
-                self.diagnostics.push(Diagnostic::new("parâmetro 'required' não pode ter valor padrão", p.span));
+                self.diagnostics.push(Diagnostic::new(
+                    "parâmetro 'required' não pode ter valor padrão",
+                    p.span,
+                ));
             }
             if !(p.var_ || p.final_) || p.this_ || p.super_ {
                 continue;
             }
             let Some(nome) = p.name else { continue };
-            let ty = p.ty.or_else(|| self.tipo_do_declarante_sem_tipo(p.default_value, tem_supertipos, p.span));
+            let ty = p.ty.or_else(|| {
+                self.tipo_do_declarante_sem_tipo(p.default_value, tem_supertipos, p.span)
+            });
             let campo = Member {
                 span: p.span,
                 metadata: Vec::new().into_boxed_slice(),
@@ -755,7 +782,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                     const_: false,
                     var_: p.var_ && ty.is_none(),
                     ty,
-                    variables: vec![Variable { name: nome, initializer: None }].into_boxed_slice(),
+                    variables: vec![Variable {
+                        name: nome,
+                        initializer: None,
+                    }]
+                    .into_boxed_slice(),
                 }),
             };
             campos.push(self.ast.push_member(campo));
@@ -770,7 +801,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             Some(&i) => {
                 let mid = members[i];
                 let span = self.ast.member(mid).span;
-                let MemberKind::Constructor(c) = &mut self.ast.members[mid.0 as usize].kind else { unreachable!() };
+                let MemberKind::Constructor(c) = &mut self.ast.members[mid.0 as usize].kind else {
+                    unreachable!()
+                };
                 let inits = std::mem::take(&mut c.initializers);
                 let body = std::mem::replace(&mut c.body, FunctionBody::Empty);
                 (inits, body, Some(span))
@@ -778,7 +811,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None),
         };
         if let (true, FunctionBody::Block(_), Some(span)) = (const_, &body, span_parte) {
-            self.diagnostics.push(Diagnostic::new("construtor primário constante não pode ter corpo na parte 'this'", span));
+            self.diagnostics.push(Diagnostic::new(
+                "construtor primário constante não pode ter corpo na parte 'this'",
+                span,
+            ));
         }
         let k2 = Member {
             span: span_parte.unwrap_or(cab.span),
@@ -822,7 +858,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `null` ou nenhum default dá `Object?` — mas só quando a classe não
     /// tem supertipo declarado, porque aí um getter herdado poderia mandar
     /// (sem tipo, o campo fica para a inferência do `types`).
-    fn tipo_do_declarante_sem_tipo(&mut self, padrao: Option<ExprId>, tem_supertipos: bool, span: Span) -> Option<TypeId> {
+    fn tipo_do_declarante_sem_tipo(
+        &mut self,
+        padrao: Option<ExprId>,
+        tem_supertipos: bool,
+        span: Span,
+    ) -> Option<TypeId> {
         use crate::ast::{ExprKind, TypeAnnotation, TypeKind};
         if tem_supertipos {
             return None;
@@ -839,7 +880,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some(self.ast.push_type(TypeAnnotation {
             span,
             nullable: anulavel,
-            kind: TypeKind::Named { name: vec![n].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
+            kind: TypeKind::Named {
+                name: vec![n].into_boxed_slice(),
+                args: Vec::new().into_boxed_slice(),
+            },
         }))
     }
 
@@ -914,7 +958,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.expect_op(Op::RBrace)?;
             Vec::new()
         };
-        let primary_constructor = self.elaborar_construtor_primario(name, primario, &mut members, Elaborando::Enum);
+        let primary_constructor =
+            self.elaborar_construtor_primario(name, primario, &mut members, Elaborando::Enum);
         Ok(EnumDecl {
             name,
             type_params: type_params.into_boxed_slice(),
@@ -1019,7 +1064,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.exigir(Feature::PrimaryConstructors, t.span);
         } else if self.at_kw(Keyword::Var) {
             let t = self.advance();
-            self.diagnostics.push(Diagnostic::new("'var' não é permitido na representação de um extension type", t.span));
+            self.diagnostics.push(Diagnostic::new(
+                "'var' não é permitido na representação de um extension type",
+                t.span,
+            ));
         }
         let representation_type = self.parse_type()?;
         let representation_name = self.expect_identifier()?;
@@ -1397,7 +1445,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let metadata = self.parse_metadata()?;
         // `this` (parte de construtor primário) e `new` (construtor sem o
         // nome da classe) também iniciam membro, desde a 3.13.
-        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New) {
+        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New)
+        {
             return Err(self.error("esperava um membro"));
         }
         let fstart = self.span();
@@ -1406,7 +1455,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let kind = if self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
             // `this : inits? corpo`: parte de corpo do construtor primário.
             self.parse_parte_primaria(fstart)?
-        } else if self.at_kw(Keyword::New) && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1)) {
+        } else if self.at_kw(Keyword::New)
+            && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
+        {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
             self.parse_construtor_new(mods, class_name)?
         } else if self.at_ident("factory")
@@ -1445,7 +1496,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// 3.13 também `factory nome?(...)`: sem o nome da classe (`factory(`) é
     /// o construtor sem nome, `factory id(` é `C.id` — salvo `id` = `C`, que
     /// continua o sem nome (spec, a exceção para não quebrar código antigo).
-    fn parse_constructor(&mut self, mods: Modifiers, factory: bool, classe: Option<&'s str>) -> PResult<MemberKind> {
+    fn parse_constructor(
+        &mut self,
+        mods: Modifiers,
+        factory: bool,
+        classe: Option<&'s str>,
+    ) -> PResult<MemberKind> {
         if factory {
             let t = self.advance();
             if self.at_op(Op::LParen) {
@@ -1478,11 +1534,19 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `new nome?(params) (: inits)? corpo` (3.13): a mesma coisa que
     /// `C.nome(...)`/`C(...)`.
-    fn parse_construtor_new(&mut self, mods: Modifiers, classe: Option<&'s str>) -> PResult<MemberKind> {
+    fn parse_construtor_new(
+        &mut self,
+        mods: Modifiers,
+        classe: Option<&'s str>,
+    ) -> PResult<MemberKind> {
         let t = self.advance();
         self.exigir(Feature::PrimaryConstructors, t.span);
         let class_name = self.nome_da_classe(classe, t.span);
-        let nome = if self.at_identifier() { Some(self.identifier()) } else { None };
+        let nome = if self.at_identifier() {
+            Some(self.identifier())
+        } else {
+            None
+        };
         self.parse_constructor_resto(mods, false, class_name, nome)
     }
 
@@ -1512,7 +1576,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             external: false,
             const_: false,
             factory: false,
-            class_name: Name { sym: self.interner.intern("this"), span: t.span },
+            class_name: Name {
+                sym: self.interner.intern("this"),
+                span: t.span,
+            },
             name: None,
             parameters: Vec::new().into_boxed_slice(),
             initializers: initializers.into_boxed_slice(),
@@ -1524,7 +1591,13 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// O que segue o nome de um construtor: parâmetros, redirecionamento
     /// de factory ou lista de inicialização, e o corpo.
-    fn parse_constructor_resto(&mut self, mods: Modifiers, factory: bool, class_name: Name, name: Option<Name>) -> PResult<MemberKind> {
+    fn parse_constructor_resto(
+        &mut self,
+        mods: Modifiers,
+        factory: bool,
+        class_name: Name,
+        name: Option<Name>,
+    ) -> PResult<MemberKind> {
         let parameters = self.parse_formal_parameters()?;
         let mut initializers = Vec::new();
         let mut redirect = None;

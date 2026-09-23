@@ -113,7 +113,10 @@ impl Ast {
                 | ExprKind::Call { target, .. }
                 | ExprKind::Index { target, .. }
                 | ExprKind::TypeArguments { target, .. } => cur = *target,
-                ExprKind::Unary { op: UnaryOp::NullAssert, operand } => cur = *operand,
+                ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    operand,
+                } => cur = *operand,
                 _ => return None,
             }
         }

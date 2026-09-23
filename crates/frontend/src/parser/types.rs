@@ -575,7 +575,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         self.exigir(Feature::PrivateNamedParameters, n.span);
-        let valido = resto.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '$')
+        let valido = resto
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '$')
             && Keyword::from_text(resto).is_none();
         if !valido {
             self.diagnostics.push(Diagnostic::new(
@@ -594,7 +597,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// modifier 'final' here`). Antes, `final` é permitido em qualquer
     /// parâmetro de declaração.
     fn conferir_modificador_de_parametro(&mut self, span: Span, in_function_type: bool) {
-        if in_function_type || self.em_construtor_primario || !self.features.tem(Feature::PrimaryConstructors) {
+        if in_function_type
+            || self.em_construtor_primario
+            || !self.features.tem(Feature::PrimaryConstructors)
+        {
             return;
         }
         let texto = &self.source[span.start..span.end];
@@ -608,7 +614,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// erro, mesmo contra posicional (spec da 3.12).
     fn conferir_nomes_publicos(&mut self, params: &[Parameter]) {
         for (i, p) in params.iter().enumerate() {
-            let Some(publico) = p.public_name else { continue };
+            let Some(publico) = p.public_name else {
+                continue;
+            };
             let colide = params
                 .iter()
                 .enumerate()

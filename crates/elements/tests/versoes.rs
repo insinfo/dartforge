@@ -28,7 +28,12 @@ fn sdk_falso(dir: &Path) -> SdkLayout {
 }
 
 fn versao_de(p: &Program, trecho: &str) -> LanguageVersion {
-    p.libraries.iter().find(|l| l.uri.contains(trecho)).unwrap_or_else(|| panic!("{trecho}")).features.versao()
+    p.libraries
+        .iter()
+        .find(|l| l.uri.contains(trecho))
+        .unwrap_or_else(|| panic!("{trecho}"))
+        .features
+        .versao()
 }
 
 fn v(a: u16, b: u16) -> LanguageVersion {
@@ -45,12 +50,20 @@ fn sem_marcador_e_sem_pacote_vale_a_corrente() {
     assert!(d.is_empty(), "{d:?}");
     assert_eq!(versao_de(&p, "main.dart"), LanguageVersion::ATUAL);
     assert_eq!(versao_de(&p, "dart:core"), LanguageVersion::PISO);
-    assert!(p.library(p.entry.unwrap()).features.tem(Feature::PrimaryConstructors));
+    assert!(
+        p.library(p.entry.unwrap())
+            .features
+            .tem(Feature::PrimaryConstructors)
+    );
 
     sdk.versao_corrente = v(3, 6);
     let (p, _) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert_eq!(versao_de(&p, "main.dart"), v(3, 6));
-    assert!(!p.library(p.entry.unwrap()).features.tem(Feature::WildcardVariables));
+    assert!(
+        !p.library(p.entry.unwrap())
+            .features
+            .tem(Feature::WildcardVariables)
+    );
 }
 
 #[test]
@@ -69,10 +82,23 @@ fn marcador_vale_mais_que_o_pacote() {
     )
     .unwrap();
     // `bin/` pertence ao pacote pela raiz; `lib/` pela URI `package:`.
-    fs::write(proj.join("bin/main.dart"), "import 'package:app/a.dart';\nimport 'package:app/b.dart';\nvoid main() {}").unwrap();
+    fs::write(
+        proj.join("bin/main.dart"),
+        "import 'package:app/a.dart';\nimport 'package:app/b.dart';\nvoid main() {}",
+    )
+    .unwrap();
     fs::write(proj.join("lib/a.dart"), "int a = 1;").unwrap();
-    fs::write(proj.join("lib/b.dart"), "// licença\n// @dart = 3.6\nint b = 1;").unwrap();
-    let (p, d) = load_lenient(&proj.join("bin/main.dart"), &sdk, None, &mut Interner::new());
+    fs::write(
+        proj.join("lib/b.dart"),
+        "// licença\n// @dart = 3.6\nint b = 1;",
+    )
+    .unwrap();
+    let (p, d) = load_lenient(
+        &proj.join("bin/main.dart"),
+        &sdk,
+        None,
+        &mut Interner::new(),
+    );
     assert!(d.is_empty(), "{d:?}");
     assert_eq!(versao_de(&p, "main.dart"), v(3, 8));
     assert_eq!(versao_de(&p, "package:app/a.dart"), v(3, 8));
@@ -84,14 +110,33 @@ fn parte_com_versao_diferente_e_erro() {
     let tmp = tempdir().unwrap();
     let sdk = sdk_falso(tmp.path());
     let main = tmp.path().join("main.dart");
-    fs::write(&main, "// @dart=3.10\npart 'p.dart';\npart 'q.dart';\nvoid main() {}").unwrap();
-    fs::write(tmp.path().join("p.dart"), "// @dart=3.10\npart of 'main.dart';\nint p = 1;").unwrap();
-    fs::write(tmp.path().join("q.dart"), "part of 'main.dart';\nint q = 1;").unwrap();
+    fs::write(
+        &main,
+        "// @dart=3.10\npart 'p.dart';\npart 'q.dart';\nvoid main() {}",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("p.dart"),
+        "// @dart=3.10\npart of 'main.dart';\nint p = 1;",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("q.dart"),
+        "part of 'main.dart';\nint q = 1;",
+    )
+    .unwrap();
     let (p, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert_eq!(versao_de(&p, "main.dart"), v(3, 10));
     // `q.dart` sem marcador fica na corrente (3.13), diferente da biblioteca.
     assert_eq!(d.len(), 1, "{d:?}");
-    assert!(d[0].message.contains("q.dart") && d[0].message.contains("a parte está na versão de linguagem 3.13"), "{}", d[0].message);
+    assert!(
+        d[0].message.contains("q.dart")
+            && d[0]
+                .message
+                .contains("a parte está na versão de linguagem 3.13"),
+        "{}",
+        d[0].message
+    );
 }
 
 #[test]
@@ -102,12 +147,19 @@ fn marcador_fora_do_intervalo_e_erro() {
     fs::write(&alto, "// @dart=3.99\nvoid main() {}").unwrap();
     let (p, d) = load_lenient(&alto, &sdk, None, &mut Interner::new());
     assert_eq!(d.len(), 1, "{d:?}");
-    assert!(d[0].message.contains("acima da suportada"), "{}", d[0].message);
+    assert!(
+        d[0].message.contains("acima da suportada"),
+        "{}",
+        d[0].message
+    );
     assert_eq!(versao_de(&p, "alto.dart"), LanguageVersion::ATUAL);
     let baixo = tmp.path().join("baixo.dart");
     fs::write(&baixo, "// @dart=2.9\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&baixo, &sdk, None, &mut Interner::new());
-    assert!(d.len() == 1 && d[0].message.contains("abaixo da mínima"), "{d:?}");
+    assert!(
+        d.len() == 1 && d[0].message.contains("abaixo da mínima"),
+        "{d:?}"
+    );
 }
 
 #[test]
@@ -118,7 +170,12 @@ fn recurso_desligado_pela_versao_e_diagnostico_do_parser() {
     fs::write(&main, "// @dart=3.7\nvar l = [?null];\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert_eq!(d.len(), 1, "{d:?}");
-    assert!(d[0].message.contains("'null-aware-elements' exige a versão de linguagem 3.8"), "{}", d[0].message);
+    assert!(
+        d[0].message
+            .contains("'null-aware-elements' exige a versão de linguagem 3.8"),
+        "{}",
+        d[0].message
+    );
     fs::write(&main, "// @dart=3.8\nvar l = [?null];\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert!(d.is_empty(), "{d:?}");

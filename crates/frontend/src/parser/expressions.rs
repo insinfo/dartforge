@@ -874,7 +874,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             return Err(self.error("esperava um nome ou 'new' depois de '.' (atalho de ponto)"));
         };
-        self.exigir(Feature::DotShorthands, Span { start: ponto.span.start, end: name.span.end });
+        self.exigir(
+            Feature::DotShorthands,
+            Span {
+                start: ponto.span.start,
+                end: name.span.end,
+            },
+        );
         if const_ && !self.at_op(Op::LParen) {
             return Err(self.error("'const .nome' exige argumentos: é uma criação constante"));
         }
