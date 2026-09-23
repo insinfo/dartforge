@@ -58,6 +58,20 @@ runs:
         path: target/diferencial/cache
         key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
 
+    # O runtime nativo é compilado pelo rustc na primeira compilação e guardado
+    # em target/native_cache (crates/emit_native/src/cache.rs), sem trava: num
+    # runner novo, os trabalhadores paralelos compilam a MESMA .lib ao mesmo
+    # tempo e o rustc falha — medido: 62 dos 214 programas caíram nisso com
+    # --jobs 3. Na máquina de desenvolvimento o cache já existe e a corrida não
+    # aparece. Um programa sozinho antes aquece o cache.
+    - name: Aquecer o cache do runtime nativo
+      if: inputs.nativo == 'true'
+      shell: pwsh
+      run: |
+        ./target/release/dartforge-diferencial.exe --nativo --jobs 1 --filtro 01_print --silencioso | Select-Object -Last 3
+        Get-ChildItem target/native_cache -Filter *.lib | Select-Object Name, Length
+        exit 0
+
     - name: dartforge-diferencial ${{ inputs.args }}
       id: rodar
       shell: pwsh
