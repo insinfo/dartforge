@@ -69,7 +69,7 @@ pub fn finalizar_programa() -> i32 {
     0
 }
 
-use crate::heap::{Heap, TaggedValue, Value};
+use crate::heap::{Heap, TaggedValue, Texto, TextoMut, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -338,7 +338,7 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
         let heap = heap.borrow();
         match heap.get(handle) {
             Value::Object { class_id, .. } => *class_id,
-            Value::String(_) | Value::RawString(_) => -2,
+            Value::String(_) => -2,
             Value::StringBuffer(_) => -8,
             Value::List(_) => -3,
             Value::Map(_) => -4,

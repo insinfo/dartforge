@@ -78,14 +78,446 @@ impl TaggedValue {
     }
 }
 
+/// Texto Dart: uma sequência de unidades de código UTF-16, na forma da VM
+/// (decisão 5, docs/NATIVO-PLANO.md §7.1).
+///
+/// * `Um` é o `_OneByteString`: toda unidade cabe em um byte (Latin-1,
+///   U+0000–U+00FF), guardada em um byte;
+/// * `Dois` é o `_TwoByteString`: alguma unidade passa de 0xFF, e todas são
+///   guardadas em dois bytes.
+///
+/// A forma é **canônica**, como na VM (`String::New`/`String::SubString`,
+/// `runtime/vm/object.cc`, escolhem a classe pelo conteúdo): `Dois` só existe
+/// quando alguma unidade passa de 0xFF. Os construtores abaixo garantem isso;
+/// a igualdade compara unidades de todo modo, então um `Dois` Latin-1 criado à
+/// mão só custa espaço, nunca muda o resultado.
+///
+/// Um *surrogate* solto (U+D800–U+DFFF sem par) é uma unidade como outra
+/// qualquer: `length`, índices, `codeUnitAt`, `substring` no meio de um par e
+/// `runes` (que devolve o próprio valor do surrogate solto) seguem a
+/// semântica do Dart. Só na saída (`print`) ele vira U+FFFD, como a VM
+/// escreve (`Utf8::Encode`, via `Dart_CopyUTF8EncodingOfString`).
+#[derive(Clone)]
+pub enum Texto {
+    Um(Vec<u8>),
+    Dois(Vec<u16>),
+}
+
+impl Texto {
+    /// A string vazia.
+    pub fn vazio() -> Self {
+        Texto::Um(Vec::new())
+    }
+
+    /// Texto a partir de unidades UTF-16, na forma canônica.
+    pub fn de_unidades(unidades: Vec<u16>) -> Self {
+        if unidades.iter().all(|&u| u <= 0xFF) {
+            Texto::Um(unidades.into_iter().map(|u| u as u8).collect())
+        } else {
+            Texto::Dois(unidades)
+        }
+    }
+
+    /// Texto a partir de uma fatia de unidades UTF-16, na forma canônica.
+    pub fn de_fatia(unidades: &[u16]) -> Self {
+        if unidades.iter().all(|&u| u <= 0xFF) {
+            Texto::Um(unidades.iter().map(|&u| u as u8).collect())
+        } else {
+            Texto::Dois(unidades.to_vec())
+        }
+    }
+
+    /// Texto a partir de UTF-8 válido (texto que o próprio runtime formatou).
+    pub fn de_str(s: &str) -> Self {
+        if s.is_ascii() {
+            return Texto::Um(s.as_bytes().to_vec());
+        }
+        let mut um = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            if (c as u32) <= 0xFF {
+                um.push(c as u32 as u8);
+            } else {
+                return Texto::Dois(s.encode_utf16().collect());
+            }
+        }
+        Texto::Um(um)
+    }
+
+    /// Texto a partir de WTF-8: UTF-8 generalizado em que um surrogate solto
+    /// é codificado em três bytes como qualquer ponto de código (é a forma em
+    /// que o front-end guarda o texto dos literais, `frontend/src/text.rs`).
+    /// UTF-8 válido é WTF-8. Um byte malformado vira U+FFFD — não ocorre
+    /// para bytes emitidos pelo compilador.
+    pub fn de_wtf8(bytes: &[u8]) -> Self {
+        if bytes.is_ascii() {
+            return Texto::Um(bytes.to_vec());
+        }
+        let mut unidades: Vec<u16> = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            let b0 = u32::from(bytes[i]);
+            let cont = |k: usize| -> Option<u32> {
+                bytes.get(i + k).filter(|&&b| b & 0xC0 == 0x80).map(|&b| u32::from(b & 0x3F))
+            };
+            let (ponto, n) = if b0 < 0x80 {
+                (Some(b0), 1)
+            } else if b0 & 0xE0 == 0xC0 {
+                (cont(1).map(|c1| ((b0 & 0x1F) << 6) | c1).filter(|&p| p >= 0x80), 2)
+            } else if b0 & 0xF0 == 0xE0 {
+                (
+                    cont(1).zip(cont(2)).map(|(c1, c2)| ((b0 & 0x0F) << 12) | (c1 << 6) | c2).filter(|&p| p >= 0x800),
+                    3,
+                )
+            } else if b0 & 0xF8 == 0xF0 {
+                (
+                    cont(1)
+                        .zip(cont(2))
+                        .zip(cont(3))
+                        .map(|((c1, c2), c3)| ((b0 & 0x07) << 18) | (c1 << 12) | (c2 << 6) | c3)
+                        .filter(|&p| (0x10000..=0x10FFFF).contains(&p)),
+                    4,
+                )
+            } else {
+                (None, 1)
+            };
+            match ponto {
+                Some(p) => {
+                    empurrar_ponto(&mut unidades, p);
+                    i += n;
+                }
+                None => {
+                    unidades.push(0xFFFD);
+                    i += 1;
+                }
+            }
+        }
+        Self::de_unidades(unidades)
+    }
+
+    /// Quantidade de unidades UTF-16 (`String.length`).
+    pub fn len(&self) -> usize {
+        match self {
+            Texto::Um(b) => b.len(),
+            Texto::Dois(u) => u.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// A unidade no índice (`codeUnitAt`); o índice é verificado por quem chama.
+    pub fn unidade(&self, i: usize) -> u16 {
+        match self {
+            Texto::Um(b) => u16::from(b[i]),
+            Texto::Dois(u) => u[i],
+        }
+    }
+
+    /// As unidades, em ordem.
+    pub fn unidades(&self) -> IterUnidades<'_> {
+        IterUnidades { texto: self, i: 0, fim: self.len() }
+    }
+
+    /// As unidades num vetor.
+    pub fn para_vec(&self) -> Vec<u16> {
+        match self {
+            Texto::Um(b) => b.iter().map(|&x| u16::from(x)).collect(),
+            Texto::Dois(u) => u.clone(),
+        }
+    }
+
+    /// `[inicio, fim)` em unidades, na forma canônica (o `_substringUnchecked`
+    /// da VM: um pedaço Latin-1 de um `_TwoByteString` volta a ser `Um`).
+    pub fn fatia(&self, inicio: usize, fim: usize) -> Texto {
+        match self {
+            Texto::Um(b) => Texto::Um(b[inicio..fim].to_vec()),
+            Texto::Dois(u) => Self::de_fatia(&u[inicio..fim]),
+        }
+    }
+
+    /// Os pontos de código (`runes`): um par de surrogates vira o escalar; um
+    /// surrogate solto sai como ele mesmo (o `RuneIterator` do `dart:core`).
+    pub fn pontos(&self) -> Vec<u32> {
+        let mut saida = Vec::with_capacity(self.len());
+        let n = self.len();
+        let mut i = 0;
+        while i < n {
+            let u = self.unidade(i);
+            if (0xD800..0xDC00).contains(&u) && i + 1 < n {
+                let v = self.unidade(i + 1);
+                if (0xDC00..0xE000).contains(&v) {
+                    saida.push(0x10000 + ((u32::from(u) - 0xD800) << 10) + (u32::from(v) - 0xDC00));
+                    i += 2;
+                    continue;
+                }
+            }
+            saida.push(u32::from(u));
+            i += 1;
+        }
+        saida
+    }
+
+    /// WTF-8 (surrogate solto em três bytes): a forma sem perda, inversa de
+    /// [`Texto::de_wtf8`].
+    pub fn para_wtf8(&self) -> Vec<u8> {
+        self.codificar(false)
+    }
+
+    /// UTF-8 como a VM escreve na saída (`print`): o surrogate solto vira
+    /// U+FFFD — `Utf8::Encode` (`runtime/vm/unicode.cc`): "Encode unpaired
+    /// surrogates as replacement characters to ensure the output is valid
+    /// UTF-8".
+    pub fn para_utf8_da_vm(&self) -> Vec<u8> {
+        self.codificar(true)
+    }
+
+    fn codificar(&self, trocar_soltos: bool) -> Vec<u8> {
+        match self {
+            Texto::Um(b) if b.is_ascii() => b.clone(),
+            _ => {
+                let mut saida = Vec::with_capacity(self.len() + 8);
+                for p in self.pontos() {
+                    let p = if trocar_soltos && (0xD800..0xE000).contains(&p) { 0xFFFD } else { p };
+                    codificar_wtf8(&mut saida, p);
+                }
+                saida
+            }
+        }
+    }
+
+    /// Texto legível para Rust: surrogate solto vira U+FFFD. Só para
+    /// mensagens e formatação interna; o valor Dart nunca passa por aqui.
+    pub fn para_string(&self) -> String {
+        match self {
+            Texto::Um(b) => b.iter().map(|&x| char::from(x)).collect(),
+            Texto::Dois(u) => String::from_utf16_lossy(u),
+        }
+    }
+
+    /// Concatenação (`+`), na forma canônica.
+    pub fn concatenar(&self, outro: &Texto) -> Texto {
+        match (self, outro) {
+            (Texto::Um(a), Texto::Um(b)) => {
+                let mut v = Vec::with_capacity(a.len() + b.len());
+                v.extend_from_slice(a);
+                v.extend_from_slice(b);
+                Texto::Um(v)
+            }
+            _ => {
+                let mut v = Vec::with_capacity(self.len() + outro.len());
+                v.extend(self.unidades());
+                v.extend(outro.unidades());
+                Texto::Dois(v)
+            }
+        }
+    }
+
+    /// Primeira ocorrência de `padrao` a partir de `desde` (unidades).
+    pub fn procurar(&self, padrao: &Texto, desde: usize) -> Option<usize> {
+        let (n, m) = (self.len(), padrao.len());
+        if desde > n {
+            return None;
+        }
+        if m == 0 {
+            return Some(desde);
+        }
+        if m > n {
+            return None;
+        }
+        (desde..=n - m).find(|&i| self.coincide_em(padrao, i))
+    }
+
+    /// Última ocorrência de `padrao` que começa em `ate` ou antes.
+    pub fn procurar_ultimo(&self, padrao: &Texto, ate: usize) -> Option<usize> {
+        let (n, m) = (self.len(), padrao.len());
+        if m > n {
+            return None;
+        }
+        let inicio = ate.min(n - m);
+        (0..=inicio).rev().find(|&i| self.coincide_em(padrao, i))
+    }
+
+    /// `padrao` aparece inteiro a partir da unidade `i`.
+    pub fn coincide_em(&self, padrao: &Texto, i: usize) -> bool {
+        let m = padrao.len();
+        if i + m > self.len() {
+            return false;
+        }
+        match (self, padrao) {
+            (Texto::Um(a), Texto::Um(b)) => &a[i..i + m] == b.as_slice(),
+            (Texto::Dois(a), Texto::Dois(b)) => &a[i..i + m] == b.as_slice(),
+            _ => (0..m).all(|k| self.unidade(i + k) == padrao.unidade(k)),
+        }
+    }
+
+    /// Ordem lexicográfica por unidades (`String.compareTo`).
+    pub fn comparar(&self, outro: &Texto) -> std::cmp::Ordering {
+        match (self, outro) {
+            (Texto::Um(a), Texto::Um(b)) => a.cmp(b),
+            _ => self.unidades().cmp(outro.unidades()),
+        }
+    }
+
+    /// Bytes do conteúdo (para os contadores do coletor).
+    fn capacidade_bytes(&self) -> usize {
+        match self {
+            Texto::Um(b) => b.capacity(),
+            Texto::Dois(u) => u.capacity().checked_mul(2).expect("payload excede usize"),
+        }
+    }
+}
+
+/// Uma unidade (ponto ≤ 0xFFFF, inclusive surrogate) ou um par de surrogates.
+pub fn empurrar_ponto(unidades: &mut Vec<u16>, ponto: u32) {
+    if ponto <= 0xFFFF {
+        unidades.push(ponto as u16);
+    } else {
+        let p = ponto - 0x10000;
+        unidades.push(0xD800 + (p >> 10) as u16);
+        unidades.push(0xDC00 + (p & 0x3FF) as u16);
+    }
+}
+
+/// Um ponto de código em WTF-8 (surrogate em três bytes, como qualquer ponto).
+fn codificar_wtf8(saida: &mut Vec<u8>, p: u32) {
+    if p < 0x80 {
+        saida.push(p as u8);
+    } else if p < 0x800 {
+        saida.extend_from_slice(&[0xC0 | (p >> 6) as u8, 0x80 | (p & 0x3F) as u8]);
+    } else if p < 0x10000 {
+        saida.extend_from_slice(&[
+            0xE0 | (p >> 12) as u8,
+            0x80 | ((p >> 6) & 0x3F) as u8,
+            0x80 | (p & 0x3F) as u8,
+        ]);
+    } else {
+        saida.extend_from_slice(&[
+            0xF0 | (p >> 18) as u8,
+            0x80 | ((p >> 12) & 0x3F) as u8,
+            0x80 | ((p >> 6) & 0x3F) as u8,
+            0x80 | (p & 0x3F) as u8,
+        ]);
+    }
+}
+
+/// Iterador das unidades de um [`Texto`].
+pub struct IterUnidades<'a> {
+    texto: &'a Texto,
+    i: usize,
+    fim: usize,
+}
+
+impl Iterator for IterUnidades<'_> {
+    type Item = u16;
+    fn next(&mut self) -> Option<u16> {
+        if self.i >= self.fim {
+            return None;
+        }
+        let u = self.texto.unidade(self.i);
+        self.i += 1;
+        Some(u)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.fim - self.i;
+        (n, Some(n))
+    }
+}
+
+impl ExactSizeIterator for IterUnidades<'_> {}
+
+impl PartialEq for Texto {
+    fn eq(&self, outro: &Texto) -> bool {
+        match (self, outro) {
+            (Texto::Um(a), Texto::Um(b)) => a == b,
+            (Texto::Dois(a), Texto::Dois(b)) => a == b,
+            _ => self.len() == outro.len() && self.unidades().eq(outro.unidades()),
+        }
+    }
+}
+
+impl Eq for Texto {}
+
+impl Default for Texto {
+    fn default() -> Self {
+        Texto::vazio()
+    }
+}
+
+impl PartialEq<str> for Texto {
+    fn eq(&self, outro: &str) -> bool {
+        *self == Texto::de_str(outro)
+    }
+}
+
+impl PartialEq<&str> for Texto {
+    fn eq(&self, outro: &&str) -> bool {
+        *self == Texto::de_str(outro)
+    }
+}
+
+impl From<&str> for Texto {
+    fn from(s: &str) -> Self {
+        Texto::de_str(s)
+    }
+}
+
+impl From<String> for Texto {
+    fn from(s: String) -> Self {
+        Texto::de_str(&s)
+    }
+}
+
+impl std::fmt::Display for Texto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.para_string())
+    }
+}
+
+impl std::fmt::Debug for Texto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.para_string())
+    }
+}
+
+/// Construtor de texto por unidades: a saída de `toString`/interpolação, que
+/// não pode passar por `String` do Rust sem perder surrogates soltos.
+#[derive(Default)]
+pub struct TextoMut(pub Vec<u16>);
+
+impl TextoMut {
+    pub fn new() -> Self {
+        TextoMut(Vec::new())
+    }
+    pub fn push_str(&mut self, s: &str) {
+        self.0.extend(s.encode_utf16());
+    }
+    pub fn push(&mut self, c: char) {
+        let mut buf = [0u16; 2];
+        self.0.extend_from_slice(c.encode_utf16(&mut buf));
+    }
+    pub fn push_texto(&mut self, t: &Texto) {
+        self.0.extend(t.unidades());
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn fim(self) -> Texto {
+        Texto::de_unidades(self.0)
+    }
+}
+
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
 #[derive(Debug)]
 pub enum Value {
-    String(String),
-    RawString(Vec<u16>),
-    StringBuffer(String),
-    RegExp(String),
-    Match(String),
+    /// `String` do Dart (`_OneByteString`/`_TwoByteString`, ver [`Texto`]).
+    String(Texto),
+    /// `StringBuffer`: as unidades acumuladas.
+    StringBuffer(Vec<u16>),
+    /// `RegExp`: o texto do padrão.
+    RegExp(Texto),
+    /// `Match`: o texto casado.
+    Match(Texto),
     Object {
         class_id: i64,
         fields: Vec<(i64, bool)>,
@@ -124,8 +556,8 @@ impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
     fn estimated_bytes(&self) -> usize {
         let payload = match self {
-            Self::String(text) | Self::StringBuffer(text) | Self::RegExp(text) | Self::Match(text) => text.capacity(),
-            Self::RawString(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
+            Self::String(text) | Self::RegExp(text) | Self::Match(text) => text.capacidade_bytes(),
+            Self::StringBuffer(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
             Self::Object { fields, .. } => fields
                 .capacity()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
@@ -148,7 +580,6 @@ impl Value {
     fn trace(&self, pending: &mut Vec<i64>) {
         match self {
             Self::String(_)
-            | Self::RawString(_)
             | Self::StringBuffer(_)
             | Self::RegExp(_)
             | Self::Match(_)
@@ -374,7 +805,7 @@ impl Heap {
             return handle;
         }
         let frame = self.push_frame_with_slots(1);
-        let text = self.allocate(Value::String(name.to_owned()));
+        let text = self.allocate(Value::String(Texto::de_str(name)));
         self.set_root(frame, 0, text);
         let object = self.allocate(Value::Object {
             class_id,
@@ -937,48 +1368,30 @@ impl Heap {
         }
     }
 
-    /// Compara conteúdo, preservando NUL e diferenças entre sequências Unicode.
+    /// Compara conteúdo por unidades UTF-16 (`String.==`): NUL, surrogates
+    /// soltos e sequências Unicode diferentes (`á` × `a` + acento) contam.
     pub fn string_equal(&self, a: i64, b: i64) -> bool {
         if a == 0 || b == 0 {
             return a == b;
         }
-        match (self.get(a), self.get(b)) {
-            (Value::String(left), Value::String(right)) => left == right,
-            (Value::RawString(left), Value::RawString(right)) => left == right,
-            (Value::String(left), Value::RawString(right)) => {
-                left.encode_utf16().eq(right.iter().copied())
-            }
-            (Value::RawString(left), Value::String(right)) => {
-                left.iter().copied().eq(right.encode_utf16())
-            }
+        match (self.try_get(a), self.try_get(b)) {
+            (Some(Value::String(left)), Some(Value::String(right))) => left == right,
             _ => false,
+        }
+    }
+
+    /// O texto de uma string viva; outro valor é bug do compilador.
+    pub fn texto(&self, handle: i64) -> &Texto {
+        match self.get(handle) {
+            Value::String(t) => t,
+            _ => panic!("bug do compilador: string esperada"),
         }
     }
 
     /// Concatena conteúdo antes da possível coleta; os operandos seguem o protocolo de raízes.
     pub fn string_concat(&mut self, a: i64, b: i64) -> i64 {
-        match (self.get(a), self.get(b)) {
-            (Value::String(left), Value::String(right)) => {
-                let result = format!("{left}{right}");
-                self.allocate(Value::String(result))
-            }
-            _ => {
-                let mut units: Vec<u16> = match self.get(a) {
-                    Value::String(s) => s.encode_utf16().collect(),
-                    Value::RawString(r) => r.clone(),
-                    _ => panic!("string esperada"),
-                };
-                match self.get(b) {
-                    Value::String(s) => units.extend(s.encode_utf16()),
-                    Value::RawString(r) => units.extend_from_slice(r),
-                    _ => panic!("string esperada"),
-                };
-                match String::from_utf16(&units) {
-                    Ok(valid_str) => self.allocate(Value::String(valid_str)),
-                    Err(_) => self.allocate(Value::RawString(units)),
-                }
-            }
-        }
+        let junto = self.texto(a).concatenar(self.texto(b));
+        self.allocate(Value::String(junto))
     }
 }
 
@@ -1123,6 +1536,90 @@ mod falhas_de_handle {
         let h = heap.allocate(Value::String("x".into()));
         heap.collect();
         heap.get(h);
+    }
+}
+
+#[cfg(test)]
+mod texto_utf16 {
+    //! Decisão 5: strings com a semântica de unidades UTF-16 do Dart, na
+    //! forma da VM. Os casos são os do programa 04 do corpus
+    //! (`corpus/js/04_strings_surrogates.dart`), com os valores da VM.
+    use super::*;
+
+    #[test]
+    fn forma_canonica_um_e_dois_bytes() {
+        assert!(matches!(Texto::de_str("abc"), Texto::Um(_)));
+        assert!(matches!(Texto::de_str("ação"), Texto::Um(_)), "Latin-1 é um byte");
+        assert!(matches!(Texto::de_str("ÿ"), Texto::Um(_)));
+        assert!(matches!(Texto::de_str("Ÿ"), Texto::Dois(_)));
+        assert!(matches!(Texto::de_str("😀"), Texto::Dois(_)));
+        // Um pedaço Latin-1 de um texto de dois bytes volta a ser um byte.
+        assert!(matches!(Texto::de_str("a😀b").fatia(0, 1), Texto::Um(_)));
+        // A igualdade é por unidades, qualquer que seja a forma.
+        assert_eq!(Texto::Dois(vec![0x61]), Texto::de_str("a"));
+    }
+
+    #[test]
+    fn comprimento_e_unidades_de_um_emoji() {
+        let emoji = Texto::de_str("😀");
+        assert_eq!(emoji.len(), 2);
+        assert_eq!(emoji.para_vec(), vec![0xD83D, 0xDE00]);
+        assert_eq!(emoji.pontos(), vec![0x1F600]);
+        let misto = Texto::de_str("a😀b");
+        assert_eq!(misto.len(), 4);
+        assert_eq!(misto.pontos(), vec![97, 0x1F600, 98]);
+        assert_eq!(misto.fatia(1, 3), emoji);
+        assert_eq!(misto.fatia(3, 4), "b");
+        assert_eq!(misto.fatia(1, 2).len(), 1);
+        assert_eq!(misto.fatia(1, 2).unidade(0), 0xD83D);
+        assert_eq!(Texto::de_str("\u{1D11E}").len(), 2);
+        assert_eq!(Texto::de_str("👍🏽").pontos().len(), 2);
+        assert_eq!(Texto::de_str("👍🏽").len(), 4);
+        assert_eq!(Texto::de_str("e\u{301}").len(), 2);
+    }
+
+    #[test]
+    fn surrogate_solto_e_preservado() {
+        let solto = Texto::de_unidades(vec![0xD83D]);
+        assert_eq!(solto.len(), 1);
+        assert_eq!(solto.unidade(0), 0xD83D);
+        // `runes` devolve o próprio surrogate solto, não U+FFFD.
+        assert_eq!(solto.pontos(), vec![0xD83D]);
+        // Juntar as duas metades forma o emoji.
+        let par = solto.concatenar(&Texto::de_unidades(vec![0xDE00]));
+        assert_eq!(par, Texto::de_str("😀"));
+        // WTF-8 guarda o surrogate solto sem perda (três bytes)...
+        assert_eq!(solto.para_wtf8(), vec![0xED, 0xA0, 0xBD]);
+        assert_eq!(Texto::de_wtf8(&[0xED, 0xA0, 0xBD]), solto);
+        assert_eq!(par.para_wtf8(), "😀".as_bytes());
+        // ...mas `print` escreve U+FFFD no lugar dele, como a VM (medido:
+        // `print(String.fromCharCode(0xD83D))` sai `EF BF BD`).
+        assert_eq!(solto.para_utf8_da_vm(), "\u{FFFD}".as_bytes());
+        assert_eq!(par.para_utf8_da_vm(), "😀".as_bytes());
+    }
+
+    #[test]
+    fn busca_por_unidades() {
+        let tres = Texto::de_str("😀😀😀");
+        let emoji = Texto::de_str("😀");
+        assert_eq!(tres.procurar(&emoji, 1), Some(2));
+        assert_eq!(tres.procurar_ultimo(&emoji, tres.len()), Some(4));
+        assert_eq!(Texto::de_str("a😀b").procurar(&emoji, 0), Some(1));
+        assert_eq!(tres.procurar(&Texto::vazio(), 3), Some(3));
+        assert!(Texto::de_str("abc").comparar(&Texto::de_str("abd")).is_lt());
+        // Comparação por unidades: U+FFFF > U+1F600 (0xD83D...).
+        assert!(Texto::de_str("\u{FFFF}").comparar(&emoji).is_gt());
+    }
+
+    #[test]
+    fn construtor_por_unidades() {
+        let mut m = TextoMut::new();
+        m.push_str("x");
+        m.push_texto(&Texto::de_unidades(vec![0xDE00]));
+        m.push('y');
+        let t = m.fim();
+        assert_eq!(t.len(), 3);
+        assert_eq!(t.unidade(1), 0xDE00);
     }
 }
 
@@ -1359,7 +1856,7 @@ mod fixed_root_tests {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..8 {
-            let handle = heap.allocate(Value::String(String::with_capacity(2 * 1024 * 1024)));
+            let handle = heap.allocate(Value::String(Texto::Um(Vec::with_capacity(2 * 1024 * 1024))));
             heap.set_root(frame, 0, handle);
         }
         let stats = heap.stats();
