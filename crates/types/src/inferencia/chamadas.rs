@@ -122,6 +122,27 @@ pub(crate) fn invocar(
         return (inf.core.dynamic_, f);
     };
     let u = inf.core.unknown;
+    // Chamada genérica cujos parâmetros de tipo estão em escopo (a função
+    // chamando a si mesma, `_mergeSort(elements, keyOf, …)` dentro de
+    // `_mergeSort<E, K>`): os argumentos mencionam os mesmos parâmetros que
+    // a inferência resolve; renomeia para parâmetros novos, como a
+    // instanciação da especificação (R-GEN-04: variáveis frescas).
+    if !type_params.is_empty()
+        && type_params.iter().any(|&p| {
+            let n = inf.table.param(p).name;
+            matches!(cx.buscar(n), Some(super::corpo::Nome::TipoParam(q)) if q == p)
+        })
+    {
+        let novos = inf.parametros_novos(&type_params);
+        let tipos: Vec<TypeId> = novos.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let mapa = inf.mapa(&type_params, &tipos);
+        let ret = inf.subst(ret, &mapa);
+        let positional: Box<[TypeId]> = positional.iter().map(|&t| inf.subst(t, &mapa)).collect();
+        let optional: Box<[TypeId]> = optional.iter().map(|&t| inf.subst(t, &mapa)).collect();
+        let named: Box<[_]> = named.iter().map(|&(n, t, r)| (n, inf.subst(t, &mapa), r)).collect();
+        let f2 = inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable: false });
+        return invocar(inf, cx, f2, args, ctx, explicitos);
+    }
     // Argumentos de tipo explícitos: instancia e segue como não genérica.
     if !type_params.is_empty() {
         if let Some(ex) = explicitos {
