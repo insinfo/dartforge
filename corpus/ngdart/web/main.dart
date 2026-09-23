@@ -55,6 +55,10 @@ import 'package:corpus_ngdart/src/c08_eventos_irmaos.template.dart' as c08;
 import 'package:corpus_ngdart/src/c09_pipe_na_interpolacao.template.dart' as c09;
 import 'package:corpus_ngdart/src/c10_entrada_antes_da_propriedade.template.dart' as c10;
 import 'package:corpus_ngdart/src/c11_ligacoes_constantes.template.dart' as c11;
+import 'package:corpus_ngdart/src/c12_handler_atribuicao.template.dart' as c12;
+import 'package:corpus_ngdart/src/c13_evento_em_ng_for.template.dart' as c13;
+import 'package:corpus_ngdart/src/c14_keyup_enter.template.dart' as c14;
+import 'package:corpus_ngdart/src/c18_evento_no_projetado.template.dart' as c18;
 import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
@@ -118,6 +122,10 @@ void main() {
     c09.C09PipeNaInterpolacaoNgFactory,
     c10.C10EntradaAntesDaPropriedadeNgFactory,
     c11.C11LigacoesConstantesNgFactory,
+    c12.C12HandlerAtribuicaoNgFactory,
+    c13.C13EventoEmNgForNgFactory,
+    c14.C14KeyupEnterNgFactory,
+    c18.C18EventoNoProjetadoNgFactory,
     d01.D01DoisFilhosNgFactory,
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
