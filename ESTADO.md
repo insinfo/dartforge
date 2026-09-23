@@ -201,6 +201,15 @@ gargalo — as falhas de "o Clang recusa o módulo" caíram de 172 para 13, e
 o que sobra é programa que roda e imprime outra coisa. Ver
 `docs/NATIVO.md` e `docs/NATIVO-PLANO.md`.
 
+**Rodada 2, δ (NATIVO-PLANO §7.4):** strings com semântica UTF-16 na forma
+da VM (`_OneByteString`/`_TwoByteString`) e `Ref` com `Smi` etiquetado
+(R10) entraram sem regressão — nativo 50/223, JIT 50/223 com 0 divergências,
+os mesmos 50 sob `--gc-stress` (Pesado 35849542217 e 35852784596). P5a: a
+sobreposição `sdk_nativo/` carrega; os corpos das sete bibliotecas da fonte
+têm 4 447 diagnósticos de inferência (medidos com um pedido a
+`crates/types`). P5b: tabela dos 137 natives, 48 já no runtime. P5c/P5d
+esperam P1–P4 (o lowering de closures, despacho e RTI para compilar o SDK).
+
 O **lowering de exceções** existe: `throw`, `try`/`catch`/`finally`,
 `rethrow`, com `finally` como sub-rotina e discriminador de razão (normal,
 `return`, exceção, `break`, `continue`). O mecanismo escolhido é

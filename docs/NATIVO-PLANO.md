@@ -883,3 +883,19 @@ VM: `1e+21`, `1e-7`, `100000000000000000000.0` — conferido contra a VM) e os d
 `String` sobre o `Texto` (`String_getHashCode` é o `StringHasher` da VM,
 conferido). Os de lista, mapa, `Object`, `RegExp` e tipos ficam `Pendente`:
 dependem do layout de `_List`/`_GrowableList` (R11) e da RTI (P4).
+
+**Portão de custo (§2.3 do plano).** Nada do caminho do programa mudou ainda:
+o nativo carrega a seção `vm` sem a sobreposição até P5d, e nenhum objeto do
+SDK é compilado. Linha de base para o portão (Pesado 35852784596, job JIT ×
+AOT, 54 programas que terminam): AOT Clang + ligação **p50 142,4 ms** (p95
+156,8), JIT até executar p50 42,2 ms, AOT total p50 167,0 ms. O custo a frio
+do SDK fica para quando P5c compilar a primeira biblioteca.
+
+**Não feito nesta rodada, e por quê.** P5c (objeto por biblioteca em cache
+por blake3) e P5d (a troca, apagando `lower/sdk_por_nome.rs`) precisam que o
+lowering compile os corpos do SDK — closures (P1), despacho (P2), `switch`
+(P3), `super`/mixins/RTI (P4) —, que estão com α/β/γ; P5d é, pelo mapa, depois
+do merge de P1–P4. O `RegExp` com `regress` exige tirar o runtime do `rustc`
+avulso para uma `staticlib` do cargo (decisão 3), o que muda a distribuição do
+runtime do AOT; fica com P9, como o plano já previa, e o casador atual está
+isolado em `regexp_casa_em`/`regexp_proxima` (`runtime/src/strings.rs`).
