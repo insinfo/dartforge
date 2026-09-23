@@ -1046,3 +1046,127 @@ implementação (`where`, `map`, `fold`, `toStringAsFixed`, `sort`,
 `List.filled`/`List.generate`, `parse`, `hashCode`…) — P5, o SDK da fonte —,
 `await`/`yield` (P6/P7) e o `toString()` de objeto do programa dentro de uma
 coleção impressa (o runtime não chama código Dart; também P5).
+
+### 7.7 P6 (`async`/`await`), RTI e `super` em mixin
+
+O que entrou, as decisões e o porquê. O placar medido fica em §7.8.
+
+**O `dart:async` vem da fonte (`crates/emit_native/src/fonte.rs`).** P6 é a
+primeira parte da decisão 1 posta em prática: o programa que usa `dart:async`
+(função `async`/gerador, `await`, o nome `Future`/`Stream`/`FutureOr` ou
+`import 'dart:async'`) compila o `dart:async` da seção `vm` com a sobreposição
+`sdk_nativo/` — e o `dart:_internal` (de onde ele usa `unsafeCast`,
+`IterableElementError`…) e a `Duration` do `dart:core` (o `Timer` a recebe; o
+runtime em Rust nunca a teve) —, **com os corpos inferidos**. Nenhuma classe
+dessas bibliotecas tem representação própria no runtime: são objetos comuns
+do heap, com layout, id de classe e símbolos estáveis (`df.dart$3aasync.…`).
+Como a inferência pula toda biblioteca `is_sdk`, o nativo desliga `is_sdk`
+delas na sua cópia do `Program` antes da inferência — o único efeito de
+`is_sdk` no `crates/types` é esse (pedido ao dono em NATIVO-PEDIDOS: um
+parâmetro que faça o mesmo). A `Duration` sai do `dart:core` para uma
+biblioteca de mesmo URI e escopo (`separar_partes_do_core`): o resto do
+`dart:core` continua sendo o do runtime. Quem não usa `dart:async` emite o
+mesmo IR de antes (a regra de custo zero).
+
+*Poda.* As bibliotecas da fonte entram inteiras (o mundo aberto de uma
+biblioteca do SDK, como no módulo por biblioteca de P5c) e o módulo é podado a
+partir do programa: fica a função que o programa alcança por chamada, closure,
+tear-off ou `toString` de classe. *Construto que falta no código da fonte* vira
+`UnsupportedError` em tempo de execução com o texto do diagnóstico
+(`FnBuilder::nao_suportado`): a poda é conservadora (todo `toString`, todo
+alvo de um despacho), e o programa que não passa por ali compila; o que passa
+falha alto, nunca em silêncio. No código do programa continua sendo erro de
+compilação (N1). `DARTFORGE_FONTE_NAO_SUPORTADO=1` lista esses pontos na
+compilação.
+
+*Natives e intrínsecos* (`lower/externos.rs`): o `external` da fonte com
+`@pragma("vm:external-name", N)` tem por corpo a chamada a
+`dartforge_nativo_N` (a tabela de δ, `nativos.rs`); `unsafeCast` é intrínseco
+(o valor). As classes de erro que o runtime representa (1000–1012) e o
+`List.filled` são construídos pelas externs que o runtime já usa
+(`lower/erros_do_runtime.rs`) — o objeto tem de ser o do runtime, que é o que
+`on ArgumentError` testa; saem com a faixa em P5d.
+
+*Um defeito do carregador achado aqui* (`crates/elements`, corrigido em
+commit próprio): a parte de um arquivo de patch (`core_patch.dart` →
+`part "errors_patch.dart"`, a `timer_patch.dart` da sobreposição) era
+carregada como parte comum, e a classe `@patch` dela virava outra classe com o
+mesmo nome, que tomava o lugar da original — `Error` sem `throwWithStackTrace`,
+`Timer` sem `periodic`. Eram os 43 `external` com `patched_by` vazio que δ
+mediu.
+
+**O corpo `async` (`lower/async_sm.rs`)** segue o dart2js
+(`rewrite_async.dart`) e os apoios do `async_patch` de δ: o stub cria o
+quadro (um objeto do heap), o `Completer`
+(`_makeAsyncAwaitCompleter<T>`, `T` o tipo do valor do `Future`), a closure
+do corpo registrada na zona (`_envolverCorpo`) e começa por
+`_asyncStartSync`. O corpo `f$async(env, código, resultado)` salta pelo estado
+guardado no quadro; `await e` grava o estado, chama `_asyncAwait(e, corpo)` e
+retorna, e o bloco de retomada só é alcançado pelo `switch` da entrada. Com
+`código == _ERRO` o erro é lançado no ponto do `await` com o rastro dele e
+segue o caminho de exceção pendente de sempre (os `try`/`catch`/`finally` em
+volta são os do lowering). Exceção que chega ao topo vai a `_asyncRethrow`;
+`return v` vai a `_asyncReturn` (o gancho está em `FnBuilder::terminate`).
+
+*O que atravessa um `await` mora no quadro*, por duas passadas sobre a HIR do
+corpo pronto, que não dependem de como cada construto foi baixado: todo
+`alloca` vira posição do quadro; todo valor SSA vivo na entrada de uma
+retomada (vivacidade com a aresta virtual suspensão → retomada) é gravado no
+quadro logo depois de definido e relido antes de cada uso — o que o LLVM faz
+no *coroutine frame* (`CoroSplit`), sem reconstruir o SSA. O quadro é
+alcançado pelas arestas do heap (contrato G): a pilha-sombra é desmontada a
+cada suspensão.
+
+**O laço de eventos (`crates/runtime/src/eventos.rs`)** roda depois do
+`main` (o `dartforge_entry` o chama só quando o programa usa `dart:async`):
+microtarefas (as closures de `DartForge_scheduleImmediate`, que o
+`_startMicrotaskLoop` da fonte agenda) todas antes de qualquer timer; timers
+na ordem da VM (`timer_impl.dart`): prazo `agora` para duração 0 e
+`agora + 1 + ms` para as outras, desempate pela sequência de agendamento,
+periódico reagendado em `prazo + ms` depois do callback. É o único ponto em
+que o runtime chama Dart, por uma função do código gerado que chama uma
+closure sem argumentos (`dartforge_chamar_dart0`; G8 marca
+`dartforge_laco_de_eventos` com `chama_dart`). Exceção que sai de uma
+microtarefa já passou pela `Zone` (`_rootHandleError` a relança): o laço para
+e `finalizar_programa` a relata. O estado é por thread (um isolado por
+thread; P8 o junta em `isolado.rs`), e as closures que esperam são raízes do
+coletor (globais de raiz de id negativo).
+
+**RTI (`crates/runtime/src/tipos.rs`, `lower/rti.rs`)**, no desenho do dart2js
+(`rti.dart`): um universo canônico de tipos por isolado (hash-consing: o mesmo
+tipo tem o mesmo id); o compilador descreve cada tipo por uma **receita**
+(texto curto) com um global preguiçoso por receita; variáveis `P<i>`
+(parâmetro de tipo da classe do código corrente, lido do tipo de `this` visto
+como a classe declarante) e `M<i>` (argumento de tipo da função corrente) são
+trocadas no ambiente por `dartforge_rti_avaliar`; as regras de supertipo de
+cada classe citada (o fecho) são registradas na entrada. O tipo de cada
+objeto genérico, coleção com tipo de elemento e closure (a assinatura, o
+`$signature` do dart2js) mora num metadado por slot do heap (o `metadata_ptr`
+reservado do cabeçalho). A função genérica e a fábrica de classe genérica
+recebem a tupla dos argumentos de tipo no último parâmetro; na chamada, a
+tupla vem dos argumentos escritos ou, na falta deles, casando o retorno
+declarado com o tipo estático da chamada (e cada parâmetro com o argumento) —
+a inferência não grava os argumentos inferidos (pedido ao dono). `is`/`as`,
+`on T`, padrões de tipo e de coleção com argumentos vão pelo RTI quando a
+anotação precisa (argumentos não triviais, variável de tipo, `FutureOr`, tipo
+de função ou de record, typedef); a classe sem argumentos continua pelo teste
+de classe. **Saiu o atalho do `as`**: o cast confere o tipo inteiro e lança
+`TypeError` com a mensagem da VM. `Type` é um objeto canônico por tipo
+(literal de tipo e `runtimeType`), com o texto da VM.
+
+**`super` dentro de mixin (`lower/heranca.rs`).** O alvo é o que vem depois
+do mixin na linearização da classe **dinâmica** de `this` (especificação
+§12.3: cada aplicação tem a sua superclasse); como o código do mixin é
+compilado uma vez, o alvo é escolhido pela classe (`switch`), o mesmo
+mecanismo dos campos de mixin.
+
+**`--gc-stress` no CI.** Um job novo do `pesado.yml` roda o corpus nativo
+inteiro sob `DARTFORGE_GC_STRESS=1`, e o `nativo-placar` reprova a rodada se um
+programa passa sem estresse e falha com ele (o portão G7).
+
+**O que ficou de fora.** Streams (84) e o `Future.forEach` (88) param no
+protocolo de `Iterable` das coleções do runtime (`iterator` de uma lista do
+runtime): é o SDK da fonte das coleções (P5d). Os geradores (P7: 85, 86, 87,
+110, 119, 185) precisam da API de `Iterable` do `dart:core` sobre o iterável
+do `sync*` — também P5d. `forEach`/`map`/`fold`… sobre listas do runtime no
+código do programa (89b, 212) continuam P5.

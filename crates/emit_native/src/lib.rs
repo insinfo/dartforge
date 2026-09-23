@@ -347,6 +347,40 @@ mod testes {
         assert_eq!(ia, ia2, "o mesmo programa em outro diretório dá o mesmo IR");
     }
 
+    /// P6 e a regra de custo zero: só o programa que usa `dart:async` compila
+    /// o `dart:async` da fonte e liga o laço de eventos; o que não usa não
+    /// tem nada disso no IR.
+    #[test]
+    fn dart_async_da_fonte_so_para_quem_usa() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            eprintln!("SDK ausente em {SDK}; teste pulado");
+            return;
+        }
+        let emitir_fonte = |fonte: &'static str| {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn(move || {
+                    let dir = tempfile::tempdir().unwrap();
+                    let entrada = dir.path().join("main.dart");
+                    std::fs::write(&entrada, fonte).unwrap();
+                    emitir(&entrada)
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        let sincrono = emitir_fonte("void main() { print(1); }\n");
+        assert!(!sincrono.texto.contains("call void @dartforge_laco_de_eventos"));
+        assert!(!sincrono.texto.contains("@df.dart$3aasync"));
+        assert_eq!(sincrono.bytes_sdk, 0);
+
+        let assincrono = emitir_fonte("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
+        assert!(assincrono.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
+        assert!(assincrono.texto.contains("define i64 @df.main$2edart..f$async("), "o corpo da máquina de estados");
+        assert!(assincrono.texto.contains("@df.dart$3aasync.._asyncAwait("));
+        assert!(assincrono.bytes_sdk > 0);
+    }
+
     #[test]
     fn construtos_do_erro_ignora_o_que_nao_e_construto() {
         let texto = "[compile-native] erro de compilação: não suportado no backend nativo: membro `hash`\n\
