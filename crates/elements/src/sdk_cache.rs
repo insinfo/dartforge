@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Versão do formato; mudar invalida todos os caches.
-const FORMATO: u32 = 2;
+const FORMATO: u32 = 3;
 
 /// Uma unidade do SDK já analisada.
 #[derive(Serialize, Deserialize)]

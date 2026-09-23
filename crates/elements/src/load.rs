@@ -421,11 +421,21 @@ pub fn load_lenient_gerados(
                             }
                         };
 
+                        // A parte de um arquivo de patch do SDK é patch também
+                        // (o `core_patch.dart` da VM tem `part "errors_patch.dart"`,
+                        // a sobreposição do nativo `part "timer_patch.dart"`): as
+                        // classes `@patch` dela se fundem com as de origem em vez
+                        // de criar outra classe com o mesmo nome.
+                        let papel = if program.units[unit_id.0 as usize].role == UnitRole::Patch {
+                            UnitRole::Patch
+                        } else {
+                            UnitRole::Part
+                        };
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            UnitRole::Part,
+                            papel,
                             interner,
                             &mut program,
                             &mut diagnostics,
