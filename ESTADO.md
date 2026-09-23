@@ -485,6 +485,44 @@ oráculos `dart run`) ~10 min, `target/release` ~5 min. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
 
+### 3.2 O corpus nativo é lento demais — e isso é um problema a resolver
+
+Medido: **10 dos 214 programas em 9 minutos** no modo nativo, o que dá
+~3 h por passada completa. O teste de determinismo precisa de três
+passadas (1, 4 e 8 trabalhadores), logo **~10 h**. Por isso ele só foi
+verificado num subconjunto (`--filtro 0`, 9 programas, com
+`DARTFORGE_KEEP_IR=1`), e a passada completa nunca rodou.
+
+Isso não é aceitável como regime permanente: um teste que ninguém roda não
+protege nada. Antes de aumentar o corpus nativo, é preciso uma estratégia
+de verificação mais rápida. O que já se sabe do custo:
+
+* o tempo é dominado por **Clang e ligação**, um processo por programa,
+  não pela nossa compilação;
+* não existe **cache de objeto por módulo** (só o do runtime, por hash);
+* cada programa reexecuta a ligação inteira para um `main` que muda pouco.
+
+Três caminhos, do mais barato ao mais estrutural:
+
+1. **Determinismo não precisa executar.** O que se verifica é que o
+   *artefato* não muda com a ordem dos trabalhadores. Comparar o resumo do
+   LLVM IR emitido (que `DARTFORGE_KEEP_IR=1` já produz) dispensa Clang,
+   ligação e execução — elimina justamente a parte que domina o tempo.
+   A passada de determinismo deveria parar aí por padrão, e só o corpus de
+   **correção** chegar ao executável.
+2. **Cache de objeto por módulo**, com a mesma disciplina do cache do
+   runtime: mesma entrada, mesmo hash, mesmo `.obj`. É o item que já está
+   no §2.5, e ele paga duas vezes — encurta o corpus e o ciclo de quem
+   desenvolve o backend.
+3. **Amostra estratificada por família de recurso** no uso diário
+   (exceções, coleções, classes, strings, `async`…), com a passada
+   completa fora do caminho de trabalho — de madrugada ou sob demanda,
+   numa janela com a máquina livre.
+
+Enquanto isso não existir, o número do corpus nativo continua confiável
+(ele roda inteiro quando roda), mas o **determinismo do nativo** é uma
+verificação por amostra, e está registrado como tal.
+
 ## 4. Organização do repositório
 
 * **Trilha nova (em uso)**: `frontend` → `elements` → `types` →
