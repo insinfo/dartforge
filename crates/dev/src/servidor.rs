@@ -124,6 +124,19 @@ pub fn servir(
     porta: u16,
     recarga: Arc<Recarga>,
 ) -> Result<u16, String> {
+    servir_com_gerados(saida, web, porta, recarga, None)
+}
+
+/// Como [`servir`], procurando antes nas saídas do motor de build: um `.css`
+/// de `web/` pedido pelo navegador sai da geração corrente (e é a demanda que
+/// materializa a ação do `sass_builder`).
+pub fn servir_com_gerados(
+    saida: &Path,
+    web: Option<&Path>,
+    porta: u16,
+    recarga: Arc<Recarga>,
+    gerados: Option<crate::geracao::Provedor>,
+) -> Result<u16, String> {
     let ouvinte = TcpListener::bind(("127.0.0.1", porta)).map_err(|e| format!("porta {porta}: {e}"))?;
     let porta = ouvinte.local_addr().map_err(|e| e.to_string())?.port();
     let saida = saida.to_path_buf();
@@ -133,18 +146,24 @@ pub fn servir(
         .spawn(move || {
             for conexao in ouvinte.incoming() {
                 let Ok(fluxo) = conexao else { continue };
-                let (saida, web, recarga) = (saida.clone(), web.clone(), recarga.clone());
+                let (saida, web, recarga, gerados) = (saida.clone(), web.clone(), recarga.clone(), gerados.clone());
                 // Uma thread por conexão: o WebSocket fica aberto enquanto a aba viver.
                 let _ = std::thread::Builder::new()
                     .stack_size(256 * 1024)
-                    .spawn(move || atender(fluxo, &saida, web.as_deref(), &recarga));
+                    .spawn(move || atender(fluxo, &saida, web.as_deref(), &recarga, gerados.as_ref()));
             }
         })
         .map_err(|e| e.to_string())?;
     Ok(porta)
 }
 
-fn atender(mut fluxo: TcpStream, saida: &Path, web: Option<&Path>, recarga: &Recarga) {
+fn atender(
+    mut fluxo: TcpStream,
+    saida: &Path,
+    web: Option<&Path>,
+    recarga: &Recarga,
+    gerados: Option<&crate::geracao::Provedor>,
+) {
     let mut leitor = BufReader::new(match fluxo.try_clone() {
         Ok(c) => c,
         Err(_) => return,
@@ -226,6 +245,14 @@ fn atender(mut fluxo: TcpStream, saida: &Path, web: Option<&Path>, recarga: &Rec
         return;
     }
 
+    // Saída gerada pelo motor de build (caminho natural sob `web/`).
+    if let (Some(pv), Some(w)) = (gerados, web) {
+        let natural = w.join(rel);
+        if let Some(dados) = pv(&natural) {
+            let _ = responder(&mut fluxo, 200, tipo_mime(&natural), &dados);
+            return;
+        }
+    }
     // O arquivo vem da saída; se não estiver lá, do diretório `web` do projeto.
     let mut arquivo = saida.join(rel);
     if !arquivo.is_file() {
