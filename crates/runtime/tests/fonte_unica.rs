@@ -1,13 +1,19 @@
 //! A fonte única do runtime: o que o AOT compila e o que o JIT usa são o mesmo
 //! código, com a mesma semântica.
 
-/// O texto que o AOT compila contém, sem alteração, os dois arquivos que este
-/// crate compila como `heap` e `abi`.
+/// O texto que o AOT compila contém, sem alteração, os arquivos que este
+/// crate compila como `heap` e `abi`: o `heap.rs` e, em seguida, todos os
+/// fragmentos concatenados na ordem de `FRAGMENTOS`.
 #[test]
 fn o_aot_compila_os_mesmos_arquivos() {
     let texto = dartforge_runtime::RUNTIME_MAIN;
     assert!(texto.contains(include_str!("../src/heap.rs")));
-    assert!(texto.contains(include_str!("../src/runtime_main.rs")));
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut concatenado = String::new();
+    for f in dartforge_runtime::simbolos::FRAGMENTOS {
+        concatenado.push_str(&std::fs::read_to_string(src.join(format!("{f}.rs"))).expect("ler fragmento"));
+    }
+    assert!(texto.ends_with(&concatenado));
 }
 
 /// A tabela gerada tem nomes únicos, endereços reais e não tem o `main` C.

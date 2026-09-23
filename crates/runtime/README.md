@@ -14,7 +14,7 @@ A coleta automática ocorre antes de alocar, após um limiar de 256 alocações 
 - Strings são UTF-8 e imutáveis. Concatenação exige operandos não nulos; igualdade e impressão aceitam handle zero. Não há normalização Unicode.
 - O único acesso inseguro à memória é a leitura da constante UTF-8 estrangeira em string_new. O emissor garante região legível de len bytes; ponteiro pode ser ignorado para len=0. As demais operações de heap são Rust seguro e validam os índices. Quebrar o contrato causa falha explícita, não execução de Dart com comportamento definido.
 
-O driver embarca heap.rs e runtime_main.rs em um único arquivo standalone. O workspace testa o mesmo módulo heap.rs com unsafe proibido. Não há dependência de Dart VM, GC Dart, arena que apenas cresce ou runtime Swift.
+O driver embarca heap.rs e os fragmentos do runtime (nucleo.rs, gc_raizes.rs, excecoes.rs, saida.rs, strings.rs, colecoes.rs, closures.rs, na ordem de FRAGMENTOS em build.rs) em um único arquivo standalone. O workspace testa o mesmo módulo heap.rs com unsafe proibido. Não há dependência de Dart VM, GC Dart, arena que apenas cresce ou runtime Swift.
 
 ## Referências consultadas
 

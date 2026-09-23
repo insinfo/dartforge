@@ -27,7 +27,7 @@
 //!   O estado do runtime é `thread_local`; o programa executa numa thread
 //!   própria por execução ([`execute_program`]).
 //! * O runtime publicado ao JIT **não é reescrito aqui**: é a fonte do harness
-//!   AOT (`crates/runtime/src/runtime_main.rs`), compilada como o módulo
+//!   AOT (os fragmentos de `crates/runtime/src`), compilada como o módulo
 //!   `dartforge_runtime::abi`; a tabela de símbolos é gerada da mesma fonte
 //!   pelo `build.rs` daquele crate (fonte única).
 //!
@@ -991,11 +991,11 @@ impl Drop for Lljit {
 
 // ─── Runtime ───────────────────────────────────────────────────────────────
 //
-// O runtime é `crates/runtime/src/runtime_main.rs`, a mesma fonte que o AOT
+// O runtime são os fragmentos de `crates/runtime/src`, a mesma fonte que o AOT
 // compila com `rustc` avulso, aqui compilada como o módulo
 // `dartforge_runtime::abi` (fonte única, plano do JIT §3.1). A tabela de
 // símbolos é gerada pelo `build.rs` daquele crate a partir dos
-// `#[unsafe(no_mangle)]` do arquivo.
+// `#[unsafe(no_mangle)]` dos fragmentos.
 
 /// Nomes do runtime publicados na sessão, na ordem da fonte.
 pub(crate) const RUNTIME_SYMBOLS: &[&str] = dartforge_runtime::simbolos::NOMES;

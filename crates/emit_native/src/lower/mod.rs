@@ -4,10 +4,14 @@
 //! `docs/NATIVO-PLANO.md` §6 (R, E, N, G).
 
 pub mod atribuicao;
+pub mod chamadas;
+pub mod comandos;
+pub mod expressoes;
 pub mod fn_builder;
 pub mod locais;
 pub mod membros;
 pub mod operadores;
+pub mod sdk_por_nome;
 pub mod verificador;
 
 use crate::context::Context;
