@@ -199,6 +199,11 @@ pub struct Heap {
     /// tear-offs da mesma função top-level; cada `code_id` tem um único handle,
     /// mantido vivo como raiz permanente, como os singletons de enum.
     tearoffs: std::collections::HashMap<i64, i64>,
+    /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
+    /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
+    /// coletado" e passa com a coleta desligada tem raiz faltando; um que
+    /// morre igual nos dois modos tem escalar usado como handle.
+    gc_desligado: bool,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -218,6 +223,7 @@ impl Heap {
             limite_bytes: Self::limite_do_ambiente(),
             enum_values: std::collections::HashMap::new(),
             tearoffs: std::collections::HashMap::new(),
+            gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
         }
     }
     /// Le o teto do heap do ambiente uma vez, na criacao.
@@ -377,12 +383,12 @@ impl Heap {
         let bytes = value.estimated_bytes();
         let perto_do_teto = self.limite_bytes != usize::MAX
             && self.bytes_totais(bytes) > self.limite_bytes / 2;
-        if self.stress
+        if !self.gc_desligado && (self.stress
             || (!self.frames.is_empty() && (
                 self.allocations >= self.threshold
                 || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
                 || perto_do_teto
-            ))
+            )))
         {
             self.collect();
         }
@@ -408,14 +414,38 @@ impl Heap {
         };
         i64::try_from(index + 1).expect("handles esgotados")
     }
+    /// Índice do slot de um handle vivo, ou `panic` que diz QUAL contrato
+    /// foi quebrado (docs/NATIVO-PLANO.md §6.4, N4).
+    ///
+    /// As quatro falhas têm causas diferentes e a mensagem é a chave de
+    /// agrupamento do harness, então cada uma tem texto fixo na primeira
+    /// linha (sem o número do handle, que separaria o grupo) e o detalhe
+    /// na segunda:
+    /// * `0` — null desreferenciado: o lowering devia ter testado antes;
+    /// * negativo — escalar (ou -2 de "classe String") usado como handle;
+    /// * além da tabela — escalar positivo usado como handle;
+    /// * slot vazio — o objeto foi coletado: faltou raiz.
+    fn indice_vivo(&self, handle: i64) -> usize {
+        if handle == 0 {
+            panic!("bug do compilador: handle null (0) desreferenciado");
+        }
+        if handle < 0 {
+            panic!("bug do compilador: handle negativo (escalar usado como handle)\nhandle {handle}");
+        }
+        let index = usize::try_from(handle - 1).expect("handle positivo cabe em usize");
+        match self.slots.get(index) {
+            None => panic!(
+                "bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}, {} slots",
+                self.slots.len()
+            ),
+            Some(None) => panic!("bug do compilador: handle já coletado (raiz faltando)\nhandle {handle}"),
+            Some(Some(_)) => index,
+        }
+    }
     /// Obtém valor vivo; o protocolo ABI não permite handles obsoletos.
     pub fn get(&self, handle: i64) -> &Value {
-        let index = usize::try_from(handle.checked_sub(1).expect("handle inválido"))
-            .expect("handle inválido");
-        self.slots
-            .get(index)
-            .and_then(Option::as_ref)
-            .expect("handle não vivo")
+        let index = self.indice_vivo(handle);
+        self.slots[index].as_ref().expect("slot vivo verificado")
     }
     /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
     pub fn try_get(&self, handle: i64) -> Option<&Value> {
@@ -427,13 +457,8 @@ impl Heap {
         if is_ref && bits != 0 {
             self.get(bits);
         }
-        let slot = usize::try_from(handle - 1).expect("handle inválido");
-        let Value::Object { fields, .. } = self
-            .slots
-            .get_mut(slot)
-            .and_then(Option::as_mut)
-            .expect("handle não vivo")
-        else {
+        let slot = self.indice_vivo(handle);
+        let Value::Object { fields, .. } = self.slots[slot].as_mut().expect("slot vivo verificado") else {
             panic!("objeto esperado")
         };
         fields[usize::try_from(index).expect("índice inválido")] = (bits, is_ref);
@@ -578,7 +603,7 @@ impl Heap {
             .peak_estimated_bytes
             .max(self.stats.estimated_bytes);
         self.verificar_teto(0);
-        if self.stress || self.stats.estimated_bytes > self.byte_threshold {
+        if !self.gc_desligado && (self.stress || self.stats.estimated_bytes > self.byte_threshold) {
             let frame = self.push_frame_with_slots(1);
             self.set_root(frame, 0, handle);
             self.collect();
@@ -729,12 +754,8 @@ impl Heap {
     }
     /// Obtém armazenamento mutável; não oferece acesso a slots já coletados.
     pub fn get_mut(&mut self, handle: i64) -> &mut Value {
-        let slot = usize::try_from(handle.checked_sub(1).expect("handle inválido"))
-            .expect("handle inválido");
-        self.slots
-            .get_mut(slot)
-            .and_then(Option::as_mut)
-            .expect("handle não vivo")
+        let slot = self.indice_vivo(handle);
+        self.slots[slot].as_mut().expect("slot vivo verificado")
     }
     /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
     pub fn collect(&mut self) {
@@ -762,7 +783,9 @@ impl Heap {
             if handle == 0 {
                 continue;
             }
-            let index = usize::try_from(handle - 1).expect("handle inválido");
+            // Raiz ou aresta que não é um handle vivo: mesmas quatro
+            // mensagens de `get`, porque a causa é a mesma (N4).
+            let index = self.indice_vivo(handle);
             if self.marks[index] {
                 continue;
             }
@@ -770,7 +793,7 @@ impl Heap {
             live += 1;
             self.slots[index]
                 .as_ref()
-                .expect("handle não vivo")
+                .expect("slot vivo verificado")
                 .trace(&mut self.pending);
         }
         for (index, slot) in self.slots.iter_mut().enumerate() {
@@ -951,6 +974,41 @@ mod tests {
         heap.collect();
         assert_eq!(heap.slots.iter().flatten().count(), 1);
         assert!(heap.slots.len() <= 2);
+    }
+}
+
+#[cfg(test)]
+mod falhas_de_handle {
+    //! N4: cada contrato quebrado tem mensagem própria.
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "handle null (0) desreferenciado")]
+    fn null_desreferenciado() {
+        Heap::new(false).get(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "handle negativo")]
+    fn handle_negativo() {
+        Heap::new(false).get(-2);
+    }
+
+    #[test]
+    #[should_panic(expected = "handle além da tabela")]
+    fn handle_alem_da_tabela() {
+        let mut heap = Heap::new(false);
+        heap.allocate(Value::String("x".into()));
+        heap.get(42);
+    }
+
+    #[test]
+    #[should_panic(expected = "handle já coletado")]
+    fn handle_coletado() {
+        let mut heap = Heap::new(false);
+        let h = heap.allocate(Value::String("x".into()));
+        heap.collect();
+        heap.get(h);
     }
 }
 

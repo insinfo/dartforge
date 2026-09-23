@@ -502,7 +502,31 @@ representação ser honesta transforma cada escalar em posição `Ref` num
   ganha `--gc-stress`, e um programa só conta como aprovado nesse modo se
   passar também sob estresse.
 
-### 6.6 Custo aceito
+### 6.6 Passo 0 — as 71 reclassificadas (medido)
+
+Instrumentado só o runtime (N4 e `DARTFORGE_GC_OFF=1`), sem mudar o
+comportamento, e executados os 214 programas compilados (sem oráculo) uma
+vez, para achar e reclassificar os 71:
+
+| mensagem nova | programas | coleta desligada |
+| --- | --- | --- |
+| handle além da tabela (escalar usado como handle) | 43 | 43, igual |
+| handle null (0) desreferenciado | 26 | 26, igual |
+| handle negativo | 1 (`41_classes_ctor_nomeado`) | igual |
+| handle já coletado (raiz faltando) | 1 (`39_funcoes_recursivas_e_iteradores`) | passa a terminar |
+
+O "handle não vivo" antigo (44) era quase todo **escalar positivo usado
+como handle** (43), não objeto coletado; o "NegOverflow" (27) era quase todo
+**null desreferenciado** (26). Só 1 dos 71 depende de raiz: 70 são de
+representação (H3–H8). É o que a ordem N → R → E → G prevê — enquanto o
+heap só coleta com frame aberto, a falta de raízes quase não aparece; ela
+aparece quando G tirar o portão.
+
+Os 7 que passavam: `01_print`, `03_strings_escapes`, `06_strings_metodos`,
+`141_antigo_arithmetic`, `142_antigo_boolean`, `164_antigo_numeric_edges`,
+`169_antigo_string_escapes`.
+
+### 6.7 Custo aceito
 
 `set_root` por definição é uma chamada externa com empréstimo do `RefCell`.
 É deliberadamente o mais simples que é correto; slots por *liveness*, pular
