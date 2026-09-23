@@ -1,0 +1,27 @@
+[package]
+name = "dartforge-build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Motor de geração de código do DartForge: o plano de fases do build_runner, impressão digital por consulta e executores (nativo, Dart, apoio)."
+
+[lints]
+workspace = true
+
+[features]
+default = ["nativos"]
+# Geradores nativos (ngdart e sass) pelo gerador_ng, só pela API pública.
+nativos = ["dep:dartforge-gerador-ng"]
+
+[dependencies]
+dartforge-elements = { path = "../elements" }
+dartforge-intern = { path = "../intern" }
+dartforge-gerador-ng = { path = "../gerador_ng", optional = true }
+blake3 = "1"
+yaml-rust2 = "0.10"
+serde_json = "1"
+url = "2.5"
+
+[dev-dependencies]
+tempfile = "3"

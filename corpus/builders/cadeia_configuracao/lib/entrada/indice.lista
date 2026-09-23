@@ -1,0 +1,4 @@
+lib/entrada/**.txt
+lib/espelho/**
+lib/**.carimbo.txt
+lib/**.maiusculas.txt

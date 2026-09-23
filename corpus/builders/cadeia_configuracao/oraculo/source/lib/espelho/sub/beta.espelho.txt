@@ -1,0 +1,6 @@
+builder: espelho
+entrada: corpus_cadeia_configuracao|lib/entrada/sub/beta.txt
+isRoot: true
+opcoes: {"origem":"alvo","so_defaults":"sim"}
+---
+ohnimac o avel }}{{ arutpac a :oiróteridbus mun arom ateb

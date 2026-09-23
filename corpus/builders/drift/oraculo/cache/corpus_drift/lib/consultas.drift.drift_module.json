@@ -1,0 +1,242 @@
+{
+  "elements": {
+    "etiquetas": {
+      "id": {
+        "library_uri": "package:corpus_drift/consultas.drift",
+        "name": "etiquetas"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/consultas.drift",
+        "offset": 22,
+        "name": "etiquetas"
+      },
+      "references": [],
+      "type": "table",
+      "columns": [
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "id",
+          "nameInDart": "id",
+          "declaration": {
+            "source_uri": "package:corpus_drift/consultas.drift",
+            "offset": 49,
+            "name": null
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "primary",
+              "is_auto_increment": true
+            }
+          ],
+          "customConstraints": "NOT NULL PRIMARY KEY AUTOINCREMENT"
+        },
+        {
+          "sqlType": {
+            "builtin": "string"
+          },
+          "nullable": false,
+          "nameInSql": "nome",
+          "nameInDart": "nome",
+          "declaration": {
+            "source_uri": "package:corpus_drift/consultas.drift",
+            "offset": 98,
+            "name": null
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "unique"
+            }
+          ],
+          "customConstraints": "NOT NULL UNIQUE"
+        },
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "cor",
+          "nameInDart": "cor",
+          "declaration": {
+            "source_uri": "package:corpus_drift/consultas.drift",
+            "offset": 127,
+            "name": null
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": {
+            "elements": [
+              "const ",
+              {
+                "lexeme": "CustomExpression",
+                "import_uri": "package:drift/drift.dart"
+              },
+              "('0')"
+            ]
+          },
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [],
+          "customConstraints": "NOT NULL DEFAULT 0"
+        },
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "estado",
+          "nameInDart": "estado",
+          "declaration": {
+            "source_uri": "package:corpus_drift/consultas.drift",
+            "offset": 161,
+            "name": null
+          },
+          "typeConverter": {
+            "expression": {
+              "elements": [
+                "const ",
+                {
+                  "lexeme": "EnumIndexConverter",
+                  "import_uri": "package:drift/drift.dart"
+                },
+                "<",
+                {
+                  "lexeme": "Situacao",
+                  "import_uri": "package:corpus_drift/banco.dart"
+                },
+                ">(",
+                {
+                  "lexeme": "Situacao",
+                  "import_uri": "package:corpus_drift/banco.dart"
+                },
+                ".values)"
+              ]
+            },
+            "dart_type": 0,
+            "json_type": 1,
+            "sql_type": {
+              "builtin": "int"
+            },
+            "dart_type_is_nullable": false,
+            "sql_type_is_nullable": false,
+            "json_type_is_nullable": false,
+            "is_drift_enum_converter": true
+          },
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [],
+          "customConstraints": "NOT NULL"
+        }
+      ],
+      "existing_data_class": null,
+      "table_constraints": [],
+      "custom_parent_class": null,
+      "interfaces_for_row_class": [],
+      "fixed_entity_info_name": "Etiquetas",
+      "base_dart_name": "Etiquetas",
+      "row_class_name": "Etiqueta",
+      "companion_class_name": null,
+      "without_rowid": false,
+      "strict": false,
+      "write_default_constraints": false,
+      "custom_constraints": [],
+      "attached_indices": []
+    },
+    "etiquetas_por_nome": {
+      "id": {
+        "library_uri": "package:corpus_drift/consultas.drift",
+        "name": "etiquetas_por_nome"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/consultas.drift",
+        "offset": 196,
+        "name": null
+      },
+      "references": [
+        {
+          "library_uri": "package:corpus_drift/consultas.drift",
+          "name": "etiquetas"
+        }
+      ],
+      "type": "index",
+      "sql": "CREATE INDEX etiquetas_por_nome ON etiquetas (nome);",
+      "columns": [],
+      "unique": false
+    },
+    "contasComSaldo": {
+      "id": {
+        "library_uri": "package:corpus_drift/consultas.drift",
+        "name": "contasComSaldo"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/consultas.drift",
+        "offset": 266,
+        "name": null
+      },
+      "references": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "clientes"
+        },
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "contas"
+        }
+      ],
+      "type": "query",
+      "sql": "SELECT c.nome, co.saldo FROM clientes c\n  INNER JOIN contas co ON co.cliente = c.id\n  WHERE co.saldo >= :minimo AND $filtro\n  ORDER BY c.nome",
+      "offset": 266,
+      "result_class": null,
+      "existing_type": null,
+      "mode": "regular",
+      "dart_tokens": [],
+      "dart_types": {}
+    },
+    "contarEtiquetas": {
+      "id": {
+        "library_uri": "package:corpus_drift/consultas.drift",
+        "name": "contarEtiquetas"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/consultas.drift",
+        "offset": 427,
+        "name": null
+      },
+      "references": [
+        {
+          "library_uri": "package:corpus_drift/consultas.drift",
+          "name": "etiquetas"
+        }
+      ],
+      "type": "query",
+      "sql": "SELECT COUNT(*) FROM etiquetas",
+      "offset": 427,
+      "result_class": null,
+      "existing_type": null,
+      "mode": "regular",
+      "dart_tokens": [],
+      "dart_types": {}
+    }
+  },
+  "imports": [
+    "package:corpus_drift/banco.dart"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "7.7.1",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "3.0.1",
+    "sass": "1.102.0",
+    "sass_builder": "2.2.1"
+  },
+  "saidas": [
+    { "asset": "corpus_sass_builder|lib/estilos/componentes.css", "build_to": "cache", "sha256": "3d1919ce5befffd82d32194eda7b53b6b8b02927a85d7fd7de62fecd90920ee1" },
+    { "asset": "corpus_sass_builder|lib/estilos/componentes.css.map", "build_to": "cache", "sha256": "476268dad8cf23f6c0dc365a3e02a97143790984dfcd3faec323aa86309302b1" },
+    { "asset": "corpus_sass_builder|web/indentado.css", "build_to": "cache", "sha256": "4cd3719a5d59306483831339f0780d0b8d7f56b9554df97c4362f172ab71fff5" },
+    { "asset": "corpus_sass_builder|web/indentado.css.map", "build_to": "cache", "sha256": "2de45e6a070ea05610fff4f210da53cfa89c8ec8931cd93406f011d12b6ee538" },
+    { "asset": "corpus_sass_builder|web/principal.css", "build_to": "cache", "sha256": "170bc36d1c2d75270e85eb31c16c5806fdcee55114e14f895d92c7f802671a6b" },
+    { "asset": "corpus_sass_builder|web/principal.css.map", "build_to": "cache", "sha256": "0609a51545c9904d75a358273cb36472d0ed345a78d75340f8c4d91f1bec76a8" }
+  ],
+  "excluidos": 0,
+  "executavel": false
+}

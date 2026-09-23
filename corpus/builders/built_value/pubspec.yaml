@@ -1,0 +1,11 @@
+name: corpus_built_value
+description: built_value_generator (parte .g.part) juntado pelo combining_builder.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  built_collection: ^5.1.1
+  built_value: ^8.10.1
+dev_dependencies:
+  build_runner: ^2.4.15
+  built_value_generator: ^8.10.1

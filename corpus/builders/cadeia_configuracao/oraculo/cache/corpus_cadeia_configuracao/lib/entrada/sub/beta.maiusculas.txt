@@ -1,0 +1,6 @@
+builder: maiusculas
+entrada: corpus_cadeia_configuracao|lib/entrada/sub/beta.txt
+isRoot: true
+opcoes: {"alvo":"sim","global":"sim","modo":"dev_alvo","nivel":3,"origem":"alvo","so_dev":"global"}
+---
+BETA MORA NUM SUBDIRETÓRIO: A CAPTURA {{}} LEVA O CAMINHO

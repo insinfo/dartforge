@@ -1,0 +1,28 @@
+// Entrada em lib/: aninhamento, &, @use com namespace, @media aninhado.
+@use 'variaveis' as v;
+
+.botao {
+  padding: v.$espaco v.dobro(v.$espaco);
+  color: white;
+  background: v.$primaria;
+
+  &:hover {
+    background: darken(v.$primaria, 10%);
+  }
+
+  &--grande {
+    font-size: 1.25rem;
+  }
+
+  .icone + & {
+    margin-left: v.$espaco;
+  }
+
+  @media (max-width: v.$quebra-media) {
+    width: 100%;
+  }
+}
+
+.cartao {
+  @include v.cartao(4px);
+}

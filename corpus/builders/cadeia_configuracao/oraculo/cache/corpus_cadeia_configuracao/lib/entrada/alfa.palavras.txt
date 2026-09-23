@@ -1,0 +1,6 @@
+builder: contagem/palavras
+entrada: corpus_cadeia_configuracao|lib/entrada/alfa.maiusculas.txt
+isRoot: true
+opcoes: {}
+---
+18

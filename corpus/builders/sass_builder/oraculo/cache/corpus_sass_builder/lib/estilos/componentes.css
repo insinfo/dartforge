@@ -1,0 +1,26 @@
+.botao {
+  padding: 8px 16px;
+  color: white;
+  background: #3366cc;
+}
+.botao:hover {
+  background: rgb(16%, 32%, 64%);
+}
+.botao--grande {
+  font-size: 1.25rem;
+}
+.icone + .botao {
+  margin-left: 8px;
+}
+@media (max-width: 768px) {
+  .botao {
+    width: 100%;
+  }
+}
+
+.cartao {
+  border-radius: 4px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/*# sourceMappingURL=componentes.css.map */

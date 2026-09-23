@@ -1,0 +1,129 @@
+# Só configuração: cada chave aqui muda o que o oráculo registra.
+targets:
+  $default:
+    builders:
+      # auto_apply: none -> só roda porque o alvo liga. generate_for do alvo
+      # (include + exclude) substitui o dos defaults.
+      corpus_cadeia_configuracao:espelho:
+        enabled: true
+        generate_for:
+          include:
+            - lib/entrada/**
+          exclude:
+            - lib/entrada/ignorar_*.txt
+        options:
+          origem: alvo
+      corpus_cadeia_configuracao:indice:
+        enabled: true
+      # auto_apply: root_package, desligado aqui.
+      corpus_cadeia_configuracao:desligado:
+        enabled: false
+      # Opções do alvo por cima dos defaults; dev_options do alvo por cima delas.
+      corpus_cadeia_configuracao:maiusculas:
+        options:
+          origem: alvo
+          alvo: sim
+        dev_options:
+          modo: dev_alvo
+        release_options:
+          modo: release_alvo
+      apoio_cadeia:carimbo:
+        options:
+          origem: alvo
+      corpus_cadeia_configuracao:limpeza:
+        options:
+          alvo: sim
+
+builders:
+  maiusculas:
+    import: 'tool/builders.dart'
+    builder_factories: ['maiusculas']
+    build_extensions: {'.txt': ['.maiusculas.txt']}
+    auto_apply: root_package
+    build_to: cache
+    applies_builders: [':limpeza']
+    defaults:
+      generate_for:
+        include:
+          - lib/**
+        exclude:
+          - lib/rascunho/**
+      options:
+        nivel: 1
+        origem: defaults
+        modo: defaults
+      dev_options:
+        modo: dev_defaults
+        so_dev: sim
+      release_options:
+        modo: release_defaults
+
+  contagem:
+    import: 'tool/builders.dart'
+    builder_factories: ['contarLinhas', 'contarPalavras']
+    build_extensions: {'.maiusculas.txt': ['.linhas.txt', '.palavras.txt']}
+    auto_apply: all_packages
+    build_to: cache
+    required_inputs: ['.maiusculas.txt']
+
+  espelho:
+    import: 'tool/builders.dart'
+    builder_factories: ['espelho']
+    build_extensions: {'lib/entrada/{{}}.txt': ['lib/espelho/{{}}.espelho.txt']}
+    auto_apply: none
+    build_to: source
+    # Sem isto o maiusculas poderia rodar antes e não ver os espelhos.
+    runs_before: [':maiusculas']
+    defaults:
+      generate_for: ['lib/**']
+      options:
+        origem: defaults
+        so_defaults: sim
+
+  indice:
+    import: 'tool/builders.dart'
+    builder_factories: ['indice']
+    build_extensions: {'^lib/entrada/indice.lista': ['lib/indice.g.txt']}
+    auto_apply: none
+    build_to: source
+    required_inputs: ['.espelho.txt']
+
+  desligado:
+    import: 'tool/builders.dart'
+    builder_factories: ['desligado']
+    build_extensions: {'.dart': ['.desligado.txt']}
+    auto_apply: root_package
+    build_to: cache
+
+  ignorado:
+    import: 'tool/builders.dart'
+    builder_factories: ['ignorado']
+    build_extensions: {'.dart': ['.ignorado.txt']}
+    auto_apply: dependents
+    build_to: cache
+
+post_process_builders:
+  limpeza:
+    import: 'tool/builders.dart'
+    builder_factory: 'limpeza'
+    input_extensions: ['.rascunho']
+    defaults:
+      options:
+        apagar: false
+      release_options:
+        apagar: true
+
+global_options:
+  corpus_cadeia_configuracao:maiusculas:
+    options:
+      global: sim
+      nivel: 3
+    dev_options:
+      so_dev: global
+  # O carimbo (do pacote apoio_cadeia) passa a rodar antes do índice, que por
+  # isso enxerga os `.carimbo.txt`.
+  apoio_cadeia:carimbo:
+    runs_before:
+      - corpus_cadeia_configuracao:indice
+    options:
+      global: sim
