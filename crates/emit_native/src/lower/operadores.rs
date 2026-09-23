@@ -195,8 +195,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.igualdade_do_runtime(a, b)
     }
 
-    /// `==` do runtime (identidade, caixas por valor, strings por conteúdo).
+    /// `==` do runtime (identidade, caixas por valor, strings por conteúdo),
+    /// passando antes pela igualdade estrutural dos records com forma
+    /// quando o programa tem algum (`registros.rs`).
     fn igualdade_do_runtime(&mut self, a: Operand, b: Operand) -> Operand {
+        if !self.ctx.formas_de_record.is_empty() {
+            return self.emit_call_with_check(
+                Instruction::CallStatic {
+                    symbol: super::registros::SIMBOLO_IGUAL.to_string(),
+                    args: vec![a, b],
+                    ret_ty: Type::I1,
+                },
+                Type::I1,
+            );
+        }
         let r = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_equal".to_string(),

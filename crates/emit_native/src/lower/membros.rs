@@ -20,23 +20,44 @@ use dartforge_types::table::TypeId;
 /// Argumento já avaliado: nome (se nomeado) e valor.
 pub type Avaliado = (Option<SymbolId>, Operand);
 
-/// Campos **de instância** de toda a cadeia de superclasses do usuário, da
-/// raiz para a folha (R7).
-///
-/// `ClassElement::fields` mistura campos de instância e estáticos; o layout
-/// só tem os de instância. Superclasses do SDK não contribuem campos: o
-/// runtime não tem os objetos do SDK no nosso layout.
-pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
-    let mut cadeia = Vec::new();
+/// A classe é um `mixin` (não instanciável; os membros entram nas classes
+/// que o aplicam).
+pub fn e_mixin(ctx: &Context, cid: ClassId) -> bool {
+    ctx.program.classes[cid.0 as usize].kind == dartforge_elements::model::ClassKind::Mixin
+}
+
+/// A linearização de uma classe do programa (P4, especificação §12.3 "Mixin
+/// Application"): `class C extends B with M1, M2` é `C`, `M2`, `M1` e depois
+/// a linearização de `B` — a ordem em que um membro é procurado. Para no
+/// SDK. O elemento não sintetiza a classe `B&M1`: a aplicação é lida aqui.
+pub fn linearizacao(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
+    let mut saida = Vec::new();
     let mut atual = Some(cid);
     while let Some(c) = atual {
         let classe = &ctx.program.classes[c.0 as usize];
-        if ctx.program.library(classe.library).is_sdk {
+        if ctx.program.library(classe.library).is_sdk || saida.contains(&c) {
             break;
         }
-        cadeia.push(c);
+        saida.push(c);
+        for m in classe.mixin_classes.iter().rev() {
+            if !ctx.program.library(ctx.program.classes[m.0 as usize].library).is_sdk && !saida.contains(m) {
+                saida.push(*m);
+            }
+        }
         atual = classe.supertype_class;
     }
+    saida
+}
+
+/// Campos **de instância** de toda a linearização (superclasses e mixins)
+/// do usuário, da raiz para a folha (R7).
+///
+/// `ClassElement::fields` mistura campos de instância e estáticos; o layout
+/// só tem os de instância. Superclasses do SDK não contribuem campos: o
+/// runtime não tem os objetos do SDK no nosso layout. Os campos de um mixin
+/// ficam entre os da superclasse e os da classe que o aplica.
+pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
+    let cadeia = linearizacao(ctx, cid);
     let mut campos = Vec::new();
     for c in cadeia.into_iter().rev() {
         for &vid in &ctx.program.classes[c.0 as usize].fields {
@@ -107,8 +128,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// qualquer receptor cuja classe estática seja subtipo da declarante.
     pub fn indice_campo(&self, vid: VariableId) -> Option<usize> {
         let dono = self.ctx.program.variables[vid.0 as usize].class?;
+        if e_mixin(self.ctx, dono) {
+            // O índice de um campo de mixin depende da classe que o aplica
+            // (`campo_de_mixin`).
+            return None;
+        }
         let base = super::enums::base_do_layout(self.ctx, dono);
         layout(self.ctx, dono).iter().position(|&v| v == vid).map(|i| i + base)
+    }
+
+    /// Representação de um campo no objeto: a do tipo (R1), exceto o campo
+    /// `late` escalar com inicializador, que mora em caixa (`Ref`) — o null
+    /// é o "ainda não inicializado" (P4; a VM usa o sentinela `_sentinel`).
+    pub fn repr_do_campo(&self, vid: VariableId) -> Type {
+        let repr = self.repr(tipo_da_variavel(self.ctx, vid));
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if var.late && repr != Type::Ref && self.variable_initializer_em(vid).is_some() {
+            return Type::Ref;
+        }
+        repr
     }
 
     /// Converte os bits `i64` lidos do heap para a representação `repr`.
@@ -164,12 +202,78 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// O índice de um campo de mixin em cada classe concreta que o aplica.
+    fn indices_de_campo_de_mixin(&self, vid: VariableId) -> Vec<(i64, usize)> {
+        let mut saida = Vec::new();
+        for (k, classe) in self.ctx.program.classes.iter().enumerate() {
+            let kid = ClassId(k as u32);
+            if self.ctx.program.library(classe.library).is_sdk || e_mixin(self.ctx, kid) {
+                continue;
+            }
+            let base = super::enums::base_do_layout(self.ctx, kid);
+            if let (Some(id), Some(i)) = (
+                self.ctx.id_de_classe(kid),
+                layout(self.ctx, kid).iter().position(|&v| v == vid),
+            ) {
+                saida.push((id.into(), i + base));
+            }
+        }
+        saida
+    }
+
+    /// Índice de um campo de mixin pela classe dinâmica do objeto (o código
+    /// do mixin é compilado uma vez; a posição do campo é a da aplicação).
+    fn indice_dinamico(&mut self, obj: Operand, vid: VariableId, span: Span) -> Option<Operand> {
+        let dono = self.ctx.program.variables[vid.0 as usize].class?;
+        if !e_mixin(self.ctx, dono) {
+            return None;
+        }
+        let casos = self.indices_de_campo_de_mixin(vid);
+        if casos.is_empty() {
+            self.nao_suportado("campo de mixin sem classe que o aplique", span);
+            return Some(Operand::Constant(Constant::Int(0)));
+        }
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(obj, Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let juncao = self.new_block();
+        let blocos: Vec<(i64, usize, BlockId)> = casos.iter().map(|&(c, i)| (c, i, self.new_block())).collect();
+        self.terminate(Terminator::Switch {
+            val: cls,
+            default: blocos[0].2,
+            cases: blocos.iter().map(|&(c, _, b)| (c, b)).collect(),
+        });
+        let mut entradas = Vec::new();
+        for &(_, i, b) in &blocos {
+            self.set_block(b);
+            entradas.push((b, Operand::Constant(Constant::Int(i as i64))));
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        Some(self.emit(
+            Instruction::Phi {
+                incoming: entradas,
+                ty: Type::I64,
+            },
+            Type::I64,
+        ))
+    }
+
     /// Lê um campo de instância na representação do seu tipo declarado.
     pub fn ler_campo(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
-        let Some(idx) = self.indice_campo(vid) else {
-            return self.nao_suportado("campo fora do layout do objeto", span);
+        let idx = match self.indice_campo(vid) {
+            Some(i) => Operand::Constant(Constant::Int(i as i64)),
+            None => match self.indice_dinamico(obj.clone(), vid, span) {
+                Some(i) => i,
+                None => return self.nao_suportado("campo fora do layout do objeto", span),
+            },
         };
-        let repr = self.repr(tipo_da_variavel(self.ctx, vid));
+        let repr = self.repr_do_campo(vid);
         let ret = if repr == Type::Ref {
             Type::Ref
         } else {
@@ -178,10 +282,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let bits = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
-                args: vec![
-                    (obj, Type::Ref),
-                    (Operand::Constant(Constant::Int(idx as i64)), Type::I64),
-                ],
+                args: vec![(obj, Type::Ref), (idx, Type::I64)],
                 ret_ty: ret,
             },
             ret,
@@ -191,11 +292,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Grava um campo de instância; `is_ref` pela representação (E1).
     pub fn gravar_campo(&mut self, obj: Operand, vid: VariableId, val: Operand, span: Span) {
-        let Some(idx) = self.indice_campo(vid) else {
-            self.nao_suportado("campo fora do layout do objeto", span);
-            return;
+        let idx = match self.indice_campo(vid) {
+            Some(i) => Operand::Constant(Constant::Int(i as i64)),
+            None => match self.indice_dinamico(obj.clone(), vid, span) {
+                Some(i) => i,
+                None => {
+                    self.nao_suportado("campo fora do layout do objeto", span);
+                    return;
+                }
+            },
         };
-        let repr = self.repr(tipo_da_variavel(self.ctx, vid));
+        let repr = self.repr_do_campo(vid);
         let val = self.coagir(val, repr);
         let (bits, is_ref) = self.para_bits(val);
         self.emit(
@@ -203,7 +310,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: "dartforge_object_set".to_string(),
                 args: vec![
                     (obj, Type::Ref),
-                    (Operand::Constant(Constant::Int(idx as i64)), Type::I64),
+                    (idx, Type::I64),
                     (bits, Type::I64),
                     (
                         Operand::Constant(Constant::Int(i64::from(is_ref))),
@@ -261,8 +368,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return (!self.ctx.program.library(classe.library).is_sdk).then_some((*class, *member));
         }
         let cid = self.classe_do_usuario_de(recv)?;
-        let mut atual = Some(cid);
-        while let Some(c) = atual {
+        for c in crate::lower::membros::linearizacao(self.ctx, cid) {
             let classe = &self.ctx.program.classes[c.0 as usize];
             if self.ctx.program.library(classe.library).is_sdk {
                 return None;
@@ -287,7 +393,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }) {
                 return Some((c, MemberRef::Variable(v)));
             }
-            atual = classe.supertype_class;
         }
         None
     }
@@ -366,13 +471,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Membro de instância por nome, subindo a cadeia de superclasses.
     pub fn membro_na_classe(&self, cid: ClassId, nome: &str) -> Option<usize> {
         let sym = self.ctx.interner.lookup(nome)?;
-        let mut atual = Some(cid);
-        while let Some(c) = atual {
+        for c in crate::lower::membros::linearizacao(self.ctx, cid) {
             let classe = &self.ctx.program.classes[c.0 as usize];
             if let Some(&f) = classe.instance_members.get(&sym) {
                 return Some(f.0 as usize);
             }
-            atual = classe.supertype_class;
         }
         None
     }
@@ -528,7 +631,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(init) = self.variable_initializer_em(vid) else {
             return atual;
         };
-        let repr = self.repr(tipo_da_variavel(self.ctx, vid));
+        let repr = self.repr_do_campo(vid);
         if repr != Type::Ref {
             // Sem valor sentinela para "não inicializado" num escalar.
             return self.nao_suportado("campo late escalar com inicializador", span);
@@ -786,11 +889,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if ctx.program.library(classe.library).is_sdk || !subclasse_de(ctx, kid, cdecl) {
                 continue;
             }
-            if classe.modifiers.abstract_ && kid != cdecl {
+            if (classe.modifiers.abstract_ && kid != cdecl) || e_mixin(ctx, kid) {
                 continue;
             }
-            let mut atual = Some(kid);
-            while let Some(c) = atual {
+            for c in crate::lower::membros::linearizacao(self.ctx, kid) {
                 let cl = &ctx.program.classes[c.0 as usize];
                 if let Some(&f) = cl.instance_members.get(&nome) {
                     let f = f.0 as usize;
@@ -801,7 +903,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         break;
                     }
                 }
-                atual = cl.supertype_class;
             }
         }
         saida
@@ -929,9 +1030,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .to_string();
             return self.nao_suportado(&format!("construtor de classe do SDK ({nome})"), span);
         }
-        let factory = f.factory;
         let avaliados = self.avaliar_args(ast, args);
-        let args = self.casar_args(fid, &avaliados);
+        self.instanciar_avaliados(ctor_fid, &avaliados, span)
+    }
+
+    /// `C(args)` com os argumentos já avaliados.
+    pub fn instanciar_avaliados(&mut self, ctor_fid: FunctionElementId, avaliados: &[Avaliado], span: Span) -> Operand {
+        let fid = ctor_fid.0 as usize;
+        let f = &self.ctx.program.functions[fid];
+        let Some(cid) = f.class else {
+            return self.nao_suportado("construtor sem classe", span);
+        };
+        if !super::funcao_do_usuario(self.ctx, fid) {
+            let nome = self
+                .ctx
+                .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
+                .to_string();
+            return self.nao_suportado(&format!("construtor de classe do SDK ({nome})"), span);
+        }
+        let factory = f.factory;
+        let args = self.casar_args(fid, avaliados);
         if factory {
             return self.chamar_direto(fid, None, args);
         }
@@ -983,6 +1101,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         avaliados: Vec<Avaliado>,
         span: Span,
     ) {
+        // Os mixins aplicados rodam os inicializadores dos seus campos antes
+        // do construtor da superclasse, do último para o primeiro (cada
+        // aplicação `S with M` é uma classe cujo construtor inicializa `M`
+        // e chama o de `S`).
+        let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize].mixin_classes.clone();
+        for m in mixins.into_iter().rev() {
+            if !self.ctx.program.library(self.ctx.program.classes[m.0 as usize].library).is_sdk {
+                self.inicializar_campos(m);
+            }
+        }
         let Some(sup) = self.ctx.program.classes[cid.0 as usize].supertype_class else {
             return;
         };
@@ -1266,5 +1394,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Void,
         );
         val
+    }
+
+    /// O construtor `nome` (ou o sem nome) da classe do programa nomeada por
+    /// um tipo anotado.
+    pub fn construtor_do_tipo(
+        &self,
+        ty: &dartforge_frontend::ast::TypeAnnotation,
+        nome: Option<dartforge_intern::SymbolId>,
+    ) -> Option<FunctionElementId> {
+        let dartforge_frontend::ast::TypeKind::Named { name, .. } = &ty.kind else {
+            return None;
+        };
+        let ultimo = name.last()?;
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let Some(Element::Class(c)) = self.ctx.program.lookup(lib, ultimo.sym)?.getter else {
+            return None;
+        };
+        let chave = nome.or_else(|| self.ctx.interner.lookup(""))?;
+        self.ctx.program.classes[c.0 as usize].constructors.get(&chave).copied()
     }
 }

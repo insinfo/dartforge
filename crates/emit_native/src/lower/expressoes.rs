@@ -704,51 +704,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone() {
                     return self.ler_extensao(target_op, member.0 as usize, span);
                 }
-                // `r.$1`: campo posicional de um record.
-                if let Some(n) = prop_name.strip_prefix('$').and_then(|d| d.parse::<i64>().ok())
-                    && n >= 1
-                {
-                    let r = self.coagir(target_op, Type::Ref);
-                    return self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_record_get_ref".to_string(),
-                            args: vec![(r, Type::Ref), (Operand::Constant(Constant::Int(n - 1)), Type::I64)],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
-                }
-                // `index`/`name` de um valor de enum do programa.
-                if let Some(c) = self.classe_do_usuario_de(*target)
-                    && let Some(op) = self.membro_de_enum(c, prop_name, target_op.clone())
-                {
-                    return op;
-                }
-                // Receptor sem tipo útil: o membro pela classe dinâmica.
-                if self.receptor_dinamico(*target) {
-                    let alvos = self.alvos_por_nome(prop_name);
-                    if !alvos.is_empty() {
-                        let nome = prop_name.to_string();
-                        let r2 = target_op.clone();
-                        return self.despachar(
-                            target_op,
-                            &alvos,
-                            super::despacho::Uso::Ler,
-                            &mut |_s: &mut Self| Vec::new(),
-                            &mut |s: &mut Self| {
-                                let n = s.erros.len();
-                                let r = s.propriedade_sdk_por_nome(r2.clone(), &nome, expr_id, span);
-                                if s.erros.len() > n {
-                                    s.erros.truncate(n);
-                                    return s.lancar_nsm(&nome);
-                                }
-                                r
-                            },
-                            span,
-                        );
+                // `r.$1`/`r.nome`: campo de um record (posicional do
+                // runtime, ou de uma forma com campo nomeado).
+                let posicional = prop_name
+                    .strip_prefix('$')
+                    .and_then(|d| d.parse::<i64>().ok())
+                    .is_some_and(|k| k >= 1);
+                if posicional || !self.formas_com_campo(prop_name).is_empty() {
+                    let nome = prop_name.to_string();
+                    let alvo = *target;
+                    let t2 = target_op.clone();
+                    let mut resto = |s: &mut Self| s.propriedade_sem_membro(t2.clone(), alvo, &nome, expr_id, span);
+                    if let Some(op) = self.ler_campo_de_registro(target_op.clone(), prop_name, &mut resto) {
+                        return op;
                     }
                 }
-                self.propriedade_sdk_por_nome(target_op, prop_name, expr_id, span)
+                self.propriedade_sem_membro(target_op, *target, prop_name, expr_id, span)
             }
             ExprKind::Index {
                 target,
@@ -808,8 +779,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.ler_elemento_lista(target_op, idx_op, repr)
                 }
             }
-            ExprKind::Record { named, .. } if !named.is_empty() => {
-                self.nao_suportado("record com campo nomeado", expr.span)
+            ExprKind::Record { positional, named, .. } if !named.is_empty() => {
+                self.lower_registro_nomeado(ast, positional, named, expr.span)
             }
             ExprKind::Record { positional, .. } => {
                 let mut ops = Vec::new();
@@ -930,5 +901,49 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.nao_suportado(oque, expr.span)
             }
         }
+    }
+
+    /// `alvo.nome` quando o nome não é membro estático do tipo do alvo:
+    /// `index`/`name` de enum, o membro pela classe dinâmica (receptor sem
+    /// tipo útil) ou o membro do SDK casado pelo nome.
+    pub fn propriedade_sem_membro(
+        &mut self,
+        target_op: Operand,
+        target: ExprId,
+        prop_name: &str,
+        expr_id: ExprId,
+        span: dartforge_diagnostics::Span,
+    ) -> Operand {
+        // `index`/`name` de um valor de enum do programa.
+        if let Some(c) = self.classe_do_usuario_de(target)
+            && let Some(op) = self.membro_de_enum(c, prop_name, target_op.clone())
+        {
+            return op;
+        }
+        // Receptor sem tipo útil: o membro pela classe dinâmica.
+        if self.receptor_dinamico(target) {
+            let alvos = self.alvos_por_nome(prop_name);
+            if !alvos.is_empty() {
+                let nome = prop_name.to_string();
+                let r2 = target_op.clone();
+                return self.despachar(
+                    target_op,
+                    &alvos,
+                    super::despacho::Uso::Ler,
+                    &mut |_s: &mut Self| Vec::new(),
+                    &mut |s: &mut Self| {
+                        let n = s.erros.len();
+                        let r = s.propriedade_sdk_por_nome(r2.clone(), &nome, expr_id, span);
+                        if s.erros.len() > n {
+                            s.erros.truncate(n);
+                            return s.lancar_nsm(&nome);
+                        }
+                        r
+                    },
+                    span,
+                );
+            }
+        }
+        self.propriedade_sdk_por_nome(target_op, prop_name, expr_id, span)
     }
 }

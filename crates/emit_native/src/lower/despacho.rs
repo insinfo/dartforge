@@ -78,7 +78,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
-            if self.ctx.program.library(classe.library).is_sdk || classe.modifiers.abstract_ {
+            if self.ctx.program.library(classe.library).is_sdk
+                || classe.modifiers.abstract_
+                || super::membros::e_mixin(self.ctx, ClassId(k as u32))
+            {
                 continue;
             }
             let Some(id) = self.id_de_classe(ClassId(k as u32)) else {
@@ -88,8 +91,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 saida.push((id, Alvo::Slot(usize::from(nome == "name"))));
                 continue;
             }
-            let mut atual = Some(ClassId(k as u32));
-            while let Some(c) = atual {
+            for c in crate::lower::membros::linearizacao(self.ctx, ClassId(k as u32)) {
                 let cl = &self.ctx.program.classes[c.0 as usize];
                 if self.ctx.program.library(cl.library).is_sdk {
                     break;
@@ -113,7 +115,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     saida.push((id, Alvo::Campo(v)));
                     break;
                 }
-                atual = cl.supertype_class;
             }
         }
         saida
@@ -250,14 +251,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let setter = self.ctx.interner.lookup(&format!("{nome}="));
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
-            if self.ctx.program.library(classe.library).is_sdk || classe.modifiers.abstract_ {
+            if self.ctx.program.library(classe.library).is_sdk
+                || classe.modifiers.abstract_
+                || super::membros::e_mixin(self.ctx, ClassId(k as u32))
+            {
                 continue;
             }
             let Some(id) = self.id_de_classe(ClassId(k as u32)) else {
                 continue;
             };
-            let mut atual = Some(ClassId(k as u32));
-            while let Some(c) = atual {
+            for c in crate::lower::membros::linearizacao(self.ctx, ClassId(k as u32)) {
                 let cl = &self.ctx.program.classes[c.0 as usize];
                 if self.ctx.program.library(cl.library).is_sdk {
                     break;
@@ -280,7 +283,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     saida.push((id, Alvo::Campo(v)));
                     break;
                 }
-                atual = cl.supertype_class;
             }
         }
         saida

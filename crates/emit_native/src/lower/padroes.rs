@@ -115,8 +115,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if let Some(op) = self.membro_de_enum(c, &texto, valor.clone()) {
                 return op;
             }
-            let mut atual = Some(c);
-            while let Some(k) = atual {
+            for k in crate::lower::membros::linearizacao(self.ctx, c) {
                 let cl = &self.ctx.program.classes[k.0 as usize];
                 if self.ctx.program.library(cl.library).is_sdk {
                     break;
@@ -137,7 +136,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }) {
                     return self.ler_campo_com_late(valor, v, span);
                 }
-                atual = cl.supertype_class;
             }
         }
         let alvos = self.alvos_por_nome(&texto);
@@ -396,11 +394,59 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.casar(ast, en.value, x, falha, ligacao, ligados, origem);
                 }
             }
-            PatternKind::Record { fields } => {
-                if fields.iter().any(|f| f.name.is_some() || self.nome_implicito(ast, f).is_some()) {
-                    self.nao_suportado("padrão de record com campo nomeado", span);
-                    return;
+            PatternKind::Record { fields } if fields.iter().any(|f| f.name.is_some() || self.nome_implicito(ast, f).is_some()) => {
+                // Forma com campo nomeado (`registros.rs`): a classe do
+                // valor tem de ser a da forma do padrão.
+                let mut npos = 0usize;
+                let mut nomes = Vec::new();
+                let mut campos = Vec::new();
+                for f in fields.iter() {
+                    match f.name.map(|n| n.sym).or_else(|| self.nome_implicito(ast, f)) {
+                        Some(s) => {
+                            let n = self.ctx.symbol_name(s).to_string();
+                            nomes.push(n.clone());
+                            campos.push((Some(n), f.pattern));
+                        }
+                        None => {
+                            npos += 1;
+                            campos.push((None, f.pattern));
+                        }
+                    }
                 }
+                let mut ordenados = nomes.clone();
+                ordenados.sort();
+                let Some(id) = self.ctx.id_da_forma(npos, &ordenados) else {
+                    self.nao_suportado("padrão de record com forma desconhecida", span);
+                    return;
+                };
+                let v = self.coagir(valor, Type::Ref);
+                let cls = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_value_class".to_string(),
+                        args: vec![(v.clone(), Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                );
+                let ok = self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(i64::from(id)))),
+                    Type::I1,
+                );
+                self.exigir(ok, falha);
+                let mut k_pos = 0usize;
+                for (nome, sp) in campos {
+                    let idx = match nome {
+                        None => {
+                            k_pos += 1;
+                            k_pos - 1
+                        }
+                        Some(n) => npos + ordenados.iter().position(|x| *x == n).expect("nome"),
+                    };
+                    let x = self.campo_de_forma(v.clone(), idx);
+                    self.casar(ast, sp, x, falha, ligacao, ligados, origem);
+                }
+            }
+            PatternKind::Record { fields } => {
                 let v = self.coagir(valor, Type::Ref);
                 let cls = self.emit(
                     Instruction::CallRuntime {

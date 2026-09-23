@@ -19,6 +19,8 @@ pub enum MembroSuper {
     Campo(VariableId),
     /// A busca chegou ao SDK.
     Sdk,
+    /// `super` dentro de um `mixin`: o alvo depende da aplicação.
+    DeMixin,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -34,12 +36,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             Some(nome)
         };
-        let mut atual = self.ctx.program.classes[cid.0 as usize].supertype_class;
-        while let Some(c) = atual {
+        // A superclasse de `C` na linearização é o que vem depois dele (os
+        // mixins aplicados e depois a superclasse); num `mixin` o `super`
+        // depende da classe que o aplica (`MembroSuper::DeMixin`).
+        if super::membros::e_mixin(self.ctx, cid) {
+            return MembroSuper::DeMixin;
+        }
+        let lin = super::membros::linearizacao(self.ctx, cid);
+        for &c in lin.iter().skip(1) {
             let cl = &self.ctx.program.classes[c.0 as usize];
-            if self.ctx.program.library(cl.library).is_sdk {
-                return MembroSuper::Sdk;
-            }
             if let Some(&f) = chave.and_then(|k| cl.instance_members.get(&k)) {
                 let f = f.0 as usize;
                 if let Some(v) = self.ctx.program.functions[f].variable {
@@ -55,7 +60,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }) {
                 return MembroSuper::Campo(v);
             }
-            atual = cl.supertype_class;
         }
         MembroSuper::Sdk
     }
@@ -86,6 +90,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let x = self.ler_campo_com_late(this, v, span);
                 self.chamar_valor_funcao(x, avaliados)
             }
+            MembroSuper::DeMixin => self.nao_suportado("`super` dentro de mixin", span),
             MembroSuper::Sdk => match self.ctx.symbol_name(nome) {
                 "toString" => self.emit(
                     Instruction::CallRuntime {
@@ -119,6 +124,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             MembroSuper::Campo(v) => self.ler_campo_com_late(this, v, span),
+            MembroSuper::DeMixin => self.nao_suportado("`super` dentro de mixin", span),
             MembroSuper::Sdk => {
                 let n = self.ctx.symbol_name(nome).to_string();
                 self.nao_suportado(&format!("`super.{n}` do SDK"), span)
@@ -141,6 +147,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.gravar_campo(this, v, valor.clone(), span);
                 valor
             }
+            MembroSuper::DeMixin => self.nao_suportado("`super` dentro de mixin", span),
             MembroSuper::Sdk => {
                 let n = self.ctx.symbol_name(nome).to_string();
                 self.nao_suportado(&format!("`super.{n} =` do SDK"), span)

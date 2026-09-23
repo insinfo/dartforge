@@ -566,8 +566,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// resolução que a inferência teria gravado, para os caminhos de sempre.
     pub fn resolver_por_nome(&self, sym: SymbolId) -> Option<dartforge_types::resolved::Resolved> {
         use dartforge_types::resolved::{MemberRef, Resolved};
-        let mut atual = self.enclosing_class;
-        while let Some(c) = atual {
+        for c in self.enclosing_class.map(|c| crate::lower::membros::linearizacao(self.ctx, c)).unwrap_or_default() {
             let classe = &self.ctx.program.classes[c.0 as usize];
             if self.ctx.program.library(classe.library).is_sdk {
                 break;
@@ -590,7 +589,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     via_super: false,
                 });
             }
-            atual = classe.supertype_class;
         }
         let lib = self.ctx.program.unit(self.unit_id).library;
         let b = self.ctx.program.lookup(lib, sym)?;

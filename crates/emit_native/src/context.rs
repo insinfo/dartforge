@@ -20,10 +20,33 @@ pub struct Context<'a> {
     /// pulando a faixa 1000–1012 das classes de erro do runtime. `None` para
     /// as classes do SDK.
     pub ids_de_classe: Vec<Option<u32>>,
+    /// As formas de record com campo nomeado do programa (P3): número de
+    /// posicionais e os nomes, ordenados — cada uma é uma "classe" de record
+    /// com id `ID_BASE_DE_FORMA + índice`.
+    pub formas_de_record: Vec<(usize, Vec<String>)>,
     /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
     /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
     raiz: Option<std::path::PathBuf>,
 }
+
+/// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
+pub fn nome_de_variavel_do_padrao(
+    ast: &dartforge_frontend::ast::Ast,
+    mut p: dartforge_frontend::ast::PatternId,
+) -> Option<SymbolId> {
+    use dartforge_frontend::ast::PatternKind;
+    loop {
+        match &ast.pattern(p).kind {
+            PatternKind::Variable { name, .. } => return Some(name.sym),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => p = *x,
+            _ => return None,
+        }
+    }
+}
+
+/// Primeiro id de classe das formas de record com campo nomeado (bem acima
+/// dos ids das classes do programa).
+pub const ID_BASE_DE_FORMA: u32 = 0x4000_0000;
 
 /// Escapa uma parte de um símbolo estável: letras, dígitos e `_` ficam; o
 /// resto vira `$` e dois dígitos hexadecimais por byte UTF-8. O `.` separa as
@@ -62,8 +85,63 @@ impl<'a> Context<'a> {
             bodies,
             entry_lib: program.entry,
             ids_de_classe: Vec::new(),
+            formas_de_record: Vec::new(),
             raiz,
         };
+        // Formas de record com campo nomeado: literais, padrões e tipos de
+        // todas as unidades do programa (o conjunto inteiro, antes do
+        // lowering — um acesso `r.x` sem tipo testa todas as que têm `x`).
+        let mut formas = std::collections::BTreeSet::new();
+        for u in &program.units {
+            if program.library(u.library).is_sdk {
+                continue;
+            }
+            for e in &u.ast.exprs {
+                if let dartforge_frontend::ast::ExprKind::Record { positional, named, .. } = &e.kind
+                    && !named.is_empty()
+                {
+                    let mut n: Vec<String> = named.iter().map(|(k, _)| interner.resolve(k.sym).to_string()).collect();
+                    n.sort();
+                    formas.insert((positional.len(), n));
+                }
+            }
+            for p in &u.ast.patterns {
+                if let dartforge_frontend::ast::PatternKind::Record { fields } = &p.kind {
+                    let mut npos = 0;
+                    let mut n = Vec::new();
+                    for f in fields.iter() {
+                        match f.name {
+                            Some(k) => n.push(interner.resolve(k.sym).to_string()),
+                            None => {
+                                // `:x` — o nome é o da variável dentro do campo.
+                                let texto = &u.source[f.span.start as usize..f.span.end as usize];
+                                if texto.trim_start().starts_with(':')
+                                    && let Some(s) = nome_de_variavel_do_padrao(&u.ast, f.pattern)
+                                {
+                                    n.push(interner.resolve(s).to_string());
+                                } else {
+                                    npos += 1;
+                                }
+                            }
+                        }
+                    }
+                    if !n.is_empty() {
+                        n.sort();
+                        formas.insert((npos, n));
+                    }
+                }
+            }
+            for t in &u.ast.types {
+                if let dartforge_frontend::ast::TypeKind::Record { positional, named } = &t.kind
+                    && !named.is_empty()
+                {
+                    let mut n: Vec<String> = named.iter().map(|(k, _)| interner.resolve(k.sym).to_string()).collect();
+                    n.sort();
+                    formas.insert((positional.len(), n));
+                }
+            }
+        }
+        ctx.formas_de_record = formas.into_iter().collect();
         let mut chaves: Vec<(String, String, usize)> = program
             .classes
             .iter()
@@ -104,6 +182,14 @@ impl<'a> Context<'a> {
             return rel.to_string_lossy().replace('\\', "/");
         }
         l.uri.clone()
+    }
+
+    /// Id de classe da forma de record `(npos, nomes)`, se o programa a tem.
+    pub fn id_da_forma(&self, npos: usize, nomes: &[String]) -> Option<u32> {
+        self.formas_de_record
+            .iter()
+            .position(|(p, n)| *p == npos && n.as_slice() == nomes)
+            .map(|i| ID_BASE_DE_FORMA + i as u32)
     }
 
     /// Id de classe do runtime de uma classe do programa.

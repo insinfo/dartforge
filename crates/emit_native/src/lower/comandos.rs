@@ -457,10 +457,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_try_stmt(ast, *body, catches, *finally_);
             }
             StmtKind::Labeled { labels, body } => {
-                for l in labels.iter() {
-                    self.pending_labels.push(l.sym);
+                let laco = matches!(
+                    ast.stmt(*body).kind,
+                    StmtKind::While { .. }
+                        | StmtKind::DoWhile { .. }
+                        | StmtKind::For { .. }
+                        | StmtKind::ForIn { .. }
+                        | StmtKind::Switch { .. }
+                        | StmtKind::Labeled { .. }
+                );
+                if laco {
+                    for l in labels.iter() {
+                        self.pending_labels.push(l.sym);
+                    }
+                    self.lower_stmt(ast, *body);
+                } else {
+                    // `rótulo: { … break rótulo; … }`: o `break` sai do
+                    // comando rotulado (§18.13 "Labels").
+                    let saida = self.new_block();
+                    for l in labels.iter() {
+                        self.labeled_break_targets.insert(l.sym, saida);
+                    }
+                    self.lower_stmt(ast, *body);
+                    self.terminate(Terminator::Branch(saida));
+                    for l in labels.iter() {
+                        self.labeled_break_targets.remove(&l.sym);
+                    }
+                    self.set_block(saida);
                 }
-                self.lower_stmt(ast, *body);
             }
             StmtKind::Empty => {}
             StmtKind::PatternVariables { pattern, value, .. } => {
@@ -718,6 +742,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret_ty,
             ));
 
+            // A exceção que entrou no `finally` (razão 2) fica guardada e sai
+            // da pendência enquanto o corpo do `finally` roda: senão a
+            // primeira chamada dele vê a exceção pendente e desvia, e o
+            // `finally` não roda (é a semântica da VM: o corpo do `finally`
+            // executa normalmente e a exceção volta ao fim, a menos que ele
+            // saia por `return`/`break`/`continue`/`throw`, que a descartam).
+            let guardada = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_peek_ref".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_clear".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+
             self.lower_stmt(ast, fin_stmt);
 
             if !self.is_terminated() {
@@ -742,6 +789,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.route_return(ret_op);
 
                 self.set_block(b_exc);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_throw".to_string(),
+                        args: vec![
+                            (guardada, Type::I64),
+                            (Operand::Constant(Constant::Int(3)), Type::I8),
+                        ],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
                 // A exceção sobe para o tratador mais interno: o alvo de
                 // exceção corrente (um `catch` de fora, ou o pouso do
                 // `finally` de fora, que registra a entrada do phi) vem antes

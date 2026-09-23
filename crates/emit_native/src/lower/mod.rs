@@ -19,6 +19,7 @@ pub mod locais;
 pub mod membros;
 pub mod operadores;
 pub mod padroes;
+pub mod registros;
 pub mod sdk_por_nome;
 pub mod verificador;
 
@@ -366,10 +367,31 @@ pub fn lower_program(ctx: &Context) -> Module {
                         },
                     );
                     builder.declarar_parametros(f_idx, false);
-                    if ctor.redirect.is_some() {
+                    if let Some(r) = &ctor.redirect {
+                        // `factory C(…) = D.nome;` (P4): os parâmetros passam
+                        // como estão (posicionais em ordem, nomeados pelo
+                        // nome) para o construtor alvo.
                         let span = ast.member(member).span;
-                        builder.nao_suportado("factory redirecionadora", span);
-                        builder.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+                        let alvo = builder.construtor_do_tipo(ast.ty(r.ty), r.constructor.map(|n| n.sym));
+                        match alvo {
+                            Some(t) => {
+                                let mut avaliados = Vec::new();
+                                for (i, p) in ctx.outline.functions[f_idx].parameters.iter().enumerate() {
+                                    let Some(sym) = p.name else { continue };
+                                    let v = builder.ler_local_por_nome(sym).unwrap_or(Operand::Constant(Constant::Null));
+                                    let nome = (ctor.parameters.get(i).map(|q| q.kind)
+                                        == Some(dartforge_frontend::ast::ParameterKind::Named))
+                                    .then_some(sym);
+                                    avaliados.push((nome, v));
+                                }
+                                let r = builder.instanciar_avaliados(t, &avaliados, span);
+                                builder.terminate(Terminator::Return(Some(r)));
+                            }
+                            None => {
+                                builder.nao_suportado("factory redirecionadora", span);
+                                builder.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+                            }
+                        }
                     } else {
                         match &ctor.body {
                             FunctionBody::Block(stmt_id) => builder.lower_stmt(ast, *stmt_id),
@@ -467,6 +489,41 @@ pub fn lower_program(ctx: &Context) -> Module {
     if module.erros.is_empty() {
         let problemas = verificador::verificar(&module);
         module.erros.extend(problemas);
+    }
+
+    // Formas de record com campo nomeado (P3, `registros.rs`): uma "classe"
+    // por forma, com `toString()` gerado, e a igualdade estrutural.
+    for k in 0..ctx.formas_de_record.len() {
+        let id = crate::context::ID_BASE_DE_FORMA + k as u32;
+        let (npos, nomes) = &ctx.formas_de_record[k];
+        let simbolo = format!("df.$registro.{k}.toString");
+        module.classes.push(ClassDef {
+            id,
+            name: "Record".to_string(),
+            field_count: npos + nomes.len(),
+            vtable: Vec::new(),
+            to_string_symbol: Some(simbolo.clone()),
+        });
+        module.subtyping_edges.push((id, 0));
+        let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
+            continue;
+        };
+        let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo, "toString".to_string(), Type::Ref);
+        builder.lower_to_string_de_forma(k);
+        builder.finalizar(&mut module);
+    }
+    if !ctx.formas_de_record.is_empty()
+        && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
+    {
+        let mut builder = fn_builder::FnBuilder::new(
+            ctx,
+            u,
+            registros::SIMBOLO_IGUAL.to_string(),
+            "==".to_string(),
+            Type::I1,
+        );
+        builder.lower_igualdade_de_registros();
+        builder.finalizar(&mut module);
     }
 
     // `toString()` padrão dos enums do programa (`Enum.valor`), quando o
