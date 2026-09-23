@@ -25,7 +25,7 @@ runs:
   using: composite
   steps:
     - id: cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: C:\llvm-22.1.8
         key: llvm-22.1.8-windows-x64-recorte-v1
@@ -37,8 +37,10 @@ runs:
         set -euo pipefail
         raiz=clang+llvm-22.1.8-x86_64-pc-windows-msvc
         url="https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/$raiz.tar.xz"
+        # Caminho POSIX: o GNU tar lê `D:\a\...` como "host D, arquivo remoto".
+        pacote="$(cygpath -u "$RUNNER_TEMP")/llvm.tar.xz"
         inicio=$SECONDS
-        curl -fsSL --retry 3 -o "$RUNNER_TEMP/llvm.tar.xz" "$url"
+        curl -fsSL --retry 3 -o "$pacote" "$url"
         echo "download: $((SECONDS - inicio)) s"
         mkdir -p /c/llvm-22.1.8
         membros=("$raiz/bin/clang*.exe" "$raiz/bin/llvm-config.exe" "$raiz/bin/LLVM-C.dll"
@@ -46,11 +48,11 @@ runs:
         # O tar do Git Bash é o GNU tar, que chama `xz` para -J; se o xz não
         # estiver no PATH, o 7-Zip do runner descomprime para o pipe.
         if command -v xz >/dev/null; then
-          tar -xJf "$RUNNER_TEMP/llvm.tar.xz" -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${membros[@]}"
+          tar -xJf "$pacote" -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${membros[@]}"
         else
-          7z x -so "$RUNNER_TEMP/llvm.tar.xz" | tar -xf - -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${membros[@]}"
+          7z x -so "$pacote" | tar -xf - -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${membros[@]}"
         fi
-        rm -f "$RUNNER_TEMP/llvm.tar.xz"
+        rm -f "$pacote"
         # Ferramentas que casaram com clang*.exe mas não são usadas.
         rm -f /c/llvm-22.1.8/bin/clang-tidy.exe /c/llvm-22.1.8/bin/clang-format.exe \
               /c/llvm-22.1.8/bin/clang-doc.exe /c/llvm-22.1.8/bin/clang-query.exe \

@@ -67,13 +67,14 @@ jobs:
         run: |
           $n = [int]$env:N
           if ($n -lt 1 -or $n -gt 32) { throw "fragmentos fora de 1..32: $n" }
-          $lista = ConvertTo-Json -Compress -AsArray @(1..$n)
+          # -InputObject, não -AsArray: este embrulharia a lista noutra ([[1,…]]).
+          $lista = ConvertTo-Json -Compress -InputObject @(1..$n)
           "suite=$env:SUITE" >> $env:GITHUB_OUTPUT
           "n=$n" >> $env:GITHUB_OUTPUT
           "fragmentos=$lista" >> $env:GITHUB_OUTPUT
           Write-Host "suite $env:SUITE; $n fragmentos nativos: $lista"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
       - uses: ./.github/actions/dart
@@ -94,7 +95,7 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binarios
           path: |
@@ -112,7 +113,7 @@ jobs:
       # traz o cache anterior, e só os programas alterados são recalculados.
       - name: Oráculos (cache)
         id: oraculos
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: target/diferencial/cache
           key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
@@ -134,7 +135,7 @@ jobs:
             Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
           }
           exit 0
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         if: steps.oraculos.outputs.cache-hit != 'true'
         with:
           path: target/diferencial/cache
@@ -147,7 +148,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: js
@@ -161,7 +162,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: producao
@@ -179,7 +180,7 @@ jobs:
       matrix:
         fragmento: ${{ fromJSON(needs.compilar.outputs.fragmentos) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: nativo-${{ matrix.fragmento }}
@@ -196,8 +197,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: relatorio-nativo-*
           path: fragmentos
@@ -222,7 +223,7 @@ jobs:
           Write-Host $md
           Write-Host "::notice title=Placar nativo::$uma"
           if ($rels.Count -eq 0) { Write-Host '::error::nenhum fragmento produziu relatório'; exit 1 }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: placar-nativo
           path: placar
@@ -235,7 +236,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: determinismo-producao
@@ -257,7 +258,7 @@ jobs:
     env:
       DARTFORGE_KEEP_IR: '1'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: determinismo-nativo

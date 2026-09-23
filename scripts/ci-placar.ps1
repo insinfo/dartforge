@@ -100,7 +100,8 @@ if ($lidos -eq 0) {
     }
     if ($dartQuebrado) {
         $out.Add('')
-        $out.Add('**O oráculo `dart run` falhou em ' + $dartQuebrado.Count + '**: ' + (($dartQuebrado | Sort-Object { Ordem $_ }) -join ', '))
+        # Esperado nos programas só-web (`// diverge-ddc:`), cuja referência é o DDC.
+        $out.Add('`dart run` saiu com código ≠ 0 em ' + $dartQuebrado.Count + ' (linhas `DART!` do relatório): ' + (($dartQuebrado | Sort-Object { Ordem $_ }) -join ', '))
     }
     foreach ($secao in $grupos.Keys) {
         $g = $grupos[$secao]
