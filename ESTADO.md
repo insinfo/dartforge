@@ -22,7 +22,7 @@ Alvos reais usados como critério:
 | Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
-| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** | 120.055 expressões do SDK em 155 ms; 40/40 negativos do `analyzer`; ~17 mil avisos no `new_sali/core` (ver §2.1) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 712 avisos e 136 de 634.368 expressões divergentes, `frontend` 767 avisos e 183 de 1.259.011; SDK da fonte (nativo) 275 diagnósticos (ver §2.1) |
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
@@ -217,6 +217,29 @@ Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
 
+**Rodada 2, P6 + RTI: corpus nativo 91/223 (Pesado 35904857766, CI
+35904857783), JIT 91/223 sem divergência, os 91 também sob `--gc-stress`
+(job novo do `pesado.yml`, que reprova se um programa só falha com
+estresse).** `async`/`await` como máquina de estados com o quadro no heap,
+sobre o `dart:async` **compilado da fonte** (com `dart:_internal` e a
+`Duration`; só para quem usa `dart:async`), laço de eventos no runtime
+(microtarefas antes de timers, timers na ordem da VM); tipos em tempo de
+execução no desenho do dart2js (receitas, universo canônico, regras de
+supertipo; `is`/`as`/padrões genéricos, o cast inteiro, `Type`); `super`
+dentro de mixin. Um defeito do carregador corrigido: a parte de um arquivo
+de patch do SDK era carregada como parte comum. Detalhes em
+`docs/NATIVO-PLANO.md` §7.7–§7.8. Antes disto:
+
+**Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35871381320), JIT
+81/223 com zero divergências JIT × AOT; os 81 passam também sob
+`--gc-stress`.** Closures com captura em célula e a convenção uniforme de
+chamada de valor função; símbolos estáveis pelo caminho da declaração
+(`df.<biblioteca>.<dono>.<membro>`, teste T-ID); despacho por nome para
+receptor sem tipo e operadores sobre `num`/`dynamic`; `switch` (comando e
+expressão), padrões, enums, records com campo nomeado e `const` canônico;
+cascata, `super`, mixins pela linearização, extensões. Detalhes e decisões
+em `docs/NATIVO-PLANO.md` §7.4–§7.5. Antes disto:
+
 **Corpus nativo: 50/222 (CI, run 35823269758), antes 7/214; sob
 `--gc-stress`, os mesmos 50/222 (run 35823275126).** O backend passou a ter um
 **contrato de representação e raízes** (`docs/NATIVO-PLANO.md` §6 — R, E,
@@ -250,6 +273,15 @@ O número saiu de 3/214 nesta sessão; o que mudou de fato foi a natureza do
 gargalo — as falhas de "o Clang recusa o módulo" caíram de 172 para 13, e
 o que sobra é programa que roda e imprime outra coisa. Ver
 `docs/NATIVO.md` e `docs/NATIVO-PLANO.md`.
+
+**Rodada 2, δ (NATIVO-PLANO §7.4):** strings com semântica UTF-16 na forma
+da VM (`_OneByteString`/`_TwoByteString`) e `Ref` com `Smi` etiquetado
+(R10) entraram sem regressão — nativo 50/223, JIT 50/223 com 0 divergências,
+os mesmos 50 sob `--gc-stress` (Pesado 35849542217 e 35852784596). P5a: a
+sobreposição `sdk_nativo/` carrega; os corpos das sete bibliotecas da fonte
+têm 4 447 diagnósticos de inferência (medidos com um pedido a
+`crates/types`). P5b: tabela dos 137 natives, 48 já no runtime. P5c/P5d
+esperam P1–P4 (o lowering de closures, despacho e RTI para compilar o SDK).
 
 O **lowering de exceções** existe: `throw`, `try`/`catch`/`finally`,
 `rethrow`, com `finally` como sub-rotina e discriminador de razão (normal,
@@ -385,11 +417,11 @@ antes de toda alocação.
   gerou no `new_sali/frontend`
   (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
 
-  **new_sali/frontend: 162 arquivos gerados por nós (166 iguais byte a
-  byte contando os `.css.shim.dart`), 0 diferentes, 138 pendentes. Corpus:
-  94 de 100 oráculos conferidos, os 6 restantes recusados de propósito.**
-  (Medido em 2026-09-23, rodada do plano 2; antes dela: 145 gerados, corpus
-  58/66.)
+  **new_sali/frontend: 186 arquivos gerados por nós (212 iguais byte a
+  byte contando os `.css.shim.dart`), 0 diferentes, 114 pendentes. Corpus:
+  99 de 106 oráculos conferidos, os 7 restantes recusados de propósito.**
+  (Medido em 2026-09-23, rodada 3; antes dela: 162 gerados, corpus 94/100;
+  antes da rodada 2: 145, corpus 58/66.)
 
   Cobre hoje:
   - biblioteca sem Angular, `@Directive` e `@Pipe` (o arquivo trivial);
@@ -417,9 +449,19 @@ antes de toda alocação.
     serviços pela cadeia de injetores), `#ref` no filho com `@ViewChild`
     (`queryChangeDetectorRefs`), filho com `*`, projeção por seletor e
     consulta de conteúdo sem resultado;
-  - `ngforms` no nó: `NgForm`, `NgModel`, `DefaultValueAccessor`,
-    `RequiredValidator` (`diretivas.rs`), com os provedores na ordem das
-    dependências e o `injectorGetInternal`;
+  - diretivas de atributo por **metadados lidos do programa**
+    (`metadados.rs`, o `_ComponentVisitor` do ngcompiler sobre o banco
+    semântico: seletor, `providers` avaliados como constante, `@Input`/
+    `@Output`/`@HostListener` herdados, ganchos, dependências com
+    `@Inject`/`@Optional`/`@Self`/`@Host`) — sem catálogo escrito à mão:
+    `ngforms` (`NgForm`, `NgModel`, acessores de valor, `select`/`option`,
+    validadores) e as diretivas do próprio projeto, com os provedores na
+    ordem das dependências, dependência de elemento acima (`@Host`, também
+    de visão ancestral), `ngOnDestroy`, ouvintes do mesmo evento agrupados e
+    o `injectorGetInternal`;
+  - componente de seletor composto, diretiva em tag que não é HTML
+    (`addShimE`), conteúdo que nenhuma projeção recebe e `@ContentChildren`
+    do filho preenchido (o page header do new_sali);
   - injeção no construtor, ciclo de vida (os sete ganchos), `onPush`;
   - folhas de estilo: **Sass** (o subconjunto que os projetos usam) e o
     shim `_ngcontent-%ID%` na forma do `csslib` compacto, gerando também o
@@ -434,6 +476,84 @@ antes de toda alocação.
   resolução (o equivalente ao `BuildStep.resolver`, lendo o nosso banco
   semântico); o que falta continua vindo do `build_runner`.
 
+### 1.8 Motor de geração de código — `crates/build` (substituto do `build_runner`)
+
+Contrato: `docs/BUILD-MOTOR.md`; protocolo do executor Dart:
+`docs/BUILD-PROTOCOLO.md`; plano e fases: `docs/BUILD-RUST.md` §0. O motor
+lê a configuração que o `build_runner` 2.4.15 leria, monta **o mesmo plano
+de fases**, e para cada ação decide pela impressão digital do que ela
+consultou se executa ou reaproveita; publica numa `Geracao` em memória.
+Executores, nesta ordem: **nativo** (Rust), **Dart** (`dfexec/1`, hoje
+indisponível), **apoio** (o que o `build_runner` deixou no disco, com aviso
+quando está mais velho que a fonte; erro com `dartforge build --estrito`).
+
+* **Plano igual ao oficial**: a forma canônica de `dartforge build --plano`
+  é igual à do `.dart_tool/build/entrypoint/build.dart` (lido, nunca
+  gerado) nos 9 casos do `corpus/builders` com builders, no
+  `new_sali/frontend` e no `limitless_ui/example` (20 aplicações cada).
+* **`corpus/builders`** (10 casos, oráculo do `build_runner` oficial,
+  `scripts/corpus-builders.ps1`): todas as saídas dos manifestos são
+  previstas pelo grafo, menos uma escrita por pós-processador; placar
+  **0 iguais / 61 pendentes / 0 diferentes** (sem executor Dart nem apoio
+  no corpus limpo); determinismo 1/4/8 idêntico; incremental = do zero nas
+  12 edições (`crates/build/tests/corpus.rs`, `#[ignore]`, no `ci.yml` depois
+  de `pub get`).
+* **ngdart pelo motor** (estágio A: uma ação de pacote, `gerar_com_apoio`
+  sobre o `Program` da sessão, pela API pública do `gerador_ng`):
+  `crates/build/tests/ng_transparencia.rs` — 60 saídas pelo motor iguais às
+  do gerador chamado direto, 58 conferidas com o oráculo de `corpus/ngdart`,
+  **0 diferentes**; incremental = do zero com edição de template e arquivo
+  novo. No `new_sali/frontend`, `dartforge build --comparar` (placar contra o
+  apoio do `build_runner`): **151 iguais / 1.410 pendentes / 0 diferentes**
+  (145 `.template.dart` e 6 `.css.shim.dart` nativos), e as contagens de
+  saídas esperadas iguais às do `.dart_tool/build/generated` (773
+  `.template.dart`, 192 `.css`, 192 `.css.map`, 202 `.css.shim.dart`, 202
+  `.css.dart`). O Sass nativo é **não verificado** (porta de igualdade: só
+  mede, publica o apoio): 7 de 181 `.css` sairiam iguais.
+* **`compile-js` do `new_sali/frontend` com o motor** (padrão quando há
+  `build_runner`; o `emit_js` não depende mais do `gerador_ng`): 575 módulos,
+  **574 byte a byte iguais** aos do `DARTFORGE_GERADOS=ng` de antes (579
+  módulos); o do `limitless_ui` difere só por absorver os 4 `.css.dart` que o
+  fluxo antigo lia do `.dart_tool/build/generated` (caminho fora do pub
+  cache, então módulo próprio) e o motor publica no caminho natural, como os
+  demais gerados do pacote.
+* **Latência de edição no `new_sali/frontend`** (`scripts/medir-geracao.ps1`,
+  sessão viva, 3 repetições aplicadas e revertidas, apoio = o
+  `.dart_tool/build/generated` que já existe, máquina carregada):
+
+  | edição | motor | nativo (estágio A) | recarga das geradas | ações | saídas alteradas | unidades / módulos |
+  |---|---|---|---|---|---|---|
+  | texto no `.html` de um componente coberto | 0,68–0,91 s | 0,65–0,88 s | 0,28–0,37 s | 454 | 1 | 1 / 1 |
+  | propriedade no `.scss` do componente | 0,66–0,72 s | 0,64–0,69 s | 0,28–0,32 s | 454 | 1 (`.css.shim.dart`) | 1 / 1 |
+  | corpo no `.dart` do componente, fora do template | 0,67–0,91 s | 0,64–0,87 s | — | 454 | **0** (corte pela saída) | 1 / 1 |
+  | corpo em `.dart` sem Angular | **< 1 ms** | — | — | **0** | 0 | 1 / 1 |
+
+  O estágio A reexecuta o pacote inteiro (`gerar_com_apoio` ≈ 0,52 s +
+  consultas ≈ 0,14 s) a cada edição de arquivo Angular: **acima dos 500 ms**
+  da meta; o estágio B (ação por componente) depende do
+  `docs/BUILD-PEDIDOS-GERADOR-NG.md`. O que o usuário espera ainda é
+  dominado pela escrita do módulo de 41 MB em que o ciclo de imports do app
+  funde as bibliotecas (3–13 s nesta máquina, com ou sem motor); sem o motor,
+  a mesma sessão leva 0,42–0,47 s fora a escrita numa edição de corpo.
+  `@Input` novo num filho não foi medido (só faz sentido no estágio B).
+* **Custo zero** (regra governante, PLANO.md): portão estrutural
+  `crates/dev/tests/custo_zero.rs` verde — num projeto sem `build_runner`,
+  nenhum motor construído (`instancias() == 0`), relatório sem motor e a
+  **mesma contagem de alocações** por edição que uma sessão construída sem
+  etapas; portão de tempo no `pesado.yml` (job `custo-zero`, commit × main,
+  5 rodadas alternadas, tolerância 3%), verde nas duas rodadas:
+  35847625760 — corpus JS inteiro **11,36 × 11,56 s** (razão 1,017), edição
+  de corpo numa sessão sintética de 300 bibliotecas **34 × 35 ms** (1,029);
+  35850781174 (depois do merge do `main`) — **11,53 × 11,62 s** (1,008) e
+  **35 × 34 ms** (0,971). O ruído entre rodadas do mesmo binário chegou a 14%
+  (11,1–12,7 s): a mediana de 5 cabe nos 3%, mas por pouco; se o portão
+  oscilar, a tolerância sobe com a medição registrada aqui. Local no
+  `new_sali/core` (`scripts/medir-custo-zero.ps1`, média do platô de 20
+  edições de corpo, 5 rodadas alternadas, máquina carregada por outros
+  agentes): base **536 ms** × atual **465 ms** de mediana (0,87; faixas
+  419–714 e 393–613 ms) — sem piora; os 227 ms do §1.3 são de máquina
+  livre.
+
 ---
 
 ## 2. O que falta
@@ -441,64 +561,66 @@ antes de toda alocação.
 ### 2.0 O compilador de visões do ngdart
 
 Sem ele, `dartforge serve` ainda depende de o `build_runner` ter rodado
-uma vez no projeto (os 138 arquivos pendentes vêm do disco). Medido no
-new_sali/frontend em 2026-09-23 (`oraculo --listar`), com o conjunto
-completo de recusas de cada arquivo e cada uma contada pela sub-forma:
+uma vez no projeto (os 114 arquivos pendentes vêm do disco). Medido no
+new_sali/frontend em 2026-09-23 (`oraculo --listar`, fim da rodada 3),
+com o conjunto completo de recusas de cada arquivo e cada uma contada pela
+sub-forma:
 
 | motivo | aparece em | destrava sozinho |
 |---|---|---|
-| diretiva casada por seletor (diretiva que não emitimos) | 100 | 19 |
-| ligação no template | 48 | 2 |
+| ligação no template | 65 | 3 |
+| diretiva casada por seletor | 40 | 4 |
 | interpolação | 37 | 1 |
-| `style` em linha | 34 | 1 |
-| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 1 |
-| ligação em componente filho | 33 | 1 |
-| ligação de diretiva (`ngValue`, `ngControl`, `ngClass` sem diretiva) | 32 | 0 |
-| `@ViewChild` de componente ou diretiva | 31 | 3 |
-| folha de estilo | 27 | 2 |
-| evento | 15 | 0 |
-| componente no template | 11 | 0 |
-| `providers: [..]` | 11 | 0 |
+| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 3 |
+| ligação em componente filho | 31 | 3 |
+| `@ViewChild` de componente ou diretiva | 31 | 4 |
+| folha de estilo | 27 | 5 |
+| evento | 21 | 0 |
+| `providers: [..]` | 11 | 2 |
 
 As sub-formas mais frequentes:
 
 | sub-forma | aparece em | destrava sozinha |
 |---|---|---|
-| diretiva `PageHeaderBreadcrumbItemDirective` | 47 | 0 |
-| componente `PageHeaderComponent` por seletor composto | 43 | 0 |
-| `style="..."` em linha | 34 | 1 |
 | interpolação: tipo desconhecido de propriedade | 31 | 0 |
-| diretiva `CustomSelectControlValueAccessor` (do projeto) | 28 | 0 |
-| `NgModel` em componente (acessor de valor por `providers:` do filho) | 28 | 1 |
-| `[ngValue]` sem diretiva (option) | 27 | 0 |
-| `@ViewChild` de `#ref` no conteúdo projetado de filho | 27 | 3 |
-| Sass ou CSS fora do subconjunto | 25 | 2 |
-| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 1 / 0 |
-| diretiva `CustomNgSelectOption` (do projeto) | 20 | 0 |
-| `MaxLengthValidator` (`@HostBinding`, `XNgCd`) | 17 | 1 |
-| `NumberValueAccessor` | 17 | 0 |
+| `@ViewChild` de `#ref` em componente filho | 27 | 4 |
+| Sass ou CSS fora do subconjunto | 25 | 5 |
+| local de `*ngFor` sem o tipo do elemento | 23 | 1 |
+| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 3 / 0 |
+| nome fora do componente (ligação / evento) | 17 / 17 | 0 / 0 |
+| `#ref` usado em expressão / em visão embutida | 15 / 14 | 0 / 0 |
+| dependência de diretiva de fora do nó (injetor) | 13 | 2 |
+| `<template>` escrito no template | 11 | 0 |
+| `providers:` no próprio componente | 11 | 2 |
+| `#ref` com valor (`#f="ngForm"`) | 10 | 0 |
 
-O que a rodada do plano 2 destravou, acumulado sobre os 145 de antes
-(estimativa do plano entre parênteses): imutabilidade e guarda +0 (+1),
-eventos +1 (+2), interpolação tipada +4 (+6), pipes +6 (+9), componente
-filho +15 (+21), ngforms +17 (+38). O plano contava a interpolação "simples" em embutida como
-resolvida e não via as diretivas do projeto (`CustomSelectControlValueAccessor`,
-`CustomNgSelectOption`, `PageHeader*`), que agora dominam a lista: o
-próximo passo é o page-header (passo 6) e um catálogo de diretivas lido
-do programa, não escrito à mão.
-
+O que a rodada 3 destravou, sobre os 162 de antes: metadados lidos do
+programa no lugar do catálogo +0 (a mesma saída, 0 diferentes); page
+header (seletor composto, diretiva em tag não HTML, `@ContentChildren`
+preenchido) +8; `select`/`option` e diretivas do projeto (`@Host`,
+`OnDestroy`, ouvintes agrupados) +4; `NgModel` em componente, provedor
+preguiçoso, `XNgCd` de validador usado, `style`/`tabindex` escritos +12.
+As sub-formas "diretiva X" que dominavam (page header 47/43,
+`CustomSelectControlValueAccessor` 28, `CustomNgSelectOption` 20,
+`NgModel` em componente 28, `MaxLengthValidator` 17, `style` 34) saíram
+da lista. O que domina agora é tipagem de expressão (membro de tipo
+desconhecido, local de `*ngFor`) e `#ref`/`@ViewChild` fora da visão raiz.
 Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
 arquivo oficial correspondente serve de teste byte a byte.
 
 ### 2.1 Correção (ordem de prioridade)
 
-1. **~17 mil avisos de tipos** no `new_sali/core` e ~85 mil no `frontend`.
-   Não impedem a execução (o emissor recua para despacho dinâmico, que é
-   sempre correto), mas cada aviso é uma inferência que não aconteceu —
-   custa tamanho e velocidade no JS. Os dez grupos mais frequentes estão
-   listados em `docs/FRONTEND-NEW-SALI.md`; os maiores são argumento
-   incompatível `dynamic`→`int`, `num`→`double`, condição sem tipo `bool`
-   e nome indefinido em cadeias longas de genéricos.
+1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0
+   diagnósticos nos projetos: todo aviso nosso é falso positivo). Medido
+   em 2026-09-23 com o oráculo (`tools/oraculo_tipos`, método em
+   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **712** avisos,
+   `frontend` 57.883 → **767**; divergências de tipo estático por
+   expressão 137.428 → 136 (core) e 316.756 → 183 (frontend). Os
+   grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
+   O contrato é `docs/INFERENCIA-ESPECIFICACAO.md` (regras do analyzer
+   6.11 com arquivo:linha, e o que muda até 3.14), com o corpus de
+   conformidade `corpus/inferencia/` (95 programas, tipos gravados pelo
+   oráculo) e a fila de lacunas do motor em `docs/INFERENCIA-LACUNAS.md`.
 2. **Escrita em disco** no `limitless_ui`: 233 s para 484 arquivos, contra
    10,5 s de compilação. É I/O do Windows com antivírus, não compilador —
    o `dartforge dev` já contorna (reescreveu 58 arquivos na recompilação),
@@ -577,6 +699,15 @@ nos projetos, então o editor só recebe sintaxe. O caminho até lá:
 
 ### 2.5 Backend nativo
 
+**Depois de P1–P4 (Pesado 35871381320): 142 dos 223 falham.** Quase todos
+por membro do SDK sem implementação no runtime (`where`, `map`, `fold`,
+`toStringAsFixed`, `sort`, `List.filled`/`List.generate`, `parse`,
+`hashCode`…, que o P5 resolve com o SDK da fonte), `await`/`yield` (P6/P7)
+e o `toString()` de objeto do programa dentro de uma coleção impressa (o
+runtime não chama código Dart). Da linguagem, faltam os genéricos em tempo
+de execução (RTI: `is List<int>` é diagnóstico) e `super` dentro de mixin.
+A tabela abaixo é a de antes da rodada 2.
+
 172 dos 222 programas do corpus (CI, run 35823269758), agrupados pelo
 relatório do harness (`--nativo`). A família de "handle" (71 de 214 no
 começo — escalar usado como handle, null desreferenciado, raiz faltando)
@@ -614,7 +745,17 @@ O compilador de templates próprio **existe e cobre 134 dos 300 arquivos**
 do `new_sali/frontend` (§1.7). O que falta dele está na tabela do §2.0.
 Enquanto não fecha, compilar um projeto ngdart ainda exige
 `dart run build_runner build` uma vez (2m59s no `new_sali/frontend`) para
-os arquivos pendentes.
+os arquivos pendentes — o motor de build (§1.8) usa o que ele deixou no
+disco como **apoio** e avisa quando o apoio está mais velho que a fonte.
+
+O que falta do motor (§1.8), em ordem: o **estágio B** do ngdart (uma ação
+por componente, consultas finas), que depende dos acréscimos públicos
+pedidos ao `gerador_ng` em `docs/BUILD-PEDIDOS-GERADOR-NG.md` e é o que
+leva a edição de componente para baixo de 500 ms; o Sass byte a byte do
+`sass_builder` (mesmo documento, item 4), para o `.css` servido sair do
+nativo; o executor Dart (`dfexec/1`, `docs/BUILD-PROTOCOLO.md`), que é o
+executor nativo compartilhado com as macros e o que tira os 61 pendentes do
+`corpus/builders`; e o `go_router_builder` no corpus (D-B4, exige Flutter).
 
 Plano para substituir o `build_runner` por um motor em Rust:
 `docs/BUILD-RUST.md`. O dado que o orienta: dos 9.879 artefatos que o

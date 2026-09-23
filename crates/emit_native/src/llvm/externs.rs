@@ -678,6 +678,129 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_iteration_end(i64)",
         efeitos: CONSERVADOR,
     },
+    // --- P1 (closures, α): convenção uniforme e leituras com representação ---
+    Extern {
+        decl: "declare i64 @dartforge_cell_get_ref(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_env_get_ref(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_closure_entry(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_args_casam(ptr, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arg_indice(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_nsm_chamada()",
+        efeitos: CONSERVADOR,
+    },
+    // --- P2 (α): operadores sobre dynamic/num (tapa-buraco até P5) ---
+    Extern {
+        decl: "declare i64 @dartforge_dyn_op(i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_dyn_unario(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    // --- P3 (α): iteração de lista ou conjunto ---
+    Extern {
+        decl: "declare i64 @dartforge_iteravel_get_ref(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_iteravel_get_bits(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    // --- P3 (α): records ---
+    Extern {
+        decl: "declare i64 @dartforge_record_len(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_record_get_ref(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    // --- P6: laço de eventos e os natives da sobreposição (`eventos.rs`) ---
+    Extern {
+        // O único ponto em que o runtime chama código Dart (G8).
+        decl: "declare void @dartforge_laco_de_eventos(ptr)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare void @dartforge_nativo_DartForge_scheduleImmediate(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_nativo_DartForge_Timer_novo(i64, i64, i8)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_nativo_DartForge_Timer_cancelar(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_nativo_Error_trySetStackTrace(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    // --- RTI: tipos em tempo de execução (`tipos.rs`) ---
+    Extern {
+        decl: "declare void @dartforge_rti_classe_nome(i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rti_regra(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rti_classe_do_runtime(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_rti_receita(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_rti_avaliar(i64, i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rti_definir(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_rti_do_valor(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_rti_e(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_rti_subtipo(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rti_como(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_rti_texto(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_rti_objeto_tipo(i64)",
+        efeitos: CONSERVADOR,
+    },
 ];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.

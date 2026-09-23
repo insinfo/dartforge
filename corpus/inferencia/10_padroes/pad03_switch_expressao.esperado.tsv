@@ -1,0 +1,26 @@
+# 10_padroes/pad03_switch_expressao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+8	7	138	204	FunctionExpression	void Function(Object, F)	-	0	(Object o, F fo) { var r = /*@*/switch (o) { int i =>
+9	16	172	86	SwitchExpression	num	-	1	switch (o) { int i => /*@*/i, String s => s.length.t
+9	24	180	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+10	19	203	1	SimpleIdentifier	int	LOCAL_VARIABLE:r.i	1	i
+11	17	222	19	MethodInvocation	double	METHOD:num.toDouble	0	s.length.toDouble()
+11	17	222	8	PrefixedIdentifier	int	GETTER:String.length	0	s.length
+11	17	222	1	SimpleIdentifier	String	LOCAL_VARIABLE:r.s	0	s
+11	19	224	6	SimpleIdentifier	int	GETTER:String.length	0	length
+11	26	231	8	SimpleIdentifier	double Function()	METHOD:num.toDouble	0	toDouble
+12	10	252	1	IntegerLiteral	int	-	0	0
+14	16	275	47	SwitchExpression	Object	-	1	switch (fo) { Q() => 1, R() => 'r', }
+14	24	283	2	SimpleIdentifier	F	PARAMETER:f.fo	0	fo
+15	12	300	1	IntegerLiteral	int	-	0	1
+16	12	314	3	SimpleStringLiteral	String	-	0	'r'
+18	3	326	13	MethodInvocation	void	FUNCTION:print	0	print([r, t])
+18	3	326	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+18	9	332	6	ListLiteral	List<Object>	-	0	[r, t]
+18	10	333	1	SimpleIdentifier	num	LOCAL_VARIABLE:f.r	0	r
+18	13	336	1	SimpleIdentifier	Object	LOCAL_VARIABLE:f.t	0	t
+21	10	353	16	FunctionExpression	void Function()	-	0	() => f(1, Q());
+21	16	359	9	MethodInvocation	void	FUNCTION:f	0	f(1, Q())
+21	16	359	1	SimpleIdentifier	void Function(Object, F)	FUNCTION:f	0	f
+21	18	361	1	IntegerLiteral	int	-	0	1
+21	21	364	3	InstanceCreationExpression	Q	CONSTRUCTOR:Q.	0	Q()

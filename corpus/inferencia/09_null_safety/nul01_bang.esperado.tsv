@@ -1,0 +1,27 @@
+# 09_null_safety/nul01_bang.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	45	128	FunctionExpression	void Function<T, U extends Object?>(int?, List<int>?, T?, T, U)	-	0	<T, U extends Object?>(int? x, List<int>? l, T? t, T t2, U u
+3	3	111	59	MethodInvocation	void	FUNCTION:print	0	print([/*@*/x!, /*@*/l!.first, /*@*/t!, /*@*/t2!, /*@*/u!])
+3	3	111	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+3	9	117	52	ListLiteral	List<Object>	-	0	[/*@*/x!, /*@*/l!.first, /*@*/t!, /*@*/t2!, /*@*/u!]
+3	15	123	2	PostfixExpression	int	-	1	x!
+3	15	123	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+3	24	132	8	PropertyAccess	int	GETTER:Iterable.first	1	l!.first
+3	24	132	2	PostfixExpression	List<int>	-	1	l!
+3	24	132	1	SimpleIdentifier	List<int>?	PARAMETER:f.l	1	l
+3	27	135	5	SimpleIdentifier	int	GETTER:Iterable.first	0	first
+3	39	147	2	PostfixExpression	T & Object	-	1	t!
+3	39	147	1	SimpleIdentifier	T?	PARAMETER:f.t	1	t
+3	48	156	3	PostfixExpression	T & Object	-	1	t2!
+3	48	156	2	SimpleIdentifier	T	PARAMETER:f.t2	1	t2
+3	58	166	2	PostfixExpression	U & Object	-	1	u!
+3	58	166	1	SimpleIdentifier	U	PARAMETER:f.u	1	u
+6	10	184	35	FunctionExpression	void Function()	-	0	() => f<int, int>(1, [1], 1, 1, 1);
+6	16	190	28	MethodInvocation	void	FUNCTION:f	0	f<int, int>(1, [1], 1, 1, 1)
+6	16	190	1	SimpleIdentifier	void Function<T, U extends Object?>(int?, List<int>?, T?, T, U)	FUNCTION:f	0	f
+6	28	202	1	IntegerLiteral	int	-	0	1
+6	31	205	3	ListLiteral	List<int>	-	0	[1]
+6	32	206	1	IntegerLiteral	int	-	0	1
+6	36	210	1	IntegerLiteral	int	-	0	1
+6	39	213	1	IntegerLiteral	int	-	0	1
+6	42	216	1	IntegerLiteral	int	-	0	1

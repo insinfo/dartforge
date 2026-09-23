@@ -131,3 +131,80 @@ Harness apos as correcoes: **212/212**.
 * **Rotas restritas** exigem sessão *e* permissões da API; a guarda
   (`AuthGuard.canActivate`) espera `permissionsReady` com watchdog de 20 s e,
   sem backend, cancela a navegação nos dois compiladores.
+
+## Inferência de tipos contra o oráculo (2026-09-23)
+
+O `dart analyze` oficial dá 0 diagnósticos no `new_sali`: todo aviso da
+nossa inferência (`crates/types`) é um tipo que o analyzer infere e nós não.
+A medição compara, expressão a expressão, o tipo estático nosso com o do
+`package:analyzer` 6.11 (o que o próprio `new_sali` resolve):
+
+    # nosso despejo (ordenado por arquivo/offset/comprimento, offsets UTF-16)
+    cargo run --release -p dartforge-types --example despejo_tipos --         C:/MyDartProjects/new_sali/frontend/web/main.dart         --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         -o fe.tsv --arquivos fe_arquivos.txt --avisos fe_avisos.txt
+    # oráculo: compilado uma vez (não recompila o analyzer a cada rodada)
+    dart compile exe --packages=C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         tools/oraculo_tipos/oraculo.dart -o oraculo.exe
+    oraculo.exe C:/MyDartProjects/new_sali/frontend fe_arquivos.txt fe_oraculo.tsv
+    # comparação em fluxo, agrupada pela causa
+    cargo run --release -p dartforge-types --example comparar_tipos -- fe.tsv fe_oraculo.tsv
+
+Uma divergência é **causa** quando a expressão diverge e nenhuma divergência
+está estritamente contida nela (a divergência começa ali; as que a contêm são
+cascata). Entradas: core = `test/arvore_processo_item_test.dart` (2.136
+unidades, 634 mil expressões comparáveis), frontend = `web/main.dart` (3.183
+unidades, 1,26 milhão).
+
+**Memória das ferramentas** (pico do working set, medido no core): o
+comparador antigo em Python carregava os dois despejos inteiros — **949 MB**
+no core (1,6–2 GB no frontend, visto no Gerenciador de Tarefas); o
+`comparar_tipos` faz merge-join arquivo a arquivo sobre os dois despejos
+ordenados pela mesma chave e fica em **45 MB** (2,6 s contra 7,4 s), com o
+mesmo agrupamento (os 19 grupos e as contagens idênticos; só o `
+` dos
+trechos de exemplo muda). O oráculo rodado pelo `dart` sobre a fonte
+compilava o analyzer a cada vez e guardava tudo o que resolvia: **1.206 MB**
+no core; compilado com `dart compile exe`, com os resumos num cache em disco
+(32 MB em memória) e o modelo de elementos limpo a cada 150 unidades, fica em
+**427–477 MB** no core e **827 MB** no frontend, com a saída byte a byte igual.
+
+| passo (commit) | avisos core | avisos frontend | divergentes core | divergentes frontend |
+|---|---:|---:|---:|---:|
+| antes (infer.rs) | 13.431 | 57.883 | 137.428 | 316.756 |
+| motor reescrito pela especificação (`inferencia/`) | 1.657 | 9.319 | 3.396 | 8.372 |
+| tipo cru do outline instanciado para os limites | 1.093 | 8.312 | 1.625 | 5.876 |
+| setter implícito de `late final` sem inicializador | 1.079 | 1.322 | 1.625 | 2.454 |
+| tear-off genérico no alvo, `C.nome()`, `?.`, `$this`, campos de extensão | 977 | 1.129 | 646 | 1.096 |
+| parte de arquivo de patch é patch (`BigInt` duplicada) — `crates/elements` | 916 | 1.003 | 480 | 743 |
+| `?` do parâmetro-função da forma antiga — `crates/frontend` | 860 | 963 | 436 | 569 |
+| sobreposição pela posição, extensão genérica, `-1`, closure | 799 | 883 | 314 | 389 |
+| conflito de import `dart:` × pacote — `crates/elements` | 783 | 862 | 232 | 279 |
+| variável de tipo promovida `X & B` (`Type::Intersection`) | 724 | 783 | 197 | 248 |
+| promoção de campo privado final (Dart 3.2) | 720 | 776 | 176 | 224 |
+| `?.` promove dentro da cadeia, contexto de `clamp`, captura em função local | 712 | 767 | 136 | 183 |
+
+SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
+com as sete bibliotecas, sobreposição `vm`): **4.447 → 275** diagnósticos
+(`core` 193, `convert` 37, `async` 26, `_internal` 7, `collection` 5,
+`_compact_hash` 4, `math` 3).
+
+Grupos restantes no new_sali (causas; frontend / core):
+
+| grupo | causas | situação |
+|---|---:|---|
+| import condicional: o analyzer escolhe `dart.library.io`, nós o alvo web (`platformZLibDecoder`) | ~30 | divergência esperada (alvo diferente), não é lacuna |
+| inteiro em contexto `double` dentro de argumentos genéricos (`color.dart`) | 14 / 14 | a investigar |
+| tear-off genérico cujos parâmetros de tipo o analyzer renomeia (`T₀`) | 10 / – | exibição: o analyzer renomeia parâmetros que colidem |
+| `runZoned`, `compareTo` em receptor de variável de tipo promovida | 7 / 7 | a investigar |
+| atribuição `a?.b = null` (tipo `Null?`) | 7 / – | null-shorting em atribuição |
+| construtor de fábrica genérico redirecionado (`Stream.empty()`) | 5 / 5 | inferência pelo contexto de construtor redirecionador |
+
+### Observação arquitetural: o `emit_js` tem inferência própria
+
+O emissor JavaScript (`crates/emit_js`: `ctx.rs` `ty_of`/`lookup_member`/
+`lub`, `expr.rs` `infer_elements_ty`…) **não lê** os tipos de corpo do
+`crates/types` (`BodyTypes`): ele reconstrói, durante a emissão, a sua própria
+inferência paralela sobre a AST. Quem consome `BodyTypes` hoje é o mundo
+fechado da produção (`crates/mundo`), o backend nativo e o LSP. Consequência:
+os ganhos desta frente não mudam o JS de desenvolvimento (tamanho e despacho
+dinâmico continuam decididos pela inferência do emissor), e há duas
+inferências a manter coerentes. A unificação — o `emit_js` consumindo
+`BodyTypes` — fica para depois de os avisos zerarem.

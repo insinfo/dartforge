@@ -1,0 +1,20 @@
+Pedido {
+  numero=10,
+  itens=[Item {
+    nome=caneta,
+    quantidade=1,
+    cor=azul,
+    etiquetas=[escritorio],
+  }, Item {
+    nome=papel,
+    quantidade=3,
+    cor=vermelho,
+    nota=A4,
+    etiquetas=[],
+  }],
+  descontos={cupom: 5},
+}
+total=4
+{"numero":10,"itens":[{"nome":"caneta","quantidade":1,"cor":"azul","etiquetas":["escritorio"]},{"nome":"papel","quantidade":3,"cor":"VERMELHO","etiquetas":[],"nota":"A4"}],"descontos":{"cupom":5}}
+true true
+11 false [azul, verde, vermelho]

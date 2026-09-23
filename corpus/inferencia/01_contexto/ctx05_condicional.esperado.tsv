@@ -1,0 +1,31 @@
+# 01_contexto/ctx05_condicional.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	103	199	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { bool b = args.isEmpty; List<num> a
+4	12	136	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+4	12	136	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+4	17	141	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+5	17	166	25	ConditionalExpression	List<num>	-	0	b ? /*@*/[1] : /*@*/[2.0]
+5	17	166	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	0	b
+5	26	175	3	ListLiteral	List<num>	-	1	[1]
+5	27	176	1	IntegerLiteral	int	-	0	1
+5	37	186	5	ListLiteral	List<num>	-	1	[2.0]
+5	38	187	3	DoubleLiteral	double	-	0	2.0
+6	16	208	11	ConditionalExpression	num	-	1	b ? 1 : 2.0
+6	16	208	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+6	20	212	1	IntegerLiteral	int	-	0	1
+6	24	216	3	DoubleLiteral	double	-	0	2.0
+7	16	236	11	ConditionalExpression	Object	-	1	b ? 1 : 'x'
+7	16	236	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+7	20	240	1	IntegerLiteral	int	-	0	1
+7	24	244	3	SimpleStringLiteral	String	-	0	'x'
+8	14	262	14	ConditionalExpression	double	-	0	b ? /*@*/1 : 2
+8	14	262	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	0	b
+8	23	271	1	IntegerLiteral	double	-	1	1
+8	27	275	1	IntegerLiteral	double	-	0	2
+9	3	280	19	MethodInvocation	void	FUNCTION:print	0	print([a, c, d, e])
+9	3	280	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	9	286	12	ListLiteral	List<Object>	-	0	[a, c, d, e]
+9	10	287	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.a	0	a
+9	13	290	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.c	0	c
+9	16	293	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.d	0	d
+9	19	296	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.e	0	e

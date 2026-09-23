@@ -1,0 +1,22 @@
+# 10_padroes/pad07_objeto_generico.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+5	3	157	5	SimpleIdentifier	-	CLASS:Caixa	0	Caixa
+8	7	185	177	FunctionExpression	void Function(Object)	-	0	(Object o) { var Caixa(:valor) = Caixa(1); print(/*@*/va
+9	23	220	8	InstanceCreationExpression	Caixa<dynamic>	CONSTRUCTOR:Caixa.	0	Caixa(1)
+9	29	226	1	IntegerLiteral	int	-	0	1
+10	3	232	17	MethodInvocation	void	FUNCTION:print	0	print(/*@*/valor)
+10	3	232	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	14	243	5	SimpleIdentifier	dynamic	LOCAL_VARIABLE:f.valor	1	valor
+11	7	257	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+11	35	285	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/v)
+11	35	285	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	46	296	1	SimpleIdentifier	dynamic	LOCAL_VARIABLE:f.v	1	v
+12	35	334	8	InstanceCreationExpression	Caixa<num>	CONSTRUCTOR:Caixa.	1	Caixa(2)
+12	41	340	1	IntegerLiteral	int	-	0	2
+13	3	346	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/w)
+13	3	346	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	14	357	1	SimpleIdentifier	num	LOCAL_VARIABLE:f.w	1	w
+16	10	373	11	FunctionExpression	void Function()	-	0	() => f(1);
+16	16	379	4	MethodInvocation	void	FUNCTION:f	0	f(1)
+16	16	379	1	SimpleIdentifier	void Function(Object)	FUNCTION:f	0	f
+16	18	381	1	IntegerLiteral	int	-	0	1

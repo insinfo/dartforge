@@ -44,6 +44,13 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
+      # O corpus do ngdart (crates/gerador_ng/tests/corpus.rs) carrega o ngdart
+      # e o ngforms pelo .dart_tool/package_config.json, que fica fora do git.
+      # Sem ele o teste falha de propósito (antes, degradava em silêncio e só
+      # o caso que exige uma recusa específica acusava).
+      - name: pub get do corpus do ngdart
+        working-directory: corpus/ngdart
+        run: dart pub get
       # Clang 22.1.8 para os testes que compilam IR (abi, emit_native, jit).
       # `desenvolvimento`: llvm-config, LLVM-C.dll/.lib e os cabeçalhos da API C
       # para o llvm-sys do crates/jit (~73 MB a mais no cache).
@@ -71,6 +78,23 @@ jobs:
       #   corpus_roda_no_dart_run, ddc_bate_com_dart_run
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
+      # Os corpora do motor de build (corpus/builders, oráculo do build_runner
+      # oficial) e do ngdart precisam do package_config.json de cada caso:
+      # `pub get` com o lock commitado (versões fixadas). Os testes
+      # #[ignore] do crates/build (plano, placar, determinismo, incremental,
+      # transparência do ngdart) rodam no passo seguinte.
+      - name: pub get dos corpora do motor de build
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          $casos = @(Get-ChildItem corpus/builders -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart)
+          foreach ($c in $casos) {
+            Push-Location $c.FullName
+            dart pub get --enforce-lockfile | Out-Null
+            if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pub get falhou em $($c.Name)" }
+            Pop-Location
+          }
+          Write-Host "$($casos.Count) casos com package_config.json"
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-

@@ -1,0 +1,48 @@
+# 06_fluxo/flu03_logicos.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	73	243	FunctionExpression	void Function(Object, int?)	-	0	(Object o, int? x) { if (o is int && (/*@*/o).isEven) {}
+3	7	100	27	BinaryExpression	bool	-	0	o is int && (/*@*/o).isEven
+3	7	100	8	IsExpression	bool	-	0	o is int
+3	7	100	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+3	19	112	15	PropertyAccess	bool	GETTER:int.isEven	0	(/*@*/o).isEven
+3	19	112	8	ParenthesizedExpression	int	-	0	(/*@*/o)
+3	25	118	1	SimpleIdentifier	int	PARAMETER:f.o	1	o
+3	28	121	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+4	7	138	28	BinaryExpression	bool	-	0	o is! int || (/*@*/o).isEven
+4	7	138	9	IsExpression	bool	-	0	o is! int
+4	7	138	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+4	20	151	15	PropertyAccess	bool	GETTER:int.isEven	0	(/*@*/o).isEven
+4	20	151	8	ParenthesizedExpression	int	-	0	(/*@*/o)
+4	26	157	1	SimpleIdentifier	int	PARAMETER:f.o	1	o
+4	29	160	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+5	7	177	14	PrefixExpression	bool	-	0	!(o is String)
+5	8	178	13	ParenthesizedExpression	bool	-	0	(o is String)
+5	9	179	11	IsExpression	bool	-	0	o is String
+5	9	179	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+6	3	203	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+6	3	203	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	14	214	1	SimpleIdentifier	String	PARAMETER:f.o	1	o
+7	7	224	28	BinaryExpression	bool	-	0	x == null || (/*@*/x).isEven
+7	7	224	9	BinaryExpression	bool	METHOD:num.==	0	x == null
+7	7	224	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+7	12	229	4	NullLiteral	Null	-	0	null
+7	20	237	15	PropertyAccess	bool	GETTER:int.isEven	0	(/*@*/x).isEven
+7	20	237	8	ParenthesizedExpression	int	-	0	(/*@*/x)
+7	26	243	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+7	29	246	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+8	11	267	22	BinaryExpression	bool	-	0	x != null && o.isEmpty
+8	11	267	9	BinaryExpression	bool	METHOD:num.==	0	x != null
+8	11	267	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+8	16	272	4	NullLiteral	Null	-	0	null
+8	24	280	9	PrefixedIdentifier	bool	GETTER:String.isEmpty	0	o.isEmpty
+8	24	280	1	SimpleIdentifier	String	PARAMETER:f.o	0	o
+8	26	282	7	SimpleIdentifier	bool	GETTER:String.isEmpty	0	isEmpty
+9	7	297	1	SimpleIdentifier	bool	LOCAL_VARIABLE:f.t	0	t
+9	10	300	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+9	10	300	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	21	311	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+12	10	327	16	FunctionExpression	void Function()	-	0	() => f('a', 1);
+12	16	333	9	MethodInvocation	void	FUNCTION:f	0	f('a', 1)
+12	16	333	1	SimpleIdentifier	void Function(Object, int?)	FUNCTION:f	0	f
+12	18	335	3	SimpleStringLiteral	String	-	0	'a'
+12	23	340	1	IntegerLiteral	int	-	0	1

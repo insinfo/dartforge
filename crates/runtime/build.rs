@@ -41,6 +41,15 @@ const FRAGMENTOS: &[&str] = &[
     "strings",
     "colecoes",
     "closures",
+    // δ (P5b): os natives do SDK da fonte (crates/emit_native/src/nativos.rs).
+    "nativos_numeros",
+    "nativos_strings",
+    // P2 (α): operadores sobre dynamic/num (tapa-buraco até P5).
+    "despacho",
+    // P6: o laço de eventos (microtarefas e timers).
+    "eventos",
+    // RTI: tipos em tempo de execução.
+    "tipos",
 ];
 
 fn main() {

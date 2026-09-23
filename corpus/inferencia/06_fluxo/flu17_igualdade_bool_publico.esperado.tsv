@@ -1,0 +1,29 @@
+# 06_fluxo/flu17_igualdade_bool_publico.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+6	9	154	9	IsExpression	bool	-	0	this is Q
+6	9	154	4	ThisExpression	P	-	0	this
+6	20	165	16	MethodInvocation	void	FUNCTION:print	0	print(/*@*/this)
+6	20	165	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	31	176	4	ThisExpression	P	-	1	this
+12	7	218	86	FunctionExpression	void Function(bool?, P)	-	0	(bool? b, P p) { if (b == true) print(/*@*/b); if (p.v !
+13	7	241	9	BinaryExpression	bool	METHOD:Object.==	0	b == true
+13	7	241	1	SimpleIdentifier	bool?	PARAMETER:f.b	0	b
+13	12	246	4	BooleanLiteral	bool	-	0	true
+13	18	252	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/b)
+13	18	252	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	29	263	1	SimpleIdentifier	bool?	PARAMETER:f.b	1	b
+14	7	273	11	BinaryExpression	bool	METHOD:num.==	0	p.v != null
+14	7	273	3	PrefixedIdentifier	int?	GETTER:P.v	0	p.v
+14	7	273	1	SimpleIdentifier	P	PARAMETER:f.p	0	p
+14	9	275	1	SimpleIdentifier	int?	GETTER:P.v	0	v
+14	14	280	4	NullLiteral	Null	-	0	null
+14	20	286	15	MethodInvocation	void	FUNCTION:print	0	print(/*@*/p.v)
+14	20	286	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+14	31	297	3	PrefixedIdentifier	int?	GETTER:P.v	1	p.v
+14	31	297	1	SimpleIdentifier	P	PARAMETER:f.p	1	p
+14	33	299	1	SimpleIdentifier	int?	GETTER:P.v	0	v
+17	10	315	19	FunctionExpression	void Function()	-	0	() => f(true, P());
+17	16	321	12	MethodInvocation	void	FUNCTION:f	0	f(true, P())
+17	16	321	1	SimpleIdentifier	void Function(bool?, P)	FUNCTION:f	0	f
+17	18	323	4	BooleanLiteral	bool	-	0	true
+17	24	329	3	InstanceCreationExpression	P	CONSTRUCTOR:P.	0	P()

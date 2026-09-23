@@ -1,0 +1,21 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "7.7.1",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "3.0.1",
+    "json_annotation": "4.9.0",
+    "json_serializable": "6.9.5",
+    "source_gen": "2.0.0"
+  },
+  "saidas": [
+    { "asset": "corpus_json_serializable|lib/modelos.g.dart", "build_to": "source", "sha256": "0f7ec73d8bec3e4b44b40a913a8e1eaa4207487bfb922efecf5e7c12eae707af" },
+    { "asset": "corpus_json_serializable|lib/modelos.json_serializable.g.part", "build_to": "cache", "sha256": "5d61df47bd43edbd82f30530504e319a39dd0d4de2bc8b7d1c5ae33e3da4a493" }
+  ],
+  "excluidos": 2,
+  "executavel": true
+}

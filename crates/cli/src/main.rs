@@ -2,6 +2,7 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 mod analisar;
 mod jit;
+mod motor;
 mod nativo;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
@@ -11,7 +12,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.is_empty() || args[0] == "--help" {
         println!(
             "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
-       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
        dartforge run|reload <input.dart> ...  (compile com --features jit)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );
         return Ok(());
@@ -23,6 +24,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return run_dev(&args[1..], true);
     }
     if args[0] == "compile-native" { return nativo::run_compile_native(&args[1..]); }
+    if args[0] == "build" {
+        return motor::run_build(&args[1..]);
+    }
     if args[0] == "compile-js" {
         return run_compile_js(&args[1..]);
     }
@@ -81,9 +85,31 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
     let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
     // Corpos profundos (cadeias longas de `+`, árvores de widgets) recursam fundo: pilha própria.
     let (i2, s2, p2) = (input.clone(), sdk.clone(), packages.clone());
-    let (emitido, mut relatorio) = std::thread::Builder::new()
+    let (emitido, mut relatorio, rel_motor) = std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || dartforge_emit_js::compilar_com_relatorio(&i2, s2.as_deref(), p2.as_deref()))
+        .spawn(move || -> Result<_, String> {
+            // Motor de build só se o projeto usa builders (custo zero).
+            let motor = motor::detectar(&i2, p2.as_deref());
+            let rel_motor = std::cell::RefCell::new(None);
+            let gerar = |programa: &dartforge_elements::model::Program, nomes: &dartforge_intern::Interner| {
+                let (raiz, cfg) = motor.as_ref().ok_or("sem motor")?;
+                match motor::gerar_uma_vez(raiz, cfg, programa, nomes) {
+                    Ok((g, texto)) => {
+                        *rel_motor.borrow_mut() = Some(texto);
+                        Ok(g)
+                    }
+                    // O motor não é pré-requisito: sem ele, o carregador lê
+                    // o que estiver no disco, como antes.
+                    Err(e) => {
+                        *rel_motor.borrow_mut() = Some(format!("aviso: motor de build desligado: {e}"));
+                        Ok(std::sync::Arc::new(dartforge_elements::gerado::Geracao::default()))
+                    }
+                }
+            };
+            let gerador: Option<dartforge_emit_js::Gerador<'_>> = motor.as_ref().map(|_| &gerar as _);
+            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), gerador)?;
+            Ok((e, r, rel_motor.into_inner()))
+        })
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "a compilação abortou")??;
@@ -97,8 +123,8 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
         emitido.modulos.len(),
         escritos
     );
-    if let Some((gerados, examinados)) = relatorio.gerador_ng {
-        println!("gerador ngdart: {gerados}/{examinados} arquivos gerados por nós");
+    if let Some(texto) = rel_motor {
+        println!("{texto}");
     }
     if timings {
         print!("{}", relatorio.texto());
@@ -177,7 +203,13 @@ fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std:
             // a primeira visita já encontre a saída pronta.
             let recarga = std::sync::Arc::new(dartforge_dev::servidor::Recarga::default());
             if servir {
-                let p = dartforge_dev::servidor::servir(&saida, web.as_deref(), porta, recarga.clone())?;
+                let p = dartforge_dev::servidor::servir_com_gerados(
+                    &saida,
+                    web.as_deref(),
+                    porta,
+                    recarga.clone(),
+                    sessao.provedor_de_gerados(),
+                )?;
                 println!("servindo em http://127.0.0.1:{p}/ (recarga automática por WebSocket)");
             }
             println!("observando {} arquivos a cada {intervalo_ms} ms (ctrl+c para sair)…", sessao.observados().len());
@@ -196,7 +228,9 @@ fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std:
                         print!("{}", rel.texto());
                         if servir {
                             // Só recarrega o navegador se algum módulo mudou.
-                            if rel.modulos_escritos > 0 {
+                            // Módulo novo, ou saída gerada servida (um `.css`).
+                            let gerou = rel.motor.as_ref().is_some_and(|m| m.saidas_alteradas > 0);
+                            if rel.modulos_escritos > 0 || gerou {
                                 recarga.disparar();
                             }
                         }

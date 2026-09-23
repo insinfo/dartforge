@@ -1,0 +1,28 @@
+# 02_genericos/gen03_varios_argumentos.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	10	84	19	FunctionExpression	T Function<T>(T, T)	-	0	<T>(T a, T b) => a;
+2	27	101	1	SimpleIdentifier	T	PARAMETER:escolha.a	0	a
+3	10	113	171	FunctionExpression	void Function()	-	0	() { var x = /*@*/escolha(1, 2.5); var y = /*@*/escolha(
+4	16	133	15	MethodInvocation	num	FUNCTION:escolha	1	escolha(1, 2.5)
+4	16	133	7	SimpleIdentifier	T Function<T>(T, T)	FUNCTION:escolha	1	escolha
+4	24	141	1	IntegerLiteral	int	-	0	1
+4	27	144	3	DoubleLiteral	double	-	0	2.5
+5	16	165	15	MethodInvocation	Object	FUNCTION:escolha	1	escolha(1, 'a')
+5	16	165	7	SimpleIdentifier	T Function<T>(T, T)	FUNCTION:escolha	1	escolha
+5	24	173	1	IntegerLiteral	int	-	0	1
+5	27	176	3	SimpleStringLiteral	String	-	0	'a'
+6	16	197	16	MethodInvocation	int?	FUNCTION:escolha	1	escolha(null, 1)
+6	16	197	7	SimpleIdentifier	T Function<T>(T, T)	FUNCTION:escolha	1	escolha
+6	24	205	4	NullLiteral	Null	-	0	null
+6	30	211	1	IntegerLiteral	int	-	0	1
+7	16	230	28	MethodInvocation	List<num>	FUNCTION:escolha	1	escolha(<int>[], <double>[])
+7	16	230	7	SimpleIdentifier	T Function<T>(T, T)	FUNCTION:escolha	1	escolha
+7	24	238	7	ListLiteral	List<int>	-	0	<int>[]
+7	33	247	10	ListLiteral	List<double>	-	0	<double>[]
+8	3	262	19	MethodInvocation	void	FUNCTION:print	0	print([x, y, z, w])
+8	3	262	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	9	268	12	ListLiteral	List<Object?>	-	0	[x, y, z, w]
+8	10	269	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.x	0	x
+8	13	272	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.y	0	y
+8	16	275	1	SimpleIdentifier	int?	LOCAL_VARIABLE:main.z	0	z
+8	19	278	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.w	0	w

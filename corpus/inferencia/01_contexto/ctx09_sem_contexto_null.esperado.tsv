@@ -1,0 +1,11 @@
+# 01_contexto/ctx09_sem_contexto_null.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	9	76	4	NullLiteral	Null	-	0	null
+3	10	91	66	FunctionExpression	void Function()	-	0	() { var a = null; var b; print([/*@*/t, /*@*/a, /*@*/
+4	11	106	4	NullLiteral	Null	-	0	null
+6	3	123	31	MethodInvocation	void	FUNCTION:print	0	print([/*@*/t, /*@*/a, /*@*/b])
+6	3	123	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	9	129	24	ListLiteral	List<dynamic>	-	0	[/*@*/t, /*@*/a, /*@*/b]
+6	15	135	1	SimpleIdentifier	dynamic	GETTER:t	1	t
+6	23	143	1	SimpleIdentifier	dynamic	LOCAL_VARIABLE:main.a	1	a
+6	31	151	1	SimpleIdentifier	dynamic	LOCAL_VARIABLE:main.b	1	b

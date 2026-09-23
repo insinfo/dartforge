@@ -79,6 +79,16 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         return true;
     }
 
+    // Variáveis promovidas `X & S` (subtyping.md, "Right/Left Promoted Variable").
+    if let Type::Intersection { param, bound } = t1 {
+        let x1 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        return is_subtype(t0_id, x1, env) && is_subtype(t0_id, bound, env);
+    }
+    if let Type::Intersection { param, bound } = t0 {
+        let x0 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        return is_subtype(x0, t1_id, env) || is_subtype(bound, t1_id, env);
+    }
+
     // 5. Right Object: if T1 is Object then:
     if is_non_nullable_object(t1_id, &t1, env) {
         return check_right_object(t0_id, &t0, t1_id, env);
@@ -449,7 +459,7 @@ fn check_right_object(_t0_id: TypeId, t0: &Type, t1_id: TypeId, env: &mut Subtyp
 
 fn check_left_null(t1: &Type, env: &mut SubtypeEnv) -> bool {
     // - if T1 is a type variable (promoted or not) the query is false
-    if matches!(t1, Type::TypeParameter { .. }) {
+    if matches!(t1, Type::TypeParameter { nullable: false, .. } | Type::Intersection { .. }) {
         return false;
     }
     // - if T1 is FutureOr<S> for some S, then the query is true iff Null <: S

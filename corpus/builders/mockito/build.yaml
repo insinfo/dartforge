@@ -1,0 +1,13 @@
+# A definição do mockBuilder declara {".dart": [".mocks.dart"]}; aqui as
+# opções trocam as extensões de execução: só `*_test.dart` é entrada, e a
+# saída vai para test/mocks/. O motor tem de usar as extensões do Builder
+# construído, não as do build.yaml do mockito.
+targets:
+  $default:
+    builders:
+      mockito|mockBuilder:
+        generate_for:
+          - test/**
+        options:
+          build_extensions:
+            '^test/{{}}_test.dart': 'test/mocks/{{}}_test.mocks.dart'

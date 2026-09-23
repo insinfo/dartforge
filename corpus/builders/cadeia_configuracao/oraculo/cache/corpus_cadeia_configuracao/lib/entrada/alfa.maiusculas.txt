@@ -1,0 +1,7 @@
+builder: maiusculas
+entrada: corpus_cadeia_configuracao|lib/entrada/alfa.txt
+isRoot: true
+opcoes: {"alvo":"sim","global":"sim","modo":"dev_alvo","nivel":3,"origem":"alvo","so_dev":"global"}
+---
+PRIMEIRA LINHA DE ALFA
+SEGUNDA LINHA COM MAIS PALAVRAS

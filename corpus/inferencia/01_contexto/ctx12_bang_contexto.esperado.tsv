@@ -1,0 +1,16 @@
+# 01_contexto/ctx12_bang_contexto.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	5	59	14	FunctionExpression	T? Function<T>()	-	0	<T>() => null;
+2	14	68	4	NullLiteral	Null	-	0	null
+3	10	83	71	FunctionExpression	void Function()	-	0	() { int x = /*@*/g()!; List<num> y = /*@*/g()!; print
+4	16	103	4	PostfixExpression	int	-	1	g()!
+4	16	103	3	MethodInvocation	int?	FUNCTION:g	1	g()
+4	16	103	1	SimpleIdentifier	T? Function<T>()	FUNCTION:g	1	g
+5	22	130	4	PostfixExpression	List<num>	-	1	g()!
+5	22	130	3	MethodInvocation	List<num>?	FUNCTION:g	1	g()
+5	22	130	1	SimpleIdentifier	T? Function<T>()	FUNCTION:g	1	g
+6	3	138	13	MethodInvocation	void	FUNCTION:print	0	print([x, y])
+6	3	138	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	9	144	6	ListLiteral	List<Object>	-	0	[x, y]
+6	10	145	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.x	0	x
+6	13	148	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.y	0	y

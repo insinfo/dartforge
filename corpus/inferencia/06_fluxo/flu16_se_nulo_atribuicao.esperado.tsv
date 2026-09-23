@@ -1,0 +1,24 @@
+# 06_fluxo/flu16_se_nulo_atribuicao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	82	101	FunctionExpression	void Function(int?, int?)	-	0	(int? x, int? y) { x ??= 1; print(/*@*/x); var z = y ?
+3	3	103	7	AssignmentExpression	int	PARAMETER:f.x	0	x ??= 1
+3	3	103	1	SimpleIdentifier	-	PARAMETER:f.x	0	x
+3	9	109	1	IntegerLiteral	int	-	0	1
+4	3	114	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+4	3	114	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+4	14	125	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+5	11	139	14	BinaryExpression	int	-	0	y ?? (throw 0)
+5	11	139	1	SimpleIdentifier	int?	PARAMETER:f.y	0	y
+5	16	144	9	ParenthesizedExpression	Never	-	0	(throw 0)
+5	17	145	7	ThrowExpression	Never	-	0	throw 0
+5	23	151	1	IntegerLiteral	int	-	0	0
+6	3	157	23	MethodInvocation	void	FUNCTION:print	0	print([/*@*/z, /*@*/y])
+6	3	157	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	9	163	16	ListLiteral	List<int>	-	0	[/*@*/z, /*@*/y]
+6	15	169	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.z	1	z
+6	23	177	1	SimpleIdentifier	int	PARAMETER:f.y	1	y
+9	10	194	14	FunctionExpression	void Function()	-	0	() => f(1, 2);
+9	16	200	7	MethodInvocation	void	FUNCTION:f	0	f(1, 2)
+9	16	200	1	SimpleIdentifier	void Function(int?, int?)	FUNCTION:f	0	f
+9	18	202	1	IntegerLiteral	int	-	0	1
+9	21	205	1	IntegerLiteral	int	-	0	2

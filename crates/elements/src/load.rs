@@ -163,6 +163,9 @@ pub fn load_lenient_gerados(
     let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
     let mut prefetch = Prefetch { gerados: package_config.gerados.clone(), ..Default::default() };
     let mut considerados = 0usize;
+    // Unidades do SDK já decodificadas do cache pela onda, à espera da vez da
+    // biblioteca na fila.
+    let mut sdk_decodificadas: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
     let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
         existing
     } else {
@@ -214,6 +217,21 @@ pub fn load_lenient_gerados(
                     }
                 }
             }
+            // As bibliotecas `dart:` da onda saem do cache decodificadas em
+            // paralelo (em série, no perfil `dev`, custavam tanto quanto
+            // reanalisar o SDK).
+            if let Some(c) = cache.as_mut() {
+                let t_cache = std::time::Instant::now();
+                let nomes: Vec<&str> = program.libraries[considerados..]
+                    .iter()
+                    .filter_map(|l| l.uri.strip_prefix("dart:"))
+                    .filter(|n| c.tem(n))
+                    .collect();
+                if !nomes.is_empty() {
+                    sdk_decodificadas.extend(c.retirar_varios(&nomes));
+                }
+                program.tempos.sdk_cache += t_cache.elapsed();
+            }
             considerados = program.libraries.len();
             prefetch.carregar(caminhos);
             program.tempos.leitura_lex_paralelo += t.elapsed();
@@ -225,7 +243,9 @@ pub fn load_lenient_gerados(
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
             let t_cache = std::time::Instant::now();
-            let do_cache = cache.as_mut().and_then(|c| c.retirar(lib_name));
+            let do_cache = sdk_decodificadas
+                .remove(lib_name)
+                .or_else(|| cache.as_mut().and_then(|c| c.retirar(lib_name)));
             program.tempos.sdk_cache += t_cache.elapsed();
             if let Some(unidades) = do_cache {
                 for u in unidades {
@@ -252,7 +272,7 @@ pub fn load_lenient_gerados(
                     interner,
                     &mut program,
                     &mut diagnostics,
-                    None,
+                    ler_substituto(sdk, &sdk_lib.path),
                     unidades.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
@@ -273,7 +293,7 @@ pub fn load_lenient_gerados(
                         interner,
                         &mut program,
                         &mut diagnostics,
-                        None,
+                        ler_substituto(sdk, patch_path),
                         unidades.as_deref_mut(),
                     );
                     if let Some(uid) = patch_unit {
@@ -322,6 +342,14 @@ pub fn load_lenient_gerados(
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
             let unit_uri = program.units[unit_id.0 as usize].uri.clone();
+            // Parte de um arquivo de patch (`core_patch.dart` tem
+            // `part 'bigint_patch.dart'`) é patch também: as suas classes
+            // `@patch` se fundem na classe de origem, em vez de criarem outra.
+            let papel_das_partes = if program.units[unit_id.0 as usize].role == UnitRole::Patch {
+                UnitRole::Patch
+            } else {
+                UnitRole::Part
+            };
 
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
@@ -405,11 +433,11 @@ pub fn load_lenient_gerados(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            UnitRole::Part,
+                            papel_das_partes,
                             interner,
                             &mut program,
                             &mut diagnostics,
-                            prefetch.tirar(&canonical_part),
+                            ler_substituto(sdk, &canonical_part).or_else(|| prefetch.tirar(&canonical_part)),
                             unidades.as_deref_mut(),
                         );
 
@@ -598,6 +626,18 @@ impl Prefetch {
             }
         }
     }
+}
+
+/// O texto de um arquivo do SDK que a sobreposição troca
+/// (`SdkLayout::load_com_sobreposicao`): lido do substituto, com o caminho
+/// lógico do original — é o que faz um `part` dele resolver ao lado do
+/// original. `None` quando não há troca (a leitura segue o caminho normal).
+fn ler_substituto(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
+    let novo = sdk.substituto(path)?;
+    Some(std::fs::read_to_string(novo).map(|s| {
+        let t = dartforge_frontend::lexer::lex(&s);
+        (s, t)
+    }))
 }
 
 /// Caminho do arquivo principal de uma biblioteca `package:` ou `file:`.

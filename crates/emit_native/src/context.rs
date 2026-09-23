@@ -15,6 +15,60 @@ pub struct Context<'a> {
     pub outline: &'a OutlineTypes,
     pub bodies: &'a BodyTypes,
     pub entry_lib: Option<LibraryId>,
+    /// Id de classe do runtime de cada classe do programa (P2): a ordem do
+    /// caminho estável (`nome_da_biblioteca`, nome da classe), a partir de 1,
+    /// pulando a faixa 1000–1012 das classes de erro do runtime. `None` para
+    /// as classes do SDK.
+    pub ids_de_classe: Vec<Option<u32>>,
+    /// As formas de record com campo nomeado do programa (P3): número de
+    /// posicionais e os nomes, ordenados — cada uma é uma "classe" de record
+    /// com id `ID_BASE_DE_FORMA + índice`.
+    pub formas_de_record: Vec<(usize, Vec<String>)>,
+    /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
+    /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
+    raiz: Option<std::path::PathBuf>,
+    /// P6: as bibliotecas do SDK compiladas da fonte com o programa
+    /// (`fonte.rs`); o `is_sdk` delas já está desligado na cópia do
+    /// `Program`. Vazio para quem não usa `dart:async`.
+    pub da_fonte: std::collections::HashSet<LibraryId>,
+    /// RTI: a posição de cada classe do SDK (sem id de classe do heap) na
+    /// ordem do caminho estável — o id RTI é `0x2000_0000 +` ela
+    /// (`lower::rti`, `Context::id_rti`).
+    pub ids_rti_sdk: std::collections::HashMap<dartforge_elements::model::ClassId, u32>,
+}
+
+/// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
+pub fn nome_de_variavel_do_padrao(
+    ast: &dartforge_frontend::ast::Ast,
+    mut p: dartforge_frontend::ast::PatternId,
+) -> Option<SymbolId> {
+    use dartforge_frontend::ast::PatternKind;
+    loop {
+        match &ast.pattern(p).kind {
+            PatternKind::Variable { name, .. } => return Some(name.sym),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => p = *x,
+            _ => return None,
+        }
+    }
+}
+
+/// Primeiro id de classe das formas de record com campo nomeado (bem acima
+/// dos ids das classes do programa).
+pub const ID_BASE_DE_FORMA: u32 = 0x4000_0000;
+
+/// Escapa uma parte de um símbolo estável: letras, dígitos e `_` ficam; o
+/// resto vira `$` e dois dígitos hexadecimais por byte UTF-8. O `.` separa as
+/// partes, então nunca aparece cru dentro de uma — o símbolo é injetivo.
+pub fn escapar(parte: &str) -> String {
+    let mut s = String::with_capacity(parte.len());
+    for b in parte.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            s.push(b as char);
+        } else {
+            s.push_str(&format!("${b:02x}"));
+        }
+    }
+    s
 }
 
 impl<'a> Context<'a> {
@@ -26,7 +80,11 @@ impl<'a> Context<'a> {
         outline: &'a OutlineTypes,
         bodies: &'a BodyTypes,
     ) -> Self {
-        Self {
+        let raiz = program.entry.and_then(|l| {
+            let u = *program.library(l).units.first()?;
+            program.unit(u).path.as_ref()?.parent().map(|p| p.to_path_buf())
+        });
+        let mut ctx = Self {
             program,
             interner,
             table,
@@ -34,7 +92,133 @@ impl<'a> Context<'a> {
             outline,
             bodies,
             entry_lib: program.entry,
+            ids_de_classe: Vec::new(),
+            formas_de_record: Vec::new(),
+            raiz,
+            da_fonte: std::collections::HashSet::new(),
+            ids_rti_sdk: std::collections::HashMap::new(),
+        };
+        // Formas de record com campo nomeado: literais, padrões e tipos de
+        // todas as unidades do programa (o conjunto inteiro, antes do
+        // lowering — um acesso `r.x` sem tipo testa todas as que têm `x`).
+        let mut formas = std::collections::BTreeSet::new();
+        for u in &program.units {
+            if program.library(u.library).is_sdk {
+                continue;
+            }
+            for e in &u.ast.exprs {
+                if let dartforge_frontend::ast::ExprKind::Record { positional, named, .. } = &e.kind
+                    && !named.is_empty()
+                {
+                    let mut n: Vec<String> = named.iter().map(|(k, _)| interner.resolve(k.sym).to_string()).collect();
+                    n.sort();
+                    formas.insert((positional.len(), n));
+                }
+            }
+            for p in &u.ast.patterns {
+                if let dartforge_frontend::ast::PatternKind::Record { fields } = &p.kind {
+                    let mut npos = 0;
+                    let mut n = Vec::new();
+                    for f in fields.iter() {
+                        match f.name {
+                            Some(k) => n.push(interner.resolve(k.sym).to_string()),
+                            None => {
+                                // `:x` — o nome é o da variável dentro do campo.
+                                let texto = &u.source[f.span.start as usize..f.span.end as usize];
+                                if texto.trim_start().starts_with(':')
+                                    && let Some(s) = nome_de_variavel_do_padrao(&u.ast, f.pattern)
+                                {
+                                    n.push(interner.resolve(s).to_string());
+                                } else {
+                                    npos += 1;
+                                }
+                            }
+                        }
+                    }
+                    if !n.is_empty() {
+                        n.sort();
+                        formas.insert((npos, n));
+                    }
+                }
+            }
+            for t in &u.ast.types {
+                if let dartforge_frontend::ast::TypeKind::Record { positional, named } = &t.kind
+                    && !named.is_empty()
+                {
+                    let mut n: Vec<String> = named.iter().map(|(k, _)| interner.resolve(k.sym).to_string()).collect();
+                    n.sort();
+                    formas.insert((positional.len(), n));
+                }
+            }
         }
+        ctx.formas_de_record = formas.into_iter().collect();
+        let mut chaves: Vec<(String, String, usize)> = program
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !program.library(c.library).is_sdk)
+            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .collect();
+        chaves.sort();
+        let mut ids = vec![None; program.classes.len()];
+        let mut prox = 1u32;
+        for (_, _, i) in chaves {
+            if (1000..=1012).contains(&prox) {
+                prox = 1013;
+            }
+            ids[i] = Some(prox);
+            prox += 1;
+        }
+        ctx.ids_de_classe = ids;
+        // RTI: as classes do SDK, na ordem do caminho estável.
+        let mut sdk: Vec<(String, String, usize)> = program
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| program.library(c.library).is_sdk)
+            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .collect();
+        sdk.sort();
+        ctx.ids_rti_sdk = sdk
+            .into_iter()
+            .enumerate()
+            .map(|(k, (_, _, i))| (dartforge_elements::model::ClassId(i as u32), k as u32))
+            .collect();
+        ctx
+    }
+
+    /// O nome estável de uma biblioteca (P2): `dart:x` e `package:a/b.dart`
+    /// como estão; `file:` pelo caminho relativo ao diretório da biblioteca
+    /// de entrada, com `/` (o mesmo programa tem os mesmos símbolos em
+    /// qualquer máquina e checkout).
+    pub fn nome_da_biblioteca(&self, lib: LibraryId) -> String {
+        let l = self.program.library(lib);
+        if !l.uri.starts_with("file:") {
+            return l.uri.clone();
+        }
+        let caminho = l
+            .units
+            .first()
+            .and_then(|u| self.program.unit(*u).path.clone());
+        if let (Some(c), Some(r)) = (caminho, self.raiz.as_ref())
+            && let Ok(rel) = c.strip_prefix(r)
+        {
+            return rel.to_string_lossy().replace('\\', "/");
+        }
+        l.uri.clone()
+    }
+
+    /// Id de classe da forma de record `(npos, nomes)`, se o programa a tem.
+    pub fn id_da_forma(&self, npos: usize, nomes: &[String]) -> Option<u32> {
+        self.formas_de_record
+            .iter()
+            .position(|(p, n)| *p == npos && n.as_slice() == nomes)
+            .map(|i| ID_BASE_DE_FORMA + i as u32)
+    }
+
+    /// Id de classe do runtime de uma classe do programa.
+    pub fn id_de_classe(&self, cid: dartforge_elements::model::ClassId) -> Option<u32> {
+        self.ids_de_classe.get(cid.0 as usize).copied().flatten()
     }
 
     pub fn symbol_name(&self, sym: SymbolId) -> &str {
@@ -136,9 +320,8 @@ impl<'a> Context<'a> {
     ///
     /// Só `int`, `double` e `bool` **não anuláveis** são escalares; qualquer
     /// tipo anulável (`int?` inclusive), `num`, `Object`, `dynamic` e
-    /// parâmetros de tipo são `Ref`. `Type` (não anulável) é o id de classe
-    /// que o runtime usa nos testes de tipo, um `I64` — provisório, até os
-    /// objetos `Type` existirem no heap.
+    /// parâmetros de tipo são `Ref` — `Type` inclusive: é o objeto canônico
+    /// do RTI (`lower/rti.rs`).
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
         if self.is_void(ty) {
             return crate::hir::Type::Void;
@@ -151,7 +334,7 @@ impl<'a> Context<'a> {
             return crate::hir::Type::Ref;
         }
         match self.symbol_name(classe.name) {
-            "int" | "Type" => crate::hir::Type::I64,
+            "int" => crate::hir::Type::I64,
             "double" => crate::hir::Type::F64,
             "bool" => crate::hir::Type::I1,
             _ => crate::hir::Type::Ref,

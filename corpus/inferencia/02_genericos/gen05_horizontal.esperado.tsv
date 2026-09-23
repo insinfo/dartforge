@@ -1,0 +1,55 @@
+# 02_genericos/gen05_horizontal.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	9	157	37	FunctionExpression	U Function<T, U>(T, U Function(T))	-	0	<T, U>(T x, U Function(T) f) => f(x);
+3	41	189	4	FunctionExpressionInvocation	U	-	0	f(x)
+3	41	189	1	SimpleIdentifier	U Function(T)	PARAMETER:aplica.f	0	f
+3	43	191	1	SimpleIdentifier	T	PARAMETER:aplica.x	0	x
+4	14	208	37	FunctionExpression	U Function<T, U>(U Function(T), T)	-	0	<T, U>(U Function(T) f, T x) => f(x);
+4	46	240	4	FunctionExpressionInvocation	U	-	0	f(x)
+4	46	240	1	SimpleIdentifier	U Function(T)	PARAMETER:aplicaAntes.f	0	f
+4	48	242	1	SimpleIdentifier	T	PARAMETER:aplicaAntes.x	0	x
+5	10	255	265	FunctionExpression	void Function()	-	0	() { var r = /*@*/aplica(1, (v) => (/*@*/v).isEven); var
+6	16	275	33	MethodInvocation	bool	FUNCTION:aplica	1	aplica(1, (v) => (/*@*/v).isEven)
+6	16	275	6	SimpleIdentifier	U Function<T, U>(T, U Function(T))	FUNCTION:aplica	1	aplica
+6	23	282	1	IntegerLiteral	int	-	0	1
+6	26	285	22	FunctionExpression	bool Function(int)	-	0	(v) => (/*@*/v).isEven
+6	33	292	15	PropertyAccess	bool	GETTER:int.isEven	0	(/*@*/v).isEven
+6	33	292	8	ParenthesizedExpression	int	-	0	(/*@*/v)
+6	39	298	1	SimpleIdentifier	int	PARAMETER:.v	1	v
+6	42	301	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+7	16	325	42	MethodInvocation	double	FUNCTION:aplicaAntes	1	aplicaAntes((v) => (/*@*/v).toDouble(), 1)
+7	16	325	11	SimpleIdentifier	U Function<T, U>(U Function(T), T)	FUNCTION:aplicaAntes	1	aplicaAntes
+7	28	337	26	FunctionExpression	double Function(int)	-	0	(v) => (/*@*/v).toDouble()
+7	35	344	19	MethodInvocation	double	METHOD:num.toDouble	0	(/*@*/v).toDouble()
+7	35	344	8	ParenthesizedExpression	int	-	0	(/*@*/v)
+7	41	350	1	SimpleIdentifier	int	PARAMETER:.v	1	v
+7	44	353	8	SimpleIdentifier	double Function()	METHOD:num.toDouble	0	toDouble
+7	56	365	1	IntegerLiteral	int	-	0	1
+8	11	379	9	ListLiteral	List<int>	-	0	[1, 2, 3]
+8	12	380	1	IntegerLiteral	int	-	0	1
+8	15	383	1	IntegerLiteral	int	-	0	2
+8	18	386	1	IntegerLiteral	int	-	0	3
+9	19	408	31	MethodInvocation	int	METHOD:Iterable.fold	1	l.fold(0, (a, b) => /*@*/a + b)
+9	19	408	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+9	21	410	4	SimpleIdentifier	T Function<T>(T, T Function(T, int))	METHOD:Iterable.fold	0	fold
+9	26	415	1	IntegerLiteral	int	-	0	0
+9	29	418	20	FunctionExpression	int Function(int, int)	-	0	(a, b) => /*@*/a + b
+9	44	433	5	BinaryExpression	int	METHOD:num.+	1	a + b
+9	44	433	1	SimpleIdentifier	int	PARAMETER:.a	1	a
+9	48	437	1	SimpleIdentifier	int	PARAMETER:.b	0	b
+10	16	456	35	MethodInvocation	List<String>	METHOD:Iterable.toList	1	l.map((x) => x.toString()).toList()
+10	16	456	26	MethodInvocation	Iterable<String>	METHOD:Iterable.map	1	l.map((x) => x.toString())
+10	16	456	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+10	18	458	3	SimpleIdentifier	Iterable<T> Function<T>(T Function(int))	METHOD:Iterable.map	0	map
+10	22	462	19	FunctionExpression	String Function(int)	-	0	(x) => x.toString()
+10	29	469	12	MethodInvocation	String	METHOD:int.toString	0	x.toString()
+10	29	469	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+10	31	471	8	SimpleIdentifier	String Function()	METHOD:int.toString	0	toString
+10	43	483	6	SimpleIdentifier	List<String> Function({bool growable})	METHOD:Iterable.toList	0	toList
+11	3	495	22	MethodInvocation	void	FUNCTION:print	0	print([r, s, soma, m])
+11	3	495	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	501	15	ListLiteral	List<Object>	-	0	[r, s, soma, m]
+11	10	502	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.r	0	r
+11	13	505	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.s	0	s
+11	16	508	4	SimpleIdentifier	int	LOCAL_VARIABLE:main.soma	0	soma
+11	22	514	1	SimpleIdentifier	List<String>	LOCAL_VARIABLE:main.m	0	m

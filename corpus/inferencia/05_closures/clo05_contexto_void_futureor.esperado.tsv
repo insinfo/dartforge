@@ -1,0 +1,20 @@
+# 05_closures/clo05_contexto_void_futureor.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	10	108	244	FunctionExpression	void Function()	-	0	() { void Function() a = /*@*/() => 1; FutureOr<int> Fun
+5	28	140	7	FunctionExpression	void Function()	-	1	() => 1
+5	34	146	1	IntegerLiteral	int	-	0	1
+6	37	185	7	FunctionExpression	int Function()	-	1	() => 1
+6	43	191	1	IntegerLiteral	int	-	0	1
+7	40	233	12	FunctionExpression	int Function(int)	-	1	(int x) => x
+7	51	244	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+8	31	277	8	FunctionExpression	int Function(int)	-	1	(x) => x
+8	38	284	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+9	31	317	6	FunctionExpression	void Function(int)	-	1	(x) {}
+10	3	327	22	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d, e])
+10	3	327	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	9	333	15	ListLiteral	List<Object>	-	0	[a, b, c, d, e]
+10	10	334	1	SimpleIdentifier	void Function()	LOCAL_VARIABLE:main.a	0	a
+10	13	337	1	SimpleIdentifier	FutureOr<int> Function()	LOCAL_VARIABLE:main.b	0	b
+10	16	340	1	SimpleIdentifier	FutureOr<int Function(int)>	LOCAL_VARIABLE:main.c	0	c
+10	19	343	1	SimpleIdentifier	int Function(int)	LOCAL_VARIABLE:main.d	0	d
+10	22	346	1	SimpleIdentifier	void Function(int)	LOCAL_VARIABLE:main.e	0	e

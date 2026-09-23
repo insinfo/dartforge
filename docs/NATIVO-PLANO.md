@@ -431,6 +431,18 @@ representação ser honesta transforma cada escalar em posição `Ref` num
   mapa é a mesma chave vindo encaixotada ou não.
 * **R9.** Igualdade e identidade de caixas são por valor: `identical(1, 1)` e
   `==` entre um `int` encaixotado e outro, como na VM.
+* **R10 (rodada 2, pré-requisito do P5).** `Ref` com `Smi` etiquetado: um
+  `Ref` é `0` (null), um handle **par** (`(índice + 1) << 1`) ou um `int`
+  pequeno **ímpar**, `(v << 1) | 1`, para `v` em `[-2^62, 2^62)`. O `Box` de
+  um `int` nessa faixa não aloca; fora dela vai para o heap como o `_Mint`
+  da VM (`Value::BoxedInt`). A forma é canônica — o que cabe no `Smi` nunca é
+  encaixotado —, então `identical(1, 1)` é igualdade de bits. O bit é o
+  inverso do da VM (lá `kSmiTag = 0`), para o `0` continuar sendo null sem
+  mudar o código gerado. **O coletor nunca segue um `Smi`**: raiz, campo
+  `Ref`, global e exceção pendente podem conter um, e a marcação pula as
+  arestas ímpares; as coleções normalizam o `Smi` para o escalar (R8). Um
+  `Smi` desreferenciado como objeto é o quinto erro de N4 ("Smi usado como
+  handle"). Código: `runtime/src/heap.rs`, módulo `smi`.
 
 ### 6.3 E — arestas do heap
 
@@ -461,7 +473,8 @@ representação ser honesta transforma cada escalar em posição `Ref` num
 * **N4.** No runtime, `Heap::get`/`get_mut`/`set` distinguem quatro falhas
   com mensagens próprias: handle `0` (null desreferenciado — bug do
   compilador), negativo, além da tabela (escalar usado como handle) e slot
-  já coletado (raiz faltando). Nenhuma delas devolve valor padrão.
+  já coletado (raiz faltando). Nenhuma delas devolve valor padrão. Com R10
+  há uma quinta: `Smi` (ímpar) lido como objeto.
 * **N5.** Construtor generativo é uma função da HIR,
   `df_ctor_<id>(this, parâmetros…)`; `C(args)` é `object_new(classe,
   |layout|)` seguido da chamada. A função executa, nesta ordem (a do
@@ -811,3 +824,367 @@ comentário de cabeçalho): `llvm/externs.rs`, `FRAGMENTOS` em
 `crates/runtime/build.rs`, o `struct FnBuilder`. `llvm/mod.rs`: α (closures) e
 ζ (globais) mexem em funções diferentes; β põe o despacho em `llvm/despacho.rs`.
 **Ordem de merge:** P0 → (P1, P2, P3, P5a–c) → P4 → P5d → (P6, P8) → P7 → P9.
+
+### 7.4 δ: strings, `Smi` e P5a/P5b (medido)
+
+**Decisão 5 — strings UTF-16 (a702ff0).** `Texto` (`runtime/src/heap.rs`):
+`_OneByteString`/`_TwoByteString` canônicos; `length`, índices, busca,
+`split`/`replaceAll`/`splitMapJoin` (os algoritmos do `_StringBase`) por
+unidade; `print` troca o surrogate solto por U+FFFD, como o `Utf8::Encode` da
+VM (medido: `EF BF BD`). Pesado 35849542217: nativo **50/223** (o programa 04
+de surrogates passa), JIT 50/223 com 0 divergências, IR determinístico, JS
+223/223; `--gc-stress` 50/223 (35849593802).
+
+**R10 — `Smi` (4f0b236).** Pesado 35852784596: nativo 50/223, JIT 50/223 com 0
+divergências; `--gc-stress` 50/223 (35852795093). Alocações, contadas exatas
+pelo contador novo `smi_caixas_evitadas` do `DARTFORGE_GC_STATS` (antes =
+`allocations` + evitadas), numa amostra de 12 aprovados: 45 833 → 45 800
+(−0,1%; o código do usuário do corpus é tipado, quase não encaixota); num laço
+de 100 000 `Object o = i`, 100 000 alocações a menos. O ganho grande é com o
+SDK da fonte, genérico (`E`, `Object?`).
+
+**P5a — sobreposição.** `sdk_nativo/libraries.json` (alvo
+`dartforge_nativo`, base `vm`) troca por **conteúdo** quatro arquivos:
+`async_patch.dart` (o modelo do dart2js sem `_SuspendState`),
+`schedule_microtask_patch.dart` e `timer_patch.dart` (natives
+`DartForge_scheduleImmediate`/`DartForge_Timer_*`) e `finalizer_patch.dart`
+(validação da VM, callback nunca rodado — a especificação permite). O caminho
+lógico continua o do SDK, então os `part` resolvem ao lado do original
+(`SdkLayout::load_com_sobreposicao`, `elements/src/load.rs` lê o substituto;
+o cache do SDK inclui as trocas na chave). O programa carrega sem diagnóstico.
+
+**Medição de 5a** (`sdk_modulo::medir_inferencia_do_sdk`, com o pedido a
+`crates/types` aplicado só localmente — NATIVO-PEDIDOS): **4 447
+diagnósticos** de inferência nos corpos das sete bibliotecas da fonte —
+`_internal` 635, `core` 2 294, `_compact_hash` 111, `collection` 420, `math` 71,
+`convert` 391, `async` 525. Os mais comuns: "Nome indefinido" (1 381), argumento
+não atribuível (763), retorno não atribuível (616), método/getter não definido
+para o tipo. O aceite de 5a (zero) é trabalho da inferência, não do nativo; a
+lista por código está no teste ignorado `medir_inferencia_das_bibliotecas_da_fonte`.
+
+**Achado do inventário (P5b).** `nativos::inventario` percorre os `external`
+sem patch das sete bibliotecas: **137 natives distintos**, 57 intrínsecos
+(`vm:recognized`) e **43 `external` cujo patch não foi ligado** pelo
+carregador (`patched_by` vazio): membros de classe com `@patch` —
+`Object.==`/`hashCode`/`toString`, `Timer._createTimer` (que a sobreposição
+patcheia), `_AsyncRun._scheduleImmediate`, `String.fromCharCodes`,
+`double.parse`, `identical`… O `patched_by` só é preenchido para uma parte dos
+patches; o lowering de P5d precisa dele para todos (é do dono de
+`crates/elements`).
+
+**P5b — natives.** `emit_native/src/nativos.rs`: os 137 natives em ordem, com
+estado (`Runtime`/`Pendente`) e efeitos G8 conservadores; o teste recusa native
+da fonte sem entrada e entrada que deixou de ser native. 45 já no runtime
+(fragmentos `nativos_numeros` e `nativos_strings`, `dartforge_nativo_<Nome>`):
+os `Integer_*FromInteger` (operandos trocados como na VM; deslocamento com a
+regra do `ShiftOperationHelper`), `Smi`/`Mint_bitLength`/`bitNegate`, a
+aritmética e as comparações de `Double`, `Double_toString` (o `ToShortest` da
+VM: `1e+21`, `1e-7`, `100000000000000000000.0` — conferido contra a VM) e os de
+`String` sobre o `Texto` (`String_getHashCode` é o `StringHasher` da VM,
+conferido). Os de lista, mapa, `Object`, `RegExp` e tipos ficam `Pendente`:
+dependem do layout de `_List`/`_GrowableList` (R11) e da RTI (P4).
+
+**Portão de custo (§2.3 do plano).** Nada do caminho do programa mudou ainda:
+o nativo carrega a seção `vm` sem a sobreposição até P5d, e nenhum objeto do
+SDK é compilado. Linha de base para o portão (Pesado 35852784596, job JIT ×
+AOT, 54 programas que terminam): AOT Clang + ligação **p50 142,4 ms** (p95
+156,8), JIT até executar p50 42,2 ms, AOT total p50 167,0 ms. O custo a frio
+do SDK fica para quando P5c compilar a primeira biblioteca.
+
+**Não feito nesta rodada, e por quê.** P5c (objeto por biblioteca em cache
+por blake3) e P5d (a troca, apagando `lower/sdk_por_nome.rs`) precisam que o
+lowering compile os corpos do SDK — closures (P1), despacho (P2), `switch`
+(P3), `super`/mixins/RTI (P4) —, que estão com α/β/γ; P5d é, pelo mapa, depois
+do merge de P1–P4. O `RegExp` com `regress` exige tirar o runtime do `rustc`
+avulso para uma `staticlib` do cargo (decisão 3), o que muda a distribuição do
+runtime do AOT; fica com P9, como o plano já previa, e o casador atual está
+isolado em `regexp_casa_em`/`regexp_proxima` (`runtime/src/strings.rs`).
+### 7.5 P1–P4 (α): closures, símbolos estáveis, despacho, padrões, herança
+
+O que entrou, as decisões e o porquê de cada uma. O placar medido fica em
+§7.6.
+
+**Closures (P1).** `lower/captura.rs` decide, antes de baixar cada função
+(a de topo e cada closure, na hora dela), quais variáveis declaradas **nela**
+moram numa `Cell`: as capturadas por uma função aninhada **e** atribuídas em
+qualquer ponto (fora ou dentro de uma closure, antes ou depois da captura; o
+nome de uma função local conta como atribuído — é ligado depois de a closure
+existir, e é assim que ela chama a si mesma). Capturada e nunca atribuída, a
+variável é copiada para o ambiente. É a divisão do `dartdevc`/`dart2js`, e é
+conservadora (uma variável atribuída só antes da captura também vai para a
+célula): a análise fina fica para quando a medição pedir. A variável de um
+`for` clássico que mora numa célula ganha uma célula nova a cada volta,
+copiada da anterior, antes das atualizações (a especificação do `for`); a
+do `for-in` e as do corpo de um laço já nascem por volta.
+
+A **convenção uniforme** de chamada de um valor função é a de chamada
+dinâmica da VM: `i64 @<entrada>(i64 closure, ptr args, ptr desc)`, com os
+argumentos todos `Ref` num vetor na pilha do chamador (posicionais e depois
+nomeados, na ordem do descritor) e o descritor `[n_posicionais, n_nomeados,
+hash(nome)…]` (FNV-1a de 64 bits do nome, com os nomes ordenados: o mesmo
+em qualquer módulo). A entrada confere a aridade contra a assinatura da
+função (`dartforge_args_casam`), preenche os padrões dos opcionais ausentes e
+chama o **corpo** `i64 @<símbolo>(i64 env, i64 p0, …)`. O código de uma
+closure é o índice da entrada em `@df_code_table` (o índice 0 é a entrada que
+só retorna: `dartforge_closure_entry` deixa `NoSuchMethodError` pendente
+quando o valor não é closure). O tear-off de função de topo ou estática é
+canônico (`TearOff`, `identical(f, f)`); o de método de instância é uma
+closure nova com o receptor no ambiente, e a entrada dele chama o membro com
+o despacho do receptor. Os corpos de closure ainda não são inferidos
+(`crates/types`, pedido em `docs/NATIVO-PEDIDOS.md`): neles tudo é `dynamic`,
+e os nomes são refeitos pelo escopo léxico no lowering (`resolver_por_nome`:
+local, membro da classe envolvente pela linearização, topo da biblioteca).
+
+**Símbolos estáveis (P2).** O símbolo vem do **caminho** da declaração, nunca
+de índices do `crates/elements`: `df.<biblioteca>.<dono>.<membro>`, cada
+parte escapada (letras, dígitos e `_` ficam; o resto vira `$` e dois dígitos
+hexadecimais por byte UTF-8 — o `.` separa, então o símbolo é injetivo). A
+biblioteca é a URI (`dart:core`, `package:a/b.dart`) ou, para `file:`, o
+caminho relativo ao diretório da biblioteca de entrada (o mesmo programa tem
+os mesmos símbolos em qualquer checkout). O dono é a classe, `ext:<nome>`
+para uma extensão, e vazio para o topo; o membro é o nome, o setter termina
+em `=`, o construtor é `new` ou `new:<nome>`. Closures:
+`<função>$clo<k>` (k conta as anônimas na ordem do texto) e
+`<função>$<nome>` para as funções locais; as entradas somam `$ent`, `$tear`
+(função) e `$tearm` (método). Globais: o getter preguiçoso é
+`df.<caminho>`, o valor `dfg.<caminho>` e a bandeira `dfg.<caminho>$ok`.
+`main` da entrada continua `dart_main`. O teste `t_id_simbolos_estaveis`
+(`crates/emit_native/src/lib.rs`) prova que inserir uma função e uma classe
+não muda nenhum outro símbolo e que outro diretório dá o mesmo IR. Os ids de
+classe do runtime são a ordem desse caminho (a partir de 1, pulando a faixa
+1000–1012 das classes de erro do runtime, que saem em P5d).
+
+**Despacho (P2).** A chamada de membro com um só alvo continua direta; com
+vários, o `switch` sobre a classe do receptor (mundo fechado). O receptor sem
+tipo útil (`dynamic`, `Object`, corpo de closure) usa o **despacho por nome**
+(`lower/despacho.rs`): as classes do programa que têm o membro (pela
+linearização, com campos, getters, setters e os campos implícitos de enum)
+viram casos do `switch`; o resto vai ao membro do SDK casado pelo nome
+(congelado) ou, se ele não existe, a `NoSuchMethodError` em tempo de
+execução. Os operadores sobre `num`/`dynamic` vão ao `operator` da classe do
+programa ou a `dartforge_dyn_op` (tapa-buraco com a semântica da VM, marcado
+para sair em P5 — `%` euclidiano, `~/` truncado, `/` sempre `double`), e o
+`==` sobre referências chama o `operator ==` do programa (com um lado null
+vale a identidade, §17.26). **A tabela global de despacho** (`@df.sel.*`,
+deslocamento por seletor) **fica para P5c**: ela só é necessária quando
+código compilado à parte (o módulo do SDK) chama um membro do programa; até
+lá o `switch` em mundo fechado tem a mesma semântica e nenhum consumidor a
+mais.
+
+**`switch`, padrões e enums (P3).** `lower/padroes.rs` casa um padrão como
+árvore de decisão sobre os testes que já existiam (tipo, `==` da constante,
+comparação), com as variáveis ligadas à medida que o casamento avança;
+`switch` como comando (casos vazios compartilham o corpo, `continue
+rótulo`, `break`) e como expressão, `if-case`, declaração e atribuição por
+padrão, `for-in` com padrão. Record com campo nomeado (literal e padrão) é
+diagnóstico: o runtime não tem a forma (pedido a δ). O valor de um enum é um
+objeto canônico num global preguiçoso (`index` e `_name` nas posições 0 e 1,
+depois os campos declarados, criado pelo construtor que o valor escolhe);
+`values`, `index`, `name` e o `toString()` `Enum.valor`.
+
+**Herança e cascata (P4).** Cascata (`..`, `?..`) avalia o alvo uma vez; as
+seções vão pelo despacho dinâmico (o alvo implícito ainda não tem tipo).
+`super.m()`/`super.x`/`super.x = v`/`super op e` é chamada direta a partir do
+que vem depois da classe na **linearização** (`membros::linearizacao`: a
+classe, os mixins do último para o primeiro, a superclasse). Mixins **sem
+cópia**: o código do mixin é compilado uma vez; os campos dele ficam no
+layout de cada classe que o aplica, entre os da superclasse e os da classe, e
+o índice é escolhido pela classe dinâmica de `this` (`switch`) — o mesmo
+mecanismo do despacho, sem gerar uma cópia por aplicação. `super` dentro de
+um mixin ainda é diagnóstico. Membros de extensão: o receptor é o primeiro
+parâmetro, na representação do tipo `on`. Fábrica redirecionadora, campo
+`late` escalar com inicializador (em caixa: null é "não inicializado") e a
+chamada de valor função (`f()`, `obj.campo()`, `f.call()`, `(e)(…)`).
+
+**Correções de caminho.** `try/finally` sem `catch`: as exceções do corpo
+iam direto ao `finally` sem registrar a entrada do phi dele (o Clang recusava
+o módulo); agora passam por um bloco de pouso que registra, e as exceções
+dentro de um `catch` também passam pelo `finally` antes de subir. A exceção
+que sai do `finally` sobe para o tratador mais interno (antes ia ao
+`finally` de fora pulando o `catch` de fora).
+
+**Também em P3/P4.** `const` canônico (`lower/constantes.rs`): a chave de uma
+constante é o valor estrutural dela escrito como texto (`o:<construtor>(…)`,
+`l<tipo>:[…]`, `i:2`…, com o tipo estático nas coleções — `const <int>[]` e
+`const <String>[]` são objetos diferentes); cada chave é um global
+preguiçoso `dfc.<hash>` e as coleções constantes saem imutáveis. Contexto
+constante: inicializador `const` (de topo, estático ou local), valor padrão
+de parâmetro e argumentos de `const C(…)`. Literais de coleção com `...`,
+`...?`, `?e`, `if`, `for` e `for-in`, e o literal de conjunto (antes `{a, b}`
+virava um mapa vazio). Num padrão de casamento, um nome solto é padrão
+constante (`case base:`), e `const (e)` é a expressão. Records com campo
+nomeado (`lower/registros.rs`): cada forma do programa é uma "classe" com
+`toString` e `==` estrutural gerados. O `for-in` e o espalhamento leem lista
+ou conjunto (`dartforge_iteravel_get_*`). `break`/`continue` (com rótulo)
+que atravessam um `finally` passam por ele e continuam o salto; um salto para
+um laço dentro do próprio `try` não passa. O corpo do `finally` roda com a
+exceção guardada fora da pendência (antes a primeira chamada dele desviava).
+Um global cujo inicializador lança volta a não inicializado.
+
+**RTI ainda não.** `x is List<int>`, `case <int>[…]` e `List<int>()` num
+padrão são **diagnóstico** ("teste de tipo genérico (RTI)"): responder pela
+classe daria a resposta errada. É o item de P4 que falta, com o `super`
+dentro de um mixin.
+
+### 7.6 Placar da rodada 2 (α), medido no CI
+
+| passo | commit | Pesado (run) | nativo | JIT | JIT × AOT |
+| --- | --- | --- | ---: | ---: | --- |
+| P0 (base) | 87be22b | 35836380647 | 50/223 | 50/223 | 0 divergentes |
+| P1–P2 | b156dd2 | 35861971349 | 68/223 | 68/223 | — |
+| P1–P4 parcial | b60a219 | 35863053512 | 74/223 | 74/223 | 0 divergentes |
+| P3 (const, padrões) | 8c313a9 | 35866264097 | 81/223 | 81/223 | 0 divergentes |
+| P4 (RTI como diagnóstico, cast pela classe) | a276d6c | 35871381320 | 81/223 | 81/223 | job verde |
+
+Os 81 passam também com `--gc-stress` (coleta antes de toda alocação),
+rodado localmente programa a programa sobre a lista do CI. O determinismo do
+IR é idêntico com 1, 4 e 8 trabalhadores (88 programas com IR). JS 223/223
+nos dois perfis.
+
+O que sobra, pelo relatório de construtos: quase tudo é membro do SDK sem
+implementação (`where`, `map`, `fold`, `toStringAsFixed`, `sort`,
+`List.filled`/`List.generate`, `parse`, `hashCode`…) — P5, o SDK da fonte —,
+`await`/`yield` (P6/P7) e o `toString()` de objeto do programa dentro de uma
+coleção impressa (o runtime não chama código Dart; também P5).
+
+### 7.7 P6 (`async`/`await`), RTI e `super` em mixin
+
+O que entrou, as decisões e o porquê. O placar medido fica em §7.8.
+
+**O `dart:async` vem da fonte (`crates/emit_native/src/fonte.rs`).** P6 é a
+primeira parte da decisão 1 posta em prática: o programa que usa `dart:async`
+(função `async`/gerador, `await`, o nome `Future`/`Stream`/`FutureOr` ou
+`import 'dart:async'`) compila o `dart:async` da seção `vm` com a sobreposição
+`sdk_nativo/` — e o `dart:_internal` (de onde ele usa `unsafeCast`,
+`IterableElementError`…) e a `Duration` do `dart:core` (o `Timer` a recebe; o
+runtime em Rust nunca a teve) —, **com os corpos inferidos**. Nenhuma classe
+dessas bibliotecas tem representação própria no runtime: são objetos comuns
+do heap, com layout, id de classe e símbolos estáveis (`df.dart$3aasync.…`).
+Como a inferência pula toda biblioteca `is_sdk`, o nativo desliga `is_sdk`
+delas na sua cópia do `Program` antes da inferência — o único efeito de
+`is_sdk` no `crates/types` é esse (pedido ao dono em NATIVO-PEDIDOS: um
+parâmetro que faça o mesmo). A `Duration` sai do `dart:core` para uma
+biblioteca de mesmo URI e escopo (`separar_partes_do_core`): o resto do
+`dart:core` continua sendo o do runtime. Quem não usa `dart:async` emite o
+mesmo IR de antes (a regra de custo zero).
+
+*Poda.* As bibliotecas da fonte entram inteiras (o mundo aberto de uma
+biblioteca do SDK, como no módulo por biblioteca de P5c) e o módulo é podado a
+partir do programa: fica a função que o programa alcança por chamada, closure,
+tear-off ou `toString` de classe. *Construto que falta no código da fonte* vira
+`UnsupportedError` em tempo de execução com o texto do diagnóstico
+(`FnBuilder::nao_suportado`): a poda é conservadora (todo `toString`, todo
+alvo de um despacho), e o programa que não passa por ali compila; o que passa
+falha alto, nunca em silêncio. No código do programa continua sendo erro de
+compilação (N1). `DARTFORGE_FONTE_NAO_SUPORTADO=1` lista esses pontos na
+compilação.
+
+*Natives e intrínsecos* (`lower/externos.rs`): o `external` da fonte com
+`@pragma("vm:external-name", N)` tem por corpo a chamada a
+`dartforge_nativo_N` (a tabela de δ, `nativos.rs`); `unsafeCast` é intrínseco
+(o valor). As classes de erro que o runtime representa (1000–1012) e o
+`List.filled` são construídos pelas externs que o runtime já usa
+(`lower/erros_do_runtime.rs`) — o objeto tem de ser o do runtime, que é o que
+`on ArgumentError` testa; saem com a faixa em P5d.
+
+*Um defeito do carregador achado aqui* (`crates/elements`, corrigido em
+commit próprio): a parte de um arquivo de patch (`core_patch.dart` →
+`part "errors_patch.dart"`, a `timer_patch.dart` da sobreposição) era
+carregada como parte comum, e a classe `@patch` dela virava outra classe com o
+mesmo nome, que tomava o lugar da original — `Error` sem `throwWithStackTrace`,
+`Timer` sem `periodic`. Eram os 43 `external` com `patched_by` vazio que δ
+mediu.
+
+**O corpo `async` (`lower/async_sm.rs`)** segue o dart2js
+(`rewrite_async.dart`) e os apoios do `async_patch` de δ: o stub cria o
+quadro (um objeto do heap), o `Completer`
+(`_makeAsyncAwaitCompleter<T>`, `T` o tipo do valor do `Future`), a closure
+do corpo registrada na zona (`_envolverCorpo`) e começa por
+`_asyncStartSync`. O corpo `f$async(env, código, resultado)` salta pelo estado
+guardado no quadro; `await e` grava o estado, chama `_asyncAwait(e, corpo)` e
+retorna, e o bloco de retomada só é alcançado pelo `switch` da entrada. Com
+`código == _ERRO` o erro é lançado no ponto do `await` com o rastro dele e
+segue o caminho de exceção pendente de sempre (os `try`/`catch`/`finally` em
+volta são os do lowering). Exceção que chega ao topo vai a `_asyncRethrow`;
+`return v` vai a `_asyncReturn` (o gancho está em `FnBuilder::terminate`).
+
+*O que atravessa um `await` mora no quadro*, por duas passadas sobre a HIR do
+corpo pronto, que não dependem de como cada construto foi baixado: todo
+`alloca` vira posição do quadro; todo valor SSA vivo na entrada de uma
+retomada (vivacidade com a aresta virtual suspensão → retomada) é gravado no
+quadro logo depois de definido e relido antes de cada uso — o que o LLVM faz
+no *coroutine frame* (`CoroSplit`), sem reconstruir o SSA. O quadro é
+alcançado pelas arestas do heap (contrato G): a pilha-sombra é desmontada a
+cada suspensão.
+
+**O laço de eventos (`crates/runtime/src/eventos.rs`)** roda depois do
+`main` (o `dartforge_entry` o chama só quando o programa usa `dart:async`):
+microtarefas (as closures de `DartForge_scheduleImmediate`, que o
+`_startMicrotaskLoop` da fonte agenda) todas antes de qualquer timer; timers
+na ordem da VM (`timer_impl.dart`): prazo `agora` para duração 0 e
+`agora + 1 + ms` para as outras, desempate pela sequência de agendamento,
+periódico reagendado em `prazo + ms` depois do callback. É o único ponto em
+que o runtime chama Dart, por uma função do código gerado que chama uma
+closure sem argumentos (`dartforge_chamar_dart0`; G8 marca
+`dartforge_laco_de_eventos` com `chama_dart`). Exceção que sai de uma
+microtarefa já passou pela `Zone` (`_rootHandleError` a relança): o laço para
+e `finalizar_programa` a relata. O estado é por thread (um isolado por
+thread; P8 o junta em `isolado.rs`), e as closures que esperam são raízes do
+coletor (globais de raiz de id negativo).
+
+**RTI (`crates/runtime/src/tipos.rs`, `lower/rti.rs`)**, no desenho do dart2js
+(`rti.dart`): um universo canônico de tipos por isolado (hash-consing: o mesmo
+tipo tem o mesmo id); o compilador descreve cada tipo por uma **receita**
+(texto curto) com um global preguiçoso por receita; variáveis `P<i>`
+(parâmetro de tipo da classe do código corrente, lido do tipo de `this` visto
+como a classe declarante) e `M<i>` (argumento de tipo da função corrente) são
+trocadas no ambiente por `dartforge_rti_avaliar`; as regras de supertipo de
+cada classe citada (o fecho) são registradas na entrada. O tipo de cada
+objeto genérico, coleção com tipo de elemento e closure (a assinatura, o
+`$signature` do dart2js) mora num metadado por slot do heap (o `metadata_ptr`
+reservado do cabeçalho). A função genérica e a fábrica de classe genérica
+recebem a tupla dos argumentos de tipo no último parâmetro; na chamada, a
+tupla vem dos argumentos escritos ou, na falta deles, casando o retorno
+declarado com o tipo estático da chamada (e cada parâmetro com o argumento) —
+a inferência não grava os argumentos inferidos (pedido ao dono). `is`/`as`,
+`on T`, padrões de tipo e de coleção com argumentos vão pelo RTI quando a
+anotação precisa (argumentos não triviais, variável de tipo, `FutureOr`, tipo
+de função ou de record, typedef); a classe sem argumentos continua pelo teste
+de classe. **Saiu o atalho do `as`**: o cast confere o tipo inteiro e lança
+`TypeError` com a mensagem da VM. `Type` é um objeto canônico por tipo
+(literal de tipo e `runtimeType`), com o texto da VM.
+
+**`super` dentro de mixin (`lower/heranca.rs`).** O alvo é o que vem depois
+do mixin na linearização da classe **dinâmica** de `this` (especificação
+§12.3: cada aplicação tem a sua superclasse); como o código do mixin é
+compilado uma vez, o alvo é escolhido pela classe (`switch`), o mesmo
+mecanismo dos campos de mixin.
+
+**`--gc-stress` no CI.** Um job novo do `pesado.yml` roda o corpus nativo
+inteiro sob `DARTFORGE_GC_STRESS=1`, e o `nativo-placar` reprova a rodada se um
+programa passa sem estresse e falha com ele (o portão G7).
+
+**O que ficou de fora.** Streams (84) e o `Future.forEach` (88) param no
+protocolo de `Iterable` das coleções do runtime (`iterator` de uma lista do
+runtime): é o SDK da fonte das coleções (P5d). Os geradores (P7: 85, 86, 87,
+110, 119, 185) precisam da API de `Iterable` do `dart:core` sobre o iterável
+do `sync*` — também P5d. `forEach`/`map`/`fold`… sobre listas do runtime no
+código do programa (89b, 212) continuam P5.
+
+### 7.8 Placar de P6/RTI, medido no CI
+
+| passo | commit | CI | Pesado | nativo | JIT | `--gc-stress` |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| base (main) | 48248d5 | — | 35890465508 | 81/223 | 81/223 | 81 (local) |
+| P6 + RTI + `super` em mixin | fe14953 | 35899797501 (vermelho: `sdk_cache`) | 35899797550 | 90/223 | 90/223 | 90/223 |
+| cache do SDK com o papel de patch | 7f226e9 | 35901304602 | 35901304619 | 91/223 | 91/223 | 91/223 |
+| `TypeError` com mensagem, testes | c259fc5 | 35904857783 | 35904857766 | **91/223** | **91/223** | **91/223** |
+
+Nenhuma regressão contra o main (conjunto de falhas comparado programa a
+programa); passam a mais: 80, 81, 82, 83, 89, 181 (`async`), 214 e 219 (RTI),
+06 e 105 (a correção dos patches). JIT × AOT sem divergência, determinismo do
+IR idêntico com 1, 4 e 8 trabalhadores, JS 223/223 nos dois perfis, o portão
+de custo zero verde. O job novo `--gc-stress` roda o corpus inteiro (31 s no
+runner) e o `nativo-placar` confirma: nenhum programa que passa sem estresse
+falha com ele. IR de um programa `async` típico (83): 1,2 MB, a maior parte do
+`dart:async` alcançado.

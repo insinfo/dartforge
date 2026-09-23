@@ -1,0 +1,23 @@
+# 07_membros/mem01_interface.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	18	152	2	SimpleStringLiteral	String	-	0	''
+8	18	189	1	IntegerLiteral	int	-	0	1
+12	4	228	8	SimpleIdentifier	-	GETTER:override	0	override
+13	18	254	1	IntegerLiteral	int	-	0	2
+26	7	377	81	FunctionExpression	void Function(D, J)	-	0	(D d, J j) { print([/*@*/d.valor(), /*@*/d.mm(), /*@*/j.v,
+27	3	392	63	MethodInvocation	void	FUNCTION:print	0	print([/*@*/d.valor(), /*@*/d.mm(), /*@*/j.v, /*@*/d.hashCod
+27	3	392	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+27	9	398	56	ListLiteral	List<Object>	-	0	[/*@*/d.valor(), /*@*/d.mm(), /*@*/j.v, /*@*/d.hashCode]
+27	15	404	9	MethodInvocation	int	METHOD:D.valor	1	d.valor()
+27	15	404	1	SimpleIdentifier	D	PARAMETER:f.d	1	d
+27	17	406	5	SimpleIdentifier	int Function()	METHOD:D.valor	0	valor
+27	31	420	6	MethodInvocation	String	METHOD:M.mm	1	d.mm()
+27	31	420	1	SimpleIdentifier	D	PARAMETER:f.d	1	d
+27	33	422	2	SimpleIdentifier	String Function()	METHOD:M.mm	0	mm
+27	44	433	3	PrefixedIdentifier	int	GETTER:I2.v	1	j.v
+27	44	433	1	SimpleIdentifier	J	PARAMETER:f.j	1	j
+27	46	435	1	SimpleIdentifier	int	GETTER:I2.v	0	v
+27	54	443	10	PrefixedIdentifier	int	GETTER:Object.hashCode	1	d.hashCode
+27	54	443	1	SimpleIdentifier	D	PARAMETER:f.d	1	d
+27	56	445	8	SimpleIdentifier	int	GETTER:Object.hashCode	0	hashCode
+30	10	469	5	FunctionExpression	void Function()	-	0	() {}

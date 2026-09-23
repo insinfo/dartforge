@@ -1,0 +1,28 @@
+# 04_up_down/up09_tipos_de_extensao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+7	10	231	177	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var p = /*@*
+8	11	263	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+8	11	263	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+8	16	268	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+9	16	292	30	ConditionalExpression	E<num>	-	1	b ? E<int>(1) : E<double>(1.5)
+9	16	292	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+9	20	296	9	InstanceCreationExpression	E<int>	CONSTRUCTOR:E.	0	E<int>(1)
+9	27	303	1	IntegerLiteral	int	-	0	1
+9	32	308	14	InstanceCreationExpression	E<double>	CONSTRUCTOR:E.	0	E<double>(1.5)
+9	42	318	3	DoubleLiteral	double	-	0	1.5
+10	16	339	17	ConditionalExpression	Object?	-	1	b ? E<int>(1) : 1
+10	16	339	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+10	20	343	9	InstanceCreationExpression	E<int>	CONSTRUCTOR:E.	0	E<int>(1)
+10	27	350	1	IntegerLiteral	int	-	0	1
+10	32	355	1	IntegerLiteral	int	-	0	1
+11	16	373	12	ConditionalExpression	int	-	1	b ? F(1) : 2
+11	16	373	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+11	20	377	4	InstanceCreationExpression	F	CONSTRUCTOR:F.	0	F(1)
+11	22	379	1	IntegerLiteral	int	-	0	1
+11	27	384	1	IntegerLiteral	int	-	0	2
+12	3	389	16	MethodInvocation	void	FUNCTION:print	0	print([p, q, r])
+12	3	389	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	9	395	9	ListLiteral	List<Object?>	-	0	[p, q, r]
+12	10	396	1	SimpleIdentifier	E<num>	LOCAL_VARIABLE:main.p	0	p
+12	13	399	1	SimpleIdentifier	Object?	LOCAL_VARIABLE:main.q	0	q
+12	16	402	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.r	0	r

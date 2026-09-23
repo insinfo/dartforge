@@ -1,14 +1,14 @@
-//! Diretivas de atributo que o gerador instancia no nó: as do `ngforms` de
-//! um formulário simples (`NgForm`, `NgModel`, `DefaultValueAccessor`,
-//! `RequiredValidator`).
+//! Diretivas de atributo que o gerador instancia no nó: o modelo do que o
+//! oficial sabe de cada uma (o `CompileDirectiveMetadata` na parte que o
+//! emissor usa) e a resolução dos provedores de um nó.
 //!
-//! O oficial lê do analyzer o que cada uma declara — provedores,
-//! dependências do construtor, entradas, saídas e os `@HostListener`, também
-//! os herdados de superclasses e mixins (`AbstractForm`, `TouchHandler`). O
-//! nosso índice só vê o que a própria classe declara; por isso o catálogo
-//! aqui é escrito à mão, conferido contra o código do `ngforms`
-//! 5.0.0-dev.3 (`lib/src/directives/*.dart`). Diretiva fora dele continua
-//! recusada pela guarda de seletor.
+//! Os metadados **não** são escritos aqui: `metadados.rs` os lê do programa
+//! carregado, como o `find_components.dart` os lê do analyzer — seletor,
+//! `@Input`/`@Output`/`@HostListener` também herdados de superclasses,
+//! interfaces e mixins, provedores, visibilidade e as dependências do
+//! construtor. Uma diretiva cuja leitura não fecha, ou que tem algo que o
+//! emissor ainda não escreve, é recusada com o motivo
+//! ([`Diretiva::pendencia`]).
 //!
 //! A resolução de provedores do nó segue o `provider_parser.dart`
 //! (`_ProviderResolver.resolve`, `_getOrCreateLocalProvider`) e o
@@ -17,32 +17,36 @@
 //! tamanho da tabela de instâncias no momento (cinco embutidas do elemento
 //! antes de tudo), e um `ExistingProvider` de um provedor do próprio nó vira
 //! apelido, sem campo.
+use crate::componente::Ganchos;
+use std::sync::Arc;
 
 /// `package:ngdart/src/meta/di_tokens.dart`, onde está o `MultiToken`.
 pub const DI_TOKENS: &str = "package:ngdart/src/meta/di_tokens.dart";
 
-const NG_FORM: &str = "package:ngforms/src/directives/ng_form.dart";
-const NG_MODEL: &str = "package:ngforms/src/directives/ng_model.dart";
-const DEFAULT_VALUE_ACCESSOR: &str = "package:ngforms/src/directives/default_value_accessor.dart";
-const VALIDATORS: &str = "package:ngforms/src/directives/validators.dart";
-const CONTROL_CONTAINER: &str = "package:ngforms/src/directives/control_container.dart";
-const NG_CONTROL: &str = "package:ngforms/src/directives/ng_control.dart";
-const CONTROL_VALUE_ACCESSOR: &str = "package:ngforms/src/directives/control_value_accessor.dart";
+/// O `T` de um `MultiToken<T>`: a classe e quantos argumentos de tipo ela
+/// tem (todos `dynamic`, como o `fromDartType` os escreve).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TipoDeToken {
+    pub uri: String,
+    pub classe: String,
+    pub genericos: usize,
+}
+
+impl TipoDeToken {
+    /// `Object` do `dart:core`, o `T` do `ngValidators`.
+    pub fn e_object(&self) -> bool {
+        self.uri == "dart:core" && self.classe == "Object" && self.genericos == 0
+    }
+}
 
 /// Um token de injeção.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Token {
     /// Uma classe, pela biblioteca que a declara.
-    Classe {
-        uri: &'static str,
-        classe: &'static str,
-    },
-    /// `const MultiToken<T>('nome')`; `tipo` é o `T` (`None`: `Object`).
-    Multi {
-        nome: &'static str,
-        tipo: Option<(&'static str, &'static str)>,
-    },
-    /// `HtmlElement`: o próprio nó (embutido do elemento).
+    Classe { uri: String, classe: String },
+    /// `const MultiToken<T>('nome')`.
+    Multi { nome: String, tipo: TipoDeToken },
+    /// `HtmlElement`/`Element`: o próprio nó (embutido do elemento).
     Elemento,
     /// `ChangeDetectorRef`: numa diretiva, a própria visão (`o.thisExpr`).
     Detector,
@@ -50,7 +54,7 @@ pub enum Token {
 
 impl Token {
     /// O nome que vai no campo (`_NgModel_3_9`, `_NgValidators_3_6`).
-    pub fn nome(&self) -> &'static str {
+    pub fn nome(&self) -> &str {
         match self {
             Token::Classe { classe, .. } => classe,
             Token::Multi { nome, .. } => nome,
@@ -60,85 +64,84 @@ impl Token {
     }
 }
 
-const NG_VALIDATORS: Token = Token::Multi {
-    nome: "NgValidators",
-    tipo: None,
-};
-const NG_VALUE_ACCESSOR: Token = Token::Multi {
-    nome: "NgValueAccessor",
-    tipo: Some((CONTROL_VALUE_ACCESSOR, "ControlValueAccessor")),
-};
-
 /// Um item de `providers:` da diretiva: `ExistingProvider(token, existente)`
 /// ou `ExistingProvider.forToken(multi, existente)`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provedor {
     pub token: Token,
     pub existente: Token,
     pub multi: bool,
 }
 
-/// Um parâmetro do construtor.
-#[derive(Debug)]
+/// Um parâmetro posicional do construtor (`_getCompileDiDependencyMetadata`
+/// pula os nomeados).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dependencia {
     pub token: Token,
-    /// `@Optional()`.
+    /// `@Optional()` ou parâmetro posicional opcional.
     pub opcional: bool,
     /// `@Self()`.
     pub proprio: bool,
+    /// `@Host()`.
+    pub hospedeiro: bool,
+    /// `@SkipSelf()`.
+    pub pular: bool,
 }
 
 /// Um `@Input`: nome no template, membro, e se o tipo é `bool` (atributo
-/// sem valor vira `true`, `visitEmptyExpr`).
-#[derive(Debug)]
+/// sem valor vira `true`, `visitEmptyExpr`); `None` quando o tipo não se
+/// sabe daqui.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entrada {
-    pub nome: &'static str,
-    pub membro: &'static str,
-    pub booleana: bool,
+    pub nome: String,
+    pub membro: String,
+    pub booleana: Option<bool>,
 }
 
 /// Um `@HostListener`: o evento, o método e os argumentos como o
 /// `_addHostListener` os escreve. `args` vazio: método sem parâmetro;
 /// `$event`: um parâmetro; outro texto: handler complexo.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ouvinte {
-    pub evento: &'static str,
-    pub metodo: &'static str,
-    pub args: &'static str,
+    pub evento: String,
+    pub metodo: String,
+    pub args: String,
 }
 
-/// O que o gerador sabe de uma diretiva do catálogo.
-#[derive(Debug)]
-pub struct Conhecida {
-    pub classe: &'static str,
-    pub uri: &'static str,
+/// O que o gerador sabe de uma `@Directive` (ou `@Component`), lido do
+/// programa.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Diretiva {
+    pub classe: String,
+    pub uri: String,
+    pub seletor: String,
+    pub e_componente: bool,
+    pub export_as: Option<String>,
     /// `visibility: Visibility.all`: injetável por quem está abaixo.
     pub visivel: bool,
-    pub provedores: &'static [Provedor],
-    pub dependencias: &'static [Dependencia],
+    pub provedores: Vec<Provedor>,
+    pub dependencias: Vec<Dependencia>,
     /// Na ordem do mapa `inputs` (`_SortInputsVisitor`).
-    pub entradas: &'static [Entrada],
+    pub entradas: Vec<Entrada>,
     /// (nome no template, membro), na ordem do mapa `outputs`.
-    pub saidas: &'static [(&'static str, &'static str)],
-    pub ouvintes: &'static [Ouvinte],
-    pub after_changes: bool,
-    pub on_init: bool,
+    pub saidas: Vec<(String, String)>,
+    /// Na ordem do mapa `hostListeners`.
+    pub ouvintes: Vec<Ouvinte>,
+    /// `@HostBinding`: (nome da ligação, membro).
+    pub ligacoes_do_hospedeiro: Vec<(String, String)>,
+    pub ganchos: Ganchos,
+    /// Algum `@ContentChild(ren)`/`@ViewChild(ren)`.
+    pub consultas: bool,
+    /// O que a leitura não conseguiu entender: com qualquer coisa aqui, os
+    /// metadados estão incompletos e a diretiva não é usada.
+    pub fora: Vec<String>,
 }
 
-/// Cada diretiva do catálogo é uma só: igualdade é identidade.
-impl PartialEq for Conhecida {
-    fn eq(&self, outra: &Self) -> bool {
-        std::ptr::eq(self, outra)
-    }
-}
-
-impl Eq for Conhecida {}
-
-impl Conhecida {
-    pub fn token(&'static self) -> Token {
+impl Diretiva {
+    pub fn token(&self) -> Token {
         Token::Classe {
-            uri: self.uri,
-            classe: self.classe,
+            uri: self.uri.clone(),
+            classe: self.classe.clone(),
         }
     }
 
@@ -146,191 +149,64 @@ impl Conhecida {
         self.entradas.iter().find(|e| e.nome == nome)
     }
 
-    pub fn saida(&self, nome: &str) -> Option<&'static str> {
+    pub fn saida(&self, nome: &str) -> Option<&str> {
         self.saidas
             .iter()
-            .find(|(n, _)| *n == nome)
-            .map(|(_, m)| *m)
+            .find(|(n, _)| n == nome)
+            .map(|(_, m)| m.as_str())
     }
-}
 
-/// `ng_form.dart`: `NgForm extends AbstractNgForm<ControlGroup>`, com o
-/// `@Input('ngDisabled')` de `AbstractNgForm`, os `@Output` e os
-/// `@HostListener('submit')`/`('reset')` de `AbstractForm`.
-static NG_FORM_D: Conhecida = Conhecida {
-    classe: "NgForm",
-    uri: NG_FORM,
-    visivel: true,
-    provedores: &[Provedor {
-        token: Token::Classe {
-            uri: CONTROL_CONTAINER,
-            classe: "ControlContainer",
-        },
-        existente: Token::Classe {
-            uri: NG_FORM,
-            classe: "NgForm",
-        },
-        multi: false,
-    }],
-    dependencias: &[
-        Dependencia {
-            token: NG_VALIDATORS,
-            opcional: true,
-            proprio: true,
-        },
-        Dependencia {
-            token: Token::Detector,
-            opcional: false,
-            proprio: false,
-        },
-    ],
-    entradas: &[Entrada {
-        nome: "ngDisabled",
-        membro: "disabled",
-        booleana: false,
-    }],
-    saidas: &[
-        ("ngSubmit", "ngSubmit"),
-        ("ngBeforeSubmit", "ngBeforeSubmit"),
-    ],
-    ouvintes: &[
-        Ouvinte {
-            evento: "submit",
-            metodo: "onSubmit",
-            args: "$event",
-        },
-        Ouvinte {
-            evento: "reset",
-            metodo: "onReset",
-            args: "$event",
-        },
-    ],
-    after_changes: false,
-    on_init: false,
-};
+    /// Por que o emissor ainda não instancia esta diretiva num elemento
+    /// HTML, ou `None` se instancia. Cada item é uma forma sem caso no
+    /// corpus: gerar ignorando-a daria saída errada.
+    pub fn pendencia(&self) -> Option<String> {
+        if let Some(f) = self.fora.first() {
+            return Some(f.clone());
+        }
+        if self.e_componente {
+            return Some("componente como diretiva".into());
+        }
 
-/// `ng_model.dart`: `NgModel extends NgControl implements AfterChanges,
-/// OnInit`.
-static NG_MODEL_D: Conhecida = Conhecida {
-    classe: "NgModel",
-    uri: NG_MODEL,
-    visivel: true,
-    provedores: &[Provedor {
-        token: Token::Classe {
-            uri: NG_CONTROL,
-            classe: "NgControl",
-        },
-        existente: Token::Classe {
-            uri: NG_MODEL,
-            classe: "NgModel",
-        },
-        multi: false,
-    }],
-    dependencias: &[
-        Dependencia {
-            token: NG_VALIDATORS,
-            opcional: true,
-            proprio: true,
-        },
-        Dependencia {
-            token: NG_VALUE_ACCESSOR,
-            opcional: true,
-            proprio: true,
-        },
-    ],
-    entradas: &[
-        Entrada {
-            nome: "ngModel",
-            membro: "model",
-            booleana: false,
-        },
-        Entrada {
-            nome: "ngDisabled",
-            membro: "disabled",
-            booleana: true,
-        },
-    ],
-    saidas: &[("ngModelChange", "update")],
-    ouvintes: &[],
-    after_changes: true,
-    on_init: true,
-};
-
-/// `default_value_accessor.dart`: os `@HostListener` vêm do mixin
-/// `TouchHandler` (`blur`) e da própria classe (`input`).
-static DEFAULT_VALUE_ACCESSOR_D: Conhecida = Conhecida {
-    classe: "DefaultValueAccessor",
-    uri: DEFAULT_VALUE_ACCESSOR,
-    visivel: false,
-    provedores: &[Provedor {
-        token: NG_VALUE_ACCESSOR,
-        existente: Token::Classe {
-            uri: DEFAULT_VALUE_ACCESSOR,
-            classe: "DefaultValueAccessor",
-        },
-        multi: true,
-    }],
-    dependencias: &[Dependencia {
-        token: Token::Elemento,
-        opcional: false,
-        proprio: false,
-    }],
-    entradas: &[],
-    saidas: &[],
-    ouvintes: &[
-        Ouvinte {
-            evento: "blur",
-            metodo: "touchHandler",
-            args: "",
-        },
-        Ouvinte {
-            evento: "input",
-            metodo: "handleChange",
-            args: "$event.target.value",
-        },
-    ],
-    after_changes: false,
-    on_init: false,
-};
-
-/// `validators.dart`: `RequiredValidator`, `@Input() bool required`.
-static REQUIRED_VALIDATOR_D: Conhecida = Conhecida {
-    classe: "RequiredValidator",
-    uri: VALIDATORS,
-    visivel: false,
-    provedores: &[Provedor {
-        token: NG_VALIDATORS,
-        existente: Token::Classe {
-            uri: VALIDATORS,
-            classe: "RequiredValidator",
-        },
-        multi: true,
-    }],
-    dependencias: &[],
-    entradas: &[Entrada {
-        nome: "required",
-        membro: "required",
-        booleana: true,
-    }],
-    saidas: &[],
-    ouvintes: &[],
-    after_changes: false,
-    on_init: false,
-};
-
-static CATALOGO: &[&Conhecida] = &[
-    &NG_FORM_D,
-    &NG_MODEL_D,
-    &DEFAULT_VALUE_ACCESSOR_D,
-    &REQUIRED_VALIDATOR_D,
-];
-
-/// A diretiva do catálogo declarada em `uri` com o nome `classe`.
-pub fn conhecida(uri: &str, classe: &str) -> Option<&'static Conhecida> {
-    CATALOGO
-        .iter()
-        .copied()
-        .find(|d| d.uri == uri && d.classe == classe)
+        if self.consultas {
+            return Some("consulta de conteúdo ou de visão".into());
+        }
+        let g = &self.ganchos;
+        if g.do_check
+            || g.after_content_init
+            || g.after_content_checked
+            || g.after_view_init
+            || g.after_view_checked
+        {
+            return Some("gancho de ciclo de vida além de OnInit/AfterChanges".into());
+        }
+        if self
+            .ouvintes
+            .iter()
+            .any(|o| !crate::visao::evento_nativo(&o.evento))
+        {
+            return Some("@HostListener de evento não nativo".into());
+        }
+        if self.dependencias.iter().any(|d| d.pular) {
+            return Some("dependência @SkipSelf".into());
+        }
+        for d in &self.dependencias {
+            if let Token::Multi { tipo, .. } = &d.token
+                && !tipo.e_object()
+                && tipo.genericos == 0
+            {
+                return Some("MultiToken de tipo não genérico".into());
+            }
+        }
+        for p in &self.provedores {
+            if let Token::Multi { tipo, .. } = &p.token
+                && !tipo.e_object()
+                && tipo.genericos == 0
+            {
+                return Some("MultiToken de tipo não genérico".into());
+            }
+        }
+        None
+    }
 }
 
 /// Um argumento do construtor de uma diretiva, já resolvido no nó.
@@ -344,6 +220,28 @@ pub enum Argumento {
     Nulo,
     /// O campo de outro provedor do nó.
     Campo(String),
+    /// Um provedor de um elemento acima (`_getDependency` sobe pelos
+    /// pais): a expressão que o lê desta visão.
+    Acima(String),
+}
+
+/// Um provedor injetável de um elemento acima do nó, na visão dele ou numa
+/// visão ancestral (a cadeia de `parentView` até ela).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvedorAcima {
+    pub token: Token,
+    /// A expressão que o lê da visão em que o nó está.
+    pub leitura: String,
+}
+
+/// O que há acima do nó para as dependências que ele não satisfaz.
+#[derive(Debug, Clone, Copy)]
+pub struct Acima<'a> {
+    /// Do mais próximo para o mais longe.
+    pub provedores: &'a [ProvedorAcima],
+    /// Algum elemento acima tem provedor que o emissor não modela (um
+    /// componente): não achar não prova que não há.
+    pub incerto: bool,
 }
 
 /// Como um campo de provedor é criado no `build()`.
@@ -351,7 +249,7 @@ pub enum Argumento {
 pub enum Criacao {
     /// `Classe(args)`.
     Diretiva {
-        diretiva: &'static Conhecida,
+        diretiva: Arc<Diretiva>,
         args: Vec<Argumento>,
     },
     /// `[a, b]`: os campos que o multi-provedor junta.
@@ -367,6 +265,17 @@ pub struct Instancia {
     /// Os tokens pelos quais ele é injetável abaixo (`injectorGetInternal`):
     /// o próprio, se visível, e os apelidos.
     pub injetavel_por: Vec<Token>,
+    /// Os `ExistingProvider` do nó que apontam para esta instância, visíveis
+    /// ou não: também por eles uma consulta a acha.
+    pub apelidos: Vec<Token>,
+    /// Nenhum provedor ansioso (diretiva, componente) depende dele: o
+    /// oficial o cria no `afterElement` com `eager: false`, como campo
+    /// `late` com inicializador (`late List<T> _X_n_m = [..];`), e não no
+    /// `build()`.
+    pub preguicosa: bool,
+    /// Como a instância é lida: o campo, ou `campo.instance` quando a
+    /// diretiva tem `@HostBinding` e o campo guarda o `XNgCd` dela.
+    pub leitura: String,
 }
 
 /// Os provedores de diretivas de um nó, resolvidos.
@@ -375,13 +284,14 @@ pub struct NoResolvido {
     /// Os campos, na ordem de criação.
     pub instancias: Vec<Instancia>,
     /// As diretivas, na ordem em que o oficial as liga
-    /// (`transformedDirectiveAsts`: a dos provedores), com o campo de cada.
-    pub diretivas: Vec<(&'static Conhecida, String)>,
+    /// (`transformedDirectiveAsts`: a dos provedores), com a leitura da
+    /// instância de cada (o campo, ou `campo.instance` com `XNgCd`).
+    pub diretivas: Vec<(Arc<Diretiva>, String)>,
 }
 
 #[derive(Debug)]
 enum Fonte {
-    Diretiva(&'static Conhecida),
+    Diretiva(Arc<Diretiva>),
     Existente(Token),
 }
 
@@ -398,21 +308,25 @@ struct Resolvido {
 /// `directives:`) no nó `n`. Uma dependência que o próprio nó não satisfaz
 /// e não é `@Optional() @Self()` é recusada: ela viria de outro nó ou do
 /// injetor, formas ainda sem caso.
-pub fn resolver(casadas: &[&'static Conhecida], n: u32) -> Result<NoResolvido, &'static str> {
+pub fn resolver(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+) -> Result<NoResolvido, &'static str> {
     // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
     // `providers:` de cada uma; o mesmo token multi acumula.
     let mut todos: Vec<Resolvido> = Vec::new();
     for d in casadas {
         todos.push(Resolvido {
             token: d.token(),
-            fontes: vec![Fonte::Diretiva(d)],
+            fontes: vec![Fonte::Diretiva(d.clone())],
             multi: false,
             eager: true,
             visivel: d.visivel,
         });
     }
     for d in casadas {
-        for p in d.provedores {
+        for p in &d.provedores {
             match todos.iter_mut().find(|r| r.token == p.token) {
                 Some(r) => {
                     if r.multi != p.multi {
@@ -421,11 +335,11 @@ pub fn resolver(casadas: &[&'static Conhecida], n: u32) -> Result<NoResolvido, &
                     if !p.multi {
                         r.fontes.clear();
                     }
-                    r.fontes.push(Fonte::Existente(p.existente));
+                    r.fontes.push(Fonte::Existente(p.existente.clone()));
                 }
                 None => todos.push(Resolvido {
-                    token: p.token,
-                    fontes: vec![Fonte::Existente(p.existente)],
+                    token: p.token.clone(),
+                    fontes: vec![Fonte::Existente(p.existente.clone())],
                     multi: p.multi,
                     eager: false,
                     visivel: true,
@@ -457,14 +371,14 @@ pub fn resolver(casadas: &[&'static Conhecida], n: u32) -> Result<NoResolvido, &
                     criar(todos, j, ordem, vistos)?;
                 }
                 Fonte::Diretiva(d) => {
-                    for dep in d.dependencias {
-                        match dep.token {
+                    for dep in &d.dependencias {
+                        match &dep.token {
                             Token::Elemento | Token::Detector => {}
-                            t => match todos.iter().position(|r| r.token == t) {
-                                Some(j) => criar(todos, j, ordem, vistos)?,
-                                None if dep.opcional && dep.proprio => {}
-                                None => return Err("dependência de diretiva de fora do nó"),
-                            },
+                            t => {
+                                if let Some(j) = todos.iter().position(|r| r.token == *t) {
+                                    criar(todos, j, ordem, vistos)?;
+                                }
+                            }
                         }
                     }
                 }
@@ -480,6 +394,7 @@ pub fn resolver(casadas: &[&'static Conhecida], n: u32) -> Result<NoResolvido, &
             criar(&todos, i, &mut ordem, &mut vistos)?;
         }
     }
+    let ansiosos = ordem.len();
     // `afterElement`: o que sobrou (os apelidos, em geral).
     for i in 0..todos.len() {
         criar(&todos, i, &mut ordem, &mut vistos)?;
@@ -491,43 +406,60 @@ pub fn resolver(casadas: &[&'static Conhecida], n: u32) -> Result<NoResolvido, &
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
     let mut saida = NoResolvido::default();
-    for &i in &ordem {
+    for (posicao, &i) in ordem.iter().enumerate() {
         let r = &todos[i];
+        let preguicosa = posicao >= ansiosos;
         if let (false, [Fonte::Existente(alvo)]) = (r.multi, r.fontes.as_slice())
             && let Some(real) = campos
                 .iter()
                 .find(|(t, _)| t == alvo)
-                .map(|_| *alvo)
-                .or_else(|| apelidos.iter().find(|(t, _)| t == alvo).map(|(_, a)| *a))
+                .map(|_| alvo.clone())
+                .or_else(|| {
+                    apelidos
+                        .iter()
+                        .find(|(t, _)| t == alvo)
+                        .map(|(_, a)| a.clone())
+                })
         {
-            apelidos.push((r.token, real));
+            apelidos.push((r.token.clone(), real));
             tamanho += 1;
             continue;
         }
         let campo = format!("_{}_{n}_{tamanho}", r.token.nome());
+        // Diretiva com `@HostBinding`: o campo é o `XNgCd` que a embrulha
+        // (`createProvider`, `providerHasChangeDetector`).
+        let leitura = match r.fontes.as_slice() {
+            [Fonte::Diretiva(d)] if !d.ligacoes_do_hospedeiro.is_empty() => {
+                format!("{campo}.instance")
+            }
+            _ => campo.clone(),
+        };
         let campo_de = |t: &Token| -> Option<String> {
             let t = apelidos
                 .iter()
                 .find(|(a, _)| a == t)
-                .map(|(_, real)| *real)
-                .unwrap_or(*t);
-            campos.iter().find(|(x, _)| *x == t).map(|(_, c)| c.clone())
+                .map(|(_, real)| real)
+                .unwrap_or(t);
+            campos.iter().find(|(x, _)| x == t).map(|(_, c)| c.clone())
         };
         let criacao = match r.fontes.as_slice() {
             [Fonte::Diretiva(d)] => {
                 let mut args = Vec::new();
-                for dep in d.dependencias {
-                    args.push(match dep.token {
+                for dep in &d.dependencias {
+                    args.push(match &dep.token {
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
-                        t => match campo_de(&t) {
+                        t => match campo_de(t) {
                             Some(c) => Argumento::Campo(c),
-                            None => Argumento::Nulo,
+                            None => fora_do_no(dep, acima)?,
                         },
                     });
                 }
-                saida.diretivas.push((d, campo.clone()));
-                Criacao::Diretiva { diretiva: d, args }
+                saida.diretivas.push((d.clone(), leitura.clone()));
+                Criacao::Diretiva {
+                    diretiva: d.clone(),
+                    args,
+                }
             }
             fontes if r.multi => {
                 let mut itens = Vec::new();
@@ -542,37 +474,151 @@ pub fn resolver(casadas: &[&'static Conhecida], n: u32) -> Result<NoResolvido, &
             _ => return Err("provedor apelido de token de fora do nó"),
         };
         saida.instancias.push(Instancia {
-            token: r.token,
+            token: r.token.clone(),
             campo: campo.clone(),
             criacao,
-            injetavel_por: if r.visivel { vec![r.token] } else { Vec::new() },
+            injetavel_por: if r.visivel {
+                vec![r.token.clone()]
+            } else {
+                Vec::new()
+            },
+            apelidos: Vec::new(),
+            preguicosa,
+            leitura: leitura.clone(),
         });
-        campos.push((r.token, campo));
+        campos.push((r.token.clone(), leitura));
         tamanho += 1;
     }
     for (apelido, real) in apelidos {
         if let Some(inst) = saida.instancias.iter_mut().find(|x| x.token == real) {
+            inst.apelidos.push(apelido.clone());
             inst.injetavel_por.push(apelido);
         }
     }
     Ok(saida)
 }
 
+/// Uma dependência que o próprio nó não satisfaz (`_getDependency`):
+/// `@Self` para no nó; senão sobe pelos elementos acima (`@Host` até o
+/// hospedeiro, que aqui é a raiz da visão do componente). Sem resultado e
+/// `@Optional`, `null` — a não ser que haja acima algo que o emissor não
+/// modela. Sem `@Host`, depois dos elementos viria o injetor de fora: ainda
+/// não.
+fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'static str> {
+    // Sem contexto (só a ordem dos imports interessa): o valor não importa.
+    let Some(acima) = acima else {
+        return Ok(Argumento::Nulo);
+    };
+    if !dep.proprio
+        && let Some(p) = acima.provedores.iter().find(|p| p.token == dep.token)
+    {
+        return Ok(Argumento::Acima(p.leitura.clone()));
+    }
+    match (dep.opcional, dep.proprio, dep.hospedeiro) {
+        (true, true, _) => Ok(Argumento::Nulo),
+        (true, false, true) if !acima.incerto => Ok(Argumento::Nulo),
+        (_, false, true) => Err("dependência @Host de diretiva sem provedor acima"),
+        _ => Err("dependência de diretiva de fora do nó"),
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    fn classe(uri: &str, c: &str) -> Token {
+        Token::Classe {
+            uri: uri.into(),
+            classe: c.into(),
+        }
+    }
+
+    fn validadores() -> Token {
+        Token::Multi {
+            nome: "NgValidators".into(),
+            tipo: TipoDeToken {
+                uri: "dart:core".into(),
+                classe: "Object".into(),
+                genericos: 0,
+            },
+        }
+    }
+
+    fn acessores() -> Token {
+        Token::Multi {
+            nome: "NgValueAccessor".into(),
+            tipo: TipoDeToken {
+                uri: "cva".into(),
+                classe: "ControlValueAccessor".into(),
+                genericos: 1,
+            },
+        }
+    }
+
+    fn dep(token: Token, opcional: bool, proprio: bool) -> Dependencia {
+        Dependencia {
+            token,
+            opcional,
+            proprio,
+            hospedeiro: false,
+            pular: false,
+        }
+    }
+
+    /// Diretivas de teste com a forma que `metadados.rs` lê do `ngforms`.
+    fn ng_model() -> Arc<Diretiva> {
+        Arc::new(Diretiva {
+            classe: "NgModel".into(),
+            uri: "m".into(),
+            visivel: true,
+            provedores: vec![Provedor {
+                token: classe("c", "NgControl"),
+                existente: classe("m", "NgModel"),
+                multi: false,
+            }],
+            dependencias: vec![
+                dep(validadores(), true, true),
+                dep(acessores(), true, true),
+            ],
+            ..Default::default()
+        })
+    }
+
+    fn acessor() -> Arc<Diretiva> {
+        Arc::new(Diretiva {
+            classe: "DefaultValueAccessor".into(),
+            uri: "d".into(),
+            provedores: vec![Provedor {
+                token: acessores(),
+                existente: classe("d", "DefaultValueAccessor"),
+                multi: true,
+            }],
+            dependencias: vec![dep(Token::Elemento, false, false)],
+            ..Default::default()
+        })
+    }
+
+    fn obrigatorio() -> Arc<Diretiva> {
+        Arc::new(Diretiva {
+            classe: "RequiredValidator".into(),
+            uri: "v".into(),
+            provedores: vec![Provedor {
+                token: validadores(),
+                existente: classe("v", "RequiredValidator"),
+                multi: true,
+            }],
+            ..Default::default()
+        })
+    }
 
     /// A ordem e a numeração de `alterar_senha_page.template.dart`: o
     /// `RequiredValidator` antes do multi que o junta, o acessor antes do
     /// seu multi, o `NgModel` por último; `NgControl` é apelido.
     #[test]
     fn input_com_ng_model_e_required() {
-        let casadas = [
-            &NG_MODEL_D,
-            &DEFAULT_VALUE_ACCESSOR_D,
-            &REQUIRED_VALIDATOR_D,
-        ];
-        let r = resolver(&casadas, 33).unwrap();
+        let modelo = ng_model();
+        let casadas = [modelo.clone(), acessor(), obrigatorio()];
+        let r = resolver(&casadas, 33, None).unwrap();
         let campos: Vec<&str> = r.instancias.iter().map(|i| i.campo.as_str()).collect();
         assert_eq!(
             campos,
@@ -588,7 +634,7 @@ mod testes {
         assert_eq!(
             ng_model.criacao,
             Criacao::Diretiva {
-                diretiva: &NG_MODEL_D,
+                diretiva: modelo,
                 args: vec![
                     Argumento::Campo("_NgValidators_33_6".into()),
                     Argumento::Campo("_NgValueAccessor_33_8".into())
@@ -597,18 +643,33 @@ mod testes {
         );
         assert_eq!(ng_model.injetavel_por.len(), 2);
         assert!(r.instancias[0].injetavel_por.is_empty());
-        assert_eq!(r.instancias[1].injetavel_por, vec![NG_VALIDATORS]);
+        assert_eq!(r.instancias[1].injetavel_por, vec![validadores()]);
     }
 
     #[test]
     fn form_com_ng_form() {
-        let r = resolver(&[&NG_FORM_D], 19).unwrap();
+        let form = Arc::new(Diretiva {
+            classe: "NgForm".into(),
+            uri: "f".into(),
+            visivel: true,
+            provedores: vec![Provedor {
+                token: classe("cc", "ControlContainer"),
+                existente: classe("f", "NgForm"),
+                multi: false,
+            }],
+            dependencias: vec![
+                dep(validadores(), true, true),
+                dep(Token::Detector, false, false),
+            ],
+            ..Default::default()
+        });
+        let r = resolver(std::slice::from_ref(&form), 19, None).unwrap();
         assert_eq!(r.instancias.len(), 1);
         assert_eq!(r.instancias[0].campo, "_NgForm_19_5");
         assert_eq!(
             r.instancias[0].criacao,
             Criacao::Diretiva {
-                diretiva: &NG_FORM_D,
+                diretiva: form,
                 args: vec![Argumento::Nulo, Argumento::Detector]
             }
         );

@@ -1,0 +1,30 @@
+# 07_membros/mem10_cascata_this_super.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	20	87	3	SimpleStringLiteral	String	-	0	'a'
+7	4	118	8	SimpleIdentifier	-	GETTER:override	0	override
+8	25	151	12	MethodInvocation	String	METHOD:A.nome	1	super.nome()
+8	25	151	5	SuperExpression	B	-	1	super
+8	31	157	4	SimpleIdentifier	String Function()	METHOD:A.nome	0	nome
+9	18	182	4	ThisExpression	B	-	1	this
+12	10	200	112	FunctionExpression	void Function()	-	0	() { var l = /*@*/[1]..add(2)..length; var s = /*@*/Stri
+13	16	220	19	CascadeExpression	List<int>	-	1	[1]..add(2)..length
+13	16	220	3	ListLiteral	List<int>	-	1	[1]
+13	17	221	1	IntegerLiteral	int	-	0	1
+13	19	223	8	MethodInvocation	void	METHOD:List.add	0	..add(2)
+13	21	225	3	SimpleIdentifier	void Function(int)	METHOD:List.add	0	add
+13	25	229	1	IntegerLiteral	int	-	0	2
+13	27	231	8	PropertyAccess	int	GETTER:List.length	0	..length
+13	29	233	6	SimpleIdentifier	int	GETTER:List.length	0	length
+14	16	256	26	CascadeExpression	StringBuffer	-	1	StringBuffer()..write('a')
+14	16	256	14	InstanceCreationExpression	StringBuffer	CONSTRUCTOR:StringBuffer.	1	StringBuffer()
+14	30	270	12	MethodInvocation	void	METHOD:StringBuffer.write	0	..write('a')
+14	32	272	5	SimpleIdentifier	void Function(Object?)	METHOD:StringBuffer.write	0	write
+14	38	278	3	SimpleStringLiteral	String	-	0	'a'
+15	3	286	23	MethodInvocation	void	FUNCTION:print	0	print([l, s, B().eu()])
+15	3	286	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+15	9	292	16	ListLiteral	List<Object>	-	0	[l, s, B().eu()]
+15	10	293	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	0	l
+15	13	296	1	SimpleIdentifier	StringBuffer	LOCAL_VARIABLE:main.s	0	s
+15	16	299	8	MethodInvocation	B	METHOD:B.eu	0	B().eu()
+15	16	299	3	InstanceCreationExpression	B	CONSTRUCTOR:B.	0	B()
+15	20	303	2	SimpleIdentifier	B Function()	METHOD:B.eu	0	eu

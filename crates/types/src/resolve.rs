@@ -518,7 +518,12 @@ impl<'a> OutlineResolver<'a> {
                 let mut named = Vec::new();
 
                 if let Some(parameters) = &ast_func.parameters {
+                    let mut idx_posicional = 0usize;
                     for p in parameters.iter() {
+                        let pos_atual = idx_posicional;
+                        if p.kind != ParameterKind::Named {
+                            idx_posicional += 1;
+                        }
                         let p_name = p.name.as_ref().map(|n| n.sym);
                         let p_ty = if p.function_parameters.is_some() {
                             self.resolve_function_typed_parameter(unit, p, func.library, &scope)
@@ -526,7 +531,7 @@ impl<'a> OutlineResolver<'a> {
                             self.resolve_annotation(unit, ast_ty, func.library, &scope)
                         } else {
                             // Tenta override inference se for método de instância
-                            self.infer_override_parameter_type(func, p_name, hierarchy)
+                            self.infer_override_parameter_type(func, p_name, p.kind, pos_atual, hierarchy, 0)
                                 .unwrap_or(self.core.dynamic_)
                         };
 
@@ -556,7 +561,7 @@ impl<'a> OutlineResolver<'a> {
                     self.core.void_
                 } else {
                     // Tenta override inference para retorno
-                    self.infer_override_return_type(func, hierarchy)
+                    self.infer_override_return_type(func, hierarchy, 0)
                         .unwrap_or(self.core.dynamic_)
                 };
 
@@ -713,6 +718,35 @@ impl<'a> OutlineResolver<'a> {
         }
     }
 
+    /// Argumentos de uma classe usada numa anotação: os escritos, ou a
+    /// instanciação para os limites quando a classe é usada crua (`Map` é
+    /// `Map<dynamic, dynamic>`, `C` com `T extends num` é `C<num>`).
+    fn args_ou_limites(&mut self, cid: ClassId, args: Vec<TypeId>) -> Vec<TypeId> {
+        let formals = self.class_type_params[cid.0 as usize].clone();
+        if args.len() == formals.len() {
+            return args;
+        }
+        self.instanciar_para_limites(&formals)
+    }
+
+    /// Instanciação para os limites (`instantiate to bounds`): o limite
+    /// escrito, ou `dynamic`; limites que mencionam os próprios parâmetros
+    /// (F-limites) têm esses parâmetros trocados por `dynamic`.
+    fn instanciar_para_limites(&mut self, formals: &[TypeParamId]) -> Vec<TypeId> {
+        let dinamicos: HashMap<TypeParamId, TypeId> = formals.iter().map(|&p| (p, self.core.dynamic_)).collect();
+        formals
+            .iter()
+            .map(|&p| {
+                let b = self.table.param(p).bound;
+                if b == self.core.object_nullable {
+                    self.core.dynamic_
+                } else {
+                    substitute(b, &dinamicos, self.table)
+                }
+            })
+            .collect()
+    }
+
     fn instantiate_self_class(&mut self, class_opt: Option<ClassId>) -> TypeId {
         if let Some(cls) = class_opt {
             let params = self.class_type_params[cls.0 as usize].clone();
@@ -744,113 +778,135 @@ impl<'a> OutlineResolver<'a> {
         }
     }
 
-    fn infer_override_return_type(
-        &mut self,
-        func: &FunctionElement,
-        hierarchy: &ClassHierarchy,
-    ) -> Option<TypeId> {
+    /// Membro homônimo nos supertipos da classe de `func`, na ordem de busca
+    /// (superclasses e mixins, depois interfaces): `(classe, função)`.
+    fn membro_sobreposto(&self, func: &FunctionElement, hierarchy: &ClassHierarchy) -> Option<(ClassId, FunctionElementId)> {
         let class_id = func.class?;
         if func.static_ {
             return None;
         }
-
-        let class_data = hierarchy.get(class_id)?;
-        for &super_class in class_data.supertypes.keys() {
-            let super_elem = self.program.class(super_class);
-            if let Some(&super_func_id) = super_elem.instance_members.get(&func.name) {
-                let super_func = self.program.function(super_func_id);
-                if super_func.kind == func.kind {
-                    // Obter retorno da função super ancestral instanciada
-                    if let FunctionRef::Function { unit, function } = super_func.node {
-                        let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
-                        if let Some(ast_ret) = ast_func.return_type {
-                            let super_scope =
-                                self.get_enclosing_type_param_scope(Some(super_class), None);
-                            let uninstantiated_ret = self.resolve_annotation(
-                                unit,
-                                ast_ret,
-                                super_func.library,
-                                &super_scope,
-                            );
-                            // Mapeia parâmetros formais da superclasse para os tipos desta classe
-                            let super_ty = hierarchy.supertype_of(
-                                self.instantiate_self_class(Some(class_id)),
-                                super_class,
-                                self.table,
-                                self.core,
-                            )?;
-                            if let Type::Interface { args, .. } = self.table.get(super_ty).clone() {
-                                let super_params = &self.class_type_params[super_class.0 as usize];
-                                let mut subst = HashMap::with_capacity(super_params.len());
-                                for (&p, &a) in super_params.iter().zip(args.iter()) {
-                                    subst.insert(p, a);
-                                }
-                                return Some(substitute(uninstantiated_ret, &subst, self.table));
-                            }
-                        }
-                    }
-                }
+        let chave = if func.kind == FunctionKind::Setter {
+            self.interner.lookup(&format!("{}_=", self.interner.resolve(func.name)))?
+        } else {
+            func.name
+        };
+        for (sup, _) in crate::scope::supertipos_ordenados(self.program, hierarchy, class_id) {
+            if let Some(&f) = self.program.class(sup).instance_members.get(&chave) {
+                return Some((sup, f));
             }
         }
         None
     }
 
+    /// Substitui os parâmetros da superclasse `sup` pelo que a classe de
+    /// `func` lhe passa.
+    fn instanciar_do_super(&mut self, func: &FunctionElement, sup: ClassId, t: TypeId, hierarchy: &ClassHierarchy) -> Option<TypeId> {
+        let class_id = func.class?;
+        let this = self.instantiate_self_class(Some(class_id));
+        let super_ty = hierarchy.supertype_of(this, sup, self.table, self.core)?;
+        let args = match self.table.get(super_ty).clone() {
+            Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args,
+            _ => return None,
+        };
+        let params = self.class_type_params[sup.0 as usize].clone();
+        let subst: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+        Some(substitute(t, &subst, self.table))
+    }
+
+    /// Tipo do campo `v` escrito na declaração, no escopo da classe `sup`.
+    fn tipo_escrito_de_campo(&mut self, v: dartforge_elements::model::VariableId, sup: ClassId) -> Option<TypeId> {
+        let (unit, ast_ty) = match self.program.variable(v).node {
+            VariableRef::Field { unit, member, .. } => match &self.program.unit(unit).ast.member(member).kind {
+                MemberKind::Field(vl) => (unit, vl.ty?),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let lib = self.program.variable(v).library;
+        let scope = self.get_enclosing_type_param_scope(Some(sup), None);
+        Some(self.resolve_annotation(unit, ast_ty, lib, &scope))
+    }
+
+    /// Tipo de retorno herdado (override inference): o do membro sobreposto,
+    /// escrito ou, se omitido lá também, herdado recursivamente.
+    fn infer_override_return_type(&mut self, func: &FunctionElement, hierarchy: &ClassHierarchy, prof: u32) -> Option<TypeId> {
+        if prof > 16 {
+            return None;
+        }
+        let (sup, sf) = self.membro_sobreposto(func, hierarchy)?;
+        let super_func = self.program.function(sf);
+        let t = match (super_func.kind, super_func.node) {
+            (FunctionKind::ImplicitAccessor, _) => {
+                let v = super_func.variable?;
+                self.tipo_escrito_de_campo(v, sup)?
+            }
+            (_, FunctionRef::Function { unit, function }) => {
+                let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
+                if !ast_func.type_params.is_empty() {
+                    return None;
+                }
+                match ast_func.return_type {
+                    Some(r) => {
+                        let scope = self.get_enclosing_type_param_scope(Some(sup), None);
+                        self.resolve_annotation(unit, r, super_func.library, &scope)
+                    }
+                    None => {
+                        let t = self.infer_override_return_type(super_func, hierarchy, prof + 1)?;
+                        return self.instanciar_do_super(func, sup, t, hierarchy).or(Some(t));
+                    }
+                }
+            }
+            _ => return None,
+        };
+        self.instanciar_do_super(func, sup, t, hierarchy)
+    }
+
+    /// Tipo herdado de um parâmetro: o nomeado pelo nome, o posicional pela
+    /// posição, no membro sobreposto (recursivo se lá também foi omitido).
     fn infer_override_parameter_type(
         &mut self,
         func: &FunctionElement,
         param_name: Option<SymbolId>,
+        kind: ParameterKind,
+        posicao: usize,
         hierarchy: &ClassHierarchy,
+        prof: u32,
     ) -> Option<TypeId> {
-        let class_id = func.class?;
-        let p_name = param_name?;
-        if func.static_ {
+        if prof > 16 {
             return None;
         }
-
-        let class_data = hierarchy.get(class_id)?;
-        for &super_class in class_data.supertypes.keys() {
-            let super_elem = self.program.class(super_class);
-            if let Some(&super_func_id) = super_elem.instance_members.get(&func.name) {
-                let super_func = self.program.function(super_func_id);
-                if let FunctionRef::Function { unit, function } = super_func.node {
-                    let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
-                    if let Some(params) = &ast_func.parameters {
-                        for p in params.iter() {
-                            if p.name.as_ref().map(|n| n.sym) == Some(p_name)
-                                && let Some(ast_ty) = p.ty
-                            {
-                                let super_scope =
-                                    self.get_enclosing_type_param_scope(Some(super_class), None);
-                                let uninstantiated_ty = self.resolve_annotation(
-                                    unit,
-                                    ast_ty,
-                                    super_func.library,
-                                    &super_scope,
-                                );
-                                let super_ty = hierarchy.supertype_of(
-                                    self.instantiate_self_class(Some(class_id)),
-                                    super_class,
-                                    self.table,
-                                    self.core,
-                                )?;
-                                if let Type::Interface { args, .. } =
-                                    self.table.get(super_ty).clone()
-                                {
-                                    let super_params =
-                                        &self.class_type_params[super_class.0 as usize];
-                                    let mut subst = HashMap::with_capacity(super_params.len());
-                                    for (&sp, &sa) in super_params.iter().zip(args.iter()) {
-                                        subst.insert(sp, sa);
-                                    }
-                                    return Some(substitute(uninstantiated_ty, &subst, self.table));
-                                }
-                            }
-                        }
-                    }
+        let (sup, sf) = self.membro_sobreposto(func, hierarchy)?;
+        let super_func = self.program.function(sf);
+        let t = match super_func.node {
+            FunctionRef::Function { unit, function } => {
+                let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
+                if !ast_func.type_params.is_empty() {
+                    return None;
+                }
+                let params = ast_func.parameters.as_ref()?;
+                let alvo = if kind == ParameterKind::Named {
+                    params.iter().find(|p| p.kind == ParameterKind::Named && p.name.map(|n| n.sym) == param_name)?
+                } else {
+                    params.iter().filter(|p| p.kind != ParameterKind::Named).nth(posicao)?
+                };
+                if alvo.function_parameters.is_some() {
+                    let scope = self.get_enclosing_type_param_scope(Some(sup), None);
+                    self.resolve_function_typed_parameter(unit, alvo, super_func.library, &scope)
+                } else if let Some(ast_ty) = alvo.ty {
+                    let scope = self.get_enclosing_type_param_scope(Some(sup), None);
+                    self.resolve_annotation(unit, ast_ty, super_func.library, &scope)
+                } else {
+                    let t = self.infer_override_parameter_type(super_func, param_name, kind, posicao, hierarchy, prof + 1)?;
+                    return self.instanciar_do_super(func, sup, t, hierarchy).or(Some(t));
                 }
             }
-        }
-        None
+            FunctionRef::None if func.kind == FunctionKind::Setter => {
+                let v = super_func.variable?;
+                self.tipo_escrito_de_campo(v, sup)?
+            }
+            _ => return None,
+        };
+        self.instanciar_do_super(func, sup, t, hierarchy)
     }
 
     fn get_enclosing_type_param_scope(
@@ -967,6 +1023,7 @@ impl<'a> OutlineResolver<'a> {
                                         })
                                         .collect();
 
+                                    let resolved_args = self.args_ou_limites(cid, resolved_args);
                                     let is_ext =
                                         self.program.class(cid).kind == ClassKind::ExtensionType;
                                     if is_ext {
@@ -998,6 +1055,11 @@ impl<'a> OutlineResolver<'a> {
 
                                     let target_ty = self.ensure_typedef_resolved(tid);
                                     let formals = self.typedef_type_params[tid.0 as usize].clone();
+                                    let resolved_args = if resolved_args.len() == formals.len() {
+                                        resolved_args
+                                    } else {
+                                        self.instanciar_para_limites(&formals)
+                                    };
                                     let mut subst = HashMap::with_capacity(formals.len());
                                     for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
                                         subst.insert(f, a);
@@ -1045,6 +1107,7 @@ impl<'a> OutlineResolver<'a> {
                                     })
                                     .collect();
 
+                                let resolved_args = self.args_ou_limites(cid, resolved_args);
                                 let is_ext =
                                     self.program.class(cid).kind == ClassKind::ExtensionType;
                                 if is_ext {
@@ -1076,6 +1139,11 @@ impl<'a> OutlineResolver<'a> {
 
                                 let target_ty = self.ensure_typedef_resolved(tid);
                                 let formals = self.typedef_type_params[tid.0 as usize].clone();
+                                let resolved_args = if resolved_args.len() == formals.len() {
+                                    resolved_args
+                                } else {
+                                    self.instanciar_para_limites(&formals)
+                                };
                                 let mut subst = HashMap::with_capacity(formals.len());
                                 for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
                                     subst.insert(f, a);
@@ -1201,7 +1269,7 @@ impl<'a> OutlineResolver<'a> {
             positional: pos.into_boxed_slice(),
             optional: opt.into_boxed_slice(),
             named: named.into_boxed_slice(),
-            nullable: false,
+            nullable: p.function_nullable,
         })
     }
 

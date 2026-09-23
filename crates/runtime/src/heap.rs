@@ -21,6 +21,10 @@ pub struct HeapStats {
     /// Cabeçalhos vivos e capacidades dos payloads, sem metadados auxiliares/RSS.
     pub estimated_bytes: usize,
     pub peak_estimated_bytes: usize,
+    /// `int` em posição `Ref` que viraram `Smi` (R10) em vez de caixa: sem o
+    /// `Smi`, cada um seria uma alocação. `allocations + caixas_evitadas` é a
+    /// contagem de antes do R10, exata.
+    pub caixas_evitadas: u64,
 }
 
 /// Marca escalar precisa; bits coincidentes entre int e bool não são iguais.
@@ -78,14 +82,465 @@ impl TaggedValue {
     }
 }
 
+/// Texto Dart: uma sequência de unidades de código UTF-16, na forma da VM
+/// (decisão 5, docs/NATIVO-PLANO.md §7.1).
+///
+/// * `Um` é o `_OneByteString`: toda unidade cabe em um byte (Latin-1,
+///   U+0000–U+00FF), guardada em um byte;
+/// * `Dois` é o `_TwoByteString`: alguma unidade passa de 0xFF, e todas são
+///   guardadas em dois bytes.
+///
+/// A forma é **canônica**, como na VM (`String::New`/`String::SubString`,
+/// `runtime/vm/object.cc`, escolhem a classe pelo conteúdo): `Dois` só existe
+/// quando alguma unidade passa de 0xFF. Os construtores abaixo garantem isso;
+/// a igualdade compara unidades de todo modo, então um `Dois` Latin-1 criado à
+/// mão só custa espaço, nunca muda o resultado.
+///
+/// Um *surrogate* solto (U+D800–U+DFFF sem par) é uma unidade como outra
+/// qualquer: `length`, índices, `codeUnitAt`, `substring` no meio de um par e
+/// `runes` (que devolve o próprio valor do surrogate solto) seguem a
+/// semântica do Dart. Só na saída (`print`) ele vira U+FFFD, como a VM
+/// escreve (`Utf8::Encode`, via `Dart_CopyUTF8EncodingOfString`).
+#[derive(Clone)]
+pub enum Texto {
+    Um(Vec<u8>),
+    Dois(Vec<u16>),
+}
+
+impl Texto {
+    /// A string vazia.
+    pub fn vazio() -> Self {
+        Texto::Um(Vec::new())
+    }
+
+    /// Texto a partir de unidades UTF-16, na forma canônica.
+    pub fn de_unidades(unidades: Vec<u16>) -> Self {
+        if unidades.iter().all(|&u| u <= 0xFF) {
+            Texto::Um(unidades.into_iter().map(|u| u as u8).collect())
+        } else {
+            Texto::Dois(unidades)
+        }
+    }
+
+    /// Texto a partir de uma fatia de unidades UTF-16, na forma canônica.
+    pub fn de_fatia(unidades: &[u16]) -> Self {
+        if unidades.iter().all(|&u| u <= 0xFF) {
+            Texto::Um(unidades.iter().map(|&u| u as u8).collect())
+        } else {
+            Texto::Dois(unidades.to_vec())
+        }
+    }
+
+    /// Texto a partir de UTF-8 válido (texto que o próprio runtime formatou).
+    pub fn de_str(s: &str) -> Self {
+        if s.is_ascii() {
+            return Texto::Um(s.as_bytes().to_vec());
+        }
+        let mut um = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            if (c as u32) <= 0xFF {
+                um.push(c as u32 as u8);
+            } else {
+                return Texto::Dois(s.encode_utf16().collect());
+            }
+        }
+        Texto::Um(um)
+    }
+
+    /// Texto a partir de WTF-8: UTF-8 generalizado em que um surrogate solto
+    /// é codificado em três bytes como qualquer ponto de código (é a forma em
+    /// que o front-end guarda o texto dos literais, `frontend/src/text.rs`).
+    /// UTF-8 válido é WTF-8. Um byte malformado vira U+FFFD — não ocorre
+    /// para bytes emitidos pelo compilador.
+    pub fn de_wtf8(bytes: &[u8]) -> Self {
+        if bytes.is_ascii() {
+            return Texto::Um(bytes.to_vec());
+        }
+        let mut unidades: Vec<u16> = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            let b0 = u32::from(bytes[i]);
+            let cont = |k: usize| -> Option<u32> {
+                bytes.get(i + k).filter(|&&b| b & 0xC0 == 0x80).map(|&b| u32::from(b & 0x3F))
+            };
+            let (ponto, n) = if b0 < 0x80 {
+                (Some(b0), 1)
+            } else if b0 & 0xE0 == 0xC0 {
+                (cont(1).map(|c1| ((b0 & 0x1F) << 6) | c1).filter(|&p| p >= 0x80), 2)
+            } else if b0 & 0xF0 == 0xE0 {
+                (
+                    cont(1).zip(cont(2)).map(|(c1, c2)| ((b0 & 0x0F) << 12) | (c1 << 6) | c2).filter(|&p| p >= 0x800),
+                    3,
+                )
+            } else if b0 & 0xF8 == 0xF0 {
+                (
+                    cont(1)
+                        .zip(cont(2))
+                        .zip(cont(3))
+                        .map(|((c1, c2), c3)| ((b0 & 0x07) << 18) | (c1 << 12) | (c2 << 6) | c3)
+                        .filter(|&p| (0x10000..=0x10FFFF).contains(&p)),
+                    4,
+                )
+            } else {
+                (None, 1)
+            };
+            match ponto {
+                Some(p) => {
+                    empurrar_ponto(&mut unidades, p);
+                    i += n;
+                }
+                None => {
+                    unidades.push(0xFFFD);
+                    i += 1;
+                }
+            }
+        }
+        Self::de_unidades(unidades)
+    }
+
+    /// Quantidade de unidades UTF-16 (`String.length`).
+    pub fn len(&self) -> usize {
+        match self {
+            Texto::Um(b) => b.len(),
+            Texto::Dois(u) => u.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// A unidade no índice (`codeUnitAt`); o índice é verificado por quem chama.
+    pub fn unidade(&self, i: usize) -> u16 {
+        match self {
+            Texto::Um(b) => u16::from(b[i]),
+            Texto::Dois(u) => u[i],
+        }
+    }
+
+    /// As unidades, em ordem.
+    pub fn unidades(&self) -> IterUnidades<'_> {
+        IterUnidades { texto: self, i: 0, fim: self.len() }
+    }
+
+    /// As unidades num vetor.
+    pub fn para_vec(&self) -> Vec<u16> {
+        match self {
+            Texto::Um(b) => b.iter().map(|&x| u16::from(x)).collect(),
+            Texto::Dois(u) => u.clone(),
+        }
+    }
+
+    /// `[inicio, fim)` em unidades, na forma canônica (o `_substringUnchecked`
+    /// da VM: um pedaço Latin-1 de um `_TwoByteString` volta a ser `Um`).
+    pub fn fatia(&self, inicio: usize, fim: usize) -> Texto {
+        match self {
+            Texto::Um(b) => Texto::Um(b[inicio..fim].to_vec()),
+            Texto::Dois(u) => Self::de_fatia(&u[inicio..fim]),
+        }
+    }
+
+    /// Os pontos de código (`runes`): um par de surrogates vira o escalar; um
+    /// surrogate solto sai como ele mesmo (o `RuneIterator` do `dart:core`).
+    pub fn pontos(&self) -> Vec<u32> {
+        let mut saida = Vec::with_capacity(self.len());
+        let n = self.len();
+        let mut i = 0;
+        while i < n {
+            let u = self.unidade(i);
+            if (0xD800..0xDC00).contains(&u) && i + 1 < n {
+                let v = self.unidade(i + 1);
+                if (0xDC00..0xE000).contains(&v) {
+                    saida.push(0x10000 + ((u32::from(u) - 0xD800) << 10) + (u32::from(v) - 0xDC00));
+                    i += 2;
+                    continue;
+                }
+            }
+            saida.push(u32::from(u));
+            i += 1;
+        }
+        saida
+    }
+
+    /// WTF-8 (surrogate solto em três bytes): a forma sem perda, inversa de
+    /// [`Texto::de_wtf8`].
+    pub fn para_wtf8(&self) -> Vec<u8> {
+        self.codificar(false)
+    }
+
+    /// UTF-8 como a VM escreve na saída (`print`): o surrogate solto vira
+    /// U+FFFD — `Utf8::Encode` (`runtime/vm/unicode.cc`): "Encode unpaired
+    /// surrogates as replacement characters to ensure the output is valid
+    /// UTF-8".
+    pub fn para_utf8_da_vm(&self) -> Vec<u8> {
+        self.codificar(true)
+    }
+
+    fn codificar(&self, trocar_soltos: bool) -> Vec<u8> {
+        match self {
+            Texto::Um(b) if b.is_ascii() => b.clone(),
+            _ => {
+                let mut saida = Vec::with_capacity(self.len() + 8);
+                for p in self.pontos() {
+                    let p = if trocar_soltos && (0xD800..0xE000).contains(&p) { 0xFFFD } else { p };
+                    codificar_wtf8(&mut saida, p);
+                }
+                saida
+            }
+        }
+    }
+
+    /// Texto legível para Rust: surrogate solto vira U+FFFD. Só para
+    /// mensagens e formatação interna; o valor Dart nunca passa por aqui.
+    pub fn para_string(&self) -> String {
+        match self {
+            Texto::Um(b) => b.iter().map(|&x| char::from(x)).collect(),
+            Texto::Dois(u) => String::from_utf16_lossy(u),
+        }
+    }
+
+    /// Concatenação (`+`), na forma canônica.
+    pub fn concatenar(&self, outro: &Texto) -> Texto {
+        match (self, outro) {
+            (Texto::Um(a), Texto::Um(b)) => {
+                let mut v = Vec::with_capacity(a.len() + b.len());
+                v.extend_from_slice(a);
+                v.extend_from_slice(b);
+                Texto::Um(v)
+            }
+            _ => {
+                let mut v = Vec::with_capacity(self.len() + outro.len());
+                v.extend(self.unidades());
+                v.extend(outro.unidades());
+                Texto::Dois(v)
+            }
+        }
+    }
+
+    /// Primeira ocorrência de `padrao` a partir de `desde` (unidades).
+    pub fn procurar(&self, padrao: &Texto, desde: usize) -> Option<usize> {
+        let (n, m) = (self.len(), padrao.len());
+        if desde > n {
+            return None;
+        }
+        if m == 0 {
+            return Some(desde);
+        }
+        if m > n {
+            return None;
+        }
+        (desde..=n - m).find(|&i| self.coincide_em(padrao, i))
+    }
+
+    /// Última ocorrência de `padrao` que começa em `ate` ou antes.
+    pub fn procurar_ultimo(&self, padrao: &Texto, ate: usize) -> Option<usize> {
+        let (n, m) = (self.len(), padrao.len());
+        if m > n {
+            return None;
+        }
+        let inicio = ate.min(n - m);
+        (0..=inicio).rev().find(|&i| self.coincide_em(padrao, i))
+    }
+
+    /// `padrao` aparece inteiro a partir da unidade `i`.
+    pub fn coincide_em(&self, padrao: &Texto, i: usize) -> bool {
+        let m = padrao.len();
+        if i + m > self.len() {
+            return false;
+        }
+        match (self, padrao) {
+            (Texto::Um(a), Texto::Um(b)) => &a[i..i + m] == b.as_slice(),
+            (Texto::Dois(a), Texto::Dois(b)) => &a[i..i + m] == b.as_slice(),
+            _ => (0..m).all(|k| self.unidade(i + k) == padrao.unidade(k)),
+        }
+    }
+
+    /// Ordem lexicográfica por unidades (`String.compareTo`).
+    pub fn comparar(&self, outro: &Texto) -> std::cmp::Ordering {
+        match (self, outro) {
+            (Texto::Um(a), Texto::Um(b)) => a.cmp(b),
+            _ => self.unidades().cmp(outro.unidades()),
+        }
+    }
+
+    /// `String.hashCode` da VM (`String_getHashCode`): o `StringHasher` de
+    /// `runtime/vm/object.h` — `CombineHashes` (Jenkins *one-at-a-time*) por
+    /// unidade de código e `FinalizeHash` com `String::kHashBits = 30`
+    /// (`runtime/vm/hash.h`); 0 vira 1. A ordem de um `HashMap`/`HashSet` do
+    /// `dart:collection` depende disto, então tem de ser o mesmo número.
+    pub fn hash_vm(&self) -> i64 {
+        let mut h: u32 = 0;
+        for u in self.unidades() {
+            h = h.wrapping_add(u32::from(u));
+            h = h.wrapping_add(h << 10);
+            h ^= h >> 6;
+        }
+        h = h.wrapping_add(h << 3);
+        h ^= h >> 11;
+        h = h.wrapping_add(h << 15);
+        h &= (1u32 << 30) - 1;
+        i64::from(if h == 0 { 1 } else { h })
+    }
+
+    /// Bytes do conteúdo (para os contadores do coletor).
+    fn capacidade_bytes(&self) -> usize {
+        match self {
+            Texto::Um(b) => b.capacity(),
+            Texto::Dois(u) => u.capacity().checked_mul(2).expect("payload excede usize"),
+        }
+    }
+}
+
+/// Uma unidade (ponto ≤ 0xFFFF, inclusive surrogate) ou um par de surrogates.
+pub fn empurrar_ponto(unidades: &mut Vec<u16>, ponto: u32) {
+    if ponto <= 0xFFFF {
+        unidades.push(ponto as u16);
+    } else {
+        let p = ponto - 0x10000;
+        unidades.push(0xD800 + (p >> 10) as u16);
+        unidades.push(0xDC00 + (p & 0x3FF) as u16);
+    }
+}
+
+/// Um ponto de código em WTF-8 (surrogate em três bytes, como qualquer ponto).
+fn codificar_wtf8(saida: &mut Vec<u8>, p: u32) {
+    if p < 0x80 {
+        saida.push(p as u8);
+    } else if p < 0x800 {
+        saida.extend_from_slice(&[0xC0 | (p >> 6) as u8, 0x80 | (p & 0x3F) as u8]);
+    } else if p < 0x10000 {
+        saida.extend_from_slice(&[
+            0xE0 | (p >> 12) as u8,
+            0x80 | ((p >> 6) & 0x3F) as u8,
+            0x80 | (p & 0x3F) as u8,
+        ]);
+    } else {
+        saida.extend_from_slice(&[
+            0xF0 | (p >> 18) as u8,
+            0x80 | ((p >> 12) & 0x3F) as u8,
+            0x80 | ((p >> 6) & 0x3F) as u8,
+            0x80 | (p & 0x3F) as u8,
+        ]);
+    }
+}
+
+/// Iterador das unidades de um [`Texto`].
+pub struct IterUnidades<'a> {
+    texto: &'a Texto,
+    i: usize,
+    fim: usize,
+}
+
+impl Iterator for IterUnidades<'_> {
+    type Item = u16;
+    fn next(&mut self) -> Option<u16> {
+        if self.i >= self.fim {
+            return None;
+        }
+        let u = self.texto.unidade(self.i);
+        self.i += 1;
+        Some(u)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.fim - self.i;
+        (n, Some(n))
+    }
+}
+
+impl ExactSizeIterator for IterUnidades<'_> {}
+
+impl PartialEq for Texto {
+    fn eq(&self, outro: &Texto) -> bool {
+        match (self, outro) {
+            (Texto::Um(a), Texto::Um(b)) => a == b,
+            (Texto::Dois(a), Texto::Dois(b)) => a == b,
+            _ => self.len() == outro.len() && self.unidades().eq(outro.unidades()),
+        }
+    }
+}
+
+impl Eq for Texto {}
+
+impl Default for Texto {
+    fn default() -> Self {
+        Texto::vazio()
+    }
+}
+
+impl PartialEq<str> for Texto {
+    fn eq(&self, outro: &str) -> bool {
+        *self == Texto::de_str(outro)
+    }
+}
+
+impl PartialEq<&str> for Texto {
+    fn eq(&self, outro: &&str) -> bool {
+        *self == Texto::de_str(outro)
+    }
+}
+
+impl From<&str> for Texto {
+    fn from(s: &str) -> Self {
+        Texto::de_str(s)
+    }
+}
+
+impl From<String> for Texto {
+    fn from(s: String) -> Self {
+        Texto::de_str(&s)
+    }
+}
+
+impl std::fmt::Display for Texto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.para_string())
+    }
+}
+
+impl std::fmt::Debug for Texto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.para_string())
+    }
+}
+
+/// Construtor de texto por unidades: a saída de `toString`/interpolação, que
+/// não pode passar por `String` do Rust sem perder surrogates soltos.
+#[derive(Default)]
+pub struct TextoMut(pub Vec<u16>);
+
+impl TextoMut {
+    pub fn new() -> Self {
+        TextoMut(Vec::new())
+    }
+    pub fn push_str(&mut self, s: &str) {
+        self.0.extend(s.encode_utf16());
+    }
+    pub fn push(&mut self, c: char) {
+        let mut buf = [0u16; 2];
+        self.0.extend_from_slice(c.encode_utf16(&mut buf));
+    }
+    pub fn push_texto(&mut self, t: &Texto) {
+        self.0.extend(t.unidades());
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn fim(self) -> Texto {
+        Texto::de_unidades(self.0)
+    }
+}
+
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
 #[derive(Debug)]
 pub enum Value {
-    String(String),
-    RawString(Vec<u16>),
-    StringBuffer(String),
-    RegExp(String),
-    Match(String),
+    /// `String` do Dart (`_OneByteString`/`_TwoByteString`, ver [`Texto`]).
+    String(Texto),
+    /// `StringBuffer`: as unidades acumuladas.
+    StringBuffer(Vec<u16>),
+    /// `RegExp`: o texto do padrão.
+    RegExp(Texto),
+    /// `Match`: o texto casado.
+    Match(Texto),
     Object {
         class_id: i64,
         fields: Vec<(i64, bool)>,
@@ -124,8 +579,8 @@ impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
     fn estimated_bytes(&self) -> usize {
         let payload = match self {
-            Self::String(text) | Self::StringBuffer(text) | Self::RegExp(text) | Self::Match(text) => text.capacity(),
-            Self::RawString(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
+            Self::String(text) | Self::RegExp(text) | Self::Match(text) => text.capacidade_bytes(),
+            Self::StringBuffer(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
             Self::Object { fields, .. } => fields
                 .capacity()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
@@ -148,7 +603,6 @@ impl Value {
     fn trace(&self, pending: &mut Vec<i64>) {
         match self {
             Self::String(_)
-            | Self::RawString(_)
             | Self::StringBuffer(_)
             | Self::RegExp(_)
             | Self::Match(_)
@@ -180,10 +634,61 @@ impl Value {
     }
 }
 
-/// Heap preciso sem compactação; handles positivos indexam slots reutilizáveis.
+/// `Ref` com `Smi` etiquetado (R10, docs/NATIVO-PLANO.md §6.2 e §7.1).
+///
+/// Um `Ref` do código gerado é um `i64` com a etiqueta no bit baixo, como o
+/// `Smi` da VM (`runtime/vm/object.h`; lá `kSmiTag = 0` e o ponteiro do heap
+/// tem o bit 1 — aqui o bit está invertido para o `0` continuar sendo null
+/// sem mudar o código gerado):
+///
+/// * `0` — null;
+/// * **par** e positivo — um handle do heap: `(índice + 1) << 1`;
+/// * **ímpar** — um `int` pequeno, `(v << 1) | 1`, para `v` em
+///   `[-2^62, 2^62)`: o `Smi`. Não aloca, não é raiz, e o coletor nunca o
+///   segue (as arestas ímpares são puladas na marcação).
+///
+/// Um `int` fora dessa faixa numa posição `Ref` vai para o heap como
+/// `Value::BoxedInt` (o `_Mint` da VM). A forma é canônica: um valor que cabe
+/// no `Smi` nunca é encaixotado, então dois `int` iguais em posição `Ref`
+/// ou são o mesmo `Smi` (mesmos bits) ou são dois `_Mint` de mesmo valor.
+pub mod smi {
+    /// Menor e maior `int` que cabem num `Smi` (63 bits com sinal).
+    pub const MIN: i64 = -(1 << 62);
+    pub const MAX: i64 = (1 << 62) - 1;
+
+    /// O `Ref` de um `int` que cabe num `Smi`.
+    #[inline]
+    pub fn de(v: i64) -> Option<i64> {
+        (MIN..=MAX).contains(&v).then(|| (v << 1) | 1)
+    }
+
+    /// O `Ref` é um `Smi`?
+    #[inline]
+    pub fn e_smi(r: i64) -> bool {
+        r & 1 == 1
+    }
+
+    /// O valor de um `Smi` (deslocamento aritmético).
+    #[inline]
+    pub fn valor(r: i64) -> i64 {
+        r >> 1
+    }
+
+    /// O `Ref` aponta para o heap (não é null nem `Smi`)?
+    #[inline]
+    pub fn e_handle(r: i64) -> bool {
+        r != 0 && r & 1 == 0
+    }
+}
+
+/// Heap preciso sem compactação; handles pares indexam slots reutilizáveis.
 #[derive(Debug)]
 pub struct Heap {
     slots: Vec<Option<Value>>,
+    /// Metadado de cada slot (o `metadata_ptr` do cabeçalho, NATIVO.md §2):
+    /// o tipo em tempo de execução de um objeto genérico (P6/RTI,
+    /// `tipos.rs`), `id + 1`; 0 = nenhum. Zerado a cada alocação do slot.
+    metadados: Vec<i64>,
     free: Vec<usize>,
     frames: Vec<(i64, Vec<i64>)>,
     next_frame: i64,
@@ -241,6 +746,7 @@ impl Heap {
     pub fn new(stress: bool) -> Self {
         Self {
             slots: Vec::new(),
+            metadados: Vec::new(),
             free: Vec::new(),
             frames: Vec::new(),
             next_frame: 1,
@@ -265,7 +771,7 @@ impl Heap {
     }
     /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
     pub fn set_raiz_do_runtime(&mut self, qual: usize, handle: i64) {
-        if handle != 0 {
+        if smi::e_handle(handle) {
             self.get(handle);
         }
         self.raizes_do_runtime[qual] = handle;
@@ -279,21 +785,46 @@ impl Heap {
         self.caixas_bool[i]
     }
     /// Valor como referência: escalar vira caixa; referência passa direto.
-    /// Quem chama enraíza o resultado antes da próxima alocação.
+    /// Um `int` que cabe no `Smi` (R10) não aloca. Quem chama enraíza o
+    /// resultado antes da próxima alocação.
     pub fn como_ref(&mut self, v: TaggedValue) -> i64 {
         match v.tag {
             ValueTag::Ref => v.bits,
-            ValueTag::Int => self.allocate(Value::BoxedInt(v.bits)),
+            ValueTag::Int => self.caixa_int(v.bits),
             ValueTag::Double => self.allocate(Value::BoxedDouble(f64::from_bits(v.bits as u64))),
             ValueTag::Bool => self.caixa_bool(v.bits != 0),
         }
     }
+    /// `int` numa posição `Ref` (R3/R10): `Smi` quando cabe, senão `_Mint`.
+    pub fn caixa_int(&mut self, v: i64) -> i64 {
+        match smi::de(v) {
+            Some(r) => {
+                self.stats.caixas_evitadas += 1;
+                r
+            }
+            None => self.allocate(Value::BoxedInt(v)),
+        }
+    }
+    /// O `int` de um `Ref`: `Smi` ou `_Mint`; outro valor dá `None`.
+    pub fn int_de_ref(&self, r: i64) -> Option<i64> {
+        if smi::e_smi(r) {
+            return Some(smi::valor(r));
+        }
+        match self.try_get(r) {
+            Some(Value::BoxedInt(i)) => Some(*i),
+            _ => None,
+        }
+    }
     /// Referência para uma caixa vira o escalar (R8): coleções, células e
     /// ambientes nunca guardam caixas, então `[1]` e `<Object>[1]` têm o
-    /// mesmo conteúdo e a chave `1` é a mesma encaixotada ou não.
+    /// mesmo conteúdo e a chave `1` é a mesma encaixotada ou não. Um `Smi`
+    /// também vira o escalar.
     pub fn normalizar(&self, v: TaggedValue) -> TaggedValue {
         if !v.is_ref || v.bits == 0 {
             return v;
+        }
+        if smi::e_smi(v.bits) {
+            return TaggedValue::scalar(smi::valor(v.bits));
         }
         match self.try_get(v.bits) {
             Some(Value::BoxedInt(i)) => TaggedValue::scalar(*i),
@@ -304,7 +835,8 @@ impl Heap {
     }
     /// Registra o valor corrente de um global `Ref`; 0 (null) solta a raiz.
     pub fn set_global_root(&mut self, id: i64, handle: i64) {
-        if handle == 0 {
+        if !smi::e_handle(handle) {
+            // null ou `Smi`: nada no heap a manter vivo.
             self.globais.remove(&id);
         } else {
             self.get(handle);
@@ -374,7 +906,7 @@ impl Heap {
             return handle;
         }
         let frame = self.push_frame_with_slots(1);
-        let text = self.allocate(Value::String(name.to_owned()));
+        let text = self.allocate(Value::String(Texto::de_str(name)));
         self.set_root(frame, 0, text);
         let object = self.allocate(Value::Object {
             class_id,
@@ -421,8 +953,9 @@ impl Heap {
         id
     }
     /// Substitui a raiz do slot; zero libera a referência anteriormente retida.
+    /// Um `Smi` ocupa o slot como qualquer `Ref`, mas o coletor não o segue.
     pub fn set_root(&mut self, frame: i64, slot: usize, handle: i64) {
-        if handle != 0 {
+        if smi::e_handle(handle) {
             self.get(handle);
         }
         let roots = &mut self
@@ -440,7 +973,7 @@ impl Heap {
     }
     /// Protege handle até o retorno da função; null não ocupa uma raiz.
     pub fn root(&mut self, frame: i64, handle: i64) {
-        if handle == 0 {
+        if !smi::e_handle(handle) {
             return;
         }
         self.get(handle);
@@ -495,12 +1028,35 @@ impl Heap {
         self.stats.allocations += 1;
         let index = if let Some(index) = self.free.pop() {
             self.slots[index] = Some(value);
+            self.metadados[index] = 0;
             index
         } else {
             self.slots.push(Some(value));
+            self.metadados.push(0);
             self.slots.len() - 1
         };
-        i64::try_from(index + 1).expect("handles esgotados")
+        Self::handle_de_indice(index)
+    }
+    /// O metadado do slot de um handle vivo (0 = nenhum).
+    pub fn metadado(&self, handle: i64) -> i64 {
+        let i = self.indice_vivo(handle);
+        self.metadados[i]
+    }
+    /// Grava o metadado do slot de um handle vivo.
+    pub fn set_metadado(&mut self, handle: i64, valor: i64) {
+        let i = self.indice_vivo(handle);
+        self.metadados[i] = valor;
+    }
+    /// O handle (par) do slot `index` (R10).
+    fn handle_de_indice(index: usize) -> i64 {
+        i64::try_from(index + 1)
+            .ok()
+            .and_then(|h| h.checked_shl(1).filter(|x| x >> 1 == h))
+            .expect("handles esgotados")
+    }
+    /// O slot de um handle par, sem verificar se está vivo.
+    pub fn indice_de(handle: i64) -> usize {
+        usize::try_from((handle >> 1) - 1).expect("handle positivo")
     }
     /// Índice do slot de um handle vivo, ou `panic` que diz QUAL contrato
     /// foi quebrado (docs/NATIVO-PLANO.md §6.4, N4).
@@ -517,10 +1073,16 @@ impl Heap {
         if handle == 0 {
             panic!("bug do compilador: handle null (0) desreferenciado");
         }
+        if smi::e_smi(handle) {
+            panic!(
+                "bug do compilador: Smi usado como handle (int em posição Ref lido como objeto)\nSmi {}",
+                smi::valor(handle)
+            );
+        }
         if handle < 0 {
             panic!("bug do compilador: handle negativo (escalar usado como handle)\nhandle {handle}");
         }
-        let index = usize::try_from(handle - 1).expect("handle positivo cabe em usize");
+        let index = Self::indice_de(handle);
         match self.slots.get(index) {
             None => panic!(
                 "bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}, {} slots",
@@ -536,13 +1098,16 @@ impl Heap {
         self.slots[index].as_ref().expect("slot vivo verificado")
     }
     /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
+    /// Null, `Smi` e escalar qualquer dão `None`.
     pub fn try_get(&self, handle: i64) -> Option<&Value> {
-        let index = usize::try_from(handle.checked_sub(1)?).ok()?;
-        self.slots.get(index).and_then(Option::as_ref)
+        if !smi::e_handle(handle) || handle < 0 {
+            return None;
+        }
+        self.slots.get(Self::indice_de(handle)).and_then(Option::as_ref)
     }
     /// Atualiza campo com tag explícita; valores escalares jamais são raízes.
     pub fn set(&mut self, handle: i64, index: i64, bits: i64, is_ref: bool) {
-        if is_ref && bits != 0 {
+        if is_ref && smi::e_handle(bits) {
             self.get(bits);
         }
         let slot = self.indice_vivo(handle);
@@ -555,10 +1120,9 @@ impl Heap {
     fn allocate_linked(&mut self, value: Value) -> i64 {
         let mut references = Vec::new();
         value.trace(&mut references);
+        references.retain(|&h| smi::e_handle(h));
         for &handle in &references {
-            if handle != 0 {
-                self.get(handle);
-            }
+            self.get(handle);
         }
         let frame = self.push_frame_with_slots(references.len());
         for (slot, handle) in references.into_iter().enumerate() {
@@ -573,7 +1137,7 @@ impl Heap {
     /// Escalares comparam tag e bits (`0` int difere de `false`); referências
     /// null só igualam null; strings comparam conteúdo e demais referências,
     /// identidade de handle.
-    fn key_equal(&self, left: &TaggedValue, right: &TaggedValue) -> bool {
+    pub fn key_equal(&self, left: &TaggedValue, right: &TaggedValue) -> bool {
         match (left.tag, right.tag) {
             (ValueTag::Int, ValueTag::Int)
             | (ValueTag::Bool, ValueTag::Bool)
@@ -851,7 +1415,7 @@ impl Heap {
             value.tag == ValueTag::Ref,
             "tag inconsistente com is_ref"
         );
-        if value.is_ref && value.bits != 0 {
+        if value.is_ref && smi::e_handle(value.bits) {
             self.get(value.bits);
         }
     }
@@ -886,7 +1450,9 @@ impl Heap {
         );
         let mut live = 0_usize;
         while let Some(handle) = self.pending.pop() {
-            if handle == 0 {
+            // null e `Smi` (R10) não são arestas: o coletor nunca segue um
+            // `Smi`, que não aponta para o heap.
+            if !smi::e_handle(handle) {
                 continue;
             }
             // Raiz ou aresta que não é um handle vivo: mesmas quatro
@@ -904,7 +1470,9 @@ impl Heap {
         }
         // Tabelas laterais: só ficam os handles que sobreviveram (G6).
         let marks = &self.marks;
-        let vivo = |h: &i64| usize::try_from(*h - 1).ok().is_some_and(|i| marks.get(i).copied().unwrap_or(false));
+        let vivo = |h: &i64| {
+            smi::e_handle(*h) && *h > 0 && marks.get(Self::indice_de(*h)).copied().unwrap_or(false)
+        };
         self.imutaveis.retain(|h| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
@@ -937,48 +1505,30 @@ impl Heap {
         }
     }
 
-    /// Compara conteúdo, preservando NUL e diferenças entre sequências Unicode.
+    /// Compara conteúdo por unidades UTF-16 (`String.==`): NUL, surrogates
+    /// soltos e sequências Unicode diferentes (`á` × `a` + acento) contam.
     pub fn string_equal(&self, a: i64, b: i64) -> bool {
         if a == 0 || b == 0 {
             return a == b;
         }
-        match (self.get(a), self.get(b)) {
-            (Value::String(left), Value::String(right)) => left == right,
-            (Value::RawString(left), Value::RawString(right)) => left == right,
-            (Value::String(left), Value::RawString(right)) => {
-                left.encode_utf16().eq(right.iter().copied())
-            }
-            (Value::RawString(left), Value::String(right)) => {
-                left.iter().copied().eq(right.encode_utf16())
-            }
+        match (self.try_get(a), self.try_get(b)) {
+            (Some(Value::String(left)), Some(Value::String(right))) => left == right,
             _ => false,
+        }
+    }
+
+    /// O texto de uma string viva; outro valor é bug do compilador.
+    pub fn texto(&self, handle: i64) -> &Texto {
+        match self.get(handle) {
+            Value::String(t) => t,
+            _ => panic!("bug do compilador: string esperada"),
         }
     }
 
     /// Concatena conteúdo antes da possível coleta; os operandos seguem o protocolo de raízes.
     pub fn string_concat(&mut self, a: i64, b: i64) -> i64 {
-        match (self.get(a), self.get(b)) {
-            (Value::String(left), Value::String(right)) => {
-                let result = format!("{left}{right}");
-                self.allocate(Value::String(result))
-            }
-            _ => {
-                let mut units: Vec<u16> = match self.get(a) {
-                    Value::String(s) => s.encode_utf16().collect(),
-                    Value::RawString(r) => r.clone(),
-                    _ => panic!("string esperada"),
-                };
-                match self.get(b) {
-                    Value::String(s) => units.extend(s.encode_utf16()),
-                    Value::RawString(r) => units.extend_from_slice(r),
-                    _ => panic!("string esperada"),
-                };
-                match String::from_utf16(&units) {
-                    Ok(valid_str) => self.allocate(Value::String(valid_str)),
-                    Err(_) => self.allocate(Value::RawString(units)),
-                }
-            }
-        }
+        let junto = self.texto(a).concatenar(self.texto(b));
+        self.allocate(Value::String(junto))
     }
 }
 
@@ -1025,7 +1575,7 @@ mod tests {
         assert!(matches!(heap.get(text), Value::String(s) if s == "ação 🦀"));
         heap.set(parent, 0, 0, true);
         heap.collect();
-        assert!(heap.slots[(text - 1) as usize].is_none());
+        assert!(heap.slots[Heap::indice_de(text)].is_none());
         heap.pop_frame(outer);
         heap.collect();
         assert_eq!(heap.slots.iter().flatten().count(), 0);
@@ -1067,7 +1617,7 @@ mod tests {
         });
         heap.root(frame, object);
         heap.collect();
-        assert!(heap.slots[(text - 1) as usize].is_none());
+        assert!(heap.slots[Heap::indice_de(text)].is_none());
         assert!(matches!(heap.get(object), Value::Object { .. }));
     }
     /// Frames aninhados preservam argumentos; stress coleta durante milhares de alocações.
@@ -1123,6 +1673,197 @@ mod falhas_de_handle {
         let h = heap.allocate(Value::String("x".into()));
         heap.collect();
         heap.get(h);
+    }
+}
+
+#[cfg(test)]
+mod texto_utf16 {
+    //! Decisão 5: strings com a semântica de unidades UTF-16 do Dart, na
+    //! forma da VM. Os casos são os do programa 04 do corpus
+    //! (`corpus/js/04_strings_surrogates.dart`), com os valores da VM.
+    use super::*;
+
+    #[test]
+    fn forma_canonica_um_e_dois_bytes() {
+        assert!(matches!(Texto::de_str("abc"), Texto::Um(_)));
+        assert!(matches!(Texto::de_str("ação"), Texto::Um(_)), "Latin-1 é um byte");
+        assert!(matches!(Texto::de_str("ÿ"), Texto::Um(_)));
+        assert!(matches!(Texto::de_str("Ÿ"), Texto::Dois(_)));
+        assert!(matches!(Texto::de_str("😀"), Texto::Dois(_)));
+        // Um pedaço Latin-1 de um texto de dois bytes volta a ser um byte.
+        assert!(matches!(Texto::de_str("a😀b").fatia(0, 1), Texto::Um(_)));
+        // A igualdade é por unidades, qualquer que seja a forma.
+        assert_eq!(Texto::Dois(vec![0x61]), Texto::de_str("a"));
+    }
+
+    #[test]
+    fn comprimento_e_unidades_de_um_emoji() {
+        let emoji = Texto::de_str("😀");
+        assert_eq!(emoji.len(), 2);
+        assert_eq!(emoji.para_vec(), vec![0xD83D, 0xDE00]);
+        assert_eq!(emoji.pontos(), vec![0x1F600]);
+        let misto = Texto::de_str("a😀b");
+        assert_eq!(misto.len(), 4);
+        assert_eq!(misto.pontos(), vec![97, 0x1F600, 98]);
+        assert_eq!(misto.fatia(1, 3), emoji);
+        assert_eq!(misto.fatia(3, 4), "b");
+        assert_eq!(misto.fatia(1, 2).len(), 1);
+        assert_eq!(misto.fatia(1, 2).unidade(0), 0xD83D);
+        assert_eq!(Texto::de_str("\u{1D11E}").len(), 2);
+        assert_eq!(Texto::de_str("👍🏽").pontos().len(), 2);
+        assert_eq!(Texto::de_str("👍🏽").len(), 4);
+        assert_eq!(Texto::de_str("e\u{301}").len(), 2);
+    }
+
+    #[test]
+    fn surrogate_solto_e_preservado() {
+        let solto = Texto::de_unidades(vec![0xD83D]);
+        assert_eq!(solto.len(), 1);
+        assert_eq!(solto.unidade(0), 0xD83D);
+        // `runes` devolve o próprio surrogate solto, não U+FFFD.
+        assert_eq!(solto.pontos(), vec![0xD83D]);
+        // Juntar as duas metades forma o emoji.
+        let par = solto.concatenar(&Texto::de_unidades(vec![0xDE00]));
+        assert_eq!(par, Texto::de_str("😀"));
+        // WTF-8 guarda o surrogate solto sem perda (três bytes)...
+        assert_eq!(solto.para_wtf8(), vec![0xED, 0xA0, 0xBD]);
+        assert_eq!(Texto::de_wtf8(&[0xED, 0xA0, 0xBD]), solto);
+        assert_eq!(par.para_wtf8(), "😀".as_bytes());
+        // ...mas `print` escreve U+FFFD no lugar dele, como a VM (medido:
+        // `print(String.fromCharCode(0xD83D))` sai `EF BF BD`).
+        assert_eq!(solto.para_utf8_da_vm(), "\u{FFFD}".as_bytes());
+        assert_eq!(par.para_utf8_da_vm(), "😀".as_bytes());
+    }
+
+    #[test]
+    fn busca_por_unidades() {
+        let tres = Texto::de_str("😀😀😀");
+        let emoji = Texto::de_str("😀");
+        assert_eq!(tres.procurar(&emoji, 1), Some(2));
+        assert_eq!(tres.procurar_ultimo(&emoji, tres.len()), Some(4));
+        assert_eq!(Texto::de_str("a😀b").procurar(&emoji, 0), Some(1));
+        assert_eq!(tres.procurar(&Texto::vazio(), 3), Some(3));
+        assert!(Texto::de_str("abc").comparar(&Texto::de_str("abd")).is_lt());
+        // Comparação por unidades: U+FFFF > U+1F600 (0xD83D...).
+        assert!(Texto::de_str("\u{FFFF}").comparar(&emoji).is_gt());
+    }
+
+    /// Os valores são os da VM 3.6.2 (`print(s.hashCode)`, medidos).
+    #[test]
+    fn hash_code_e_o_da_vm() {
+        let casos: [(&[u16], i64); 8] = [
+            (&[], 1),
+            (&[97], 170824770),
+            (&[97, 98, 99], 756227931),
+            (&[97, 231, 227, 111], 927877670),
+            (&[0xD83D, 0xDE00], 472421242),
+            (&[97, 0xD83D, 0xDE00, 98], 661772406),
+            (&[0xD83D], 471726753),
+            (&[72, 101, 108, 108, 111, 44, 32, 87, 111, 114, 108, 100, 33], 847757641),
+        ];
+        for (unidades, esperado) in casos {
+            assert_eq!(Texto::de_fatia(unidades).hash_vm(), esperado, "{unidades:?}");
+        }
+    }
+
+    #[test]
+    fn construtor_por_unidades() {
+        let mut m = TextoMut::new();
+        m.push_str("x");
+        m.push_texto(&Texto::de_unidades(vec![0xDE00]));
+        m.push('y');
+        let t = m.fim();
+        assert_eq!(t.len(), 3);
+        assert_eq!(t.unidade(1), 0xDE00);
+    }
+}
+
+#[cfg(test)]
+mod smi_r10 {
+    //! R10: `int` pequeno etiquetado dentro do `Ref`, sem alocação, que o
+    //! coletor nunca segue.
+    use super::*;
+
+    #[test]
+    fn faixa_e_codificacao() {
+        assert_eq!(smi::de(0), Some(1));
+        assert_eq!(smi::de(-1), Some(-1));
+        assert_eq!(smi::valor(smi::de(-1).unwrap()), -1);
+        for v in [smi::MIN, smi::MAX, 7, -7, 1 << 40] {
+            let r = smi::de(v).unwrap();
+            assert!(smi::e_smi(r) && !smi::e_handle(r));
+            assert_eq!(smi::valor(r), v);
+        }
+        assert_eq!(smi::de(smi::MAX + 1), None);
+        assert_eq!(smi::de(smi::MIN - 1), None);
+        assert_eq!(smi::de(i64::MAX), None);
+        assert!(!smi::e_handle(0));
+    }
+
+    #[test]
+    fn caixa_de_int_pequeno_nao_aloca() {
+        let mut heap = Heap::new(true);
+        let antes = heap.stats().allocations;
+        let r = heap.caixa_int(42);
+        assert_eq!(heap.stats().allocations, antes, "Smi não aloca");
+        assert_eq!(heap.int_de_ref(r), Some(42));
+        // Dois `int` iguais em posição `Ref` são o mesmo `Ref` (identical).
+        assert_eq!(heap.caixa_int(42), r);
+        // Fora da faixa: `_Mint` no heap, com handle par.
+        let grande = heap.caixa_int(i64::MAX);
+        assert!(smi::e_handle(grande));
+        assert_eq!(heap.stats().allocations, antes + 1);
+        assert_eq!(heap.int_de_ref(grande), Some(i64::MAX));
+        assert!(matches!(heap.get(grande), Value::BoxedInt(i64::MAX)));
+    }
+
+    #[test]
+    fn handles_sao_pares() {
+        let mut heap = Heap::new(false);
+        for _ in 0..10 {
+            let h = heap.allocate(Value::String("x".into()));
+            assert!(smi::e_handle(h), "handle {h} deveria ser par");
+        }
+    }
+
+    #[test]
+    fn coletor_nunca_segue_um_smi() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(2);
+        let s = smi::de(3).unwrap();
+        // Um `Smi` como raiz, como campo `Ref` e como elemento: nada disso é
+        // aresta; a coleta sob estresse não o toma por handle.
+        heap.set_root(frame, 0, s);
+        let obj = heap.allocate(Value::Object { class_id: 1, fields: vec![(s, true)] });
+        heap.set_root(frame, 1, obj);
+        heap.set(obj, 0, smi::de(-5).unwrap(), true);
+        let lista = heap.create_list(vec![TaggedValue::reference(s)]);
+        // A lista normaliza o `Smi` para o escalar (R8).
+        assert_eq!(heap.list_get(lista, 0), TaggedValue::scalar(3));
+        heap.collect();
+        assert!(matches!(heap.get(obj), Value::Object { .. }));
+        heap.set_global_root(1, s);
+        heap.set_raiz_do_runtime(0, s);
+        heap.collect();
+        heap.pop_frame(frame);
+        heap.set_raiz_do_runtime(0, 0);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    #[test]
+    fn normalizar_e_como_ref_sao_inversos() {
+        let mut heap = Heap::new(false);
+        for v in [0, 1, -1, smi::MAX, smi::MIN, i64::MAX, i64::MIN] {
+            let r = heap.como_ref(TaggedValue::scalar(v));
+            assert_eq!(heap.normalizar(TaggedValue::reference(r)), TaggedValue::scalar(v));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Smi usado como handle")]
+    fn smi_desreferenciado_e_bug_com_mensagem_propria() {
+        Heap::new(false).get(smi::de(9).unwrap());
     }
 }
 
@@ -1359,7 +2100,7 @@ mod fixed_root_tests {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..8 {
-            let handle = heap.allocate(Value::String(String::with_capacity(2 * 1024 * 1024)));
+            let handle = heap.allocate(Value::String(Texto::Um(Vec::with_capacity(2 * 1024 * 1024))));
             heap.set_root(frame, 0, handle);
         }
         let stats = heap.stats();

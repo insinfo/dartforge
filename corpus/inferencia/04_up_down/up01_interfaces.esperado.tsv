@@ -1,0 +1,34 @@
+# 04_up_down/up01_interfaces.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+18	10	256	219	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var p = /*@*
+19	11	288	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+19	11	288	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+19	16	293	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+20	16	317	13	ConditionalExpression	A	-	1	b ? B() : C()
+20	16	317	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+20	20	321	3	InstanceCreationExpression	B	CONSTRUCTOR:B.	0	B()
+20	26	327	3	InstanceCreationExpression	C	CONSTRUCTOR:C.	0	C()
+21	16	347	13	ConditionalExpression	Object	-	1	b ? X() : Y()
+21	16	347	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+21	20	351	3	InstanceCreationExpression	X	CONSTRUCTOR:X.	0	X()
+21	26	357	3	InstanceCreationExpression	Y	CONSTRUCTOR:Y.	0	Y()
+22	16	377	13	ConditionalExpression	B	-	1	b ? B() : Z()
+22	16	377	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+22	20	381	3	InstanceCreationExpression	B	CONSTRUCTOR:B.	0	B()
+22	26	387	3	InstanceCreationExpression	Z	CONSTRUCTOR:Z.	0	Z()
+23	16	407	11	ConditionalExpression	num	-	1	b ? 1 : 2.5
+23	16	407	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+23	20	411	1	IntegerLiteral	int	-	0	1
+23	24	415	3	DoubleLiteral	double	-	0	2.5
+24	16	435	11	ConditionalExpression	Object	-	1	b ? 1 : 'a'
+24	16	435	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+24	20	439	1	IntegerLiteral	int	-	0	1
+24	24	443	3	SimpleStringLiteral	String	-	0	'a'
+25	3	450	22	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s, t])
+25	3	450	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+25	9	456	15	ListLiteral	List<Object>	-	0	[p, q, r, s, t]
+25	10	457	1	SimpleIdentifier	A	LOCAL_VARIABLE:main.p	0	p
+25	13	460	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.q	0	q
+25	16	463	1	SimpleIdentifier	B	LOCAL_VARIABLE:main.r	0	r
+25	19	466	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.s	0	s
+25	22	469	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.t	0	t

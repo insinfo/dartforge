@@ -194,30 +194,17 @@ pub extern "C" fn dartforge_list_get_bits(handle: i64, index: i64) -> i64 {
                 heap_ref.list_get(handle, index as usize).bits
             }
             Value::String(s) => {
-                let units: Vec<u16> = s.encode_utf16().collect();
-                if index < 0 || index >= units.len() as i64 {
+                // `String_charAt` (`StringValueAt`, runtime/lib/string.cc):
+                // fora dos limites, `RangeError.range(i, 0, length - 1, "index")`.
+                let n = s.len() as i64;
+                if index < 0 || index >= n {
                     drop(heap_ref);
-                    let err = allocate_range_error("RangeError");
-                    dartforge_exception_throw(err, 3);
+                    lancar_range(index, 0, n - 1, "index");
                     return 0;
                 }
-                let u = units[index as usize];
+                let um = s.fatia(index as usize, index as usize + 1);
                 drop(heap_ref);
-                match String::from_utf16(&[u]) {
-                    Ok(ch_str) => HEAP.with(|h| h.borrow_mut().allocate(Value::String(ch_str))),
-                    Err(_) => HEAP.with(|h| h.borrow_mut().allocate(Value::RawString(vec![u]))),
-                }
-            }
-            Value::RawString(r) => {
-                if index < 0 || index >= r.len() as i64 {
-                    drop(heap_ref);
-                    let err = allocate_range_error("RangeError");
-                    dartforge_exception_throw(err, 3);
-                    return 0;
-                }
-                let u = r[index as usize];
-                drop(heap_ref);
-                HEAP.with(|h| h.borrow_mut().allocate(Value::RawString(vec![u])))
+                HEAP.with(|h| h.borrow_mut().allocate(Value::String(um)))
             }
             Value::Match(s) => {
                 if index == 0 {
@@ -246,7 +233,7 @@ pub extern "C" fn dartforge_list_get_tag(handle: i64, index: i64) -> u8 {
                 }
                 untag(heap_ref.list_get(handle, index as usize)).1
             }
-            Value::String(_) | Value::RawString(_) | Value::Match(_) => 3,
+            Value::String(_) | Value::Match(_) => 3,
             _ => 0,
         }
     })
@@ -400,21 +387,18 @@ pub extern "C" fn dartforge_map_remove(handle: i64, key_bits: i64, key_tag: u8) 
     }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let target_key = TaggedValue {
-            bits: key_bits,
-            is_ref: key_tag == 3,
-            tag: match key_tag {
-                1 => crate::heap::ValueTag::Int,
-                2 => crate::heap::ValueTag::Bool,
-                3 => crate::heap::ValueTag::Ref,
-                _ => crate::heap::ValueTag::Int,
-            },
+        // A chave com a tag real e normalizada (R8/R10: um `Smi` ou uma
+        // caixa é a mesma chave que o escalar), comparada pelo `==` das
+        // chaves — antes só os bits, e `1` encaixotado não achava `1`.
+        let alvo = heap.normalizar(tagged(key_bits, key_tag));
+        let pos = match heap.get(handle) {
+            Value::Map(entries) => entries.iter().position(|(k, _)| heap.key_equal(k, &alvo)),
+            _ => return 0,
         };
         let Value::Map(entries) = heap.get_mut(handle) else { return 0; };
-        if let Some(pos) = entries.iter().position(|(k, _)| k.bits == target_key.bits) {
-            entries.remove(pos).1.bits
-        } else {
-            0
+        match pos {
+            Some(pos) => entries.remove(pos).1.bits,
+            None => 0,
         }
     })
 }
@@ -485,9 +469,8 @@ pub extern "C" fn dartforge_generic_len(handle: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(handle) {
-            Value::String(s) => s.encode_utf16().count() as i64,
-            Value::RawString(r) => r.len() as i64,
-            Value::StringBuffer(b) => b.encode_utf16().count() as i64,
+            Value::String(s) => s.len() as i64,
+            Value::StringBuffer(b) => b.len() as i64,
             Value::List(l) => l.len() as i64,
             Value::Map(m) => m.len() as i64,
             Value::Set(s) => s.len() as i64,
@@ -510,47 +493,36 @@ pub extern "C" fn dartforge_list_reversed(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(rev_items)))
 }
 
-/// Concatena os elementos de uma lista usando um separador em string.
+/// Concatena os elementos de uma lista usando um separador em string
+/// (`Iterable.join`: `"$e"` de cada elemento, por unidades UTF-16).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_join(handle: i64, sep_handle: i64) -> i64 {
-    if handle == 0 {
-        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(String::new())));
-    }
     let joined = HEAP.with(|heap| {
         let heap_ref = heap.borrow();
-        let Value::List(items) = heap_ref.get(handle) else { return String::new(); };
-        let sep = if sep_handle != 0 {
-            if let Value::String(s) = heap_ref.get(sep_handle) { s.as_str() } else { "" }
-        } else { "" };
-        let mut parts = Vec::new();
-        for item in items {
-            let mut out = String::new();
+        let Value::List(items) = heap_ref.get(handle) else { return Texto::vazio(); };
+        let sep = match heap_ref.try_get(sep_handle) {
+            Some(Value::String(s)) => s.clone(),
+            _ => Texto::vazio(),
+        };
+        let mut out = TextoMut::new();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                out.push_texto(&sep);
+            }
             match item.tag {
                 crate::heap::ValueTag::Int => out.push_str(&item.bits.to_string()),
                 crate::heap::ValueTag::Bool => out.push_str(if item.bits != 0 { "true" } else { "false" }),
-                crate::heap::ValueTag::Double => {
-                    let d = f64::from_bits(item.bits as u64);
-                    if d.fract() == 0.0 && !d.is_infinite() && !d.is_nan() {
-                        out.push_str(&format!("{d:.1}"));
-                    } else {
-                        out.push_str(&d.to_string());
-                    }
-                }
+                crate::heap::ValueTag::Double => out.push_str(&texto_de_double(f64::from_bits(item.bits as u64))),
                 crate::heap::ValueTag::Ref => {
                     if item.bits != 0 {
-                        if let Value::String(s) = heap_ref.get(item.bits) {
-                            out.push_str(s);
-                        } else {
-                            out.push_str(&describe_handle(&heap_ref, item.bits));
-                        }
+                        out.push_texto(&describe_texto(&heap_ref, item.bits));
                     } else {
                         out.push_str("null");
                     }
                 }
             }
-            parts.push(out);
         }
-        parts.join(sep)
+        out.fim()
     });
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(joined)))
 }

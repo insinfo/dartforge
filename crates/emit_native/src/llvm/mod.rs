@@ -24,6 +24,14 @@ pub struct LlvmEmitter<'a> {
     slots: std::collections::HashMap<ValueId, usize>,
     /// A função abriu um frame de raízes (`%gcf`).
     tem_frame: bool,
+    // --- P1 (closures, α) ---
+    /// Entradas uniformes na ordem da `@df_code_table` (o índice 0 é a
+    /// entrada inválida).
+    codigos: Vec<String>,
+    codigo_de: std::collections::HashMap<String, usize>,
+    /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
+    vetores: Vec<Vec<i64>>,
+    vetor_de: std::collections::HashMap<Vec<i64>, usize>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -38,6 +46,10 @@ impl<'a> LlvmEmitter<'a> {
             apontado: std::collections::HashMap::new(),
             slots: std::collections::HashMap::new(),
             tem_frame: false,
+            codigos: Vec::new(),
+            codigo_de: std::collections::HashMap::new(),
+            vetores: Vec::new(),
+            vetor_de: std::collections::HashMap::new(),
         }
     }
 
@@ -62,6 +74,9 @@ impl<'a> LlvmEmitter<'a> {
 
         // 4b. Globais do usuário (N6)
         self.emit_globais();
+
+        // 4c. Tabela de código das closures e vetores constantes (P1)
+        self.emit_closures();
 
         // 5. Funções compiladas
         for func in &self.module.functions {
@@ -246,6 +261,9 @@ impl<'a> LlvmEmitter<'a> {
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
+            if block.id.0 == 0 {
+                self.emit_buffers_de_closure(func);
+            }
             if block.id.0 == 0 && self.tem_frame {
                 writeln!(self.out, "  %gcf = call i64 @dartforge_gc_push_frame(i64 {})", self.slots.len()).unwrap();
                 for (vid, _, ty) in &func.params {
@@ -664,6 +682,7 @@ impl<'a> LlvmEmitter<'a> {
                         let joined = in_strs.join(", ");
                         writeln!(self.out, "  %v{v} = phi {t} {joined}").unwrap();
                     }
+                    _ if self.emit_closure_inst(v, inst, *ty) => {}
                     _ => {
                         // E3: o verificador da HIR recusa, antes da emissão,
                         // toda instrução sem lowering aqui (o antigo
@@ -754,17 +773,213 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "}}\n").unwrap();
     }
 
+    /// O descritor de uma chamada pela convenção uniforme:
+    /// [n_posicionais, n_nomeados, hash(nome)…].
+    fn descritor(args: usize, nomes: &[String]) -> Vec<i64> {
+        let mut d = vec![(args - nomes.len()) as i64, nomes.len() as i64];
+        d.extend(nomes.iter().map(|n| crate::lower::closures::hash_nome(n)));
+        d
+    }
+
+    fn registrar_vetor(&mut self, v: Vec<i64>) -> usize {
+        if let Some(&k) = self.vetor_de.get(&v) {
+            return k;
+        }
+        let k = self.vetores.len();
+        self.vetor_de.insert(v.clone(), k);
+        self.vetores.push(v);
+        k
+    }
+
+    /// @df_code_table (a entrada uniforme de cada closure e tear-off, na
+    /// ordem em que aparecem no módulo; o índice 0 é @df_clo_invalido, que
+    /// a chamada usa quando o valor não é closure — o runtime já deixou o
+    /// NoSuchMethodError pendente) e os vetores constantes.
+    fn emit_closures(&mut self) {
+        self.codigos.push("df_clo_invalido".to_string());
+        let modulo = self.module;
+        for func in &modulo.functions {
+            for block in &func.blocks {
+                for (_, inst, _) in &block.instructions {
+                    match inst {
+                        Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => {
+                            if !self.codigo_de.contains_key(code_symbol) {
+                                self.codigo_de.insert(code_symbol.clone(), self.codigos.len());
+                                self.codigos.push(code_symbol.clone());
+                            }
+                        }
+                        Instruction::ConstArray(v) => {
+                            self.registrar_vetor(v.clone());
+                        }
+                        Instruction::CallClosure { args, nomes, .. } => {
+                            self.registrar_vetor(Self::descritor(args.len(), nomes));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        self.out.push_str("; Closures: entrada inválida, tabela de código e vetores constantes\n");
+        self.out.push_str("define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n");
+        let lista: Vec<String> = self.codigos.iter().map(|s| format!("ptr @{s}")).collect();
+        writeln!(
+            self.out,
+            "@df_code_table = internal constant [{} x ptr] [{}]",
+            lista.len(),
+            lista.join(", ")
+        )
+        .unwrap();
+        for (k, v) in self.vetores.iter().enumerate() {
+            let itens: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
+            writeln!(
+                self.out,
+                "@df.arr.{k} = private unnamed_addr constant [{} x i64] [{}]",
+                v.len(),
+                itens.join(", ")
+            )
+            .unwrap();
+        }
+        self.out.push('\n');
+    }
+
+    /// Converte os bits i64 lidos de uma célula/ambiente (%u) para a
+    /// representação `ty` do resultado `%v<v>`.
+    fn bits_para_repr(&mut self, v: u32, bits: &str, ty: Type) {
+        match ty {
+            Type::F64 => writeln!(self.out, "  %v{v} = bitcast i64 {bits} to double").unwrap(),
+            Type::I1 => writeln!(self.out, "  %v{v} = icmp ne i64 {bits}, 0").unwrap(),
+            Type::I8 => writeln!(self.out, "  %v{v} = trunc i64 {bits} to i8").unwrap(),
+            _ => writeln!(self.out, "  %v{v} = add i64 {bits}, 0").unwrap(),
+        }
+    }
+
+    /// Tag da ABI (bits, tag) de um valor pela representação (E1).
+    fn tag_de(&self, op: &Operand) -> u8 {
+        match self.tipo_de(op) {
+            Type::I64 => 1,
+            Type::I1 | Type::I8 => 2,
+            Type::F64 => 4,
+            _ => 3,
+        }
+    }
+
+    /// Emite uma instrução das closures (P1); `false` se não é uma delas.
+    fn emit_closure_inst(&mut self, v: u32, inst: &Instruction, ty: Type) -> bool {
+        match inst {
+            Instruction::AllocCell { value } => {
+                let tag = self.tag_de(value);
+                let s = self.coagir(value, Type::I64);
+                writeln!(self.out, "  %v{v} = call i64 @dartforge_cell_new(i64 {s}, i8 {tag})").unwrap();
+            }
+            Instruction::CellGet { cell } => {
+                let c = self.coagir(cell, Type::Ref);
+                if ty == Type::Ref {
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_cell_get_ref(i64 {c})").unwrap();
+                } else {
+                    writeln!(self.out, "  %u{v} = call i64 @dartforge_cell_get_bits(i64 {c})").unwrap();
+                    self.bits_para_repr(v, &format!("%u{v}"), ty);
+                }
+            }
+            Instruction::CellSet { cell, value } => {
+                let tag = self.tag_de(value);
+                let c = self.coagir(cell, Type::Ref);
+                let s = self.coagir(value, Type::I64);
+                writeln!(self.out, "  call void @dartforge_cell_set(i64 {c}, i64 {s}, i8 {tag})").unwrap();
+            }
+            Instruction::EnvGet { env, index } => {
+                let e = self.coagir(env, Type::Ref);
+                if ty == Type::Ref {
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_env_get_ref(i64 {e}, i64 {index})").unwrap();
+                } else {
+                    writeln!(self.out, "  %u{v} = call i64 @dartforge_env_get(i64 {e}, i64 {index})").unwrap();
+                    self.bits_para_repr(v, &format!("%u{v}"), ty);
+                }
+            }
+            Instruction::AllocEnv { values } => {
+                let n = values.len();
+                if n == 0 {
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_env_new(ptr null, i64 0)").unwrap();
+                } else {
+                    for (i, val) in values.iter().enumerate() {
+                        let tag = self.tag_de(val);
+                        let s = self.coagir(val, Type::I64);
+                        writeln!(self.out, "  %eb{v}_{i} = getelementptr [{} x i64], ptr %envbuf{v}, i64 0, i64 {}", n * 2, i * 2).unwrap();
+                        writeln!(self.out, "  store i64 {s}, ptr %eb{v}_{i}").unwrap();
+                        writeln!(self.out, "  %et{v}_{i} = getelementptr [{} x i64], ptr %envbuf{v}, i64 0, i64 {}", n * 2, i * 2 + 1).unwrap();
+                        writeln!(self.out, "  store i64 {tag}, ptr %et{v}_{i}").unwrap();
+                    }
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_env_new(ptr %envbuf{v}, i64 {n})").unwrap();
+                }
+            }
+            Instruction::AllocClosure { code_symbol, env } => {
+                let idx = self.codigo_de[code_symbol];
+                let e = self.coagir(env, Type::Ref);
+                writeln!(self.out, "  %v{v} = call i64 @dartforge_closure_new(i64 {idx}, i64 {e})").unwrap();
+            }
+            Instruction::TearOff { code_symbol } => {
+                let idx = self.codigo_de[code_symbol];
+                writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 {idx})").unwrap();
+            }
+            Instruction::CallClosure { closure, args, nomes, .. } => {
+                let k = self.vetor_de[&Self::descritor(args.len(), nomes)];
+                let n = args.len().max(1);
+                for (i, a) in args.iter().enumerate() {
+                    let s = self.coagir(a, Type::I64);
+                    writeln!(self.out, "  %ca{v}_{i} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {i}").unwrap();
+                    writeln!(self.out, "  store i64 {s}, ptr %ca{v}_{i}").unwrap();
+                }
+                let c = self.coagir(closure, Type::Ref);
+                let t = self.codigos.len();
+                writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
+                writeln!(self.out, "  %cp{v} = getelementptr [{t} x ptr], ptr @df_code_table, i64 0, i64 %cc{v}").unwrap();
+                writeln!(self.out, "  %cf{v} = load ptr, ptr %cp{v}").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
+            }
+            Instruction::LoadIndexed { base, index } => {
+                let b = self.operand_str(base);
+                let i = self.coagir(index, Type::I64);
+                writeln!(self.out, "  %li{v} = getelementptr i64, ptr {b}, i64 {i}").unwrap();
+                writeln!(self.out, "  %v{v} = load i64, ptr %li{v}").unwrap();
+            }
+            Instruction::ConstArray(vals) => {
+                let k = self.vetor_de[vals];
+                writeln!(self.out, "  %v{v} = getelementptr i64, ptr @df.arr.{k}, i64 0").unwrap();
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Os vetores de pilha das closures (argumentos de uma chamada, pares do
+    /// ambiente) nascem no bloco de entrada: um `alloca` num laço cresceria a
+    /// pilha a cada volta.
+    fn emit_buffers_de_closure(&mut self, func: &Function) {
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                match inst {
+                    Instruction::CallClosure { args, .. } => {
+                        writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
+                    }
+                    Instruction::AllocEnv { values } if !values.is_empty() => {
+                        writeln!(self.out, "  %envbuf{} = alloca [{} x i64]", vid.0, values.len() * 2).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     /// `@dfg_<id>` (valor, no tipo da representação) e `@dfg_<id>_ok`.
     fn emit_globais(&mut self) {
-        for (id, ty) in &self.module.globais {
+        for (_, ty, simbolo) in &self.module.globais {
             let (t, zero) = match ty {
                 Type::F64 => ("double", "0.0"),
                 Type::I1 => ("i1", "false"),
                 Type::I8 => ("i8", "0"),
                 _ => ("i64", "0"),
             };
-            writeln!(self.out, "@dfg_{id} = internal global {t} {zero}").unwrap();
-            writeln!(self.out, "@dfg_{id}_ok = internal global i8 0").unwrap();
+            writeln!(self.out, "@{simbolo} = internal global {t} {zero}").unwrap();
+            writeln!(self.out, "@{simbolo}$ok = internal global i8 0").unwrap();
         }
         self.out.push('\n');
     }
@@ -828,8 +1043,16 @@ impl<'a> LlvmEmitter<'a> {
             ).unwrap();
         }
 
+        // RTI: o universo de tipos (classes citadas e regras de supertipo).
+        if let Some(iniciar) = &self.module.iniciar_rti {
+            writeln!(self.out, "  call void @{iniciar}()").unwrap();
+        }
         if let Some(entry) = &self.module.entry_symbol {
             writeln!(self.out, "  call void @{entry}()").unwrap();
+        }
+        // P6: microtarefas e timers depois do `main` (runtime, `eventos.rs`).
+        if let Some(chamar) = &self.module.chamar_dart {
+            writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
         }
         writeln!(self.out, "  ret void").unwrap();
         writeln!(self.out, "}}\n").unwrap();
@@ -842,7 +1065,7 @@ impl<'a> LlvmEmitter<'a> {
     /// divergente faria a coercao trabalhar com a informacao errada. O tipo
     /// registrado so vale onde o emissor o usa (Load, Phi, Alloca e as
     /// instrucoes ainda nao expandidas).
-    fn tipo_do_resultado(inst: &Instruction, registrado: Type) -> Type {
+    pub(crate) fn tipo_do_resultado(inst: &Instruction, registrado: Type) -> Type {
         match inst {
             Instruction::Const(Constant::Bool(_)) => Type::I1,
             Instruction::Const(Constant::Double(_)) => Type::F64,
@@ -866,7 +1089,14 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::AllocList { .. }
             | Instruction::AllocMap { .. }
             | Instruction::AllocRecord { .. }
-            | Instruction::Box { .. } => Type::Ref,
+            | Instruction::Box { .. }
+            | Instruction::AllocCell { .. }
+            | Instruction::AllocEnv { .. }
+            | Instruction::AllocClosure { .. }
+            | Instruction::TearOff { .. }
+            | Instruction::CallClosure { .. } => Type::Ref,
+            Instruction::CellSet { .. } => Type::Void,
+            Instruction::ConstArray(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,
             Instruction::GetField { .. } => Type::I64,

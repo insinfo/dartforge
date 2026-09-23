@@ -95,13 +95,16 @@ pub enum Type {
         args: Box<[TypeId]>,
         nullable: bool,
     },
+    /// Variável de tipo promovida `X & B` (`flow-analysis.md`, "promote"):
+    /// só existe como tipo estático de uma leitura promovida; nunca anulável.
+    Intersection { param: TypeParamId, bound: TypeId },
 }
 
 impl Type {
     /// Informa se o tipo foi explicitamente anotado como anulável com `?`.
     pub fn is_declared_nullable(&self) -> bool {
         match self {
-            Type::Dynamic | Type::Void | Type::Null | Type::Never => false,
+            Type::Dynamic | Type::Void | Type::Null | Type::Never | Type::Intersection { .. } => false,
             Type::Interface { nullable, .. }
             | Type::Function { nullable, .. }
             | Type::Record { nullable, .. }
@@ -246,6 +249,11 @@ impl TypeTable {
         id
     }
 
+    /// O `TypeId` de um tipo já internado, sem internar.
+    pub fn intern_lookup(&self, ty: Type) -> Option<TypeId> {
+        self.lookup.get(&ty).copied()
+    }
+
     /// Retorna representação textual legível de um tipo para mensagens de diagnóstico.
     pub fn format(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
         let t = self.get(ty);
@@ -332,6 +340,9 @@ impl TypeTable {
                 let name = interner.resolve(self.param(*param).name);
                 format!("{name}{q}")
             }
+            Type::Intersection { param, bound } => {
+                format!("{} & {}", interner.resolve(self.param(*param).name), self.format(*bound, interner, program))
+            }
             Type::ExtensionType {
                 decl,
                 args,
@@ -381,6 +392,29 @@ pub struct CoreTypes {
     pub map_class: Option<ClassId>,
     pub core_library: Option<LibraryId>,
     pub async_library: Option<LibraryId>,
+    /// `double`.
+    pub double: TypeId,
+    pub double_class: Option<ClassId>,
+    /// `Type` (tipo de um literal de tipo).
+    pub type_: TypeId,
+    /// `Symbol`.
+    pub symbol: TypeId,
+    pub set_class: Option<ClassId>,
+    pub stream_class: Option<ClassId>,
+    pub map_entry_class: Option<ClassId>,
+    pub null_class: Option<ClassId>,
+    /// O tipo desconhecido `_` dos esquemas de contexto (`inference.md`,
+    /// "Type schemas"). Representado por um parâmetro de tipo sentinela que
+    /// nunca aparece em tipos finais: nenhum tipo inferido o contém.
+    pub unknown: TypeId,
+    pub unknown_param: TypeParamId,
+}
+
+impl CoreTypes {
+    /// `t` é o desconhecido `_` (com ou sem `?`).
+    pub fn is_unknown(&self, table: &TypeTable, t: TypeId) -> bool {
+        matches!(table.get(t), Type::TypeParameter { param, .. } if *param == self.unknown_param)
+    }
 }
 
 impl CoreTypes {
@@ -445,6 +479,28 @@ impl CoreTypes {
         let bool_ = make_interface(table, bool_class, false);
         let function = make_interface(table, function_class, false);
         let record = make_interface(table, record_class, false);
+        let double_class = find_class(core_lib, "double");
+        let double = make_interface(table, double_class, false);
+        let type_ = make_interface(table, find_class(core_lib, "Type"), false);
+        let symbol = make_interface(table, find_class(core_lib, "Symbol"), false);
+        let set_class = find_class(core_lib, "Set");
+        let stream_class = find_class(async_lib, "Stream");
+        let map_entry_class = find_class(core_lib, "MapEntry");
+        let null_class = find_class(core_lib, "Null");
+        // Sentinela do desconhecido `_`: um parâmetro de tipo sem dono real.
+        let nome_unknown = interner
+            .lookup("_")
+            .or_else(|| object_class.map(|c| program.classes[c.0 as usize].name))
+            .or_else(|| program.classes.first().map(|c| c.name))
+            .or_else(|| interner.lookup("dynamic"))
+            .unwrap_or_else(|| interner.textos().next().and_then(|t| interner.lookup(t)).expect("interner vazio"));
+        let unknown_param = table.alloc_type_param(
+            nome_unknown,
+            TypeParamOwner::GenericFunctionType,
+            object_nullable,
+            Variance::Unspecified,
+        );
+        let unknown = table.intern(Type::TypeParameter { param: unknown_param, nullable: false });
 
         Self {
             dynamic_,
@@ -472,6 +528,16 @@ impl CoreTypes {
             map_class,
             core_library: core_lib,
             async_library: async_lib,
+            double,
+            double_class,
+            type_,
+            symbol,
+            set_class,
+            stream_class,
+            map_entry_class,
+            null_class,
+            unknown,
+            unknown_param,
         }
     }
 }

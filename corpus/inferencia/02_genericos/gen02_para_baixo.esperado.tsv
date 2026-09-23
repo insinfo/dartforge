@@ -1,0 +1,20 @@
+# 02_genericos/gen02_para_baixo.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	14	142	15	FunctionExpression	List<T> Function<T>()	-	0	<T>() => <T>[];
+3	23	151	5	ListLiteral	List<T>	-	0	<T>[]
+4	10	167	147	FunctionExpression	void Function()	-	0	() { List<num> a = /*@*/vazio(); var b = /*@*/vazio();
+5	22	193	7	MethodInvocation	List<num>	FUNCTION:vazio	1	vazio()
+5	22	193	5	SimpleIdentifier	List<T> Function<T>()	FUNCTION:vazio	1	vazio
+6	16	217	7	MethodInvocation	List<dynamic>	FUNCTION:vazio	1	vazio()
+6	16	217	5	SimpleIdentifier	List<T> Function<T>()	FUNCTION:vazio	1	vazio
+7	29	254	7	MethodInvocation	List<String>	FUNCTION:vazio	1	vazio()
+7	29	254	5	SimpleIdentifier	List<T> Function<T>()	FUNCTION:vazio	1	vazio
+8	19	281	7	MethodInvocation	List<dynamic>	FUNCTION:vazio	1	vazio()
+8	19	281	5	SimpleIdentifier	List<T> Function<T>()	FUNCTION:vazio	1	vazio
+9	3	292	19	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d])
+9	3	292	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	9	298	12	ListLiteral	List<Object>	-	0	[a, b, c, d]
+9	10	299	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.a	0	a
+9	13	302	1	SimpleIdentifier	List<dynamic>	LOCAL_VARIABLE:main.b	0	b
+9	16	305	1	SimpleIdentifier	Iterable<String>	LOCAL_VARIABLE:main.c	0	c
+9	19	308	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.d	0	d

@@ -1,0 +1,27 @@
+# 07_membros/mem05_call.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	25	108	8	PrefixedIdentifier	int	GETTER:String.length	0	s.length
+3	25	108	1	SimpleIdentifier	String	PARAMETER:call.s	0	s
+3	27	110	6	SimpleIdentifier	int	GETTER:String.length	0	length
+6	10	130	179	FunctionExpression	void Function()	-	0	() { var f = F(); var a = /*@*/f('a'); int Function(St
+7	11	145	3	InstanceCreationExpression	F	CONSTRUCTOR:F.	0	F()
+8	16	165	6	FunctionExpressionInvocation	int	-	1	f('a')
+8	16	165	1	SimpleIdentifier	F	LOCAL_VARIABLE:main.f	1	f
+8	18	167	3	SimpleStringLiteral	String	-	0	'a'
+9	33	205	1	SimpleIdentifier	F	LOCAL_VARIABLE:main.f	1	f
+10	16	223	6	PrefixedIdentifier	int Function(String)	METHOD:F.call	1	f.call
+10	16	223	1	SimpleIdentifier	F	LOCAL_VARIABLE:main.f	1	f
+10	18	225	4	SimpleIdentifier	int Function(String)	METHOD:F.call	0	call
+11	16	246	11	MethodInvocation	int	METHOD:F.call	1	f.call('b')
+11	16	246	1	SimpleIdentifier	F	LOCAL_VARIABLE:main.f	1	f
+11	18	248	4	SimpleIdentifier	int Function(String)	METHOD:F.call	0	call
+11	23	253	3	SimpleStringLiteral	String	-	0	'b'
+12	21	279	1	SimpleIdentifier	F	LOCAL_VARIABLE:main.f	1	f
+13	3	284	22	MethodInvocation	void	FUNCTION:print	0	print([a, g, h, i, j])
+13	3	284	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	9	290	15	ListLiteral	List<Object>	-	0	[a, g, h, i, j]
+13	10	291	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.a	0	a
+13	13	294	1	SimpleIdentifier	int Function(String)	LOCAL_VARIABLE:main.g	0	g
+13	16	297	1	SimpleIdentifier	int Function(String)	LOCAL_VARIABLE:main.h	0	h
+13	19	300	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.i	0	i
+13	22	303	1	SimpleIdentifier	Function	LOCAL_VARIABLE:main.j	0	j

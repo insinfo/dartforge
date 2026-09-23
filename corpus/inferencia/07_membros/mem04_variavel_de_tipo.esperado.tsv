@@ -1,0 +1,28 @@
+# 07_membros/mem04_variavel_de_tipo.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	65	121	FunctionExpression	void Function<T extends List<int>, U>(T, U)	-	0	<T extends List<int>, U>(T t, U u) { print([/*@*/t.first,
+3	3	104	79	MethodInvocation	void	FUNCTION:print	0	print([/*@*/t.first, /*@*/t.map((e) => e * 2.5), /*@*/u.toSt
+3	3	104	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+3	9	110	72	ListLiteral	List<Object>	-	0	[/*@*/t.first, /*@*/t.map((e) => e * 2.5), /*@*/u.toString()
+3	15	116	7	PrefixedIdentifier	int	GETTER:Iterable.first	1	t.first
+3	15	116	1	SimpleIdentifier	T	PARAMETER:f.t	1	t
+3	17	118	5	SimpleIdentifier	int	GETTER:Iterable.first	0	first
+3	29	130	21	MethodInvocation	Iterable<double>	METHOD:Iterable.map	1	t.map((e) => e * 2.5)
+3	29	130	1	SimpleIdentifier	T	PARAMETER:f.t	1	t
+3	31	132	3	SimpleIdentifier	Iterable<T> Function<T>(T Function(int))	METHOD:Iterable.map	0	map
+3	35	136	14	FunctionExpression	double Function(int)	-	0	(e) => e * 2.5
+3	42	143	7	BinaryExpression	double	METHOD:num.*	0	e * 2.5
+3	42	143	1	SimpleIdentifier	int	PARAMETER:.e	0	e
+3	46	147	3	DoubleLiteral	double	-	0	2.5
+3	57	158	12	MethodInvocation	String	METHOD:Object.toString	1	u.toString()
+3	57	158	1	SimpleIdentifier	U	PARAMETER:f.u	1	u
+3	59	160	8	SimpleIdentifier	String Function()	METHOD:Object.toString	0	toString
+3	76	177	4	IndexExpression	int	METHOD:List.[]	1	t[0]
+3	76	177	1	SimpleIdentifier	T	PARAMETER:f.t	1	t
+3	78	179	1	IntegerLiteral	int	-	0	0
+6	10	197	16	FunctionExpression	void Function()	-	0	() => f([1], 2);
+6	16	203	9	MethodInvocation	void	FUNCTION:f	0	f([1], 2)
+6	16	203	1	SimpleIdentifier	void Function<T extends List<int>, U>(T, U)	FUNCTION:f	0	f
+6	18	205	3	ListLiteral	List<int>	-	0	[1]
+6	19	206	1	IntegerLiteral	int	-	0	1
+6	23	210	1	IntegerLiteral	int	-	0	2

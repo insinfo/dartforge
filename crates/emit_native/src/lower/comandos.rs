@@ -3,7 +3,7 @@
 
 use super::fn_builder::{FinallyScope, FnBuilder};
 use crate::hir::*;
-use dartforge_frontend::ast::{self, ExprId, ExprKind, FunctionBody, StmtId, StmtKind};
+use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtId, StmtKind};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `assert(cond, msg)`: lança `AssertionError` capturável (asserts
@@ -54,6 +54,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             StmtKind::Expression(expr_id) => {
                 self.lower_expr(ast, *expr_id);
+                // Dentro de um `try`: uma extern que não confere a exceção
+                // pendente (as do SDK casado pelo nome, congeladas) não pode
+                // deixar o `catch` para depois — confere no fim do comando.
+                if !self.is_terminated() && (!self.exception_targets.is_empty() || !self.finally_scopes.is_empty()) {
+                    self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_exception_pending".to_string(),
+                            args: Vec::new(),
+                            ret_ty: Type::I8,
+                        },
+                        Type::I8,
+                    );
+                }
             }
             StmtKind::Variables(var_list) => {
                 let var_ty_opt = var_list.ty;
@@ -62,8 +75,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // R6: o local guarda a representação do tipo declarado
                     // (ou inferido do inicializador), não a do valor.
                     let ty = self.repr_do_local(var.name.span.start);
+                    if var_list.const_
+                        && let Some(init_id) = var.initializer
+                        && let Some(k) = self.chave_constante(ast, init_id, true)
+                    {
+                        self.chaves_de_const_locais.insert(sym, (k, init_id));
+                    }
                     let init_op = if let Some(init_id) = var.initializer {
-                        let op = self.lower_expr(ast, init_id);
+                        let op = if var_list.const_ {
+                            self.lower_em_contexto_const(ast, init_id)
+                        } else {
+                            self.lower_expr(ast, init_id)
+                        };
                         // Checagem na declaração só quando o estático não a
                         // garante: inicializador `dynamic` num tipo declarado.
                         // Antes ela rodava sempre, e `Foo? x = null` chamava
@@ -77,8 +100,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     } else {
                         Self::valor_zero(ty)
                     };
-                    self.declarar_local_com_valor(sym, ty, init_op);
+                    self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
                 }
+            }
+            StmtKind::If {
+                condition,
+                case_pattern: Some(p),
+                guard,
+                then,
+                else_,
+            } => {
+                self.lower_if_case(ast, *condition, *p, *guard, *then, *else_);
             }
             StmtKind::If {
                 condition,
@@ -211,7 +243,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 } else {
                                     Self::valor_zero(ty)
                                 };
-                                self.declarar_local_com_valor(sym, ty, init_op);
+                                self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
                             }
                         }
                         ast::ForInit::Expression(e) => {
@@ -254,6 +286,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Branch(loop_update));
 
                 self.set_block(loop_update);
+                // Uma variável nova por volta (a especificação do `for`):
+                // só muda algo para a que mora numa célula (P1).
+                if let Some(ast::ForInit::Variables(var_list)) = init {
+                    for var in var_list.variables.iter() {
+                        self.renovar_celula(var.name.sym);
+                    }
+                }
                 for &u in updates.iter() {
                     self.lower_expr(ast, u);
                 }
@@ -367,21 +406,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // in ns)` quer os bits.
                         let ty = self.repr_do_local(name.span.start);
                         let item_val =
-                            self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
-                        self.declarar_local_com_valor(name.sym, ty, item_val);
+                            self.ler_elemento_iteravel(iterable_op.clone(), phi_op.clone(), ty);
+                        self.declarar_variavel(name.sym, name.span.start as usize, ty, item_val);
                     }
                     ast::ForInTarget::Expression(e) => {
                         if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
                             let ty = self.buscar_local(id.sym).map_or(Type::Ref, |l| l.ty);
                             let item_val =
-                                self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
+                                self.ler_elemento_iteravel(iterable_op.clone(), phi_op.clone(), ty);
                             self.gravar_local(id.sym, item_val);
                         } else {
                             self.nao_suportado("alvo de for-in", stmt.span);
                         }
                     }
-                    ast::ForInTarget::Pattern { .. } => {
-                        self.nao_suportado("for-in com padrão", stmt.span);
+                    ast::ForInTarget::Pattern { pattern, .. } => {
+                        let item_val =
+                            self.ler_elemento_iteravel(iterable_op.clone(), phi_op.clone(), Type::Ref);
+                        self.casar_irrefutavel(ast, *pattern, item_val, super::padroes::Ligacao::Declarar, *iterable);
                     }
                 }
 
@@ -429,51 +470,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
             StmtKind::Function(fid) => {
-                let f = self.ctx.program.unit(self.unit_id).ast.function(*fid);
-                if let Some(fn_name) = f.name {
-                    let sym = fn_name.sym;
-                    let local_sym_name = format!("{}_local_{}", self.func.symbol, fid.0);
-                    let name_str = self.ctx.symbol_name(sym).to_string();
-                    let ret_ty = Type::Ref;
-
-                    let mut b = FnBuilder::new(
-                        self.ctx,
-                        self.unit_id,
-                        local_sym_name.clone(),
-                        name_str,
-                        ret_ty,
-                    );
-                    b.local_functions = self.local_functions.clone();
-
-                    if let Some(params) = &f.parameters {
-                        for p in params.iter() {
-                            let p_name = p
-                                .name
-                                .map(|n| self.ctx.symbol_name(n.sym).to_string())
-                                .unwrap_or_else(|| "arg".to_string());
-                            let vid = b.add_param(p_name, Type::Ref);
-                            if let Some(n) = p.name {
-                                b.declarar_local_com_valor(n.sym, Type::Ref, Operand::Val(vid));
-                            }
-                        }
-                    }
-
-                    match &f.body {
-                        FunctionBody::Block(stmt_id) => {
-                            b.lower_stmt(ast, *stmt_id);
-                        }
-                        FunctionBody::Expression(expr_id) => {
-                            let r = b.lower_expr(ast, *expr_id);
-                            b.terminate(Terminator::Return(Some(r)));
-                        }
-                        _ => {}
-                    }
-
-                    self.local_functions
-                        .insert(sym, (local_sym_name, ret_ty, Vec::new()));
-                    self.extra_functions.push(b.func);
-                    self.extra_functions.extend(b.extra_functions);
-                }
+                self.declarar_funcao_local(ast, *fid, stmt.span);
             }
             StmtKind::Try {
                 body,
@@ -483,17 +480,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_try_stmt(ast, *body, catches, *finally_);
             }
             StmtKind::Labeled { labels, body } => {
-                for l in labels.iter() {
-                    self.pending_labels.push(l.sym);
+                let laco = matches!(
+                    ast.stmt(*body).kind,
+                    StmtKind::While { .. }
+                        | StmtKind::DoWhile { .. }
+                        | StmtKind::For { .. }
+                        | StmtKind::ForIn { .. }
+                        | StmtKind::Switch { .. }
+                        | StmtKind::Labeled { .. }
+                );
+                if laco {
+                    for l in labels.iter() {
+                        self.pending_labels.push(l.sym);
+                    }
+                    self.lower_stmt(ast, *body);
+                } else {
+                    // `rótulo: { … break rótulo; … }`: o `break` sai do
+                    // comando rotulado (§18.13 "Labels").
+                    let saida = self.new_block();
+                    for l in labels.iter() {
+                        self.labeled_break_targets.insert(l.sym, saida);
+                    }
+                    self.lower_stmt(ast, *body);
+                    self.terminate(Terminator::Branch(saida));
+                    for l in labels.iter() {
+                        self.labeled_break_targets.remove(&l.sym);
+                    }
+                    self.set_block(saida);
                 }
-                self.lower_stmt(ast, *body);
             }
             StmtKind::Empty => {}
-            StmtKind::PatternVariables { .. } => {
-                self.nao_suportado("declaração por padrão", stmt.span);
+            StmtKind::PatternVariables { pattern, value, .. } => {
+                let v = self.lower_expr(ast, *value);
+                self.casar_irrefutavel(ast, *pattern, v, super::padroes::Ligacao::Declarar, *value);
             }
-            StmtKind::Switch { .. } => {
-                self.nao_suportado("comando switch", stmt.span);
+            StmtKind::Switch { value, cases } => {
+                self.lower_switch_comando(ast, *value, cases);
             }
             StmtKind::Yield { .. } => {
                 self.nao_suportado("yield", stmt.span);
@@ -546,13 +568,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 reason_phi,
                 ret_val_phi,
                 incoming: Vec::new(),
+                prof_break: self.break_targets.len(),
+                prof_continue: self.continue_targets.len(),
+                rotulos_break: self.labeled_break_targets.keys().copied().collect(),
+                rotulos_continue: self.labeled_continue_targets.keys().copied().collect(),
+                saltos: Vec::new(),
             });
         }
 
+        // Pouso das exceções que vão para o `finally`: um bloco só, que
+        // registra a entrada "exceção" (2) dos phis do `finally`. Os desvios
+        // de exceção (`emit_call_with_check` com um alvo de exceção) não
+        // registram entrada de phi; ir direto ao `finally` deixava o phi sem
+        // a entrada de cada um deles (o Clang recusa o módulo). Também é o
+        // alvo das exceções dentro dos `catch`: elas passam pelo `finally`
+        // antes de subir.
+        let pouso = fin_info.map(|(entry, _, _, _)| {
+            let p = self.new_block();
+            let prev = self.current_block;
+            self.set_block(p);
+            let default_ret = self.default_return_operand();
+            self.finally_scopes
+                .last_mut()
+                .expect("escopo do finally")
+                .incoming
+                .push((p, 2, default_ret));
+            self.terminate(Terminator::Branch(entry));
+            self.set_block(prev);
+            p
+        });
+
         let try_exc_target = if let Some(cb) = catch_dispatch_block {
             cb
-        } else if let Some((entry, _, _, _)) = fin_info {
-            entry
+        } else if let Some(p) = pouso {
+            p
         } else if let Some(&parent_target) = self.exception_targets.last() {
             parent_target
         } else {
@@ -629,7 +678,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.abrir_escopo();
                 if let Some(ex_name) = &clause.exception {
-                    self.declarar_local_com_valor(ex_name.sym, Type::Ref, ex_bits.clone());
+                    self.declarar_variavel(ex_name.sym, ex_name.span.start as usize, Type::Ref, ex_bits.clone());
                 }
                 if let Some(st_name) = &clause.stack_trace {
                     let st_val = self.emit(
@@ -640,11 +689,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         },
                         Type::Ref,
                     );
-                    self.declarar_local_com_valor(st_name.sym, Type::Ref, st_val);
+                    self.declarar_variavel(st_name.sym, st_name.span.start as usize, Type::Ref, st_val);
                 }
 
                 self.active_catch_stack.push((ex_bits.clone(), 3));
+                if let Some(p) = pouso {
+                    self.exception_targets.push(p);
+                }
                 self.lower_stmt(ast, clause.body);
+                if pouso.is_some() {
+                    self.exception_targets.pop();
+                }
                 self.fechar_escopo();
                 self.active_catch_stack.pop();
 
@@ -715,19 +770,44 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret_ty,
             ));
 
+            // A exceção que entrou no `finally` (razão 2) fica guardada e sai
+            // da pendência enquanto o corpo do `finally` roda: senão a
+            // primeira chamada dele vê a exceção pendente e desvia, e o
+            // `finally` não roda (é a semântica da VM: o corpo do `finally`
+            // executa normalmente e a exceção volta ao fim, a menos que ele
+            // saia por `return`/`break`/`continue`/`throw`, que a descartam).
+            let guardada = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_peek_ref".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_clear".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+
             self.lower_stmt(ast, fin_stmt);
 
             if !self.is_terminated() {
                 let b_norm = merge_block;
                 let b_ret = self.new_block();
                 let b_exc = self.new_block();
-                let b_brk = self.new_block();
-                let b_cont = self.new_block();
-
+                let b_saltos: Vec<BlockId> = scope.saltos.iter().map(|_| self.new_block()).collect();
+                let mut casos = vec![(0, b_norm), (1, b_ret), (2, b_exc)];
+                for (k, b) in b_saltos.iter().enumerate() {
+                    casos.push((5 + k as i64, *b));
+                }
                 self.terminate(Terminator::Switch {
                     val: Operand::Val(reason_phi),
                     default: b_norm,
-                    cases: vec![(0, b_norm), (1, b_ret), (2, b_exc), (3, b_brk), (4, b_cont)],
+                    cases: casos,
                 });
 
                 self.set_block(b_ret);
@@ -739,23 +819,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.route_return(ret_op);
 
                 self.set_block(b_exc);
-                if !self.finally_scopes.is_empty() {
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_throw".to_string(),
+                        args: vec![
+                            (guardada, Type::I64),
+                            (Operand::Constant(Constant::Int(3)), Type::I8),
+                        ],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
+                // A exceção sobe para o tratador mais interno: o alvo de
+                // exceção corrente (um `catch` de fora, ou o pouso do
+                // `finally` de fora, que registra a entrada do phi) vem antes
+                // de um `finally` de fora — este só é o mais interno quando
+                // não há alvo.
+                if let Some(&parent_target) = self.exception_targets.last() {
+                    self.terminate(Terminator::Branch(parent_target));
+                } else if !self.finally_scopes.is_empty() {
                     let default_ret = self.default_return_operand();
                     let parent_fin = self.finally_scopes.last_mut().unwrap();
                     parent_fin.incoming.push((b_exc, 2, default_ret));
                     let p_entry = parent_fin.entry_block;
                     self.terminate(Terminator::Branch(p_entry));
-                } else if let Some(&parent_target) = self.exception_targets.last() {
-                    self.terminate(Terminator::Branch(parent_target));
                 } else {
                     self.terminate(Terminator::Return(self.default_return_operand_opt()));
                 }
 
-                self.set_block(b_brk);
-                self.route_break();
-
-                self.set_block(b_cont);
-                self.route_continue();
+                // Os saltos que atravessaram este `finally` continuam.
+                for (k, b) in b_saltos.into_iter().enumerate() {
+                    self.set_block(b);
+                    let (e_continue, rotulo) = scope.saltos[k];
+                    self.saltar(e_continue, rotulo);
+                }
             }
         }
 

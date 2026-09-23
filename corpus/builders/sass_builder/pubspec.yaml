@@ -1,0 +1,8 @@
+name: corpus_sass_builder
+description: sass_builder no modo dev (sourceMaps, saída expandida) — .css e .css.map no cache.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dev_dependencies:
+  build_runner: ^2.4.15
+  sass_builder: 2.2.1

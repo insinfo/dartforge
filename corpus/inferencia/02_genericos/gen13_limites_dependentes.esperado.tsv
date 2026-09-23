@@ -1,0 +1,12 @@
+# 02_genericos/gen13_limites_dependentes.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+7	10	217	87	FunctionExpression	void Function()	-	0	() { A a = /*@*/A(); var o = /*@*/O(); List<A> l = /*@
+8	14	235	3	InstanceCreationExpression	A<num, num>	CONSTRUCTOR:A.	1	A()
+9	16	255	3	InstanceCreationExpression	O<Object?>	CONSTRUCTOR:O.	1	O()
+10	20	279	2	ListLiteral	List<A<num, num>>	-	1	[]
+11	3	285	16	MethodInvocation	void	FUNCTION:print	0	print([a, o, l])
+11	3	285	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	291	9	ListLiteral	List<Object>	-	0	[a, o, l]
+11	10	292	1	SimpleIdentifier	A<num, num>	LOCAL_VARIABLE:main.a	0	a
+11	13	295	1	SimpleIdentifier	O<Object?>	LOCAL_VARIABLE:main.o	0	o
+11	16	298	1	SimpleIdentifier	List<A<num, num>>	LOCAL_VARIABLE:main.l	0	l

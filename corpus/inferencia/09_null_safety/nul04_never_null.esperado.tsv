@@ -1,0 +1,21 @@
+# 09_null_safety/nul04_never_null.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	65	108	FunctionExpression	void Function(bool)	-	0	(bool b) { var x = /*@*/b ? 1 : throw 0; var y = /*@*/nu
+3	16	91	15	ConditionalExpression	int	-	1	b ? 1 : throw 0
+3	16	91	1	SimpleIdentifier	bool	PARAMETER:f.b	1	b
+3	20	95	1	IntegerLiteral	int	-	0	1
+3	24	99	7	ThrowExpression	Never	-	0	throw 0
+3	30	105	1	IntegerLiteral	int	-	0	0
+4	16	123	4	NullLiteral	Null	-	1	null
+5	16	144	6	ListLiteral	List<Null>	-	1	[null]
+5	17	145	4	NullLiteral	Null	-	0	null
+6	3	154	16	MethodInvocation	void	FUNCTION:print	0	print([x, y, z])
+6	3	154	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	9	160	9	ListLiteral	List<dynamic>	-	0	[x, y, z]
+6	10	161	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.x	0	x
+6	13	164	1	SimpleIdentifier	dynamic	LOCAL_VARIABLE:f.y	0	y
+6	16	167	1	SimpleIdentifier	List<Null>	LOCAL_VARIABLE:f.z	0	z
+9	10	184	14	FunctionExpression	void Function()	-	0	() => f(true);
+9	16	190	7	MethodInvocation	void	FUNCTION:f	0	f(true)
+9	16	190	1	SimpleIdentifier	void Function(bool)	FUNCTION:f	0	f
+9	18	192	4	BooleanLiteral	bool	-	0	true

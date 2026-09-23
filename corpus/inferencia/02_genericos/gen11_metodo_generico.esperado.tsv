@@ -1,0 +1,54 @@
+# 02_genericos/gen11_metodo_generico.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	10	63	316	FunctionExpression	void Function()	-	0	() { var l = [1, 2]; var a = /*@*/l.map((x) => x * 2.5);
+3	11	78	6	ListLiteral	List<int>	-	0	[1, 2]
+3	12	79	1	IntegerLiteral	int	-	0	1
+3	15	82	1	IntegerLiteral	int	-	0	2
+4	16	101	21	MethodInvocation	Iterable<double>	METHOD:Iterable.map	1	l.map((x) => x * 2.5)
+4	16	101	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+4	18	103	3	SimpleIdentifier	Iterable<T> Function<T>(T Function(int))	METHOD:Iterable.map	0	map
+4	22	107	14	FunctionExpression	double Function(int)	-	0	(x) => x * 2.5
+4	29	114	7	BinaryExpression	double	METHOD:num.*	0	x * 2.5
+4	29	114	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+4	33	118	3	DoubleLiteral	double	-	0	2.5
+5	16	139	34	MethodInvocation	Iterable<Object>	METHOD:Iterable.expand	1	l.expand((x) => [x, x.toString()])
+5	16	139	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+5	18	141	6	SimpleIdentifier	Iterable<T> Function<T>(Iterable<T> Function(int))	METHOD:Iterable.expand	0	expand
+5	25	148	24	FunctionExpression	List<Object> Function(int)	-	0	(x) => [x, x.toString()]
+5	32	155	17	ListLiteral	List<Object>	-	0	[x, x.toString()]
+5	33	156	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+5	36	159	12	MethodInvocation	String	METHOD:int.toString	0	x.toString()
+5	36	159	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+5	38	161	8	SimpleIdentifier	String Function()	METHOD:int.toString	0	toString
+6	16	190	18	MethodInvocation	Iterable<num>	METHOD:Iterable.whereType	1	l.whereType<num>()
+6	16	190	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+6	18	192	9	SimpleIdentifier	Iterable<T> Function<T>()	METHOD:Iterable.whereType	0	whereType
+7	16	225	16	MethodInvocation	List<Object>	METHOD:List.cast	1	l.cast<Object>()
+7	16	225	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+7	18	227	4	SimpleIdentifier	List<R> Function<R>()	METHOD:List.cast	0	cast
+8	16	258	47	MethodInvocation	Future<List<int>>	METHOD:Future.wait	1	Future.wait([Future.value(1), Future.value(2)])
+8	16	258	6	SimpleIdentifier	-	CLASS:Future	1	Future
+8	23	265	4	SimpleIdentifier	Future<List<T>> Function<T>(Iterable<Future<T>>, {void Function(T)? cleanUp, bool eagerError})	METHOD:Future.wait	0	wait
+8	28	270	34	ListLiteral	List<Future<int>>	-	0	[Future.value(1), Future.value(2)]
+8	29	271	15	InstanceCreationExpression	Future<int>	CONSTRUCTOR:Future.value	0	Future.value(1)
+8	36	278	5	SimpleIdentifier	-	CONSTRUCTOR:Future.value	0	value
+8	42	284	1	IntegerLiteral	int	-	0	1
+8	46	288	15	InstanceCreationExpression	Future<int>	CONSTRUCTOR:Future.value	0	Future.value(2)
+8	53	295	5	SimpleIdentifier	-	CONSTRUCTOR:Future.value	0	value
+8	59	301	1	IntegerLiteral	int	-	0	2
+9	16	322	25	MethodInvocation	int	METHOD:Iterable.reduce	1	l.reduce((a, b) => a + b)
+9	16	322	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.l	1	l
+9	18	324	6	SimpleIdentifier	int Function(int Function(int, int))	METHOD:Iterable.reduce	0	reduce
+9	25	331	15	FunctionExpression	int Function(int, int)	-	0	(a, b) => a + b
+9	35	341	5	BinaryExpression	int	METHOD:num.+	0	a + b
+9	35	341	1	SimpleIdentifier	int	PARAMETER:.a	0	a
+9	39	345	1	SimpleIdentifier	int	PARAMETER:.b	0	b
+10	3	351	25	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d, e, f])
+10	3	351	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	9	357	18	ListLiteral	List<Object>	-	0	[a, b, c, d, e, f]
+10	10	358	1	SimpleIdentifier	Iterable<double>	LOCAL_VARIABLE:main.a	0	a
+10	13	361	1	SimpleIdentifier	Iterable<Object>	LOCAL_VARIABLE:main.b	0	b
+10	16	364	1	SimpleIdentifier	Iterable<num>	LOCAL_VARIABLE:main.c	0	c
+10	19	367	1	SimpleIdentifier	List<Object>	LOCAL_VARIABLE:main.d	0	d
+10	22	370	1	SimpleIdentifier	Future<List<int>>	LOCAL_VARIABLE:main.e	0	e
+10	25	373	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.f	0	f

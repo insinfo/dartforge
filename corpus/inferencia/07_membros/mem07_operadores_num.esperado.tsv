@@ -1,0 +1,68 @@
+# 07_membros/mem07_operadores_num.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	83	380	FunctionExpression	void Function<T extends int, U extends num>(int, double, num, T, U)	-	0	<T extends int, U extends num>(int a, double b, num c, T t,
+3	3	152	308	MethodInvocation	void	FUNCTION:print	0	print([ /*@*/a + a, /*@*/a + b, /*@*/a + c,
+3	3	152	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+3	9	158	301	ListLiteral	List<num>	-	0	[ /*@*/a + a, /*@*/a + b, /*@*/a + c, /*@*/b
+4	10	169	5	BinaryExpression	int	METHOD:num.+	1	a + a
+4	10	169	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+4	14	173	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+5	10	185	5	BinaryExpression	double	METHOD:num.+	1	a + b
+5	10	185	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+5	14	189	1	SimpleIdentifier	double	PARAMETER:f.b	0	b
+6	10	201	5	BinaryExpression	num	METHOD:num.+	1	a + c
+6	10	201	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+6	14	205	1	SimpleIdentifier	num	PARAMETER:f.c	0	c
+7	10	217	5	BinaryExpression	double	METHOD:double.+	1	b + a
+7	10	217	1	SimpleIdentifier	double	PARAMETER:f.b	1	b
+7	14	221	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+8	10	233	5	BinaryExpression	double	METHOD:num./	1	a / a
+8	10	233	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+8	14	237	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+9	10	249	6	BinaryExpression	int	METHOD:num.~/	1	a ~/ b
+9	10	249	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+9	15	254	1	SimpleIdentifier	double	PARAMETER:f.b	0	b
+10	10	266	5	BinaryExpression	double	METHOD:num.%	1	a % b
+10	10	266	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+10	14	270	1	SimpleIdentifier	double	PARAMETER:f.b	0	b
+11	10	282	2	PrefixExpression	int	-	1	-a
+11	11	283	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+12	10	295	2	PrefixExpression	int	-	1	~a
+12	11	296	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+13	10	308	14	MethodInvocation	double	METHOD:num.remainder	1	a.remainder(b)
+13	10	308	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+13	12	310	9	SimpleIdentifier	num Function(num)	METHOD:num.remainder	0	remainder
+13	22	320	1	SimpleIdentifier	double	PARAMETER:f.b	0	b
+14	10	333	13	MethodInvocation	int	METHOD:num.clamp	1	a.clamp(1, 2)
+14	10	333	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+14	12	335	5	SimpleIdentifier	num Function(num, num)	METHOD:num.clamp	0	clamp
+14	18	341	1	IntegerLiteral	int	-	0	1
+14	21	344	1	IntegerLiteral	int	-	0	2
+15	10	357	15	MethodInvocation	num	METHOD:num.clamp	1	a.clamp(1.5, 2)
+15	10	357	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+15	12	359	5	SimpleIdentifier	num Function(num, num)	METHOD:num.clamp	0	clamp
+15	18	365	3	DoubleLiteral	double	-	0	1.5
+15	23	370	1	IntegerLiteral	int	-	0	2
+16	10	383	5	BinaryExpression	int	METHOD:num.+	1	t + t
+16	10	383	1	SimpleIdentifier	T	PARAMETER:f.t	1	t
+16	14	387	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+17	10	399	7	BinaryExpression	double	METHOD:num.+	1	t + 1.5
+17	10	399	1	SimpleIdentifier	T	PARAMETER:f.t	1	t
+17	14	403	3	DoubleLiteral	double	-	0	1.5
+18	10	417	5	BinaryExpression	num	METHOD:num.*	1	u * u
+18	10	417	1	SimpleIdentifier	U	PARAMETER:f.u	1	u
+18	14	421	1	SimpleIdentifier	U	PARAMETER:f.u	0	u
+19	10	433	5	BinaryExpression	int	METHOD:num.-	1	t - a
+19	10	433	1	SimpleIdentifier	T	PARAMETER:f.t	1	t
+19	14	437	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+20	10	449	5	BinaryExpression	int	METHOD:num.*	1	a * t
+20	10	449	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+20	14	453	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+24	10	474	33	FunctionExpression	void Function()	-	0	() => f<int, int>(1, 2, 3, 4, 5);
+24	16	480	26	MethodInvocation	void	FUNCTION:f	0	f<int, int>(1, 2, 3, 4, 5)
+24	16	480	1	SimpleIdentifier	void Function<T extends int, U extends num>(int, double, num, T, U)	FUNCTION:f	0	f
+24	28	492	1	IntegerLiteral	int	-	0	1
+24	31	495	1	IntegerLiteral	double	-	0	2
+24	34	498	1	IntegerLiteral	int	-	0	3
+24	37	501	1	IntegerLiteral	int	-	0	4
+24	40	504	1	IntegerLiteral	int	-	0	5
