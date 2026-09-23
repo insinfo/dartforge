@@ -10,8 +10,9 @@
 #     dartforge-elements, já para com 3 erros; emit_js, emit_native e
 #     gerador_ng têm avisos do próprio rustc). Volta junto com o fmt, pelo
 #     mesmo motivo.
-#   * a trilha velha (ESTADO.md §4) e o JIT desligado: 16 testes não ignorados
-#     falham em dartforge-compiler, -lexer, -llvm e -cranelift-jit, e esses
+#   * a trilha velha (ESTADO.md §4) e o cranelift-jit: 16 testes não ignorados
+#     falhavam em dartforge-compiler, -lexer, -llvm, -jit e -cranelift-jit; o
+#     crates/jit saiu da lista quando passou a consumir o IR do emit_native, e
 #     crates saem quando o backend nativo novo os substituir. Nenhum crate da
 #     trilha nova depende deles.
 #   * Ubuntu: a trilha nova falha no Linux em dartforge-dev (hashes, plato),
@@ -32,13 +33,14 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
-  # A trilha nova: todo o workspace menos a trilha velha e o JIT.
+  # A trilha nova: todo o workspace menos a trilha velha e o cranelift-jit.
+  # O crates/jit (ORCv2) entra: consome o IR do emit_native desde 2026-09-23.
   FORA: >-
     --exclude dartforge-lexer --exclude dartforge-syntax --exclude dartforge-parser
     --exclude dartforge-semantic --exclude dartforge-hir --exclude dartforge-codegen
     --exclude dartforge-linker --exclude dartforge-optimizer --exclude dartforge-packages
     --exclude dartforge-compiler --exclude dartforge-macros --exclude dartforge-llvm
-    --exclude dartforge-jit --exclude dartforge-cranelift-jit
+    --exclude dartforge-cranelift-jit
 jobs:
   windows:
     name: test e doc (Windows)
@@ -55,7 +57,11 @@ jobs:
         with:
           gerar-dart-sdk-js: 'true'
       # Clang 22.1.8 para os testes que compilam IR (abi, native). A trilha nova\n      # não depende do llvm-sys; o LLVM completo só serviria à trilha velha.
+      # `desenvolvimento`: llvm-config, LLVM-C.dll/.lib e os cabeçalhos da API C
+      # para o llvm-sys do crates/jit (~73 MB a mais no cache).
       - uses: ./.github/actions/llvm-windows
+        with:
+          desenvolvimento: 'true'
       - name: Rust fixado (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
