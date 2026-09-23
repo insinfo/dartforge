@@ -38,7 +38,7 @@ use crate::ast::{Ast, CompilationUnit, ExprId, ForInTarget, ForInit, Name};
 use crate::features::{Feature, LibraryFeatures};
 use crate::lexer;
 use crate::token::{Keyword, Kind, Op, Token};
-use dartforge_diagnostics::{Diagnostic, Span};
+use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos};
 use dartforge_intern::Interner;
 
 /// Marcador de falha: o diagnóstico já foi registrado em [`Parser::diagnostics`].
@@ -345,7 +345,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_op(op) {
             Ok(self.advance())
         } else {
-            Err(self.error(format!("esperava '{}'", op.text())))
+            Err(self.erro_esperado(op.text()))
         }
     }
 
@@ -353,7 +353,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_kw(kw) {
             Ok(self.advance())
         } else {
-            Err(self.error(format!("esperava '{}'", kw.text())))
+            Err(self.erro_esperado(kw.text()))
         }
     }
 
@@ -362,7 +362,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_ident(text) {
             Ok(self.advance())
         } else {
-            Err(self.error(format!("esperava '{text}'")))
+            Err(self.erro_esperado(text))
         }
     }
 
@@ -371,7 +371,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_identifier() {
             Ok(self.identifier())
         } else {
-            Err(self.error("esperava um identificador"))
+            Err(self.erro_identificador())
         }
     }
 
@@ -419,40 +419,78 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Diagnósticos ---------------------------------------------------
 
-    /// Registra um diagnóstico no token corrente e devolve o marcador.
-    pub(crate) fn error(&mut self, message: impl Into<String>) -> ParseError {
-        let span = self.span();
-        self.error_at(span, message)
-    }
-
-    pub(crate) fn error_at(&mut self, span: Span, message: impl Into<String>) -> ParseError {
-        let mut message = message.into();
-        let token = self.peek();
-        if !matches!(token.kind, Kind::Eof) {
-            let text = self.token_text(token);
-            if !text.is_empty() && text.len() <= 40 && !message.contains("encontrou") {
-                message.push_str(&format!(", encontrou '{text}'"));
-            }
-        } else if !message.contains("encontrou") {
-            message.push_str(", encontrou o fim do arquivo");
-        }
-        self.diagnostics.push(Diagnostic::new(message, span));
+    /// Registra o diagnóstico `codigo` (do `ParserErrorCode`/`ScannerErrorCode`
+    /// do analyzer, mensagem oficial em inglês) em `span` e devolve o marcador.
+    pub(crate) fn erro_em(&mut self, codigo: Codigo, span: Span, args: &[&str]) -> ParseError {
+        self.diagnostics.push(Diagnostic::com_codigo(codigo, span, args.iter().copied()));
         ParseError
     }
 
+    /// `codigo` no token corrente — onde o fasta reporta o que falta ou sobra.
+    pub(crate) fn erro(&mut self, codigo: Codigo, args: &[&str]) -> ParseError {
+        let span = self.span();
+        self.erro_em(codigo, span, args)
+    }
+
+    /// `EXPECTED_TOKEN`, no lugar em que o analyzer o põe: `;` que falta vai no
+    /// token **anterior** (`ensureSemicolon` do fasta); fecho `)`/`]`/`}` que
+    /// falta no fim do arquivo é erro do scanner, no fim, com comprimento 1
+    /// (`translateErrorToken`); o resto, no token corrente.
+    pub(crate) fn erro_esperado(&mut self, texto: &str) -> ParseError {
+        if texto == ";" && self.pos > 0 {
+            let span = self.tokens[self.pos - 1].span;
+            return self.erro_em(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
+        }
+        if matches!(texto, ")" | "]" | "}") && self.kind() == Kind::Eof {
+            let s = self.span().start;
+            return self.erro_em(codigos::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
+        }
+        self.erro(codigos::parser::EXPECTED_TOKEN, &[texto])
+    }
+
+    /// Faltou um comando: `MISSING_STATEMENT` no token corrente, precedido de
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada
+    /// (o fasta tenta o comando de expressão e tropeça no identificador).
+    pub(crate) fn erro_statement(&mut self) -> ParseError {
+        if let Kind::Keyword(_) = self.kind() {
+            let texto = self.text().to_string();
+            let span = self.span();
+            self.erro_em(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
+        }
+        self.erro(codigos::parser::MISSING_STATEMENT, &[])
+    }
+
+    /// Faltou um identificador: `MISSING_IDENTIFIER` no token corrente, ou
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada.
+    pub(crate) fn erro_identificador(&mut self) -> ParseError {
+        if let Kind::Keyword(_) = self.kind() {
+            let texto = self.text().to_string();
+            return self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+        }
+        self.erro(codigos::parser::MISSING_IDENTIFIER, &[])
+    }
     /// Registra que `span` usa o recurso `f`: diagnóstico se a versão da
     /// biblioteca não o liga. A análise continua (o superconjunto é aceito).
     pub(crate) fn exigir(&mut self, f: Feature, span: Span) {
         if !self.features.tem(f) {
-            let msg = self.features.mensagem_desligado(f);
-            self.diagnostics.push(Diagnostic::new(msg, span));
+            // `EXPERIMENT_NOT_ENABLED` (com a versão em que o recurso liga) ou
+            // `EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT` (experimento sem versão).
+            match f.habilitado_em() {
+                Some(v) => {
+                    let versao = format!("{v}.0");
+                    self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &versao]);
+                }
+                None => {
+                    self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
+                }
+            }
         }
     }
 
     /// Entra num nível de aninhamento; falha além de [`MAX_DEPTH`].
     pub(crate) fn enter(&mut self) -> PResult<()> {
         if self.depth >= MAX_DEPTH {
-            return Err(self.error("aninhamento excede o limite do parser"));
+            return Err(self.erro(codigos::parser::STACK_OVERFLOW, &[]));
         }
         self.depth += 1;
         Ok(())

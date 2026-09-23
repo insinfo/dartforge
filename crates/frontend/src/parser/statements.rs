@@ -43,7 +43,7 @@ use crate::ast::{
     StmtKind, SwitchCase, TypeId, Variable, VariableList,
 };
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::Span;
+use dartforge_diagnostics::{Span, codigos};
 
 impl<'s, 'i> Parser<'s, 'i> {
     /// `statement` completo, com rótulos.
@@ -59,7 +59,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let start = self.expect_op(Op::LBrace)?.span;
         let stmts = self.parse_statement_list(false);
         if !self.at_op(Op::RBrace) {
-            return Err(self.error("esperava '}' fechando o bloco"));
+            return Err(self.erro_esperado("}"));
         }
         self.advance();
         Ok(self.push_stmt(start, StmtKind::Block(stmts.into_boxed_slice())))
@@ -83,9 +83,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.advance();
             let pattern = self.parse_pattern()?;
             if self.at_op(Op::Assign) {
-                return Err(self.error(
-                    "declaração por padrão como inicializador de 'for' clássico não é suportada",
-                ));
+                return Err(self.erro_esperado("in"));
             }
             self.expect_kw(Keyword::In)?;
             let iterable = self.parse_expression()?;
@@ -277,7 +275,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) | Kind::Eof | Kind::ScriptTag => {
-                Err(self.error("esperava um statement"))
+                Err(self.erro_statement())
             }
             Kind::Keyword(kw) => self.parse_keyword_statement(start, kw),
             Kind::Ident => self.parse_identifier_statement(start),
@@ -360,7 +358,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             | Keyword::Finally
             | Keyword::In
             | Keyword::Is
-            | Keyword::With => Err(self.error("esperava um statement")),
+            | Keyword::With => Err(self.erro_statement()),
             _ => self.parse_expression_statement(start),
         }
     }
@@ -441,7 +439,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.declaration_type_at(self.pos, false) {
             return self.parse_typed_declaration(start);
         }
-        Err(self.error("esperava uma declaração após a anotação"))
+        Err(self.erro(codigos::parser::MISSING_STATEMENT, &[]))
     }
 
     // -- Declarações locais -----------------------------------------------
@@ -471,7 +469,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if !late && !final_ && !var_ && !const_ && ty.is_none() {
-            return Err(self.error("esperava 'var', 'final', 'const', 'late' ou um tipo"));
+            return Err(self.erro(codigos::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, &[]));
         }
         let list = VariableList {
             external: false,
@@ -737,7 +735,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.expect_op(Op::Colon)?;
                 (None, None)
             } else {
-                return Err(self.error("esperava 'case' ou 'default'"));
+                return Err(self.erro(codigos::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
             };
             let body = self.parse_statement_list(true);
             cases.push(SwitchCase {
@@ -788,7 +786,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if catches.is_empty() && finally_.is_none() {
-            return Err(self.error("esperava 'on', 'catch' ou 'finally' após o bloco 'try'"));
+            return Err(self.erro(codigos::parser::MISSING_CATCH_OR_FINALLY, &[]));
         }
         Ok(self.push_stmt(
             start,
@@ -1283,7 +1281,7 @@ mod tests {
         // Bloco sem fechamento.
         let out = stmt("{ break;");
         assert!(out.result.is_err());
-        assert!(out.diagnostics[0].message.contains("fim do arquivo"));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "expected_token")));
     }
 
     #[test]
@@ -1291,7 +1289,7 @@ mod tests {
         for src in ["else;", "case 1:", "class A {}", "finally {}"] {
             let out = stmt(src);
             assert!(out.result.is_err(), "{src}");
-            assert!(out.diagnostics[0].message.contains("esperava um statement"));
+            assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_statement")));
         }
     }
 
@@ -1302,7 +1300,7 @@ mod tests {
         let out = stmt(&src);
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
-        assert!(out.diagnostics[0].message.contains("aninhamento"));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow")));
         assert!(out.at_eof);
     }
 

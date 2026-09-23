@@ -39,7 +39,7 @@ use crate::ast::{
 };
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Diagnostic, Span};
+use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
 /// Cabeçalho de um construtor primário já lido (Dart 3.13).
 struct CabecalhoPrimario {
@@ -119,7 +119,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(());
         }
         if !self.can_start_declaration() {
-            return Err(self.error("esperava uma declaração"));
+            return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
         let id = self.parse_top_level_declaration(start, metadata)?;
         unit.declarations.push(id);
@@ -639,7 +639,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.at_op(Op::LParen) && !(self.at_op(Op::Dot) && self.kind_at(1) != Kind::Op(Op::Dot))
         {
             if let Some(c) = const_ {
-                return Err(self.error_at(c, "'const' antes do nome exige um construtor primário"));
+                return Err(self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER, c, &["const"]));
             }
             return Ok(None);
         }
@@ -703,14 +703,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         let Some(cab) = cab else {
             for &i in &partes {
                 let span = self.ast.member(members[i]).span;
-                self.diagnostics.push(Diagnostic::new("a parte 'this' de construtor primário exige um construtor primário no cabeçalho da declaração", span));
+                self.diagnostics.push(Diagnostic::new("A primary constructor body requires a primary constructor in the declaration header.", span));
             }
             return None;
         };
         for &i in partes.iter().skip(1) {
             let span = self.ast.member(members[i]).span;
             self.diagnostics.push(Diagnostic::new(
-                "só pode haver uma parte 'this' de construtor primário",
+                "Only one primary constructor body is allowed.",
                 span,
             ));
         }
@@ -729,14 +729,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if !c.factory && !redireciona {
                     let span = self.ast.member(m).span;
                     self.diagnostics.push(Diagnostic::new(
-                        "com construtor primário, os construtores generativos do corpo têm de redirecionar (': this(...)')",
+                        "A class with a primary constructor can't have a non-redirecting generative constructor.",
                         span,
                     ));
                 }
                 if c.name.map(|n| n.sym) == cab.nome.map(|n| n.sym) {
                     let span = self.ast.member(m).span;
                     self.diagnostics.push(Diagnostic::new(
-                        "o construtor primário já tem esse nome",
+                        "The primary constructor already has this name.",
                         span,
                     ));
                 }
@@ -752,14 +752,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         for p in parametros.iter_mut() {
             if p.covariant && !p.var_ {
                 self.diagnostics.push(Diagnostic::new(
-                    "'covariant' num parâmetro de construtor primário exige 'var' (só um campo mutável tem setter)",
+                    "A covariant declaring parameter must be declared with 'var'.",
                     p.span,
                 ));
             }
             if p.required && p.default_value.is_some() {
-                self.diagnostics.push(Diagnostic::new(
-                    "parâmetro 'required' não pode ter valor padrão",
+                self.diagnostics.push(Diagnostic::com_codigo(
+                    codigos::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
                     p.span,
+                    Vec::<&str>::new(),
                 ));
             }
             if !(p.var_ || p.final_) || p.this_ || p.super_ {
@@ -812,7 +813,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         if let (true, FunctionBody::Block(_), Some(span)) = (const_, &body, span_parte) {
             self.diagnostics.push(Diagnostic::new(
-                "construtor primário constante não pode ter corpo na parte 'this'",
+                "A constant primary constructor can't have a body.",
                 span,
             ));
         }
@@ -1064,9 +1065,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.exigir(Feature::PrimaryConstructors, t.span);
         } else if self.at_kw(Keyword::Var) {
             let t = self.advance();
-            self.diagnostics.push(Diagnostic::new(
-                "'var' não é permitido na representação de um extension type",
+            self.diagnostics.push(Diagnostic::com_codigo(
+                codigos::parser::REPRESENTATION_FIELD_MODIFIER,
                 t.span,
+                Vec::<&str>::new(),
             ));
         }
         let representation_type = self.parse_type()?;
@@ -1265,7 +1267,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     ComposedGt::Shr => ">>",
                     ComposedGt::UShr => ">>>",
                     ComposedGt::ShrAssign | ComposedGt::UShrAssign => {
-                        return Err(self.error("operador inválido para 'operator'"));
+                        return Err({ let t = self.text().to_string(); self.erro(codigos::parser::INVALID_OPERATOR, &[&t]) });
                     }
                 };
                 self.eat_composed_gt(composed);
@@ -1290,7 +1292,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 op.text()
             }
-            _ => return Err(self.error("esperava um operador após 'operator'")),
+            _ => return Err(self.erro_identificador()),
         };
         Ok(self.name_from(text, self.span_from(start)))
     }
@@ -1427,7 +1429,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(members);
             }
             if self.at_eof() {
-                self.error("esperava '}' para fechar o corpo");
+                self.erro_esperado("}");
                 return Ok(members);
             }
             let start_pos = self.pos;
@@ -1447,7 +1449,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // nome da classe) também iniciam membro, desde a 3.13.
         if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New)
         {
-            return Err(self.error("esperava um membro"));
+            return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let fstart = self.span();
         let mods = self.parse_modifiers();
@@ -1568,7 +1570,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let (modificador, body) = self.parse_function_body()?;
         if modificador != AsyncModifier::None || matches!(body, FunctionBody::Expression(_)) {
             self.diagnostics.push(Diagnostic::new(
-                "a parte 'this' de construtor primário tem de ser um bloco sem 'async'/'sync*' (ou ';')",
+                "A primary constructor body must be a block without 'async' or 'sync*', or ';'.",
                 self.span_from(inicio),
             ));
         }
@@ -1785,7 +1787,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.expect_op(Op::Semicolon)?;
             return Ok(FunctionBody::Native(name));
         }
-        Err(self.error("esperava o corpo da função ('{', '=>' ou ';')"))
+        Err(self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]))
     }
 }
 

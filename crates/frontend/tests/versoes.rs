@@ -36,29 +36,29 @@ fn nomeado_privado_so_com_this_e_na_312() {
     assert!(
         p.diagnostics[0]
             .message
-            .contains("'private-named-parameters' exige a versão de linguagem 3.12")
+            .contains("This requires the 'private-named-parameters' language feature to be enabled.")
     );
 
     for (fonte, trecho) in [
         (
             "void f({int _x = 0}) {}",
-            "não inicializa nem declara campo",
+            "Named parameters can't start with an underscore.",
         ),
         (
             "class A { A({super._b}); }",
-            "não inicializa nem declara campo",
+            "Named parameters can't start with an underscore.",
         ),
         (
             "class C { int __x; C({required this.__x}); }",
-            "não tem nome público",
+            "has no corresponding public name",
         ),
         (
             "class C { int _if; C({required this._if}); }",
-            "não tem nome público",
+            "has no corresponding public name",
         ),
         (
             "class C { int _x; C(int x, {required this._x}); }",
-            "colide com outro parâmetro",
+            "is already defined",
         ),
     ] {
         let (p, _) = na((3, 13), fonte);
@@ -80,7 +80,7 @@ fn final_e_var_em_parametro_comum_so_ate_a_312() {
     assert!(
         p.diagnostics[0]
             .message
-            .contains("o modificador 'final' não é permitido aqui")
+            .contains("Can't have modifier 'final' here.")
     );
     // Tipo de função não tem parâmetro declarante nem esse erro.
     let (p, _) = na((3, 13), "typedef F = void Function(int x);");
@@ -131,11 +131,11 @@ fn atalho_de_ponto_na_310() {
     assert!(
         p.diagnostics[0]
             .message
-            .contains("'dot-shorthands' exige a versão de linguagem 3.10")
+            .contains("This requires the 'dot-shorthands' language feature to be enabled.")
     );
     let (p, _) = na((3, 10), "var x = const .zero;");
     assert!(
-        mensagens(&p).iter().any(|m| m.contains("exige argumentos")),
+        mensagens(&p).iter().any(|m| m.contains("Expected to find '('.")),
         "{:?}",
         mensagens(&p)
     );
@@ -222,7 +222,7 @@ fn construtor_primario_e_elaborado_na_arvore() {
     assert!(
         mensagens(&p)
             .iter()
-            .any(|m| m.contains("'primary-constructors' exige a versão de linguagem 3.13")),
+            .any(|m| m.contains("This requires the 'primary-constructors' language feature to be enabled.")),
         "{:?}",
         mensagens(&p)
     );
@@ -258,25 +258,25 @@ fn erros_do_construtor_primario() {
     for (fonte, trecho) in [
         (
             "class C { this {} }",
-            "exige um construtor primário no cabeçalho",
+            "requires a primary constructor in the declaration header",
         ),
         (
             "class C(int x) { this {} this {} }",
-            "só pode haver uma parte 'this'",
+            "Only one primary constructor body",
         ),
-        ("class C(int x) { C.outro(); }", "têm de redirecionar"),
+        ("class C(int x) { C.outro(); }", "non-redirecting generative constructor"),
         (
             "class const C(final int x) { this { } }",
-            "constante não pode ter corpo",
+            "constant primary constructor can't have a body",
         ),
-        ("class C(int x) { this => 1; }", "tem de ser um bloco"),
+        ("class C(int x) { this => 1; }", "must be a block"),
         (
             "class C(covariant int x);",
-            "'covariant' num parâmetro de construtor primário exige 'var'",
+            "covariant declaring parameter must be declared with 'var'",
         ),
         (
             "extension type E(var int x) {}",
-            "'var' não é permitido na representação",
+            "Representation fields can't have modifiers.",
         ),
     ] {
         let (p, _) = na((3, 13), fonte);
