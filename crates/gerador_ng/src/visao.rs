@@ -149,9 +149,6 @@ pub enum Motivo {
     Diretiva,
     /// `providers:` com provedores: a injeção do elemento hospedeiro.
     Providers,
-    /// `@ViewChild('ref')` com `#ref` num elemento HTML da própria visão:
-    /// atribuição imediata no `build()`.
-    ViewChildEstatico,
     /// `@ViewChild` cujo alvo está numa visão embutida (`*ngIf`, `*ngFor`),
     /// `@ViewChildren`, ou referência que o template não tem.
     ViewChildDinamico,
@@ -196,7 +193,6 @@ impl Motivo {
             Motivo::LigacaoEmFilho => "ligação em componente filho",
             Motivo::Diretiva => "ligação de diretiva",
             Motivo::Providers => "providers: [..]",
-            Motivo::ViewChildEstatico => "@ViewChild estático",
             Motivo::ViewChildDinamico => "@ViewChild em visão embutida / @ViewChildren",
             Motivo::ViewChildEmFilho => "@ViewChild de componente ou diretiva",
             Motivo::PipesUsados => "pipe usado no template",
@@ -235,8 +231,30 @@ pub fn motivos(
     if let Some(m) = falta_para_construir(c, local, resolvedor) {
         fora.insert(m);
     }
-    motivos_dos_nos(nos, filhos, &mut fora);
+    let livres = referencias_livres(nos);
+    motivos_dos_nos(nos, filhos, &livres, false, &mut fora);
     fora
+}
+
+/// Os `#ref` que o emissor aceita num elemento HTML: sem valor (`#f="ngForm"`
+/// aponta para uma diretiva) e sem uso em expressão do template — usado, o
+/// nome vira local da visão e a leitura muda. Um `#ref` assim é só um nome
+/// para o nó, e quem o lê é o `@ViewChild`.
+fn referencias_livres(nos: &[No]) -> std::collections::HashSet<String> {
+    fn todas(nos: &[No], saida: &mut Vec<(String, String)>) {
+        for n in nos {
+            if let No::Elemento(e) = n {
+                saida.extend(e.referencias.iter().map(|r| (r.nome.clone(), r.valor.clone())));
+                todas(&e.filhos, saida);
+            }
+        }
+    }
+    let mut refs = Vec::new();
+    todas(nos, &mut refs);
+    refs.iter()
+        .filter(|(nome, valor)| valor.is_empty() && !local_citado(nos, nome))
+        .map(|(nome, _)| nome.clone())
+        .collect()
 }
 
 /// As formas do componente que só se decidem olhando o template: se o
@@ -260,10 +278,9 @@ fn formas_contra_o_template(
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
         let motivo = match lugares.as_slice() {
             // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
-            // qualquer outro, um `ElementRef`.
-            [Lugar::Raiz] if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) => {
-                Motivo::ViewChildEstatico
-            }
+            // qualquer outro, um `ElementRef`. O primeiro caso é o estático,
+            // que sai no `build()`.
+            [Lugar::Raiz] if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) => continue,
             [Lugar::Raiz] | [Lugar::Filho] => Motivo::ViewChildEmFilho,
             // Dentro de `*` a consulta passa por `mapNestedViews`; sem
             // resultado, ou com dois, a regra é outra — nada disso ainda.
@@ -353,9 +370,13 @@ fn usa_pipe(nos: &[No]) -> bool {
     })
 }
 
+/// `livres` são os `#ref` aceitos ([`referencias_livres`]); `embutida` diz
+/// se os nós estão dentro de um `*`, onde `#ref` ainda não é aceito.
 fn motivos_dos_nos(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
+    livres: &std::collections::HashSet<String>,
+    embutida: bool,
     fora: &mut std::collections::BTreeSet<Motivo>,
 ) {
     for no in nos {
@@ -385,7 +406,9 @@ fn motivos_dos_nos(
                         fora.insert(Motivo::LigacaoEmFilho);
                     }
                 } else if !e.bananas.is_empty()
-                    || !e.referencias.is_empty()
+                    || e.referencias.iter().any(|r| {
+                        embutida || e.estrela.is_some() || !livres.contains(&r.nome)
+                    })
                     || e.estrela.as_ref().is_some_and(|x| x.nome != "ngIf")
                 {
                     fora.insert(Motivo::Ligacao);
@@ -396,7 +419,8 @@ fn motivos_dos_nos(
                 if e.atributos.iter().any(|a| a.nome == "style") {
                     fora.insert(Motivo::EstiloEmLinha);
                 }
-                motivos_dos_nos(&e.filhos, filhos, fora);
+                let dentro = embutida || e.estrela.is_some();
+                motivos_dos_nos(&e.filhos, filhos, livres, dentro, fora);
             }
         }
     }
@@ -461,6 +485,12 @@ struct Corpo<'a> {
     /// `view_compiler.dart`), então os ouvintes saem juntos, depois do último
     /// nó, em ordem de documento.
     ouvintes: Vec<String>,
+    /// `#ref` aceitos neste template ([`referencias_livres`]); vazio na
+    /// visão embutida.
+    refs_livres: std::collections::HashSet<String>,
+    /// Cada `#ref` visto, com a expressão do nó (`_el_3` ou `this._el_3`) —
+    /// é o valor que o `@ViewChild` recebe.
+    refs: std::collections::HashMap<String, String>,
     /// Campos `TextBinding`, que saem primeiro na classe.
     campos: Vec<String>,
     /// Campos `Object? _expr_k` das ligações, na ordem em que aparecem.
@@ -971,8 +1001,13 @@ impl Corpo<'_> {
                         self.estrutural(e, estrela, pai)?;
                         continue;
                     }
-                    if !e.bananas.is_empty() || !e.referencias.is_empty() {
-                        // `[(x)]` e `#ref` ainda não.
+                    if !e.bananas.is_empty() {
+                        // `[(x)]` ainda não.
+                        return Err(Motivo::Ligacao);
+                    }
+                    // `#ref` só na forma que não muda nada no nó; o valor
+                    // dele é registrado adiante, para o `@ViewChild`.
+                    if e.referencias.iter().any(|r| !r.valor.is_empty() || !self.refs_livres.contains(&r.nome)) {
                         return Err(Motivo::Ligacao);
                     }
                     if e.atributos.iter().any(|a| a.valor.contains("{{")) {
@@ -1020,6 +1055,11 @@ impl Corpo<'_> {
                         self.linhas.push(format!("    this._el_{n} = {criacao};"));
                         format!("this._el_{n}")
                     };
+                    // `renderNode.toReadExpr()`: o local ou o campo, como o
+                    // nó tiver sido declarado.
+                    for r in &e.referencias {
+                        self.refs.insert(r.nome.clone(), alvo.clone());
+                    }
                     // Atributos saem em ordem alfabética (`_toSortedBindings`).
                     let mut atributos = e.atributos.clone();
                     atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
@@ -1259,6 +1299,8 @@ fn emitir_embutida(
     let mut dentro = Corpo {
         linhas: Vec::new(),
         ouvintes: Vec::new(),
+        refs_livres: Default::default(),
+        refs: Default::default(),
         campos: Vec::new(),
         campos_filho: Vec::new(),
         vistas_filhas: Vec::new(),
@@ -1727,6 +1769,8 @@ pub fn template_de_componente(
     let mut corpo = Corpo {
         linhas: Vec::new(),
         ouvintes: Vec::new(),
+        refs_livres: referencias_livres(nos),
+        refs: Default::default(),
         campos: Vec::new(),
         campos_filho: Vec::new(),
         vistas_filhas: Vec::new(),
@@ -1760,6 +1804,19 @@ pub fn template_de_componente(
         html: html.clone(),
     };
     corpo.nos(nos, "parentRenderNode")?;
+    // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
+    // dos ouvintes, na ordem de declaração das consultas
+    // (`updateQueryAtStartup`, `createImmediateUpdates` em
+    // `compile_query.dart`). `formas_contra_o_template` já garantiu que cada
+    // `#ref` está uma vez só, num elemento HTML da própria visão.
+    let mut consultas = Vec::new();
+    for q in &c.consultas {
+        let Some(alvo) = corpo.refs.get(&q.referencia) else {
+            return Err(Motivo::ViewChildDinamico);
+        };
+        consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade));
+        corpo.usa_ctx_no_build = true;
+    }
     // Os `@HostListener` do componente fecham o `build()`, ligados ao nó
     // raiz (`_writeComponentHostEventListeners`, depois do
     // `writeBuildStatements` em `_generateBuildMethod`).
@@ -1781,6 +1838,7 @@ pub fn template_de_componente(
         .linhas
         .iter()
         .chain(&corpo.ouvintes)
+        .chain(&consultas)
         .chain(&hospedeiro)
         .cloned()
         .collect::<Vec<_>>()
