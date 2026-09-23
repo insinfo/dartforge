@@ -55,6 +55,13 @@ curinga liga nome, null-aware é recusado e atalho de ponto só sai quando é
 construção. Macros e augmentations: contratos em `docs/MACROS-PROTOCOLO.md`
 e `docs/AUGMENTATIONS.md` (executor nativo auto-hospedado), sem código.
 
+Custo para projeto 3.6 (regra governante): A/B intercalado base × nova, com a
+máquina carregada por outras cinco compilações — new_sali/core carregar
+678 → 748 ms e parse 262 → 268 ms na mediana (as três últimas rodadas da
+nova ficaram abaixo da base), edição de corpo 128 → 171 ms na mediana e
+56 → 48 ms no mínimo. Nenhuma diferença sistemática acima do ruído; números
+e método em `docs/VERSOES-LINGUAGEM.md` §7.
+
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
 Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial

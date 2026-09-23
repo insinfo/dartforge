@@ -333,4 +333,38 @@ corrigido lá e vale este.
 
 ## 7. Placar e medições
 
-Preenchido com números medidos ao fim da rodada.
+Medido em 2026-09-23 (CI da branch `ci/moderno`, run 35846394128, e de novo
+depois do merge da faxina).
+
+| Recurso | Programas | Passam (dev e produção) | DDC×VM 3.13.4 |
+|---|---|---|---|
+| Curingas (3.7) | 300–303 (1 negativo) | 4/4 | 4/4 |
+| Elementos null-aware (3.8) | 310–311 (1 negativo) | 2/2 | 2/2 |
+| Nomeados privados (3.12) | 320–323 (3 negativos) | 4/4 | 4/4 |
+| Atalhos de ponto (3.10) | 330–332 (2 negativos) | 3/3 | 3/3 |
+| Construtores primários (3.13) | 340–349 (4 negativos) | 9/10 (347 pendente) | 10/10 |
+| Inferência e fluxo (P6) | 350–352 (1 negativo) | pendentes (dono de `types`) | 3/3 |
+| **Total `corpus/moderno`** | **26** | **22/26 + 4 pendentes** | **26/26** |
+
+Sem regressão: `corpus/js` 222/222 em desenvolvimento e produção, com o JS
+**byte a byte igual** ao da base (e7cb898) nos 222 com `--versao-linguagem
+3.6`; determinismo idêntico (produção e IR nativo); nativo 50/222 (o mesmo
+de antes); SDK 426/426 e pub 1969/1969 aceitos pelo parser.
+
+**Custo para projeto 3.6 (regra governante, e7cb898).** A/B intercalado,
+binário da base × binário novo, na mesma máquina — que estava com cinco
+outras compilações rodando, então o ruído é maior que qualquer efeito:
+
+| Medida | Base | Nova |
+|---|---|---|
+| `corpus/js` sequencial, 223 programas (3 rodadas) | 300,7 / 58,7 / 14,8 s | 410,6 / 21,8 / 19,6 s |
+| new_sali/core, mediana de 5: carregar / parse | 678 / 262 ms | 748 / 268 ms |
+| new_sali/core, as três últimas rodadas: carregar | 670, 678, 656 ms | 748, 541, 562 ms |
+| dev, edição de corpo (mediana de 10 / mínimo) | 128 / 56 ms | 171 / 48 ms |
+
+Nenhuma diferença sistemática aparece acima do ruído; o custo estrutural é
+o que §2 descreve — ler o primeiro comentário de cada unidade (`marcador_versao`,
+para no primeiro token que não é comentário), um `LibraryFeatures` de 8
+bytes `Copy` por unidade e um teste de bit por construto novo no parser. A
+medida limpa (as mesmas três, base × nova intercaladas) fica para uma máquina
+ociosa.
