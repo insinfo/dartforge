@@ -72,6 +72,18 @@ import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
 import 'package:corpus_ngdart/src/d04_projecao_no_filho.template.dart' as d04;
+import 'package:corpus_ngdart/src/d05_filho_ciclo.template.dart' as d05;
+import 'package:corpus_ngdart/src/d05_usa_ciclo.template.dart' as d05;
+import 'package:corpus_ngdart/src/d06_filho_saida.template.dart' as d06;
+import 'package:corpus_ngdart/src/d06_usa_saida.template.dart' as d06;
+import 'package:corpus_ngdart/src/d07_filho_on_push.template.dart' as d07;
+import 'package:corpus_ngdart/src/d07_usa_on_push.template.dart' as d07;
+import 'package:corpus_ngdart/src/d08_filho_injetado.template.dart' as d08;
+import 'package:corpus_ngdart/src/d08_usa_injetado.template.dart' as d08;
+import 'package:corpus_ngdart/src/d09_projecao_select.template.dart' as d09;
+import 'package:corpus_ngdart/src/d09_usa_projecao.template.dart' as d09;
+import 'package:corpus_ngdart/src/d10_campo_var.template.dart' as d10;
+import 'package:corpus_ngdart/src/d10_filho_var.template.dart' as d10;
 import 'package:corpus_ngdart/src/f01_if_com_for.template.dart' as f01;
 import 'package:corpus_ngdart/src/f02_dois_ifs_irmaos.template.dart' as f02;
 
@@ -148,6 +160,18 @@ void main() {
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
     d04.D04ProjecaoNoFilhoNgFactory,
+    d05.D05FilhoCicloNgFactory,
+    d05.D05UsaCicloNgFactory,
+    d06.D06FilhoSaidaNgFactory,
+    d06.D06UsaSaidaNgFactory,
+    d07.D07FilhoOnPushNgFactory,
+    d07.D07UsaOnPushNgFactory,
+    d08.D08FilhoInjetadoNgFactory,
+    d08.D08UsaInjetadoNgFactory,
+    d09.D09ProjecaoSelectNgFactory,
+    d09.D09UsaProjecaoNgFactory,
+    d10.D10CampoVarNgFactory,
+    d10.D10FilhoVarNgFactory,
     f01.F01IfComForNgFactory,
     f02.F02DoisIfsIrmaosNgFactory,
   ].length);
