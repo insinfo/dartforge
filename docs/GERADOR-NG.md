@@ -72,9 +72,14 @@ quando a conta é a conhecida, e recusa o resto.
 
 ### 2.1 Várias diretivas no nó (`diretivas.rs`)
 
-Com diretivas de atributo (hoje o catálogo do `ngforms`: `NgForm`,
-`NgModel`, `DefaultValueAccessor`, `RequiredValidator`), a ordem e o
-`uniqueId` saem do `provider_parser.dart`:
+Com diretivas de atributo — metadados lidos do programa por
+`metadados.rs`, como o `_ComponentVisitor` do `find_components.dart`:
+`allSupertypes` do analyzer ao contrário e a própria classe por último,
+campos antes de setters nas entradas, acessores antes de campos nas saídas,
+`@HostListener` num mapa por evento (o último vence na posição do
+primeiro), ganchos por supertipo do `lifecycle_hooks.dart`, anotações
+reconhecidas pela classe que designam —, a ordem e o `uniqueId` saem do
+`provider_parser.dart`:
 
 - `_ProviderResolver.resolve`: primeiro cada diretiva (ansiosa), na ordem
   de `directives:`; depois os `providers:` de cada uma, com o mesmo token
@@ -94,6 +99,20 @@ Com diretivas de atributo (hoje o catálogo do `ngforms`: `NgForm`,
   apelidos, por nó, com o intervalo `[nó, nó + filhos]`
   (`ProviderForest`): `(n == nodeIndex)`, `(nodeIndex <= fim)` no topo,
   `((ini <= nodeIndex) && (nodeIndex <= fim))` no meio.
+
+Dependência que o nó não satisfaz (`_getDependency`): `@Self` para no
+nó; senão sobe pelos elementos acima — os provedores `Visibility.all` e os
+apelidos —, na visão ou numa ancestral (`unsafeCast<ViewX0>((this.parentView!))._X`).
+`@Optional` sem provedor é `null`; sem `@Host`, depois dos elementos viria o
+injetor de fora (ainda recusado). Dois `@HostListener` do mesmo evento no
+nó viram um `_handleEvent_N` que chama os dois, na ordem da primeira
+aparição; o `ngOnDestroy` de diretiva entra depois dos filhos.
+
+Consulta de conteúdo do filho (`@ContentChildren`) com resultado: as
+instâncias criadas no conteúdo, em pré-ordem (`addQueryResult`); sem
+`descendants`, só as de distância 1, contando os elementos com diretiva
+entre o nó e o filho (`_getQueriesFor`). A tag que nenhum `<ng-content>`
+recebe é criada e descartada, com as diretivas dela.
 
 Injeção num componente filho (`injectFromViewParentInjector`): o
 `parentView.injectorGet(T, parentIndex)` é escrito na visão do nó e levado

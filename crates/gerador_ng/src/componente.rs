@@ -198,6 +198,9 @@ pub struct ConsultaDeConteudo {
     /// referência (`'nome'`, com `nome` aqui e `referencia` ligado).
     pub alvo: String,
     pub referencia: bool,
+    /// `descendants:` — sem ele, só casa o conteúdo a uma diretiva de
+    /// distância (`_getQueriesFor`).
+    pub descendentes: bool,
 }
 
 /// Um `@HostListener` do componente: o evento e o texto do handler que o
@@ -497,6 +500,19 @@ fn consultas_de_conteudo(
                     false,
                 ),
             };
+            // `ContentChildren(descendants: true)` por omissão no ngdart 8;
+            // `ContentChild` sempre. `read:` troca o valor: ainda não.
+            let mut descendentes = true;
+            for x in a.arguments.as_ref().map(|g| &g.args[..]).unwrap_or(&[]) {
+                match x.name.map(|n| interner.resolve(n.sym)) {
+                    None => {}
+                    Some("descendants") if lista => match &arvore.expr(x.value).kind {
+                        ast::ExprKind::Bool(b) => descendentes = *b,
+                        _ => return None,
+                    },
+                    _ => return None,
+                }
+            }
             match &membro.kind {
                 ast::MemberKind::Field(l) if !l.static_ && l.variables.len() == 1 => {
                     campos.push(ConsultaDeConteudo {
@@ -504,6 +520,7 @@ fn consultas_de_conteudo(
                         lista,
                         alvo,
                         referencia,
+                        descendentes,
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -515,6 +532,7 @@ fn consultas_de_conteudo(
                                 lista,
                                 alvo,
                                 referencia,
+                                descendentes,
                             })
                         }
                         _ => return None,
