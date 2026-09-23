@@ -1378,7 +1378,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
 
     // Tearoffs de construtores (`C.new == C.new`).
     if !is_mixin {
-        for (&csym, &cfid) in &class.constructors {
+        for (csym, cfid) in class.construtores() {
             let cf = ctx.program.function(cfid);
             let cn = ctx.name(csym);
             let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
@@ -1737,7 +1737,7 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             MemberKind::Field(_) => {}
         }
     }
-    for (&csym, &cfid) in &class.constructors {
+    for (csym, cfid) in class.construtores() {
         let cf = ctx.program.function(cfid);
         let cn = ctx.name(csym);
         let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
@@ -1847,12 +1847,12 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             Some(b) if Some(b) != ctx.object => ctx
                 .program
                 .class(b)
-                .constructors
-                .iter()
+                .construtores()
+                .into_iter()
                 // Com filtro: só encaminha para construtor da base que vive.
-                .filter(|(_, f)| !ctx.program.function(**f).factory && ctx.estado_fn(**f) != crate::filtro::Estado::Morta)
+                .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.estado_fn(*f) != crate::filtro::Estado::Morta)
                 .map(|(s, _)| {
-                    let n = ctx.name(*s);
+                    let n = ctx.name(s);
                     if n.is_empty() { "new".to_string() } else { n.to_string() }
                 })
                 .collect(),
