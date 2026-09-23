@@ -486,3 +486,18 @@ const lista = [base, deslocado, 'x$base'];
     ));
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// Extension type que implementa outro extension type (`Element implements
+/// JSObject`, `JSString implements JSAny` no package:web).
+#[test]
+fn extension_type_implementa_extension_type() {
+    let r = ou_pula!(inferir(
+        r#"
+extension type A._(Object _) {}
+extension type B._(Object _) implements A {}
+extension type C._(Object _) implements B { C(B b) : _ = b; }
+A f(C c) => c;
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}

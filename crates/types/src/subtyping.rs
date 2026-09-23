@@ -251,9 +251,11 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             }
             return true;
         }
-        // Subinterfaces declaradas no implements do extension type
-        if let Type::Interface { class: c1, .. } = &t1
+        // Subinterfaces declaradas no implements do extension type (classes
+        // ou outros extension types, como `JSObject implements JSAny`).
+        if let Type::Interface { class: c1, .. } | Type::ExtensionType { decl: c1, .. } = &t1
             && let Some(super_t) = env.hierarchy.supertype_of(t0_id, *c1, env.table, env.core)
+            && super_t != t0_id
         {
             return is_subtype(super_t, t1_id, env);
         }
