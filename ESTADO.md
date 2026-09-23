@@ -109,14 +109,22 @@ de ~1,5 MB qualquer que seja o programa: é o que resta do `dart_sdk.js` do
 DDC depois da poda. Ver §2.3 — fechar esse buraco é compilar o SDK pela
 nossa trilha, não otimizar mais.
 
-**Projeto real**: `new_sali/core`,
-`test/arvore_processo_item_test.dart` (`package:test`, 351 módulos) roda
-pelo perfil de produção com a **mesma saída do `dart run`**, num arquivo só
-de 32.003 KB, em 15 s; o runtime foi de 6.922 KB para 2.121 KB. O número
-inverte a leitura do corpus: aqui o runtime é 6,6% do arquivo e os outros
-30 MB são código do usuário e dos pacotes, emitido inteiro — é a etapa 5
-do `docs/JS-PRODUCAO.md` (mundo fechado sobre a nossa trilha) que vale para
-os projetos do proprietário, não a poda do runtime.
+**Mundo fechado sobre a nossa trilha** (etapa 5, `crates/mundo`,
+`docs/JS-PRODUCAO.md` §1.7). O código do usuário e dos pacotes é podado
+**antes** da emissão por um RTA sobre o modelo de elementos: seletor por
+nome, três níveis de classe e a fronteira com o `dart_sdk.js` por regra.
+Um verificador sempre ligado confere o texto emitido e fecha o ponto fixo
+mundo+texto. O modo stub (`--verificar-stub`) denuncia na execução qualquer
+chamada a código podado. Sem filtro, o emissor é byte a byte o de antes
+(teste `identidade.rs` e o corpus inteiro contra o binário de `main`).
+
+**Projeto real**: `new_sali/core`, `test/arvore_processo_item_test.dart`
+(`package:test`, 351 módulos): **32.003 KB → 4.463 KB** e compilação de
+4,3 s → 1,4 s, com a **mesma saída do `dart run`**. Os 7 testes do core
+que rodam na web ficam entre 3,0 e 4,8 MB, todos iguais à VM e sem stub
+executado. O custo do verificador é de 28-36 ms. O `limitless_ui/example`
+só cai 6,5% (48,2 → 45,1 MB): a galeria alcança quase tudo, e seletor só por
+nome é o limite (`docs/JS-PRODUCAO.md` §6.0).
 
 ### 1.3 Latência e memória — `crates/dev`
 
@@ -407,11 +415,20 @@ arquivo oficial correspondente serve de teste byte a byte.
 
 ### 2.3 Modo de produção
 
-**Existe, e é o de §1.2.1.** O que ainda falta, na ordem do
-`docs/JS-PRODUCAO.md` §6: mundo fechado sobre a nossa trilha (hoje só o
-runtime é podado; o código do usuário vai inteiro), despacho direto por
-alvo único, minificação, deduplicação de funções na trilha tipada, e code
-splitting (`deferred` virando `import()`).
+**Existe, e é o de §1.2.1**, com o mundo fechado sobre a nossa trilha. O
+que ainda falta, na ordem do `docs/JS-PRODUCAO.md` §6:
+
+* precisão do mundo: restrição pelo tipo do receptor e espécie de seletor,
+  o que o `limitless_ui` pede;
+* suíte e2e do `limitless_ui` com o bundle de produção;
+* despacho direto por alvo único;
+* minificação;
+* deduplicação de funções na trilha tipada;
+* code splitting (`deferred` virando `import()`).
+
+Achado de passagem: a ordem dos encaminhadores de `noSuchMethod`
+(`Ctx::unimplemented_abstract`, iteração de `HashMap`) muda entre execuções
+do mesmo binário. É um não determinismo do emissor anterior a este trabalho.
 
 E o limite estrutural, medido e registrado: **enquanto o runtime for o
 `dart_sdk.js` do DDC, o piso é da ordem de 1 MB, não os 35 KB do

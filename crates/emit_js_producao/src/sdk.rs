@@ -779,6 +779,85 @@ pub fn raizes_do_usuario(modulos: &[Modulo]) -> Vec<String> {
     v
 }
 
+/// Nomes que o `dart_sdk.js` chama **por string** em objetos quaisquer:
+/// `dart.dsend(o, "toJson", …)`, `dgsend(o, targs, "m", …)`, `dload(o, "x")`,
+/// `dput(o, "x", v)`, `bind(o, "m")`. É o contrato do DDC — chamada tipada
+/// vira propriedade direta, a não tipada leva o nome como dado
+/// (`pkg/dev_compiler/lib/src/kernel/compiler.dart:6102-6126`) — e é a regra
+/// (iii) da fronteira SDK→usuário (`docs/JS-PRODUCAO.md` §1.7): um membro do
+/// usuário com um desses nomes pode ser chamado pelo runtime sem que o
+/// programa o cite. O arquivo inteiro, não só o que sobrevive à poda: é
+/// conservador e não cria dependência circular entre os dois mundos.
+pub fn seletores_dinamicos(src: &str) -> Vec<String> {
+    let b = src.as_bytes();
+    let mut out: Vec<String> = Vec::new();
+    // Uma passada só: cada `(` olha o identificador que o precede (7 MB em
+    // poucos milissegundos; nove `match_indices` custavam dezenas).
+    let e_id = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    for (p, _) in b.iter().enumerate().filter(|(_, c)| **c == b'(') {
+        let mut i = p;
+        while i > 0 && e_id(b[i - 1]) {
+            i -= 1;
+        }
+        let pos_arg = match &src[i..p] {
+            "dsend" | "dload" | "dput" | "bind" | "dsendRepl" | "dloadRepl" | "dputRepl" => 1usize,
+            "dgsend" | "dgsendRepl" => 2,
+            _ => continue,
+        };
+        {
+            let mut j = p + 1;
+            let mut arg = 0usize;
+            let mut prof = 0i32;
+            // Avança até o início do argumento `pos_arg` (vírgula em profundidade zero).
+            while j < b.len() && arg < pos_arg {
+                match b[j] {
+                    b'(' | b'[' | b'{' => prof += 1,
+                    b')' | b']' | b'}' => {
+                        if prof == 0 {
+                            break;
+                        }
+                        prof -= 1;
+                    }
+                    b'"' | b'\'' => {
+                        let aspa = b[j];
+                        j += 1;
+                        while j < b.len() && b[j] != aspa {
+                            if b[j] == b'\\' {
+                                j += 1;
+                            }
+                            j += 1;
+                        }
+                    }
+                    b',' if prof == 0 => arg += 1,
+                    _ => {}
+                }
+                j += 1;
+            }
+            if arg != pos_arg {
+                continue;
+            }
+            while j < b.len() && b[j] == b' ' {
+                j += 1;
+            }
+            if j < b.len() && (b[j] == b'"' || b[j] == b'\'') {
+                let aspa = b[j];
+                let ini = j + 1;
+                let mut k = ini;
+                while k < b.len() && b[k] != aspa && b[k] != b'\n' {
+                    k += 1;
+                }
+                let s = &src[ini..k];
+                if !s.is_empty() && s.len() < 64 && e_nome_de_seletor(s) {
+                    out.push(s.to_string());
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Poda o `dart_sdk.js`: devolve o texto podado, o total de unidades e as vivas.
 pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, usize) {
     let (fatias, raizes_do_runtime) = classificar(src, por_membro);

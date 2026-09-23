@@ -10,6 +10,9 @@ workspace = true
 
 [dependencies]
 dartforge-emit-js = { path = "../emit_js" }
+dartforge-mundo = { path = "../mundo" }
+dartforge-elements = { path = "../elements" }
+dartforge-intern = { path = "../intern" }
 
 [lib]
 path = "src/lib.rs"

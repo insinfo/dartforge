@@ -247,6 +247,88 @@ Duas aplicações concretas, nesta ordem:
 A regra de higiene que vem junto (§2.1 da pesquisa): **nenhum cache cresce
 sem política de descarte explícita.**
 
+### 1.7 O mundo fechado sobre a nossa trilha — o contrato (etapa 5)
+
+Implementado em `crates/mundo` (a análise, sem backend) e consumido por
+`crates/emit_js_producao` (as raízes do JS, o filtro, o verificador).
+
+**Onde.** Sobre o modelo de elementos, **antes** da emissão. O emissor
+recebe o mundo como filtro (`emit_js::filtro::Vivos`, `Ctx::filtro`) e não
+emite o que está morto. Com `filtro: None` a emissão é byte a byte a de
+antes; o teste `emit_js_producao/tests/identidade.rs` e a comparação de
+todo o corpus com o binário de `main` o provam. O texto não decide nada. Ele
+só **fiscaliza** (abaixo).
+
+**O algoritmo** é o do `ResolutionWorldBuilder` (§1.1). A primeira versão é
+por nome:
+
+* um membro de instância vive se a classe é **instanciada** e o nome é
+  **seletor vivo**;
+* instanciar sobe a cadeia de superclasses e os mixins aplicados;
+* o impacto de cada elemento é calculado quando ele entra na fila, então
+  código morto nunca é percorrido.
+
+A classe tem três níveis: morta, **só tipo** (casca, `addRtiResources`,
+regras rti, estáticos vivos) e instanciada.
+
+**Conservadorismo deliberado** (onde a análise não pode ser mais precisa
+que o emissor):
+
+* seletor por **nome**, sem restrição pelo tipo do receptor. O emissor tem
+  inferência e busca de membros próprias, e casar pelo tipo seria podar pelo
+  palpite de uma das duas partes;
+* todo nome de membro escrito na AST vira seletor, qualquer que seja o
+  `Resolved`, e os usos estáticos vêm do `Resolved` **e** da resolução por
+  nome no escopo;
+* extensões por nome;
+* operadores, membros de `Object` e `call` sempre vivos em classe
+  instanciada;
+* campos de classe viva sempre inicializados.
+
+**Raízes e fronteira com o `dart_sdk.js`:**
+
+* `main`;
+* (i) a implementação de todo membro declarado num **supertipo do SDK** da
+  classe instanciada (`compareTo`, `iterator`, `listen`…);
+* (ii) membros de `Object`, `call` e operadores;
+* (iii) os nomes que o runtime chama **por string**: `dsend`, `dgsend`,
+  `dload`, `dput` e `bind` no `dart_sdk.js` inteiro, pelo contrato do DDC
+  (`dev_compiler/lib/src/kernel/compiler.dart:6102-6126`);
+* o test runner não tem caso especial: as closures de `test()` nascem no
+  corpo de `main`.
+
+**Verificador do texto, sempre ligado** (`verificar.rs`). Confere três
+coisas:
+
+* nenhuma referência `L$x.Nome`/`L$x.C.m`/`L$x['k']` pendente;
+* nenhuma receita rti `"x|Nome"` sem a classe;
+* nenhum nome usado como membro no texto (`.x`, `[$x]`, strings de
+  `dsend`) que seja membro podado de classe instanciada.
+
+O que falta volta como raiz, e o mundo é recalculado: o resultado é ponto
+fixo do mundo **e** do texto. Cada cura é uma lacuna da análise e sai no
+relatório. `DARTFORGE_JSPROD_RODADAS=1` mostra as lacunas sem curar.
+
+Custo medido:
+
+* `new_sali/core`: 28-36 ms de 1,4-1,7 s;
+* `limitless_ui/example`: 574 ms de 14 s;
+* corpus: menos de 1 ms.
+
+**Modo *stub*** (`--verificar-stub` ou `DARTFORGE_JSPROD_VERIFICAR=stub`): o
+que o mundo diz morto vira `dart_podado("uri::C.m")`, que escreve
+`DARTFORGE-PODADO:` no stderr e sai com 97. É uma chamada a código podado
+pega na execução, com o nome.
+`scripts/verificar-poda-js.ps1` compila sem poda, com poda e em stub, e
+compara as três execuções.
+
+**Diagnóstico:**
+
+* `DARTFORGE_JSPROD_POR=Nome` imprime a cadeia de causas até a raiz;
+* `DARTFORGE_JSPROD_CONFERIR=1` roda a conferência a seco
+  (`checkEnqueuerConsistency`);
+* `--sem-poda-usuario` desliga a etapa.
+
 ## 2. Despacho
 
 Hoje o emissor decide entre três formas (`crates/emit_js/src/call.rs`):
@@ -669,14 +751,55 @@ corpus o runtime é 100% do arquivo; aqui ele é 6,6%, e os outros 30 MB são
 etapa 5 — o mundo fechado sobre a nossa trilha — e é ela que vale para os
 projetos do proprietário, não a poda do runtime.
 
+### Depois da etapa 5 (mundo fechado sobre a nossa trilha, §1.7)
+
+Os 7 testes do `new_sali/core` que rodam na web, todos com a **mesma saída
+do `dart run`**, com o ponto fixo fechado numa rodada e nenhum stub
+executado. "Antes" é o mesmo binário com `--sem-poda-usuario`, que é byte a
+byte o binário de `main`:
+
+| teste | antes | depois | compilação |
+| --- | ---: | ---: | ---: |
+| `arvore_processo_item` | 32.003 KB | **4.463 KB** | 4,31 s → 1,43 s |
+| `atributo_protocolo` | 32.005 KB | 4.476 KB | 4,34 s → 1,45 s |
+| `documento_despacho_model` | 32.016 KB | 4.834 KB | 4,28 s → 1,43 s |
+| `documento_validacao` | 32.002 KB | 4.579 KB | 4,02 s → 1,45 s |
+| `permissao_constants` | 32.005 KB | 4.494 KB | 4,75 s → 1,41 s |
+| `processo_tramite_resumo` | 32.006 KB | 4.584 KB | 5,11 s → 1,70 s |
+| `table_aware_delta_parser` | 4.448 KB | 3.020 KB | 0,81 s → 0,61 s |
+
+No `arvore_processo_item`, 220 das 3.719 classes são instanciadas, 66 são só
+tipo e 2.382 das 52.794 funções vivem. O código do usuário e dos pacotes foi
+de ~30 MB para 2.556 KB, e o runtime de 2.121 KB para 1.900 KB, porque as
+raízes do `dart_sdk.js` vêm do texto já podado. A compilação ficou **3×
+mais rápida** porque o código morto não é emitido. O mundo custa 14 ms e o
+verificador 28 ms.
+
+No corpus o ganho é nulo por construção (1-30 KB de código do usuário por
+programa): o critério ali é não regredir, e não regrediu em tamanho nem em
+tempo.
+
+No `limitless_ui/example` (ngdart, 482 módulos) o ganho é pequeno:
+48.226 KB → 45.113 KB (−6,5%). 1.705 das 2.123 classes são instanciadas e
+90% das funções vivem. A galeria alcança quase tudo, e com seletor só por
+nome (19 mil nomes vivos) um membro de nome comum vive em toda classe
+instanciada. Fechar isso é a restrição pelo tipo do receptor (§2), que
+depende de fechar as lacunas de inferência. A suíte e2e com o bundle de
+produção ainda não foi rodada.
+
 ## 6.1 O que já está implementado
 
-Etapas 1 a 4 do quadro acima, em `crates/emit_js_producao`
-(`dartforge-jsprod`). `crates/emit_js` não foi tocado: a produção
-**consome** a emissão de desenvolvimento.
+Etapas 1 a 5 do quadro acima, em `crates/emit_js_producao`
+(`dartforge-jsprod`) e `crates/mundo`. Em `crates/emit_js` a etapa 5 só
+acrescentou o filtro opcional: `filtro.rs`, o campo `Ctx::filtro`,
+`compilar_com`/`Analise::emitir` e guardas em `module.rs` que valem
+"tudo vivo" sem filtro.
 
 | módulo | o que faz |
 | --- | --- |
+| `mundo/src/lib.rs` | o ponto fixo do RTA sobre elementos (§1.7): níveis de classe, seletores por nome, pendentes por nome, protocolo do SDK, conferência a seco, causas. |
+| `mundo/src/impacto.rs` | o impacto de um elemento, com percurso exaustivo da AST (sem braço `_`), `Resolved` e resolução por nome no escopo. |
+| `filtro.rs` / `verificar.rs` | o mundo visto pelo emissor (e o modo stub); o verificador do texto e a tradução do que falta em elementos. |
 | `varredura.rs` | parte JS de compilador em declarações de topo, entradas de objeto e membros de classe. Não é parser: é um leitor de caracteres que respeita strings, comentários e profundidade. O teste exige **conservação**: a concatenação das fatias é byte a byte a entrada. |
 | `bundle.rs` | separa cada módulo em namespaces içáveis, dependências e corpo; ordena topologicamente pelo grafo de `import` lido do próprio texto; monta o arquivo único com uma IIFE por módulo. |
 | `sdk.rs` | classifica as 14.735 declarações do `dart_sdk.js`, extrai referências (inclusive as das receitas rti) e seletores, e reemite as unidades vivas na ordem do arquivo, recolocando as vírgulas dos grupos. |

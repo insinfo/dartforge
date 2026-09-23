@@ -200,6 +200,8 @@ pub fn emitir_com_cache(
     so: Option<&HashSet<u32>>,
     cache: Option<&RefCell<CacheFragmentos>>,
 ) -> Result<Emitido, Vec<Diagnostic>> {
+    // Texto podado nunca entra no cache de fragmentos do `dartforge serve`.
+    debug_assert!(ctx.filtro.is_none() || cache.is_none(), "filtro de produção com cache de fragmentos");
     let mut modulos = Vec::new();
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
@@ -289,7 +291,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<CacheFragme
     let in_group = |l: LibraryId| group.contains(&l);
     let mut classes: Vec<ClassId> = Vec::new();
     for (i, c) in ctx.program.classes.iter().enumerate() {
-        if in_group(c.library) && c.decl.is_some() {
+        if in_group(c.library) && c.decl.is_some() && ctx.nivel_classe(ClassId(i as u32)) != crate::filtro::Nivel::Morta {
             classes.push(ClassId(i as u32));
         }
     }
@@ -421,13 +423,13 @@ fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer)
     let mut functions: Vec<FunctionElementId> = Vec::new();
     let mut variables: Vec<VariableId> = Vec::new();
     for (i, f) in ctx.program.functions.iter().enumerate() {
-        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor {
+        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor && ctx.estado_fn(FunctionElementId(i as u32)) != crate::filtro::Estado::Morta {
             functions.push(FunctionElementId(i as u32));
         }
     }
     let mut ext_variables: Vec<VariableId> = Vec::new();
     for (i, v) in ctx.program.variables.iter().enumerate() {
-        if v.library == lib && v.class.is_none() {
+        if v.library == lib && v.class.is_none() && ctx.estado_var(VariableId(i as u32)) != crate::filtro::Estado::Morta {
             if v.extension.is_none() {
                 variables.push(VariableId(i as u32));
             } else {
@@ -747,6 +749,15 @@ fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Wr
         emit_extension_function(ctx, m, fid, ext, w);
         return;
     }
+    if ctx.estado_fn(fid) == crate::filtro::Estado::Stub {
+        let r = js::string_literal(&ctx.rotulo_podado(f.library, None, name));
+        match f.kind {
+            FunctionKind::Getter => accessors.push((name.to_string(), format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(name)))),
+            FunctionKind::Setter => accessors.push((name.to_string(), format!("set {}(v) {{ dart_podado({r}); }}", js::prop_key(name)))),
+            _ => w.line(&format!("{lvar}{} = function(...a) {{ return dart_podado({r}); }};", js::prop_access(name))),
+        }
+        return;
+    }
     match f.kind {
         FunctionKind::Getter | FunctionKind::Setter => {
             // Acessores de topo: `dart.copyProperties(L, { get x() {...}, set x(v) {...} })`.
@@ -846,6 +857,11 @@ fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableI
         let v = ctx.program.variable(vid);
         let name = ctx.name(v.name);
         if ctx.is_js_var(vid) {
+            continue;
+        }
+        if ctx.estado_var(vid) == crate::filtro::Estado::Stub {
+            let r = js::string_literal(&ctx.rotulo_podado(lib, None, name));
+            lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(name)));
             continue;
         }
         let VariableRef::TopLevel { unit, decl, index } = v.node else { continue };
@@ -1010,6 +1026,14 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         if !f.virtual_ {
             continue;
         }
+        if ctx.filtro.is_some() {
+            // Acessores do campo: vivem se o getter ou o setter implícito vive.
+            let vv = ctx.program.variable(f.vid);
+            let vivo = |x: Option<FunctionElementId>| x.is_some_and(|g| ctx.estado_fn(g) != crate::filtro::Estado::Morta);
+            if !vivo(vv.getter) && !vivo(vv.setter) {
+                continue;
+            }
+        }
         if let Some(sym) = &f.storage {
             let key = if f.name.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, &f.name)) } else { js::prop_key(&crate::body::js_member_name(&f.name)) };
             if f.late {
@@ -1089,6 +1113,10 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 if matches!(af.body, FunctionBody::Empty) && !af.external {
                     continue; // abstrato
                 }
+                let estado = ctx.estado_fn(feid);
+                if estado == crate::filtro::Estado::Morta {
+                    continue;
+                }
                 let jsname = js_member_name(&name);
                 let mut e_tmp = FnEmitter::new(ctx, m, unit, Some(c), af.static_);
                 let key_js = e_tmp.decl_member_key(c, &name);
@@ -1109,6 +1137,15 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         _ => if name.starts_with('_') { key_js.clone() } else { js::prop_key(&jsname) },
                     }
                 };
+                if estado == crate::filtro::Estado::Stub {
+                    let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
+                    match af.kind {
+                        ast::FunctionKind::Getter => cw.line(&format!("{head}() {{ return dart_podado({r}); }}")),
+                        ast::FunctionKind::Setter => cw.line(&format!("{head}(v) {{ dart_podado({r}); }}")),
+                        _ => cw.line(&format!("{head}(...a) {{ return dart_podado({r}); }}")),
+                    }
+                    continue;
+                }
                 let (text, _) = function_text(ctx, m, feid, Some(&head), Some(c), af.static_, None);
                 let text = if name == "==" && !af.static_ {
                     has_equals = true;
@@ -1158,7 +1195,16 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
             }
             MemberKind::Constructor(ctor) => {
-                if ctor.factory {
+                let estado = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied()).map_or(crate::filtro::Estado::Viva, |f| ctx.estado_fn(f));
+                if estado == crate::filtro::Estado::Morta {
+                    continue;
+                }
+                if ctor.factory && estado == crate::filtro::Estado::Stub {
+                    let n = ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into());
+                    let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &n));
+                    cw.line(&format!("static {}(...a) {{ return dart_podado({r}); }}", js::prop_key(&static_member_name(&n))));
+                    static_methods.push(n);
+                } else if ctor.factory {
                     emit_factory(ctx, m, c, unit, ctor, mid, &mut cw);
                     static_methods.push(ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into()));
                 } else {
@@ -1171,7 +1217,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let _ = has_equals;
 
     // `[Symbol.iterator]` para classes Iterable cuja superclasse não é Iterable.
-    if !is_mixin {
+    if !is_mixin && ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada {
         if let Some(it) = ctx.iterable_ {
             let declares_iterator = ctx.sym("iterator").is_some_and(|s| class.instance_members.contains_key(&s));
             let super_is_iterable = ctx.superclass_of(c).is_some_and(|sc| ctx.is_subclass(sc, it) && Some(sc) != ctx.object);
@@ -1182,12 +1228,12 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
 
     // Encaminhadores para `noSuchMethod` em classes concretas com membros abstratos.
-    if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) {
+    if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) && ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada {
         m.use_sdk("_internal");
         m.use_sdk("core");
         let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
         for (name, mk) in ctx.unimplemented_abstract(c) {
-            if name == "noSuchMethod" || name.starts_with('_') {
+            if name == "noSuchMethod" || name.starts_with('_') || !ctx.seletor_vivo(&name) {
                 continue;
             }
             let sym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&name));
@@ -1229,7 +1275,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
             // Com parâmetros de tipo próprios o tearoff estático não existe
             // (o valor é construído no ponto de uso, com os argumentos).
-            if !ctx.class_params[c.0 as usize].is_empty() {
+            if !ctx.class_params[c.0 as usize].is_empty() || !ctx.tearoff_vivo(cfid) {
                 continue;
             }
             let mut args = String::from("...args");
@@ -1290,7 +1336,21 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Construtores generativos.
     let mut ctor_names: Vec<String> = Vec::new();
     let has_synthetic = class.constructors.values().any(|f| ctx.program.function(*f).kind == FunctionKind::SyntheticConstructor);
-    if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) {
+    // Com filtro: o sintético vive pelo seu elemento; sem elemento (classe sem
+    // construtores) ou enum, pela classe instanciada.
+    let estado_sintetico = if ctx.filtro.is_none() {
+        crate::filtro::Estado::Viva
+    } else {
+        let pela_classe = if ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada { crate::filtro::Estado::Viva } else { crate::filtro::Estado::Morta };
+        match class.constructors.values().find(|f| ctx.program.function(**f).kind == FunctionKind::SyntheticConstructor) {
+            Some(f) if !is_enum => ctx.estado_fn(*f),
+            _ => pela_classe,
+        }
+    };
+    if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && estado_sintetico == crate::filtro::Estado::Stub {
+        let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), "new"));
+        crate::linha!(w, "({cref}.new = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
+    } else if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && estado_sintetico == crate::filtro::Estado::Viva {
         // Construtor sintético.
         let jsname = "new";
         ctor_names.push(jsname.into());
@@ -1317,6 +1377,12 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let name = ctor.name.map(|n| ctx.name(n.sym).to_string());
         let jsname = name.clone().map(|n| static_member_name(&n)).unwrap_or("new".into());
         ctor_names.push(jsname.clone());
+        let estado = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied()).map_or(crate::filtro::Estado::Viva, |f| ctx.estado_fn(f));
+        if estado == crate::filtro::Estado::Stub {
+            let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &jsname));
+            crate::linha!(w, "({cref}.{jsname} = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
+            continue;
+        }
         let text = emit_constructor(ctx, m, c, unit, ctor, &fields, generic, is_enum);
         crate::linha!(w, "({cref}.{jsname} = {text}).prototype = {cref}.prototype;");
     }
@@ -1394,7 +1460,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         w.line(&format!("dart.setFieldSignature({cref}, () => Object.setPrototypeOf({{{}}}, dart.getFields(Object.getPrototypeOf({cref}))));", items.join(", ")));
     }
     // Estáticos: campos.
-    let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_).collect();
+    let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_ && ctx.estado_var(*v) != crate::filtro::Estado::Morta).collect();
     let mut static_names: Vec<String> = static_fields.iter().map(|v| ctx.name(ctx.program.variable(*v).name).to_string()).collect();
     if is_enum {
         static_names.insert(0, "values".into());
@@ -1454,6 +1520,11 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     for vid in static_fields {
         let v = ctx.program.variable(vid);
         let name = static_member_name(ctx.name(v.name));
+        if ctx.estado_var(vid) == crate::filtro::Estado::Stub {
+            let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
+            lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(&name)));
+            continue;
+        }
         let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
         let mem = ctx.program.unit(fu).ast.member(member);
         let MemberKind::Field(list) = &mem.kind else { continue };
@@ -1669,7 +1740,8 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
                 .class(b)
                 .constructors
                 .iter()
-                .filter(|(_, f)| !ctx.program.function(**f).factory)
+                // Com filtro: só encaminha para construtor da base que vive.
+                .filter(|(_, f)| !ctx.program.function(**f).factory && ctx.estado_fn(**f) != crate::filtro::Estado::Morta)
                 .map(|(s, _)| {
                     let n = ctx.name(*s);
                     if n.is_empty() { "new".to_string() } else { n.to_string() }
@@ -1677,7 +1749,10 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
                 .collect(),
             _ => vec!["new".into()],
         };
-        if ctor_names.is_empty() {
+        // Base sem construtor declarado: o `new` sintético dela (com filtro,
+        // só existe se ela é instanciada).
+        let base_sem_ctor = base_class.is_some_and(|b| ctx.program.class(b).constructors.values().all(|f| ctx.program.function(*f).factory));
+        if ctor_names.is_empty() && (ctx.filtro.is_none() || (base_sem_ctor && base_class.is_some_and(|b| ctx.nivel_classe(b) == crate::filtro::Nivel::Instanciada))) {
             ctor_names.push("new".into());
         }
         for n in ctor_names {

@@ -388,7 +388,10 @@ dependencies = [
 name = "dartforge-emit-js-producao"
 version = "0.1.0"
 dependencies = [
+ "dartforge-elements",
  "dartforge-emit-js",
+ "dartforge-intern",
+ "dartforge-mundo",
 ]
 
 [[package]]
@@ -525,6 +528,17 @@ dependencies = [
  "dartforge-parser",
  "dartforge-semantic",
  "dartforge-syntax",
+]
+
+[[package]]
+name = "dartforge-mundo"
+version = "0.1.0"
+dependencies = [
+ "dartforge-elements",
+ "dartforge-emit-js",
+ "dartforge-frontend",
+ "dartforge-intern",
+ "dartforge-types",
 ]
 
 [[package]]

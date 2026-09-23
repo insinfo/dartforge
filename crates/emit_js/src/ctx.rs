@@ -131,6 +131,9 @@ pub struct Ctx<'a> {
     /// Memória de `as_super`: `(classe, alvo)` → o alvo escrito em função
     /// dos parâmetros da classe. 78 mil chamadas, 525 mil alocações.
     super_memo: RefCell<HashMap<(ClassId, ClassId), Option<Ty>>>,
+    /// Filtro de alcance do perfil de produção (`crate::filtro`). `None` é o
+    /// perfil de desenvolvimento: tudo emitido, exatamente como antes.
+    pub filtro: Option<&'a dyn crate::filtro::Vivos>,
 }
 
 /// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
@@ -225,6 +228,7 @@ impl<'a> Ctx<'a> {
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
+            filtro: None,
         };
         // A interop vem antes da hierarquia: os tipos de extensão de interop
         // não são apagados, e os supertipos (`implements JSAny`) precisam
@@ -506,6 +510,40 @@ impl<'a> Ctx<'a> {
             map.insert(p.id, a.clone());
         }
         Some(self.ty_of(t).subst_prop(&map))
+    }
+
+    /// Nível de alcance da classe; sem filtro, `Instanciada` (tudo emitido).
+    pub fn nivel_classe(&self, c: ClassId) -> crate::filtro::Nivel {
+        self.filtro.map_or(crate::filtro::Nivel::Instanciada, |f| f.classe(c))
+    }
+
+    /// Estado da função; sem filtro, `Viva`.
+    pub fn estado_fn(&self, f: FunctionElementId) -> crate::filtro::Estado {
+        self.filtro.map_or(crate::filtro::Estado::Viva, |x| x.funcao(f))
+    }
+
+    /// Estado da variável; sem filtro, `Viva`.
+    pub fn estado_var(&self, v: VariableId) -> crate::filtro::Estado {
+        self.filtro.map_or(crate::filtro::Estado::Viva, |x| x.variavel(v))
+    }
+
+    /// Nome invocado em algum lugar; sem filtro, sempre.
+    pub fn seletor_vivo(&self, nome: &str) -> bool {
+        self.filtro.is_none_or(|x| x.seletor(nome))
+    }
+
+    /// Tearoff estático do construtor citado; sem filtro, sempre.
+    pub fn tearoff_vivo(&self, f: FunctionElementId) -> bool {
+        self.filtro.is_none_or(|x| x.tearoff_ctor(f))
+    }
+
+    /// Rótulo de um elemento podado para o *stub* (`dart_podado("…")`).
+    pub fn rotulo_podado(&self, lib: LibraryId, classe: Option<ClassId>, nome: &str) -> String {
+        let uri = &self.program.library(lib).uri;
+        match classe {
+            Some(c) => format!("{uri}::{}.{nome}", self.class_name(c)),
+            None => format!("{uri}::{nome}"),
+        }
     }
 
     pub fn is_js_class(&self, c: ClassId) -> bool {
