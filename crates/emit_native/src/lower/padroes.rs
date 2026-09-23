@@ -304,6 +304,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.checar_tipo_ou_lancar(ast.ty(*ty), v);
                 self.casar(ast, *pattern, valor, falha, ligacao, ligados, origem);
             }
+            PatternKind::List { type_args, .. } | PatternKind::Map { type_args, .. } if !type_args.is_empty() => {
+                // `<int>[…]`: o tipo do elemento em tempo de execução (RTI)
+                // ainda não existe.
+                let _ = (valor, falha, ligados, origem, ligacao);
+                self.nao_suportado("padrão de coleção com argumento de tipo (RTI)", span);
+            }
             PatternKind::List { elements, .. } => {
                 let v = self.coagir(valor, Type::Ref);
                 let cls = self.emit(

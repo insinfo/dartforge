@@ -775,9 +775,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
     /// String…) — sem desreferenciar null (H6).
     pub fn testar_tipo(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
-        let ast::TypeKind::Named { name, .. } = &ast_ty.kind else {
+        let ast::TypeKind::Named { name, args } = &ast_ty.kind else {
             return self.nao_suportado("teste de tipo estrutural", ast_ty.span);
         };
+        // `x is List<int>`: os argumentos de tipo em tempo de execução (RTI)
+        // ainda não existem — responder pela classe só daria a resposta
+        // errada. Argumentos triviais (`dynamic`, `Object?`) não mudam nada.
+        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+        let trivial = |t: &ast::TypeAnnotation| match &t.kind {
+            ast::TypeKind::Named { name, args } if args.is_empty() => name
+                .last()
+                .is_some_and(|n| matches!(self.ctx.symbol_name(n.sym), "dynamic") || (self.ctx.symbol_name(n.sym) == "Object" && t.nullable)),
+            _ => false,
+        };
+        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) {
+            return self.nao_suportado("teste de tipo genérico (RTI)", ast_ty.span);
+        }
         let Some(ultimo) = name.last() else {
             return self.nao_suportado("teste de tipo", ast_ty.span);
         };
