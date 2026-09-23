@@ -435,7 +435,15 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                             output.push_str("Concurrent modification during iteration: "); output.0.extend(s.0); output.push('.');
                         }
                     } else if name == "TypeError" {
-                        output.push_str("TypeError");
+                        // Com a mensagem (o `as` do RTI, `tipos.rs`), o
+                        // `toString` da VM é a mensagem.
+                        match fields.first().and_then(|(b, r)| r.then_some(*b)).and_then(|b| match heap.try_get(b) {
+                            Some(Value::String(t)) => Some(t.clone()),
+                            _ => None,
+                        }) {
+                            Some(t) => output.push_texto(&t),
+                            None => output.push_str("TypeError"),
+                        }
                     } else if name == "NoSuchMethodError" {
                         // PENDENTE: a VM imprime
                         // "NoSuchMethodError: Class 'X' has no instance getter

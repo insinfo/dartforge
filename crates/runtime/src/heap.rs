@@ -685,6 +685,10 @@ pub mod smi {
 #[derive(Debug)]
 pub struct Heap {
     slots: Vec<Option<Value>>,
+    /// Metadado de cada slot (o `metadata_ptr` do cabeçalho, NATIVO.md §2):
+    /// o tipo em tempo de execução de um objeto genérico (P6/RTI,
+    /// `tipos.rs`), `id + 1`; 0 = nenhum. Zerado a cada alocação do slot.
+    metadados: Vec<i64>,
     free: Vec<usize>,
     frames: Vec<(i64, Vec<i64>)>,
     next_frame: i64,
@@ -742,6 +746,7 @@ impl Heap {
     pub fn new(stress: bool) -> Self {
         Self {
             slots: Vec::new(),
+            metadados: Vec::new(),
             free: Vec::new(),
             frames: Vec::new(),
             next_frame: 1,
@@ -1023,12 +1028,24 @@ impl Heap {
         self.stats.allocations += 1;
         let index = if let Some(index) = self.free.pop() {
             self.slots[index] = Some(value);
+            self.metadados[index] = 0;
             index
         } else {
             self.slots.push(Some(value));
+            self.metadados.push(0);
             self.slots.len() - 1
         };
         Self::handle_de_indice(index)
+    }
+    /// O metadado do slot de um handle vivo (0 = nenhum).
+    pub fn metadado(&self, handle: i64) -> i64 {
+        let i = self.indice_vivo(handle);
+        self.metadados[i]
+    }
+    /// Grava o metadado do slot de um handle vivo.
+    pub fn set_metadado(&mut self, handle: i64, valor: i64) {
+        let i = self.indice_vivo(handle);
+        self.metadados[i] = valor;
     }
     /// O handle (par) do slot `index` (R10).
     fn handle_de_indice(index: usize) -> i64 {

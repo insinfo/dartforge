@@ -526,6 +526,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "ConcurrentModificationError" => 1010,
             "TypeError" => 1011,
             "NoSuchMethodError" => 1012,
+            // O objeto `Type` do RTI (`rti.rs`, `CLASSE_TIPO`).
+            "Type" => super::rti::CLASSE_TIPO,
             _ => return None,
         })
     }
@@ -620,10 +622,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.nao_suportado("tear-off de função", span)
             }
-            Element::Class(cid) => match self.id_de_classe(cid) {
-                Some(id) => Operand::Constant(Constant::Int(id)),
-                None => self.nao_suportado("literal de classe do SDK", span),
-            },
+            // Literal de tipo (`Peixe`, `List`): o objeto `Type` canônico do
+            // tipo cru da classe (RTI).
+            Element::Class(cid) => {
+                let n = self.ctx.outline.classes.get(cid.0 as usize).map_or(0, |d| d.type_params.len());
+                let mut r = super::rti::Receita { texto: format!("C{}", self.ctx.id_rti(cid)), variaveis: false };
+                if n > 0 {
+                    r.texto.push('<');
+                    r.texto.push_str(&vec!["D"; n].join(","));
+                    r.texto.push('>');
+                }
+                let t = self.rti_da_receita(&r);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_objeto_tipo".to_string(),
+                        args: vec![(t, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )
+            }
             _ => self.nao_suportado("elemento de topo", span),
         }
     }
@@ -870,9 +888,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let symbol = super::simbolo_de(self.ctx, fid);
         let ret_ty = self.repr_retorno(fid);
-        let mut todos = Vec::with_capacity(args.len() + 1);
+        let mut todos = Vec::with_capacity(args.len() + 2);
         todos.extend(this);
         todos.extend(args);
+        // RTI: a função genérica recebe a tupla dos argumentos de tipo no
+        // último parâmetro (a da chamada corrente, ou 0 = `dynamic`).
+        if self.funcao_generica(fid) {
+            todos.push(self.tupla_armada.clone().unwrap_or(Operand::Constant(Constant::Int(0))));
+        }
         let r = self.emit_call_with_check(
             Instruction::CallStatic {
                 symbol,
@@ -1037,7 +1060,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
+        // RTI: o tipo estático da criação (`C<T…>`), gravado por quem chama.
+        let tipo = self.tipo_da_criacao.take();
         if !super::funcao_do_usuario(self.ctx, fid) {
+            let avaliados = self.avaliar_args(ast, args);
+            self.tipo_da_criacao = tipo;
+            let r = self.construtor_de_erro_do_runtime(fid, &avaliados);
+            self.tipo_da_criacao = None;
+            if let Some(op) = r {
+                return op;
+            }
             let nome = self
                 .ctx
                 .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
@@ -1045,17 +1077,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.nao_suportado(&format!("construtor de classe do SDK ({nome})"), span);
         }
         let avaliados = self.avaliar_args(ast, args);
+        self.tipo_da_criacao = tipo;
         self.instanciar_avaliados(ctor_fid, &avaliados, span)
     }
 
     /// `C(args)` com os argumentos já avaliados.
     pub fn instanciar_avaliados(&mut self, ctor_fid: FunctionElementId, avaliados: &[Avaliado], span: Span) -> Operand {
+        let tipo = self.tipo_da_criacao.take();
         let fid = ctor_fid.0 as usize;
         let f = &self.ctx.program.functions[fid];
         let Some(cid) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
         if !super::funcao_do_usuario(self.ctx, fid) {
+            if let Some(op) = self.construtor_de_erro_do_runtime(fid, avaliados) {
+                return op;
+            }
             let nome = self
                 .ctx
                 .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
@@ -1063,8 +1100,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.nao_suportado(&format!("construtor de classe do SDK ({nome})"), span);
         }
         let factory = f.factory;
-        let args = self.casar_args(fid, avaliados);
+        let mut args = self.casar_args(fid, avaliados);
+        let generica = self.classe_generica(cid);
         if factory {
+            // RTI: a fábrica de uma classe genérica recebe os argumentos de
+            // tipo da classe na tupla (o último parâmetro).
+            if generica {
+                let t = self.tupla_da_criacao(tipo);
+                args.push(t);
+            }
             return self.chamar_direto(fid, None, args);
         }
         let campos = layout(self.ctx, cid).len() + super::enums::base_do_layout(self.ctx, cid);
@@ -1082,8 +1126,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
+        // RTI: a instância de classe genérica guarda o tipo (`C<T…>`).
+        if generica && let Some(t) = tipo {
+            let r = self.rti_de_tipo(t);
+            self.definir_rti(obj.clone(), r);
+        }
         self.chamar_direto(fid, Some(obj.clone()), args);
         obj
+    }
+
+    /// A função (não construtor) declara parâmetros de tipo: recebe a tupla.
+    pub fn funcao_generica(&self, fid: usize) -> bool {
+        !matches!(self.ctx.program.functions[fid].node, FunctionRef::Constructor { .. })
+            && self.ctx.outline.functions.get(fid).is_some_and(|d| !d.type_params.is_empty())
+            && super::funcao_do_usuario(self.ctx, fid)
+    }
+
+    /// A classe declara parâmetros de tipo.
+    pub fn classe_generica(&self, cid: ClassId) -> bool {
+        self.ctx.outline.classes.get(cid.0 as usize).is_some_and(|d| !d.type_params.is_empty())
+    }
+
+    /// A tupla de argumentos de tipo (`L<…>`) do tipo de uma criação; sem
+    /// tipo, 0 (os argumentos ficam `dynamic`).
+    pub fn tupla_da_criacao(&mut self, tipo: Option<TypeId>) -> Operand {
+        let Some(t) = tipo else {
+            return Operand::Constant(Constant::Int(0));
+        };
+        let dartforge_types::table::Type::Interface { args, .. } = self.ctx.table.get(t) else {
+            return Operand::Constant(Constant::Int(0));
+        };
+        let args = args.clone();
+        self.tupla_de_tipos_rti(&args)
+    }
+
+    /// A tupla `L<a…>` dos tipos `args`, como `I64`, no ambiente corrente.
+    pub fn tupla_de_tipos_rti(&mut self, args: &[TypeId]) -> Operand {
+        let mut r = super::rti::Receita { texto: "L<".to_string(), variaveis: false };
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 {
+                r.texto.push(',');
+            }
+            let x = self.receita_de_tipo(*a);
+            r.texto.push_str(&x.texto);
+            r.variaveis |= x.variaveis;
+        }
+        r.texto.push('>');
+        self.rti_da_receita(&r)
     }
 
     /// Inicializadores de campo da própria classe, na ordem de declaração.
