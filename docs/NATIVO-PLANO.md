@@ -221,6 +221,10 @@ para `.lib`, cacheado por hash em `target/native_cache/`) e o SDK 3.6.2 em
 | início da sessão (commit de preservação, já compilando) | **3/214** | 172 — Clang recusa o IR |
 | depois da coerção de tipos no emissor | 6/214 | 56 — Clang recusa o IR |
 | depois de símbolo inexistente + `phi` | 6/214 | 33 — saída diferente da VM |
+| começo do contrato (§6) | 7/214 | 71 — `panic` de handle |
+| passo 1 (N) | 26/214 | 17 — saída diferente; o resto, construtos não suportados |
+| passo 2 (R) | 48/214 | 8 — `switch` como expressão (não suportado) |
+| passos 3–4 (E, G), corpus de 222 | 50/222 (e 50 sob `--gc-stress`) | 9 — chamada de valor de função (não suportado) |
 
 O que a tabela diz é que o gargalo **mudou de natureza**: saiu de "o módulo
 nem compila" para "o programa roda e imprime outra coisa". O primeiro é um
