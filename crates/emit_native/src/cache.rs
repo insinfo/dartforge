@@ -134,7 +134,7 @@ fn podar_runtimes(dir: &Path, atual: &Path) {
         })
         .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
         .collect();
-    libs.sort_by(|a, b| b.0.cmp(&a.0));
+    libs.sort_by_key(|l| std::cmp::Reverse(l.0));
     for (_, lib) in libs.into_iter().skip(LIBS_MANTIDAS) {
         if lib == atual {
             continue;

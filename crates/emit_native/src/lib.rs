@@ -1,6 +1,7 @@
 //! Compilador nativo LLVM do DartForge sobre a trilha nova.
 
 pub mod cache;
+pub mod cache_objeto;
 pub mod context;
 pub mod driver;
 pub mod hir;
@@ -158,7 +159,7 @@ pub fn compilar(
         timings: options.timings,
     };
 
-    let (clang_duration, link_duration) = driver::compile_and_link(&ir.texto, saida, &driver_opts)?;
+    let ligacao = driver::compile_and_link(&ir.texto, saida, &driver_opts)?;
 
     let total_duration = t_total.elapsed();
     let peak_memory = dartforge_instrument::peak_bytes();
@@ -166,8 +167,9 @@ pub fn compilar(
     if options.timings {
         eprintln!("--- Tempos de Compilação Nativa ---");
         ir.imprimir_tempos();
-        eprintln!("  Clang:     {:?}", clang_duration);
-        eprintln!("  Link:      {:?}", link_duration);
+        let origem = if ligacao.objeto_do_cache { " (cache)" } else { "" };
+        eprintln!("  Clang:     {:?}{origem}", ligacao.clang);
+        eprintln!("  Link:      {:?}", ligacao.link);
         eprintln!("  Total:     {:?}", total_duration);
         eprintln!("  Pico Mem:  {} KB", peak_memory / 1024);
     }

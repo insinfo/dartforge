@@ -323,7 +323,13 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
         return Saida::erro("[compile-native] devolveu Ok mas não gerou executável");
     }
 
-    executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra)
+    let s = executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra);
+    // O executável já disse o que tinha a dizer; 214 deles ficariam no disco
+    // a cada passada. DARTFORGE_KEEP_EXE os mantém para depurar.
+    if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
+        let _ = std::fs::remove_file(&saida_exe);
+    }
+    s
 }
 
 /// Só a emissão do backend nativo: o LLVM IR do programa, sem Clang, ligação
