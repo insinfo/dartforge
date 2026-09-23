@@ -243,6 +243,35 @@ jobs:
           path: placar
           retention-days: 14
 
+  # O SDK compilado da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.7), ainda
+  # opt-in: o corpus nativo inteiro com DARTFORGE_SDK_DA_FONTE=1 (a DLL do SDK
+  # é compilada uma vez, no primeiro programa), e o perfil de produção — UM
+  # executável autocontido, que o teste copia sozinho para uma pasta vazia e
+  # executa. O artefato não entra no placar consolidado do nativo de hoje.
+  sdk-fonte:
+    name: nativo (SDK da fonte)
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DARTFORGE_SDK_DA_FONTE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: sdk-fonte
+          titulo: Nativo com o SDK da fonte (DARTFORGE_SDK_DA_FONTE=1)
+          args: --nativo --jobs 4
+          nativo: 'true'
+          aceitar-placar-parcial: 'true'
+      - name: Produção autocontida (um .exe, sem DLL do DartForge)
+        shell: pwsh
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo test --locked --release -p dartforge-emit-native --lib producao_e_um_executavel_autocontido -- --ignored --nocapture
+
   # O perfil de DESENVOLVIMENTO do nativo: cada programa pelo JIT ORCv2 e, do
   # MESMO LLVM IR, pelo AOT (Clang + ligação). Exige os dois idênticos programa
   # a programa (stdout e código; a linha `JIT × AOT: … 0 divergentes` do
