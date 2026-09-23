@@ -158,7 +158,8 @@ comparador antigo em Python carregava os dois despejos inteiros — **949 MB**
 no core (1,6–2 GB no frontend, visto no Gerenciador de Tarefas); o
 `comparar_tipos` faz merge-join arquivo a arquivo sobre os dois despejos
 ordenados pela mesma chave e fica em **45 MB** (2,6 s contra 7,4 s), com o
-mesmo agrupamento (os 19 grupos e as contagens idênticos; só o `` dos
+mesmo agrupamento (os 19 grupos e as contagens idênticos; só o `
+` dos
 trechos de exemplo muda). O oráculo rodado pelo `dart` sobre a fonte
 compilava o analyzer a cada vez e guardava tudo o que resolvia: **1.206 MB**
 no core; compilado com `dart compile exe`, com os resumos num cache em disco
@@ -177,6 +178,8 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | sobreposição pela posição, extensão genérica, `-1`, closure | 799 | 883 | 314 | 389 |
 | conflito de import `dart:` × pacote — `crates/elements` | 783 | 862 | 232 | 279 |
 | variável de tipo promovida `X & B` (`Type::Intersection`) | 724 | 783 | 197 | 248 |
+| promoção de campo privado final (Dart 3.2) | 720 | 776 | 176 | 224 |
+| `?.` promove dentro da cadeia, contexto de `clamp`, captura em função local | 712 | 767 | 136 | 183 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
 com as sete bibliotecas, sobreposição `vm`): **4.447 → 275** diagnósticos
@@ -187,8 +190,7 @@ Grupos restantes no new_sali (causas; frontend / core):
 
 | grupo | causas | situação |
 |---|---:|---|
-| nulabilidade de local/campo depois de promoção de campo privado final (`_matcher`, `_el`: promoção de campo, Dart 3.2) | 69 / 45 | a fazer: promoção de `this._x` |
-| tipo mais específico por promoção de campo (`_el` → `InputElement`) | 48 / 40 | idem |
+| import condicional: o analyzer escolhe `dart.library.io`, nós o alvo web (`platformZLibDecoder`) | ~30 | divergência esperada (alvo diferente), não é lacuna |
 | inteiro em contexto `double` dentro de argumentos genéricos (`color.dart`) | 14 / 14 | a investigar |
 | tear-off genérico cujos parâmetros de tipo o analyzer renomeia (`T₀`) | 10 / – | exibição: o analyzer renomeia parâmetros que colidem |
 | `runZoned`, `compareTo` em receptor de variável de tipo promovida | 7 / 7 | a investigar |
