@@ -332,7 +332,32 @@ impl<'a> Resolvedor<'a> {
         while let Some(id) = atual {
             let c = self.program.class(id);
             if let Some(&fid) = c.instance_members.get(&sym) {
-                return self.tipo_da_funcao(fid);
+                let (tipo, escopo) = self.tipo_da_funcao(fid)?;
+                // Tipo que cita um parâmetro de tipo (`E first` de `List<E>`,
+                // `T m<T>()`): o analyzer o substitui pelo argumento do
+                // receptor; o texto não. Sem resposta, quem pergunta recusa.
+                let mut parametros: Vec<&str> = c
+                    .type_params
+                    .iter()
+                    .map(|p| self.interner.resolve(p.name))
+                    .collect();
+                if let dartforge_elements::model::FunctionRef::Function { unit, function } =
+                    self.program.function(fid).node
+                {
+                    let f = self.program.unit(unit).ast.function(function);
+                    parametros.extend(
+                        f.type_params
+                            .iter()
+                            .map(|p| self.interner.resolve(p.name.sym)),
+                    );
+                }
+                let cita = tipo
+                    .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
+                    .any(|t| parametros.contains(&t));
+                if cita {
+                    return None;
+                }
+                return Some((tipo, escopo));
             }
             atual = c.supertype_class;
         }

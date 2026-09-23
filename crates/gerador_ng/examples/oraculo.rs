@@ -28,7 +28,15 @@ fn main() -> std::process::ExitCode {
     // comparar com um caminho relativo não casa nada.
     let raiz =
         dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&raiz).unwrap_or(raiz));
-    let listar = args.any(|a| a == "--listar");
+    let resto: Vec<String> = args.collect();
+    let listar = resto.iter().any(|a| a == "--listar");
+    // `--despejar <dir>`: grava o nosso e o oficial de cada diferente, para
+    // comparar com um diff.
+    let despejar = resto
+        .iter()
+        .position(|a| a == "--despejar")
+        .and_then(|i| resto.get(i + 1))
+        .map(PathBuf::from);
 
     let cfg_path = raiz.join(".dart_tool").join("package_config.json");
     let cfg = match PackageConfig::load(&cfg_path) {
@@ -118,6 +126,17 @@ fn main() -> std::process::ExitCode {
             Some(o) if o.conteudo == f.conteudo => iguais += 1,
             Some(o) => {
                 diferentes += 1;
+                if let Some(d) = &despejar {
+                    let nome = caminho
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    let _ = std::fs::create_dir_all(d);
+                    let _ = std::fs::write(d.join(format!("{nome}.nosso")), f.conteudo.as_bytes());
+                    let _ =
+                        std::fs::write(d.join(format!("{nome}.oficial")), o.conteudo.as_bytes());
+                }
                 // A primeira linha que diverge diz mais que o nome do arquivo.
                 let esperado = o.conteudo.replace("\r\n", "\n");
                 let primeira = esperado

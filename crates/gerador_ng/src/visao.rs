@@ -556,6 +556,12 @@ struct Corpo<'a> {
     /// (`_localsInScope` do `ViewNameResolver` da visão): é a ordem das
     /// declarações no topo do `detectChangesInternal`.
     locais_raiz: Vec<String>,
+    /// Classe desta visão (`_ViewX2`) e os locais que ela mesma declara
+    /// (nome, chave), para as visões aninhadas lerem pela `parentView`.
+    classe_desta: String,
+    locais_proprios: Vec<(String, String)>,
+    /// Os locais das visões ancestrais, com de onde vêm.
+    ancestrais: std::collections::HashMap<String, Origem>,
     /// Componentes que este template pode usar, por seletor.
     filhos: &'a std::collections::HashMap<String, Filho>,
     /// Todas as diretivas e componentes de `directives:`, para saber o que
@@ -693,7 +699,9 @@ impl Corpo<'_> {
     fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<Ligada, Recusa> {
         let url = self.url(Motivo::Ligacao)?;
         let convertida = self.converter(&l.valor, Motivo::Ligacao)?;
-        let expr = l.valor.trim();
+        // O texto que vai no `checkBinding` é a fonte da ligação como
+        // escrita (`ASTWithSource.source`), num literal Dart.
+        let expr = literal(&l.valor);
         let (ini, fim) = (l.inicio, l.fim);
         // Toda ligação consome um índice (`createUniqueBindIndex` em
         // `_checkBinding`), mesmo a imutável, que não ganha campo.
@@ -724,7 +732,7 @@ impl Corpo<'_> {
         let chk = tardio(CHECK_BINDING);
         let valor = convertida.texto;
         Ok(Ligada::Dinamica(format!(
-            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
+            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, {expr}, '{url}')) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
         )))
     }
 
@@ -743,19 +751,7 @@ impl Corpo<'_> {
         }
         if !constantes.is_empty() {
             self.usa_primeira_checagem = true;
-            const ABRE: &str = "    if (firstCheck) {\n";
-            const FECHA: &str = "\n    }";
-            match self.deteccao.last_mut() {
-                Some(ultimo) if ultimo.starts_with(ABRE) && ultimo.ends_with(FECHA) => {
-                    ultimo.truncate(ultimo.len() - FECHA.len());
-                    ultimo.push('\n');
-                    ultimo.push_str(&constantes.join("\n"));
-                    ultimo.push_str(FECHA);
-                }
-                _ => self
-                    .deteccao
-                    .push(format!("{ABRE}{}{FECHA}", constantes.join("\n"))),
-            }
+            na_primeira_checagem(&mut self.deteccao, &constantes);
         }
         self.deteccao.extend(dinamicas);
     }
@@ -1102,12 +1098,12 @@ impl Corpo<'_> {
         self.campos_expr.push(format!("  Object? _expr_{k};"));
         let chk = tardio(CHECK_BINDING);
         let dev = tardio(DEVTOOLS);
-        let expr = l.valor.trim();
+        let expr = literal(&l.valor);
         let (ini, fim) = (l.inicio, l.fim);
         let valor = convertida.texto;
         let nome = &l.nome;
         self.entradas.push(format!(
-            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', currVal_{k});\n      }}\n      this.{campo_inst}.{campo} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
+            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, {expr}, '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', currVal_{k});\n      }}\n      this.{campo_inst}.{campo} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
         ));
         Ok(())
     }
@@ -1178,13 +1174,40 @@ impl Corpo<'_> {
         let mut tipo_da_colecao = None;
         for (prop, expr) in &micro.propriedades {
             let c = self.converter(expr, Motivo::Ligacao)?;
-            // Entrada imutável (`final List<X> itens`) vai para o
-            // `if (firstCheck)`, outra forma; ainda não.
-            if c.imutavel {
-                return Err(recusa(Motivo::Ligacao, "entrada constante em `*`"));
-            }
             if prop.ends_with("Of") {
                 tipo_da_colecao = c.tipo.clone().map(|t| (t, c.escopo.clone()));
+            }
+            // Entrada imutável (`final List<X> itens`, `*ngIf="fixo"`) é
+            // escrita uma vez, no `if (firstCheck)` das entradas: direto no
+            // `NgIf` (`_directBinding` no método das constantes); pelo
+            // `_bindLiteral` no `NgFor`, que consome o índice da ligação e
+            // põe o `if (x != null)` em volta do que pode ser nulo.
+            if c.imutavel {
+                let (ini, fim) = (estrela.inicio, estrela.fim);
+                let valor = &c.texto;
+                let dev_rec = format!(
+                    "if ({dev}.isDevToolsEnabled) {{\n  {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', {valor});\n}}"
+                );
+                let atrib = format!("this.{campo}.{prop} = {valor} /* REF:{url}:{ini}:{fim} */;");
+                let mut instrucoes = vec![dev_rec, atrib];
+                if !dir.direta {
+                    self.proxima_ligacao += 1;
+                    if valor == "null" {
+                        continue;
+                    }
+                    if c.pode_ser_nulo {
+                        let dentro: Vec<String> =
+                            instrucoes.iter().map(|i| indentar(i, 2)).collect();
+                        instrucoes = vec![format!(
+                            "if (({valor} != null)) {{\n{}\n}}",
+                            dentro.join("\n")
+                        )];
+                    }
+                }
+                let blocos: Vec<String> = instrucoes.iter().map(|i| indentar(i, 6)).collect();
+                self.usa_primeira_checagem = true;
+                na_primeira_checagem(&mut self.entradas, &blocos);
+                continue;
             }
             let valor = c.texto;
             let (ini, fim) = (estrela.inicio, estrela.fim);
@@ -1218,6 +1241,31 @@ impl Corpo<'_> {
         let locais = self.locais_da_micro(&micro, tipo_da_colecao.as_ref())?;
         let mut sem_estrela = e.clone();
         sem_estrela.estrela = None;
+        // Para a visão nova, os locais desta visão e das ancestrais ficam um
+        // `parentView` mais longe.
+        let mut ancestrais: std::collections::HashMap<String, Origem> = self
+            .ancestrais
+            .iter()
+            .map(|(n, o)| {
+                (
+                    n.clone(),
+                    Origem {
+                        niveis: o.niveis + 1,
+                        ..o.clone()
+                    },
+                )
+            })
+            .collect();
+        for (nome, chave) in &self.locais_proprios {
+            ancestrais.insert(
+                nome.clone(),
+                Origem {
+                    chave: chave.clone(),
+                    classe: self.classe_desta.clone(),
+                    niveis: 1,
+                },
+            );
+        }
         self.embutidas.push(EspecEmbutida {
             indice,
             classe: format!("_{}{indice}", self.classe_da_visao),
@@ -1225,6 +1273,7 @@ impl Corpo<'_> {
             nos: vec![No::Elemento(sem_estrela)],
             locais,
             micro,
+            ancestrais,
         });
         Ok(())
     }
@@ -1361,20 +1410,12 @@ impl Corpo<'_> {
                 "interpolação sem ligação de texto",
             ));
         };
+        // Texto solto entregue a um filho (`createText`, sem pai): forma
+        // ainda sem caso no corpus.
+        if pai.is_empty() {
+            return Err(recusa(Motivo::Projecao, "interpolação projetada solta"));
+        }
         let convertida = self.converter(expr, Motivo::Interpolacao)?;
-        // O literal vira texto fixo (`visitInterpolation` devolve o próprio
-        // valor), forma ainda sem caso no corpus; e o tipo de uma chamada,
-        // de um ternário, de um binário ou de `!x` segue regras próprias do
-        // `_TypeResolver`, ainda sem caso também.
-        if convertida.literal {
-            return Err(recusa(Motivo::Interpolacao, "interpolação de literal"));
-        }
-        if matches!(convertida.forma, "chamada" | "ternário" | "binário" | "`!`") {
-            return Err(recusa(
-                Motivo::Interpolacao,
-                format!("interpolação de {}", convertida.forma),
-            ));
-        }
         // Sem o tipo estático não dá para escolher entre `interpolateString`,
         // `interpolate` e `updateTextWithPrimitive` — e escolher errado muda o
         // que o programa faz.
@@ -1384,33 +1425,36 @@ impl Corpo<'_> {
                 format!("tipo desconhecido de {}", convertida.forma),
             ));
         };
-        let membro = crate::componente::Membro {
-            tipo,
-            imutavel: convertida.imutavel,
-        };
-        let membro = &membro;
-        let acesso = convertida.texto;
+        let nu = tipo.trim_end_matches('?').to_string();
         let n = self.proximo;
         self.proximo += 1;
-        let nu = membro.tipo.trim_end_matches('?').to_string();
-        // `expressionsAreString` decide entre `interpolateString` e
-        // `interpolate`; `_isPrimitiveCheck` tira o primitivo mutável do
-        // caminho da interpolação.
-        let interpolar = |imp: &mut Importacoes| {
-            let alias = imp.alias(INTERPOLATE);
-            let f = if nu == "String" {
-                "interpolateString0"
-            } else {
-                "interpolate0"
-            };
-            format!("{alias}.{f}({acesso})")
+        // `visitInterpolation` com as pontas vazias: o primitivo mutável é
+        // lido direto (`_isPrimitiveCheck`), o literal vira o próprio texto
+        // (`o.literal('${valor}')`), o resto passa por `interpolateString0`
+        // (tudo `String`) ou `interpolate0`. O tipo é o do `_TypeResolver`:
+        // ternário, `!x`, `x!`, `??`, índice e binário que não soma dois
+        // `String` são `dynamic`.
+        let primitivo_mutavel = !convertida.imutavel && primitivo(&nu);
+        let f = if nu == "String" {
+            "interpolateString0"
+        } else {
+            "interpolate0"
         };
-        if membro.imutavel {
+        if convertida.imutavel {
             // Valor que não muda não tem ligação: o texto é calculado uma vez,
             // no `build()`, como o oficial faz (`isImmutable`).
-            self.usa_ctx_no_build = true;
-            let valor = interpolar(self.imp);
+            // O emissor escreve `appendText(` antes do valor: o import do
+            // `dom_helpers` vem primeiro.
             let dom = self.dom();
+            let valor = if convertida.literal {
+                valor_de_literal(&convertida.texto)
+            } else {
+                let alias = self.imp.alias(INTERPOLATE);
+                format!("{alias}.{f}({})", convertida.texto)
+            };
+            if cita_ctx(std::slice::from_ref(&valor)) {
+                self.usa_ctx_no_build = true;
+            }
             self.linhas.push(format!(
                 "    final _text_{n} = {dom}.appendText({pai}, {valor});"
             ));
@@ -1421,21 +1465,156 @@ impl Corpo<'_> {
         ));
         self.linhas
             .push(format!("    {pai}.append(this._textBinding_{n}.element);"));
-        let atualizacao = if primitivo(&nu) {
+        let acesso = convertida.texto;
+        let atualizacao = if primitivo_mutavel {
             format!("updateTextWithPrimitive({acesso})")
         } else {
             // Na detecção o import é do momento em que ela é escrita.
-            let f = if nu == "String" {
-                "interpolateString0"
-            } else {
-                "interpolate0"
-            };
             format!("updateText({}.{f}({acesso}))", tardio(INTERPOLATE))
         };
         self.deteccao.push(format!(
             "    this._textBinding_{n}.{atualizacao} /* REF:{url}:{inicio}:{fim} */;"
         ));
         Ok(())
+    }
+
+    /// Um atributo com `{{ }}` (`title="a {{b}}"`): o oficial o trata como
+    /// ligação de propriedade (`_createPropertyForAttribute`), com o nome
+    /// passado pelo esquema (`class` → `className`, que vira
+    /// `updateChildClass`) e o valor `Interpolation(strings, exprs)`. Sai
+    /// depois das ligações `[x]` do elemento.
+    fn atributo_interpolado(
+        &mut self,
+        a: &crate::html::Ligacao,
+        alvo: &str,
+    ) -> Result<Ligada, Recusa> {
+        let url = self.url(Motivo::Interpolacao)?;
+        let nome = a.nome.as_str();
+        // Nome que o esquema renomeia ou protege (`readonly`, `href`…), ou
+        // que nem é propriedade do DOM (`data-x`, `aria-x`: o oficial acusa
+        // erro), fica de fora.
+        if nome != "class"
+            && (!nome.chars().all(|c| c.is_ascii_lowercase())
+                || com_seguranca(nome)
+                || matches!(nome, "style" | "readonly" | "tabindex" | "for"))
+        {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "atributo interpolado renomeado, protegido ou fora do esquema",
+            ));
+        }
+        if a.valor.contains('&') {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "atributo interpolado com entidade HTML",
+            ));
+        }
+        let (textos, exprs) = partes_da_interpolacao(&a.valor)
+            .ok_or_else(|| recusa(Motivo::Interpolacao, "atributo interpolado mal formado"))?;
+        if exprs.len() > 2 {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "atributo com 3+ interpolações (`interpolateFallback`)",
+            ));
+        }
+        let mut convertidas = Vec::new();
+        for e in &exprs {
+            convertidas.push(self.converter(e, Motivo::Interpolacao)?);
+        }
+        let mut tipos = Vec::new();
+        for c in &convertidas {
+            let Some(t) = &c.tipo else {
+                return Err(recusa(
+                    Motivo::Interpolacao,
+                    format!("tipo desconhecido de {}", c.forma),
+                ));
+            };
+            tipos.push(t.trim_end_matches('?').to_string());
+        }
+        // `_compressWhitespacePreceding`/`Following`: só as pontas, e só
+        // quando há quebra de linha.
+        let n_textos = textos.len();
+        let textos: Vec<String> = textos
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let t = if i == 0 {
+                    comprimir_antes(t)
+                } else if i == n_textos - 1 {
+                    comprimir_depois(t)
+                } else {
+                    t.replace(NGSP, " ")
+                };
+                literal(&t)
+            })
+            .collect();
+        let so_string = tipos.iter().all(|t| t == "String");
+        let familia = if so_string {
+            "interpolateString"
+        } else {
+            "interpolate"
+        };
+        let imutavel = convertidas.iter().all(|c| c.imutavel);
+        let k = self.proxima_ligacao;
+        self.proxima_ligacao += 1;
+        let interp = tardio(INTERPOLATE);
+        // O valor da interpolação com cada expressão no lugar.
+        let valor_com = |exprs: &[String], familia: &str| -> String {
+            match exprs {
+                [e] if textos[0] == "''" && textos[1] == "''" => {
+                    format!("{interp}.{familia}0({e})")
+                }
+                [e] => format!("{interp}.{familia}1({}, {e}, {})", textos[0], textos[1]),
+                [e0, e1] => format!(
+                    "{interp}.{familia}2({}, {e0}, {}, {e1}, {})",
+                    textos[0], textos[1], textos[2]
+                ),
+                _ => String::new(),
+            }
+        };
+        let textos_expr: Vec<String> = convertidas.iter().map(|c| c.texto.clone()).collect();
+        let simulada = crate::html::Ligacao {
+            nome: a.nome.clone(),
+            valor: a.valor.clone(),
+            inicio: a.inicio,
+            fim: a.fim,
+        };
+        let (ini, fim) = (a.inicio, a.fim);
+        // Uma expressão literal com as pontas vazias é o próprio texto.
+        let literal_puro = convertidas.len() == 1
+            && convertidas[0].literal
+            && textos[0] == "''"
+            && textos[1] == "''";
+        if imutavel {
+            let valor = if literal_puro {
+                valor_de_literal(&convertidas[0].texto)
+            } else {
+                valor_com(&textos_expr, familia)
+            };
+            let acao = self.acao(&simulada, alvo, &valor, &convertidas[0])?;
+            return Ok(Ligada::Constante(format!(
+                "      {acao} /* REF:{url}:{ini}:{fim} */;"
+            )));
+        }
+        // `_maybeOptimizeInterpolation`: uma expressão primitiva mutável é
+        // conferida crua e interpolada só na ação (a variável tem tipo
+        // `dynamic`, daí `interpolate`).
+        let primitiva = convertidas.len() == 1 && !convertidas[0].imutavel && primitivo(&tipos[0]);
+        let (checagem, na_acao) = if primitiva {
+            (
+                convertidas[0].texto.clone(),
+                valor_com(&[format!("currVal_{k}")], "interpolate"),
+            )
+        } else {
+            (valor_com(&textos_expr, familia), format!("currVal_{k}"))
+        };
+        self.campos_expr.push(format!("  Object? _expr_{k};"));
+        let acao = self.acao(&simulada, alvo, &na_acao, &convertidas[0])?;
+        let chk = tardio(CHECK_BINDING);
+        let fonte = literal(&a.valor);
+        Ok(Ligada::Dinamica(format!(
+            "    final currVal_{k} = {checagem};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, {fonte}, '{url}')) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
+        )))
     }
 
     /// Emite os nós filhos de `pai`. Fora da coleta, a primeira forma que o
@@ -1462,25 +1641,55 @@ impl Corpo<'_> {
         if !self.coletando() || e.filhos.is_empty() {
             return;
         }
-        let guardados = (self.locais.clone(), self.embutida, self.tb.clone());
+        let guardados = (
+            self.locais.clone(),
+            self.embutida,
+            self.tb.clone(),
+            self.decl_locais.clone(),
+            self.locais_raiz.clone(),
+        );
         // A ligação de texto é alocada por visão; aqui a saída é descartada.
         self.tb.get_or_insert_with(|| "_coleta".into());
         if let Some(estrela) = &e.estrela {
             let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+            // O tipo da coleção, se a expressão dela converte; senão os
+            // locais ficam `dynamic`.
+            let colecao = micro
+                .propriedades
+                .iter()
+                .find(|(p, _)| p.ends_with("Of"))
+                .and_then(|(_, x)| self.converter(x, Motivo::Ligacao).ok())
+                .and_then(|c| c.tipo.map(|t| (t, c.escopo)));
+            let locais = self
+                .locais_da_micro(&micro, colecao.as_ref())
+                .unwrap_or_else(|_| {
+                    let mut l = self.locais.clone();
+                    for (nome, _) in &micro.locais {
+                        l.insert(
+                            nome.clone(),
+                            crate::expr::Local {
+                                dart: format!("local_{nome}"),
+                                tipo: "dynamic".into(),
+                                escopo: None,
+                            },
+                        );
+                    }
+                    l
+                });
+            self.locais = locais;
             for (nome, _) in &micro.locais {
-                self.locais.insert(
-                    nome.clone(),
-                    crate::expr::Local {
-                        dart: format!("local_{nome}"),
-                        tipo: "dynamic".into(),
-                        escopo: None,
-                    },
-                );
+                self.decl_locais.insert(nome.clone(), Ok(String::new()));
             }
             self.embutida = true;
         }
         let _ = self.nos(&e.filhos, "_el_coleta");
-        (self.locais, self.embutida, self.tb) = guardados;
+        (
+            self.locais,
+            self.embutida,
+            self.tb,
+            self.decl_locais,
+            self.locais_raiz,
+        ) = guardados;
     }
 
     /// Um nó do template.
@@ -1581,9 +1790,6 @@ impl Corpo<'_> {
                 },
             ))?;
         }
-        if e.atributos.iter().any(|a| a.valor.contains("{{")) {
-            self.anotar(recusa(Motivo::Interpolacao, "atributo interpolado"))?;
-        }
         let n = self.proximo;
         self.proximo += 1;
         if !self.tem_doc {
@@ -1615,7 +1821,7 @@ impl Corpo<'_> {
         // visão: o `detectChangesInternal` precisa dele depois do
         // `build()`. Evento sozinho não exige campo.
         let tipo = dom::tipo_da_tag(&tag);
-        let alvo = if e.propriedades.is_empty() {
+        let alvo = if !e.liga_propriedade() {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
             format!("_el_{n}")
         } else {
@@ -1633,7 +1839,7 @@ impl Corpo<'_> {
         // Atributos saem em ordem alfabética (`_toSortedBindings`).
         let mut atributos = e.atributos.clone();
         atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
-        for a in &atributos {
+        for a in atributos.iter().filter(|a| !a.valor.contains("{{")) {
             let valor = literal(&a.valor);
             if a.nome == "class" {
                 self.linhas
@@ -1660,6 +1866,14 @@ impl Corpo<'_> {
                 Err(r) => self.anotar(r)?,
             }
         }
+        // Os atributos interpolados vêm depois das `[x]`, na ordem escrita
+        // (`_visitProperties`).
+        for a in e.atributos.iter().filter(|a| a.valor.contains("{{")) {
+            match self.atributo_interpolado(a, &alvo) {
+                Ok(x) => ligadas.push(x),
+                Err(r) => self.anotar(r)?,
+            }
+        }
         self.escrever_ligacoes(ligadas);
         // Os ouvintes saem juntos no fim do `build()`, na ordem em que os
         // elementos aparecem (`bindView` depois de `_buildView`).
@@ -1677,20 +1891,32 @@ impl Corpo<'_> {
 /// exata do oficial: os ganchos de conteúdo antes de detectar a visão, os de
 /// visão depois, todos sob `!debugThrowIfChanged`, e `firstCheck` declarado só
 /// quando alguém o usa.
-fn ciclo_de_vida(g: &crate::componente::Ganchos, dbg: &str) -> String {
+///
+/// Componente `onPush` com `@Input` ganha, antes dos ganchos, o
+/// `if (changed) markAsCheckOnce()` de `bindDirectiveInputs` — que na
+/// hospedeira nunca liga `changed`, mas o declara. O import do
+/// `check_binding` só entra se o texto o usa (`tardio`).
+fn ciclo_de_vida(g: &crate::componente::Ganchos, marca: bool) -> String {
+    let dbg = tardio(CHECK_BINDING);
     let mut s = String::new();
-    if g.tem_deteccao() {
+    if g.tem_deteccao() || marca {
         s.push_str(
             "
   @override
   void detectChangesInternal() {
 ",
         );
+        if marca {
+            s.push_str("    bool changed = false;\n");
+        }
         if g.usa_primeira_checagem() {
             s.push_str(
                 "    bool firstCheck = this.firstCheck;
 ",
             );
+        }
+        if marca {
+            s.push_str("    if (changed) {\n      this.componentView.markAsCheckOnce();\n    }\n");
         }
         if g.on_init {
             s.push_str(&format!(
@@ -1792,7 +2018,7 @@ fn tem_elemento_ligado(nos: &[No], filhos: &std::collections::HashMap<String, Fi
         // Subárvore de `*` é da visão embutida.
         No::Elemento(e) if e.estrela.is_some() => false,
         No::Elemento(e) if !filhos.contains_key(&e.nome) => {
-            !e.propriedades.is_empty() || tem_elemento_ligado(&e.filhos, filhos)
+            e.liga_propriedade() || tem_elemento_ligado(&e.filhos, filhos)
         }
         No::Elemento(e) => tem_elemento_ligado(&e.filhos, filhos),
         _ => false,
@@ -1841,6 +2067,18 @@ struct EspecEmbutida {
     nos: Vec<No>,
     locais: std::collections::HashMap<String, crate::expr::Local>,
     micro: crate::micro::Micro,
+    /// Os locais declarados em visões ancestrais, com de onde vêm.
+    ancestrais: std::collections::HashMap<String, Origem>,
+}
+
+/// De onde vem um local de visão ancestral: a chave em `locals`, a classe
+/// da visão que o declara e quantos `parentView` separam as duas
+/// (`getPropertyInView`, em `view_compiler_utils.dart`).
+#[derive(Debug, Clone)]
+struct Origem {
+    chave: String,
+    classe: String,
+    niveis: u32,
 }
 
 /// O que toda visão do arquivo compartilha: o componente, as diretivas que
@@ -1895,6 +2133,9 @@ impl<'a> Contexto<'a> {
             metodos_evento: Vec::new(),
             decl_locais: Default::default(),
             locais_raiz: Vec::new(),
+            classe_desta: String::new(),
+            locais_proprios: Vec::new(),
+            ancestrais: Default::default(),
             filhos: self.filhos,
             usadas: self.usadas,
             coleta,
@@ -1975,11 +2216,26 @@ fn corpo_da_embutida(
     // pela cadeia de `parentView` (`unsafeCast<_ViewX2>((this.parentView!))
     // .locals['$implicit']`), mecanismo ainda sem caso no corpus: fica fora
     // do mapa e quem o lê recusa.
+    dentro.classe_desta = espec.classe.clone();
+    dentro.locais_proprios = espec.micro.locais.clone();
+    dentro.ancestrais = espec.ancestrais.clone();
+    for (nome, origem) in &espec.ancestrais {
+        let Some(l) = espec.locais.get(nome.as_str()) else {
+            continue;
+        };
+        let decl = declaracao_de_local(l, origem, ctx, &util);
+        dentro.decl_locais.insert(nome.clone(), decl);
+    }
     for (nome, chave) in &espec.micro.locais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
             continue;
         };
-        let decl = declaracao_de_local(l, chave, ctx, &util);
+        let origem = Origem {
+            chave: chave.clone(),
+            classe: espec.classe.clone(),
+            niveis: 0,
+        };
+        let decl = declaracao_de_local(l, &origem, ctx, &util);
         dentro.decl_locais.insert(nome.clone(), decl);
     }
     let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
@@ -2029,19 +2285,16 @@ fn corpo_da_embutida(
     } else {
         format!("{}\n", todos.join("\n"))
     };
-    // Ligação escrita só na primeira checagem precisaria de `firstCheck`
-    // declarado aqui também; sem caso no corpus, fica de fora.
-    if dentro.usa_primeira_checagem {
-        dentro.anotar(recusa(
-            Motivo::Ligacao,
-            "ligação constante em visão embutida",
-        ))?;
-    }
     let mut linhas_det = Vec::new();
-    // `_ctx` só é declarado se o corpo o usar de fato: numa visão de `*ngFor`
-    // a interpolação costuma usar o local do laço, não o contexto.
+    // `_ctx` e `firstCheck` só são declarados se o corpo os usar de fato
+    // (`writeChangeDetectionStatements`): numa visão de `*ngFor` a
+    // interpolação costuma usar o local do laço, não o contexto. Os dois
+    // vêm antes das declarações de local.
     if cita_ctx(&dentro.entradas) || cita_ctx(&dentro.deteccao) {
         linhas_det.push("    final _ctx = this.ctx;".to_string());
+    }
+    if dentro.usa_primeira_checagem {
+        linhas_det.push("    bool firstCheck = this.firstCheck;".to_string());
     }
     // Mesma ordem da visão de topo, com os locais antes de tudo.
     linhas_det.extend(declaracoes);
@@ -2089,9 +2342,16 @@ fn corpo_da_embutida(
         .iter()
         .map(|m| resolver_tardios(dentro.imp, m))
         .collect();
+    // A raiz é o nó 0: o local, ou o campo quando ele tem ligação
+    // (`renderNode.toReadExpr()`).
+    let raiz = if dentro.campos_el.iter().any(|c| c.ends_with(" _el_0;")) {
+        "this._el_0"
+    } else {
+        "_el_0"
+    };
     let tipo_do_contexto = &ctx.tipo_do_contexto;
     let texto = format!(
-        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}\n    this.initRootNode({raiz});\n  }}\n{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
     );
     Ok((texto, aninhadas))
 }
@@ -2102,14 +2362,26 @@ fn corpo_da_embutida(
 /// a declaração for escrita primeiro.
 fn declaracao_de_local(
     l: &crate::expr::Local,
-    chave: &str,
+    origem: &Origem,
     ctx: &Contexto,
     util: &str,
 ) -> Result<String, Recusa> {
     let d = &l.dart;
     // A chave sai como literal escapado (`'\$implicit'`): sem o escape, o
     // `$` viraria interpolação em Dart.
-    let chave = literal(chave);
+    let chave = literal(&origem.chave);
+    // Local desta visão: `this.locals`. De visão ancestral: a cadeia de
+    // `parentView`, cada passo com `!`, e o cast para a classe da visão que
+    // o declara.
+    let locals = if origem.niveis == 0 {
+        "this.locals".to_string()
+    } else {
+        let mut vista = "(this.parentView!)".to_string();
+        for _ in 1..origem.niveis {
+            vista = format!("({vista}.parentView!)");
+        }
+        format!("{util}.unsafeCast<{}>({vista}).locals", origem.classe)
+    };
     let tipo = if matches!(
         l.tipo.as_str(),
         "String" | "int" | "double" | "bool" | "num" | "Object"
@@ -2128,8 +2400,34 @@ fn declaracao_de_local(
         format!("{}{simples}", tardio_q(&caminho))
     };
     Ok(format!(
-        "final {d} = {util}.unsafeCast<{tipo}>(this.locals[{chave}]);"
+        "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
     ))
+}
+
+/// Reindenta um bloco de instruções: cada linha ganha `n` espaços.
+fn indentar(texto: &str, n: usize) -> String {
+    let prefixo = " ".repeat(n);
+    texto
+        .lines()
+        .map(|l| format!("{prefixo}{l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `addStmtsIfFirstCheck`: se a última instrução do método é um
+/// `if (firstCheck)`, as novas entram nele; senão, abrem outro.
+fn na_primeira_checagem(metodo: &mut Vec<String>, instrucoes: &[String]) {
+    const ABRE: &str = "    if (firstCheck) {\n";
+    const FECHA: &str = "\n    }";
+    match metodo.last_mut() {
+        Some(ultimo) if ultimo.starts_with(ABRE) && ultimo.ends_with(FECHA) => {
+            ultimo.truncate(ultimo.len() - FECHA.len());
+            ultimo.push('\n');
+            ultimo.push_str(&instrucoes.join("\n"));
+            ultimo.push_str(FECHA);
+        }
+        _ => metodo.push(format!("{ABRE}{}{FECHA}", instrucoes.join("\n"))),
+    }
 }
 
 /// Aloca os imports que os **campos** da classe usam, na ordem em que eles
@@ -2458,6 +2756,61 @@ fn tem_interpolacao(nos: &[No]) -> bool {
         No::Elemento(e) if e.estrela.is_none() => tem_interpolacao(&e.filhos),
         _ => false,
     })
+}
+
+/// `o.literal('${valor}')` de um literal primitivo: o texto do valor, entre
+/// aspas simples. O literal de texto já chega escrito assim; `null` vira
+/// texto vazio.
+fn valor_de_literal(texto: &str) -> String {
+    if texto.starts_with('\'') {
+        texto.to_string()
+    } else if texto == "null" {
+        "''".to_string()
+    } else {
+        literal(texto)
+    }
+}
+
+/// `&ngsp;`, que o `ngast` troca por este caractere; volta a ser espaço.
+const NGSP: char = '\u{E500}';
+
+/// `_compressWhitespacePreceding`: com quebra de linha (e sem `&nbsp;` nem
+/// `&ngsp;`), as quebras somem e o começo é aparado.
+fn comprimir_antes(t: &str) -> String {
+    if t.contains('\u{00A0}') || t.contains(NGSP) || !t.contains('\n') {
+        return t.replace(NGSP, " ");
+    }
+    t.replace('\n', "").trim_start().replace(NGSP, " ")
+}
+
+/// `_compressWhitespaceFollowing`: o mesmo, aparando o fim.
+fn comprimir_depois(t: &str) -> String {
+    if t.contains('\u{00A0}') || t.contains(NGSP) || !t.contains('\n') {
+        return t.replace(NGSP, " ");
+    }
+    t.replace('\n', "").trim_end().replace(NGSP, " ")
+}
+
+/// Os textos e as expressões de um valor com `{{ }}` (`splitInterpolation`,
+/// com a expressão regular `{{([\s\S]*?)}}`): sempre um texto a mais que
+/// expressões. Expressão vazia é erro no oficial.
+fn partes_da_interpolacao(valor: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let mut textos = Vec::new();
+    let mut exprs = Vec::new();
+    let mut resto = valor;
+    while let Some(i) = resto.find("{{") {
+        let depois = &resto[i + 2..];
+        let f = depois.find("}}")?;
+        let e = &depois[..f];
+        if e.trim().is_empty() {
+            return None;
+        }
+        textos.push(resto[..i].to_string());
+        exprs.push(e.to_string());
+        resto = &depois[f + 2..];
+    }
+    textos.push(resto.to_string());
+    (!exprs.is_empty()).then_some((textos, exprs))
 }
 
 /// Literal Dart de uma string, com aspas simples — o `escapeSingleQuoteString`
@@ -2859,16 +3212,24 @@ fn gerar_componente(
     };
     // Os ganchos de ciclo de vida saem na visão-hospedeira, depois do
     // `build()`, e o `check_binding.dart` entra aí.
-    let ciclo = if c.ganchos.algum() {
-        ciclo_de_vida(&c.ganchos, &imp.alias(CHECK_BINDING))
-    } else {
-        String::new()
-    };
+    // `onPush` com `@Input`: a hospedeira marca a checagem
+    // (`bindDirectiveInputs`, `hasInputs` conta os herdados — que daqui não
+    // se veem: recusa).
+    let marca = c.on_push && !c.entradas.is_empty();
+    if c.on_push && c.entradas.is_empty() && c.herda {
+        let r = recusa(Motivo::NaoEntendido, "componente onPush que herda @Input");
+        if coleta.is_none() {
+            return Err(r);
+        }
+    }
+    let ciclo = resolver_tardios(&mut imp, &ciclo_de_vida(&c.ganchos, marca));
 
     let x = &c.classe;
     let seletor = &c.seletor;
+    // `_getChangeDetectionCheckMode`: componente `onPush` começa em
+    // `checkOnce`.
     let estado = if c.on_push {
-        "waitingToBeChecked"
+        "checkOnce"
     } else {
         "checkAlways"
     };

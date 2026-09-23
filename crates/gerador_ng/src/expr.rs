@@ -533,7 +533,9 @@ impl Conversor<'_> {
                     }
                 }
                 // O alvo de uma chamada pode ser um método da classe, que não
-                // vale como valor solto.
+                // vale como valor solto. O tipo é o do `_TypeResolver`: o
+                // retorno do método (`visitMethodCall`); campo ou local
+                // chamado como função não é método, e dá `dynamic`.
                 let (alvo, retorno, locais_alvo) = match &self.ast.expr(*target).kind {
                     ast::ExprKind::Identifier(n)
                         if raiz
@@ -547,13 +549,27 @@ impl Conversor<'_> {
                             Some(t) => (format!("_ctx.{nome}"), Some(t.clone()), Vec::new()),
                             None => {
                                 let t = self.expr(*target, raiz)?;
-                                (t.texto, None, t.locais)
+                                (t.texto, Some("dynamic".to_string()), t.locais)
                             }
                         }
                     }
+                    // Local chamado como função: o tipo ainda é procurado
+                    // como método da classe (`visitMethodCall` olha o nome).
+                    ast::ExprKind::Identifier(n) => {
+                        let t = self.expr(*target, raiz)?;
+                        let tipo = self
+                            .escopo
+                            .metodos
+                            .get(self.interner.resolve(n.sym))
+                            .cloned()
+                            .unwrap_or_else(|| "dynamic".to_string());
+                        (t.texto, Some(tipo), t.locais)
+                    }
+                    // `a.m()`: o banco semântico responde o membro `m` do tipo
+                    // de `a` — o retorno, quando é método.
                     _ => {
                         let t = self.expr(*target, raiz)?;
-                        (t.texto, None, t.locais)
+                        (t.texto, t.tipo, t.locais)
                     }
                 };
                 Ok(Convertida {
@@ -566,9 +582,18 @@ impl Conversor<'_> {
                 // Só `!`. O parser de expressões do ngcompiler lê `-x` como
                 // `0 - x` e sai `(0 - _ctx.x)`; `x!` sai como `(x!)`; `~` nem
                 // existe lá. Os dois primeiros ainda não têm caso no corpus.
+                // `x!` é `PostfixNotNull`: `.notNull()`, que o emissor escreve
+                // `(x!)`; tipo `dynamic`, mutável.
+                if *op == ast::UnaryOp::NullAssert {
+                    let v = self.expr(*operand, raiz)?;
+                    return Ok(Convertida {
+                        tipo: Some("dynamic".into()),
+                        locais: v.locais,
+                        ..Convertida::nova(format!("({}!)", v.texto), "`x!`")
+                    });
+                }
                 if *op != ast::UnaryOp::Not {
                     return Err(fora(match op {
-                        ast::UnaryOp::NullAssert => "`x!` pós-fixo",
                         ast::UnaryOp::Neg => "`-x`",
                         _ => "operador unário fora do template",
                     }));
@@ -654,7 +679,21 @@ impl Conversor<'_> {
                     ..a
                 })
             }
-            ast::ExprKind::Index { .. } => Err(fora("índice `a[i]`")),
+            // `KeyedRead`: `receiver.key(key)`, sem parênteses; `dynamic`.
+            ast::ExprKind::Index {
+                target,
+                index,
+                null_aware: false,
+            } => {
+                let r = self.expr(*target, raiz)?;
+                let k = self.expr(*index, true)?;
+                Ok(Convertida {
+                    tipo: Some("dynamic".into()),
+                    locais: juntar(&[&r.locais, &k.locais]),
+                    ..Convertida::nova(format!("{}[{}]", r.texto, k.texto), "índice")
+                })
+            }
+            ast::ExprKind::Index { .. } => Err(fora("índice `a?[i]`")),
             ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. } => {
                 Err(fora("literal de coleção"))
             }
@@ -828,14 +867,16 @@ mod testes {
     }
 
     /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é
-    /// `0 - x` lá, `x!` ainda sem caso, `&` não existe.
+    /// `0 - x` lá, `&` não existe. `x!` sai `(x!)` e o índice sem
+    /// parênteses.
     #[test]
     fn operadores_fora_do_template_sao_recusados() {
         let m = &membros();
         let mut i = Interner::new();
         assert!(converter("-fixo", m, &mut i).is_err());
-        assert!(converter("nome!", m, &mut i).is_err());
         assert!(converter("fixo & 1", m, &mut i).is_err());
+        assert_eq!(conv("nome!").texto, "(_ctx.nome!)");
+        assert_eq!(conv("item[fixo]").texto, "_ctx.item[_ctx.fixo]");
     }
 
     /// Nome que não é do componente não vira `_ctx.nome` por engano.

@@ -79,6 +79,12 @@ pub struct Elemento {
 }
 
 impl Elemento {
+    /// Tem ligação de propriedade: `[x]` ou atributo com `{{ }}` — o que
+    /// faz o elemento virar campo da visão.
+    pub fn liga_propriedade(&self) -> bool {
+        !self.propriedades.is_empty() || self.atributos.iter().any(|a| a.valor.contains("{{"))
+    }
+
     fn em_linha(&self) -> bool {
         EM_LINHA.contains(&self.nome.to_ascii_lowercase().as_str())
     }

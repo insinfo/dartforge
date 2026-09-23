@@ -17,6 +17,9 @@ pub struct Componente {
     pub seletor: String,
     /// `@Component` (e não `@Directive`).
     pub e_componente: bool,
+    /// A classe estende outra ou usa mixin: `@Input`, `@Output` e
+    /// `@HostBinding` herdados não se veem daqui.
+    pub herda: bool,
     /// `exportAs:` — o nome pelo qual `#ref="nome"` chega à diretiva.
     pub export_as: Option<String>,
     /// `@Output`s: nome no template -> membro (um getter de `Stream`), na
@@ -240,12 +243,13 @@ fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (V
     (nomes, ilegivel)
 }
 
-/// `ChangeDetectionStrategy.OnPush` — o que muda o estado inicial da visão.
+/// `ChangeDetectionStrategy.onPush` (o nome no ngdart 8) — o que muda o
+/// estado inicial da visão.
 fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
     let span = arvore.expr(id).span;
     fonte
         .get(span.start..span.end)
-        .is_some_and(|t| t.contains("OnPush"))
+        .is_some_and(|t| t.rsplit('.').next().map(str::trim) == Some("onPush"))
 }
 
 /// Extrai o `@Component` de uma classe anotada.
@@ -282,6 +286,7 @@ fn ler(
     let mut c = Componente {
         classe: interner.resolve(classe.name.sym).to_string(),
         e_componente,
+        herda: classe.extends.is_some() || !classe.with.is_empty(),
         ..Default::default()
     };
     let mut exportados = Vec::new();
