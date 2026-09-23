@@ -167,8 +167,24 @@ Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
 
-**Corpus nativo: 7/214, e agora é um comando.** O harness diferencial roda
-o corpus pelo backend nativo comparando com a VM byte a byte:
+**Corpus nativo: 50/222 (CI, run 35823269758), antes 7/214; sob
+`--gc-stress`, os mesmos 50/222 (run 35823275126).** O backend passou a ter um
+**contrato de representação e raízes** (`docs/NATIVO-PLANO.md` §6 — R, E,
+N, G), implementado em quatro passos medidos no CI: 7/214 → 26/214 (N:
+nada de `0` como substituto; construtor, atribuição e membros de verdade)
+→ 48/214 (R: representação pelo tipo, caixas, locais tipados) → 48/222
+(E + G: arestas pela representação, verificador da HIR, raízes do código
+gerado — com o corpus crescido para 222 no `main`) → 50/222 (o
+`--gc-stress` achou `isEven` testando a paridade do handle da caixa). Dos 71 `panic` de
+*handle* do começo, **nenhum sobrou**; também sumiram os `RefCell already
+borrowed`, os tempos esgotados e os estouros do teto de heap do corpus. O
+que falha hoje falha como **erro de compilação com diagnóstico** ("não
+suportado no backend nativo: <construto>"), não como escalar usado como
+handle. Dois achados que mudaram o desenho: o backend rodava **sem
+`dart:core`** (a seção `vm` do `libraries.json` usa `include` e o
+`SdkLayout` não o seguia — todo `int` era `dynamic`), e a inferência não
+tinha braço para `for-in`. O harness diferencial roda o corpus pelo
+backend nativo comparando com a VM byte a byte:
 
 ```powershell
 cargo build --release -p dartforge-diferencial
@@ -230,6 +246,21 @@ coleta e contando também a tabela de slots. Ao estourar, sai com uma linha
 legível e código 255, sem `panic` atravessando `extern "C"`. Não é
 detalhe de teste: sem ele, um programa do corpus em laço ia a 1,9 GB e
 travava a máquina.
+
+Com o contrato de raízes (G, `docs/NATIVO-PLANO.md` §6.5) o heap **coleta
+em qualquer alocação** — o portão "só com frame aberto" saiu, porque o
+código gerado agora abre um quadro de raízes por função e enraíza cada
+valor `Ref` (SSA e locais). A exceção pendente, o rastro corrente e os
+globais `Ref` são raízes; as tabelas laterais por handle (coleções
+imutáveis, iterações ativas) moram no `Heap` e são purgadas a cada coleta;
+toda extern que aloca mais de uma vez enraíza os temporários. `int`,
+`double` e `bool` numa posição de referência são **caixas**
+(`BoxedInt`/`BoxedDouble`/dois singletons de `bool`) que as coleções
+normalizam para o escalar na entrada, com `==`/`identical` por valor como
+na VM. `Heap::get` distingue as quatro falhas de handle (null, negativo,
+além da tabela, já coletado) e `DARTFORGE_GC_OFF=1` desliga a coleta para
+diagnóstico. `DARTFORGE_GC_STRESS=1` (e `--gc-stress` no harness) coleta
+antes de toda alocação.
 
 ### 1.6 Infraestrutura
 
@@ -447,25 +478,25 @@ do `trait Analisador`, que hoje só tem a implementação sintática.
 
 ### 2.5 Backend nativo
 
-207 dos 214 programas do corpus, agrupados pelo relatório do harness
-(`--nativo`), do que bloqueia mais para o que bloqueia menos:
+172 dos 222 programas do corpus (CI, run 35823269758), agrupados pelo
+relatório do harness (`--nativo`). A família de "handle" (71 de 214 no
+começo — escalar usado como handle, null desreferenciado, raiz faltando)
+**zerou**, e a natureza do que falta mudou: quase tudo agora é construto
+que o backend declara não suportar, com o nome do construto no placar.
 
 | falhas | causa |
 | --- | --- |
-| 44 | `panic` no runtime: **handle não vivo** |
-| 29 | roda, mas imprime diferente da VM |
-| 28 | nem carrega: falta `dart:math`, `dart:convert`, `dart:typed_data`, `dart:collection` e parte de `dart:async` |
-| 27 | `panic` no runtime: **handle inválido (NegOverflow)** — escalar com tag usado como handle |
-| 13 | o Clang ainda recusa o IR (p. ex. `alloca` que não domina todos os usos) |
-| 10 | `panic` no runtime: índice fora de faixa |
-| ~20 | `NoSuchMethodError: <membro>` — o erro carrega o nome, então o placar já lista o que falta: `values` (enums), `$1` (records), `bitLength`, `entries`, `nan`, `done`, `hashCode`… |
-| 6 | estouram o teto de 256 MiB do heap |
-| 6 | `panic` no runtime: `RefCell already borrowed` |
+| 164 | **erro de compilação: não suportado** — em 85 grupos; os maiores: chamada de valor de função/closure (`f`, `cb`, `callback`, 9 + 6), `switch` (expressão 8, comando 6), aritmética sobre `num`/`dynamic` (8), `super` como valor (6), `await`/`yield` (5 + 4), cascata (4), constante de enum (4), `hashCode`/`Object.hash` (4), `int.parse`/`double.parse` (4), e membros do SDK sem implementação no runtime (`clear`, `sort`, `addAll`, `toStringAsFixed`, `abs`, `where`…) |
+| 4 | roda, mas imprime diferente da VM (`27_operadores_logicos_curto_circuito`, `66_colecoes_literais_spread_if_for`, `156_antigo_generics_constants`, `178_antigo_nativo_mixins`) |
+| 3 | nem carrega: `dart:js`, `dart:js_util`, `dart:js_interop` (não existem na seção `vm`) |
+| 1 | o Clang ainda recusa o IR |
 
-Os dois primeiros grupos de `panic` são a mesma família — um valor que não
-é referência sendo tratado como handle do heap, ou um handle já coletado —
-e sozinhos respondem por **71 dos 214**. É o trabalho de maior alavancagem
-que existe hoje no backend nativo.
+Os mesmos 50 passam sob `--gc-stress` (coleta antes de toda alocação; run
+35823275126). A lista do que fazer agora é a coluna de construtos acima,
+do maior grupo para o menor; closures (com captura em célula) e `switch`
+desbloqueiam mais que qualquer outro item. Depois disso, o passo 6 do
+contrato (raízes só onde há ponto de coleta, pela tabela de efeitos das
+externs; raiz como `store` num quadro em memória) — só com medição.
 
 O lowering de exceções existe (`throw`/`try`/`catch`/`finally`/`rethrow`,
 com o `finally` como sub-rotina e discriminador de razão); falta acertar os
