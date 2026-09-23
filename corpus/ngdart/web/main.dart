@@ -66,6 +66,7 @@ import 'package:corpus_ngdart/src/c12_handler_atribuicao.template.dart' as c12;
 import 'package:corpus_ngdart/src/c13_evento_em_ng_for.template.dart' as c13;
 import 'package:corpus_ngdart/src/c14_keyup_enter.template.dart' as c14;
 import 'package:corpus_ngdart/src/c16_atributo_interpolado.template.dart' as c16;
+import 'package:corpus_ngdart/src/c17_pipe_com_argumento.template.dart' as c17;
 import 'package:corpus_ngdart/src/c18_evento_no_projetado.template.dart' as c18;
 import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
@@ -141,6 +142,7 @@ void main() {
     c13.C13EventoEmNgForNgFactory,
     c14.C14KeyupEnterNgFactory,
     c16.C16AtributoInterpoladoNgFactory,
+    c17.C17PipeComArgumentoNgFactory,
     c18.C18EventoNoProjetadoNgFactory,
     d01.D01DoisFilhosNgFactory,
     d02.D02FilhoAninhadoNgFactory,

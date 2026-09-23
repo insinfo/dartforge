@@ -67,6 +67,7 @@ export 'src/c12_handler_atribuicao.dart';
 export 'src/c13_evento_em_ng_for.dart';
 export 'src/c14_keyup_enter.dart';
 export 'src/c16_atributo_interpolado.dart';
+export 'src/c17_pipe_com_argumento.dart';
 export 'src/c18_evento_no_projetado.dart';
 export 'src/d01_dois_filhos.dart';
 export 'src/d02_filho_aninhado.dart';
