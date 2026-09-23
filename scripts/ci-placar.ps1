@@ -38,7 +38,7 @@ foreach ($arq in $Relatorio) {
     $secao = $null
     for ($i = 0; $i -lt $linhas.Count; $i++) {
         $l = $linhas[$i]
-        if ($l -match '^(JIT × AOT: |JIT≠AOT |Tempos pós-IR|  (JIT|AOT) |  razão )') { $jitAot.Add($l) }
+        if ($l -match '^(JIT × AOT: |JIT≠AOT |Tempos pós-IR|  (JIT|AOT) |  razão |  tempo esgotado nos dois)') { $jitAot.Add($l) }
         if ($l -match '^(DartForge [^:]+):\s+(\d+)/(\d+) ok') {
             $r = $Matches[1]
             if (!$placar.Contains($r)) { $placar[$r] = @(0, 0) }

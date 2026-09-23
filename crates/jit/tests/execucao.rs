@@ -183,6 +183,18 @@ fn ir_invalido_vira_result_com_mensagem() {
     assert!(erro.message.contains("dartforge_entry"), "{erro}");
 }
 
+/// IR que o analisador aceita mas o verificador recusa (valor que não domina o
+/// uso) é recusado pelo JIT, como o Clang recusa no AOT.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn ir_que_o_verificador_recusa_nao_executa() {
+    let ir = "define void @dartforge_entry() {\nentrada:\n  br i1 true, label %a, label %b\n\
+              a:\n  %x = add i64 1, 2\n  br label %b\nb:\n  %y = add i64 %x, 1\n  ret void\n}\n";
+    let erro = dartforge_jit::run_ir(ir).unwrap_err();
+    assert_eq!(erro.stage, "parse-ir");
+    assert!(erro.message.contains("verificador"), "{erro}");
+}
+
 /// Externo que nem o runtime nem a CRT listada definem é recusado com o nome.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]

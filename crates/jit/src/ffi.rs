@@ -266,6 +266,26 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
             // Diagnóstico não fatal; o módulo é válido e a mensagem é liberada.
             drop(take_message(message));
         }
+        // O analisador de IR textual não roda o verificador do LLVM, e o ORC
+        // também não. O Clang roda, e recusa o módulo. Sem esta chamada, o JIT
+        // gerava código para IR que o AOT recusa, como uma instrução que não
+        // domina todos os usos, e o programa executava ou caía no JIT e não
+        // compilava no AOT. O corpus inteiro no CI mostrou 13 programas assim
+        // (pesado.yml, job `jit`). Aceitar o mesmo IR que o AOT aceita é parte
+        // do contrato.
+        let mut detalhe = ptr::null_mut();
+        let invalido = llvm_sys::analysis::LLVMVerifyModule(
+            module,
+            llvm_sys::analysis::LLVMVerifierFailureAction::LLVMReturnStatusAction,
+            &mut detalhe,
+        ) != 0;
+        let texto = if detalhe.is_null() { String::new() } else { take_message(detalhe) };
+        if invalido {
+            LLVMDisposeModule(module);
+            LLVMContextDispose(context);
+            let primeira = texto.lines().next().unwrap_or("módulo inválido").to_owned();
+            return Err(format!("o verificador do LLVM recusou o módulo: {primeira}"));
+        }
         Ok(ParsedModule { context, module })
     }
 }

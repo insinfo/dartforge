@@ -33,6 +33,9 @@ pub struct ExecucaoJit {
     /// Tempo de parede do processo do executor: carregar a `LLVM-C.dll`, abrir
     /// a sessão, gerar o código e executar o programa.
     pub tempo: std::time::Duration,
+    /// Só a execução do programa dentro do executor (`execute_ns` do
+    /// `--timings`), quando o executor chegou a executar.
+    pub execucao: Option<std::time::Duration>,
     /// Com `--jit-aot`: o mesmo texto de IR pelo driver AOT.
     pub aot: Option<AotDoMesmoIr>,
 }
@@ -354,15 +357,21 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
 /// isso a comparação é entre os dois, e não de cada um com a VM (isso é o
 /// placar). A linha `JIT × AOT: … N divergentes` é o que o CI exige com zero.
 ///
-/// Os tempos são de parede e contêm a carga do runner; a mediana e o p95 vêm
-/// com a contagem de programas, e o `objeto do cache` é contado à parte, porque
-/// nesses o Clang não rodou.
+/// Programa que estoura o tempo **nos dois** não conta como divergência: o
+/// stdout parcial de um laço sem fim depende de quanto tempo cada um rodou (e o
+/// JIT tem a folga da geração de código). Fica listado à parte.
+///
+/// Os tempos são de parede, só de programas que terminaram nos dois perfis.
+/// «JIT até executar» é o processo do executor menos a execução do programa
+/// (`execute_ns`): carga da DLL, sessão, análise do IR e geração de código —
+/// o que corresponde ao Clang + ligação do AOT.
 fn secao_jit_aot(resultados: &[Resultado]) -> String {
-    let pares: Vec<(&Resultado, &ExecucaoJit, &AotDoMesmoIr)> = resultados
+    use crate::processo::CODIGO_TEMPO_ESGOTADO;
+    let pares: Vec<(&Resultado, &Saida, &ExecucaoJit, &AotDoMesmoIr)> = resultados
         .iter()
         .filter_map(|r| {
             let jit = r.jit.as_ref()?;
-            Some((r, jit, jit.aot.as_ref()?))
+            Some((r, r.forge.as_ref()?, jit, jit.aot.as_ref()?))
         })
         .collect();
     if pares.is_empty() {
@@ -370,29 +379,46 @@ fn secao_jit_aot(resultados: &[Resultado]) -> String {
     }
     let mut out = String::new();
     let mut divergentes = Vec::new();
-    for (r, _, aot) in &pares {
-        let Some(jit) = &r.forge else { continue };
-        if jit.stdout != aot.saida.stdout || jit.codigo != aot.saida.codigo {
-            divergentes.push((r, jit, &aot.saida));
+    let mut ambos_estouraram = Vec::new();
+    for (r, jit, _, aot) in &pares {
+        if jit.codigo == CODIGO_TEMPO_ESGOTADO && aot.saida.codigo == CODIGO_TEMPO_ESGOTADO {
+            ambos_estouraram.push(r.programa.nome.as_str());
+        } else if jit.stdout != aot.saida.stdout || jit.codigo != aot.saida.codigo {
+            divergentes.push((*r, *jit, &aot.saida));
         }
     }
-    let sem_ir = pares.iter().filter(|(_, j, _)| !j.com_ir).count();
+    let sem_ir = pares.iter().filter(|(_, _, j, _)| !j.com_ir).count();
     let _ = writeln!(
         out,
-        "\nJIT × AOT: {}/{} idênticos, {} divergentes ({} sem IR, iguais por construção)",
+        "\nJIT × AOT: {}/{} idênticos, {} divergentes ({} sem IR, iguais por construção; {} estouraram o tempo nos dois)",
         pares.len() - divergentes.len(),
         pares.len(),
         divergentes.len(),
-        sem_ir
+        sem_ir,
+        ambos_estouraram.len()
     );
+    if !ambos_estouraram.is_empty() {
+        let _ = writeln!(out, "  tempo esgotado nos dois: {}", ambos_estouraram.join(", "));
+    }
     for (r, jit, aot) in &divergentes {
         let _ = writeln!(out, "JIT≠AOT {}  (códigos: jit={} aot={})", r.programa.nome, jit.codigo, aot.codigo);
         let primeira = primeira_linha_diferente(&jit.stdout, &aot.stdout);
         let _ = write!(out, "{}", lado_a_lado(&[("jit", &jit.stdout), ("aot", &aot.stdout)], primeira));
+        let _ = writeln!(out, "       stderr jit: {}", truncar(&chave_de_falha(jit), 110));
+        let _ = writeln!(out, "       stderr aot: {}", truncar(&chave_de_falha(aot), 110));
     }
 
-    let com_ir: Vec<_> = pares.iter().filter(|(_, j, _)| j.com_ir).collect();
-    if com_ir.is_empty() {
+    // Só quem terminou nos dois e tem a execução medida no executor.
+    let medidos: Vec<_> = pares
+        .iter()
+        .filter(|(_, jit, j, a)| {
+            j.com_ir
+                && j.execucao.is_some()
+                && jit.codigo != CODIGO_TEMPO_ESGOTADO
+                && a.saida.codigo != CODIGO_TEMPO_ESGOTADO
+        })
+        .collect();
+    if medidos.is_empty() {
         return out;
     }
     let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
@@ -402,30 +428,41 @@ fn secao_jit_aot(resultados: &[Resultado]) -> String {
         let p = |q: f64| v[((v.len() as f64 - 1.0) * q).round() as usize];
         format!("mediana {:>8.1} ms  p95 {:>8.1} ms  soma {:>8.1} s", p(0.5), p(0.95), soma / 1000.0)
     };
-    let jit: Vec<f64> = com_ir.iter().map(|(_, j, _)| ms(j.tempo)).collect();
-    let ligacao: Vec<f64> = com_ir.iter().map(|(_, _, a)| ms(a.ligacao)).collect();
-    let execucao: Vec<f64> = com_ir.iter().map(|(_, _, a)| ms(a.execucao)).collect();
-    let aot_total: Vec<f64> = com_ir.iter().map(|(_, _, a)| ms(a.ligacao + a.execucao)).collect();
-    let do_cache = com_ir.iter().filter(|(_, _, a)| a.objeto_do_cache).count();
+    let execucao = |j: &ExecucaoJit| j.execucao.unwrap_or_default();
+    let ate_executar: Vec<f64> = medidos.iter().map(|(_, _, j, _)| ms(j.tempo.saturating_sub(execucao(j)))).collect();
+    let jit_exec: Vec<f64> = medidos.iter().map(|(_, _, j, _)| ms(execucao(j))).collect();
+    let jit_total: Vec<f64> = medidos.iter().map(|(_, _, j, _)| ms(j.tempo)).collect();
+    let ligacao: Vec<f64> = medidos.iter().map(|(_, _, _, a)| ms(a.ligacao)).collect();
+    let aot_exec: Vec<f64> = medidos.iter().map(|(_, _, _, a)| ms(a.execucao)).collect();
+    let aot_total: Vec<f64> = medidos.iter().map(|(_, _, _, a)| ms(a.ligacao + a.execucao)).collect();
+    let do_cache = medidos.iter().filter(|(_, _, _, a)| a.objeto_do_cache).count();
     let soma = |v: &[f64]| v.iter().sum::<f64>();
     let _ = writeln!(
         out,
-        "\nTempos pós-IR, {} programas com IR ({} com objeto do cache de objetos):",
-        com_ir.len(),
+        "\nTempos pós-IR, {} programas que terminaram nos dois perfis ({} com objeto do cache de objetos):",
+        medidos.len(),
         do_cache
     );
-    let _ = writeln!(out, "  JIT (executor: DLL + sessão + geração + execução)  {}", resumo(jit.clone()));
-    let _ = writeln!(out, "  AOT Clang + ligação                                {}", resumo(ligacao));
-    let _ = writeln!(out, "  AOT execução do .exe                               {}", resumo(execucao));
-    let _ = writeln!(out, "  AOT total                                          {}", resumo(aot_total.clone()));
-    let _ = writeln!(out, "  razão AOT total / JIT (somas): {:.1}x", soma(&aot_total) / soma(&jit).max(f64::EPSILON));
-    let _ = writeln!(out, "\nTempos por programa (ms): jit  aot-ligação  aot-execução  nome");
-    for (r, j, a) in &com_ir {
+    let _ = writeln!(out, "  JIT até executar (DLL + sessão + IR + geração)     {}", resumo(ate_executar.clone()));
+    let _ = writeln!(out, "  AOT Clang + ligação                                {}", resumo(ligacao.clone()));
+    let _ = writeln!(out, "  JIT execução do programa (dentro do processo)      {}", resumo(jit_exec));
+    let _ = writeln!(out, "  AOT execução do .exe (processo inteiro)            {}", resumo(aot_exec));
+    let _ = writeln!(out, "  JIT total (processo do executor)                   {}", resumo(jit_total.clone()));
+    let _ = writeln!(out, "  AOT total (Clang + ligação + execução)             {}", resumo(aot_total.clone()));
+    let _ = writeln!(
+        out,
+        "  razão (somas): Clang+ligação / JIT até executar = {:.1}x; AOT total / JIT total = {:.1}x",
+        soma(&ligacao) / soma(&ate_executar).max(f64::EPSILON),
+        soma(&aot_total) / soma(&jit_total).max(f64::EPSILON)
+    );
+    let _ = writeln!(out, "\nTempos por programa (ms): jit-até-executar  jit-execução  aot-ligação  aot-execução  nome");
+    for (r, _, j, a) in &medidos {
         let cache = if a.objeto_do_cache { "  (objeto do cache)" } else { "" };
         let _ = writeln!(
             out,
-            "  {:>8.1} {:>12.1} {:>13.1}  {}{cache}",
-            ms(j.tempo),
+            "  {:>10.1} {:>13.1} {:>12.1} {:>13.1}  {}{cache}",
+            ms(j.tempo.saturating_sub(execucao(j))),
+            ms(execucao(j)),
             ms(a.ligacao),
             ms(a.execucao),
             r.programa.nome
