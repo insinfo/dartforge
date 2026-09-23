@@ -96,3 +96,5 @@ export 'src/e05_diretiva_so_listener.dart';
 export 'src/e06_hostbinding_getter_e_campo.dart';
 export 'src/f01_if_com_for.dart';
 export 'src/f02_dois_ifs_irmaos.dart';
+export 'src/g01_form_ng_model.dart';
+export 'src/g02_select_ng_model.dart';

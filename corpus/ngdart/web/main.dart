@@ -86,6 +86,8 @@ import 'package:corpus_ngdart/src/d10_campo_var.template.dart' as d10;
 import 'package:corpus_ngdart/src/d10_filho_var.template.dart' as d10;
 import 'package:corpus_ngdart/src/f01_if_com_for.template.dart' as f01;
 import 'package:corpus_ngdart/src/f02_dois_ifs_irmaos.template.dart' as f02;
+import 'package:corpus_ngdart/src/g01_form_ng_model.template.dart' as g01;
+import 'package:corpus_ngdart/src/g02_select_ng_model.template.dart' as g02;
 
 void main() {
   print([
@@ -174,5 +176,7 @@ void main() {
     d10.D10FilhoVarNgFactory,
     f01.F01IfComForNgFactory,
     f02.F02DoisIfsIrmaosNgFactory,
+    g01.G01FormNgModelNgFactory,
+    g02.G02SelectNgModelNgFactory,
   ].length);
 }
