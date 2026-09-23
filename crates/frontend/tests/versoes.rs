@@ -90,6 +90,103 @@ fn atalho_de_ponto_na_310() {
     assert!(mensagens(&p).iter().any(|m| m.contains("exige argumentos")), "{:?}", mensagens(&p));
 }
 
+/// Os membros de uma classe elaborada, como texto: `campo final int x`,
+/// `ctor nome(params) inits corpo`.
+fn membros(p: &Parsed, nomes: &Interner, i: usize) -> Vec<String> {
+    let DeclKind::Class(c) = &p.ast.decl(p.unit.declarations[i]).kind else { panic!("não é classe") };
+    c.members
+        .iter()
+        .map(|m| match &p.ast.member(*m).kind {
+            MemberKind::Field(v) => format!(
+                "campo{}{}{} {}",
+                if v.final_ { " final" } else { "" },
+                if v.covariant { " covariant" } else { "" },
+                if v.ty.is_some() { " T" } else { "" },
+                nomes.resolve(v.variables[0].name.sym)
+            ),
+            MemberKind::Constructor(k) => {
+                let ps: Vec<String> = k
+                    .parameters
+                    .iter()
+                    .map(|q| format!("{}{}", if q.this_ { "this." } else { "" }, nomes.resolve(q.name.unwrap().sym)))
+                    .collect();
+                format!(
+                    "ctor{}{} {}({}) inits={}",
+                    if k.const_ { " const" } else { "" },
+                    if k.factory { " factory" } else { "" },
+                    k.name.map(|n| nomes.resolve(n.sym).to_string()).unwrap_or_default(),
+                    ps.join(", "),
+                    k.initializers.len()
+                )
+            }
+            MemberKind::Method(f) => format!("metodo {}", nomes.resolve(p.ast.function(*f).name.unwrap().sym)),
+        })
+        .collect()
+}
+
+#[test]
+fn construtor_primario_e_elaborado_na_arvore() {
+    let fonte = "class P(var int x, final int y, String cru, [covariant var z = 1]) {\n\
+                 final up = cru;\n\
+                 this : assert(x > 0) { print(cru); }\n\
+                 }\n\
+                 class const K.c(final int v);\n\
+                 class Vazia;";
+    let (p, nomes) = na((3, 13), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    assert_eq!(
+        membros(&p, &nomes, 0),
+        vec![
+            "campo T x",
+            "campo final T y",
+            "campo covariant T z",
+            "campo final up",
+            "ctor (this.x, this.y, cru, this.z) inits=1"
+        ]
+    );
+    let DeclKind::Class(c) = &p.ast.decl(p.unit.declarations[0]).kind else { panic!() };
+    assert_eq!(c.primary_constructor, Some(c.members[4]));
+    assert_eq!(membros(&p, &nomes, 1), vec!["campo final T v", "ctor const c(this.v) inits=0"]);
+    assert!(membros(&p, &nomes, 2).is_empty());
+
+    let (p, _) = na((3, 12), "class P(var int x);");
+    assert!(mensagens(&p).iter().any(|m| m.contains("'primary-constructors' exige a versão de linguagem 3.13")), "{:?}", mensagens(&p));
+}
+
+#[test]
+fn new_e_factory_sem_o_nome_da_classe() {
+    let fonte = "class Q { int a; new(this.a); new zero() : a = 0; factory um() => Q(1); factory Q.dois() => Q(2); factory() => Q(3); }";
+    let (p, nomes) = na((3, 13), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    assert_eq!(
+        membros(&p, &nomes, 0),
+        vec!["campo T a", "ctor (this.a) inits=0", "ctor zero() inits=1", "ctor factory um() inits=0", "ctor factory dois() inits=0", "ctor factory () inits=0"]
+    );
+    // Antes da 3.13, `factory()` é método.
+    let (p, nomes) = na((3, 12), "class F { int factory() => 1; }");
+    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    assert_eq!(membros(&p, &nomes, 0), vec!["metodo factory"]);
+    // `factory C(` com o nome da classe continua o construtor sem nome.
+    let (p, nomes) = na((3, 13), "class C { factory C() => C._(); C._(); }");
+    assert_eq!(membros(&p, &nomes, 0)[0], "ctor factory () inits=0");
+}
+
+#[test]
+fn erros_do_construtor_primario() {
+    for (fonte, trecho) in [
+        ("class C { this {} }", "exige um construtor primário no cabeçalho"),
+        ("class C(int x) { this {} this {} }", "só pode haver uma parte 'this'"),
+        ("class C(int x) { C.outro(); }", "têm de redirecionar"),
+        ("class const C(final int x) { this { } }", "constante não pode ter corpo"),
+        ("class C(int x) { this => 1; }", "tem de ser um bloco"),
+        ("class C(covariant int x);", "'covariant' num parâmetro de construtor primário exige 'var'"),
+        ("extension type E(var int x) {}", "'var' não é permitido na representação"),
+    ] {
+        let (p, _) = na((3, 13), fonte);
+        assert!(mensagens(&p).iter().any(|m| m.contains(trecho)), "{fonte}: {:?}", mensagens(&p));
+    }
+}
+
 #[test]
 fn null_aware_so_na_38() {
     let (p, _) = na((3, 7), "var l = [?a, 'k': ?b];");

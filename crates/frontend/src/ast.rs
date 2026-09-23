@@ -258,6 +258,11 @@ pub struct ClassDecl {
     /// `class C = S with M implements I;` — sem corpo.
     pub mixin_application: bool,
     pub members: Vec<MemberId>,
+    /// O construtor primário (Dart 3.13) já elaborado: o membro `k2` em
+    /// `members`. Os inicializadores de campo não-`late` desta classe são
+    /// avaliados no escopo dos parâmetros dele (spec, "primary initializer
+    /// scope"); fora isso, é um construtor comum.
+    pub primary_constructor: Option<MemberId>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -278,6 +283,8 @@ pub struct EnumDecl {
     pub implements: Box<[TypeId]>,
     pub constants: Vec<EnumConstant>,
     pub members: Vec<MemberId>,
+    /// Construtor primário elaborado (Dart 3.13), como em [`ClassDecl`].
+    pub primary_constructor: Option<MemberId>,
 }
 
 /// `@meta nome<T>.ctor(args)` dentro de um `enum`.
@@ -392,6 +399,10 @@ pub struct Constructor {
     /// `initializers` como [`Initializer::Redirect`].
     pub redirect: Option<RedirectTarget>,
     pub body: FunctionBody,
+    /// `this : inits { corpo }` (Dart 3.13): a parte de corpo de um
+    /// construtor primário, antes da elaboração. Depois dela só sobra onde é
+    /// erro (sem cabeçalho primário, ou repetida).
+    pub parte_primaria: bool,
 }
 
 /// Alvo de `factory C() = Outra.nome;`
