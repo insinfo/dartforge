@@ -43,6 +43,7 @@ use crate::ast::{
     ExprKind, Function, FunctionKind, Name, StringLit, StringPart, SwitchExprCase, TypeAnnotation,
     TypeId, TypeKind, UnaryOp,
 };
+use crate::features::Feature;
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
 use dartforge_diagnostics::Span;
 
@@ -999,10 +1000,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         // `?e` é elemento null-aware (Dart 3.8); `?` nunca inicia expressão,
         // então não há ambiguidade com a condicional.
-        let null_aware_key = self.eat_op(Op::Question);
+        let null_aware_key = self.at_op(Op::Question);
+        if null_aware_key {
+            let q = self.advance();
+            self.exigir(Feature::NullAwareElements, q.span);
+        }
         let key = self.parse_expression()?;
         if self.eat_op(Op::Colon) {
-            let null_aware_value = self.eat_op(Op::Question);
+            let null_aware_value = self.at_op(Op::Question);
+            if null_aware_value {
+                let q = self.advance();
+                self.exigir(Feature::NullAwareElements, q.span);
+            }
             let value = self.parse_expression()?;
             return Ok(CollectionElement::MapEntry {
                 key,
