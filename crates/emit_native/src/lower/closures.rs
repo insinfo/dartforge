@@ -569,7 +569,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         use dartforge_types::resolved::{MemberRef, Resolved};
         for c in self.enclosing_class.map(|c| crate::lower::membros::linearizacao(self.ctx, c)).unwrap_or_default() {
             let classe = &self.ctx.program.classes[c.0 as usize];
-            if self.ctx.program.library(classe.library).is_sdk {
+            if !self.ctx.biblioteca_compilada(classe.library) {
                 break;
             }
             if let Some(&f) = classe.instance_members.get(&sym).or_else(|| classe.static_members.get(&sym)) {

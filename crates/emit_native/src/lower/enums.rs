@@ -22,7 +22,7 @@ use dartforge_frontend::ast::DeclKind;
 /// A classe é um `enum` do programa.
 pub fn e_enum(ctx: &Context, cid: ClassId) -> bool {
     let c = &ctx.program.classes[cid.0 as usize];
-    c.kind == ClassKind::Enum && !ctx.program.library(c.library).is_sdk
+    c.kind == ClassKind::Enum && ctx.biblioteca_compilada(c.library)
 }
 
 /// Quantos campos implícitos vêm antes do layout declarado (2 num enum).

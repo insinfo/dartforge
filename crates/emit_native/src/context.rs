@@ -27,6 +27,13 @@ pub struct Context<'a> {
     /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
     /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
     raiz: Option<std::path::PathBuf>,
+    /// P5c: o SDK é compilado da fonte (`sdk_modulo`). As bibliotecas de
+    /// [`crate::sdk_modulo::BIBLIOTECAS_DA_FONTE`] têm corpo compilado e
+    /// classes com id, como as do programa.
+    pub sdk_da_fonte: bool,
+    /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
+    /// com `sdk_da_fonte`, também as do SDK da fonte).
+    pub compiladas: Vec<bool>,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -87,6 +94,8 @@ impl<'a> Context<'a> {
             ids_de_classe: Vec::new(),
             formas_de_record: Vec::new(),
             raiz,
+            sdk_da_fonte: false,
+            compiladas: program.libraries.iter().map(|l| !l.is_sdk).collect(),
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do
@@ -142,25 +151,60 @@ impl<'a> Context<'a> {
             }
         }
         ctx.formas_de_record = formas.into_iter().collect();
-        let mut chaves: Vec<(String, String, usize)> = program
+        ctx.numerar_classes();
+        ctx
+    }
+
+    /// Liga o SDK da fonte (P5c): as bibliotecas de `BIBLIOTECAS_DA_FONTE`
+    /// passam a ter corpo compilado e classes com id.
+    pub fn com_sdk_da_fonte(mut self) -> Self {
+        self.sdk_da_fonte = true;
+        for (i, l) in self.program.libraries.iter().enumerate() {
+            if let Some(nome) = l.uri.strip_prefix("dart:")
+                && crate::sdk_modulo::BIBLIOTECAS_DA_FONTE.contains(&nome)
+            {
+                self.compiladas[i] = true;
+            }
+        }
+        self.numerar_classes();
+        self
+    }
+
+    /// O corpo das funções da biblioteca é compilado?
+    pub fn biblioteca_compilada(&self, lib: LibraryId) -> bool {
+        self.compiladas[lib.0 as usize]
+    }
+
+    /// Ids de classe estáveis (P2): as classes compiladas pela ordem do
+    /// caminho — as do SDK primeiro (grupo 0), numa faixa que só depende do
+    /// SDK, depois as do programa —, a partir de 1, pulando 1000–1012.
+    fn numerar_classes(&mut self) {
+        let program = self.program;
+        let mut chaves: Vec<(bool, String, String, usize)> = program
             .classes
             .iter()
             .enumerate()
-            .filter(|(_, c)| !program.library(c.library).is_sdk)
-            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .filter(|(_, c)| self.compiladas[c.library.0 as usize])
+            .map(|(i, c)| {
+                (
+                    !program.library(c.library).is_sdk,
+                    self.nome_da_biblioteca(c.library),
+                    self.interner.resolve(c.name).to_string(),
+                    i,
+                )
+            })
             .collect();
         chaves.sort();
         let mut ids = vec![None; program.classes.len()];
         let mut prox = 1u32;
-        for (_, _, i) in chaves {
+        for (_, _, _, i) in chaves {
             if (1000..=1012).contains(&prox) {
                 prox = 1013;
             }
             ids[i] = Some(prox);
             prox += 1;
         }
-        ctx.ids_de_classe = ids;
-        ctx
+        self.ids_de_classe = ids;
     }
 
     /// O nome estável de uma biblioteca (P2): `dart:x` e `package:a/b.dart`

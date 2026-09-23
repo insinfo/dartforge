@@ -35,12 +35,12 @@ pub fn linearizacao(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
     let mut atual = Some(cid);
     while let Some(c) = atual {
         let classe = &ctx.program.classes[c.0 as usize];
-        if ctx.program.library(classe.library).is_sdk || saida.contains(&c) {
+        if !ctx.biblioteca_compilada(classe.library) || saida.contains(&c) {
             break;
         }
         saida.push(c);
         for m in classe.mixin_classes.iter().rev() {
-            if !ctx.program.library(ctx.program.classes[m.0 as usize].library).is_sdk && !saida.contains(m) {
+            if ctx.biblioteca_compilada(ctx.program.classes[m.0 as usize].library) && !saida.contains(m) {
                 saida.push(*m);
             }
         }
@@ -207,7 +207,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
             let kid = ClassId(k as u32);
-            if self.ctx.program.library(classe.library).is_sdk || e_mixin(self.ctx, kid) {
+            if !self.ctx.biblioteca_compilada(classe.library) || e_mixin(self.ctx, kid) {
                 continue;
             }
             let base = super::enums::base_do_layout(self.ctx, kid);
@@ -342,7 +342,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match self.ctx.table.get(ty) {
             dartforge_types::table::Type::Interface { class, .. } => {
                 let classe = &self.ctx.program.classes[class.0 as usize];
-                (!self.ctx.program.library(classe.library).is_sdk).then_some(*class)
+                (self.ctx.biblioteca_compilada(classe.library)).then_some(*class)
             }
             _ => None,
         }
@@ -372,15 +372,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
                 MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
             };
-            if self.ctx.program.library(lib_do_membro).is_sdk {
+            if !self.ctx.biblioteca_compilada(lib_do_membro) {
                 return None;
             }
-            return (!self.ctx.program.library(classe.library).is_sdk).then_some((*class, *member));
+            return (self.ctx.biblioteca_compilada(classe.library)).then_some((*class, *member));
         }
         let cid = self.classe_do_usuario_de(recv)?;
         for c in crate::lower::membros::linearizacao(self.ctx, cid) {
             let classe = &self.ctx.program.classes[c.0 as usize];
-            if self.ctx.program.library(classe.library).is_sdk {
+            if !self.ctx.biblioteca_compilada(classe.library) {
                 return None;
             }
             if let Some(&f) = classe.instance_members.get(&nome) {
@@ -498,7 +498,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// para os valores que o runtime representa por conta própria.
     pub fn id_de_classe(&self, cid: ClassId) -> Option<i64> {
         let classe = &self.ctx.program.classes[cid.0 as usize];
-        if !self.ctx.program.library(classe.library).is_sdk {
+        if self.ctx.biblioteca_compilada(classe.library) {
             return self.ctx.id_de_classe(cid).map(i64::from);
         }
         Some(match self.ctx.symbol_name(classe.name) {
@@ -900,7 +900,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut saida = Vec::new();
         for (k, classe) in ctx.program.classes.iter().enumerate() {
             let kid = ClassId(k as u32);
-            if ctx.program.library(classe.library).is_sdk || !subclasse_de(ctx, kid, cdecl) {
+            if !ctx.biblioteca_compilada(classe.library) || !subclasse_de(ctx, kid, cdecl) {
                 continue;
             }
             if (classe.modifiers.abstract_ && kid != cdecl) || e_mixin(ctx, kid) {
@@ -1121,7 +1121,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // e chama o de `S`).
         let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize].mixin_classes.clone();
         for m in mixins.into_iter().rev() {
-            if !self.ctx.program.library(self.ctx.program.classes[m.0 as usize].library).is_sdk {
+            if self.ctx.biblioteca_compilada(self.ctx.program.classes[m.0 as usize].library) {
                 self.inicializar_campos(m);
             }
         }
@@ -1129,7 +1129,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         };
         let sup_classe = &self.ctx.program.classes[sup.0 as usize];
-        if self.ctx.program.library(sup_classe.library).is_sdk {
+        if !self.ctx.biblioteca_compilada(sup_classe.library) {
             // `Object()` e superclasses do SDK: nada a executar no nosso heap.
             return;
         }
@@ -1383,11 +1383,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Lê um global pelo getter preguiçoso.
     pub fn ler_global(&mut self, vid: VariableId, span: Span) -> Operand {
-        if self
-            .ctx
-            .program
-            .library(self.ctx.program.variables[vid.0 as usize].library)
-            .is_sdk
+        if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             let nome = self
                 .ctx
@@ -1408,11 +1404,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Grava um global (e marca-o inicializado).
     pub fn gravar_global(&mut self, vid: VariableId, val: Operand, span: Span) -> Operand {
-        if self
-            .ctx
-            .program
-            .library(self.ctx.program.variables[vid.0 as usize].library)
-            .is_sdk
+        if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             return self.nao_suportado("atribuição a global do SDK", span);
         }

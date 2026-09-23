@@ -83,7 +83,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return op;
         };
         let classe = &self.ctx.program.classes[class.0 as usize];
-        if !self.ctx.program.library(classe.library).is_sdk {
+        if self.ctx.biblioteca_compilada(classe.library) {
             return op;
         }
         match self.ctx.symbol_name(classe.name) {

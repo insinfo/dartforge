@@ -113,7 +113,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let texto = self.ctx.symbol_name(nome).to_string();
         if let Some(c) = classe
-            && !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk
+            && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
         {
             // `index`/`name` de enum.
             if let Some(op) = self.membro_de_enum(c, &texto, valor.clone()) {
@@ -121,7 +121,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             for k in crate::lower::membros::linearizacao(self.ctx, c) {
                 let cl = &self.ctx.program.classes[k.0 as usize];
-                if self.ctx.program.library(cl.library).is_sdk {
+                if !self.ctx.biblioteca_compilada(cl.library) {
                     break;
                 }
                 if let Some(&f) = cl.instance_members.get(&nome) {

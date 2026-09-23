@@ -685,7 +685,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // `C.new`/`C.nome`: tear-off de construtor (P4).
                     if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                         self.ctx.get_resolved(self.unit_id, *target).cloned()
-                        && !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk
+                        && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
                     {
                         let chave = if prop_name == "new" {
                             self.ctx.interner.lookup("")
@@ -1042,7 +1042,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
             MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
         };
-        if !self.ctx.program.library(lib).is_sdk {
+        if self.ctx.biblioteca_compilada(lib) {
             return None;
         }
         let this = self.this_param.clone()?;

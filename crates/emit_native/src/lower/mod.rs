@@ -62,7 +62,7 @@ pub fn sanitize_symbol(name: &str) -> String {
 /// diagnóstico (N1), não `call` para um símbolo que não existe.
 pub fn funcao_do_usuario(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
-    !ctx.program.library(f.library).is_sdk
+    ctx.biblioteca_compilada(f.library)
 }
 
 /// A função é construtor generativo (inclusive o sintético): não devolve
@@ -210,7 +210,7 @@ pub fn lower_program(ctx: &Context) -> Module {
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         // Classes do SDK não viram objetos do nosso heap (o runtime tem as
         // suas próprias representações); só as do usuário são registradas.
-        if ctx.program.library(class.library).is_sdk {
+        if !ctx.biblioteca_compilada(class.library) {
             continue;
         }
         let name = ctx.symbol_name(class.name).to_string();
@@ -271,11 +271,26 @@ pub fn lower_program(ctx: &Context) -> Module {
     }
 
     // 2. Funções do usuário
-    for (f_idx, func_elem) in ctx.program.functions.iter().enumerate() {
+    for f_idx in 0..ctx.program.functions.len() {
         if !funcao_do_usuario(ctx, f_idx) {
             continue;
         }
+        let antes = module.erros.len();
+        lower_funcao(ctx, &mut module, f_idx);
+        if ctx.sdk_da_fonte && module.erros.len() > antes {
+            let s = simbolo_de(ctx, f_idx);
+            for e in &mut module.erros[antes..] {
+                *e = format!("{s}: {e}");
+            }
+        }
+    }
+    lower_globais_e_resto(ctx, module)
+}
 
+/// Baixa uma função (de topo, método, construtor) para o módulo.
+pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
+    let func_elem = &ctx.program.functions[f_idx];
+    {
         let name = ctx.symbol_name(func_elem.name);
         let symbol = simbolo_de(ctx, f_idx);
 
@@ -285,7 +300,7 @@ pub fn lower_program(ctx: &Context) -> Module {
                 let ast_func = ast.function(function);
                 if matches!(ast_func.body, FunctionBody::Empty | FunctionBody::Native(_)) {
                     // Abstrato ou externo: não há corpo a compilar.
-                    continue;
+                    return;
                 }
 
                 let is_main = symbol == "dart_main";
@@ -329,7 +344,7 @@ pub fn lower_program(ctx: &Context) -> Module {
                     builder.declarar_parametros(f_idx, false);
                     let on = ctx.outline.extensions[e.0 as usize].on;
                     if let dartforge_types::table::Type::Interface { class, .. } = ctx.table.get(on)
-                        && !ctx.program.library(ctx.program.classes[class.0 as usize].library).is_sdk
+                        && ctx.biblioteca_compilada(ctx.program.classes[class.0 as usize].library)
                     {
                         builder.enclosing_class = Some(*class);
                     }
@@ -350,14 +365,14 @@ pub fn lower_program(ctx: &Context) -> Module {
                     }
                     _ => {}
                 }
-                builder.finalizar(&mut module);
+                builder.finalizar(module);
             }
             FunctionRef::Constructor { unit, member } => {
                 let ast = &ctx.program.unit(unit).ast;
                 let MemberKind::Constructor(ctor) = &ast.member(member).kind else {
-                    continue;
+                    return;
                 };
-                let Some(cid) = func_elem.class else { continue };
+                let Some(cid) = func_elem.class else { return };
                 if func_elem.factory {
                     let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Ref);
                     builder.preparar_capturas(
@@ -404,7 +419,7 @@ pub fn lower_program(ctx: &Context) -> Module {
                             _ => {}
                         }
                     }
-                    builder.finalizar(&mut module);
+                    builder.finalizar(module);
                 } else {
                     let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Void);
                     builder.preparar_capturas(
@@ -418,32 +433,34 @@ pub fn lower_program(ctx: &Context) -> Module {
                     builder.declarar_parametros(f_idx, true);
                     builder.enclosing_class = Some(cid);
                     builder.lower_construtor(ast, cid, ctor, ast.member(member).span);
-                    builder.finalizar(&mut module);
+                    builder.finalizar(module);
                 }
             }
             FunctionRef::None => {
                 // Construtor padrão sintético (`class A { int x = 1; }`):
                 // inicializadores de campo e `super()` implícito.
                 if func_elem.kind != FunctionKind::SyntheticConstructor {
-                    continue;
+                    return;
                 }
-                let Some(cid) = func_elem.class else { continue };
-                let Some(decl) = ctx.program.classes[cid.0 as usize].decl else { continue };
+                let Some(cid) = func_elem.class else { return };
+                let Some(decl) = ctx.program.classes[cid.0 as usize].decl else { return };
                 let mut builder = fn_builder::FnBuilder::new(ctx, decl.unit, symbol, name.to_string(), Type::Void);
                 builder.declarar_parametros(f_idx, true);
                 builder.enclosing_class = Some(cid);
                 let ast = &ctx.program.unit(decl.unit).ast;
                 builder.lower_construtor_sintetico(ast, cid);
-                builder.finalizar(&mut module);
+                builder.finalizar(module);
             }
         }
     }
+}
 
+fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
     // 3. Variáveis de topo e campos estáticos do usuário: um getter
     // preguiçoso por global (N6).
     for (v_idx, v) in ctx.program.variables.iter().enumerate() {
         let vid = VariableId(v_idx as u32);
-        if ctx.program.library(v.library).is_sdk || !e_global(ctx, vid) {
+        if !ctx.biblioteca_compilada(v.library) || !e_global(ctx, vid) {
             continue;
         }
         let unit = match v.node {
