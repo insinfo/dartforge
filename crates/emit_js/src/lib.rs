@@ -372,6 +372,7 @@ pub fn compilar_com_gerador<R>(
             for c in v.iter().filter(|c| c.contains("limitless")).take(3) { eprintln!("  L {c}"); }
         }
     }
+    let gerados_das_macros = gerados.clone();
     let (program, elements_diags) = dartforge_elements::load::load_lenient_gerados(
         entrada,
         &sdk,
@@ -397,6 +398,34 @@ pub fn compilar_com_gerador<R>(
         }
         return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
     }
+    // Macros (docs/MACROS-PROTOCOLO.md): só se o programa declara alguma
+    // classe `macro` — senão nem o hospedeiro é consultado (custo zero). O
+    // executor do produto é o nativo, ainda indisponível: uma aplicação vira
+    // erro claro na anotação (ou roda `dartforge macros --materializar`).
+    let program = if dartforge_macros_host::tem_macros(&program) {
+        let t = Instant::now();
+        let mut executor = dartforge_macros_host::executor::Indisponivel::default();
+        let mut carregar = |i: &mut Interner, g| {
+            dartforge_elements::load::load_lenient_gerados(entrada, &sdk, packages, i, None, None, g)
+        };
+        match dartforge_macros_host::aplicar(program, &mut interner, gerados_das_macros, &mut carregar, &mut executor) {
+            Ok(s) => {
+                for a in &s.avisos {
+                    eprintln!("aviso: {a}");
+                }
+                rel.fase("macros", t);
+                s.program
+            }
+            Err(ds) => {
+                for d in &ds {
+                    eprintln!("erro: {d}");
+                }
+                return Err(format!("{} erro(s) nas macros", ds.len()));
+            }
+        }
+    } else {
+        program
+    };
     let t = Instant::now();
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);

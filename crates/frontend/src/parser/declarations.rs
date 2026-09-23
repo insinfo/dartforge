@@ -118,12 +118,44 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
             return Ok(());
         }
+        let augment = self.parse_augment_opt();
         if !self.can_start_declaration() {
             return Err(self.error("esperava uma declaração"));
         }
-        let id = self.parse_top_level_declaration(start, metadata)?;
+        let id = self.parse_top_level_declaration(start, metadata, augment)?;
         unit.declarations.push(id);
         Ok(())
+    }
+
+    /// O modificador `augment` de uma declaração de topo ou de um membro
+    /// (docs/AUGMENTATIONS.md), consumido se presente.
+    ///
+    /// `augment` é identificador embutido só onde o recurso existe: com
+    /// `augmentations` ou `macros` ligados, é modificador quando vem antes de
+    /// outra palavra (`augment class`, `augment void f()`, `augment C.x(`).
+    /// Sem eles, só as formas que não podem ser outra coisa (`augment class`,
+    /// `augment mixin`, …) são lidas como modificador — com o diagnóstico de
+    /// recurso desligado —, para não quebrar código 3.6 que usa `augment`
+    /// como nome.
+    fn parse_augment_opt(&mut self) -> bool {
+        if !self.at_ident("augment") {
+            return false;
+        }
+        let ligado =
+            self.features.tem(Feature::Augmentations) || self.features.tem(Feature::Macros);
+        let seguinte_e_palavra = matches!(self.kind_at(1), Kind::Ident | Kind::Keyword(_));
+        let inequivoco = matches!(self.kind_at(1), Kind::Keyword(Keyword::Class | Keyword::Enum))
+            || (self.kind_at(1) == Kind::Ident
+                && matches!(self.text_of(self.pos + 1), "mixin" | "extension" | "abstract" | "base" | "sealed" | "interface")
+                && matches!(self.kind_at(2), Kind::Ident | Kind::Keyword(_)));
+        if !(seguinte_e_palavra && (ligado || inequivoco)) {
+            return false;
+        }
+        let t = self.advance();
+        if !ligado {
+            self.exigir(Feature::Augmentations, t.span);
+        }
+        true
     }
 
     /// O token corrente pode iniciar uma declaração de topo ou um membro?
@@ -306,6 +338,26 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (sem consumir nada). `library`, `import`, `export` e `part` são
     /// identificadores embutidos, então a decisão olha o token seguinte.
     fn parse_directive_opt(&mut self) -> PResult<Option<DirectiveKind>> {
+        // `import augment 'uri';` e `augment library 'uri';`: a forma de
+        // biblioteca de augmentation que o SDK 3.6 aceita com
+        // `--enable-experiment=macros` (e a que o CFE 3.6.2 gera para a saída
+        // das macros).
+        if self.at_ident("import") && self.at_ident_at(1, "augment") && self.string_at(2) {
+            self.advance();
+            let t = self.advance();
+            self.exigir(Feature::Macros, t.span);
+            let uri = self.parse_string_literal()?;
+            self.expect_op(Op::Semicolon)?;
+            return Ok(Some(DirectiveKind::ImportAugment { uri }));
+        }
+        if self.at_ident("augment") && self.at_ident_at(1, "library") && self.string_at(2) {
+            let t = self.advance();
+            self.exigir(Feature::Macros, t.span);
+            self.advance();
+            let uri = self.parse_string_literal()?;
+            self.expect_op(Op::Semicolon)?;
+            return Ok(Some(DirectiveKind::AugmentLibrary { uri }));
+        }
         if self.at_ident("library") && (self.at_identifier_at(1) || self.at_op_at(1, Op::Semicolon))
         {
             self.advance();
@@ -495,6 +547,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         start: Span,
         metadata: Vec<Annotation>,
+        augment: bool,
     ) -> PResult<DeclId> {
         let kind = if self.class_follows() {
             DeclKind::Class(self.parse_class()?)
@@ -522,6 +575,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             span: self.span_from(start),
             metadata: metadata.into_boxed_slice(),
             kind,
+            augment,
         }))
     }
 
@@ -534,7 +588,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Kind::Ident
                     if matches!(
                         self.text_of(i),
-                        "abstract" | "base" | "interface" | "sealed" | "mixin"
+                        "abstract" | "base" | "interface" | "sealed" | "mixin" | "macro"
                     ) =>
                 {
                     i += 1
@@ -567,6 +621,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 modifiers.sealed = true;
             } else if self.eat_ident("mixin") {
                 modifiers.mixin = true;
+            } else if self.at_ident("macro") {
+                let t = self.advance();
+                self.exigir(Feature::Macros, t.span);
+                modifiers.macro_ = true;
             } else {
                 break;
             }
@@ -788,6 +846,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }]
                     .into_boxed_slice(),
                 }),
+                augment: false,
             };
             campos.push(self.ast.push_member(campo));
             // `var T p` → `T this.p` (com o tipo, se escrito).
@@ -831,6 +890,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 body,
                 parte_primaria: false,
             }),
+            augment: false,
         };
         let k2 = match partes.first() {
             Some(&i) => {
@@ -1449,6 +1509,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             return Err(self.error("esperava um membro"));
         }
+        let augment = self.parse_augment_opt();
         let fstart = self.span();
         let mods = self.parse_modifiers();
         let primarios = self.features.tem(Feature::PrimaryConstructors);
@@ -1476,6 +1537,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             span: self.span_from(start),
             metadata: metadata.into_boxed_slice(),
             kind,
+            augment,
         }))
     }
 
@@ -2435,6 +2497,96 @@ mod tests {
             let f = out.ast.decl(out.unit.declarations[1]);
             assert!(f.metadata[0].arguments.is_none());
             assert!(matches!(f.kind, DeclKind::Function(_)));
+        }
+    }
+
+    /// `augment`, `macro class`, `import augment` e `augment library`
+    /// (docs/AUGMENTATIONS.md, experimentos `augmentations`/`macros`).
+    mod augmentations {
+        use super::*;
+        use crate::features::{Feature, LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+
+        fn com(exp: &[Feature], src: &str, names: &mut Interner) -> Parsed {
+            parse_com(src, names, LibraryFeatures::new(LanguageVersion::PISO, exp))
+        }
+
+        #[test]
+        fn augment_em_topo_e_membros() {
+            let mut names = Interner::new();
+            let src = "augment class C { augment void f() {} int g() => 1; augment C.x() : y = 1; augment int get z => 2; }
+                       augment String saudacao(String n) => n;";
+            let out = com(&[Feature::Macros], src, &mut names);
+            assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
+            let d = out.ast.decl(out.unit.declarations[0]);
+            assert!(d.augment);
+            let c = class(&out, 0);
+            let aug: Vec<bool> = c.members.iter().map(|&m| out.ast.member(m).augment).collect();
+            assert_eq!(aug, [true, false, true, true]);
+            assert!(matches!(member(&out, c, 2), MemberKind::Constructor(_)));
+            assert!(out.ast.decl(out.unit.declarations[1]).augment);
+        }
+
+        #[test]
+        fn augment_e_nome_comum_sem_o_recurso() {
+            // Sem `augmentations`/`macros`, `augment` continua identificador:
+            // código 3.6 que o usa como nome não muda de sentido.
+            let mut names = Interner::new();
+            let out = com(&[], "var augment = 1; int f() => augment; void augment2() {}", &mut names);
+            assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
+            assert!(!out.ast.decl(out.unit.declarations[0]).augment);
+            // A forma inequívoca é lida, com o diagnóstico de recurso desligado.
+            let out = com(&[], "augment class C {}", &mut names);
+            assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+            assert!(out.diagnostics[0].message.contains("augmentations"));
+            assert!(out.ast.decl(out.unit.declarations[0]).augment);
+        }
+
+        #[test]
+        fn macro_class_e_diretivas_da_forma_36() {
+            let mut names = Interner::new();
+            let src = "import augment 'a_aug.dart';
+macro class M implements Macro { const M(); }";
+            let out = com(&[Feature::Macros], src, &mut names);
+            assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
+            assert!(matches!(out.unit.directives[0].kind, DirectiveKind::ImportAugment { .. }));
+            assert!(class(&out, 0).modifiers.macro_);
+            let out = com(&[Feature::Macros], "augment library 'main.dart';
+import 'dart:core' as p;", &mut names);
+            assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
+            assert!(matches!(out.unit.directives[0].kind, DirectiveKind::AugmentLibrary { .. }));
+            // Sem `macros`: diagnóstico, não erro de sintaxe.
+            let out = com(&[], "macro class M {}", &mut names);
+            assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+            assert!(class(&out, 0).modifiers.macro_);
+        }
+
+        #[test]
+        fn texto_gerado_pelo_cfe_para_o_json_codable() {
+            // A augmentation que o CFE 3.6.2 gera para o `@JsonCodable`.
+            let mut names = Interner::new();
+            let src = "augment library 'main.dart';
+
+import 'dart:core' as prefix0;
+
+                       augment class Usuario {
+                         external Usuario.fromJson(prefix0.Map<prefix0.String, prefix0.Object?> json);
+                         augment Usuario.fromJson(prefix0.Map<prefix0.String, prefix0.Object?> json, )
+                             : this.nome = json[r'nome'] as prefix0.String;
+                         augment prefix0.Map<prefix0.String, prefix0.Object?> toJson() {
+                           final json = <prefix0.String, prefix0.Object?>{};
+    return json;
+  }
+}
+";
+            let out = com(&[Feature::Macros], src, &mut names);
+            assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
+            let c = class(&out, 0);
+            assert_eq!(c.members.len(), 3);
+            assert!(!out.ast.member(c.members[0]).augment);
+            assert!(out.ast.member(c.members[1]).augment);
+            assert!(matches!(member(&out, c, 1), MemberKind::Constructor(_)));
+            assert!(matches!(member(&out, c, 2), MemberKind::Method(_)));
         }
     }
 }

@@ -14,8 +14,12 @@ use url::Url;
 /// Representação intermediária desvinculada de empréstimos para processar diretivas.
 enum DirectiveAction {
     Library(Vec<SymbolId>),
+    /// `part 'uri'` ou, com `augmentation`, `import augment 'uri'` (forma
+    /// 3.6 das bibliotecas de augmentation): a unidade apontada pertence a
+    /// esta biblioteca.
     Part {
         uri: String,
+        augmentation: bool,
     },
     Import {
         uri: String,
@@ -342,7 +346,26 @@ pub fn load_lenient_gerados(
         let t_dir = std::time::Instant::now();
         let (leitura_antes, parse_antes) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
-        while unit_idx < program.libraries[lib_id.0 as usize].units.len() {
+        // A augmentation que o hospedeiro de macros montou para esta
+        // biblioteca (em memória, `<nome>.macro.dart` ao lado dela) entra
+        // por último, depois de todas as partes — como as bibliotecas de
+        // augmentation que o CFE cria para a saída das macros. Só é
+        // consultada quando há fontes geradas (custo zero sem macros).
+        let mut macro_anexada = false;
+        loop {
+            if unit_idx >= program.libraries[lib_id.0 as usize].units.len() {
+                if macro_anexada {
+                    break;
+                }
+                macro_anexada = true;
+                match anexar_augmentation_de_macro(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
+                    Some(uid) => {
+                        program.libraries[lib_id.0 as usize].units.push(uid);
+                        continue;
+                    }
+                    None => break,
+                }
+            }
             let unit_id = program.libraries[lib_id.0 as usize].units[unit_idx];
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
@@ -356,6 +379,11 @@ pub fn load_lenient_gerados(
                 UnitRole::Part
             };
 
+            // As unidades incluídas por esta (`part`, `import augment`) entram
+            // logo depois dela, na ordem das diretivas: `Library::units` fica
+            // na pré-ordem da árvore de partes, que é a ordem de aplicação
+            // das augmentations (spec de augmentations, "Application order").
+            let mut incluidas = 0usize;
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
                 .directives
@@ -368,7 +396,11 @@ pub fn load_lenient_gerados(
                     }
                     DirectiveKind::Part { uri } => {
                         let s = string_lit_value(uri)?;
-                        Some((dir_idx, DirectiveAction::Part { uri: s }))
+                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: false }))
+                    }
+                    DirectiveKind::ImportAugment { uri } => {
+                        let s = string_lit_value(uri)?;
+                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: true }))
                     }
                     DirectiveKind::Import {
                         uri,
@@ -415,7 +447,7 @@ pub fn load_lenient_gerados(
                             program.libraries[lib_id.0 as usize].name = Some(syms);
                         }
                     }
-                    DirectiveAction::Part { uri } => {
+                    DirectiveAction::Part { uri, augmentation } => {
                         if libs_do_cache.contains(&lib_id) {
                             // Partes já vieram do cache, verificadas ao construí-lo.
                             continue;
@@ -440,11 +472,12 @@ pub fn load_lenient_gerados(
                             Versao::Parte { da_biblioteca, config: &package_config, corrente: sdk.versao_corrente }
                         };
 
+                        let papel = if augmentation { UnitRole::Augmentation } else { papel_das_partes };
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            papel_das_partes,
+                            papel,
                             versao_da_parte,
                             interner,
                             &mut program,
@@ -454,8 +487,20 @@ pub fn load_lenient_gerados(
                         );
 
                         if let Some(p_uid) = part_unit {
-                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
-                            program.libraries[lib_id.0 as usize].units.push(p_uid);
+                            if augmentation {
+                                verify_augment_library(&program, p_uid, unit_path.as_deref(), &mut diagnostics);
+                            } else {
+                                verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
+                            }
+                            // O SDK fica na ordem de descoberta de sempre (a
+                            // mesma do cache do SDK): lá não há augmentation.
+                            let libr = &mut program.libraries[lib_id.0 as usize];
+                            if libr.is_sdk {
+                                libr.units.push(p_uid);
+                            } else {
+                                libr.units.insert(unit_idx + incluidas, p_uid);
+                                incluidas += 1;
+                            }
                         }
                     }
                     DirectiveAction::Import {
@@ -1058,6 +1103,82 @@ fn evaluate_configuration(
         return supported;
     }
     false
+}
+
+/// O caminho da augmentation de macro de uma biblioteca: `x.macro.dart` ao
+/// lado de `x.dart` (o mesmo nome da materialização,
+/// docs/MACROS-COMPATIBILIDADE.md).
+pub fn caminho_da_augmentation_de_macro(biblioteca: &Path) -> PathBuf {
+    let stem = biblioteca.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    biblioteca.with_file_name(format!("{stem}.macro.dart"))
+}
+
+/// Carrega a augmentation de macro de `lib`, se a geração em memória tiver
+/// uma (e a biblioteca ainda não a incluir por `import augment`/`part`).
+fn anexar_augmentation_de_macro(
+    program: &mut Program,
+    lib_id: LibraryId,
+    package_config: &PackageConfig,
+    corrente: LanguageVersion,
+    interner: &mut Interner,
+    diagnostics: &mut Vec<Diagnostic>,
+    prefetch: &mut Prefetch,
+) -> Option<UnitId> {
+    let gerados = package_config.gerados.as_ref().filter(|g| !g.vazia())?;
+    let lib = &program.libraries[lib_id.0 as usize];
+    if lib.is_sdk {
+        return None;
+    }
+    let principal = program.units[lib.units.first()?.0 as usize].path.clone()?;
+    let caminho = caminho_da_augmentation_de_macro(&principal);
+    if !gerados.contem(&caminho) {
+        return None;
+    }
+    let chave = crate::gerado::chave(&caminho);
+    if lib.units.iter().any(|u| program.units[u.0 as usize].path.as_deref().map(crate::gerado::chave).as_ref() == Some(&chave)) {
+        return None;
+    }
+    let uri = canonical_file_uri(&caminho, package_config);
+    let versao = Versao::Parte { da_biblioteca: lib.features, config: package_config, corrente };
+    let lido = prefetch.tirar(&caminho);
+    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, versao, interner, program, diagnostics, lido, None)?;
+    Some(uid)
+}
+
+/// A unidade de `import augment 'x'` tem de começar por `augment library 'y'`
+/// com `y` apontando para quem a importou (a regra do par `part`/`part of`).
+fn verify_augment_library(
+    program: &Program,
+    aug_unit_id: UnitId,
+    quem_importa: Option<&Path>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let unidade = &program.units[aug_unit_id.0 as usize];
+    let cabecalho = unidade.unit.directives.iter().find_map(|d| match &d.kind {
+        DirectiveKind::AugmentLibrary { uri } => Some((d.span, uri)),
+        _ => None,
+    });
+    let Some((span, uri)) = cabecalho else {
+        diagnostics.push(Diagnostic::new(
+            format!("a biblioteca de augmentation '{}' não começa por 'augment library'", unidade.uri),
+            Span { start: 0, end: 0 },
+        ));
+        return;
+    };
+    let (Some(alvo), Some(caminho), Some(importador)) = (string_lit_value(uri), &unidade.path, quem_importa) else {
+        return;
+    };
+    let esperado = normalizar(&caminho.parent().unwrap_or(Path::new(".")).join(&alvo));
+    if esperado != normalizar(importador) {
+        diagnostics.push(Diagnostic::new(
+            format!(
+                "'augment library' aponta para '{}', mas quem importa a augmentation é '{}'",
+                esperado.display(),
+                importador.display()
+            ),
+            span,
+        ));
+    }
 }
 
 fn verify_part_of(

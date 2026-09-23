@@ -854,6 +854,11 @@ fn finish_body(e: &mut FnEmitter) -> String {
 
 fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Writer, accessors: &mut Vec<(String, String)>) {
     let f = ctx.program.function(fid);
+    // Declaração completada por outra da cadeia de augmentation: só o
+    // elemento efetivo é emitido (docs/AUGMENTATIONS.md).
+    if f.patched_by.is_some() && !ctx.program.library(f.library).is_sdk {
+        return;
+    }
     let lvar = &ctx.libs[f.library.0 as usize].js_var;
     let name = ctx.name(f.name);
     if ctx.is_js_member(fid) {
@@ -1091,13 +1096,16 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     let generic = ctx.requires_rti(c);
     let d = ctx.program.unit(unit).ast.decl(decl.decl);
-    let (members, enum_constants): (Vec<ast::MemberId>, Vec<&ast::EnumConstant>) = match &d.kind {
-        DeclKind::Class(cd) => (cd.members.clone(), vec![]),
-        DeclKind::Mixin(md) => (md.members.clone(), vec![]),
-        DeclKind::Enum(ed) => (ed.members.clone(), ed.constants.iter().collect()),
-        _ => (vec![], vec![]),
+    let enum_constants: Vec<&ast::EnumConstant> = match &d.kind {
+        DeclKind::Enum(ed) => ed.constants.iter().collect(),
+        _ => vec![],
     };
-    let ast = &ctx.program.unit(unit).ast;
+    // Os membros da declaração e das augmentations dela (docs/AUGMENTATIONS.md),
+    // cada um com a sua unidade.
+    let members: Vec<(UnitId, ast::MemberId)> = match &d.kind {
+        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => ctx.program.membros_da_classe(c),
+        _ => vec![],
+    };
 
     // Campos de instância.
     let mut fields: Vec<FieldInfo> = Vec::new();
@@ -1208,9 +1216,10 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let mut generic_methods: Vec<(String, Vec<Ty>)> = Vec::new();
     let mut ctors: Vec<(ast::MemberId, ast::Constructor)> = Vec::new();
     let _ = &mut ctors;
-    let mut ctor_members: Vec<ast::MemberId> = Vec::new();
+    let mut ctor_members: Vec<(UnitId, ast::MemberId)> = Vec::new();
     let mut has_equals = false;
-    for &mid in &members {
+    for &(mu, mid) in &members {
+        let ast = &ctx.program.unit(mu).ast;
         let mem = ast.member(mid);
         match &mem.kind {
             MemberKind::Method(fid) => {
@@ -1224,6 +1233,11 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 let ksym = ctx.sym(&key);
                 let fe = ksym.and_then(|s| if af.static_ { class.static_members.get(&s) } else { class.instance_members.get(&s) }.copied());
                 let Some(feid) = fe else { continue };
+                // Membro completado por outra declaração da cadeia de
+                // augmentation: o elemento efetivo é o dela.
+                if ctx.program.function(feid).node != (FunctionRef::Function { unit: mu, function: *fid }) {
+                    continue;
+                }
                 if matches!(af.body, FunctionBody::Empty) && !af.external {
                     continue; // abstrato
                 }
@@ -1232,7 +1246,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     continue;
                 }
                 let jsname = js_member_name(&name);
-                let mut e_tmp = FnEmitter::new(ctx, m, unit, Some(c), af.static_);
+                let mut e_tmp = FnEmitter::new(ctx, m, mu, Some(c), af.static_);
                 let key_js = e_tmp.decl_member_key(c, &name);
                 let data = &ctx.outline.functions[feid.0 as usize];
                 let fty = ctx.fn_ty(feid);
@@ -1309,7 +1323,11 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
             }
             MemberKind::Constructor(ctor) => {
-                let estado = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied()).map_or(crate::filtro::Estado::Viva, |f| ctx.estado_fn(f));
+                let efetivo = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied());
+                if efetivo.is_some_and(|f| ctx.program.function(f).node != (FunctionRef::Constructor { unit: mu, member: mid })) {
+                    continue;
+                }
+                let estado = efetivo.map_or(crate::filtro::Estado::Viva, |f| ctx.estado_fn(f));
                 if estado == crate::filtro::Estado::Morta {
                     continue;
                 }
@@ -1319,10 +1337,10 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     cw.line(&format!("static {}(...a) {{ return dart_podado({r}); }}", js::prop_key(&static_member_name(&n))));
                     static_methods.push(n);
                 } else if ctor.factory {
-                    emit_factory(ctx, m, c, unit, ctor, mid, &mut cw);
+                    emit_factory(ctx, m, c, mu, ctor, mid, &mut cw);
                     static_methods.push(ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into()));
                 } else {
-                    ctor_members.push(mid);
+                    ctor_members.push((mu, mid));
                 }
             }
             MemberKind::Field(_) => {}
@@ -1484,8 +1502,8 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         w.push_raw(&body.out);
         crate::linha!(w, "}}).prototype = {cref}.prototype;");
     }
-    for mid in ctor_members {
-        let mem = ast.member(mid);
+    for (mu, mid) in ctor_members {
+        let mem = ctx.program.unit(mu).ast.member(mid);
         let MemberKind::Constructor(ctor) = &mem.kind else { continue };
         let name = ctor.name.map(|n| ctx.name(n.sym).to_string());
         let jsname = name.clone().map(|n| static_member_name(&n)).unwrap_or("new".into());
@@ -1496,7 +1514,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             crate::linha!(w, "({cref}.{jsname} = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
             continue;
         }
-        let text = emit_constructor(ctx, m, c, unit, ctor, &fields, generic, is_enum);
+        let text = emit_constructor(ctx, m, c, mu, ctor, &fields, generic, is_enum);
         crate::linha!(w, "({cref}.{jsname} = {text}).prototype = {cref}.prototype;");
     }
     if is_mixin || class.modifiers.mixin {

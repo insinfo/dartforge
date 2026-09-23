@@ -36,3 +36,5 @@ runtime/ddc/*/
 
 # Corpus de paridade: o package_config de cada grupo é escrito pelo harness.
 /corpus/diagnosticos/*/.dart_tool/
+# corpus de macros: o package_config do pub get tem caminhos da máquina (o pub-cache)
+/corpus/macros/*/.dart_tool/
