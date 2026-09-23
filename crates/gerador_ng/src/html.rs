@@ -35,10 +35,16 @@ pub enum No {
     /// `{{ expressão }}`, com o intervalo em bytes da forma inteira
     /// (`{{` a `}}`) no arquivo do template — é o que vai no comentário
     /// `/* REF:url:inicio:fim */` que o oficial escreve.
-    Interpolacao { expr: String, inicio: usize, fim: usize },
+    Interpolacao {
+        expr: String,
+        inicio: usize,
+        fim: usize,
+    },
     Comentario(String),
     /// `<ng-content select="...">`.
-    Conteudo { seletor: Option<String> },
+    Conteudo {
+        seletor: Option<String>,
+    },
 }
 
 /// Uma ligação escrita no elemento.
@@ -93,7 +99,11 @@ pub fn tem_projecao(nos: &[No]) -> bool {
 /// segue, como o do ngast, para que um template quebrado não derrube a
 /// geração inteira.
 pub fn analisar(fonte: &str) -> Vec<No> {
-    let mut p = Parser { b: fonte.as_bytes(), i: 0, fonte };
+    let mut p = Parser {
+        b: fonte.as_bytes(),
+        i: 0,
+        fonte,
+    };
     let mut nos = reduzir_espacos(p.nos(None));
     if !fonte.is_ascii() {
         em_utf16(&mut nos, fonte);
@@ -170,7 +180,8 @@ impl<'a> Parser<'a> {
                 saida.push(self.ler_comentario());
                 continue;
             }
-            if self.olhar(0) == b'<' && (self.olhar(1).is_ascii_alphabetic() || self.olhar(1) == b'!')
+            if self.olhar(0) == b'<'
+                && (self.olhar(1).is_ascii_alphabetic() || self.olhar(1) == b'!')
             {
                 if self.olhar(1) == b'!' {
                     // `<!DOCTYPE …>` e afins: fora do template do Angular.
@@ -215,7 +226,9 @@ impl<'a> Parser<'a> {
         while !self.fim() && self.olhar(0) != b'>' {
             self.i += 1;
         }
-        let nome = self.fonte[inicio..self.i.min(self.fonte.len())].trim().to_string();
+        let nome = self.fonte[inicio..self.i.min(self.fonte.len())]
+            .trim()
+            .to_string();
         if !self.fim() {
             self.i += 1;
         }
@@ -260,12 +273,17 @@ impl<'a> Parser<'a> {
     fn ler_elemento(&mut self) -> Option<No> {
         self.i += 1;
         let inicio = self.i;
-        while !self.fim() && !self.olhar(0).is_ascii_whitespace() && !matches!(self.olhar(0), b'>' | b'/')
+        while !self.fim()
+            && !self.olhar(0).is_ascii_whitespace()
+            && !matches!(self.olhar(0), b'>' | b'/')
         {
             self.i += 1;
         }
         let nome = self.fonte[inicio..self.i].to_string();
-        let mut el = Elemento { nome, ..Default::default() };
+        let mut el = Elemento {
+            nome,
+            ..Default::default()
+        };
         let mut seletor_do_conteudo = None;
         let mut sozinho = false;
         loop {
@@ -283,8 +301,17 @@ impl<'a> Parser<'a> {
                 break;
             }
             let inicio = self.i;
-            let Some((nome, valor)) = self.ler_atributo() else { break };
-            classificar(&mut el, &mut seletor_do_conteudo, nome, valor, inicio, self.i);
+            let Some((nome, valor)) = self.ler_atributo() else {
+                break;
+            };
+            classificar(
+                &mut el,
+                &mut seletor_do_conteudo,
+                nome,
+                valor,
+                inicio,
+                self.i,
+            );
         }
         let vazio = VAZIOS.contains(&el.nome.to_ascii_lowercase().as_str());
         if !sozinho && !vazio {
@@ -292,7 +319,9 @@ impl<'a> Parser<'a> {
             el.filhos = reduzir_espacos(self.nos(Some(&nome)));
         }
         if el.nome.eq_ignore_ascii_case("ng-content") {
-            return Some(No::Conteudo { seletor: seletor_do_conteudo });
+            return Some(No::Conteudo {
+                seletor: seletor_do_conteudo,
+            });
         }
         Some(No::Elemento(el))
     }
@@ -357,24 +386,49 @@ fn classificar(
     inicio: usize,
     fim: usize,
 ) {
-    let l = Ligacao { nome: String::new(), valor: valor.clone(), inicio, fim };
+    let l = Ligacao {
+        nome: String::new(),
+        valor: valor.clone(),
+        inicio,
+        fim,
+    };
     if let Some(interno) = nome.strip_prefix("[(").and_then(|n| n.strip_suffix(")]")) {
-        el.bananas.push(Ligacao { nome: interno.to_string(), ..l });
+        el.bananas.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
     } else if let Some(interno) = nome.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
-        el.propriedades.push(Ligacao { nome: interno.to_string(), ..l });
+        el.propriedades.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
     } else if let Some(interno) = nome.strip_prefix('(').and_then(|n| n.strip_suffix(')')) {
-        el.eventos.push(Ligacao { nome: interno.to_string(), ..l });
+        el.eventos.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
     } else if let Some(interno) = nome.strip_prefix('#') {
-        el.referencias.push(Ligacao { nome: interno.to_string(), ..l });
+        el.referencias.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
     } else if let Some(interno) = nome.strip_prefix('*') {
-        el.estrela = Some(Ligacao { nome: interno.to_string(), ..l });
+        el.estrela = Some(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
     } else if nome.eq_ignore_ascii_case("bind-") {
         // forma longa não abreviada; sem uso nos projetos do proprietário
     } else {
         if el.nome.eq_ignore_ascii_case("ng-content") && nome == "select" {
             *conteudo = Some(valor.clone());
         }
-        el.atributos.push(Ligacao { nome, valor, inicio, fim });
+        el.atributos.push(Ligacao {
+            nome,
+            valor,
+            inicio,
+            fim,
+        });
     }
 }
 
@@ -482,26 +536,38 @@ mod testes {
     #[test]
     fn template_vazio_e_comentario() {
         assert!(analisar("").is_empty());
-        assert_eq!(analisar("<!--{{message}}-->"), vec![No::Comentario("{{message}}".into())]);
+        assert_eq!(
+            analisar("<!--{{message}}-->"),
+            vec![No::Comentario("{{message}}".into())]
+        );
     }
 
     #[test]
     fn ng_content() {
-        assert_eq!(analisar("<ng-content></ng-content>"), vec![No::Conteudo { seletor: None }]);
+        assert_eq!(
+            analisar("<ng-content></ng-content>"),
+            vec![No::Conteudo { seletor: None }]
+        );
         assert_eq!(
             analisar("<ng-content select='.x'></ng-content>"),
-            vec![No::Conteudo { seletor: Some(".x".into()) }]
+            vec![No::Conteudo {
+                seletor: Some(".x".into())
+            }]
         );
     }
 
     #[test]
     fn elemento_com_filhos_e_atributos() {
         let n = analisar("<div class=\"a\"><span>oi</span></div>");
-        let No::Elemento(div) = &n[0] else { panic!("{n:?}") };
+        let No::Elemento(div) = &n[0] else {
+            panic!("{n:?}")
+        };
         assert_eq!(div.nome, "div");
         assert_eq!(div.atributos[0].nome, "class");
         assert_eq!(div.atributos[0].valor, "a");
-        let No::Elemento(span) = &div.filhos[0] else { panic!("{:?}", div.filhos) };
+        let No::Elemento(span) = &div.filhos[0] else {
+            panic!("{:?}", div.filhos)
+        };
         assert_eq!(span.filhos, vec![No::Texto("oi".into())]);
     }
 
@@ -523,7 +589,11 @@ mod testes {
             analisar("a{{ b }}c"),
             vec![
                 No::Texto("a".into()),
-                No::Interpolacao { expr: "b".into(), inicio: 1, fim: 8 },
+                No::Interpolacao {
+                    expr: "b".into(),
+                    inicio: 1,
+                    fim: 8
+                },
                 No::Texto("c".into())
             ]
         );
@@ -539,7 +609,11 @@ mod testes {
                 nome: "span".into(),
                 filhos: vec![
                     No::Texto("© ".into()),
-                    No::Interpolacao { expr: "ano".into(), inicio: 8, fim: 15 },
+                    No::Interpolacao {
+                        expr: "ano".into(),
+                        inicio: 8,
+                        fim: 15
+                    },
                 ],
                 ..Default::default()
             })]
@@ -550,7 +624,9 @@ mod testes {
     fn elemento_vazio_nao_engole_o_resto() {
         let n = analisar("<br><span>x</span>");
         assert_eq!(n.len(), 2);
-        let No::Elemento(br) = &n[0] else { panic!("{n:?}") };
+        let No::Elemento(br) = &n[0] else {
+            panic!("{n:?}")
+        };
         assert!(br.filhos.is_empty());
     }
 
@@ -562,7 +638,9 @@ mod testes {
         let n = analisar(
             "<div class=\"c\">\n      <img src=\"a.svg\">  \n     <!-- x -->\n    <div>{{m}}</div>\n</div>",
         );
-        let No::Elemento(div) = &n[0] else { panic!("{n:?}") };
+        let No::Elemento(div) = &n[0] else {
+            panic!("{n:?}")
+        };
         let textos: Vec<&String> = div
             .filhos
             .iter()

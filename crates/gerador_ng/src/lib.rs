@@ -27,11 +27,11 @@ pub mod sass;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
-use visao::Motivo;
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use visao::Motivo;
 
 /// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
@@ -69,7 +69,11 @@ pub struct Hospedeira {
 }
 
 /// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
-fn hospedeira(arvore: &ast::Ast, interner: &Interner, classe: &ast::ClassDecl) -> Option<Hospedeira> {
+fn hospedeira(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> Option<Hospedeira> {
     let mut acessores = Vec::new();
     let mut campos = Vec::new();
     let mut recusada = false;
@@ -163,7 +167,10 @@ pub(crate) fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> Stri
             return texto.to_string();
         }
     }
-    a.name.first().map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default()
+    a.name
+        .first()
+        .map(|n| interner.resolve(n.sym).to_string())
+        .unwrap_or_default()
 }
 
 /// Varre as declarações de topo de uma unidade já analisada.
@@ -210,7 +217,9 @@ pub fn achar(
                             })
                         });
                         achados.hospedeiro_herdado |= herda && anotada;
-                        achados.hospedeiras.extend(hospedeira(arvore, interner, classe));
+                        achados
+                            .hospedeiras
+                            .extend(hospedeira(arvore, interner, classe));
                     }
                 }
                 "Pipe" => achados.pipes.push(alvo.clone()),
@@ -248,7 +257,10 @@ pub struct Placar {
 
 impl Placar {
     pub fn resumo(&self) -> String {
-        format!("ngdart: {}/{} gerados por nós", self.gerados, self.examinados)
+        format!(
+            "ngdart: {}/{} gerados por nós",
+            self.gerados, self.examinados
+        )
     }
 }
 
@@ -296,14 +308,20 @@ pub fn gerar_em(
     for dir in diretorios {
         let mut pilha = vec![dir.clone()];
         while let Some(d) = pilha.pop() {
-            let Ok(entradas) = std::fs::read_dir(&d) else { continue };
+            let Ok(entradas) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in entradas.flatten() {
                 let p = e.path();
                 if p.is_dir() {
                     pilha.push(p);
                     continue;
                 }
-                let nome = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let nome = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 if !nome.ends_with(".dart") || nome.ends_with(".template.dart") {
                     continue;
                 }
@@ -385,7 +403,9 @@ impl Indice {
             }
         }
         for (caminho, _nome, achados) in arquivos {
-            let Some(uri) = uri_de_biblioteca(pacote, caminho) else { continue };
+            let Some(uri) = uri_de_biblioteca(pacote, caminho) else {
+                continue;
+            };
             for comp in &achados.componentes {
                 if comp.seletor.is_empty() {
                     continue;
@@ -398,7 +418,10 @@ impl Indice {
         for ((_, classe), f) in &por_classe {
             por_nome.entry(classe.clone()).or_default().push(f.clone());
         }
-        Indice { por_classe, por_nome }
+        Indice {
+            por_classe,
+            por_nome,
+        }
     }
 
     /// Os filhos que este componente pode usar: os nomes de `directives:` que
@@ -469,7 +492,9 @@ pub fn nome_do_pacote(raiz: &Path) -> Option<String> {
     let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).ok()?;
     for linha in texto.lines() {
         // `name:` no primeiro nível, sem indentação.
-        let Some(valor) = linha.strip_prefix("name:") else { continue };
+        let Some(valor) = linha.strip_prefix("name:") else {
+            continue;
+        };
         if linha.starts_with(char::is_whitespace) {
             continue;
         }
@@ -500,7 +525,11 @@ fn gerar_arquivo(
     indice: &Indice,
 ) -> Result<(String, Vec<PathBuf>, Vec<(PathBuf, String)>), Motivo> {
     if achados.trivial() {
-        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new()));
+        return Ok((
+            template_trivial(nome_do_arquivo),
+            vec![fonte.to_path_buf()],
+            Vec::new(),
+        ));
     }
     if !achados.injetores.is_empty() {
         return Err(Motivo::Injetor);
@@ -513,7 +542,11 @@ fn gerar_arquivo(
             return Err(Motivo::HostBindingEmDiretiva);
         }
         return match achados.hospedeiras.as_slice() {
-            [] => Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new())),
+            [] => Ok((
+                template_trivial(nome_do_arquivo),
+                vec![fonte.to_path_buf()],
+                Vec::new(),
+            )),
             // Uma diretiva só no arquivo: com mais de uma classe gerada a
             // numeração dos imports passa a ser compartilhada, e isso ainda
             // não tem caso no corpus.
@@ -569,8 +602,7 @@ fn gerar_arquivo(
             Ok(t) => (t, css.clone()),
             Err(_) => {
                 let scss = css.with_extension("scss");
-                let fonte_scss =
-                    std::fs::read_to_string(&scss).map_err(|_| Motivo::Estilos)?;
+                let fonte_scss = std::fs::read_to_string(&scss).map_err(|_| Motivo::Estilos)?;
                 (sass::compilar(&fonte_scss)?, scss)
             }
         };
@@ -588,11 +620,7 @@ fn gerar_arquivo(
 /// URI `package:` do arquivo do template — o que o oficial escreve no
 /// comentário `REF` de cada ligação. Só para componentes em `lib/` com
 /// `templateUrl`; com template escrito na anotação a referência é outra.
-fn url_do_template(
-    pacote: &Pacote,
-    fonte: &Path,
-    comp: &componente::Componente,
-) -> Option<String> {
+fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente) -> Option<String> {
     let url = comp.template_url.as_ref()?;
     let html = fonte.parent()?.join(url);
     let rel = pacote.relativo(&html);
@@ -603,13 +631,17 @@ fn url_do_template(
 /// A folha de um componente compila (Sass e shim)? É a mesma conta que o
 /// gerador faz; o placar usa para não marcar como pendente o que já sai.
 pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
-    let Some(dir) = fonte.parent() else { return false };
+    let Some(dir) = fonte.parent() else {
+        return false;
+    };
     let css = dir.join(url);
     let texto = match std::fs::read_to_string(&css) {
         Ok(t) => t,
         Err(_) => {
             let scss = css.with_extension("scss");
-            match std::fs::read_to_string(&scss).ok().map(|f| sass::compilar_em(&f, scss.parent()))
+            match std::fs::read_to_string(&scss)
+                .ok()
+                .map(|f| sass::compilar_em(&f, scss.parent()))
             {
                 Some(Ok(c)) => c,
                 _ => return false,
@@ -643,7 +675,11 @@ fn motivos_do_arquivo(
         (None, None) => String::new(),
     };
     let relativo = pacote.relativo(fonte);
-    let nome = fonte.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let nome = fonte
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let local = visao::Local {
         pacote: &pacote.nome,
         relativo: &relativo,
@@ -653,7 +689,13 @@ fn motivos_do_arquivo(
         url_do_template: url_do_template(pacote, fonte, comp),
     };
     let filhos = indice.filhos_de(comp, fonte, resolvedor);
-    fora.extend(visao::motivos(comp, &local, &html::analisar(&template), resolvedor, &filhos));
+    fora.extend(visao::motivos(
+        comp,
+        &local,
+        &html::analisar(&template),
+        resolvedor,
+        &filhos,
+    ));
     fora
 }
 
@@ -685,7 +727,12 @@ pub fn gerar_com_apoio(
             if c.contem(caminho) {
                 continue;
             }
-            c.por(caminho.clone(), f.conteudo.to_string(), f.gerador, f.entradas.to_vec());
+            c.por(
+                caminho.clone(),
+                f.conteudo.to_string(),
+                f.gerador,
+                f.entradas.to_vec(),
+            );
         }
     }
     let g = c.concluir(1).unwrap_or_else(|erros| {
@@ -742,9 +789,11 @@ mod testes {
     /// vazio no lugar de um injetor inteiro.
     #[test]
     fn acha_injetor_em_variavel_de_topo() {
-        let a = achados_de("@GenerateInjector([])
+        let a = achados_de(
+            "@GenerateInjector([])
 final InjectorFactory injector = self.injector$Injector;
-");
+",
+        );
         assert_eq!(a.injetores.len(), 1);
         assert!(!a.trivial());
     }

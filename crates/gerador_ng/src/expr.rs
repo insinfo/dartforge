@@ -11,10 +11,10 @@
 use crate::componente::Membro;
 use crate::resolucao::Resolucao;
 use crate::visao::Motivo;
-use std::path::Path;
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Um local de visão embutida: o nome em Dart e o tipo.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +61,14 @@ pub fn converter_com_metodos(
     interner: &mut Interner,
     tipos: Option<(&dyn Resolucao, &Path)>,
 ) -> Result<Convertida, Motivo> {
-    converter_com_locais(expressao, membros, metodos, &HashMap::new(), interner, tipos)
+    converter_com_locais(
+        expressao,
+        membros,
+        metodos,
+        &HashMap::new(),
+        interner,
+        tipos,
+    )
 }
 
 /// Como [`converter_com_metodos`], com os locais de uma visão embutida
@@ -82,13 +89,27 @@ pub fn converter_com_locais(
     if !analisada.diagnostics.is_empty() {
         return Err(Motivo::Ligacao);
     }
-    let Some(&id) = analisada.unit.declarations.first() else { return Err(Motivo::Ligacao) };
+    let Some(&id) = analisada.unit.declarations.first() else {
+        return Err(Motivo::Ligacao);
+    };
     let ast::DeclKind::Variables(lista) = &analisada.ast.decl(id).kind else {
         return Err(Motivo::Ligacao);
     };
-    let Some(v) = lista.variables.first() else { return Err(Motivo::Ligacao) };
-    let Some(inicial) = v.initializer else { return Err(Motivo::Ligacao) };
-    let c = Conversor { ast: &analisada.ast, fonte: &fonte, interner, membros, metodos, locais, tipos };
+    let Some(v) = lista.variables.first() else {
+        return Err(Motivo::Ligacao);
+    };
+    let Some(inicial) = v.initializer else {
+        return Err(Motivo::Ligacao);
+    };
+    let c = Conversor {
+        ast: &analisada.ast,
+        fonte: &fonte,
+        interner,
+        membros,
+        metodos,
+        locais,
+        tipos,
+    };
     c.expr(inicial, true)
 }
 
@@ -120,9 +141,11 @@ impl Conversor<'_> {
                 imutavel: true,
                 tipo: Some("bool".into()),
             }),
-            ast::ExprKind::Null => {
-                Ok(Convertida { texto: "null".into(), imutavel: true, tipo: None })
-            }
+            ast::ExprKind::Null => Ok(Convertida {
+                texto: "null".into(),
+                imutavel: true,
+                tipo: None,
+            }),
             ast::ExprKind::String(lit) => {
                 // Só literal sem interpolação: `'a$b'` dentro do template é
                 // outra coisa e não aparece nos projetos do proprietário.
@@ -138,7 +161,11 @@ impl Conversor<'_> {
             ast::ExprKind::Identifier(n) => {
                 let nome = self.interner.resolve(n.sym);
                 if !raiz {
-                    return Ok(Convertida { texto: nome.to_string(), imutavel: false, tipo: None });
+                    return Ok(Convertida {
+                        texto: nome.to_string(),
+                        imutavel: false,
+                        tipo: None,
+                    });
                 }
                 // O local do laço sombreia o membro do componente.
                 if let Some(l) = self.locais.get(nome) {
@@ -148,14 +175,20 @@ impl Conversor<'_> {
                         tipo: Some(l.tipo.clone()),
                     });
                 }
-                let Some(m) = self.membros.get(nome) else { return Err(Motivo::Ligacao) };
+                let Some(m) = self.membros.get(nome) else {
+                    return Err(Motivo::Ligacao);
+                };
                 Ok(Convertida {
                     texto: format!("_ctx.{nome}"),
                     imutavel: m.imutavel,
                     tipo: Some(m.tipo.clone()),
                 })
             }
-            ast::ExprKind::Property { target, name, null_aware } => {
+            ast::ExprKind::Property {
+                target,
+                name,
+                null_aware,
+            } => {
                 let alvo = self.expr(*target, raiz)?;
                 let nome = self.interner.resolve(name.sym);
                 let ponto = if *null_aware { "?." } else { "." };
@@ -228,7 +261,11 @@ impl Conversor<'_> {
                 // como Dart daria `(_ctx.a | _ctx.b)`, que compila e faz
                 // outra coisa. Os demais (`&`, `^`, `<<`, `~/`…) não existem
                 // na linguagem de expressões do ngdart.
-                Err(if *op == ast::BinaryOp::BitOr { Motivo::PipesUsados } else { Motivo::Ligacao })
+                Err(if *op == ast::BinaryOp::BitOr {
+                    Motivo::PipesUsados
+                } else {
+                    Motivo::Ligacao
+                })
             }
             ast::ExprKind::Binary { left, right, .. } => {
                 let a = self.expr(*left, raiz)?;
@@ -242,7 +279,11 @@ impl Conversor<'_> {
                     tipo: None,
                 })
             }
-            ast::ExprKind::Conditional { condition, then, else_ } => {
+            ast::ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 let c = self.expr(*condition, raiz)?;
                 let t = self.expr(*then, raiz)?;
                 let f = self.expr(*else_, raiz)?;
@@ -259,7 +300,10 @@ impl Conversor<'_> {
 
     fn texto(&self, id: ast::ExprId) -> String {
         let s = self.ast.expr(id).span;
-        self.fonte.get(s.start as usize..s.end as usize).unwrap_or("").to_string()
+        self.fonte
+            .get(s.start as usize..s.end as usize)
+            .unwrap_or("")
+            .to_string()
     }
 
     /// O operador como escrito na fonte (o primeiro caractere do trecho).
@@ -280,7 +324,11 @@ impl Conversor<'_> {
         };
         let fim_esq = self.ast.expr(*left).span.end as usize;
         let ini_dir = self.ast.expr(*right).span.start as usize;
-        self.fonte.get(fim_esq..ini_dir).unwrap_or("").trim().to_string()
+        self.fonte
+            .get(fim_esq..ini_dir)
+            .unwrap_or("")
+            .trim()
+            .to_string()
     }
 }
 
@@ -314,10 +362,34 @@ mod testes {
 
     fn membros() -> HashMap<String, Membro> {
         HashMap::from([
-            ("item".to_string(), Membro { tipo: "Item".into(), imutavel: false }),
-            ("nome".to_string(), Membro { tipo: "String".into(), imutavel: false }),
-            ("fixo".to_string(), Membro { tipo: "int".into(), imutavel: true }),
-            ("titulo".to_string(), Membro { tipo: "String".into(), imutavel: true }),
+            (
+                "item".to_string(),
+                Membro {
+                    tipo: "Item".into(),
+                    imutavel: false,
+                },
+            ),
+            (
+                "nome".to_string(),
+                Membro {
+                    tipo: "String".into(),
+                    imutavel: false,
+                },
+            ),
+            (
+                "fixo".to_string(),
+                Membro {
+                    tipo: "int".into(),
+                    imutavel: true,
+                },
+            ),
+            (
+                "titulo".to_string(),
+                Membro {
+                    tipo: "String".into(),
+                    imutavel: true,
+                },
+            ),
         ])
     }
 
@@ -345,7 +417,10 @@ mod testes {
     #[test]
     fn binario_e_condicional_com_parenteses() {
         assert_eq!(conv("nome == 'x'").texto, "(_ctx.nome == 'x')");
-        assert_eq!(conv("fixo > 1 ? nome : 'y'").texto, "((_ctx.fixo > 1) ? _ctx.nome : 'y')");
+        assert_eq!(
+            conv("fixo > 1 ? nome : 'y'").texto,
+            "((_ctx.fixo > 1) ? _ctx.nome : 'y')"
+        );
     }
 
     /// `|` no template é pipe: recusado em qualquer profundidade, e o `||`
@@ -354,9 +429,18 @@ mod testes {
     fn pipe_e_recusado_e_ou_logico_passa() {
         let m = &membros();
         let mut i = Interner::new();
-        assert_eq!(converter("nome | fixo", m, &mut i), Err(Motivo::PipesUsados));
-        assert_eq!(converter("(nome | fixo) == 'x'", m, &mut i), Err(Motivo::PipesUsados));
-        assert_eq!(conv("fixo > 1 || fixo < 0").texto, "((_ctx.fixo > 1) || (_ctx.fixo < 0))");
+        assert_eq!(
+            converter("nome | fixo", m, &mut i),
+            Err(Motivo::PipesUsados)
+        );
+        assert_eq!(
+            converter("(nome | fixo) == 'x'", m, &mut i),
+            Err(Motivo::PipesUsados)
+        );
+        assert_eq!(
+            conv("fixo > 1 || fixo < 0").texto,
+            "((_ctx.fixo > 1) || (_ctx.fixo < 0))"
+        );
     }
 
     /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é

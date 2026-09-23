@@ -178,7 +178,9 @@ fn lista_de_textos(arvore: &ast::Ast, id: ast::ExprId) -> Vec<String> {
 
 /// Identificadores escritos numa lista literal (`directives: [A, B]`).
 fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> Vec<String> {
-    let ast::ExprKind::List { elements, .. } = &arvore.expr(id).kind else { return Vec::new() };
+    let ast::ExprKind::List { elements, .. } = &arvore.expr(id).kind else {
+        return Vec::new();
+    };
     elements
         .iter()
         .filter_map(|e| match e {
@@ -194,7 +196,9 @@ fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> Ve
 /// `ChangeDetectionStrategy.OnPush` — o que muda o estado inicial da visão.
 fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
     let span = arvore.expr(id).span;
-    fonte.get(span.start as usize..span.end as usize).is_some_and(|t| t.contains("OnPush"))
+    fonte
+        .get(span.start as usize..span.end as usize)
+        .is_some_and(|t| t.contains("OnPush"))
 }
 
 /// Extrai o `@Component` de uma classe anotada.
@@ -211,7 +215,9 @@ pub fn ler_componente(
     };
     if let Some(args) = &anotacao.arguments {
         for a in args.args.iter() {
-            let Some(nome) = a.name.as_ref().map(|n| interner.resolve(n.sym)) else { continue };
+            let Some(nome) = a.name.as_ref().map(|n| interner.resolve(n.sym)) else {
+                continue;
+            };
             match nome {
                 "selector" => c.seletor = texto_do_argumento(arvore, a.value).unwrap_or_default(),
                 "template" => c.template = texto_do_argumento(arvore, a.value),
@@ -291,7 +297,10 @@ fn o_que_nao_entendemos(
     if let Some(args) = &anotacao.arguments {
         for a in args.args.iter() {
             let Some(nome) = a.name.as_ref().map(|n| interner.resolve(n.sym)) else {
-                fora.push((Motivo::NaoEntendido, "argumento posicional em @Component".into()));
+                fora.push((
+                    Motivo::NaoEntendido,
+                    "argumento posicional em @Component".into(),
+                ));
                 continue;
             };
             match nome {
@@ -301,9 +310,10 @@ fn o_que_nao_entendemos(
                 "providers" => {
                     fora.push((Motivo::Providers, "@Component(.., providers: [..])".into()))
                 }
-                "encapsulation" => {
-                    fora.push((Motivo::Encapsulamento, "@Component(.., encapsulation: ..)".into()))
-                }
+                "encapsulation" => fora.push((
+                    Motivo::Encapsulamento,
+                    "@Component(.., encapsulation: ..)".into(),
+                )),
                 n if ARGUMENTOS_CONHECIDOS.contains(&n) => {}
                 n => fora.push((Motivo::NaoEntendido, format!("@Component(.., {n}: ..)"))),
             }
@@ -396,7 +406,9 @@ fn ouvinte_simples(
     membro: &ast::Member,
     anotacao: &ast::Annotation,
 ) -> Option<Ouvinte> {
-    let ast::MemberKind::Method(f) = &membro.kind else { return None };
+    let ast::MemberKind::Method(f) = &membro.kind else {
+        return None;
+    };
     let funcao = arvore.function(*f);
     if funcao.static_ || !matches!(funcao.kind, ast::FunctionKind::Function) {
         return None;
@@ -419,7 +431,9 @@ fn ouvinte_simples(
     let argumentos = match lista {
         None => Vec::new(),
         Some(l) => {
-            let ast::ExprKind::List { elements, .. } = &arvore.expr(l).kind else { return None };
+            let ast::ExprKind::List { elements, .. } = &arvore.expr(l).kind else {
+                return None;
+            };
             let textos = lista_de_textos(arvore, l);
             if textos.len() != elements.len() {
                 return None;
@@ -433,7 +447,11 @@ fn ouvinte_simples(
         [x] if x == "$event" => 1,
         _ => return None,
     };
-    Some(Ouvinte { evento, metodo, aridade })
+    Some(Ouvinte {
+        evento,
+        metodo,
+        aridade,
+    })
 }
 
 /// Lê um `@ViewChild` na forma que o gerador conhece, ou diz por que não.
@@ -448,9 +466,15 @@ fn consulta_simples(
     let [unico] = &args.args[..] else {
         // `read:` troca o valor por um provedor do nó; `first:`,
         // `descendants:` não fazem sentido aqui. Todos ainda não.
-        let tem_read =
-            args.args.iter().any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "read"));
-        return Err(if tem_read { Motivo::ViewChildEmFilho } else { Motivo::NaoEntendido });
+        let tem_read = args
+            .args
+            .iter()
+            .any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "read"));
+        return Err(if tem_read {
+            Motivo::ViewChildEmFilho
+        } else {
+            Motivo::NaoEntendido
+        });
     };
     if unico.name.is_some() {
         return Err(Motivo::NaoEntendido);
@@ -466,11 +490,15 @@ fn consulta_simples(
     }
     // Só campo de instância com tipo escrito; setter tem outra regra de tipo
     // (o do parâmetro) e não aparece nos projetos.
-    let ast::MemberKind::Field(lista) = &membro.kind else { return Err(Motivo::NaoEntendido) };
+    let ast::MemberKind::Field(lista) = &membro.kind else {
+        return Err(Motivo::NaoEntendido);
+    };
     if lista.static_ || lista.final_ || lista.const_ || lista.late || lista.variables.len() != 1 {
         return Err(Motivo::NaoEntendido);
     }
-    let Some(t) = lista.ty else { return Err(Motivo::NaoEntendido) };
+    let Some(t) = lista.ty else {
+        return Err(Motivo::NaoEntendido);
+    };
     Ok(Consulta {
         propriedade: interner.resolve(lista.variables[0].name.sym).to_string(),
         referencia,
@@ -488,7 +516,9 @@ fn parametros_do_construtor(
 ) -> Vec<Parametro> {
     for &id in &classe.members {
         let membro = arvore.member(id);
-        let ast::MemberKind::Constructor(ctor) = &membro.kind else { continue };
+        let ast::MemberKind::Constructor(ctor) = &membro.kind else {
+            continue;
+        };
         if ctor.name.is_some() {
             continue; // construtor nomeado não é o que a visão usa
         }
@@ -497,8 +527,10 @@ fn parametros_do_construtor(
             .parameters
             .iter()
             .map(|p| {
-                let nome =
-                    p.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default();
+                let nome = p
+                    .name
+                    .map(|n| interner.resolve(n.sym).to_string())
+                    .unwrap_or_default();
                 // `C(this.x)` não escreve tipo nenhum: o tipo do parâmetro é o
                 // do campo. É assim que quase todo componente ngdart recebe as
                 // suas dependências, e sem isto a injeção não sai.
@@ -522,7 +554,10 @@ fn parametros_do_construtor(
 /// Texto-fonte de um tipo, como escrito.
 fn texto_do_tipo(arvore: &ast::Ast, fonte: &str, t: ast::TypeId) -> String {
     let s = arvore.ty(t).span;
-    fonte.get(s.start as usize..s.end as usize).unwrap_or("").to_string()
+    fonte
+        .get(s.start as usize..s.end as usize)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Tipo de cada campo e getter da classe, para o emissor saber o tipo
@@ -543,7 +578,10 @@ fn tipos_dos_membros(
                 for v in lista.variables.iter() {
                     saida.insert(
                         interner.resolve(v.name.sym).to_string(),
-                        Membro { tipo: tipo.clone(), imutavel },
+                        Membro {
+                            tipo: tipo.clone(),
+                            imutavel,
+                        },
                     );
                 }
             }
@@ -552,10 +590,15 @@ fn tipos_dos_membros(
                 if !matches!(funcao.kind, ast::FunctionKind::Getter) {
                     continue;
                 }
-                let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else { continue };
+                let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else {
+                    continue;
+                };
                 saida.insert(
                     interner.resolve(nome.sym).to_string(),
-                    Membro { tipo: texto_do_tipo(arvore, fonte, t), imutavel: true },
+                    Membro {
+                        tipo: texto_do_tipo(arvore, fonte, t),
+                        imutavel: true,
+                    },
                 );
             }
             _ => {}
@@ -582,10 +625,12 @@ fn entradas_da_classe(
             continue;
         };
         let apelido = a.arguments.as_ref().and_then(|args| {
-            args.args.first().and_then(|arg| match &arvore.expr(arg.value).kind {
-                ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
-                _ => None,
-            })
+            args.args
+                .first()
+                .and_then(|arg| match &arvore.expr(arg.value).kind {
+                    ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+                    _ => None,
+                })
         });
         let nomes: Vec<String> = match &membro.kind {
             ast::MemberKind::Field(lista) => lista
@@ -620,7 +665,9 @@ fn tipos_dos_metodos(
 ) -> std::collections::HashMap<String, String> {
     let mut saida = std::collections::HashMap::new();
     for &id in &classe.members {
-        let ast::MemberKind::Method(f) = &arvore.member(id).kind else { continue };
+        let ast::MemberKind::Method(f) = &arvore.member(id).kind else {
+            continue;
+        };
         let funcao = arvore.function(*f);
         if !matches!(funcao.kind, ast::FunctionKind::Function) {
             continue;
@@ -644,7 +691,9 @@ fn tipos_dos_campos(
 ) -> std::collections::HashMap<String, String> {
     let mut saida = std::collections::HashMap::new();
     for &id in &classe.members {
-        let ast::MemberKind::Field(lista) = &arvore.member(id).kind else { continue };
+        let ast::MemberKind::Field(lista) = &arvore.member(id).kind else {
+            continue;
+        };
         let Some(t) = lista.ty else { continue };
         let tipo = texto_do_tipo(arvore, fonte, t);
         for v in lista.variables.iter() {
