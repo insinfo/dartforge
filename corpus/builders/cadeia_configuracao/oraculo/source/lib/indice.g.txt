@@ -1,0 +1,9 @@
+builder: indice
+entrada: corpus_cadeia_configuracao|lib/entrada/indice.lista
+isRoot: true
+opcoes: {}
+---
+lib/entrada/**.txt -> lib/entrada/alfa.maiusculas.txt, lib/entrada/alfa.txt, lib/entrada/ignorar_gama.maiusculas.txt, lib/entrada/ignorar_gama.txt, lib/entrada/sub/beta.maiusculas.txt, lib/entrada/sub/beta.txt
+lib/espelho/** -> lib/espelho/alfa.espelho.maiusculas.txt, lib/espelho/alfa.espelho.txt, lib/espelho/sub/beta.espelho.maiusculas.txt, lib/espelho/sub/beta.espelho.txt
+lib/**.carimbo.txt -> lib/cadeia.carimbo.txt
+lib/**.maiusculas.txt -> lib/entrada/alfa.maiusculas.txt, lib/entrada/ignorar_gama.maiusculas.txt, lib/entrada/sub/beta.maiusculas.txt, lib/espelho/alfa.espelho.maiusculas.txt, lib/espelho/sub/beta.espelho.maiusculas.txt

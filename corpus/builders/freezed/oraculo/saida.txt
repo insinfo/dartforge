@@ -1,0 +1,6 @@
+Pessoa(id: 1, nome: Ana, email: ana@x, apelidos: [], endereco: Endereco(rua: Central, numero: 0))
+Pessoa(id: 1, nome: Bia, email: ana@x, apelidos: [b], endereco: Endereco(rua: Central, numero: 0))
+true false 1:Ana
+{"id":1,"nome":"Bia","e_mail":"ana@x","apelidos":["b"],"endereco":{"rua":"Central","numero":0}}
+{"raio":2.0,"tipo":"circulo"} 12.0
+{"largura":2.0,"altura":5.0,"tipo":"retangulo"} 10.0

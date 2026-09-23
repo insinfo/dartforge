@@ -100,6 +100,14 @@ impl SdkCache {
         mix(sdk.root.to_string_lossy().as_bytes());
         mix(&std::fs::read(sdk.root.join("libraries.json")).unwrap_or_default());
         mix(&std::fs::read(sdk.root.join("../version")).unwrap_or_default());
+        // Sobreposição (`load_com_sobreposicao`): cada troca e o conteúdo do
+        // substituto, em ordem estável.
+        let mut trocas: Vec<(&PathBuf, &PathBuf)> = sdk.substituicoes.iter().collect();
+        trocas.sort();
+        for (original, novo) in trocas {
+            mix(original.to_string_lossy().as_bytes());
+            mix(&std::fs::read(novo).unwrap_or_default());
+        }
         mix(include_str!("../../frontend/src/ast.rs").as_bytes());
         mix(include_str!("../../frontend/src/text.rs").as_bytes());
         mix(include_str!("../../frontend/src/features.rs").as_bytes());
@@ -150,7 +158,7 @@ impl SdkCache {
             let lib = &sdk.libraries[nome];
             let uri = format!("dart:{nome}");
             let mut unidades = Vec::new();
-            let Some(principal) = analisar(&lib.path, &uri, UnitRole::Library, &mut interner)? else {
+            let Some(principal) = analisar(sdk, &lib.path, &uri, UnitRole::Library, &mut interner)? else {
                 // Biblioteca sem arquivo de origem: não entra no cache; a
                 // carga normal emite o diagnóstico.
                 continue;
@@ -161,7 +169,7 @@ impl SdkCache {
                     "{uri}#patch_{}",
                     patch.file_name().unwrap_or_default().to_string_lossy()
                 );
-                if let Some(u) = analisar(patch, &patch_uri, UnitRole::Patch, &mut interner)? {
+                if let Some(u) = analisar(sdk, patch, &patch_uri, UnitRole::Patch, &mut interner)? {
                     unidades.push(u);
                 }
             }
@@ -170,7 +178,7 @@ impl SdkCache {
             // partes de cada uma ao fim.
             let mut i = 0;
             while i < unidades.len() {
-                let novas = partes_de(&unidades[i], &mut interner)?;
+                let novas = partes_de(sdk, &unidades[i], &mut interner)?;
                 unidades.extend(novas);
                 i += 1;
             }
@@ -245,8 +253,9 @@ impl SdkCache {
 
 /// Lê e analisa um arquivo; `Ok(None)` se não existe, `Err` se tem erro de sintaxe
 /// (o SDK oficial não tem: um erro aqui é lacuna do parser e não entra no cache).
-fn analisar(path: &Path, uri: &str, role: UnitRole, interner: &mut Interner) -> Result<Option<UnitCache>, String> {
-    let Ok(source) = std::fs::read_to_string(path) else {
+fn analisar(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &mut Interner) -> Result<Option<UnitCache>, String> {
+    // A sobreposição troca o conteúdo, não o caminho (`SdkLayout::substituto`).
+    let Ok(source) = std::fs::read_to_string(sdk.substituto(path).unwrap_or(path)) else {
         return Ok(None);
     };
     // `dart:*` é sempre analisado no piso (docs/VERSOES-LINGUAGEM.md, D1).
@@ -260,7 +269,7 @@ fn analisar(path: &Path, uri: &str, role: UnitRole, interner: &mut Interner) -> 
 }
 
 /// As partes declaradas por `part 'x.dart';` em `unidade`, analisadas.
-fn partes_de(unidade: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCache>, String> {
+fn partes_de(sdk: &SdkLayout, unidade: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCache>, String> {
     let mut saida = Vec::new();
     for d in &unidade.unit.directives {
         let DirectiveKind::Part { uri } = &d.kind else { continue };
@@ -272,7 +281,7 @@ fn partes_de(unidade: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCac
         let part_uri = url::Url::from_file_path(&canonico)
             .map(|u| u.to_string())
             .unwrap_or_else(|_| canonico.to_string_lossy().to_string());
-        if let Some(p) = analisar(&canonico, &part_uri, UnitRole::Part, interner)? {
+        if let Some(p) = analisar(sdk, &canonico, &part_uri, UnitRole::Part, interner)? {
             saida.push(p);
         }
     }

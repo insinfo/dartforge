@@ -1,0 +1,1472 @@
+// ignore_for_file: type=lint
+mixin _$ContasDaoMixin on DatabaseAccessor<Banco> {
+  $ClientesTable get clientes => attachedDatabase.clientes;
+  $ContasTable get contas => attachedDatabase.contas;
+}
+
+class Etiquetas extends Table with TableInfo<Etiquetas, Etiqueta> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  Etiquetas(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      $customConstraints: 'NOT NULL PRIMARY KEY AUTOINCREMENT');
+  static const VerificationMeta _nomeMeta = const VerificationMeta('nome');
+  late final GeneratedColumn<String> nome = GeneratedColumn<String>(
+      'nome', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      $customConstraints: 'NOT NULL UNIQUE');
+  static const VerificationMeta _corMeta = const VerificationMeta('cor');
+  late final GeneratedColumn<int> cor = GeneratedColumn<int>(
+      'cor', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      $customConstraints: 'NOT NULL DEFAULT 0',
+      defaultValue: const CustomExpression('0'));
+  late final GeneratedColumnWithTypeConverter<Situacao, int> estado =
+      GeneratedColumn<int>('estado', aliasedName, false,
+              type: DriftSqlType.int,
+              requiredDuringInsert: true,
+              $customConstraints: 'NOT NULL')
+          .withConverter<Situacao>(Etiquetas.$converterestado);
+  @override
+  List<GeneratedColumn> get $columns => [id, nome, cor, estado];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'etiquetas';
+  @override
+  VerificationContext validateIntegrity(Insertable<Etiqueta> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('nome')) {
+      context.handle(
+          _nomeMeta, nome.isAcceptableOrUnknown(data['nome']!, _nomeMeta));
+    } else if (isInserting) {
+      context.missing(_nomeMeta);
+    }
+    if (data.containsKey('cor')) {
+      context.handle(
+          _corMeta, cor.isAcceptableOrUnknown(data['cor']!, _corMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Etiqueta map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Etiqueta(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      nome: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}nome'])!,
+      cor: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}cor'])!,
+      estado: Etiquetas.$converterestado.fromSql(attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}estado'])!),
+    );
+  }
+
+  @override
+  Etiquetas createAlias(String alias) {
+    return Etiquetas(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<Situacao, int, int> $converterestado =
+      const EnumIndexConverter<Situacao>(Situacao.values);
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class Etiqueta extends DataClass implements Insertable<Etiqueta> {
+  final int id;
+  final String nome;
+  final int cor;
+  final Situacao estado;
+  const Etiqueta(
+      {required this.id,
+      required this.nome,
+      required this.cor,
+      required this.estado});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['nome'] = Variable<String>(nome);
+    map['cor'] = Variable<int>(cor);
+    {
+      map['estado'] = Variable<int>(Etiquetas.$converterestado.toSql(estado));
+    }
+    return map;
+  }
+
+  EtiquetasCompanion toCompanion(bool nullToAbsent) {
+    return EtiquetasCompanion(
+      id: Value(id),
+      nome: Value(nome),
+      cor: Value(cor),
+      estado: Value(estado),
+    );
+  }
+
+  factory Etiqueta.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Etiqueta(
+      id: serializer.fromJson<int>(json['id']),
+      nome: serializer.fromJson<String>(json['nome']),
+      cor: serializer.fromJson<int>(json['cor']),
+      estado: Etiquetas.$converterestado
+          .fromJson(serializer.fromJson<int>(json['estado'])),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'nome': serializer.toJson<String>(nome),
+      'cor': serializer.toJson<int>(cor),
+      'estado':
+          serializer.toJson<int>(Etiquetas.$converterestado.toJson(estado)),
+    };
+  }
+
+  Etiqueta copyWith({int? id, String? nome, int? cor, Situacao? estado}) =>
+      Etiqueta(
+        id: id ?? this.id,
+        nome: nome ?? this.nome,
+        cor: cor ?? this.cor,
+        estado: estado ?? this.estado,
+      );
+  Etiqueta copyWithCompanion(EtiquetasCompanion data) {
+    return Etiqueta(
+      id: data.id.present ? data.id.value : this.id,
+      nome: data.nome.present ? data.nome.value : this.nome,
+      cor: data.cor.present ? data.cor.value : this.cor,
+      estado: data.estado.present ? data.estado.value : this.estado,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Etiqueta(')
+          ..write('id: $id, ')
+          ..write('nome: $nome, ')
+          ..write('cor: $cor, ')
+          ..write('estado: $estado')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, nome, cor, estado);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Etiqueta &&
+          other.id == this.id &&
+          other.nome == this.nome &&
+          other.cor == this.cor &&
+          other.estado == this.estado);
+}
+
+class EtiquetasCompanion extends UpdateCompanion<Etiqueta> {
+  final Value<int> id;
+  final Value<String> nome;
+  final Value<int> cor;
+  final Value<Situacao> estado;
+  const EtiquetasCompanion({
+    this.id = const Value.absent(),
+    this.nome = const Value.absent(),
+    this.cor = const Value.absent(),
+    this.estado = const Value.absent(),
+  });
+  EtiquetasCompanion.insert({
+    this.id = const Value.absent(),
+    required String nome,
+    this.cor = const Value.absent(),
+    required Situacao estado,
+  })  : nome = Value(nome),
+        estado = Value(estado);
+  static Insertable<Etiqueta> custom({
+    Expression<int>? id,
+    Expression<String>? nome,
+    Expression<int>? cor,
+    Expression<int>? estado,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (nome != null) 'nome': nome,
+      if (cor != null) 'cor': cor,
+      if (estado != null) 'estado': estado,
+    });
+  }
+
+  EtiquetasCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? nome,
+      Value<int>? cor,
+      Value<Situacao>? estado}) {
+    return EtiquetasCompanion(
+      id: id ?? this.id,
+      nome: nome ?? this.nome,
+      cor: cor ?? this.cor,
+      estado: estado ?? this.estado,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (nome.present) {
+      map['nome'] = Variable<String>(nome.value);
+    }
+    if (cor.present) {
+      map['cor'] = Variable<int>(cor.value);
+    }
+    if (estado.present) {
+      map['estado'] =
+          Variable<int>(Etiquetas.$converterestado.toSql(estado.value));
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EtiquetasCompanion(')
+          ..write('id: $id, ')
+          ..write('nome: $nome, ')
+          ..write('cor: $cor, ')
+          ..write('estado: $estado')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ClientesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _nomeMeta = const VerificationMeta('nome');
+  @override
+  late final GeneratedColumn<String> nome = GeneratedColumn<String>(
+      'nome', aliasedName, false,
+      additionalChecks:
+          GeneratedColumn.checkTextLength(minTextLength: 1, maxTextLength: 80),
+      type: DriftSqlType.string,
+      requiredDuringInsert: true);
+  static const VerificationMeta _emailMeta = const VerificationMeta('email');
+  @override
+  late final GeneratedColumn<String> email = GeneratedColumn<String>(
+      'email', aliasedName, true,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
+  static const VerificationMeta _criadoEmMeta =
+      const VerificationMeta('criadoEm');
+  @override
+  late final GeneratedColumn<DateTime> criadoEm = GeneratedColumn<DateTime>(
+      'criado_em', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns => [id, nome, email, criadoEm];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'clientes';
+  @override
+  VerificationContext validateIntegrity(Insertable<Cliente> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('nome')) {
+      context.handle(
+          _nomeMeta, nome.isAcceptableOrUnknown(data['nome']!, _nomeMeta));
+    } else if (isInserting) {
+      context.missing(_nomeMeta);
+    }
+    if (data.containsKey('email')) {
+      context.handle(
+          _emailMeta, email.isAcceptableOrUnknown(data['email']!, _emailMeta));
+    }
+    if (data.containsKey('criado_em')) {
+      context.handle(_criadoEmMeta,
+          criadoEm.isAcceptableOrUnknown(data['criado_em']!, _criadoEmMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Cliente map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Cliente(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      nome: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}nome'])!,
+      email: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}email']),
+      criadoEm: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}criado_em'])!,
+    );
+  }
+
+  @override
+  $ClientesTable createAlias(String alias) {
+    return $ClientesTable(attachedDatabase, alias);
+  }
+}
+
+class Cliente extends DataClass implements Insertable<Cliente> {
+  final int id;
+  final String nome;
+  final String? email;
+  final DateTime criadoEm;
+  const Cliente(
+      {required this.id,
+      required this.nome,
+      this.email,
+      required this.criadoEm});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['nome'] = Variable<String>(nome);
+    if (!nullToAbsent || email != null) {
+      map['email'] = Variable<String>(email);
+    }
+    map['criado_em'] = Variable<DateTime>(criadoEm);
+    return map;
+  }
+
+  ClientesCompanion toCompanion(bool nullToAbsent) {
+    return ClientesCompanion(
+      id: Value(id),
+      nome: Value(nome),
+      email:
+          email == null && nullToAbsent ? const Value.absent() : Value(email),
+      criadoEm: Value(criadoEm),
+    );
+  }
+
+  factory Cliente.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Cliente(
+      id: serializer.fromJson<int>(json['id']),
+      nome: serializer.fromJson<String>(json['nome']),
+      email: serializer.fromJson<String?>(json['email']),
+      criadoEm: serializer.fromJson<DateTime>(json['criadoEm']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'nome': serializer.toJson<String>(nome),
+      'email': serializer.toJson<String?>(email),
+      'criadoEm': serializer.toJson<DateTime>(criadoEm),
+    };
+  }
+
+  Cliente copyWith(
+          {int? id,
+          String? nome,
+          Value<String?> email = const Value.absent(),
+          DateTime? criadoEm}) =>
+      Cliente(
+        id: id ?? this.id,
+        nome: nome ?? this.nome,
+        email: email.present ? email.value : this.email,
+        criadoEm: criadoEm ?? this.criadoEm,
+      );
+  Cliente copyWithCompanion(ClientesCompanion data) {
+    return Cliente(
+      id: data.id.present ? data.id.value : this.id,
+      nome: data.nome.present ? data.nome.value : this.nome,
+      email: data.email.present ? data.email.value : this.email,
+      criadoEm: data.criadoEm.present ? data.criadoEm.value : this.criadoEm,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Cliente(')
+          ..write('id: $id, ')
+          ..write('nome: $nome, ')
+          ..write('email: $email, ')
+          ..write('criadoEm: $criadoEm')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, nome, email, criadoEm);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Cliente &&
+          other.id == this.id &&
+          other.nome == this.nome &&
+          other.email == this.email &&
+          other.criadoEm == this.criadoEm);
+}
+
+class ClientesCompanion extends UpdateCompanion<Cliente> {
+  final Value<int> id;
+  final Value<String> nome;
+  final Value<String?> email;
+  final Value<DateTime> criadoEm;
+  const ClientesCompanion({
+    this.id = const Value.absent(),
+    this.nome = const Value.absent(),
+    this.email = const Value.absent(),
+    this.criadoEm = const Value.absent(),
+  });
+  ClientesCompanion.insert({
+    this.id = const Value.absent(),
+    required String nome,
+    this.email = const Value.absent(),
+    this.criadoEm = const Value.absent(),
+  }) : nome = Value(nome);
+  static Insertable<Cliente> custom({
+    Expression<int>? id,
+    Expression<String>? nome,
+    Expression<String>? email,
+    Expression<DateTime>? criadoEm,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (nome != null) 'nome': nome,
+      if (email != null) 'email': email,
+      if (criadoEm != null) 'criado_em': criadoEm,
+    });
+  }
+
+  ClientesCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? nome,
+      Value<String?>? email,
+      Value<DateTime>? criadoEm}) {
+    return ClientesCompanion(
+      id: id ?? this.id,
+      nome: nome ?? this.nome,
+      email: email ?? this.email,
+      criadoEm: criadoEm ?? this.criadoEm,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (nome.present) {
+      map['nome'] = Variable<String>(nome.value);
+    }
+    if (email.present) {
+      map['email'] = Variable<String>(email.value);
+    }
+    if (criadoEm.present) {
+      map['criado_em'] = Variable<DateTime>(criadoEm.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ClientesCompanion(')
+          ..write('id: $id, ')
+          ..write('nome: $nome, ')
+          ..write('email: $email, ')
+          ..write('criadoEm: $criadoEm')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ContasTable extends Contas with TableInfo<$ContasTable, Conta> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ContasTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _clienteMeta =
+      const VerificationMeta('cliente');
+  @override
+  late final GeneratedColumn<int> cliente = GeneratedColumn<int>(
+      'cliente', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES clientes (id)'));
+  static const VerificationMeta _saldoMeta = const VerificationMeta('saldo');
+  @override
+  late final GeneratedColumn<double> saldo = GeneratedColumn<double>(
+      'saldo', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  @override
+  late final GeneratedColumnWithTypeConverter<Situacao, int> situacao =
+      GeneratedColumn<int>('situacao', aliasedName, false,
+              type: DriftSqlType.int, requiredDuringInsert: true)
+          .withConverter<Situacao>($ContasTable.$convertersituacao);
+  @override
+  List<GeneratedColumn> get $columns => [id, cliente, saldo, situacao];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'contas';
+  @override
+  VerificationContext validateIntegrity(Insertable<Conta> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('cliente')) {
+      context.handle(_clienteMeta,
+          cliente.isAcceptableOrUnknown(data['cliente']!, _clienteMeta));
+    } else if (isInserting) {
+      context.missing(_clienteMeta);
+    }
+    if (data.containsKey('saldo')) {
+      context.handle(
+          _saldoMeta, saldo.isAcceptableOrUnknown(data['saldo']!, _saldoMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Conta map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Conta(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      cliente: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}cliente'])!,
+      saldo: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}saldo'])!,
+      situacao: $ContasTable.$convertersituacao.fromSql(attachedDatabase
+          .typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}situacao'])!),
+    );
+  }
+
+  @override
+  $ContasTable createAlias(String alias) {
+    return $ContasTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<Situacao, int, int> $convertersituacao =
+      const EnumIndexConverter<Situacao>(Situacao.values);
+}
+
+class Conta extends DataClass implements Insertable<Conta> {
+  final int id;
+  final int cliente;
+  final double saldo;
+  final Situacao situacao;
+  const Conta(
+      {required this.id,
+      required this.cliente,
+      required this.saldo,
+      required this.situacao});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['cliente'] = Variable<int>(cliente);
+    map['saldo'] = Variable<double>(saldo);
+    {
+      map['situacao'] =
+          Variable<int>($ContasTable.$convertersituacao.toSql(situacao));
+    }
+    return map;
+  }
+
+  ContasCompanion toCompanion(bool nullToAbsent) {
+    return ContasCompanion(
+      id: Value(id),
+      cliente: Value(cliente),
+      saldo: Value(saldo),
+      situacao: Value(situacao),
+    );
+  }
+
+  factory Conta.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Conta(
+      id: serializer.fromJson<int>(json['id']),
+      cliente: serializer.fromJson<int>(json['cliente']),
+      saldo: serializer.fromJson<double>(json['saldo']),
+      situacao: $ContasTable.$convertersituacao
+          .fromJson(serializer.fromJson<int>(json['situacao'])),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'cliente': serializer.toJson<int>(cliente),
+      'saldo': serializer.toJson<double>(saldo),
+      'situacao': serializer
+          .toJson<int>($ContasTable.$convertersituacao.toJson(situacao)),
+    };
+  }
+
+  Conta copyWith({int? id, int? cliente, double? saldo, Situacao? situacao}) =>
+      Conta(
+        id: id ?? this.id,
+        cliente: cliente ?? this.cliente,
+        saldo: saldo ?? this.saldo,
+        situacao: situacao ?? this.situacao,
+      );
+  Conta copyWithCompanion(ContasCompanion data) {
+    return Conta(
+      id: data.id.present ? data.id.value : this.id,
+      cliente: data.cliente.present ? data.cliente.value : this.cliente,
+      saldo: data.saldo.present ? data.saldo.value : this.saldo,
+      situacao: data.situacao.present ? data.situacao.value : this.situacao,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Conta(')
+          ..write('id: $id, ')
+          ..write('cliente: $cliente, ')
+          ..write('saldo: $saldo, ')
+          ..write('situacao: $situacao')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, cliente, saldo, situacao);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Conta &&
+          other.id == this.id &&
+          other.cliente == this.cliente &&
+          other.saldo == this.saldo &&
+          other.situacao == this.situacao);
+}
+
+class ContasCompanion extends UpdateCompanion<Conta> {
+  final Value<int> id;
+  final Value<int> cliente;
+  final Value<double> saldo;
+  final Value<Situacao> situacao;
+  const ContasCompanion({
+    this.id = const Value.absent(),
+    this.cliente = const Value.absent(),
+    this.saldo = const Value.absent(),
+    this.situacao = const Value.absent(),
+  });
+  ContasCompanion.insert({
+    this.id = const Value.absent(),
+    required int cliente,
+    this.saldo = const Value.absent(),
+    required Situacao situacao,
+  })  : cliente = Value(cliente),
+        situacao = Value(situacao);
+  static Insertable<Conta> custom({
+    Expression<int>? id,
+    Expression<int>? cliente,
+    Expression<double>? saldo,
+    Expression<int>? situacao,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (cliente != null) 'cliente': cliente,
+      if (saldo != null) 'saldo': saldo,
+      if (situacao != null) 'situacao': situacao,
+    });
+  }
+
+  ContasCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? cliente,
+      Value<double>? saldo,
+      Value<Situacao>? situacao}) {
+    return ContasCompanion(
+      id: id ?? this.id,
+      cliente: cliente ?? this.cliente,
+      saldo: saldo ?? this.saldo,
+      situacao: situacao ?? this.situacao,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (cliente.present) {
+      map['cliente'] = Variable<int>(cliente.value);
+    }
+    if (saldo.present) {
+      map['saldo'] = Variable<double>(saldo.value);
+    }
+    if (situacao.present) {
+      map['situacao'] =
+          Variable<int>($ContasTable.$convertersituacao.toSql(situacao.value));
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ContasCompanion(')
+          ..write('id: $id, ')
+          ..write('cliente: $cliente, ')
+          ..write('saldo: $saldo, ')
+          ..write('situacao: $situacao')
+          ..write(')'))
+        .toString();
+  }
+}
+
+abstract class _$Banco extends GeneratedDatabase {
+  _$Banco(QueryExecutor e) : super(e);
+  $BancoManager get managers => $BancoManager(this);
+  late final Etiquetas etiquetas = Etiquetas(this);
+  late final Index etiquetasPorNome = Index('etiquetas_por_nome',
+      'CREATE INDEX etiquetas_por_nome ON etiquetas (nome)');
+  late final $ClientesTable clientes = $ClientesTable(this);
+  late final $ContasTable contas = $ContasTable(this);
+  late final ContasDao contasDao = ContasDao(this as Banco);
+  Selectable<ContasComSaldoResult> contasComSaldo(
+      double minimo, ContasComSaldo$filtro filtro) {
+    var $arrayStartIndex = 2;
+    final generatedfiltro = $write(
+        filtro(alias(this.clientes, 'c'), alias(this.contas, 'co')),
+        hasMultipleTables: true,
+        startIndex: $arrayStartIndex);
+    $arrayStartIndex += generatedfiltro.amountOfVariables;
+    return customSelect(
+        'SELECT c.nome, co.saldo FROM clientes AS c INNER JOIN contas AS co ON co.cliente = c.id WHERE co.saldo >= ?1 AND ${generatedfiltro.sql} ORDER BY c.nome',
+        variables: [
+          Variable<double>(minimo),
+          ...generatedfiltro.introducedVariables
+        ],
+        readsFrom: {
+          clientes,
+          contas,
+          ...generatedfiltro.watchedTables,
+        }).map((QueryRow row) => ContasComSaldoResult(
+          nome: row.read<String>('nome'),
+          saldo: row.read<double>('saldo'),
+        ));
+  }
+
+  Selectable<int> contarEtiquetas() {
+    return customSelect('SELECT COUNT(*) AS _c0 FROM etiquetas',
+        variables: [],
+        readsFrom: {
+          etiquetas,
+        }).map((QueryRow row) => row.read<int>('_c0'));
+  }
+
+  @override
+  Iterable<TableInfo<Table, Object?>> get allTables =>
+      allSchemaEntities.whereType<TableInfo<Table, Object?>>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities =>
+      [etiquetas, etiquetasPorNome, clientes, contas];
+}
+
+typedef $EtiquetasCreateCompanionBuilder = EtiquetasCompanion Function({
+  Value<int> id,
+  required String nome,
+  Value<int> cor,
+  required Situacao estado,
+});
+typedef $EtiquetasUpdateCompanionBuilder = EtiquetasCompanion Function({
+  Value<int> id,
+  Value<String> nome,
+  Value<int> cor,
+  Value<Situacao> estado,
+});
+
+class $EtiquetasFilterComposer extends Composer<_$Banco, Etiquetas> {
+  $EtiquetasFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get nome => $composableBuilder(
+      column: $table.nome, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get cor => $composableBuilder(
+      column: $table.cor, builder: (column) => ColumnFilters(column));
+
+  ColumnWithTypeConverterFilters<Situacao, Situacao, int> get estado =>
+      $composableBuilder(
+          column: $table.estado,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
+}
+
+class $EtiquetasOrderingComposer extends Composer<_$Banco, Etiquetas> {
+  $EtiquetasOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get nome => $composableBuilder(
+      column: $table.nome, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get cor => $composableBuilder(
+      column: $table.cor, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get estado => $composableBuilder(
+      column: $table.estado, builder: (column) => ColumnOrderings(column));
+}
+
+class $EtiquetasAnnotationComposer extends Composer<_$Banco, Etiquetas> {
+  $EtiquetasAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get nome =>
+      $composableBuilder(column: $table.nome, builder: (column) => column);
+
+  GeneratedColumn<int> get cor =>
+      $composableBuilder(column: $table.cor, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<Situacao, int> get estado =>
+      $composableBuilder(column: $table.estado, builder: (column) => column);
+}
+
+class $EtiquetasTableManager extends RootTableManager<
+    _$Banco,
+    Etiquetas,
+    Etiqueta,
+    $EtiquetasFilterComposer,
+    $EtiquetasOrderingComposer,
+    $EtiquetasAnnotationComposer,
+    $EtiquetasCreateCompanionBuilder,
+    $EtiquetasUpdateCompanionBuilder,
+    (Etiqueta, BaseReferences<_$Banco, Etiquetas, Etiqueta>),
+    Etiqueta,
+    PrefetchHooks Function()> {
+  $EtiquetasTableManager(_$Banco db, Etiquetas table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $EtiquetasFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $EtiquetasOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $EtiquetasAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> nome = const Value.absent(),
+            Value<int> cor = const Value.absent(),
+            Value<Situacao> estado = const Value.absent(),
+          }) =>
+              EtiquetasCompanion(
+            id: id,
+            nome: nome,
+            cor: cor,
+            estado: estado,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String nome,
+            Value<int> cor = const Value.absent(),
+            required Situacao estado,
+          }) =>
+              EtiquetasCompanion.insert(
+            id: id,
+            nome: nome,
+            cor: cor,
+            estado: estado,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $EtiquetasProcessedTableManager = ProcessedTableManager<
+    _$Banco,
+    Etiquetas,
+    Etiqueta,
+    $EtiquetasFilterComposer,
+    $EtiquetasOrderingComposer,
+    $EtiquetasAnnotationComposer,
+    $EtiquetasCreateCompanionBuilder,
+    $EtiquetasUpdateCompanionBuilder,
+    (Etiqueta, BaseReferences<_$Banco, Etiquetas, Etiqueta>),
+    Etiqueta,
+    PrefetchHooks Function()>;
+typedef $$ClientesTableCreateCompanionBuilder = ClientesCompanion Function({
+  Value<int> id,
+  required String nome,
+  Value<String?> email,
+  Value<DateTime> criadoEm,
+});
+typedef $$ClientesTableUpdateCompanionBuilder = ClientesCompanion Function({
+  Value<int> id,
+  Value<String> nome,
+  Value<String?> email,
+  Value<DateTime> criadoEm,
+});
+
+final class $$ClientesTableReferences
+    extends BaseReferences<_$Banco, $ClientesTable, Cliente> {
+  $$ClientesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$ContasTable, List<Conta>> _contasRefsTable(
+          _$Banco db) =>
+      MultiTypedResultKey.fromTable(db.contas,
+          aliasName: $_aliasNameGenerator(db.clientes.id, db.contas.cliente));
+
+  $$ContasTableProcessedTableManager get contasRefs {
+    final manager = $$ContasTableTableManager($_db, $_db.contas)
+        .filter((f) => f.cliente.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_contasRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$ClientesTableFilterComposer extends Composer<_$Banco, $ClientesTable> {
+  $$ClientesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get nome => $composableBuilder(
+      column: $table.nome, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get email => $composableBuilder(
+      column: $table.email, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get criadoEm => $composableBuilder(
+      column: $table.criadoEm, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> contasRefs(
+      Expression<bool> Function($$ContasTableFilterComposer f) f) {
+    final $$ContasTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.contas,
+        getReferencedColumn: (t) => t.cliente,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContasTableFilterComposer(
+              $db: $db,
+              $table: $db.contas,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$ClientesTableOrderingComposer
+    extends Composer<_$Banco, $ClientesTable> {
+  $$ClientesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get nome => $composableBuilder(
+      column: $table.nome, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get email => $composableBuilder(
+      column: $table.email, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get criadoEm => $composableBuilder(
+      column: $table.criadoEm, builder: (column) => ColumnOrderings(column));
+}
+
+class $$ClientesTableAnnotationComposer
+    extends Composer<_$Banco, $ClientesTable> {
+  $$ClientesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get nome =>
+      $composableBuilder(column: $table.nome, builder: (column) => column);
+
+  GeneratedColumn<String> get email =>
+      $composableBuilder(column: $table.email, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get criadoEm =>
+      $composableBuilder(column: $table.criadoEm, builder: (column) => column);
+
+  Expression<T> contasRefs<T extends Object>(
+      Expression<T> Function($$ContasTableAnnotationComposer a) f) {
+    final $$ContasTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.contas,
+        getReferencedColumn: (t) => t.cliente,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContasTableAnnotationComposer(
+              $db: $db,
+              $table: $db.contas,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$ClientesTableTableManager extends RootTableManager<
+    _$Banco,
+    $ClientesTable,
+    Cliente,
+    $$ClientesTableFilterComposer,
+    $$ClientesTableOrderingComposer,
+    $$ClientesTableAnnotationComposer,
+    $$ClientesTableCreateCompanionBuilder,
+    $$ClientesTableUpdateCompanionBuilder,
+    (Cliente, $$ClientesTableReferences),
+    Cliente,
+    PrefetchHooks Function({bool contasRefs})> {
+  $$ClientesTableTableManager(_$Banco db, $ClientesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ClientesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ClientesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ClientesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> nome = const Value.absent(),
+            Value<String?> email = const Value.absent(),
+            Value<DateTime> criadoEm = const Value.absent(),
+          }) =>
+              ClientesCompanion(
+            id: id,
+            nome: nome,
+            email: email,
+            criadoEm: criadoEm,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String nome,
+            Value<String?> email = const Value.absent(),
+            Value<DateTime> criadoEm = const Value.absent(),
+          }) =>
+              ClientesCompanion.insert(
+            id: id,
+            nome: nome,
+            email: email,
+            criadoEm: criadoEm,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) =>
+                  (e.readTable(table), $$ClientesTableReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: ({contasRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (contasRefs) db.contas],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (contasRefs)
+                    await $_getPrefetchedData<Cliente, $ClientesTable, Conta>(
+                        currentTable: table,
+                        referencedTable:
+                            $$ClientesTableReferences._contasRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$ClientesTableReferences(db, table, p0).contasRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.cliente == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$ClientesTableProcessedTableManager = ProcessedTableManager<
+    _$Banco,
+    $ClientesTable,
+    Cliente,
+    $$ClientesTableFilterComposer,
+    $$ClientesTableOrderingComposer,
+    $$ClientesTableAnnotationComposer,
+    $$ClientesTableCreateCompanionBuilder,
+    $$ClientesTableUpdateCompanionBuilder,
+    (Cliente, $$ClientesTableReferences),
+    Cliente,
+    PrefetchHooks Function({bool contasRefs})>;
+typedef $$ContasTableCreateCompanionBuilder = ContasCompanion Function({
+  Value<int> id,
+  required int cliente,
+  Value<double> saldo,
+  required Situacao situacao,
+});
+typedef $$ContasTableUpdateCompanionBuilder = ContasCompanion Function({
+  Value<int> id,
+  Value<int> cliente,
+  Value<double> saldo,
+  Value<Situacao> situacao,
+});
+
+final class $$ContasTableReferences
+    extends BaseReferences<_$Banco, $ContasTable, Conta> {
+  $$ContasTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ClientesTable _clienteTable(_$Banco db) => db.clientes
+      .createAlias($_aliasNameGenerator(db.contas.cliente, db.clientes.id));
+
+  $$ClientesTableProcessedTableManager get cliente {
+    final $_column = $_itemColumn<int>('cliente')!;
+
+    final manager = $$ClientesTableTableManager($_db, $_db.clientes)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_clienteTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$ContasTableFilterComposer extends Composer<_$Banco, $ContasTable> {
+  $$ContasTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get saldo => $composableBuilder(
+      column: $table.saldo, builder: (column) => ColumnFilters(column));
+
+  ColumnWithTypeConverterFilters<Situacao, Situacao, int> get situacao =>
+      $composableBuilder(
+          column: $table.situacao,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
+
+  $$ClientesTableFilterComposer get cliente {
+    final $$ClientesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.cliente,
+        referencedTable: $db.clientes,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ClientesTableFilterComposer(
+              $db: $db,
+              $table: $db.clientes,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ContasTableOrderingComposer extends Composer<_$Banco, $ContasTable> {
+  $$ContasTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get saldo => $composableBuilder(
+      column: $table.saldo, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get situacao => $composableBuilder(
+      column: $table.situacao, builder: (column) => ColumnOrderings(column));
+
+  $$ClientesTableOrderingComposer get cliente {
+    final $$ClientesTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.cliente,
+        referencedTable: $db.clientes,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ClientesTableOrderingComposer(
+              $db: $db,
+              $table: $db.clientes,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ContasTableAnnotationComposer extends Composer<_$Banco, $ContasTable> {
+  $$ContasTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<double> get saldo =>
+      $composableBuilder(column: $table.saldo, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<Situacao, int> get situacao =>
+      $composableBuilder(column: $table.situacao, builder: (column) => column);
+
+  $$ClientesTableAnnotationComposer get cliente {
+    final $$ClientesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.cliente,
+        referencedTable: $db.clientes,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ClientesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.clientes,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ContasTableTableManager extends RootTableManager<
+    _$Banco,
+    $ContasTable,
+    Conta,
+    $$ContasTableFilterComposer,
+    $$ContasTableOrderingComposer,
+    $$ContasTableAnnotationComposer,
+    $$ContasTableCreateCompanionBuilder,
+    $$ContasTableUpdateCompanionBuilder,
+    (Conta, $$ContasTableReferences),
+    Conta,
+    PrefetchHooks Function({bool cliente})> {
+  $$ContasTableTableManager(_$Banco db, $ContasTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ContasTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ContasTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ContasTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> cliente = const Value.absent(),
+            Value<double> saldo = const Value.absent(),
+            Value<Situacao> situacao = const Value.absent(),
+          }) =>
+              ContasCompanion(
+            id: id,
+            cliente: cliente,
+            saldo: saldo,
+            situacao: situacao,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int cliente,
+            Value<double> saldo = const Value.absent(),
+            required Situacao situacao,
+          }) =>
+              ContasCompanion.insert(
+            id: id,
+            cliente: cliente,
+            saldo: saldo,
+            situacao: situacao,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) =>
+                  (e.readTable(table), $$ContasTableReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: ({cliente = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (cliente) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.cliente,
+                    referencedTable: $$ContasTableReferences._clienteTable(db),
+                    referencedColumn:
+                        $$ContasTableReferences._clienteTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$ContasTableProcessedTableManager = ProcessedTableManager<
+    _$Banco,
+    $ContasTable,
+    Conta,
+    $$ContasTableFilterComposer,
+    $$ContasTableOrderingComposer,
+    $$ContasTableAnnotationComposer,
+    $$ContasTableCreateCompanionBuilder,
+    $$ContasTableUpdateCompanionBuilder,
+    (Conta, $$ContasTableReferences),
+    Conta,
+    PrefetchHooks Function({bool cliente})>;
+
+class $BancoManager {
+  final _$Banco _db;
+  $BancoManager(this._db);
+  $EtiquetasTableManager get etiquetas =>
+      $EtiquetasTableManager(_db, _db.etiquetas);
+  $$ClientesTableTableManager get clientes =>
+      $$ClientesTableTableManager(_db, _db.clientes);
+  $$ContasTableTableManager get contas =>
+      $$ContasTableTableManager(_db, _db.contas);
+}
+
+class ContasComSaldoResult {
+  final String nome;
+  final double saldo;
+  ContasComSaldoResult({
+    required this.nome,
+    required this.saldo,
+  });
+}
+
+typedef ContasComSaldo$filtro = Expression<bool> Function(
+    $ClientesTable c, $ContasTable co);

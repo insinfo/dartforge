@@ -9,6 +9,11 @@ o GC seguir os bits como handle; zero é referência null. Escalares com bits ig
 a um handle não mantêm objetos vivos. Handles identificam objetos vivos e podem ser
 reutilizados depois da coleta; não devem ser conservados fora do protocolo de raízes.
 
+Uma referência é `0` (null), um handle **par** (`(índice + 1) << 1`) ou um `Smi`
+**ímpar** — `(v << 1) | 1`, um `int` de 63 bits sem alocação (R10,
+docs/NATIVO-PLANO.md §6.2; módulo `heap::smi`). O GC nunca segue um `Smi`,
+mesmo marcado como referência; as coleções o normalizam para o escalar.
+
 | Estrutura | Contrato |
 | --- | --- |
 | `Cell` | Captura mutável. Ambientes diferentes podem compartilhar a mesma célula e observar suas alterações. |

@@ -1,0 +1,1 @@
+{"valid_import":true,"imports":[{"uri":"package:corpus_drift/banco.dart","transitive":true}],"elements":[{"kind":"table","name":"etiquetas"},{"kind":"dbIndex","name":"etiquetas_por_nome"},{"kind":"definedQuery","name":"contasComSaldo"},{"kind":"definedQuery","name":"contarEtiquetas"}]}

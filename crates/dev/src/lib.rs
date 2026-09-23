@@ -8,12 +8,13 @@
 //! Disciplina de memória: o que a sessão retém cresce com o **projeto**, não
 //! com o número de edições — a unidade nova substitui a velha no mesmo lugar
 //! do cache (`crates/dev/tests/plato.rs` vigia com `live_bytes`).
+pub mod geracao;
 pub mod hashes;
 
 pub mod servidor;
 pub mod ws;
 
-use dartforge_elements::load::load_lenient_incremental;
+use dartforge_elements::load::load_lenient_gerados;
 use dartforge_elements::model::{LibraryId, Program};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::{CacheUnidades, SdkCache};
@@ -56,6 +57,16 @@ pub struct Relatorio {
     pub primeira: bool,
     /// Sub-fases da carga (leitura, parse, diretivas, outline).
     pub carga_detalhe: dartforge_elements::model::TemposCarga,
+    /// Motor de geração de código (`crates/build`): `None` quando o projeto
+    /// não usa builders — é o que o portão de custo zero verifica.
+    pub motor: Option<dartforge_build::RelMotor>,
+    /// Avisos do motor (apoio possivelmente desatualizado, D-B5).
+    pub avisos_motor: Vec<String>,
+    /// Etapas de geração inteiras (motor + recarga das unidades geradas que
+    /// mudaram); fica dentro de `carregar`.
+    pub etapas: Duration,
+    /// A recarga causada por uma geração nova.
+    pub recarga_geracao: Duration,
 }
 
 impl Relatorio {
@@ -101,6 +112,17 @@ impl Relatorio {
             self.modulos_escritos,
             self.avisos_tipos
         ));
+        if let Some(m) = &self.motor {
+            s.push_str(&m.texto());
+            s.push_str(&format!(
+                "\netapas de geração: {:.1} ms (recarga das geradas: {:.1} ms)\n",
+                self.etapas.as_secs_f64() * 1000.0,
+                self.recarga_geracao.as_secs_f64() * 1000.0
+            ));
+        }
+        for a in &self.avisos_motor {
+            s.push_str(&format!("aviso: {a}\n"));
+        }
         s
     }
 }
@@ -128,17 +150,41 @@ pub struct Sessao {
     /// os contêm precisam de hash novo.
     sujos: std::collections::HashSet<PathBuf>,
     primeira: bool,
+    /// Etapas de geração (motor de build; depois, macros). Vazio quando o
+    /// projeto não usa nenhuma: custo zero por edição.
+    etapas: Vec<Box<dyn geracao::EtapaDeGeracao>>,
+    /// Geração corrente das etapas (fontes em memória).
+    gerados: Option<std::sync::Arc<dartforge_elements::gerado::Geracao>>,
 }
 
 impl Sessao {
     /// Abre uma sessão para uma entrada; não compila ainda.
     ///
     /// `sdk_lib` é o `lib/` do SDK (descoberto pelo ambiente quando `None`).
+    /// Se o projeto usa builders (`build_runner` no `package_config.json`),
+    /// liga o motor de geração; senão, nada dele é construído.
     pub fn nova(
         entrada: &Path,
         sdk_lib: Option<&Path>,
         packages: Option<&Path>,
         saida: &Path,
+    ) -> Result<Sessao, String> {
+        let mut etapas: Vec<Box<dyn geracao::EtapaDeGeracao>> = Vec::new();
+        match geracao::etapa_de_build(entrada, packages) {
+            None => {}
+            Some(Ok(e)) => etapas.push(Box::new(e)),
+            Some(Err(e)) => eprintln!("aviso: motor de build desligado: {e}"),
+        }
+        Self::com_etapas(entrada, sdk_lib, packages, saida, etapas)
+    }
+
+    /// Como [`Sessao::nova`], com as etapas dadas (sem detecção).
+    pub fn com_etapas(
+        entrada: &Path,
+        sdk_lib: Option<&Path>,
+        packages: Option<&Path>,
+        saida: &Path,
+        etapas: Vec<Box<dyn geracao::EtapaDeGeracao>>,
     ) -> Result<Sessao, String> {
         let dir = match sdk_lib {
             Some(p) => p.to_path_buf(),
@@ -159,7 +205,19 @@ impl Sessao {
             dependentes: HashMap::new(),
             sujos: std::collections::HashSet::new(),
             primeira: true,
+            etapas,
+            gerados: None,
         })
+    }
+
+    /// Há etapa de geração ligada (motor de build)?
+    pub fn tem_etapas(&self) -> bool {
+        !self.etapas.is_empty()
+    }
+
+    /// Leitor das saídas geradas para o `serve`.
+    pub fn provedor_de_gerados(&self) -> Option<geracao::Provedor> {
+        self.etapas.iter().find_map(|e| e.provedor())
     }
 
     /// Bytes de fonte retidos pelo cache de unidades (para o teste de platô).
@@ -174,13 +232,21 @@ impl Sessao {
     /// Arquivos cujo mtime ou tamanho mudaram desde a última análise: é o
     /// que o `dartforge dev` consulta a cada intervalo (um `stat` por
     /// unidade, sem ler conteúdo).
-    pub fn mudancas(&self) -> Vec<PathBuf> {
-        self.unidades.alterados()
+    pub fn mudancas(&mut self) -> Vec<PathBuf> {
+        let mut v = self.unidades.alterados();
+        for e in &mut self.etapas {
+            v.extend(e.mudancas());
+        }
+        v
     }
 
     /// Arquivos observados pela sessão.
     pub fn observados(&self) -> Vec<PathBuf> {
-        self.unidades.caminhos()
+        let mut v = self.unidades.caminhos();
+        for e in &self.etapas {
+            v.extend(e.observados());
+        }
+        v
     }
 
     /// Avisa que um arquivo mudou: a unidade correspondente sai do cache.
@@ -210,21 +276,81 @@ impl Sessao {
         } else {
             None
         };
-        let (program, diags) = load_lenient_incremental(
+        // O que mudou desde a compilação anterior, para as etapas de geração.
+        let mudados: Vec<PathBuf> =
+            if self.etapas.is_empty() { Vec::new() } else { self.sujos.iter().cloned().collect() };
+        let (mut program, mut diags) = load_lenient_gerados(
             &self.entrada,
             &self.sdk,
             self.packages.as_deref(),
             &mut self.interner,
             cache_sdk,
             Some(&mut self.unidades),
+            self.gerados.clone(),
         );
+        let mut lidos = program.tempos.arquivos_lidos;
+        if !self.etapas.is_empty() {
+            let t_etapas = Instant::now();
+            // Primeira passada: uma saída esperada que ainda não foi gerada
+            // não é erro — a etapa a gera agora.
+            let etapas = &self.etapas;
+            diags.retain(|d| {
+                let Some(resto) = d.message.strip_prefix("não foi possível ler ") else { return true };
+                let caminho = resto.rsplit_once(": ").map(|(c, _)| c).unwrap_or(resto);
+                !etapas.iter().any(|e| e.espera(Path::new(caminho)))
+            });
+            let mut alterados: Vec<PathBuf> = Vec::new();
+            let mut nova = None;
+            for etapa in &mut self.etapas {
+                let ctx = geracao::CtxSessao { program: &program, interner: &self.interner };
+                match etapa.atualizar(&ctx, &mudados) {
+                    Ok(at) => {
+                        alterados.extend(at.alterados);
+                        rel.avisos_motor.extend(at.avisos);
+                        rel.motor = Some(at.rel);
+                        nova = Some(at.geracao);
+                    }
+                    Err(e) => {
+                        self.unidades.recolher(program);
+                        return Err(format!("motor de build: {e}"));
+                    }
+                }
+            }
+            let mudou = nova.as_ref().map(|g| g.id) != self.gerados.as_ref().map(|g| g.id);
+            let t_recarga = Instant::now();
+            if mudou || !alterados.is_empty() {
+                self.gerados = nova;
+                // As unidades voltam ao cache e só as geradas cujo texto
+                // mudou saem dele: a recarga reanalisa essas e reaproveita o
+                // resto.
+                self.unidades.recolher(program);
+                for p in &alterados {
+                    self.unidades.invalidar(p);
+                    self.sujos.insert(p.clone());
+                }
+                let (p2, d2) = load_lenient_gerados(
+                    &self.entrada,
+                    &self.sdk,
+                    self.packages.as_deref(),
+                    &mut self.interner,
+                    None,
+                    Some(&mut self.unidades),
+                    self.gerados.clone(),
+                );
+                program = p2;
+                diags = d2;
+                lidos += program.tempos.arquivos_lidos;
+            }
+            rel.recarga_geracao = t_recarga.elapsed();
+            rel.etapas = t_etapas.elapsed();
+        }
         rel.carregar = t.elapsed();
         rel.carga_detalhe = program.tempos.clone();
         rel.unidades_reaproveitadas = program.tempos.unidades_reaproveitadas;
         // Reanalisadas = arquivos que a carga precisou ler e analisar de
         // fato (o `Program` pode ter unidades que vieram do artefato do SDK,
         // que não são nem uma coisa nem outra).
-        rel.unidades_reanalisadas = program.tempos.arquivos_lidos;
+        rel.unidades_reanalisadas = lidos;
         rel.bibliotecas = program.libraries.len();
         if !diags.is_empty() {
             let msg = format!("{} erro(s) ao carregar: {}", diags.len(), diags[0]);

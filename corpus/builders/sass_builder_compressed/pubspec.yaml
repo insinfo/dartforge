@@ -1,0 +1,8 @@
+name: corpus_sass_builder_compressed
+description: sass_builder com outputStyle compressed nas opções do alvo (como o frontend do new_sali).
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dev_dependencies:
+  build_runner: ^2.4.15
+  sass_builder: 2.2.1

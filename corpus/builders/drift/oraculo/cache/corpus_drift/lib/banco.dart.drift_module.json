@@ -1,0 +1,412 @@
+{
+  "elements": {
+    "ContasDao": {
+      "id": {
+        "library_uri": "package:corpus_drift/banco.dart",
+        "name": "ContasDao"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/banco.dart",
+        "offset": 981,
+        "name": "ContasDao"
+      },
+      "references": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "clientes"
+        },
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "contas"
+        }
+      ],
+      "type": "dao",
+      "tables": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "clientes"
+        },
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "contas"
+        }
+      ],
+      "views": [],
+      "includes": [],
+      "queries": [],
+      "dart_type": {
+        "elements": [
+          {
+            "lexeme": "ContasDao",
+            "import_uri": "package:corpus_drift/banco.dart"
+          }
+        ]
+      },
+      "database": {
+        "elements": [
+          {
+            "lexeme": "Banco",
+            "import_uri": "package:corpus_drift/banco.dart"
+          }
+        ]
+      }
+    },
+    "clientes": {
+      "id": {
+        "library_uri": "package:corpus_drift/banco.dart",
+        "name": "clientes"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/banco.dart",
+        "offset": 364,
+        "name": "Clientes"
+      },
+      "references": [],
+      "type": "table",
+      "columns": [
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "id",
+          "nameInDart": "id",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 405,
+            "name": "id"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "primary",
+              "is_auto_increment": true
+            }
+          ],
+          "customConstraints": null
+        },
+        {
+          "sqlType": {
+            "builtin": "string"
+          },
+          "nullable": false,
+          "nameInSql": "nome",
+          "nameInDart": "nome",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 457,
+            "name": "nome"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "limit_text_length",
+              "min_length": 1,
+              "max_length": 80
+            }
+          ],
+          "customConstraints": null
+        },
+        {
+          "sqlType": {
+            "builtin": "string"
+          },
+          "nullable": true,
+          "nameInSql": "email",
+          "nameInDart": "email",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 520,
+            "name": "email"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "unique"
+            }
+          ],
+          "customConstraints": null
+        },
+        {
+          "sqlType": {
+            "builtin": "dateTime"
+          },
+          "nullable": false,
+          "nameInSql": "criado_em",
+          "nameInDart": "criadoEm",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 580,
+            "name": "criadoEm"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": {
+            "elements": [
+              {
+                "lexeme": "currentDateAndTime",
+                "import_uri": "package:drift/src/runtime/query_builder/query_builder.dart"
+              }
+            ]
+          },
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [],
+          "customConstraints": null
+        }
+      ],
+      "existing_data_class": null,
+      "table_constraints": [],
+      "custom_parent_class": null,
+      "interfaces_for_row_class": [],
+      "fixed_entity_info_name": null,
+      "base_dart_name": "Clientes",
+      "row_class_name": "Cliente",
+      "companion_class_name": null,
+      "without_rowid": false,
+      "strict": false,
+      "write_default_constraints": true,
+      "custom_constraints": [],
+      "attached_indices": []
+    },
+    "contas": {
+      "id": {
+        "library_uri": "package:corpus_drift/banco.dart",
+        "name": "contas"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/banco.dart",
+        "offset": 671,
+        "name": "Contas"
+      },
+      "references": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "clientes"
+        }
+      ],
+      "type": "table",
+      "columns": [
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "id",
+          "nameInDart": "id",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 710,
+            "name": "id"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "primary",
+              "is_auto_increment": true
+            }
+          ],
+          "customConstraints": null
+        },
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "cliente",
+          "nameInDart": "cliente",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 761,
+            "name": "cliente"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [
+            {
+              "type": "foreign_key",
+              "column": {
+                "table": {
+                  "library_uri": "package:corpus_drift/banco.dart",
+                  "name": "clientes"
+                },
+                "name": "id"
+              },
+              "onUpdate": null,
+              "onDelete": null,
+              "initiallyDeferred": false
+            }
+          ],
+          "customConstraints": null
+        },
+        {
+          "sqlType": {
+            "builtin": "double"
+          },
+          "nullable": false,
+          "nameInSql": "saldo",
+          "nameInDart": "saldo",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 828,
+            "name": "saldo"
+          },
+          "typeConverter": null,
+          "clientDefaultCode": null,
+          "defaultArgument": {
+            "elements": [
+              "const ",
+              {
+                "lexeme": "Constant",
+                "import_uri": "package:drift/src/runtime/query_builder/query_builder.dart"
+              },
+              "(0)"
+            ]
+          },
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [],
+          "customConstraints": null
+        },
+        {
+          "sqlType": {
+            "builtin": "int"
+          },
+          "nullable": false,
+          "nameInSql": "situacao",
+          "nameInDart": "situacao",
+          "declaration": {
+            "source_uri": "package:corpus_drift/banco.dart",
+            "offset": 894,
+            "name": "situacao"
+          },
+          "typeConverter": {
+            "expression": {
+              "elements": [
+                "const ",
+                {
+                  "lexeme": "EnumIndexConverter",
+                  "import_uri": "package:drift/drift.dart"
+                },
+                "<",
+                {
+                  "lexeme": "Situacao",
+                  "import_uri": "package:corpus_drift/banco.dart"
+                },
+                ">(",
+                {
+                  "lexeme": "Situacao",
+                  "import_uri": "package:corpus_drift/banco.dart"
+                },
+                ".values)"
+              ]
+            },
+            "dart_type": 0,
+            "json_type": 1,
+            "sql_type": {
+              "builtin": "int"
+            },
+            "dart_type_is_nullable": false,
+            "sql_type_is_nullable": false,
+            "json_type_is_nullable": false,
+            "is_drift_enum_converter": true
+          },
+          "clientDefaultCode": null,
+          "defaultArgument": null,
+          "overriddenJsonName": null,
+          "referenceName": null,
+          "documentationComment": null,
+          "constraints": [],
+          "customConstraints": null
+        }
+      ],
+      "existing_data_class": null,
+      "table_constraints": [],
+      "custom_parent_class": null,
+      "interfaces_for_row_class": [],
+      "fixed_entity_info_name": null,
+      "base_dart_name": "Contas",
+      "row_class_name": "Conta",
+      "companion_class_name": null,
+      "without_rowid": false,
+      "strict": false,
+      "write_default_constraints": true,
+      "custom_constraints": [],
+      "attached_indices": []
+    },
+    "Banco": {
+      "id": {
+        "library_uri": "package:corpus_drift/banco.dart",
+        "name": "Banco"
+      },
+      "declaration": {
+        "source_uri": "package:corpus_drift/banco.dart",
+        "offset": 1291,
+        "name": "Banco"
+      },
+      "references": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "clientes"
+        },
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "contas"
+        }
+      ],
+      "type": "database",
+      "tables": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "clientes"
+        },
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "contas"
+        }
+      ],
+      "views": [],
+      "includes": [
+        "consultas.drift"
+      ],
+      "queries": [],
+      "schema_version": 2,
+      "daos": [
+        {
+          "library_uri": "package:corpus_drift/banco.dart",
+          "name": "ContasDao"
+        }
+      ],
+      "has_constructor_arg": true
+    }
+  },
+  "imports": [
+    "package:drift/drift.dart"
+  ]
+}

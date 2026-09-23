@@ -38,6 +38,9 @@ pub struct SdkLayout {
     /// `--enable-experiment=…`: valem só para bibliotecas sem marcador cuja
     /// versão padrão é a corrente.
     pub experimentos: Vec<Feature>,
+    /// Sobreposição (`load_com_sobreposicao`): arquivo do SDK, pelo caminho
+    /// normalizado → arquivo que o substitui. Vazio sem sobreposição.
+    pub substituicoes: HashMap<PathBuf, PathBuf>,
 }
 
 /// Opções de linguagem da linha de comando: `--versao-linguagem x.y` (a
@@ -124,7 +127,65 @@ impl SdkLayout {
             libraries,
             versao_corrente: LanguageVersion::ATUAL,
             experimentos: Vec::new(),
+            substituicoes: HashMap::new(),
         })
+    }
+
+    /// A seção `base` do SDK com arquivos trocados pela sobreposição de
+    /// `dir_sobreposicao` (o `sdk_nativo/` do backend nativo,
+    /// docs/NATIVO-PLANO.md §7, P5a).
+    ///
+    /// `<dir_sobreposicao>/libraries.json` tem uma seção `alvo` com `base`
+    /// (a seção do SDK de partida, `vm`) e `substitui`: caminho relativo ao
+    /// `lib/` do SDK → arquivo relativo à sobreposição. A troca é por
+    /// **conteúdo**: a unidade carregada continua com o caminho do SDK, então
+    /// um `part` de um arquivo trocado resolve ao lado do original (e pode
+    /// estar trocado também). Assim a sobreposição troca só o que depende da
+    /// máquina interna da VM sem copiar o resto do patch.
+    ///
+    /// # Erros
+    /// Os de [`SdkLayout::load`], seção ausente, e arquivo (original ou
+    /// substituto) que não existe — uma troca que não acontece em silêncio é
+    /// um SDK diferente do declarado.
+    pub fn load_com_sobreposicao(lib_dir: &Path, dir_sobreposicao: &Path, alvo: &str) -> Result<Self, String> {
+        let path = dir_sobreposicao.join("libraries.json");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("não foi possível ler {}: {e}", path.display()))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("{} inválido: {e}", path.display()))?;
+        let secao = json
+            .get(alvo)
+            .ok_or_else(|| format!("seção {alvo} ausente em {}", path.display()))?;
+        let base = secao
+            .get("base")
+            .and_then(|b| b.as_str())
+            .ok_or_else(|| format!("{alvo}.base ausente em {}", path.display()))?;
+        let mut sdk = Self::load(lib_dir, base)?;
+        if let Some(trocas) = secao.get("substitui").and_then(|s| s.as_object()) {
+            for (original, novo) in trocas {
+                let novo = novo
+                    .as_str()
+                    .ok_or_else(|| format!("{alvo}.substitui[{original}] não é texto em {}", path.display()))?;
+                let original = crate::load::normalizar(&lib_dir.join(original));
+                let novo = crate::load::normalizar(&dir_sobreposicao.join(novo));
+                if !original.is_file() {
+                    return Err(format!("sobreposição troca {}, que não existe no SDK", original.display()));
+                }
+                if !novo.is_file() {
+                    return Err(format!("sobreposição aponta {}, que não existe", novo.display()));
+                }
+                sdk.substituicoes.insert(original, novo);
+            }
+        }
+        Ok(sdk)
+    }
+
+    /// O arquivo a ler no lugar de `path`, se a sobreposição o troca.
+    pub fn substituto(&self, path: &Path) -> Option<&Path> {
+        if self.substituicoes.is_empty() {
+            return None;
+        }
+        self.substituicoes.get(&crate::load::normalizar(path)).map(PathBuf::as_path)
     }
 
     /// Lê uma seção e, antes dela, as que ela inclui (`"include": [{"target":
@@ -240,6 +301,45 @@ mod tests {
         assert_eq!(core.patches.len(), 2);
         assert!(!sdk.library("io").unwrap().supported);
         assert!(sdk.library("_runtime").is_some());
+    }
+
+    /// A sobreposição do nativo (`sdk_nativo/`, P5a) troca por conteúdo os
+    /// patches que dependem da máquina interna da VM, e o programa carrega
+    /// sem diagnóstico: as `part` do patch trocado resolvem ao lado do
+    /// original (e também são trocadas).
+    #[test]
+    fn sobreposicao_do_nativo_troca_os_patches_e_carrega() {
+        let Some(lib) = SdkLayout::discover() else {
+            eprintln!("SDK não encontrado; teste pulado");
+            return;
+        };
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo");
+        let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
+        assert_eq!(sdk.substituicoes.len(), 4);
+        let async_patch = &sdk.library("async").unwrap().patches[0];
+        let novo = sdk.substituto(async_patch).expect("async_patch trocado");
+        assert!(novo.ends_with("async_patch.dart") && novo.starts_with(crate::load::normalizar(&dir)));
+        assert!(sdk.substituto(&sdk.library("core").unwrap().path).is_none());
+
+        let tmp = tempfile::tempdir().unwrap();
+        let entrada = tmp.path().join("main.dart");
+        std::fs::write(&entrada, "import 'dart:async';\nvoid main() { Timer(Duration.zero, () {}); }\n").unwrap();
+        let mut interner = dartforge_intern::Interner::new();
+        let (program, diags) = crate::load::load_lenient(&entrada, &sdk, None, &mut interner);
+        assert!(diags.is_empty(), "{diags:?}");
+        let fontes_async: Vec<&str> = program
+            .libraries
+            .iter()
+            .find(|l| l.uri == "dart:async")
+            .unwrap()
+            .units
+            .iter()
+            .map(|u| program.units[u.0 as usize].source.as_str())
+            .collect();
+        for marca in ["DartForge_scheduleImmediate", "DartForge_Timer_novo", "_envolverCorpo"] {
+            assert!(fontes_async.iter().any(|s| s.contains(marca)), "{marca} ausente do dart:async carregado");
+        }
+        assert!(!fontes_async.iter().any(|s| s.contains("class _SuspendState")), "_SuspendState da VM ainda carregado");
     }
 
     /// A seção `vm` só tem `cli`; `core` vem do `include` de `vm_common`.

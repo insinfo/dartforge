@@ -1,0 +1,22 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "7.6.0",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "3.0.1",
+    "riverpod": "2.6.1",
+    "riverpod_annotation": "2.6.1",
+    "riverpod_generator": "2.6.5",
+    "source_gen": "2.0.0"
+  },
+  "saidas": [
+    { "asset": "corpus_riverpod_generator|lib/provedores.g.dart", "build_to": "source", "sha256": "bca7e3f554308641616d892c0bcfb77f7909353c59ef7efae84c409200f8344f" },
+    { "asset": "corpus_riverpod_generator|lib/provedores.riverpod.g.part", "build_to": "cache", "sha256": "a0e11e7ac8c292ccb7a38573ca15eb937222de7d07803f6274be7df9d36ff968" }
+  ],
+  "excluidos": 9,
+  "executavel": true
+}

@@ -7,7 +7,9 @@ pub mod driver;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
+pub mod nativos;
 pub mod resumo;
+pub mod sdk_modulo;
 
 use context::Context;
 use dartforge_elements::Program;

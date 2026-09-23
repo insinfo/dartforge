@@ -720,6 +720,35 @@ impl<'a> OutlineResolver<'a> {
         }
     }
 
+    /// Argumentos de uma classe usada numa anotação: os escritos, ou a
+    /// instanciação para os limites quando a classe é usada crua (`Map` é
+    /// `Map<dynamic, dynamic>`, `C` com `T extends num` é `C<num>`).
+    fn args_ou_limites(&mut self, cid: ClassId, args: Vec<TypeId>) -> Vec<TypeId> {
+        let formals = self.class_type_params[cid.0 as usize].clone();
+        if args.len() == formals.len() {
+            return args;
+        }
+        self.instanciar_para_limites(&formals)
+    }
+
+    /// Instanciação para os limites (`instantiate to bounds`): o limite
+    /// escrito, ou `dynamic`; limites que mencionam os próprios parâmetros
+    /// (F-limites) têm esses parâmetros trocados por `dynamic`.
+    fn instanciar_para_limites(&mut self, formals: &[TypeParamId]) -> Vec<TypeId> {
+        let dinamicos: HashMap<TypeParamId, TypeId> = formals.iter().map(|&p| (p, self.core.dynamic_)).collect();
+        formals
+            .iter()
+            .map(|&p| {
+                let b = self.table.param(p).bound;
+                if b == self.core.object_nullable {
+                    self.core.dynamic_
+                } else {
+                    substitute(b, &dinamicos, self.table)
+                }
+            })
+            .collect()
+    }
+
     fn instantiate_self_class(&mut self, class_opt: Option<ClassId>) -> TypeId {
         if let Some(cls) = class_opt {
             let params = self.class_type_params[cls.0 as usize].clone();
@@ -974,6 +1003,7 @@ impl<'a> OutlineResolver<'a> {
                                         })
                                         .collect();
 
+                                    let resolved_args = self.args_ou_limites(cid, resolved_args);
                                     let is_ext =
                                         self.program.class(cid).kind == ClassKind::ExtensionType;
                                     if is_ext {
@@ -1005,6 +1035,11 @@ impl<'a> OutlineResolver<'a> {
 
                                     let target_ty = self.ensure_typedef_resolved(tid);
                                     let formals = self.typedef_type_params[tid.0 as usize].clone();
+                                    let resolved_args = if resolved_args.len() == formals.len() {
+                                        resolved_args
+                                    } else {
+                                        self.instanciar_para_limites(&formals)
+                                    };
                                     let mut subst = HashMap::with_capacity(formals.len());
                                     for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
                                         subst.insert(f, a);
@@ -1052,6 +1087,7 @@ impl<'a> OutlineResolver<'a> {
                                     })
                                     .collect();
 
+                                let resolved_args = self.args_ou_limites(cid, resolved_args);
                                 let is_ext =
                                     self.program.class(cid).kind == ClassKind::ExtensionType;
                                 if is_ext {
@@ -1083,6 +1119,11 @@ impl<'a> OutlineResolver<'a> {
 
                                 let target_ty = self.ensure_typedef_resolved(tid);
                                 let formals = self.typedef_type_params[tid.0 as usize].clone();
+                                let resolved_args = if resolved_args.len() == formals.len() {
+                                    resolved_args
+                                } else {
+                                    self.instanciar_para_limites(&formals)
+                                };
                                 let mut subst = HashMap::with_capacity(formals.len());
                                 for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
                                     subst.insert(f, a);

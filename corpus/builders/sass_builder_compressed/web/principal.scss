@@ -1,0 +1,20 @@
+// Entrada em web/: @use com package:, @use com configuração, @import e @media.
+@use 'package:corpus_sass_builder_compressed/estilos/variaveis' as v with ($primaria: #aa3300);
+@import 'package:corpus_sass_builder_compressed/estilos/legado';
+
+body {
+  margin: 0;
+  color: v.$primaria;
+
+  > header {
+    height: v.dobro(32px);
+    border-bottom: $borda-legado;
+  }
+}
+
+@media screen and (min-width: v.$quebra-media) {
+  .coluna {
+    float: left;
+    width: 50%;
+  }
+}

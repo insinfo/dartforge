@@ -1,0 +1,6 @@
+// Parcial trazida por @import (sintaxe antiga): as variáveis vazam para quem importa.
+$borda-legado: 1px solid #999;
+
+.legado {
+  border: $borda-legado;
+}

@@ -1,0 +1,7 @@
+name: apoio_cadeia
+description: Pacote de apoio do caso cadeia_configuracao — define um builder auto_apply dependents.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  build: ^2.4.2

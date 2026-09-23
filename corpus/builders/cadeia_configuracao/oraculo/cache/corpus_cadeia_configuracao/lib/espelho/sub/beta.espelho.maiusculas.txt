@@ -1,0 +1,11 @@
+builder: maiusculas
+entrada: corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.txt
+isRoot: true
+opcoes: {"alvo":"sim","global":"sim","modo":"dev_alvo","nivel":3,"origem":"alvo","so_dev":"global"}
+---
+BUILDER: ESPELHO
+ENTRADA: CORPUS_CADEIA_CONFIGURACAO|LIB/ENTRADA/SUB/BETA.TXT
+ISROOT: TRUE
+OPCOES: {"ORIGEM":"ALVO","SO_DEFAULTS":"SIM"}
+---
+OHNIMAC O AVEL }}{{ ARUTPAC A :OIRÓTERIDBUS MUN AROM ATEB

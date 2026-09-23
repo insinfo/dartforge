@@ -41,6 +41,9 @@ const FRAGMENTOS: &[&str] = &[
     "strings",
     "colecoes",
     "closures",
+    // δ (P5b): os natives do SDK da fonte (crates/emit_native/src/nativos.rs).
+    "nativos_numeros",
+    "nativos_strings",
 ];
 
 fn main() {

@@ -32,7 +32,11 @@ on:
       suite:
         description: O que rodar
         type: choice
+<<<<<<< HEAD
         options: [todos, js, producao, nativo, jit, determinismo, moderno]
+=======
+        options: [todos, js, producao, nativo, jit, determinismo, custo-zero]
+>>>>>>> main
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -323,3 +327,62 @@ jobs:
           titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
           args: determinismo --nativo --trabalhadores 1,4,8
           exige: '^determinismo \(IR\): '
+
+  # Portão de TEMPO da regra de custo zero (PLANO.md, "geração de código e
+  # macros: rápidas, e custo zero para quem não usa"): com o motor de build
+  # compilado dentro, o corpus JS inteiro e a edição de corpo numa sessão
+  # sintética de ~300 bibliotecas (projetos sem builders) não podem ficar mais
+  # lentos que no main. Compila os dois (commit e main) e mede em 5 rodadas
+  # alternadas; reprova se a mediana do commit passar a do main + 3%
+  # (scripts/custo-zero.ps1). O portão estrutural (nenhum motor construído,
+  # alocações iguais por edição) é o crates/dev/tests/custo_zero.rs, no ci.yml.
+  custo-zero:
+    name: custo zero (tempo)
+    needs: compilar
+    if: contains(fromJSON('["todos","custo-zero"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          path: base
+      - uses: ./.github/actions/dart
+        with:
+          gerar-dart-sdk-js: 'true'
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: custo-zero
+          workspaces: |
+            . -> target
+            base -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Compilar o commit e o main (dartforge + exemplo medir)
+        shell: pwsh
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        # Dois comandos por árvore: `--example` restringe os alvos de todos os
+        # pacotes pedidos, e o binário `dartforge` ficaria de fora.
+        run: |
+          cargo build --locked --release -p dartforge-cli
+          if ($LASTEXITCODE -ne 0) { throw 'build do commit falhou' }
+          cargo build --locked --release -p dartforge-dev --example medir
+          if ($LASTEXITCODE -ne 0) { throw 'build do commit falhou' }
+          New-Item -ItemType Directory -Force bin-atual, bin-base | Out-Null
+          Copy-Item target/release/dartforge.exe, target/release/examples/medir.exe bin-atual
+          Push-Location base
+          cargo build --locked --release -p dartforge-cli
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'build do main falhou' }
+          cargo build --locked --release -p dartforge-dev --example medir
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'build do main falhou' }
+          Pop-Location
+          Copy-Item base/target/release/dartforge.exe, base/target/release/examples/medir.exe bin-base
+      - name: Medir (5 rodadas alternadas)
+        shell: pwsh
+        run: |
+          $env:DARTFORGE_DART_SDK_JS = Join-Path $PWD 'runtime/ddc/dart_sdk.js'
+          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.03

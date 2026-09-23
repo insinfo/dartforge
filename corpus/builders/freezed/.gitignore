@@ -1,0 +1,6 @@
+.dart_tool/
+build/
+*.g.dart
+*.freezed.dart
+# O oráculo guarda as saídas source fora das pastas de fonte: não ignorar.
+!/oraculo/**

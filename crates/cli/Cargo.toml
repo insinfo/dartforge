@@ -12,6 +12,9 @@ dartforge-emit-native = { path = "../emit_native", optional = true }
 dartforge-jit = { path = "../jit", optional = true }
 dartforge-emit-js = { path = "../emit_js" }
 dartforge-dev = { path = "../dev" }
+dartforge-build = { path = "../build" }
+dartforge-elements = { path = "../elements" }
+dartforge-intern = { path = "../intern" }
 serde_json = "1"
 
 [features]
