@@ -2,7 +2,7 @@
 
 Contrato (P0) dos passos P8–P11 do plano "Dart 3.7–3.13 e macros". Nada disto
 está implementado nesta rodada; o que está aqui é o que a implementação vai
-seguir. **Substitui** `docs/MACROS-ARQUITETURA.md` §"herdar as fases,
+seguir. **Substitui** `docs/historico/MACROS-ARQUITETURA.md` §"herdar as fases,
 descartar o transporte" e a Q4 (macros de usuário fora do contrato) — decisão
 D8. Decisões de base em [`VERSOES-LINGUAGEM.md`](VERSOES-LINGUAGEM.md) §0.
 

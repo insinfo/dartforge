@@ -32,7 +32,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, determinismo, moderno]
+        options: [todos, js, producao, nativo, jit, determinismo, moderno]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -88,6 +88,11 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
+      # O executor do JIT (crates/jit) liga o llvm-sys: precisa do recorte de
+      # desenvolvimento do LLVM (llvm-config, LLVM-C, cabeçalhos da API C).
+      - uses: ./.github/actions/llvm-windows
+        with:
+          desenvolvimento: 'true'
       - name: Rust fixado (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -95,14 +100,14 @@ jobs:
           shared-key: pesado-release
           # Só o main grava; as branches ci/** restauram o do main.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Compilar harness, dartforge e dartforge-jsprod (release)
+      - name: Compilar harness, dartforge, dartforge-jsprod e o executor do JIT (release)
         env:
           # O perfil release do workspace (LTO thin, 1 unidade de geração de
           # código) é para medir desempenho; aqui só a correção importa, e ele
           # multiplica o tempo de compilação num runner de 4 núcleos.
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao
+        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao -p dartforge-jit
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binarios
@@ -110,6 +115,7 @@ jobs:
             target/release/dartforge-diferencial.exe
             target/release/dartforge.exe
             target/release/dartforge-jsprod.exe
+            target/release/dartforge-executar-ir.exe
             runtime/ddc/dart_sdk.js
           retention-days: 1
           if-no-files-found: error
@@ -256,6 +262,34 @@ jobs:
           name: placar-nativo
           path: placar
           retention-days: 14
+
+  # O perfil de DESENVOLVIMENTO do nativo: cada programa pelo JIT ORCv2 e, do
+  # MESMO LLVM IR, pelo AOT (Clang + ligação). Exige os dois idênticos programa
+  # a programa (stdout e código; a linha `JIT × AOT: … 0 divergentes` do
+  # relatório): qualquer divergência é defeito do JIT, mesmo com o placar
+  # contra a VM baixo. Mede o tempo pós-IR de cada perfil. Corpus inteiro num
+  # job só e `--jobs 1`, para que os tempos não disputem a máquina entre si; o
+  # cache de objetos fica desligado, senão o Clang não rodaria nos repetidos.
+  jit:
+    name: jit × aot (corpus inteiro)
+    needs: compilar
+    if: contains(fromJSON('["todos","jit"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DARTFORGE_CACHE_OBJ: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: jit
+          titulo: JIT × AOT — o mesmo LLVM IR pelos dois perfis, contra a VM
+          args: --jit-aot --jobs 1
+          nativo: 'true'
+          jit: 'true'
+          aceitar-placar-parcial: 'true'
+          # Relatório válido só com ZERO divergências JIT × AOT.
+          exige: '^JIT × AOT: [0-9]+/[0-9]+ idênticos, 0 divergentes'
 
   determinismo:
     name: determinismo (produção)

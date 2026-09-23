@@ -20,6 +20,36 @@ pub struct Resultado {
     pub nativo: bool,
     /// O perfil de produção do JS (`dartforge-jsprod`, arquivo único e podado).
     pub producao: Option<Saida>,
+    /// Com `--jit`/`--jit-aot`: o `forge` veio do JIT ORCv2, e aqui ficam o
+    /// tempo dele e, com `--jit-aot`, o AOT do mesmo IR.
+    pub jit: Option<ExecucaoJit>,
+}
+
+/// O que o modo JIT registra de um programa, além da saída.
+#[derive(Debug, Clone)]
+pub struct ExecucaoJit {
+    /// O emissor produziu IR (senão nenhum perfil executou nada).
+    pub com_ir: bool,
+    /// Tempo de parede do processo do executor: carregar a `LLVM-C.dll`, abrir
+    /// a sessão, gerar o código e executar o programa.
+    pub tempo: std::time::Duration,
+    /// Só a execução do programa dentro do executor (`execute_ns` do
+    /// `--timings`), quando o executor chegou a executar.
+    pub execucao: Option<std::time::Duration>,
+    /// Com `--jit-aot`: o mesmo texto de IR pelo driver AOT.
+    pub aot: Option<AotDoMesmoIr>,
+}
+
+/// O executável AOT ligado a partir do mesmo IR que o JIT executou.
+#[derive(Debug, Clone)]
+pub struct AotDoMesmoIr {
+    pub saida: Saida,
+    /// Clang + ligação (`driver::compile_and_link`), medido em volta da chamada.
+    pub ligacao: std::time::Duration,
+    /// Execução do executável.
+    pub execucao: std::time::Duration,
+    /// O objeto veio do cache de objetos (aí o Clang não rodou).
+    pub objeto_do_cache: bool,
 }
 
 /// Onde duas saídas divergem.
@@ -205,6 +235,9 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     let mut grupos_prod: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut pendentes_falham = 0usize;
     let mut pendentes_passaram: Vec<String> = Vec::new();
+    // Nativo: os construtos não suportados de cada programa que não compilou,
+    // todos os diagnósticos (a chave de falha só mostra o primeiro).
+    let mut construtos: Vec<(&str, Vec<String>)> = Vec::new();
     for r in resultados {
         let nome = &r.programa.nome;
         if r.dart.codigo != 0 {
@@ -263,6 +296,13 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
                 let chave = truncar(&chave_de_falha(forge), 120);
                 let _ = writeln!(out, "       stderr: {chave}");
                 grupos.entry(chave).or_default().push(nome.clone());
+                if nativo {
+                    let cs = dartforge_emit_native::construtos_do_erro(&forge.stderr);
+                    if !cs.is_empty() {
+                        let _ = writeln!(out, "       construtos: {}", descrever_construtos(&cs));
+                        construtos.push((nome.as_str(), cs));
+                    }
+                }
             }
         }
         let Some(prod) = &r.producao else { continue };
@@ -294,7 +334,14 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     let total = resultados.len();
     let _ = writeln!(out);
     if com_forge {
-        let label = if nativo { "DartForge Nativo:          " } else { "DartForge desenvolvimento: " };
+        let jit = resultados.iter().any(|r| r.jit.is_some());
+        let label = if jit {
+            "DartForge JIT:             "
+        } else if nativo {
+            "DartForge Nativo:          "
+        } else {
+            "DartForge desenvolvimento: "
+        };
         let _ = writeln!(out, "{label}{ok}/{total} ok");
     }
     if com_producao {
@@ -315,7 +362,13 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     // Dois agrupamentos, porque as causas são diferentes: falha do executor
     // principal é construto que falta no emissor; falha da produção é poda ou
     // montagem do arquivo único.
-    let titulo_forge = if nativo { "do DartForge Nativo" } else { "do DartForge" };
+    let titulo_forge = if resultados.iter().any(|r| r.jit.is_some()) {
+        "do DartForge JIT"
+    } else if nativo {
+        "do DartForge Nativo"
+    } else {
+        "do DartForge"
+    };
     for (titulo, grupos) in [(titulo_forge, grupos), ("do perfil de produção", grupos_prod)] {
         if grupos.is_empty() {
             continue;
@@ -327,6 +380,194 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
             let _ = writeln!(out, "  {:>4}  {chave}", nomes.len());
             let _ = writeln!(out, "        {}", nomes.join(", "));
         }
+    }
+    out.push_str(&secao_construtos(&construtos));
+    out.push_str(&secao_jit_aot(resultados));
+    out
+}
+
+/// Os construtos distintos de um programa, na ordem da primeira ocorrência,
+/// com a contagem quando repetem: ``closure ×3, chamada `sort` ``.
+fn descrever_construtos(cs: &[String]) -> String {
+    let mut distintos: Vec<(&str, usize)> = Vec::new();
+    for c in cs {
+        match distintos.iter_mut().find(|(d, _)| *d == c) {
+            Some((_, n)) => *n += 1,
+            None => distintos.push((c, 1)),
+        }
+    }
+    let partes: Vec<String> =
+        distintos.iter().map(|(c, n)| if *n > 1 { format!("{c} ×{n}") } else { (*c).to_string() }).collect();
+    partes.join(", ")
+}
+
+/// A seção "construtos (todos os diagnósticos)": a matriz exata do que falta.
+///
+/// A chave de falha agrupa pela primeira linha, que é o **primeiro**
+/// construto não suportado do programa; ela esconde os outros. Aqui entram
+/// todos os diagnósticos de cada programa: por construto, quantos programas o
+/// usam e quantas ocorrências somam, e — o número que ordena o trabalho — os
+/// programas bloqueados **só** por ele (os que passariam a compilar se só ele
+/// entrasse). Ordem: programas, depois ocorrências, depois o texto. Vazia
+/// quando nenhum programa tem diagnóstico de construto.
+pub fn secao_construtos(programas: &[(&str, Vec<String>)]) -> String {
+    let mut por: BTreeMap<&str, (Vec<&str>, usize)> = BTreeMap::new();
+    let mut so: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (nome, cs) in programas {
+        let mut distintos: Vec<&str> = cs.iter().map(String::as_str).collect();
+        distintos.sort_unstable();
+        distintos.dedup();
+        for c in cs {
+            por.entry(c.as_str()).or_default().1 += 1;
+        }
+        for c in &distintos {
+            por.entry(*c).or_default().0.push(nome);
+        }
+        if let [unico] = distintos[..] {
+            so.entry(unico).or_default().push(nome);
+        }
+    }
+    if por.is_empty() {
+        return String::new();
+    }
+    let mut lista: Vec<(&str, Vec<&str>, usize)> = por.into_iter().map(|(c, (p, n))| (c, p, n)).collect();
+    lista.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(b.2.cmp(&a.2)).then(a.0.cmp(b.0)));
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "\nConstrutos (todos os diagnósticos): {} programas com diagnóstico, {} construtos distintos, {} só por um construto",
+        programas.len(),
+        lista.len(),
+        so.values().map(Vec::len).sum::<usize>()
+    );
+    let _ = writeln!(out, "  programas  ocorrências  só este  construto");
+    for (c, progs, n) in &lista {
+        let so_este = so.get(c).map_or(&[][..], Vec::as_slice);
+        let _ = writeln!(out, "  {:>9}  {:>11}  {:>7}  {c}", progs.len(), n, so_este.len());
+        if !so_este.is_empty() {
+            let _ = writeln!(out, "             só este: {}", so_este.join(", "));
+        }
+    }
+    out
+}
+
+/// Seção do `--jit-aot`: acordo JIT × AOT programa a programa, e os tempos.
+///
+/// O contrato de `crates/jit` é que o mesmo IR dê o mesmo stdout e o mesmo
+/// código de saída nos dois perfis, **inclusive quando os dois falham**. Por
+/// isso a comparação é entre os dois, e não de cada um com a VM (isso é o
+/// placar). A linha `JIT × AOT: … N divergentes` é o que o CI exige com zero.
+///
+/// Programa que estoura o tempo **nos dois** não conta como divergência: o
+/// stdout parcial de um laço sem fim depende de quanto tempo cada um rodou (e o
+/// JIT tem a folga da geração de código). Fica listado à parte.
+///
+/// Os tempos são de parede, só de programas que terminaram nos dois perfis.
+/// «JIT até executar» é o processo do executor menos a execução do programa
+/// (`execute_ns`): carga da DLL, sessão, análise do IR e geração de código —
+/// o que corresponde ao Clang + ligação do AOT.
+fn secao_jit_aot(resultados: &[Resultado]) -> String {
+    use crate::processo::CODIGO_TEMPO_ESGOTADO;
+    let pares: Vec<(&Resultado, &Saida, &ExecucaoJit, &AotDoMesmoIr)> = resultados
+        .iter()
+        .filter_map(|r| {
+            let jit = r.jit.as_ref()?;
+            Some((r, r.forge.as_ref()?, jit, jit.aot.as_ref()?))
+        })
+        .collect();
+    if pares.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut divergentes = Vec::new();
+    let mut ambos_estouraram = Vec::new();
+    for (r, jit, _, aot) in &pares {
+        if jit.codigo == CODIGO_TEMPO_ESGOTADO && aot.saida.codigo == CODIGO_TEMPO_ESGOTADO {
+            ambos_estouraram.push(r.programa.nome.as_str());
+        } else if jit.stdout != aot.saida.stdout || jit.codigo != aot.saida.codigo {
+            divergentes.push((*r, *jit, &aot.saida));
+        }
+    }
+    let sem_ir = pares.iter().filter(|(_, _, j, _)| !j.com_ir).count();
+    let _ = writeln!(
+        out,
+        "\nJIT × AOT: {}/{} idênticos, {} divergentes ({} sem IR, iguais por construção; {} estouraram o tempo nos dois)",
+        pares.len() - divergentes.len(),
+        pares.len(),
+        divergentes.len(),
+        sem_ir,
+        ambos_estouraram.len()
+    );
+    if !ambos_estouraram.is_empty() {
+        let _ = writeln!(out, "  tempo esgotado nos dois: {}", ambos_estouraram.join(", "));
+    }
+    for (r, jit, aot) in &divergentes {
+        let _ = writeln!(out, "JIT≠AOT {}  (códigos: jit={} aot={})", r.programa.nome, jit.codigo, aot.codigo);
+        let primeira = primeira_linha_diferente(&jit.stdout, &aot.stdout);
+        let _ = write!(out, "{}", lado_a_lado(&[("jit", &jit.stdout), ("aot", &aot.stdout)], primeira));
+        let _ = writeln!(out, "       stderr jit: {}", truncar(&chave_de_falha(jit), 110));
+        let _ = writeln!(out, "       stderr aot: {}", truncar(&chave_de_falha(aot), 110));
+    }
+
+    // Só quem terminou nos dois e tem a execução medida no executor.
+    let medidos: Vec<_> = pares
+        .iter()
+        .filter(|(_, jit, j, a)| {
+            j.com_ir
+                && j.execucao.is_some()
+                && jit.codigo != CODIGO_TEMPO_ESGOTADO
+                && a.saida.codigo != CODIGO_TEMPO_ESGOTADO
+        })
+        .collect();
+    if medidos.is_empty() {
+        return out;
+    }
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+    let resumo = |mut v: Vec<f64>| -> String {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let soma: f64 = v.iter().sum();
+        let p = |q: f64| v[((v.len() as f64 - 1.0) * q).round() as usize];
+        format!("mediana {:>8.1} ms  p95 {:>8.1} ms  soma {:>8.1} s", p(0.5), p(0.95), soma / 1000.0)
+    };
+    let execucao = |j: &ExecucaoJit| j.execucao.unwrap_or_default();
+    let ate_executar: Vec<f64> = medidos.iter().map(|(_, _, j, _)| ms(j.tempo.saturating_sub(execucao(j)))).collect();
+    let jit_exec: Vec<f64> = medidos.iter().map(|(_, _, j, _)| ms(execucao(j))).collect();
+    let jit_total: Vec<f64> = medidos.iter().map(|(_, _, j, _)| ms(j.tempo)).collect();
+    let ligacao: Vec<f64> = medidos.iter().map(|(_, _, _, a)| ms(a.ligacao)).collect();
+    let aot_exec: Vec<f64> = medidos.iter().map(|(_, _, _, a)| ms(a.execucao)).collect();
+    let aot_total: Vec<f64> = medidos.iter().map(|(_, _, _, a)| ms(a.ligacao + a.execucao)).collect();
+    let do_cache = medidos.iter().filter(|(_, _, _, a)| a.objeto_do_cache).count();
+    let soma = |v: &[f64]| v.iter().sum::<f64>();
+    let _ = writeln!(
+        out,
+        "\nTempos pós-IR, {} programas que terminaram nos dois perfis ({} com objeto do cache de objetos):",
+        medidos.len(),
+        do_cache
+    );
+    let _ = writeln!(out, "  JIT até executar (DLL + sessão + IR + geração)     {}", resumo(ate_executar.clone()));
+    let _ = writeln!(out, "  AOT Clang + ligação                                {}", resumo(ligacao.clone()));
+    let _ = writeln!(out, "  JIT execução do programa (dentro do processo)      {}", resumo(jit_exec));
+    let _ = writeln!(out, "  AOT execução do .exe (processo inteiro)            {}", resumo(aot_exec));
+    let _ = writeln!(out, "  JIT total (processo do executor)                   {}", resumo(jit_total.clone()));
+    let _ = writeln!(out, "  AOT total (Clang + ligação + execução)             {}", resumo(aot_total.clone()));
+    let _ = writeln!(
+        out,
+        "  razão (somas): Clang+ligação / JIT até executar = {:.1}x; AOT total / JIT total = {:.1}x",
+        soma(&ligacao) / soma(&ate_executar).max(f64::EPSILON),
+        soma(&aot_total) / soma(&jit_total).max(f64::EPSILON)
+    );
+    let _ = writeln!(out, "\nTempos por programa (ms): jit-até-executar  jit-execução  aot-ligação  aot-execução  nome");
+    for (r, _, j, a) in &medidos {
+        let cache = if a.objeto_do_cache { "  (objeto do cache)" } else { "" };
+        let _ = writeln!(
+            out,
+            "  {:>10.1} {:>13.1} {:>12.1} {:>13.1}  {}{cache}",
+            ms(j.tempo.saturating_sub(execucao(j))),
+            ms(execucao(j)),
+            ms(a.ligacao),
+            ms(a.execucao),
+            r.programa.nome
+        );
     }
     out
 }
@@ -348,6 +589,7 @@ pub struct IrPrograma {
 pub fn relatorio_ir(programas: &[IrPrograma]) -> String {
     let mut out = String::new();
     let mut com_ir = 0usize;
+    let mut construtos: Vec<(&str, Vec<String>)> = Vec::new();
     for p in programas {
         match &p.resultado {
             Ok(r) => {
@@ -357,10 +599,15 @@ pub fn relatorio_ir(programas: &[IrPrograma]) -> String {
             Err(e) => {
                 let chave = truncar(&chave_de_falha(&Saida { stdout: String::new(), stderr: e.clone(), codigo: 1 }), 120);
                 let _ = writeln!(out, "ERRO  {}: {chave}", p.nome);
+                let cs = dartforge_emit_native::construtos_do_erro(e);
+                if !cs.is_empty() {
+                    construtos.push((p.nome.as_str(), cs));
+                }
             }
         }
     }
     let _ = writeln!(out, "\n{} programas: {com_ir} com IR, {} com erro de emissão", programas.len(), programas.len() - com_ir);
+    out.push_str(&secao_construtos(&construtos));
     out
 }
 
@@ -424,9 +671,9 @@ mod testes {
     fn relatorio_agrupa() {
         let p = Programa::teste;
         let r = vec![
-            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false, producao: None },
-            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },
-            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },
+            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false, producao: None, jit: None },
+            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None, jit: None },
+            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None, jit: None },
         ];
         let t = relatorio(&r);
         assert!(t.contains("ok     a"), "{t}");
@@ -454,6 +701,58 @@ mod testes {
         assert_eq!(linhas[1], "ERRO  02_b: [emitir-ir] a thread abortou: índice fora de faixa");
         assert_eq!(linhas[2], "6c62272e07bb014262b821756295c58d         0 10_c");
         assert_eq!(linhas[4], "3 programas: 2 com IR, 1 com erro de emissão");
+    }
+
+    fn cs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn construtos_descritos_na_ordem_com_contagem() {
+        assert_eq!(descrever_construtos(&cs(&["closure", "cascata", "closure"])), "closure ×2, cascata");
+    }
+
+    #[test]
+    fn secao_construtos_conta_todos_e_os_bloqueados_so_por_um() {
+        let progs = vec![
+            ("a", cs(&["closure", "cascata", "closure"])),
+            ("b", cs(&["closure"])),
+            ("c", cs(&["closure", "closure"])),
+            ("d", cs(&["await"])),
+        ];
+        let t = secao_construtos(&progs);
+        let linhas: Vec<&str> = t.lines().collect();
+        assert_eq!(
+            linhas[1],
+            "Construtos (todos os diagnósticos): 4 programas com diagnóstico, 3 construtos distintos, 3 só por um construto"
+        );
+        assert_eq!(linhas[3], "          3            5        2  closure");
+        assert_eq!(linhas[4], "             só este: b, c");
+        assert_eq!(linhas[5], "          1            1        1  await");
+        assert_eq!(linhas[6], "             só este: d");
+        assert_eq!(linhas[7], "          1            1        0  cascata");
+        assert!(secao_construtos(&[]).is_empty());
+    }
+
+    #[test]
+    fn relatorio_nativo_lista_os_construtos_da_falha() {
+        let p = Programa::teste("a");
+        let erro = "[compile-native] erro de compilação: não suportado no backend nativo: closure\n\
+                    erro de compilação: não suportado no backend nativo: closure\n  \
+                    não suportado no backend nativo: closure (a.dart:1:1)\n  \
+                    não suportado no backend nativo: cascata (a.dart:2:1)\n";
+        let r = vec![Resultado {
+            programa: p,
+            dart: s("1\n", 0),
+            ddc: s("", 0),
+            forge: Some(Saida { stdout: String::new(), stderr: erro.into(), codigo: 1 }),
+            nativo: true,
+            producao: None,
+            jit: None,
+        }];
+        let t = relatorio(&r);
+        assert!(t.contains("       construtos: closure, cascata"), "{t}");
+        assert!(t.contains("          1            1        0  cascata"), "{t}");
     }
 
     #[test]

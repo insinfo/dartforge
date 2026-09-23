@@ -1,5 +1,0 @@
-# Saídas do dart2js: artefatos grandes, regeráveis pelos comandos do README.
-*.js
-!run.js
-*.js.map
-*.js.deps

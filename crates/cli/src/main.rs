@@ -1,5 +1,6 @@
 //! Interface de linha de comando do compilador DartForge.
 use std::{env, fs, path::PathBuf, process::ExitCode};
+mod jit;
 mod nativo;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
@@ -9,7 +10,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.is_empty() || args[0] == "--help" {
         println!(
             "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
-       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge aot|run|reload|abi-info ...  (compile com --features nativo)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
+       dartforge run|reload <input.dart> ...  (compile com --features jit)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );
         return Ok(());
     }
@@ -24,10 +26,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return run_compile_js(&args[1..]);
     }
     if args[0] == "run" {
-        return nativo::run_jit(&args[1..]);
+        return jit::run(&args[1..]);
     }
     if args[0] == "reload" {
-        return nativo::run_hot_reload(&args[1..]);
+        return jit::reload(&args[1..]);
     }
     if args[0] == "aot" {
         return nativo::aot(&args);

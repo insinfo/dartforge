@@ -26,15 +26,13 @@ fn main_de(fonte: &str) -> Option<String> {
                 optimize: false,
                 versao_linguagem: None,
             };
-            emitir_ir(&entrada, &options).expect("emitir IR").texto
+            emitir_ir(&entrada, &options)
+                .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
+                .texto
         })
         .unwrap()
         .join()
         .unwrap();
-    assert!(
-        !ir.contains("dartforge_erro_de_compilacao"),
-        "não compilou:\n{ir}"
-    );
     let ini = ir.find("define void @dart_main(").expect("dart_main");
     let fim = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
     Some(ir[ini..fim].to_string())

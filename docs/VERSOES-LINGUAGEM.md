@@ -27,7 +27,7 @@ Fontes normativas, por ordem de precedência quando divergem:
 | **D5** | Macros exigem `--enable-experiment=macros`, como o oficial; augmentations escritas à mão exigem `augmentations,enhanced-parts`. |
 | **D6** | Macros em biblioteca ≥ 3.7 são permitidas; o oráculo é a expansão em texto executada no 3.13.4 como *part*. |
 | **D7** | Some (não há executor JS, logo não há `int` de 53 bits no executor). |
-| **D8** | Este desenho substitui `docs/MACROS-ARQUITETURA.md` (fases "herdadas, transporte descartado" e Q4). |
+| **D8** | Este desenho substitui `docs/historico/MACROS-ARQUITETURA.md` (fases "herdadas, transporte descartado" e Q4). |
 | **D9** | Segue-se o CFE 3.6.2 e a spec de augmentations 1.46: sem `augmented()`, sem embrulho de corpo. |
 
 **Regra governante** (PLANO.md, "geração de código e macros: rápidas, e custo
@@ -225,7 +225,7 @@ com o nome público; `super._x` é erro.
 ### 4.5 Construtores primários (3.13)
 
 Spec: `accepted/3.13/primary-constructors/feature-specification.md`. O
-contrato antigo de `docs/IMPLEMENTACAO-25.md` §4 ("`Tipo nome` declara campo
+contrato antigo de `docs/historico/IMPLEMENTACAO-25.md` §4 ("`Tipo nome` declara campo
 final") **contradiz** a spec (`:1000-1002`: parâmetro sem `var`/`final` é
 simples, não declara nada) e o oráculo (`class Nome(String cru)`); está
 corrigido lá e vale este.

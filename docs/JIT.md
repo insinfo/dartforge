@@ -18,9 +18,11 @@ divergir em resultado é defeito.
 > depender da trilha velha e passou a consumir o IR do `crates/emit_native`:
 > runtime publicado a partir da fonte do harness AOT, pré-verificação de
 > externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
-> `dartforge-executar-ir`. **Ainda não** ligados: `dartforge run`/`reload` na
-> CLI (esperam a separação `emitir_ir` do `emit_native`) e a fonte única do
-> runtime (espera o merge do trabalho em `crates/runtime`). As seções «O que
+> `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
+> `dartforge reload` R0 (reinício a quente, estado NÃO preservado; cada geração
+> num processo `dartforge run --ir`). No harness: `--jit` e `--jit-aot`.
+> Runtime de fonte única (`dartforge_runtime::abi`) e sessão persistente com
+> cache de módulos (executor de macros), ver as seções abaixo. As seções «O que
 > executa» e «Hot reload» abaixo descrevem a trilha velha; o mecanismo de
 > `src/reload.rs` continua, mas os testes dele esperam migração em
 > `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT
@@ -90,26 +92,29 @@ A regra é **uma fonte só**: as funções `dartforge_*` que o código JIT chama
 as de `crates/runtime/src/runtime_main.rs`, as mesmas que o driver AOT compila
 com `rustc` avulso e liga ao executável. Nenhuma delas é reimplementada aqui.
 
-Como o arquivo ainda não é módulo do crate `dartforge-runtime` (só existe como
-texto em `RUNTIME_MAIN`), o `build.rs` de `crates/jit` faz, **provisoriamente**:
+O arquivo é compilado de duas formas (`crates/runtime/src/lib.rs`):
 
-1. uma cópia do arquivo em `OUT_DIR` com três substituições mecânicas, cada
-   uma exigida exatamente uma vez. O `main` C do harness vira
-   `dartforge_jit_main_provisorio`, porque colidiria com o `main` de qualquer
-   binário Rust. A entrada `dartforge_entry` que ele chama vira
-   `dartforge_jit_entrada_provisoria`, definida em `src/ffi.rs`, que salta para
-   o endereço resolvido na `LLJIT`. Se o runtime mudar de forma, o build falha
-   dizendo qual substituição deixou de casar;
-2. a tabela `(nome, endereço)`, gerada a partir dos `#[unsafe(no_mangle)]` do
-   mesmo arquivo. Ela é publicada com `LLVMOrcAbsoluteSymbols`, junto com
-   `_fltused`, o marcador que o gerador COFF exige quando há `double` e que no
-   AOT vem da CRT estática.
+1. **pelo AOT**, como texto (`RUNTIME_MAIN`), com `rustc -O` avulso, virando a
+   `.lib` que o executável liga. Com o `main` C que chama `@dartforge_entry`;
+2. **pelo crate `dartforge-runtime`**, como o módulo `dartforge_runtime::abi`,
+   que o JIT usa. O `build.rs` do crate liga a cfg `dartforge_runtime_embutido`,
+   que tira o `main` C e a declaração de `dartforge_entry` (colidiriam com o
+   `main` de qualquer binário Rust). Ele também gera `dartforge_runtime::simbolos`:
+   a tabela `(nome, endereço)` de todo `#[unsafe(no_mangle)]` do arquivo.
 
-O `heap` vem de `dartforge_runtime::heap`, o mesmo `heap.rs`. Os perfis de
-compilação de `dartforge-runtime` e `dartforge-jit` estão fixados no
-`Cargo.toml` raiz em opt-level 2, sem debug-assertions e sem overflow-checks,
-que é o que `rustc -O` dá ao AOT. Sem isso, a mesma fonte entraria em `panic`
-por estouro em `dev`, onde o AOT faz aritmética modular.
+O JIT publica essa tabela com `LLVMOrcAbsoluteSymbols`, junto com `_fltused`, o
+marcador que o gerador COFF exige quando há `double` e que no AOT vem da CRT
+estática. Depois que `dartforge_entry` retorna, os dois perfis rodam o mesmo
+`abi::finalizar_programa()`: exceção não capturada → `Uncaught exception: …` e
+101; `DARTFORGE_GC_STATS`. É o único trecho do runtime que os perfis dirigem, e
+está escrito uma vez só.
+
+O perfil de compilação de `dartforge-runtime` está fixado no `Cargo.toml` raiz
+em opt-level 2, sem debug-assertions e sem overflow-checks, que é o que o
+`rustc -O` dá ao AOT. Sem isso, a mesma fonte entraria em `panic` por estouro
+em `dev`, onde o AOT faz aritmética modular. `crates/runtime/tests/fonte_unica.rs`
+confere três coisas: que o texto do AOT contém os mesmos dois arquivos, que a
+tabela tem cada símbolo do arquivo e que estouro é modular no perfil de teste.
 
 O gerador de símbolos do processo **não** é a fonte do runtime. Um `.exe`
 Windows não exporta os `#[no_mangle]` das bibliotecas Rust que liga. Além
@@ -121,31 +126,126 @@ estiver, o módulo é recusado na etapa `símbolos`, com o nome na mensagem.
 Símbolos que o próprio gerador de código introduz sem aparecer no IR
 (`__chkstk`, `memcpy` de intrínsecos) são resolvidos pela `LLJIT` no processo.
 
-O teste `cada_declare_do_emissor_existe_no_runtime` confere, sem LLVM nem Clang,
-que todo `declare @dartforge_*` do emissor está na tabela.
+O teste `cada_extern_do_emissor_existe_no_runtime` confere, sem LLVM nem Clang,
+que toda extern da tabela do emissor (`emit_native::llvm::externs::EXTERNS`) está na do runtime.
 
-Quando a fonte única entrar em `crates/runtime`, com `runtime_main.rs` como
-módulo, `finalizar_programa()` e a tabela gerada lá, o bloco provisório sai. O
-contrato não muda.
 
 ### Execução e término
 
-A entrada é executada pelo **mesmo `main` do harness** que o executável AOT
-roda, numa thread nova com 1 MiB de pilha: a reserva padrão da thread principal
-de um `.exe`. Todo o estado do runtime é `thread_local`, então cada execução
-começa com heap, classes registradas e exceção pendente zerados.
+A entrada é chamada numa thread nova com 1 MiB de pilha, a reserva padrão da
+thread principal de um `.exe`. Depois vem `finalizar_programa()`, o mesmo código
+que o `main` C do AOT roda depois da entrada. Todo o estado do runtime é
+`thread_local`, então cada execução começa com heap, classes registradas e
+exceção pendente zerados. As globais mutáveis do módulo, que são os estáticos
+preguiçosos `@dfg_*`, voltam a zero antes de cada execução (ver «Sessão
+persistente»).
 
-O harness termina o processo com `process::exit` nos mesmos casos que o AOT:
-exceção não capturada (101, `Uncaught exception: …` em stderr), asserção de não
-nulidade (101) e teto do heap (255). Por isso testes e harness executam por
-subprocesso, com `dartforge-executar-ir <programa.ll> [--timings]`: o stdout e o
-código de saída são os do programa, e uma falha do próprio JIT sai com 70. A
-captura de saída em processo da versão anterior foi removida: ela exigia uma
-segunda cópia das funções de impressão.
+`finalizar_programa()` devolve 101 para exceção não capturada, e o executor sai
+com esse código. Durante a execução, o runtime ainda encerra o processo com
+`process::exit` nos mesmos casos que o AOT: asserção de não nulidade (101) e
+teto do heap (255). Por isso testes e harness executam por subprocesso, com
+`dartforge-executar-ir <programa.ll> [--timings]`: stdout e código de saída
+são os do programa, e uma falha do próprio JIT sai com 70. A captura de saída
+em processo da versão anterior foi removida, porque exigia uma segunda cópia
+das funções de impressão.
+
+O JIT roda o **verificador do LLVM** (`LLVMVerifyModule`) em todo módulo, como
+o Clang faz no AOT. Nem o analisador de IR textual nem o ORC o rodam. Sem ele,
+o JIT executava IR que o AOT recusa: no corpus inteiro foram 13 programas, com
+`phi` sem entrada para cada predecessor, instrução que não domina o uso e
+valor indefinido.
 
 Divergência conhecida: estouro de pilha. No AOT o processo morre com
 `STATUS_STACK_OVERFLOW`. No JIT, a thread Rust tem o tratador do `std`, que
 imprime `thread '<unnamed>' has overflowed its stack` e aborta.
+
+## Sessão persistente e cache de módulos
+
+O executor de macros e builders vai ser persistente (regra de `PLANO.md`): um
+processo por sessão, atendendo várias execuções, com o código compilado uma vez
+e em cache, e custo zero para quem não usa. A biblioteca já tem as peças.
+
+* **`JitSession`** vive o quanto o chamador quiser. O LLVM é inicializado uma
+  vez por processo, e a sessão uma vez.
+* **`compile_module(nome, ir) -> CompiledModule`** analisa, verifica e compila o
+  IR para objeto COFF, com a mesma máquina-alvo da sessão, **sem** abrir sessão.
+  `CompiledModule::object()` dá os bytes para um cache em disco. A chave fica
+  com o chamador: hash do IR, versão do LLVM e do runtime.
+* **`JitSession::add_compiled_module(&CompiledModule)`** carrega o objeto sem
+  análise nem geração de código, com as mesmas verificações do IR (alvo e
+  externos). O mesmo módulo compilado entra em quantas sessões quiser.
+* **`run_entry()`** pode ser chamado muitas vezes. Cada execução começa com o
+  estado Dart limpo: thread nova (heap e tabelas do runtime zerados) e globais
+  mutáveis do módulo zeradas antes de executar. Para achá-las, a sessão muda a
+  ligação delas de `internal` para externa **na cópia** do módulo, sem mudar o
+  IR emitido. Global que não começa em zero é recusada na etapa `globais`, em
+  vez de ser reiniciada errado.
+
+Custo medido em 2026-09-23, `cargo test -p dartforge-jit --test
+sessao_persistente medicao -- --ignored --nocapture`. Perfil `test` (o Rust sem
+otimização; o LLVM é a DLL otimizada), 30 amostras depois de 3 aquecimentos,
+máquina local com 2,4 GB livres e nenhum outro build rodando.
+
+| peça | trivial (46 B de IR) | programa Dart pequeno (12,5 KB de IR) |
+| --- | --- | --- |
+| (i) criar a sessão (LLJIT + 150 símbolos) | 0,27 ms (p95 0,65) | — |
+| (ii) carregar pelo IR: análise + verificação + geração, até a entrada resolvida | 0,36 ms (p95 1,0) | 3,37 ms (p95 6,2) |
+| compilar para o cache (uma vez por módulo) | 0,29 ms | 2,91 ms (p95 4,7) |
+| (ii) carregar do cache, até a entrada resolvida | **0,015 ms** (341 B de objeto) | **0,23 ms** (3,2 KB de objeto) |
+| (iii) uma execução numa sessão aquecida (thread nova + finalização) | **0,07 ms** (p95 0,19) | **0,17 ms** (p95 0,5) |
+
+Leitura:
+
+* Com o módulo no cache, uma execução custa décimos de milissegundo. O que
+  pesa é o **processo**. No CI, o executor isolado leva 43 ms por programa,
+  entre criar o processo e carregar a `LLVM-C.dll` de 72 MB (ver «JIT × AOT no
+  corpus»). É isso que a sessão persistente elimina.
+* O cache paga 15× no programa pequeno (3,4 ms contra 0,23 ms). A geração de
+  código cresce com o IR, e o carregamento do objeto quase não cresce.
+* A thread nova por execução (~50 µs) é o preço do estado limpo sem `reset`
+  manual no runtime.
+
+## JIT × AOT no corpus inteiro
+
+`dartforge-diferencial --jit-aot` emite o IR de cada programa **uma vez**. Esse
+IR passa pelo executor do JIT e pelo AOT (Clang + ligação), e o harness compara
+os dois programa a programa (stdout e código). Qualquer divergência é defeito.
+No CI é o job `jit` do `pesado.yml`: corpus inteiro, `--jobs 1`, cache de
+objetos desligado para o Clang rodar sempre. O relatório só é aceito com
+`0 divergentes`.
+
+Primeira rodada (Pesado 35823438137): 14 divergências. Treze eram IR que o
+Clang recusa e o JIT executava, e foram resolvidas com o verificador (acima). A
+outra era um programa que estoura o tempo nos dois perfis com stdout parcial
+diferente. Estouro nos dois agora é listado à parte, e não como divergência.
+
+Segunda rodada (Pesado 35824630444, runner `windows-latest`): **222/222
+idênticos, 0 divergentes**. Nela, 32 programas não geram IR e 6 estouram o
+tempo nos dois perfis. O placar contra a VM é 7/222 nos dois perfis, com o
+emissor de antes do contrato de representação. Tempos pós-IR dos 41 programas
+que terminaram nos dois perfis:
+
+| etapa | mediana | p95 | soma |
+| --- | --- | --- | --- |
+| JIT até executar (processo + DLL + sessão + IR + geração) | 42,6 ms | 43,4 ms | 2,6 s |
+| AOT Clang + ligação | 156,1 ms | 207,4 ms | 18,1 s |
+| JIT execução do programa (dentro do processo) | 0,1 ms | 0,4 ms | 0,0 s |
+| AOT execução do `.exe` (processo inteiro) | 25,4 ms | 26,0 ms | 1,0 s |
+| **JIT total** | **42,7 ms** | 43,6 ms | 2,6 s |
+| **AOT total** | **181,5 ms** | 232,6 ms | 19,1 s |
+
+Pelas somas, Clang + ligação custam **6,9×** o JIT até executar, e o AOT total
+**7,3×** o JIT total.
+
+Terceira rodada, com o contrato de representação do nativo e o runtime de fonte
+única (Pesado 35827208951): **222/222 idênticos, 0 divergentes**, e o placar
+contra a VM é **50/222 nos dois perfis**, igual ao do `--nativo`. Nela, 3
+programas não geram IR e nenhum estoura o tempo. Nos 54 que terminaram nos dois
+perfis, o JIT até executar levou 42,7 ms (p95 43,2) e o Clang + ligação
+165,2 ms (p95 182,1), medianas. Pelas somas, **8,1×** até executar e **8,6×**
+no total (AOT 23,8 s, JIT 2,8 s). Quase todo o tempo do JIT é criar o processo e carregar a
+DLL: a sessão persistente leva esse número a décimos de milissegundo por
+execução.
 
 ## Ciclo de vida e liberação
 
@@ -304,6 +404,12 @@ sessao.hot_reload("app", &ir_novo)?;         // transacional de ponta a ponta
 ```
 
 ### O laço pela linha de comando
+
+> **Desatualizado.** O `dartforge reload` de hoje é o **R0, reinício a quente**
+> (`crates/cli/src/jit.rs`). Ele observa os `.dart` do diretório da entrada,
+> recompila tudo a cada edição e recomeça do `main` num processo novo. O estado
+> **não** é preservado, e a saída diz isso. O texto abaixo descreve o `reload`
+> da trilha velha, que usava o mecanismo desta seção.
 
 `dartforge reload` abre uma sessão, executa a primeira versão e publica cada
 arquivo seguinte como uma edição, mantendo o heap vivo entre elas:
@@ -634,5 +740,5 @@ for ajustado, `cargo build --workspace` falhará na CI por falta de `llvm-config
   `LLVMErrorRef` por `LLVMGetErrorMessage`.
 - [`llvm-sys` 221.1.0](https://docs.rs/llvm-sys/221.1.0/): assinaturas usadas e a
   convenção `LLVM_SYS_<versão>_PREFIX`.
-- `crates/runtime/CONTRACT.md` e [AOT-DRIVER.md](AOT-DRIVER.md): a ABI que este
+- `crates/runtime/CONTRACT.md` e [historico/AOT-DRIVER.md](historico/AOT-DRIVER.md): a ABI que este
   crate precisa reproduzir e a fronteira `unsafe` do perfil de produção.

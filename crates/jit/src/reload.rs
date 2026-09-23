@@ -72,7 +72,7 @@ use crate::{ENTRY_SYMBOL, JitError, JitSession};
 
 /// Prefixo das células de ponteiro publicadas como símbolos absolutos de dado.
 ///
-/// `$` não aparece em nenhum nome do emissor (`crates/llvm` usa `df_*` e
+/// `$` não aparece em nenhum nome do emissor (`crates/emit_native` usa `df_*` e
 /// `dartforge_*`), então não há como uma célula colidir com uma função do
 /// programa. Também é aceito em identificadores de IR sem citação.
 const SLOT_PREFIX: &str = "__dfslot$";
@@ -323,7 +323,7 @@ impl JitSession {
     /// nome do símbolo na mensagem. A sessão não é alterada nesses casos.
     ///
     /// A identidade vem do **nome do símbolo emitido**, e os nomes de
-    /// `crates/llvm` são posicionais (`df_fn_0`, `df_method_0_0`). Inserir ou
+    /// `crates/emit_native` são posicionais (`df_fn_0`, ...). Inserir ou
     /// reordenar declarações no Dart renumera os símbolos, e a recarga passa a
     /// comparar contratos de funções diferentes. O limite está em `docs/JIT.md`.
     ///

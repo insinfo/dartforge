@@ -28,6 +28,8 @@ $programas = 0
 $segundos = @()
 $dartQuebrado = @()
 $pendentes = $null
+# Seção do `--jit-aot` (acordo JIT × AOT e tempos pós-IR), copiada como está.
+$jitAot = [System.Collections.Generic.List[string]]::new()
 $lidos = 0
 
 foreach ($arq in $Relatorio) {
@@ -37,6 +39,7 @@ foreach ($arq in $Relatorio) {
     $secao = $null
     for ($i = 0; $i -lt $linhas.Count; $i++) {
         $l = $linhas[$i]
+        if ($l -match '^(JIT × AOT: |JIT≠AOT |Tempos pós-IR|  (JIT|AOT) |  razão |  tempo esgotado nos dois)') { $jitAot.Add($l) }
         if ($l -match '^(DartForge [^:]+):\s+(\d+)/(\d+) ok') {
             $r = $Matches[1]
             if (!$placar.Contains($r)) { $placar[$r] = @(0, 0) }
@@ -106,6 +109,12 @@ if ($lidos -eq 0) {
         $out.Add('')
         # Esperado nos programas só-web (`// diverge-ddc:`), cuja referência é o DDC.
         $out.Add('`dart run` saiu com código ≠ 0 em ' + $dartQuebrado.Count + ' (linhas `DART!` do relatório): ' + (($dartQuebrado | Sort-Object { Ordem $_ }) -join ', '))
+    }
+    if ($jitAot.Count -gt 0) {
+        $out.Add('')
+        $out.Add('```text')
+        foreach ($l in $jitAot) { $out.Add($l) }
+        $out.Add('```')
     }
     foreach ($secao in $grupos.Keys) {
         $g = $grupos[$secao]

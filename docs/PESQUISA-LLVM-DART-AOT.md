@@ -657,7 +657,7 @@ conjuntos de funções diferentes):
 4. **Tempo**: pelo menos 10 execuções, mediana e dispersão; início do
    processo separado do regime (um `Stopwatch` dentro do programa para o
    núcleo, o relógio de parede para o processo); a mesma máquina, sem build
-   concorrente (`docs/BENCHMARKS.md`: "Não execute benchmarks durante outros
+   concorrente (`docs/historico/BENCHMARKS.md`: "Não execute benchmarks durante outros
    builds"); resultado por programa e média **geométrica** das razões, nunca um
    percentual agregado único.
 5. **Memória**: pico de RSS dos dois; o nosso teto de heap
@@ -670,7 +670,7 @@ conjuntos de funções diferentes):
 7. **Programas**: os do corpus que passam, mais um conjunto de benchmarks
    clássicos (DeltaBlue, Richards, Havlak, JSON) — **proposta**; não estão no
    repositório. O runner existente (`scripts/conformance-native.ps1`,
-   `docs/BENCHMARKS.md` "AOT nativo inicial") já compara com o AOT oficial;
+   `docs/historico/BENCHMARKS.md` "AOT nativo inicial") já compara com o AOT oficial;
    se ele usa a trilha nova (`emit_native`) é **não verificado**.
 
 ---

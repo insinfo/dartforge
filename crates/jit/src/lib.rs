@@ -8,18 +8,19 @@
 //! | | AOT (`crates/emit_native`) | JIT (este crate) |
 //! | --- | --- | --- |
 //! | Geração de código | Clang `-O0`, em processo separado | ORCv2 em memória, `CodeGenLevelNone`, CPU `x86-64` |
-//! | Runtime | `rustc` compila `runtime_main.rs` e o linker resolve | a mesma fonte, compilada neste crate; endereços publicados como símbolos absolutos |
-//! | `main` | o `main` C do harness chama `@dartforge_entry` | o mesmo `main` do harness, chamado numa thread própria |
+//! | Runtime | `rustc` compila `runtime_main.rs` e o linker resolve | a mesma fonte, compilada em `dartforge_runtime::abi`; endereços publicados como símbolos absolutos |
+//! | `main` | o `main` C do harness chama `@dartforge_entry` e `finalizar_programa` | a sessão chama `@dartforge_entry` numa thread própria, e depois o mesmo `finalizar_programa` |
 //! | Saída | executável em disco | nada em disco |
 //!
 //! O contrato completo — de onde vem cada símbolo, a pré-verificação de
-//! externos, o que é provisório — está em `docs/JIT.md` e no plano do JIT.
+//! externos, a sessão persistente — está em `docs/JIT.md`.
 //!
 //! # Término do programa
 //!
-//! O runtime encerra o **processo** com `process::exit` nos mesmos casos em que
-//! o executável AOT termina: exceção não capturada e asserção de não nulidade
-//! (101), teto do heap (255). Um erro interno do runtime aborta. Dentro de
+//! Exceção não capturada volta como `exit_code` 101 ([`EntryReport`]), pelo mesmo
+//! `finalizar_programa` que o `main` do AOT roda. Durante a execução, o runtime
+//! encerra o **processo** com `process::exit` nos mesmos casos em que o
+//! executável AOT termina: asserção de não nulidade (101) e teto do heap (255). Um erro interno do runtime aborta. Dentro de
 //! `dartforge run` isso é o comportamento certo — o processo termina com o
 //! código do programa, como `dart run`. Para testes e para o harness
 //! diferencial, a execução isolada é o binário `dartforge-executar-ir`.
@@ -68,7 +69,7 @@ pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 /// Nomes do runtime nativo que a sessão publica para o código gerado.
 ///
 /// Gerado por `build.rs` a partir dos `#[unsafe(no_mangle)]` de
-/// `crates/runtime/src/runtime_main.rs` — a mesma fonte que o AOT liga —, na
+/// os fragmentos de `crates/runtime/src` — a mesma fonte que o AOT liga —, na
 /// ordem da fonte. Nenhum nome é mantido à mão.
 ///
 /// ```
@@ -152,12 +153,13 @@ pub struct ModuleReport {
 pub struct EntryReport {
     /// Resolução do símbolo, incluindo a compilação sob demanda do módulo.
     pub lookup: Duration,
-    /// Execução do programa, do `main` do harness ao retorno.
+    /// Execução do programa: a entrada e `finalizar_programa`.
     pub execute: Duration,
     /// Chamada completa de [`JitSession::run_entry`].
     pub total: Duration,
-    /// Código que o `main` do harness devolveu. Os finais com código diferente
-    /// de zero encerram o processo antes de chegar aqui (ver o topo do crate).
+    /// Código que `finalizar_programa` devolveu: 0, ou 101 para exceção não
+    /// capturada. Asserção de não nulidade e teto do heap encerram o processo
+    /// antes de chegar aqui (ver o topo do crate).
     pub exit_code: i32,
 }
 
@@ -215,6 +217,8 @@ struct Module {
     signatures: Vec<ffi::FunctionSignature>,
     /// Layout nominal das classes que ele constrói: `(class_id, campos)`.
     layouts: Vec<(i64, i64)>,
+    /// Globais mutáveis (estáticos preguiçosos) zeradas antes de cada execução.
+    globals: Vec<ffi::MutableGlobal>,
 }
 
 impl JitSession {
@@ -273,6 +277,11 @@ impl JitSession {
     /// e o conserto é no emissor, não aqui.
     fn check_target(&self, parsed: &ffi::ParsedModule) -> Result<(), JitError> {
         let (layout, triple) = parsed.target();
+        self.check_target_strings(&layout, &triple)
+    }
+
+    /// [`JitSession::check_target`] sobre as strings, para objetos em cache.
+    fn check_target_strings(&self, layout: &str, triple: &str) -> Result<(), JitError> {
         let (jit_layout, jit_triple) = self.lljit.target();
         if !layout.is_empty() && layout != jit_layout {
             return Err(JitError {
@@ -351,6 +360,9 @@ impl JitSession {
         // porque é o que permite a uma recarga futura comparar a versão nova com
         // esta — inclusive quando este módulo entrou pelo caminho simples.
         let layouts = parsed.class_layouts();
+        let globals = parsed
+            .prepare_mutable_globals()
+            .map_err(|detail| JitError::new("globais", "o módulo tem estado que a sessão não sabe reiniciar", detail))?;
         let module = parsed.into_thread_safe();
         let parse_ir = phase.elapsed();
         let tracker = self.lljit.create_tracker();
@@ -365,12 +377,67 @@ impl JitSession {
             removed: false,
             signatures,
             layouts,
+            globals,
         });
         Ok(ModuleReport {
             parse_ir,
             add_module,
             total: started.elapsed(),
             ir_bytes: ir.len(),
+        })
+    }
+
+    /// Incorpora à sessão um módulo já compilado ([`compile_module`]).
+    ///
+    /// Faz as mesmas verificações de [`JitSession::add_ir_module`] (alvo e
+    /// externos), a partir do que o módulo compilado guardou do IR, e entrega o
+    /// objeto à `LLJIT` sem análise nem geração de código. O mesmo
+    /// [`CompiledModule`] pode entrar em quantas sessões quiser.
+    ///
+    /// `ModuleReport::parse_ir` fica com as verificações, e `ir_bytes` com o
+    /// tamanho do objeto.
+    ///
+    /// # Erros
+    /// Alvo divergente (`layout`), externo desconhecido (`símbolos`) ou recusa
+    /// do LLVM (`add-module`, por exemplo símbolo duplicado).
+    pub fn add_compiled_module(&mut self, module: &CompiledModule) -> Result<ModuleReport, JitError> {
+        let started = Instant::now();
+        let phase = Instant::now();
+        let parts = &module.parts;
+        self.check_target_strings(&parts.target.0, &parts.target.1)?;
+        let defined = self.defined_names();
+        if let Some(unknown) = parts.declarations.iter().find(|reference| {
+            !ffi::is_known_external(reference)
+                && !defined.contains(&String::as_str(reference))
+                && !parts.signatures.iter().any(|s| &s.name == *reference)
+        }) {
+            return Err(JitError {
+                stage: "símbolos",
+                message: format!(
+                    "o módulo referencia {unknown}, que nem o runtime nem a lista de CRT definem, \n                     e nenhum módulo da sessão define"
+                ),
+            });
+        }
+        let parse_ir = phase.elapsed();
+        let tracker = self.lljit.create_tracker();
+        let phase = Instant::now();
+        self.lljit
+            .add_object(&tracker, &parts.object, &module.name)
+            .map_err(|detail| JitError::new("add-module", "a LLJIT recusou o objeto", detail))?;
+        let add_module = phase.elapsed();
+        self.modules.push(Module {
+            name: module.name.clone(),
+            tracker,
+            removed: false,
+            signatures: parts.signatures.clone(),
+            layouts: parts.layouts.clone(),
+            globals: parts.globals.clone(),
+        });
+        Ok(ModuleReport {
+            parse_ir,
+            add_module,
+            total: started.elapsed(),
+            ir_bytes: parts.object.len(),
         })
     }
 
@@ -398,7 +465,11 @@ impl JitSession {
     ///
     /// O programa roda numa thread nova com [`PROGRAM_STACK_BYTES`] de pilha e
     /// runtime zerado, e imprime no stdout do processo. Pode ser chamada mais de
-    /// uma vez: cada execução começa de um runtime limpo.
+    /// uma vez: cada execução começa de um runtime limpo. As globais mutáveis
+    /// dos módulos (os estáticos do Dart) voltam a zero antes de cada execução,
+    /// então o estado Dart também começa limpo: é o que uma sessão persistente
+    /// (executor de macros) precisa para rodar o mesmo módulo muitas vezes sem
+    /// pagar a sessão e a geração de código de novo.
     ///
     /// # Erros
     /// Falha se nenhum módulo da sessão definir a entrada, se a compilação sob
@@ -406,13 +477,19 @@ impl JitSession {
     /// puder ser criada (`execute`).
     ///
     /// # Término
-    /// Exceção não capturada, asserção de não nulidade e teto do heap encerram
-    /// o processo com o código do AOT; um erro interno do runtime aborta. Ver o
-    /// topo do crate.
+    /// Exceção não capturada devolve `exit_code` 101. Asserção de não nulidade
+    /// e teto do heap encerram o processo com o código do AOT; um erro interno
+    /// do runtime aborta. Ver o topo do crate.
     pub fn run_entry(&self) -> Result<EntryReport, JitError> {
         let started = Instant::now();
+        let globals: Vec<&ffi::MutableGlobal> = self
+            .modules
+            .iter()
+            .filter(|module| !module.removed)
+            .flat_map(|module| module.globals.iter())
+            .collect();
         let (lookup, exit_code, execute) =
-            self.lljit.run_entry(PROGRAM_STACK_BYTES).map_err(|detail| {
+            self.lljit.run_entry(PROGRAM_STACK_BYTES, &globals).map_err(|detail| {
                 if detail.starts_with("não foi possível criar a thread")
                     || detail.starts_with("a thread do programa")
                 {
@@ -482,6 +559,51 @@ impl JitSession {
         module.removed = true;
         Ok(())
     }
+}
+
+/// Um módulo compilado para objeto uma vez, pronto para entrar em sessões.
+///
+/// É o cache de módulos do executor persistente (macros e builders, regra de
+/// `PLANO.md`): o IR é analisado, verificado e compilado **uma vez**
+/// ([`compile_module`]); cada sessão só carrega o objeto
+/// ([`JitSession::add_compiled_module`]). A máquina-alvo é a mesma da sessão,
+/// então o código é o mesmo que ela geraria a partir do IR.
+///
+/// Vive em memória. Guardar em disco (chave = hash do IR + versão do LLVM +
+/// versão do runtime) é do chamador, com [`CompiledModule::object`].
+pub struct CompiledModule {
+    name: String,
+    parts: ffi::ObjectParts,
+}
+
+impl CompiledModule {
+    /// Nome dado em [`compile_module`].
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    /// Os bytes do objeto COFF.
+    pub fn object(&self) -> &[u8] {
+        &self.parts.object
+    }
+}
+
+/// Analisa, verifica e compila IR para objeto, sem abrir sessão.
+///
+/// # Erros
+/// IR inválido ou recusado pelo verificador (`parse-ir`), estado que a sessão
+/// não sabe reiniciar (`globais`), falha do gerador de código (`codegen`).
+pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> {
+    let parts = ffi::compile_object(name, ir).map_err(|detail| {
+        let stage = if detail.contains("global mutável") {
+            "globais"
+        } else if detail.contains("gerador de código") {
+            "codegen"
+        } else {
+            "parse-ir"
+        };
+        JitError::new(stage, "não foi possível compilar o módulo", detail)
+    })?;
+    Ok(CompiledModule { name: name.to_owned(), parts })
 }
 
 /// Compila e executa um IR numa sessão descartável, imprimindo no stdout.

@@ -18,10 +18,6 @@ pub fn abi_info(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("abi-i
 #[cfg(not(feature = "nativo"))]
 pub fn aot(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("aot") }
 #[cfg(not(feature = "nativo"))]
-pub fn run_jit(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("run") }
-#[cfg(not(feature = "nativo"))]
-pub fn run_hot_reload(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("reload") }
-#[cfg(not(feature = "nativo"))]
 pub fn run_compile_native(_args: &[std::ffi::OsString]) -> Resultado { desabilitado("compile-native") }
 
 #[cfg(feature = "nativo")]
@@ -121,28 +117,6 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
         .join()
         .map_err(|_| "a compilação AOT abortou".to_string())??;
     Ok(())
-}
-
-#[cfg(feature = "nativo")]
-/// Compila a entrada para LLVM IR e a executa em memória pelo JIT ORCv2.
-///
-/// É o perfil de desenvolvimento: nada é gravado em disco e o programa executa
-/// dentro deste processo. O perfil de produção continua sendo `dartforge aot`,
-/// que produz um executável ligado ao runtime Rust. Os dois consomem o mesmo IR.
-///
-/// `--timings` imprime o custo por fase em JSON, depois da saída do programa,
-/// no mesmo formato de campos `*_ns` usado por `dartforge aot --timings`.
-///
-/// # Erros
-/// Propaga diagnósticos do compilador e falhas da sessão JIT, incluindo IR
-/// recusado pelo LLVM e símbolo de entrada ausente.
-pub fn run_jit(_args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    Err("JIT desabilitado temporariamente durante desenvolvimento AOT".into())
-}
-
-#[cfg(feature = "nativo")]
-pub fn run_hot_reload(_args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    Err("JIT reload desabilitado temporariamente durante desenvolvimento AOT".into())
 }
 
 #[cfg(feature = "nativo")]

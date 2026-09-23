@@ -8,15 +8,19 @@ publish = false
 workspace = true
 [dependencies]
 dartforge-abi = { path = "../abi", optional = true }
-dartforge-native = { path = "../native", optional = true }
 dartforge-emit-native = { path = "../emit_native", optional = true }
+dartforge-jit = { path = "../jit", optional = true }
 dartforge-emit-js = { path = "../emit_js" }
 dartforge-dev = { path = "../dev" }
 serde_json = "1"
 
 [features]
-# Backend nativo (AOT LLVM, ABI, emit-native). JIT ORCv2 desabilitado a pedido do usuário.
-nativo = ["dep:dartforge-abi", "dep:dartforge-native", "dep:dartforge-emit-native"]
+# Backend nativo AOT (LLVM IR -> Clang), ABI e emit-native. Só o clang.exe.
+nativo = ["dep:dartforge-abi", "dep:dartforge-emit-native"]
+# `dartforge run` e `dartforge reload` pelo JIT ORCv2 (crates/jit). Separado de
+# `nativo` porque liga o executável à LLVM-C.dll da distribuição completa do
+# LLVM 22.1.8: sem a DLL no PATH, o dartforge.exe não inicia.
+jit = ["nativo", "dep:dartforge-jit"]
 
 [[bin]]
 name = "dartforge"

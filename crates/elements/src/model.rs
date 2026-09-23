@@ -277,8 +277,11 @@ pub struct ClassElement {
     /// separadas (`x` e `x=`), operadores pelo texto (`+`, `[]=`).
     pub instance_members: HashMap<SymbolId, FunctionElementId>,
     pub static_members: HashMap<SymbolId, FunctionElementId>,
-    /// Construtores por nome; o sem nome usa o símbolo vazio `""`. `BTreeMap`
-    /// para a iteração ser determinística (a emissão percorre o mapa).
+    /// Construtores por nome; o sem nome usa o símbolo vazio `""`. A chave é
+    /// o `SymbolId`, cuja ordem é a da **internação**: numa sessão residente
+    /// (`dartforge dev`) ela depende da ordem das edições, então percorrer o
+    /// mapa direto faz a saída de uma recompilação divergir da de uma
+    /// compilação limpa. Quem emite percorre [`ClassElement::construtores`].
     pub constructors: BTreeMap<SymbolId, FunctionElementId>,
     /// Campos de instância e estáticos, na ordem de declaração.
     pub fields: Vec<VariableId>,
@@ -286,6 +289,16 @@ pub struct ClassElement {
     pub enum_constants: Vec<VariableId>,
     /// Tipo de representação de um extension type.
     pub representation: Option<VariableId>,
+}
+
+impl ClassElement {
+    /// Os construtores na ordem de declaração na fonte (o outline numera as
+    /// funções nessa ordem), que não depende da ordem de internação dos nomes.
+    pub fn construtores(&self) -> Vec<(SymbolId, FunctionElementId)> {
+        let mut v: Vec<(SymbolId, FunctionElementId)> = self.constructors.iter().map(|(&s, &f)| (s, f)).collect();
+        v.sort_by_key(|&(_, f)| f);
+        v
+    }
 }
 
 #[derive(Debug)]

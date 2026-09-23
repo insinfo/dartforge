@@ -192,6 +192,16 @@ comparação de produção usa dart2js com flags documentadas e checks equivalen
 Aceite: relatório reproduzível demonstra o desempenho em programas semanticamente equivalentes.
 “Mais rápido que DDC/dart2js” continua objetivo até isso existir.
 
+> **Nota (2026-09-23):** do "Primeiro incremento" até o "Incremento 26", as
+> seções abaixo registram a **trilha velha** (`lexer` → `parser` →
+> `semantic` → `hir` → `codegen`/`llvm`, com `compiler`, `linker`,
+> `packages`, `macros`, `optimizer` e o driver `native`). Esses crates
+> saíram do workspace e estão preservados na branch `exploracao-inicial`;
+> os documentos citados estão em `docs/historico/`. O que governa hoje é a
+> "Meta governante" e as seções seguintes, e o estado real está no
+> `ESTADO.md`. Caminhos como `crates/compiler/tests/...` citados em seções
+> posteriores também só existem naquela branch.
+
 ## Primeiro incremento implementado
 
 - [x] Variáveis locais, literais inteiros, expressões e precedência no subconjunto.
@@ -218,7 +228,7 @@ Aceite: relatório reproduzível demonstra o desempenho em programas semanticame
 - [x] Rejeitar explicitamente surrogates isolados, interpolação e strings triplas.
 - [x] Documentar módulos e funções Rust em português, com exemplos executáveis e contratos.
 
-O alcance e as limitações estão em [docs/SUBCONJUNTO.md](docs/SUBCONJUNTO.md).
+O alcance e as limitações estão em [docs/historico/SUBCONJUNTO.md](docs/historico/SUBCONJUNTO.md).
 Esses recursos não concluem o lexer/parser completo nem a semântica integral de Dart.
 
 ## Quarto incremento — Null safety, objetos e medições
@@ -332,12 +342,12 @@ Contrato e limites: [ABI/FFI/Wasm](docs/ABI-FFI-WASM.md).
 - [ ] Genéricos do usuário, bounds, especialização e tipos reificados.
 - [ ] Set/Map, API core completa e bibliotecas padrão adicionais.
 
-Veja [contratos e limites](docs/COLECOES-CLOSURES.md).
+Veja [contratos e limites](docs/historico/COLECOES-CLOSURES.md).
 
 ### Incremento 13 — funções genéricas, constantes e enums avançadas
 
 Implementar e validar o subconjunto JavaScript descrito em
-[GENERICS-CONST-ENUMS.md](docs/GENERICS-CONST-ENUMS.md). Os próximos passos incluem
+[docs/historico/GENERICS-CONST-ENUMS.md](docs/historico/GENERICS-CONST-ENUMS.md). Os próximos passos incluem
 classes genéricas/bounds, constantes top-level e construtores const gerais,
 padrões estruturais e lowering LLVM com preservação de identidade e raízes GC.
 A avaliação de desempenho deve comparar programas equivalentes, com a mesma
@@ -348,7 +358,7 @@ sobre DDC/dart2js.
 
 Implementar as restrições nominais por biblioteca, propagação base/final,
 aplicações de mixins e exaustividade sealed conforme Dart 3.6.2. Contrato em
-[CLASS-MODIFIERS.md](docs/CLASS-MODIFIERS.md). Próximas etapas: partes da biblioteca,
+[docs/historico/CLASS-MODIFIERS.md](docs/historico/CLASS-MODIFIERS.md). Próximas etapas: partes da biblioteca,
 restrições on e super, contratos completos de propriedades, padrões de objeto
 com desestruturação e lowering LLVM de switch.
 
@@ -356,14 +366,14 @@ com desestruturação e lowering LLVM de switch.
 
 Seleção por primeira correspondência em imports/exports, perfis imutáveis Dart
 3.6.2, inspeção de grafo JS/Native/Wasm e cache sensível ao ambiente implementados.
-Veja [contrato e limites](docs/IMPLEMENTACAO-15.md). Próximos passos incluem
+Veja [contrato e limites](docs/historico/IMPLEMENTACAO-15.md). Próximos passos incluem
 implementação das bibliotecas padrão adicionais e backend Wasm; as flags atuais
 descrevem a seleção compatível com o SDK, sem habilitar essas APIs.
 
 ### Incremento 16 — anotações e FFI escalar estático
 
 Metadados reconhecidos, assinatura @Native/external, validação de import e ligação
-de objetos nativos com Int32/Int64/Void. Veja [contrato](docs/IMPLEMENTACAO-16.md).
+de objetos nativos com Int32/Int64/Void. Veja [contrato](docs/historico/IMPLEMENTACAO-16.md).
 Próximos passos: tipos Pointer e memória externa com lifetime explícito, layout de
 structs/unions por ABI, callbacks, finalização, resolução de assets e bibliotecas
 dinâmicas; expandir metadata para constantes customizadas e ferramentas.
@@ -374,7 +384,7 @@ Construtores generativos sem nome, initializing formals, campos sem inicializado
 e resolução de membros com escopo léxico. JS e LLVM preservam a ordem de avaliação
 e inicialização. Próximos passos: construtores nomeados, listas de inicialização,
 super explícito, factory, const geral e parâmetros opcionais/nomeados.
-Contrato em [THIS-CONSTRUCTORS.md](docs/THIS-CONSTRUCTORS.md).
+Contrato em [docs/historico/THIS-CONSTRUCTORS.md](docs/historico/THIS-CONSTRUCTORS.md).
 
 ### Incremento 18 — bounds e reificação no JavaScript
 
@@ -396,7 +406,7 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
 ## Incremento 20 — cascatas
 
 - Implementar `..`/`?..` em JavaScript com avaliação única, null safety, efeitos
-  ordenados, imports e integração com otimizações: ver [contrato](docs/IMPLEMENTACAO-20.md).
+  ordenados, imports e integração com otimizações: ver [contrato](docs/historico/IMPLEMENTACAO-20.md).
 - Próximos passos: atribuições compostas em seções, lowering nativo com raízes GC
   e extensão dos testes diferenciais. Recursos posteriores ao Dart 3.6.2 exigem
   identificação da versão mínima por recurso, sem alterar silenciosamente a linguagem.
@@ -412,7 +422,7 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
 - Implementar progressivamente wildcard variables, null-aware elements,
   dot shorthands, parâmetros nomeados privados, primary constructors e
   extension types com contratos versionados e testes de SDK correspondentes.
-- Referências e detalhes: [IMPLEMENTACAO-21](docs/IMPLEMENTACAO-21.md).
+- Referências e detalhes: [IMPLEMENTACAO-21](docs/historico/IMPLEMENTACAO-21.md).
 
 ## Incremento 22 — fases e planos de macros
 
@@ -420,7 +430,7 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
   cache LRU com limites, invalidação de schema e proveniência rematerializada.
 - Próximos: consultas entre bibliotecas, protocolo de workers isolados e macros Dart
   de usuário. A macro Rust incorporada não é um executor genérico de Dart.
-- [Contrato e medição](docs/IMPLEMENTACAO-22.md).
+- [Contrato e medição](docs/historico/IMPLEMENTACAO-22.md).
 
 ## Incremento 23 — alcance e concorrência
 
@@ -428,7 +438,7 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
 - Future/async/await, microtasks e timers one-shot com oráculo Dart 3.6.2.
 - Pesquisa de isolates/workers **fechada como contrato** (2026-09-21):
   desenho em [ISOLATES-WEB.md](docs/ISOLATES-WEB.md), decisões em
-  [IMPLEMENTACAO-23.md](docs/IMPLEMENTACAO-23.md) — API portátil
+  [docs/historico/IMPLEMENTACAO-23.md](docs/historico/IMPLEMENTACAO-23.md) — API portátil
   `package:forge_isolate` + `WorkerTask` const, entrypoint restrito nos quatro
   alvos, serialização dirigida por tipo com `TransferableBuffer` de uso único,
   `dart:mirrors` não implementado (reflexão estática mirando
@@ -439,7 +449,7 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
   validação de mensagens e transferência de propriedade de buffers.
 - Isolate.run não pode ser implementado como chamada síncrona nem Promise na mesma
   thread. No JS precisa de workers; no nativo exige heaps/GC isolados e protocolo.
-- [Contrato e limites](docs/IMPLEMENTACAO-23.md).
+- [Contrato e limites](docs/historico/IMPLEMENTACAO-23.md).
 
 ## Incremento 24 — macro @DataClass e augmentations
 
@@ -450,7 +460,7 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
   reconsumido pelo compilador.
 - Limites do subconjunto documentados: `copyWith` posicional anulável,
   `igualA` no lugar de `operator ==` e `descrever()` reduzido.
-- [Contrato](docs/IMPLEMENTACAO-24.md).
+- [Contrato](docs/historico/IMPLEMENTACAO-24.md).
 
 ## Incremento 25 — sintaxe moderna posterior ao Dart 3.6.2
 
@@ -458,12 +468,12 @@ experimental própria exige contrato separado da compatibilidade Dart 3.6.2.
   `.membro` (3.10) e construtores primários `class C(...)` (3.13) no backend
   JavaScript, cada um identificado pela versão mínima em que existe.
 - `part`/`part of` com namespace, imports e privacidade compartilhados pela
-  biblioteca declarante: ver [PARTS](docs/PARTS.md).
+  biblioteca declarante: ver [PARTS](docs/historico/PARTS.md).
 - `switch` instrução e expressão com lowering real no backend LLVM.
 - Pendentes: parâmetros nomeados, `required` e valores padrão — pré-requisito
   dos parâmetros nomeados privados (3.12); `Set`, spreads e `?...`; membros
   estáticos; extension types (3.3).
-- [Contrato e limites](docs/IMPLEMENTACAO-25.md).
+- [Contrato e limites](docs/historico/IMPLEMENTACAO-25.md).
 
 ## Incremento 26 — desempenho de compilação como objetivo primário
 
@@ -518,7 +528,7 @@ tem ruído e a contagem de alocações não.
 - [x] Parâmetros nomeados, posicionais opcionais, `required`, valores padrão e
       parâmetros nomeados privados `this._x` (Dart 3.12). Alocações por
       compilação inalteradas: 16.716 antes e depois.
-      [Contrato](docs/PARAMETROS.md).
+      [Contrato](docs/historico/PARAMETROS.md).
 - [x] Núcleo `dart:core` nominal em 2026-09-21: `Comparable`/`Iterator`/
       `Iterable`/`Exception`/`StringBuffer` como interfaces sintéticas,
       `implements` aceitando palavras reservadas (`Iterable<int>`) e type
@@ -527,7 +537,7 @@ tem ruído e a contagem de alocações não.
       anulável. Suíte em `crates/compiler/tests/nucleo.rs` (31 testes,
       oráculo Dart 3.6.2). Limites honestos: `Map` cru recusado (só chave
       `String` na emissão), `implements Error` recusado (sem `StackTrace`).
-      [Contrato](docs/NUCLEO.md).
+      [Contrato](docs/historico/NUCLEO.md).
 - [ ] Literais de string completos: interpolação, strings triplas e literais
       adjacentes. É a lacuna mais bloqueante: quase todo arquivo Dart real usa.
 - [ ] Construtores nomeados, listas de inicialização, `super` explícito,
@@ -564,7 +574,9 @@ preferência:
   backend nativo já emite. Exige a distribuição completa do LLVM 22.1.8
   (`LLVM_SYS_221_PREFIX`), com `llvm-config`, cabeçalhos e libs estáticas.
 - `crates/cranelift-jit` — Cranelift, Rust puro, sem dependência externa,
-  partindo da **HIR**, nunca de LLVM IR.
+  partindo da **HIR**, nunca de LLVM IR. (Medido e descartado —
+  `docs/historico/CRANELIFT.md`; o crate saiu do workspace em 2026-09-23 e
+  está na branch `exploracao-inicial`.)
 
 Quatro eixos de comparação: tempo de geração de código em memória, tempo de
 execução do código gerado, custo de construção do próprio compilador (inclusive
@@ -783,7 +795,7 @@ existente é removida antes de a nova trilha a cobrir.
    com bounds e variância por uso, promoção de fluxo, inferência de literais e
    de argumentos de tipo, extensões. Aceite: o SDK e o corpus passam sem erro
    de tipo, e os testes negativos do `analyzer` reprovam onde ele reprova.
-   Em andamento (`crates/types`, brief em `brief-types.md`): primeira metade
+   Em andamento (`crates/types`, brief em `docs/historico/briefs/brief-types.md`): primeira metade
    é representação hash-consed, resolução das anotações do outline,
    hierarquia instanciada e subtipagem regra a regra.
 4. **SDK a partir da fonte** — compilar `dart:core`, `dart:async`,
@@ -1068,7 +1080,7 @@ madura com frente parada. Números medidos, não estimados; detalhe em
 | **JS de produção** | **214/214**; 3–5× mais rápido que o dart2js, 30–45× maior | mundo fechado sobre a nossa trilha, despacho direto, minificação, code splitting |
 | **Gerador do ngdart** | 134/300 arquivos do new_sali, 125 iguais byte a byte, 0 diferentes | `providers:`, `@ViewChild`, `pipes:`, `@Output`, `#ref`, local de visão ancestral |
 | **AOT nativo** | **7/214**; exceções com lowering próprio; determinismo verificado | `async`, genéricos reificados, `dart:core` da seção `vm`, `dart:io`, isolates |
-| **JIT** | **desligado**; os crates ainda consomem a trilha velha | rebasear na HIR do `emit_native` |
+| **JIT** | R0 (`run`/`reload`) sobre o IR do `emit_native` desde 2026-09-23 (`ESTADO.md` §1.5.1) | recarga com estado (R1) |
 
 ### AOT nativo — o que o placar diz
 
@@ -1092,13 +1104,18 @@ pronto.
 
 ### JIT — por que está parado, e quando volta
 
+**Atualização 2026-09-23:** o `crates/jit` foi rebaseado no IR do
+`emit_native` e `run`/`reload` (R0) funcionam (`ESTADO.md` §1.5.1); o
+`cranelift-jit` e a trilha velha saíram do workspace (preservados na branch
+`exploracao-inicial`). O texto abaixo é o diagnóstico de 2026-09-22.
+
 `dartforge run` e `dartforge reload` devolvem erro. Os crates `jit`
 (ORCv2) e `cranelift-jit` consomem `dartforge_hir`, da trilha velha, que o
 compilador atual não usa mais.
 
 O trabalho é rebaseá-los na HIR do `emit_native`, preservando duas coisas:
 o teste que exige saída idêntica entre ORCv2 e AOT, e a recomendação de
-`docs/CRANELIFT.md` — **não adotar** Cranelift, experimento já medido.
+`docs/historico/CRANELIFT.md` — **não adotar** Cranelift, experimento já medido.
 
 E há uma ordem natural: um JIT que executa 7 de 214 programas não acelera
 ciclo de desenvolvimento nenhum. Ele volta depois que o AOT rodar o
@@ -1125,13 +1142,17 @@ não em podar mais o runtime.
 
 ### Runtime Dart
 
-Existe: heap com GC por tracing preciso, `String` em UTF-16, `int` de 64
-bits com estouro modular, e teto duro de heap (256 MiB por padrão) que
-falha legível em vez de tomar a máquina.
+Existe: heap com GC por tracing preciso, `String` em UTF-8 (a
+representação UTF-16 da VM entra antes do SDK da fonte, decisão 5 de
+docs/NATIVO-PLANO.md §7.1), `int` de 64 bits com estouro modular, e teto
+duro de heap (256 MiB por padrão) que falha legível em vez de tomar a
+máquina.
 
 Falta o que o alvo governante exige: laço de eventos com `Future`,
 `Completer` e `Zone`; `dart:io`; isolates com heap por isolate, sem
-memória compartilhada, como a VM.
+memória compartilhada — a especificação (§6.3: "It has its own memory")
+e não a VM, que compartilha o heap no grupo como otimização; decisão 4 de
+docs/NATIVO-PLANO.md §7.1.
 
 ### A regra que atravessa as cinco
 
@@ -1565,7 +1586,7 @@ de compilação são critério permanente, e o compromisso é ser melhor que
 dart2js, DDC e o LSP do Dart **neste projeto**, medido.
 
 Primeira medição do front-end novo sobre o `new_sali` inteiro
-(`cargo run --release -p dartforge-frontend --example memoria --
+(`cargo run --release -p dartforge-frontend --example memoria_frontend --
 C:/MyDartProjects/new_sali`, alocador contador, **todas as árvores retidas**
 como num editor com o projeto aberto): 1.258/1.258 arquivos aceitos, 254 ms
 (33,6 MiB/s), **132 MiB vivos** com tudo retido — 15,5× a fonte —, pico
@@ -1632,6 +1653,15 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
   `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
   corpus, atrás de `--memoria tracing|arc`.
+* **SIMD no backend nativo** — `docs/SIMD-NATIVO.md`. `Float32x4`/`Int32x4`/
+  `Float64x2` como vetores LLVM, com o caminho vetorial completo (operadores,
+  máscaras e acesso às listas SIMD) sem encaixotar no laço. Depois de
+  `dart:typed_data` compilado da fonte pelo nativo.
+* **Inteiros e SIMD no JS** — `docs/NUMEROS-JS.md`. O padrão continua o do
+  DDC (`int` = `number`); inteiros exatos de 64 bits só como modo opcional
+  (`BigInt` ou duas metades, medidos), `Math.imul` para produto de 32 bits,
+  substituição escalar de `Float32x4` no perfil de produção preservando
+  `Math.fround`, e SIMD real só num eventual alvo Wasm.
 * **Acompanhar as versões novas da linguagem** — 3.6.2 é o **piso**, não o
   teto (ver "Dart 3.6.2 é o mínimo de compatibilidade" acima e o Incremento
   25). Próximo item concreto: Dart 3.13 (2026-08) — construtores primários,

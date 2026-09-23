@@ -1,6 +1,6 @@
 # Plano do backend nativo — exceções, medição e o que vem depois
 
-Este documento é o plano exigido pelo `docs/BRIEF-NATIVO.md` §5: **qual
+Este documento é o plano exigido pelo `docs/historico/briefs/BRIEF-NATIVO.md` §5: **qual
 mecanismo de exceção** o compilador nativo usa e **por quê**, com o custo no
 caminho feliz; **como `finally` com `return` dentro se comporta**; e a **ordem
 de trabalho**. Ele descreve o que está implementado e o que falta, não uma
@@ -648,3 +648,166 @@ Henderson, ISMM 2002, que é a estratégia `shadow-stack` do LLVM), em vez de
 chamada opaca — o LLVM não apaga o `store` (o quadro escapa para o runtime),
 mas deixa de tratar cada raiz como barreira; (3) slots por *liveness* em vez
 de um por definição.
+
+---
+
+## 7. Rodada 2: o SDK da fonte, `async` e o executor de macros
+
+O plano detalhado da rodada (passos P0–P9, aceite de cada um, riscos) foi
+aprovado em 2026-09-23. Aqui ficam as decisões, que valem para todo o
+trabalho seguinte, e o mapa de módulos que o P0 deixou pronto para o trabalho
+em paralelo.
+
+### 7.1 Decisões do proprietário (2026-09-23)
+
+1. **O `dart:core` do nativo vem da fonte do SDK 3.6.2.** `core`, `async`,
+   `collection`, `convert`, `math`, `_internal`, `_compact_hash` e depois
+   `typed_data` são compilados da seção `vm` com os patches dela; uma camada
+   fina de patches **nossos** substitui só o que depende da máquina interna da
+   VM (`_SuspendState`, a ligação de `Timer`/microtarefas com
+   `dart:isolate`/`dart:io`, finalizadores). Em Rust ficam só os natives
+   (`vm:external-name`) e os intrínsecos (`vm:recognized`). Consequências:
+   * o `Smi` etiquetado (R10: `Ref` = `(h << 1)` ou `(v << 1) | 1`) é
+     pré-requisito do P5;
+   * os membros do SDK casados pelo nome
+     (`crates/emit_native/src/lower/sdk_por_nome.rs`) estão **congelados desde
+     já**: nenhum caso novo nesse mecanismo; o arquivo é apagado em P5d.
+2. **Executor de macros: JIT ORCv2 persistente, com um isolado novo por
+   execução.** O processo guarda o grupo (código do runtime, objetos do SDK e
+   das macros); cada aplicação × fase roda num isolado com heap vazio e globais
+   zerados, descartado no fim. O AOT fica como verificação e *fallback*. Os
+   globais `@dfg_*` do módulo LLVM passam para a tabela de slots do isolado,
+   indexada por id estável (P8). Se o oráculo mostrar macro real dependendo de
+   estado estático entre aplicações, o agendador passa a guardar um isolado por
+   (biblioteca de macro, fase) — muda o agendador, não o runtime.
+3. **`RegExp`: a crate `regress`** (semântica ECMAScript), compilada dentro do
+   runtime atrás de uma interface que permita trocá-la por um motor próprio
+   depois. O corpus de regex é o oráculo. Isso tira o runtime do `rustc`
+   avulso sem dependências: ele passa a ser compilado com as dependências dele
+   (uma `staticlib` do cargo), decisão que entra junto com o `RegExp` (P9).
+4. **Heap por isolado agora.** A especificação decide: *Dart Programming
+   Language Specification* §6.3, "An isolate is a unit of concurrency. It has
+   its own memory and its own thread of control". Heap por grupo (a VM desde
+   2.15) é otimização de implementação, não semântica: nada observável pelo
+   programa depende dele. `Isolate.exit` passa a **copiar** a mensagem em vez
+   de transferi-la — só custo de desempenho, nunca de comportamento. O grupo
+   compartilha **código** e uma região permanente, somente leitura, de
+   constantes canônicas. Isto resolve o conflito entre PLANO.md ("isolates com
+   heap por isolate") e a nota de `references/NOTAS-ARTIGOS.md` §4 ("heap por
+   grupo", que descreve a VM, não o requisito): vale o heap por isolado; a troca
+   para grupo só se justificaria com `Isolate.spawn` + `Isolate.exit` sem cópia
+   medidos, e não mudaria o código gerado (o isolado continua dono das raízes).
+5. **Strings UTF-16 antes do P5.** O runtime guarda `String` como UTF-8 do
+   Rust, mas a semântica do Dart é de unidades de código UTF-16 (`length`,
+   índices, `codeUnitAt`, `substring` no meio de um par substituto), e o código
+   do SDK da fonte depende disso. A representação muda **antes** do P5, na
+   forma da VM: `_OneByteString` (Latin-1) e `_TwoByteString` (UTF-16). Aceite:
+   o corpus de strings, com o programa de pares substitutos (04). O
+   `docs/NATIVO.md` já descreve a representação atual (UTF-8) como ela é.
+
+### 7.2 O P0: diagnóstico honesto
+
+* **Construto não suportado é erro de compilação.** `emitir_ir` e `compilar`
+  (`crates/emit_native/src/lib.rs`) devolvem `Err` com **todos** os
+  diagnósticos quando o lowering produziu algum; nenhum IR é emitido. Saiu o
+  módulo de erro que gerava um executável só para imprimir os diagnósticos e
+  sair com 254, e saiu do runtime a `dartforge_erro_de_compilacao`. A primeira
+  linha do erro é `erro de compilação: <primeiro diagnóstico sem a posição>` —
+  a chave de agrupamento do relatório; as seguintes, um diagnóstico cada.
+* **O relatório mostra tudo o que falta.** Cada falha nativa lista os
+  construtos do programa (todos, não só o primeiro), e o relatório termina com
+  a seção **"construtos (todos os diagnósticos)"**: por construto, quantos
+  programas o usam e quantas ocorrências somam, e a lista dos programas
+  bloqueados **só** por ele. O modo `determinismo --nativo` (só IR, segundos)
+  imprime a mesma seção. `dartforge_emit_native::construtos_do_erro` é o único
+  leitor do formato, ao lado de quem o escreve.
+
+**A matriz exata (223 programas, `determinismo --nativo`, só IR).** 55
+programas compilam; 165 têm diagnóstico de construto; 3 não carregam
+(`dart:js*`). São 871 construtos distintos — o nome do membro faz parte do
+construto (``chamada `where` ``, ``membro `hashCode` ``), e cada identificador
+não resolvido também. Só 14 programas estão bloqueados por **um** construto
+só: a primeira linha escondia que quase todo programa precisa de várias
+coisas ao mesmo tempo. As 20 primeiras, por número de programas:
+
+| programas | ocorrências | construto |
+| ---: | ---: | --- |
+| 37 | 215 | closure |
+| 35 | 196 | operador sobre num/dynamic/objeto |
+| 33 | 60 | chamada `where` |
+| 25 | 41 | chamada `f` (valor de função) |
+| 20 | 72 | cascata |
+| 19 | 42 | construtor de classe do SDK (`List`) |
+| 18 | 107 | chamada `toStringAsFixed` |
+| 17 | 43 | chamada `fold` |
+| 16 | 210 | await |
+| 16 | 47 | membro `hashCode` |
+| 16 | 29 | chamada `map` |
+| 15 | 54 | chamada `reduce` |
+| 14 | 146 | chamada estática `parse` |
+| 14 | 104 | constante de enum |
+| 14 | 41 | chamada de valor de função |
+| 13 | 57 | chamada de membro sem implementação compilada |
+| 12 | 51 | expressão switch |
+| 12 | 23 | membro `entries` |
+| 12 | 21 | chamada `containsKey` |
+| 12 | 20 | chamada `toSet` |
+
+A contagem é um **piso** para os construtos aninhados: o lowering diagnostica
+a expressão que não sabe baixar e não desce nos filhos dela, então a closure
+de `lista.where((x) => …)` aparece como ``chamada `where` ``, não como
+`closure`. P1 (closures) e P5 (membros do SDK pela fonte) atacam as duas
+metades da mesma lista.
+
+**Placar do P0 no CI (Pesado 35836380647):** nativo **50/223** (o mesmo
+de antes), JIT 50/223 com zero divergências JIT × AOT, determinismo do IR
+idêntico com 1, 4 e 8 trabalhadores, JS 223/223 nos dois perfis.
+
+### 7.3 Mapa de módulos e donos
+
+A divisão do P0 é mecânica: nenhum comportamento mudou. Prova: o LLVM IR de
+cada programa do corpus é byte a byte o mesmo antes e depois
+(`dartforge-diferencial determinismo --nativo`, 223 programas, mesmo resumo
+FNV-128 programa a programa), e os itens do runtime são os mesmos (cada função,
+`thread_local!` e `use` movido inteiro, conferido por script).
+
+**`crates/emit_native/src/lower/`** — o antigo `fn_builder.rs` (3.258 linhas)
+virou cinco arquivos, todos `impl FnBuilder`:
+
+| arquivo | conteúdo | dono (rodada 2) |
+| --- | --- | --- |
+| `fn_builder.rs` | o `struct FnBuilder`, blocos, `emit`/`terminate`, coerção (R4), rotas de `return`/`break`/`continue`, `emit_call_with_check`, `throw`, testes de tipo | compartilhado: campo novo no `struct` só por acréscimo, no fim, com comentário |
+| `expressoes.rs` | `lower_expr` e o `match` de expressões: literais, identificadores, operadores, curto-circuito, condicional, cadeia `?.`, propriedade, índice, coleções, `is`/`as` | α (P1 closures, P4 `super`/cascata/extensões) e γ (P3 `switch` expressão); cada construto novo entra como **uma linha** no braço, que delega a um método no arquivo do dono |
+| `comandos.rs` | `lower_stmt`, `try`/`catch`/`finally`, `assert` | γ (P3 `switch` comando) |
+| `chamadas.rs` | chamadas a função de topo, local e estática, construtores e métodos do usuário | α (P1: chamada de valor de função) e, depois do merge de P1–P4, δ (P5d) |
+| `sdk_por_nome.rs` | os membros do SDK casados pelo nome (`print`, `length`, `add`, `substring`, `Exception(…)`…) | **congelado**; δ apaga em P5d |
+| `membros.rs`, `operadores.rs`, `mod.rs` | chamada de membro e despacho, operadores, ids e símbolos | β (P2) |
+| `atribuicao.rs`, `locais.rs`, `verificador.rs` | atribuição, locais (R6), verificador da HIR (E3) | α (P1: captura e `Cell`) |
+| novos | `captura.rs`, `closures.rs` (α); `padroes.rs`, `rti.rs` (γ); `async_sm.rs` (ε); `nativos.rs`, `sdk_modulo.rs` (δ) | |
+
+**`crates/runtime/src/`** — o antigo `runtime_main.rs` (2.999 linhas) virou
+sete **fragmentos**. Não são módulos Rust: são pedaços de um programa só, que
+se enxergam sem `use`. A lista, na ordem de concatenação, é `FRAGMENTOS` em
+`crates/runtime/build.rs` — a única. O `build.rs` grava o texto concatenado
+(que o AOT compila com `rustc` avulso, `RUNTIME_MAIN`), o corpo do módulo
+`abi` do JIT (um `include!` por fragmento, na mesma ordem) e a tabela de
+símbolos, varrendo os `#[unsafe(no_mangle)]` de **todos** os fragmentos. Um
+`.rs` em `src/` fora da lista derruba o build (`tests/fonte_unica.rs` confere
+que o texto do AOT é o `heap.rs` seguido dos fragmentos, sem alteração).
+
+| fragmento | conteúdo | dono (rodada 2) |
+| --- | --- | --- |
+| `nucleo.rs` | `main` C e `finalizar_programa`, `thread_local!` do heap e das classes, registro de classes e subtipos, objetos, igualdade, identidade, caixas (R3), `value_class`, records | δ (R10 `Smi`: caixas); ζ tira o estado para `isolado.rs` em P8 |
+| `gc_raizes.rs` | frames e raízes (G), globais, coleta | δ |
+| `excecoes.rs` | exceção pendente, `StackTrace`, construtores e acessores das classes de erro | δ (as classes de erro vêm da fonte em P5); os demais só acrescentam |
+| `saida.rs` | `print`, `toString` e `describe_handle` dos valores do runtime | δ (P5d: `print` da fonte) |
+| `strings.rs` | `String`, `StringBuffer`, `RegExp`, `parse` | δ (decisão 5: One/TwoByte) |
+| `colecoes.rs` | listas, mapas, conjuntos, iterações ativas | δ |
+| `closures.rs` | células, ambientes, closures | α (P1) |
+| novos | `despacho.rs` (β), `tipos.rs` (γ), `eventos.rs` (ε), `isolado.rs` (ζ), `nativos/*` (δ) | quem cria acrescenta o nome a `FRAGMENTOS` (só acréscimo) |
+
+**Arquivos compartilhados** (só acréscimo, cada agente num bloco com
+comentário de cabeçalho): `llvm/externs.rs`, `FRAGMENTOS` em
+`crates/runtime/build.rs`, o `struct FnBuilder`. `llvm/mod.rs`: α (closures) e
+ζ (globais) mexem em funções diferentes; β põe o despacho em `llvm/despacho.rs`.
+**Ordem de merge:** P0 → (P1, P2, P3, P5a–c) → P4 → P5d → (P6, P8) → P7 → P9.

@@ -1,17 +1,13 @@
 //! Front-end completo de Dart 3.6: léxico, árvore sintática e parser.
 //!
 //! Esta trilha existe para a meta governante do PLANO.md: compilar qualquer
-//! projeto Dart 3.6 válido no dart2js/DDC. Diferente de `crates/parser`, o
-//! parser daqui **não resolve nada**: `Foo<Bar>` é sintaxe válida sem saber o
-//! que `Foo` é. Resolução, tipos e emissão vêm em fases posteriores sobre a
-//! árvore produzida aqui.
+//! projeto Dart 3.6 válido no dart2js/DDC. O parser daqui **não resolve
+//! nada**: `Foo<Bar>` é sintaxe válida sem saber o que `Foo` é. Resolução,
+//! tipos e emissão vêm em fases posteriores sobre a árvore produzida aqui.
 //!
-//! Por que este crate coexiste com `crates/parser` e `crates/syntax`: o parser
-//! antigo resolve tipos enquanto analisa e é consumido por todo o pipeline de
-//! emissão (semantic → hir → codegen → linker → llvm/jit). Trocá-lo por baixo
-//! quebraria o que já compila. A trilha nova cresce até cobrir mais do que a
-//! antiga, a emissão migra para ela, e só então `crates/parser` e
-//! `crates/syntax` são removidos. Nada da capacidade existente é retirado antes.
+//! O parser antigo (`crates/parser`/`crates/syntax`), que resolvia tipos
+//! enquanto analisava, saiu do repositório quando a emissão migrou para esta
+//! trilha; está preservado na branch `exploracao-inicial`.
 //!
 //! Desenho de memória, conforme a meta de cadeia de ferramentas própria:
 //! nós vivem em arenas indexadas por `u32` ([`ast::Ast`]), identificadores são

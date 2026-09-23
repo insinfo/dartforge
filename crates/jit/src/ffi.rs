@@ -27,10 +27,9 @@
 //!   O estado do runtime é `thread_local`; o programa executa numa thread
 //!   própria por execução ([`execute_program`]).
 //! * O runtime publicado ao JIT **não é reescrito aqui**: é a fonte do harness
-//!   AOT (`crates/runtime/src/runtime_main.rs`), compilada neste crate a partir
-//!   de uma cópia mecânica gerada por `build.rs` (provisório; ver o bloco
-//!   «Runtime embutido» no fim do arquivo). A tabela de símbolos é gerada da
-//!   mesma fonte.
+//!   AOT (os fragmentos de `crates/runtime/src`), compilada como o módulo
+//!   `dartforge_runtime::abi`; a tabela de símbolos é gerada da mesma fonte
+//!   pelo `build.rs` daquele crate (fonte única).
 //!
 //! Este módulo **não** é um verificador de segurança para IR arbitrário, pelo
 //! mesmo motivo que o driver AOT não é: a garantia vale para IR emitido pelo
@@ -71,8 +70,9 @@ use llvm_sys::orc2::{
 use llvm_sys::prelude::{LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::target::{LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget};
 use llvm_sys::target_machine::{
-    LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine, LLVMGetDefaultTargetTriple,
-    LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine,
+    LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
 };
 use std::ffi::{CStr, CString, c_char};
 use std::mem::ManuallyDrop;
@@ -266,6 +266,26 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
             // Diagnóstico não fatal; o módulo é válido e a mensagem é liberada.
             drop(take_message(message));
         }
+        // O analisador de IR textual não roda o verificador do LLVM, e o ORC
+        // também não. O Clang roda, e recusa o módulo. Sem esta chamada, o JIT
+        // gerava código para IR que o AOT recusa, como uma instrução que não
+        // domina todos os usos, e o programa executava ou caía no JIT e não
+        // compilava no AOT. O corpus inteiro no CI mostrou 13 programas assim
+        // (pesado.yml, job `jit`). Aceitar o mesmo IR que o AOT aceita é parte
+        // do contrato.
+        let mut detalhe = ptr::null_mut();
+        let invalido = llvm_sys::analysis::LLVMVerifyModule(
+            module,
+            llvm_sys::analysis::LLVMVerifierFailureAction::LLVMReturnStatusAction,
+            &mut detalhe,
+        ) != 0;
+        let texto = if detalhe.is_null() { String::new() } else { take_message(detalhe) };
+        if invalido {
+            LLVMDisposeModule(module);
+            LLVMContextDispose(context);
+            let primeira = texto.lines().next().unwrap_or("módulo inválido").to_owned();
+            return Err(format!("o verificador do LLVM recusou o módulo: {primeira}"));
+        }
         Ok(ParsedModule { context, module })
     }
 }
@@ -355,8 +375,8 @@ impl ParsedModule {
     /// Layout nominal das classes construídas pelo módulo: `(class_id, campos)`.
     ///
     /// Sai das chamadas a `@dartforge_object_new(i64 class_id, i64 field_count)`
-    /// com os dois argumentos constantes, que é a forma que `crates/llvm` emite
-    /// em `@df_new_*`. Duas gerações que discordem no número de campos de uma
+    /// com os dois argumentos constantes, que é a forma que o emissor nativo emite
+    /// nos construtores. Duas gerações que discordem no número de campos de uma
     /// mesma classe têm layouts incompatíveis: os objetos já vivos no heap
     /// gerenciado continuariam com o layout antigo, e o código novo leria campos
     /// que não existem. Por isso essa divergência recusa a recarga em vez de
@@ -623,6 +643,45 @@ fn exported_data() -> LLVMJITSymbolFlags {
     }
 }
 
+/// A máquina-alvo do JIT: triple do host, CPU genérica `x86-64` e geração de
+/// código **sem otimização**, o par do `clang -O0` do AOT. É a mesma para a
+/// sessão ([`Lljit::new`]) e para o objeto em cache ([`compile_object`]): um
+/// objeto compilado por uma e carregado na outra tem de ter o mesmo código.
+///
+/// O modelo de código é o padrão de JIT do LLVM, que no x86-64 evita
+/// relocações de 32 bits entre o código gerado e o runtime do processo.
+///
+/// Devolve a posse do `TargetMachine` ao chamador.
+fn target_machine() -> Result<LLVMTargetMachineRef, String> {
+    initialize_native_target()?;
+    // SAFETY: o triple e a mensagem de erro voltam para nós e são liberados
+    // com `LLVMDisposeMessage`; o `TargetMachine` criado é devolvido.
+    unsafe {
+        let triple = LLVMGetDefaultTargetTriple();
+        let mut target = ptr::null_mut();
+        let mut message = ptr::null_mut();
+        if LLVMGetTargetFromTriple(triple, &mut target, &mut message) != 0 {
+            let detail = if message.is_null() { "alvo desconhecido".to_owned() } else { take_message(message) };
+            LLVMDisposeMessage(triple);
+            return Err(format!("o LLVM não tem alvo para o host: {detail}"));
+        }
+        let machine = LLVMCreateTargetMachine(
+            target,
+            triple,
+            if cfg!(target_arch = "x86_64") { c"x86-64" } else { c"generic" }.as_ptr(),
+            c"".as_ptr(),
+            LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
+            LLVMRelocMode::LLVMRelocDefault,
+            LLVMCodeModel::LLVMCodeModelJITDefault,
+        );
+        LLVMDisposeMessage(triple);
+        if machine.is_null() {
+            return Err("o LLVM não criou a máquina-alvo do host".to_owned());
+        }
+        Ok(machine)
+    }
+}
+
 /// Instância viva da `LLJIT` e sua `JITDylib` principal.
 pub(crate) struct Lljit {
     handle: LLVMOrcLLJITRef,
@@ -644,39 +703,12 @@ impl Lljit {
     /// Falha quando o alvo nativo não está disponível ou a construção da
     /// `LLJIT` retorna erro, sempre com a mensagem original do LLVM anexada.
     pub(crate) fn new() -> Result<Self, String> {
-        initialize_native_target()?;
+        let machine = target_machine()?;
         let mut handle: LLVMOrcLLJITRef = ptr::null_mut();
         // SAFETY: cada objeto criado aqui é entregue ao seguinte, que assume a
         // propriedade: o `TargetMachine` ao JTMB, o JTMB ao builder e o builder
-        // a `LLVMOrcCreateLLJIT` (que o consome inclusive quando falha). Só o
-        // triple e a mensagem de erro de `GetTargetFromTriple` voltam para nós
-        // e são liberados com `LLVMDisposeMessage`.
+        // a `LLVMOrcCreateLLJIT` (que o consome inclusive quando falha).
         unsafe {
-            let triple = LLVMGetDefaultTargetTriple();
-            let mut target = ptr::null_mut();
-            let mut message = ptr::null_mut();
-            if LLVMGetTargetFromTriple(triple, &mut target, &mut message) != 0 {
-                let detail = if message.is_null() {
-                    "alvo desconhecido".to_owned()
-                } else {
-                    take_message(message)
-                };
-                LLVMDisposeMessage(triple);
-                return Err(format!("o LLVM não tem alvo para o host: {detail}"));
-            }
-            let machine = LLVMCreateTargetMachine(
-                target,
-                triple,
-                if cfg!(target_arch = "x86_64") { c"x86-64" } else { c"generic" }.as_ptr(),
-                c"".as_ptr(),
-                LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
-                LLVMRelocMode::LLVMRelocDefault,
-                LLVMCodeModel::LLVMCodeModelJITDefault,
-            );
-            LLVMDisposeMessage(triple);
-            if machine.is_null() {
-                return Err("o LLVM não criou a máquina-alvo do host".to_owned());
-            }
             let builder = LLVMOrcCreateLLJITBuilder();
             LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(
                 builder,
@@ -917,7 +949,7 @@ impl Lljit {
     /// aceita IR desse emissor — a mesma hipótese que o driver AOT faz. Se o
     /// chamador pudesse escolher o nome, a função precisaria ser `unsafe`.
     ///
-    /// A execução passa pelo `main` do harness do runtime (a mesma fonte do
+    /// Depois da entrada vem `finalizar_programa` do runtime (a mesma fonte do
     /// AOT), numa thread própria com `stack_bytes` de pilha: ver
     /// [`execute_program`]. `&self` garante que a `LLJIT` e o módulo da entrada
     /// continuam vivos até a thread terminar, porque remover exige `&mut`.
@@ -929,10 +961,19 @@ impl Lljit {
     /// Falha quando nenhum módulo da sessão define a entrada, quando a
     /// compilação sob demanda desse módulo falha, ou quando a thread do
     /// programa não pode ser criada.
-    pub(crate) fn run_entry(&self, stack_bytes: usize) -> Result<(Duration, i32, Duration), String> {
+    pub(crate) fn run_entry(
+        &self,
+        stack_bytes: usize,
+        globals: &[&MutableGlobal],
+    ) -> Result<(Duration, i32, Duration), String> {
         let phase = Instant::now();
         let address = self.lookup(crate::ENTRY_SYMBOL)?;
         let lookup = phase.elapsed();
+        // Os estáticos da execução anterior (se houve) voltam a zero: cada
+        // execução começa como um processo novo do AOT.
+        for global in globals {
+            self.zero_global(global)?;
+        }
         let (code, execute) = execute_program(address, stack_bytes)?;
         Ok((lookup, code, execute))
     }
@@ -948,53 +989,20 @@ impl Drop for Lljit {
     }
 }
 
-// ─── Runtime embutido ──────────────────────────────────────────────────────
+// ─── Runtime ───────────────────────────────────────────────────────────────
 //
-// PROVISÓRIO. O runtime é `crates/runtime/src/runtime_main.rs`, a mesma fonte
-// que o AOT compila com `rustc` avulso; `build.rs` grava em `OUT_DIR` uma cópia
-// dela com o `main` C e a entrada renomeados (as três substituições estão lá) e
-// gera a tabela de símbolos a partir dos `#[unsafe(no_mangle)]` do arquivo.
-// Nenhuma função do runtime é reescrita aqui. Quando a fonte única entrar em
-// `crates/runtime` (plano do JIT, §3.1), este bloco passa a ser
-// `dartforge_runtime::abi` + `dartforge_runtime::simbolos`.
+// O runtime são os fragmentos de `crates/runtime/src`, a mesma fonte que o AOT
+// compila com `rustc` avulso, aqui compilada como o módulo
+// `dartforge_runtime::abi` (fonte única, plano do JIT §3.1). A tabela de
+// símbolos é gerada pelo `build.rs` daquele crate a partir dos
+// `#[unsafe(no_mangle)]` dos fragmentos.
 
-/// Cópia gerada do harness do runtime nativo, compilada neste crate.
-///
-/// Os `allow` existem porque o arquivo é compilado no AOT com
-/// `#![allow(warnings)]` e fora das lints do workspace; aqui ele precisa do
-/// mesmo tratamento para ser **o mesmo código**, não uma versão ajustada.
-#[allow(warnings, unsafe_code, unsafe_op_in_unsafe_fn, clippy::all)]
-mod runtime_provisorio {
-    include!(concat!(env!("OUT_DIR"), "/runtime_provisorio.rs"));
-}
+/// Nomes do runtime publicados na sessão, na ordem da fonte.
+pub(crate) const RUNTIME_SYMBOLS: &[&str] = dartforge_runtime::simbolos::NOMES;
 
-include!(concat!(env!("OUT_DIR"), "/simbolos_provisorios.rs"));
-
-thread_local! {
-    /// Endereço de `@dartforge_entry` do programa em execução nesta thread.
-    ///
-    /// É o que liga o `main` do harness (renomeado) ao código JIT: o harness
-    /// chama `dartforge_jit_entrada_provisoria`, que salta para cá.
-    static ENTRADA: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Entrada que o harness embutido chama no lugar de `@dartforge_entry`.
-///
-/// Salta para o endereço que [`execute_program`] registrou nesta thread.
-// SAFETY: o nome é exclusivo deste crate e é exatamente o que a cópia gerada do
-// harness declara (`build.rs`, SUBSTITUICOES); há uma única definição.
-#[unsafe(no_mangle)]
-extern "C" fn dartforge_jit_entrada_provisoria() {
-    let endereco = ENTRADA.with(std::cell::Cell::get);
-    if endereco == 0 {
-        eprintln!("dartforge-jit: o harness chamou a entrada sem programa registrado");
-        std::process::abort();
-    }
-    // SAFETY: `execute_program` só registra endereços devolvidos por
-    // `LLVMOrcLLJITLookup(dartforge_entry)` de uma `LLJIT` viva durante toda a
-    // execução (a sessão é emprestada pelo chamador), e `@dartforge_entry` é
-    // emitido com a assinatura C `void(void)`.
-    unsafe { std::mem::transmute::<usize, extern "C" fn()>(endereco)() }
+/// Endereço de cada função do runtime, na ordem de [`RUNTIME_SYMBOLS`].
+fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
+    dartforge_runtime::simbolos::tabela()
 }
 
 /// Executa o programa cuja entrada está em `address`, como o `main` do AOT.
@@ -1005,11 +1013,12 @@ extern "C" fn dartforge_jit_entrada_provisoria() {
 /// `reset` a manter em sincronia com o runtime — e a pilha é a mesma que o
 /// executável AOT recebe, para que recursão profunda falhe igual.
 ///
-/// Devolve o código de saída que o `main` do harness devolveria (0), e o tempo
-/// de execução. Os finais que o harness trata com `process::exit` — exceção
-/// não capturada (101), asserção de não nulidade (101), teto do heap (255) —
-/// encerram **este processo** com o mesmo código, exatamente como no AOT. Por
-/// isso testes e o harness diferencial executam por subprocesso
+/// Depois da entrada vem `dartforge_runtime::abi::finalizar_programa`, o mesmo
+/// código que o `main` C do AOT roda (exceção não capturada → 101, estatísticas
+/// do coletor). O código que ela devolve é devolvido aqui; os finais que o
+/// runtime trata com `process::exit` durante a execução — asserção de não
+/// nulidade (101), teto do heap (255) — encerram **este processo**, como no
+/// AOT. Por isso testes e o harness diferencial executam por subprocesso
 /// (`dartforge-executar-ir`).
 ///
 /// # Erros
@@ -1021,10 +1030,14 @@ pub(crate) fn execute_program(address: u64, stack_bytes: usize) -> Result<(i32, 
         let handle = std::thread::Builder::new()
             .stack_size(stack_bytes)
             .spawn_scoped(scope, move || {
-                ENTRADA.with(|slot| slot.set(address));
                 let started = Instant::now();
-                let code = runtime_provisorio::dartforge_jit_main_provisorio();
-                ENTRADA.with(|slot| slot.set(0));
+                // SAFETY: `address` veio de `LLVMOrcLLJITLookup(dartforge_entry)`
+                // numa `LLJIT` que o chamador mantém viva durante toda a thread
+                // (`Lljit::run_entry` toma `&self` e só retorna depois do
+                // `join`), e `@dartforge_entry` é emitido com a assinatura C
+                // `void(void)`.
+                unsafe { std::mem::transmute::<usize, extern "C" fn()>(address)() };
+                let code = dartforge_runtime::abi::finalizar_programa();
                 (code, started.elapsed())
             })
             .map_err(|erro| format!("não foi possível criar a thread do programa: {erro}"))?;
@@ -1074,6 +1087,180 @@ pub(crate) fn llvm_version() -> (u32, u32, u32) {
     (major, minor, patch)
 }
 
+// ─── Estado mutável do módulo e objetos em cache ─────────────────────────
+
+/// Uma global mutável do módulo que precisa voltar a zero antes de cada
+/// execução: nome e tamanho em bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MutableGlobal {
+    pub(crate) name: String,
+    pub(crate) size: usize,
+}
+
+impl ParsedModule {
+    /// Prepara as globais mutáveis para serem reiniciadas entre execuções.
+    ///
+    /// O emissor guarda os estáticos preguiçosos em globais do módulo
+    /// (`@dfg_<id>` e `@dfg_<id>_ok`, `internal`, iniciadas com zero). Numa
+    /// sessão que roda o mesmo módulo várias vezes, a segunda execução veria
+    /// os estáticos já «inicializados» com handles do heap da execução
+    /// anterior, que não existe mais. Cada execução precisa começar do zero,
+    /// como um processo novo do AOT.
+    ///
+    /// Para que a sessão consiga achar essas globais, a ligação delas passa de
+    /// `internal` para externa **nesta cópia** do módulo. O IR emitido não
+    /// muda. Só globais com inicializador nulo são aceitas: é o que o emissor
+    /// produz, e reiniciar é escrever zeros. Outra forma é recusada com o
+    /// nome, em vez de uma reinicialização errada em silêncio.
+    pub(crate) fn prepare_mutable_globals(&self) -> Result<Vec<MutableGlobal>, String> {
+        use llvm_sys::LLVMLinkage;
+        let mut globals = Vec::new();
+        // SAFETY: travessia pela API do LLVM sobre o módulo vivo, terminada no
+        // primeiro nulo; a troca de ligação é feita antes de o módulo ser
+        // entregue à `LLJIT` ou emitido.
+        unsafe {
+            let mut global = llvm_sys::core::LLVMGetFirstGlobal(self.module);
+            while !global.is_null() {
+                let next = llvm_sys::core::LLVMGetNextGlobal(global);
+                if LLVMIsDeclaration(global) == 0 && llvm_sys::core::LLVMIsGlobalConstant(global) == 0 {
+                    let name = value_name(global);
+                    let init = llvm_sys::core::LLVMGetInitializer(global);
+                    if init.is_null() || llvm_sys::core::LLVMIsNull(init) == 0 {
+                        return Err(format!(
+                            "a global mutável @{name} não começa em zero; a sessão não sabe reiniciá-la entre execuções"
+                        ));
+                    }
+                    let kind = type_text(LLVMGlobalGetValueType(global));
+                    let size = match kind.as_str() {
+                        "i1" | "i8" => 1,
+                        "i16" => 2,
+                        "i32" | "float" => 4,
+                        "i64" | "double" | "ptr" => 8,
+                        outro => {
+                            return Err(format!(
+                                "a global mutável @{name} tem tipo {outro}, que a sessão não sabe reiniciar"
+                            ));
+                        }
+                    };
+                    let linkage = llvm_sys::core::LLVMGetLinkage(global);
+                    if matches!(linkage, LLVMLinkage::LLVMInternalLinkage | LLVMLinkage::LLVMPrivateLinkage) {
+                        llvm_sys::core::LLVMSetLinkage(global, LLVMLinkage::LLVMExternalLinkage);
+                    }
+                    globals.push(MutableGlobal { name, size });
+                }
+                global = next;
+            }
+        }
+        Ok(globals)
+    }
+}
+
+impl Lljit {
+    /// Escreve zeros na global mutável, já materializada.
+    ///
+    /// # Erros
+    /// Falha se o símbolo não puder ser resolvido.
+    pub(crate) fn zero_global(&self, global: &MutableGlobal) -> Result<(), String> {
+        let address = self.lookup(&global.name)?;
+        // SAFETY: `address` foi resolvido nesta `LLJIT` viva para uma global de
+        // dado com exatamente `size` bytes (lido do tipo dela no IR). Nenhum
+        // código gerado está executando: `run_entry` só zera antes de criar a
+        // thread do programa, e a sessão é emprestada por `&self`.
+        unsafe {
+            std::ptr::write_bytes(usize::try_from(address).unwrap_or(usize::MAX) as *mut u8, 0, global.size);
+        }
+        Ok(())
+    }
+
+    /// Entrega à `LLJIT` um objeto já compilado, sob o rastreador informado.
+    ///
+    /// # Erros
+    /// Propaga a mensagem do LLVM (objeto inválido, símbolo duplicado).
+    pub(crate) fn add_object(&self, tracker: &ResourceTracker, object: &[u8], name: &str) -> Result<(), String> {
+        let name = CString::new(name).map_err(|_| "nome do módulo contém byte nulo".to_owned())?;
+        // SAFETY: o buffer é uma cópia de `object` e passa a pertencer à
+        // `LLJIT` na chamada seguinte, inclusive quando ela devolve erro.
+        unsafe {
+            let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+                object.as_ptr().cast::<c_char>(),
+                object.len(),
+                name.as_ptr(),
+            );
+            match take_error(llvm_sys::orc2::lljit::LLVMOrcLLJITAddObjectFileWithRT(
+                self.handle,
+                tracker.handle,
+                buffer,
+            )) {
+                Some(message) => Err(message),
+                None => Ok(()),
+            }
+        }
+    }
+}
+
+/// O que [`compile_object`] produz: o objeto e o que a sessão precisa saber
+/// dele sem o IR (externos, definições, globais a reiniciar, alvo).
+pub(crate) struct ObjectParts {
+    pub(crate) object: Vec<u8>,
+    pub(crate) declarations: Vec<String>,
+    pub(crate) signatures: Vec<FunctionSignature>,
+    pub(crate) layouts: Vec<(i64, i64)>,
+    pub(crate) globals: Vec<MutableGlobal>,
+    pub(crate) target: (String, String),
+}
+
+/// Compila IR textual em objeto COFF com a máquina-alvo do JIT, sem sessão.
+///
+/// É a peça do cache de módulos: compila uma vez e carrega o objeto em
+/// quantas sessões quiser ([`Lljit::add_object`]), sem pagar de novo a análise
+/// e a geração de código. O código é o mesmo que a sessão geraria, porque a
+/// máquina-alvo é a mesma ([`target_machine`]).
+///
+/// # Erros
+/// IR inválido (inclusive pelo verificador), global que não se reinicia, ou
+/// falha do gerador de código.
+pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String> {
+    let parsed = parse_module(name, ir)?;
+    let globals = parsed.prepare_mutable_globals()?;
+    let declarations = parsed.declarations();
+    let signatures = parsed.signatures();
+    let layouts = parsed.class_layouts();
+    let machine = target_machine()?;
+    // SAFETY: `machine` é nosso até o `Dispose` no fim; o módulo pertence a
+    // `parsed`, vivo durante a emissão; a camada de dados criada para um
+    // módulo sem layout é liberada logo depois de copiada para ele; o buffer
+    // devolvido é copiado e liberado.
+    let object = unsafe {
+        if CStr::from_ptr(llvm_sys::core::LLVMGetDataLayoutStr(parsed.module)).to_bytes().is_empty() {
+            let dados = llvm_sys::target_machine::LLVMCreateTargetDataLayout(machine);
+            llvm_sys::target::LLVMSetModuleDataLayout(parsed.module, dados);
+            llvm_sys::target::LLVMDisposeTargetData(dados);
+        }
+        let mut message = ptr::null_mut();
+        let mut buffer = ptr::null_mut();
+        let falhou = LLVMTargetMachineEmitToMemoryBuffer(
+            machine,
+            parsed.module,
+            LLVMCodeGenFileType::LLVMObjectFile,
+            &mut message,
+            &mut buffer,
+        ) != 0;
+        let resultado = if falhou {
+            Err(if message.is_null() { "o gerador de código falhou".to_owned() } else { take_message(message) })
+        } else {
+            let inicio = llvm_sys::core::LLVMGetBufferStart(buffer).cast::<u8>();
+            let tamanho = llvm_sys::core::LLVMGetBufferSize(buffer);
+            let bytes = std::slice::from_raw_parts(inicio, tamanho).to_vec();
+            LLVMDisposeMemoryBuffer(buffer);
+            Ok(bytes)
+        };
+        LLVMDisposeTargetMachine(machine);
+        resultado
+    }?;
+    let target = parsed.target();
+    Ok(ObjectParts { object, declarations, signatures, layouts, globals, target })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1087,7 +1274,6 @@ mod tests {
             assert_ne!(*address, 0);
         }
         assert!(!RUNTIME_SYMBOLS.contains(&"main"));
-        assert!(!RUNTIME_SYMBOLS.contains(&"dartforge_jit_main_provisorio"));
         assert!(!RUNTIME_SYMBOLS.contains(&"dartforge_entry"));
     }
     /// Externos: runtime, CRT listada e intrínsecos passam; o resto não.

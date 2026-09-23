@@ -2,7 +2,7 @@
 //!
 //! Binário próprio, e não um subcomando do `dartforge`, porque
 //! `crates/cli/src/main.rs` é território de outro agente
-//! (`docs/BRIEF-JS-PRODUCAO.md` §0.2).
+//! (`docs/historico/briefs/BRIEF-JS-PRODUCAO.md` §0.2).
 
 use std::path::PathBuf;
 

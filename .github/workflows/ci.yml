@@ -10,16 +10,12 @@
 #     dartforge-elements, já para com 3 erros; emit_js, emit_native e
 #     gerador_ng têm avisos do próprio rustc). Volta junto com o fmt, pelo
 #     mesmo motivo.
-#   * a trilha velha (ESTADO.md §4) e o cranelift-jit: 16 testes não ignorados
-#     falhavam em dartforge-compiler, -lexer, -llvm, -jit e -cranelift-jit; o
-#     crates/jit saiu da lista quando passou a consumir o IR do emit_native, e
-#     crates saem quando o backend nativo novo os substituir. Nenhum crate da
-#     trilha nova depende deles.
 #   * Ubuntu: a trilha nova falha no Linux em dartforge-dev (hashes, plato),
 #     dartforge-emit-js (basico) e dartforge-elements (sdk_cache) — não no
 #     Windows, que é o alvo. Registrado para quem cuidar do Linux.
-#   * o job `conformance` (scripts/conformance*.ps1, dart2js O2) era da trilha
-#     velha; a verificação da trilha nova é crates/diferencial, no pesado.yml.
+#
+# A trilha velha e o cranelift-jit saíram do workspace (preservados na branch
+# `exploracao-inicial`); o CI testa o workspace inteiro, sem exclusões.
 name: CI
 on:
   push:
@@ -33,14 +29,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
-  # A trilha nova: todo o workspace menos a trilha velha e o cranelift-jit.
-  # O crates/jit (ORCv2) entra: consome o IR do emit_native desde 2026-09-23.
-  FORA: >-
-    --exclude dartforge-lexer --exclude dartforge-syntax --exclude dartforge-parser
-    --exclude dartforge-semantic --exclude dartforge-hir --exclude dartforge-codegen
-    --exclude dartforge-linker --exclude dartforge-optimizer --exclude dartforge-packages
-    --exclude dartforge-compiler --exclude dartforge-macros --exclude dartforge-llvm
-    --exclude dartforge-cranelift-jit
 jobs:
   windows:
     name: test e doc (Windows)
@@ -56,7 +44,7 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
-      # Clang 22.1.8 para os testes que compilam IR (abi, native, jit).
+      # Clang 22.1.8 para os testes que compilam IR (abi, emit_native, jit).
       # `desenvolvimento`: llvm-config, LLVM-C.dll/.lib e os cabeçalhos da API C
       # para o llvm-sys do crates/jit (~73 MB a mais no cache).
       - uses: ./.github/actions/llvm-windows
@@ -70,40 +58,31 @@ jobs:
           # Só o main grava: as branches ci/** restauram o cache do main e não
           # multiplicam entradas (10 GB por repositório).
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # --lib --bins --tests, sem os exemplos: lsp, frontend, types e emit_js
-      # têm cada um um exemplo `memoria`, e o cargo liga os quatro no mesmo
-      # target/debug/examples/memoria.exe — medido: LNK1104 quando duas
-      # ligações se cruzam. Exemplos são medições, não testes.
-      - name: test (trilha nova)
-        run: cargo test --locked --workspace $env:FORA.Split(' ') --lib --bins --tests --no-fail-fast
-      - name: test (doctests da trilha nova)
-        if: success() || failure()
-        run: cargo test --locked --workspace $env:FORA.Split(' ') --doc --no-fail-fast
-      # Os #[ignore] da trilha nova que o runner consegue satisfazer: SDK Dart,
+      # Todos os alvos: lib, bins, testes, exemplos (só compilados) e doctests.
+      # Os exemplos de memória têm nomes distintos por crate (memoria_<crate>):
+      # com o mesmo nome, o cargo ligava os quatro no mesmo examples/memoria.exe
+      # (LNK1104 quando duas ligações se cruzavam).
+      - name: test
+        run: cargo test --locked --workspace --no-fail-fast
+      # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
       #   corpus_pub*       references/pub é baixado pelo proprietário, fora do git
       #   new_sali_tipa     projeto privado do proprietário (C:/MyDartProjects)
       #   corpus_roda_no_dart_run, ddc_bate_com_dart_run
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
-      #   real_executable_prints_ints_and_bools
-      #                     FALHA REAL, registrada (ESTADO.md §1.6): o driver
-      #                     antigo `dartforge_native::build_executable` compila o
-      #                     runtime como binário, e o runtime agora define
-      #                     `extern "C" fn main() -> i32` (rustc E0277). O backend
-      #                     nativo novo liga pelo emit_native e não passa por ali.
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-
-          cargo test --locked --workspace $env:FORA.Split(' ') --tests --no-fail-fast --
+          cargo test --locked --workspace --tests --no-fail-fast --
           --ignored --skip corpus_pub --skip new_sali_tipa --skip corpus_roda_no_dart_run
-          --skip ddc_bate_com_dart_run --skip microbenchmark --skip real_executable_prints_ints_and_bools
+          --skip ddc_bate_com_dart_run --skip microbenchmark
       # `private_intra_doc_links` fica permitido: com --document-private-items
       # os itens privados SÃO documentados e os links resolvem (o frontend
       # tem 13 desses, todos para métodos privados do Parser).
-      - name: doc (trilha nova)
+      - name: doc
         if: success() || failure()
         env:
           RUSTDOCFLAGS: '-D warnings -A rustdoc::private_intra_doc_links'
         # --keep-going: um crate que falha não esconde os erros dos outros.
-        run: cargo doc --locked --workspace $env:FORA.Split(' ') --no-deps --document-private-items --keep-going
+        run: cargo doc --locked --workspace --no-deps --document-private-items --keep-going
