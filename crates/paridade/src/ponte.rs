@@ -136,7 +136,8 @@ pub fn codificar_sintaxe(d: &Diagnostic) -> Diagnostic {
     if d.code.is_some() {
         return d.clone();
     }
-    let m = d.message.as_str();
+    // O parser acrescenta o token encontrado: `esperava ';', encontrou '}'`.
+    let m = d.message.split(", encontrou ").next().unwrap_or("");
     let (codigo, args): (Option<Codigo>, Vec<String>) = if let Some(c) = m.strip_prefix("caractere inesperado '") {
         let ch = c.chars().next().map(|c| (c as u32).to_string()).unwrap_or_default();
         (Some(s::ILLEGAL_CHARACTER), vec![ch])

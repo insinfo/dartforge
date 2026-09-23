@@ -10,11 +10,13 @@
 //! condutor de análise por diretório.
 //!
 //! **Atribuição a arquivo.** O `Diagnostic` de `types` ainda não diz em que
-//! unidade está (pedido T1). A inferência de corpos roda só nas bibliotecas
-//! do lote (`infer_bodies_das_bibliotecas`), e cada diagnóstico é atribuído à
-//! unidade que tem um nó (expressão, comando, tipo ou padrão) com exatamente
-//! aquele intervalo; sem nó exato, à unidade do lote cuja declaração de topo
-//! o contém. Casos com mais de uma candidata são contados em
+//! unidade está (pedido T1). Até lá: corpos, uma passada de inferência por
+//! biblioteca do lote (o que ela acrescenta depois dos diagnósticos dos
+//! inicializadores é daquela biblioteca); inicializadores, na ordem de
+//! `program.variables`, cada um no primeiro inicializador (a partir do
+//! anterior) que o contém; outline, a unidade com um nó (expressão, comando,
+//! tipo ou padrão) de intervalo exato, ou a do lote cuja declaração de topo o
+//! contém. Casos com mais de uma candidata são contados em
 //! [`Analise::ambiguos`] — o placar os mostra.
 
 use crate::ponte;
@@ -200,28 +202,74 @@ impl Motor {
             }
         }
 
-        // 3. Tipos: outline e corpos das bibliotecas do lote.
+        // 3. Tipos.
         let mut table = dartforge_types::TypeTable::new();
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, diags_outline) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-        let (_corpos, diags_corpos) = dartforge_types::infer_bodies_das_bibliotecas(
-            &program,
-            &interner,
-            &mut table,
-            &core,
-            &mut outline,
-            &libs_proprias,
-        );
         let indice = Indice::novo(&program, &unidades_proprias);
-        let mut vistos: BTreeSet<(UnitId, usize, usize, String)> = BTreeSet::new();
-        for d in diags_outline.iter().chain(diags_corpos.iter()) {
-            let (unidade, ambiguo) = match indice.atribuir(&program, d.span) {
-                Some(x) => x,
-                None => continue,
-            };
-            if ambiguo {
+        // Inicializadores: `types` os infere em toda passada, de qualquer
+        // biblioteca. Uma passada sem corpo nenhum (`&[]`) estabiliza os tipos
+        // inferidos; a segunda dá só os diagnósticos deles.
+        let _ = dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
+        let (_, diags_init) =
+            dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
+        let mut atribuidos: Vec<(UnitId, Diagnostic)> = Vec::new();
+        // Corpos: uma passada por biblioteca do lote.
+        for lib in &libs_proprias {
+            let (_, ds) = dartforge_types::infer_bodies_das_bibliotecas(
+                &program,
+                &interner,
+                &mut table,
+                &core,
+                &mut outline,
+                std::slice::from_ref(lib),
+            );
+            let corpo = if ds.len() >= diags_init.len() && ds[..diags_init.len()] == diags_init[..] {
+                &ds[diags_init.len()..]
+            } else {
+                // O prefixo mudou: não dá para separar; conta como ambíguo.
                 analise.ambiguos += 1;
+                &ds[..]
+            };
+            let unidades: Vec<UnitId> = program.library(*lib).units.clone();
+            for d in corpo {
+                let u = if unidades.len() == 1 {
+                    Some(unidades[0])
+                } else {
+                    indice.atribuir_entre(&program, d.span, &unidades)
+                };
+                if let Some(u) = u {
+                    atribuidos.push((u, d.clone()));
+                }
             }
+        }
+        // Inicializadores, em ordem, no primeiro inicializador que os contém.
+        let inits = inicializadores(&program);
+        let mut pos = 0;
+        for d in &diags_init {
+            match (pos..inits.len()).find(|&i| inits[i].1.start <= d.span.start && d.span.end <= inits[i].1.end) {
+                Some(i) => {
+                    pos = i;
+                    atribuidos.push((inits[i].0, d.clone()));
+                }
+                None => {
+                    if let Some((u, amb)) = indice.atribuir(d.span) {
+                        analise.ambiguos += usize::from(amb);
+                        atribuidos.push((u, d.clone()));
+                    }
+                }
+            }
+        }
+        // Outline: pelo intervalo exato do tipo anotado.
+        for d in &diags_outline {
+            if let Some((u, amb)) = indice.atribuir(d.span) {
+                analise.ambiguos += usize::from(amb);
+                atribuidos.push((u, d.clone()));
+            }
+        }
+        let mut vistos: BTreeSet<(UnitId, usize, usize, String)> = BTreeSet::new();
+        for (unidade, d) in &atribuidos {
+            let unidade = *unidade;
             if !unidades_proprias.contains(&unidade) {
                 continue;
             }
@@ -271,6 +319,36 @@ impl Motor {
     }
 }
 
+/// `(unidade, intervalo do inicializador)` das variáveis fora do SDK, na
+/// ordem de `program.variables` (a ordem em que `types` os infere).
+fn inicializadores(program: &Program) -> Vec<(UnitId, Span)> {
+    use dartforge_elements::model::VariableRef;
+    use dartforge_frontend::ast::{DeclKind, MemberKind};
+    let mut v = Vec::new();
+    for var in &program.variables {
+        if program.library(var.library).is_sdk {
+            continue;
+        }
+        let (unit, init) = match var.node {
+            VariableRef::TopLevel { unit, decl, index } => match &program.unit(unit).ast.decls[decl.0 as usize].kind {
+                DeclKind::Variables(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
+                _ => continue,
+            },
+            VariableRef::Field { unit, member, index } => {
+                match &program.unit(unit).ast.members[member.0 as usize].kind {
+                    MemberKind::Field(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
+                    _ => continue,
+                }
+            }
+            _ => continue,
+        };
+        if let Some(e) = init {
+            v.push((unit, program.unit(unit).ast.exprs[e.0 as usize].span));
+        }
+    }
+    v
+}
+
 /// Intervalos de nós por unidade, para atribuir diagnósticos sem unidade.
 struct Indice {
     exato: HashMap<(usize, usize), Vec<UnitId>>,
@@ -307,8 +385,25 @@ impl Indice {
         Indice { exato, topo, proprias: proprias.clone() }
     }
 
+    /// Entre as `unidades` dadas (as de uma biblioteca): a do nó com o
+    /// intervalo exato; senão a primeira cuja declaração de topo o contém.
+    fn atribuir_entre(&self, program: &Program, s: Span, unidades: &[UnitId]) -> Option<UnitId> {
+        if let Some(v) = self.exato.get(&(s.start, s.end)) {
+            if let Some(u) = v.iter().find(|u| unidades.contains(u)) {
+                return Some(*u);
+            }
+        }
+        unidades.iter().copied().find(|u| {
+            let unit = program.unit(*u);
+            unit.unit.declarations.iter().any(|d| {
+                let sp = unit.ast.decls[d.0 as usize].span;
+                sp.start <= s.start && s.end <= sp.end
+            })
+        })
+    }
+
     /// A unidade do diagnóstico e se houve mais de uma candidata.
-    fn atribuir(&self, _program: &Program, s: Span) -> Option<(UnitId, bool)> {
+    fn atribuir(&self, s: Span) -> Option<(UnitId, bool)> {
         if let Some(v) = self.exato.get(&(s.start, s.end)) {
             let escolhida = v.iter().copied().find(|u| self.proprias.contains(u)).unwrap_or(v[0]);
             return Some((escolhida, v.len() > 1));

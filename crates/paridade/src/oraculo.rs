@@ -120,6 +120,10 @@ pub struct Meta {
     pub hash: String,
     pub arquivos: usize,
     pub diagnosticos: usize,
+    /// Arquivos retirados do grupo porque derrubam o servidor de análise do
+    /// oráculo (não há o que comparar).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluidos: Vec<String>,
 }
 
 /// FNV-1a 64: estável entre versões do Rust (o `DefaultHasher` não é).
@@ -145,7 +149,7 @@ pub fn rodar(sdk: SdkOraculo, pacote: &Path, alvos: &[PathBuf], cache: &Path) ->
         .arg("--format=json")
         .arg("--cache")
         .arg(cache)
-        .args(alvos)
+        .args(alvos.iter().map(|a| std::path::absolute(a).unwrap_or_else(|_| a.clone())))
         .current_dir(pacote)
         .env("DART_DISABLE_ANALYTICS", "1")
         .output()
@@ -162,7 +166,9 @@ pub fn rodar(sdk: SdkOraculo, pacote: &Path, alvos: &[PathBuf], cache: &Path) ->
     // A saída pode vir precedida de avisos; o JSON é a linha que começa com `{`.
     let json = texto.lines().find(|l| l.starts_with('{')).unwrap_or("");
     if json.is_empty() {
-        return Ok(Vec::new());
+        // Sem JSON: o servidor de análise caiu (ex.: `FormatException` do
+        // 3.6.2 com separador de dígitos em `1.234_456e0`).
+        return Err(format!("sem JSON (código {codigo}): {}", texto.lines().take(6).collect::<Vec<_>>().join(" | ")));
     }
     let r: Relatorio = serde_json::from_str(json).map_err(|e| format!("JSON do oráculo: {e}"))?;
     Ok(r.diagnostics)

@@ -16,11 +16,49 @@ use dartforge_paridade::corpus::{self, Grupo};
 use dartforge_paridade::oraculo::{self, Meta, Registro};
 use dartforge_paridade::placar::Placar;
 use dartforge_paridade::projetos::{self, Mutacao, Projeto};
-use dartforge_paridade::{filtros, rodar_nosso};
+use dartforge_paridade::{Execucao, filtros, rodar_nosso};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
+
+// O alocador contador dá ao processo filho de cada lote o vigia de memória
+// (`executar_lote_filho`): uma análise que dispara não leva a máquina junto.
+#[global_allocator]
+static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+
+/// Teto de memória viva de um lote isolado (`DARTFORGE_PARIDADE_TETO_MB`, 2048).
+fn teto() -> usize {
+    std::env::var("DARTFORGE_PARIDADE_TETO_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048usize) << 20
+}
+
+/// Cada lote num processo filho deste executável, com 10 min no máximo.
+fn execucao(trabalhadores: usize, tamanho_lote: usize) -> Execucao {
+    Execucao {
+        trabalhadores,
+        tamanho_lote,
+        progresso: true,
+        isolar: std::env::current_exe().ok(),
+        tempo_max: std::time::Duration::from_secs(600),
+    }
+}
+
+/// `_lote <raiz> <packages|->`, arquivos na entrada padrão (uso interno).
+fn lote_filho(args: &[String]) -> ExitCode {
+    let (Some(raiz), Some(pk)) = (args.first(), args.get(1)) else { return ExitCode::from(2) };
+    let mut entrada = String::new();
+    let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut entrada);
+    let arquivos: Vec<PathBuf> = entrada.lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect();
+    let packages = (pk != "-").then(|| PathBuf::from(pk));
+    let c = dartforge_paridade::executar_lote_filho(
+        Path::new(raiz),
+        packages.as_deref(),
+        &arquivos,
+        dartforge_instrument::live_bytes,
+        teto(),
+    );
+    ExitCode::from(c as u8)
+}
 
 struct Args {
     cmd: String,
@@ -80,10 +118,16 @@ fn ler_args() -> Option<Args> {
             _ => return None,
         }
     }
+    a.corpus = std::path::absolute(&a.corpus).unwrap_or(a.corpus);
     Some(a)
 }
 
 fn main() -> ExitCode {
+    let brutos: Vec<String> = std::env::args().skip(1).collect();
+    if brutos.first().is_some_and(|c| c == "_lote") {
+        dartforge_paridade::silenciar_panicos();
+        return lote_filho(&brutos[1..]);
+    }
     let Some(a) = ler_args() else { return uso() };
     dartforge_paridade::silenciar_panicos();
     match a.cmd.as_str() {
@@ -157,7 +201,7 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
         let t = Instant::now();
         eprintln!("grupo {nome}: {} arquivos", fontes.len());
         let lote = if a.lote > 0 { a.lote } else { 48 };
-        let r = rodar_nosso(&motor, &dir, &fontes, Some(&cfg), &filtros::Opcoes::ler(&dir), trabalhadores, lote, true);
+        let r = rodar_nosso(&motor, &dir, &fontes, Some(&cfg), &filtros::Opcoes::ler(&dir), &execucao(trabalhadores, lote));
         eprintln!("grupo {nome}: {:.1} s", t.elapsed().as_secs_f64());
         arquivos += r.arquivos;
         lotes += r.lotes;
@@ -267,21 +311,17 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
         // Grupos grandes: um `dart analyze` por fatia de subdiretórios (memória).
         let fatias = fatias(&dir, 2500);
         let mut regs = Vec::new();
-        let mut erro = None;
+        let mut excluidos = Vec::new();
         for alvo in &fatias {
-            match oraculo::rodar(g.sdk, &dir, alvo, &cache_oraculo()) {
-                Ok(ds) => regs.extend(ds.iter().filter_map(|d| Registro::de_json(d, &dir))),
-                Err(e) => {
-                    erro = Some(e);
-                    break;
-                }
-            }
+            bissectar(g.sdk, &dir, alvo.clone(), &mut regs, &mut excluidos);
         }
-        if let Some(e) = erro {
-            eprintln!("{nome}: {e}");
-            falhou = true;
-            continue;
+        excluidos.sort();
+        for e in &excluidos {
+            eprintln!("  derruba o oráculo, retirado do grupo: {e}");
+            let _ = std::fs::remove_file(dir.join(e));
         }
+        // Diagnósticos em arquivos retirados não contam.
+        regs.retain(|r| !excluidos.contains(&r.arquivo));
         regs.sort();
         regs.dedup();
         let meta = Meta {
@@ -289,6 +329,7 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
             hash: corpus::hash_fontes(&dir),
             arquivos: corpus::arquivos_dart(&dir).len(),
             diagnosticos: regs.len(),
+            excluidos,
         };
         if let Err(e) = oraculo::gravar(&dir, regs, &meta) {
             eprintln!("{nome}: {e}");
@@ -305,6 +346,47 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
         );
     }
     if falhou { ExitCode::from(1) } else { ExitCode::SUCCESS }
+}
+
+/// Roda o oráculo sobre `alvos`; se o servidor de análise cair, divide ao
+/// meio (um diretório sozinho vira os seus filhos) até isolar os arquivos
+/// que o derrubam, que vão para `excluidos` (relativos a `dir`).
+fn bissectar(
+    sdk: oraculo::SdkOraculo,
+    dir: &Path,
+    alvos: Vec<PathBuf>,
+    regs: &mut Vec<Registro>,
+    excluidos: &mut Vec<String>,
+) {
+    match oraculo::rodar(sdk, dir, &alvos, &cache_oraculo()) {
+        Ok(ds) => regs.extend(ds.iter().filter_map(|d| Registro::de_json(d, dir))),
+        Err(e) => {
+            if alvos.len() > 1 {
+                let meio = alvos.len() / 2;
+                bissectar(sdk, dir, alvos[..meio].to_vec(), regs, excluidos);
+                bissectar(sdk, dir, alvos[meio..].to_vec(), regs, excluidos);
+            } else if alvos[0].is_dir() {
+                let mut filhos: Vec<PathBuf> = std::fs::read_dir(&alvos[0])
+                    .map(|r| {
+                        r.flatten()
+                            .map(|e| e.path())
+                            .filter(|p| p.is_dir() || p.extension().is_some_and(|x| x == "dart"))
+                            .filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                filhos.sort();
+                if filhos.is_empty() {
+                    eprintln!("  {}: {e}", alvos[0].display());
+                } else {
+                    eprintln!("  o oráculo caiu em {}; dividindo", alvos[0].display());
+                    bissectar(sdk, dir, filhos, regs, excluidos);
+                }
+            } else {
+                excluidos.push(oraculo::relativo(&alvos[0], dir).unwrap_or_default());
+            }
+        }
+    }
 }
 
 /// Alvos de cada execução do `dart analyze`: o grupo inteiro, ou os
@@ -385,7 +467,7 @@ fn cmd_projetos(a: &Args) -> ExitCode {
         let cfg = p.caminho.join(".dart_tool/package_config.json");
         let t = Instant::now();
         eprintln!("{}: nosso lado, {} arquivos…", p.nome, arquivos.len());
-        let r = rodar_nosso(&motor, &p.caminho, &arquivos, Some(&cfg), &opcoes, trab, lote, true);
+        let r = rodar_nosso(&motor, &p.caminho, &arquivos, Some(&cfg), &opcoes, &execucao(trab, lote));
         let mut pl = Placar::default();
         pl.comparar(oraculo_regs, &r.registros);
         let tg = pl.total();
