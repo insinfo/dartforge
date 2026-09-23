@@ -177,6 +177,43 @@ gargalo — as falhas de "o Clang recusa o módulo" caíram de 172 para 13, e
 o que sobra é programa que roda e imprime outra coisa. Ver
 `docs/NATIVO.md` e `docs/NATIVO-PLANO.md`.
 
+O **lowering de exceções** existe: `throw`, `try`/`catch`/`finally`,
+`rethrow`, com `finally` como sub-rotina e discriminador de razão (normal,
+`return`, exceção, `break`, `continue`). O mecanismo escolhido é
+**exceção pendente com verificação depois da chamada**, e não landing
+pads: SEH/funclets no MSVC seria um segundo lowering, o runtime em Rust
+não desenrola através de `extern "C"` — e é de lá que vem a maior parte
+das exceções reais —, e exceção que atravessa `await` não pode depender da
+pilha nativa. A justificativa e o custo no caminho feliz estão em
+`docs/NATIVO-PLANO.md`.
+
+**Determinismo verificado**: `dartforge-diferencial determinismo
+[--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico e, com
+`DARTFORGE_KEEP_IR=1`, o mesmo resumo de todo o LLVM IR emitido. Passa com
+1, 4 e 8 trabalhadores nos dois modos.
+
+### 1.5.1 JIT — **desligado**
+
+`dartforge run` e `dartforge reload` existem como comandos mas devolvem
+erro: foram desativados durante o trabalho no AOT. Os crates
+`crates/jit` (ORCv2) e `crates/cranelift-jit` consomem `dartforge_hir`, da
+**trilha velha**, que não é mais dependência do compilador. Ou seja: o
+JIT hoje não é produto, é experimento parado. Ver §2.7.
+
+### 1.5.2 Runtime Dart — `crates/runtime`
+
+O runtime em Rust que o executável nativo carrega: heap com **GC por
+tracing preciso** (cada campo marca se é referência), `String` em UTF-16
+para casar com a indexação do SDK, `int` de 64 bits com estouro modular
+como na VM, e a fronteira de símbolos com o IR emitido.
+
+Ganhou nesta sessão um **teto duro de heap** (256 MiB por padrão,
+`DARTFORGE_HEAP_MAX_MB` ajusta, `0` desliga), separado do gatilho de
+coleta e contando também a tabela de slots. Ao estourar, sai com uma linha
+legível e código 255, sem `panic` atravessando `extern "C"`. Não é
+detalhe de teste: sem ele, um programa do corpus em laço ia a 1,9 GB e
+travava a máquina.
+
 ### 1.6 Infraestrutura
 
 * `crates/diferencial` — harness paralelo com cache dos oráculos;
@@ -365,11 +402,11 @@ cache de objetos por módulo (o Clang/link domina o tempo).
 
 ### 2.6 ngdart e geração de código
 
-O compilador de templates próprio (Fase 5 do PLANO) não existe. Hoje
-dependemos dos `.template.dart` que o `build_runner` gera; o carregador já
-os sobrepõe (`PackageConfig::generated_root`). Enquanto isso, compilar um
-projeto ngdart exige `dart run build_runner build` uma vez (2m59s no
-`new_sali/frontend`).
+O compilador de templates próprio **existe e cobre 134 dos 300 arquivos**
+do `new_sali/frontend` (§1.7). O que falta dele está na tabela do §2.0.
+Enquanto não fecha, compilar um projeto ngdart ainda exige
+`dart run build_runner build` uma vez (2m59s no `new_sali/frontend`) para
+os arquivos pendentes.
 
 Plano para substituir o `build_runner` por um motor em Rust:
 `docs/BUILD-RUST.md`. O dado que o orienta: dos 9.879 artefatos que o
@@ -387,6 +424,30 @@ alvo dominante é compilar e executar o `package:analyzer` (438 arquivos,
 geradores dependem. Geradores nativos em Rust são aceleração opcional,
 com saída byte a byte igual verificada por `corpus/builders/` (ainda não
 existe). O `dart` oficial fica só como oráculo de comparação.
+
+### 2.7 JIT
+
+Hoje **não funciona**: `dartforge run` e `dartforge reload` devolvem erro,
+desativados durante o trabalho no AOT.
+
+O problema é de arquitetura, não de conserto pontual: `crates/jit`
+(ORCv2 sobre a API C do LLVM) e `crates/cranelift-jit` consomem
+`dartforge_hir::Module`, da trilha velha, que o compilador atual não usa
+mais. Rebaseá-los na HIR do `emit_native` é o trabalho — e é o que faria
+desenvolvimento e produção compartilharem uma representação só.
+
+Duas coisas a preservar ao fazer isso:
+
+* o contrato de `crates/jit/tests/execucao.rs` — o mesmo programa compila
+  uma vez e executa pelos dois caminhos (ORCv2 e AOT) exigindo saída
+  idêntica. Divergir em tempo de compilação é esperado; em resultado, é
+  defeito;
+* a recomendação de `docs/CRANELIFT.md`, que é **não adotar** Cranelift:
+  o experimento foi feito e medido. Quem for mexer em JIT lê isso antes de
+  repetir o experimento.
+
+O JIT só passa a valer a pena depois que o AOT rodar o corpus: um JIT que
+executa 7 de 214 programas não acelera ciclo de desenvolvimento nenhum.
 
 ---
 

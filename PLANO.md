@@ -1052,6 +1052,100 @@ minificado (`.c { color: red; }` vira `.c._ngcontent-%ID%{color:red}`), com
 `ComponentStyles.scoped` no lugar de `unscoped` e um `addShimC` por
 elemento.
 
+## As cinco frentes — onde cada uma está (2026-09-22)
+
+Consolidação do que existe e do que falta, para não confundir frente
+madura com frente parada. Números medidos, não estimados; detalhe em
+`ESTADO.md`.
+
+| frente | onde está | o que falta |
+|---|---|---|
+| **JS de desenvolvimento** | **214/214** do corpus; dois projetos reais no navegador; 8,8 s a frio no new_sali, 464 ms por edição | ids estáveis por biblioteca (o outline é refeito a cada compilação) |
+| **JS de produção** | **214/214**; 3–5× mais rápido que o dart2js, 30–45× maior | mundo fechado sobre a nossa trilha, despacho direto, minificação, code splitting |
+| **Gerador do ngdart** | 134/300 arquivos do new_sali, 125 iguais byte a byte, 0 diferentes | `providers:`, `@ViewChild`, `pipes:`, `@Output`, `#ref`, local de visão ancestral |
+| **AOT nativo** | **7/214**; exceções com lowering próprio; determinismo verificado | `async`, genéricos reificados, `dart:core` da seção `vm`, `dart:io`, isolates |
+| **JIT** | **desligado**; os crates ainda consomem a trilha velha | rebasear na HIR do `emit_native` |
+
+### AOT nativo — o que o placar diz
+
+Das 207 falhas, **71 são a mesma família**: um valor que não é referência
+sendo tratado como handle do heap, ou um handle já coletado. É a maior
+alavancagem que existe, e só ficou visível quando a chave de agrupamento
+do relatório parou de jogar todos os `panic` num grupo só — a primeira
+linha do stderr trazia id de thread e caminho, e consumia a chave inteira.
+
+Ordem: (1) a família dos handles; (2) os textos de `toString` dos erros do
+`dart:core`, que o corpus compara byte a byte; (3) `async` e laço de
+eventos; (4) genéricos reificados; (5) `dart:core` da seção `vm` a partir
+da fonte, que é o que tira `int`, `String` e as coleções do caso especial;
+(6) `dart:io`; (7) isolates; (8) cache de objeto por módulo, porque o
+Clang e a ligação dominam o tempo.
+
+O alvo governante continua sendo compilar e executar o `package:analyzer`
+no nosso runtime — 438 arquivos, 227.252 linhas, com `dart:io`,
+`dart:isolate` e `dart:ffi`. Não é o primeiro passo; é o critério de
+pronto.
+
+### JIT — por que está parado, e quando volta
+
+`dartforge run` e `dartforge reload` devolvem erro. Os crates `jit`
+(ORCv2) e `cranelift-jit` consomem `dartforge_hir`, da trilha velha, que o
+compilador atual não usa mais.
+
+O trabalho é rebaseá-los na HIR do `emit_native`, preservando duas coisas:
+o teste que exige saída idêntica entre ORCv2 e AOT, e a recomendação de
+`docs/CRANELIFT.md` — **não adotar** Cranelift, experimento já medido.
+
+E há uma ordem natural: um JIT que executa 7 de 214 programas não acelera
+ciclo de desenvolvimento nenhum. Ele volta depois que o AOT rodar o
+corpus.
+
+### JavaScript — os dois perfis, e o teto de 30×
+
+O perfil de desenvolvimento é o contrato do DDC: um módulo ES por
+biblioteca, despacho dinâmico, sem poda. É o que o `dartforge serve` usa,
+e é rápido justamente por não otimizar.
+
+O perfil de produção já existe e passa o corpus inteiro, mas tem um piso
+de ~1,5 MB **qualquer que seja o programa**, porque ligamos contra o
+`dart_sdk.js` do DDC — pré-compilado, com tabela de assinaturas, receitas
+rti e métodos de extensão emitidos para qualquer uso possível. Dá para
+apagar a classe ou o membro inteiro; não dá para apagar metade do
+metadado que sobra. O dart2js chega a 35 KB porque compila o SDK do fonte
+com inferência global.
+
+Fechar esses 30× é **compilar o SDK pela nossa trilha**, não uma
+otimização a mais. E, num projeto real, o runtime podado é só 6,6% do
+arquivo: o ganho imediato está no mundo fechado sobre o código do usuário,
+não em podar mais o runtime.
+
+### Runtime Dart
+
+Existe: heap com GC por tracing preciso, `String` em UTF-16, `int` de 64
+bits com estouro modular, e teto duro de heap (256 MiB por padrão) que
+falha legível em vez de tomar a máquina.
+
+Falta o que o alvo governante exige: laço de eventos com `Future`,
+`Completer` e `Zone`; `dart:io`; isolates com heap por isolate, sem
+memória compartilhada, como a VM.
+
+### A regra que atravessa as cinco
+
+Cada frente tem o seu oráculo, e nenhuma anda sem ele:
+
+| frente | oráculo |
+|---|---|
+| JS de desenvolvimento e de produção | `corpus/js` contra a VM, byte a byte |
+| gerador do ngdart | `corpus/ngdart` e os arquivos que o `build_runner` gerou nos projetos reais |
+| AOT e JIT | `corpus/js` contra a VM, pelo harness `--nativo` |
+| folhas de estilo | a saída do `sass_builder` e do `shadow_css`, normalizada |
+
+E duas disciplinas que já pagaram: **recusar o que não se entende** em vez
+de emitir aproximação — saída errada compila e faz outra coisa —, e
+**determinismo verificado** com 1, 4 e 8 trabalhadores, porque saída que
+muda com a ordem dos trabalhadores invalida cache e recarrega o navegador
+sem mudança real no programa.
+
 ## Regra de projeto — equivalência semântica com o Dart oficial
 
 **O DartForge pode tornar código Dart padrão mais rápido, dividir workers
