@@ -19,7 +19,7 @@ use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
 use dartforge_frontend::ast::{
-    self, BinaryOp, ExprId, ListPatternElement, PatternId, PatternKind, StmtId,
+    self, BinaryOp, ExprId, ExprKind, ListPatternElement, PatternId, PatternKind, StmtId,
 };
 use dartforge_intern::SymbolId;
 use std::collections::HashSet;
@@ -185,6 +185,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.exigir(ok, falha);
                 }
             }
+            PatternKind::Variable {
+                ty: None,
+                name,
+                var_: false,
+                final_: false,
+            } if self.padrao_refutavel && ligacao == Ligacao::Declarar && self.ctx.symbol_name(name.sym) != "_" => {
+                // Num padrão de casamento, um nome solto é um padrão
+                // constante (especificação de padrões, "Constant patterns"):
+                // casa se `constante == valor`.
+                let c = match self.ler_local_por_nome(name.sym) {
+                    Some(v) => v,
+                    None => match self.ler_nome_sem_resolucao(name.sym, span) {
+                        Some(v) => v,
+                        None => {
+                            let n = self.ctx.symbol_name(name.sym).to_string();
+                            self.nao_suportado(&format!("padrão constante `{n}`"), span)
+                        }
+                    },
+                };
+                let ok = self.operar(BinaryOp::Eq, c, valor, false, span);
+                self.exigir(ok, falha);
+            }
             PatternKind::Variable { ty, name, .. } => {
                 if let Some(t) = ty {
                     let v = self.coagir(valor.clone(), Type::Ref);
@@ -194,6 +216,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.ligar_padrao(*name, valor, ligacao, ligados, span);
             }
             PatternKind::Constant(e) => {
+                // `const (e)`: expressão constante entre parênteses (o
+                // parser a lê como record de um campo; sem a vírgula final
+                // ela é só `e`).
+                let e = match &ast.expr(*e).kind {
+                    ExprKind::Record { positional, named, .. } if positional.len() == 1 && named.is_empty() => {
+                        let s = ast.expr(*e).span;
+                        let texto = &self.source()[s.start as usize..s.end as usize];
+                        if texto.trim_end().trim_end_matches(')').trim_end().ends_with(',') {
+                            e
+                        } else {
+                            &positional[0]
+                        }
+                    }
+                    _ => e,
+                };
                 let c = self.lower_expr(ast, *e);
                 let ok = self.operar(BinaryOp::Eq, c, valor, false, span);
                 self.exigir(ok, falha);
@@ -409,11 +446,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(s) => {
                             let n = self.ctx.symbol_name(s).to_string();
                             nomes.push(n.clone());
-                            campos.push((Some(n), f.pattern));
+                            campos.push((Some(n), f.pattern, f.name.is_none()));
                         }
                         None => {
                             npos += 1;
-                            campos.push((None, f.pattern));
+                            campos.push((None, f.pattern, false));
                         }
                     }
                 }
@@ -438,7 +475,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 self.exigir(ok, falha);
                 let mut k_pos = 0usize;
-                for (nome, sp) in campos {
+                for (nome, sp, implicito) in campos {
                     let idx = match nome {
                         None => {
                             k_pos += 1;
@@ -447,7 +484,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(n) => npos + ordenados.iter().position(|x| *x == n).expect("nome"),
                     };
                     let x = self.campo_de_forma(v.clone(), idx);
+                    // `:x` declara `x` mesmo num padrão de casamento.
+                    let salvo = self.padrao_refutavel;
+                    if implicito {
+                        self.padrao_refutavel = false;
+                    }
                     self.casar(ast, sp, x, falha, ligacao, ligados, origem);
+                    self.padrao_refutavel = salvo;
                 }
             }
             PatternKind::Record { fields } => {
@@ -509,7 +552,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         continue;
                     };
                     let x = self.ler_membro_de_padrao(v.clone(), classe, nome, origem, f.span);
+                    // `:x` declara `x` mesmo num padrão de casamento.
+                    let salvo = self.padrao_refutavel;
+                    if f.name.is_none() {
+                        self.padrao_refutavel = false;
+                    }
                     self.casar(ast, f.pattern, x, falha, ligacao, ligados, origem);
+                    self.padrao_refutavel = salvo;
                 }
             }
         }
@@ -573,7 +622,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.abrir_escopo();
             let mut ligados = HashSet::new();
             if let Some(p) = c.pattern {
+                let salvo = std::mem::replace(&mut self.padrao_refutavel, true);
                 self.casar(ast, p, v.clone(), proximo, Ligacao::Declarar, &mut ligados, value);
+                self.padrao_refutavel = salvo;
             }
             if let Some(g) = c.guard {
                 let ok = self.lower_expr(ast, g);
@@ -603,6 +654,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Dart 3: um caso não vazio não cai no seguinte.
             self.terminate(Terminator::Branch(saida));
         }
+        // Um caso vazio sem caso seguinte (o último): o corpo dele é vazio.
+        for (i, c) in cases.iter().enumerate() {
+            if c.body.is_empty() && !feitos.contains(&corpos[i]) {
+                feitos.insert(corpos[i]);
+                self.set_block(corpos[i]);
+                self.terminate(Terminator::Branch(saida));
+            }
+        }
         self.break_targets.pop();
         for l in rotulos_de_caso {
             self.labeled_continue_targets.remove(&l);
@@ -631,7 +690,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let proximo = self.new_block();
             self.abrir_escopo();
             let mut ligados = HashSet::new();
+            let salvo = std::mem::replace(&mut self.padrao_refutavel, true);
             self.casar(ast, c.pattern, v.clone(), proximo, Ligacao::Declarar, &mut ligados, value);
+            self.padrao_refutavel = salvo;
             if let Some(g) = c.guard {
                 let ok = self.lower_expr(ast, g);
                 self.exigir(ok, proximo);
@@ -687,7 +748,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fim = self.new_block();
         self.abrir_escopo();
         let mut ligados = HashSet::new();
+        let salvo = std::mem::replace(&mut self.padrao_refutavel, true);
         self.casar(ast, pattern, v, b_senao, Ligacao::Declarar, &mut ligados, condition);
+        self.padrao_refutavel = salvo;
         if let Some(g) = guard {
             let ok = self.lower_expr(ast, g);
             self.exigir(ok, b_senao);
@@ -716,7 +779,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) {
         let falha = self.new_block();
         let mut ligados = HashSet::new();
+        let salvo = std::mem::replace(&mut self.padrao_refutavel, false);
         self.casar(ast, p, valor, falha, ligacao, &mut ligados, origem);
+        self.padrao_refutavel = salvo;
         let segue = self.current_block;
         self.set_block(falha);
         let msg = self.emit(

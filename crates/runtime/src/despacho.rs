@@ -239,3 +239,35 @@ pub extern "C" fn dartforge_record_get_ref(h: i64, i: i64) -> i64 {
     });
     valor_como_ref(v)
 }
+
+/// O elemento `i` de uma lista ou de um conjunto (a ordem de inserção), para
+/// o `for-in` e o espalhamento; outro valor vai ao acessor de lista (que
+/// lança).
+fn elemento_iteravel(h: i64, i: i64) -> Option<TaggedValue> {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let i = usize::try_from(i).ok()?;
+        match heap.try_get(h)? {
+            Value::List(v) | Value::Set(v) => v.get(i).copied(),
+            _ => None,
+        }
+    })
+}
+
+/// `elemento_iteravel` como referência (escalar encaixotado).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_iteravel_get_ref(h: i64, i: i64) -> i64 {
+    match elemento_iteravel(h, i) {
+        Some(v) => valor_como_ref(v),
+        None => dartforge_list_get_ref(h, i),
+    }
+}
+
+/// `elemento_iteravel` pelos bits (a representação escalar do destino).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_iteravel_get_bits(h: i64, i: i64) -> i64 {
+    match elemento_iteravel(h, i) {
+        Some(v) => v.bits,
+        None => dartforge_list_get_bits(h, i),
+    }
+}

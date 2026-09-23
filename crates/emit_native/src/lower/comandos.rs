@@ -54,6 +54,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             StmtKind::Expression(expr_id) => {
                 self.lower_expr(ast, *expr_id);
+                // Dentro de um `try`: uma extern que não confere a exceção
+                // pendente (as do SDK casado pelo nome, congeladas) não pode
+                // deixar o `catch` para depois — confere no fim do comando.
+                if !self.is_terminated() && (!self.exception_targets.is_empty() || !self.finally_scopes.is_empty()) {
+                    self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_exception_pending".to_string(),
+                            args: Vec::new(),
+                            ret_ty: Type::I8,
+                        },
+                        Type::I8,
+                    );
+                }
             }
             StmtKind::Variables(var_list) => {
                 let var_ty_opt = var_list.ty;
@@ -62,8 +75,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // R6: o local guarda a representação do tipo declarado
                     // (ou inferido do inicializador), não a do valor.
                     let ty = self.repr_do_local(var.name.span.start);
+                    if var_list.const_
+                        && let Some(init_id) = var.initializer
+                        && let Some(k) = self.chave_constante(ast, init_id, true)
+                    {
+                        self.chaves_de_const_locais.insert(sym, (k, init_id));
+                    }
                     let init_op = if let Some(init_id) = var.initializer {
-                        let op = self.lower_expr(ast, init_id);
+                        let op = if var_list.const_ {
+                            self.lower_em_contexto_const(ast, init_id)
+                        } else {
+                            self.lower_expr(ast, init_id)
+                        };
                         // Checagem na declaração só quando o estático não a
                         // garante: inicializador `dynamic` num tipo declarado.
                         // Antes ela rodava sempre, e `Foo? x = null` chamava
@@ -383,14 +406,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // in ns)` quer os bits.
                         let ty = self.repr_do_local(name.span.start);
                         let item_val =
-                            self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
+                            self.ler_elemento_iteravel(iterable_op.clone(), phi_op.clone(), ty);
                         self.declarar_variavel(name.sym, name.span.start as usize, ty, item_val);
                     }
                     ast::ForInTarget::Expression(e) => {
                         if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
                             let ty = self.buscar_local(id.sym).map_or(Type::Ref, |l| l.ty);
                             let item_val =
-                                self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
+                                self.ler_elemento_iteravel(iterable_op.clone(), phi_op.clone(), ty);
                             self.gravar_local(id.sym, item_val);
                         } else {
                             self.nao_suportado("alvo de for-in", stmt.span);
@@ -398,7 +421,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     ast::ForInTarget::Pattern { pattern, .. } => {
                         let item_val =
-                            self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), Type::Ref);
+                            self.ler_elemento_iteravel(iterable_op.clone(), phi_op.clone(), Type::Ref);
                         self.casar_irrefutavel(ast, *pattern, item_val, super::padroes::Ligacao::Declarar, *iterable);
                     }
                 }

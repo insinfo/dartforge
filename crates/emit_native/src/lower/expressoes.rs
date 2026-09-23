@@ -258,6 +258,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn lower_expr_interno(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let expr = ast.expr(expr_id);
+        // `const` canônico (P3).
+        if let Some(op) = self.constante_canonica(ast, expr_id) {
+            return op;
+        }
         match &expr.kind {
             ExprKind::Int(span) => {
                 let raw = &self.source()[span.start as usize..span.end as usize];
@@ -399,6 +403,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 if let Some(op) = self.ler_local_por_nome(sym) {
                     return op;
+                }
+                // Uma `const` local vista de dentro do getter de uma
+                // constante canônica: o inicializador dela, de novo.
+                if let Some((_, init)) = self.chaves_de_const_locais.get(&sym).cloned() {
+                    return self.lower_em_contexto_const(ast, init);
                 }
                 // `$this` numa interpolação chega como identificador.
                 if self.ctx.symbol_name(sym) == "this"

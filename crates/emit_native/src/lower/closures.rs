@@ -247,6 +247,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// construída à parte, com os diagnósticos dela.
     pub fn absorver(&mut self, b: FnBuilder<'a, 'c>) {
         self.erros.extend(b.erros);
+        self.globais_extras.extend(b.globais_extras);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }

@@ -176,7 +176,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::I64,
                     );
                     s.laco_indice(n, |s2, i| {
-                        let x = s2.ler_elemento_lista(f.clone(), i, Type::Ref);
+                        let x = s2.ler_elemento_iteravel(f.clone(), i, Type::Ref);
                         s2.acrescentar(alvo.clone(), tipo, x);
                     });
                 };
@@ -199,7 +199,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.abrir_escopo();
                 if let Some(p) = case_pattern {
                     let mut ligados = std::collections::HashSet::new();
+                    let salvo = std::mem::replace(&mut self.padrao_refutavel, true);
                     self.casar(ast, *p, c, b_senao, super::padroes::Ligacao::Declarar, &mut ligados, *condition);
+                    self.padrao_refutavel = salvo;
                     if let Some(g) = guard {
                         let ok = self.lower_expr(ast, *g);
                         let ok = self.para_bool(ok);
@@ -308,16 +310,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     match target {
                         ForInTarget::Declared { name, .. } => {
                             let ty = s.repr_do_local(name.span.start as usize);
-                            let x = s.ler_elemento_lista(fonte.clone(), i, ty);
+                            let x = s.ler_elemento_iteravel(fonte.clone(), i, ty);
                             s.declarar_variavel(name.sym, name.span.start as usize, ty, x);
                         }
                         ForInTarget::Pattern { pattern, .. } => {
-                            let x = s.ler_elemento_lista(fonte.clone(), i, Type::Ref);
+                            let x = s.ler_elemento_iteravel(fonte.clone(), i, Type::Ref);
                             s.casar_irrefutavel(ast, *pattern, x, super::padroes::Ligacao::Declarar, *iterable);
                         }
                         ForInTarget::Expression(e) => {
                             if let ast::ExprKind::Identifier(id) = &ast.expr(*e).kind {
-                                let x = s.ler_elemento_lista(fonte.clone(), i, Type::Ref);
+                                let x = s.ler_elemento_iteravel(fonte.clone(), i, Type::Ref);
                                 s.gravar_local(id.sym, x);
                             } else {
                                 s.nao_suportado("alvo de for-in em literal", span);
@@ -388,5 +390,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Store { ptr: p, val: prox }, Type::Void);
         self.terminate(Terminator::Branch(cabeca));
         self.set_block(fim);
+    }
+
+    /// O elemento `i` de uma lista ou conjunto (`for-in`, espalhamento) na
+    /// representação `repr` (R5).
+    pub fn ler_elemento_iteravel(&mut self, fonte: Operand, i: Operand, repr: Type) -> Operand {
+        if repr == Type::Ref {
+            return self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_iteravel_get_ref".to_string(),
+                    args: vec![(fonte, Type::Ref), (i, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+        }
+        let bits = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_iteravel_get_bits".to_string(),
+                args: vec![(fonte, Type::Ref), (i, Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        self.bits_para(bits, repr)
     }
 }

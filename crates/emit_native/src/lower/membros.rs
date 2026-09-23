@@ -739,7 +739,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (unit, params) = self.parametros_ast(fid)?;
         let p = params.get(i)?;
         if let Some(e) = p.default_value {
-            return Some(self.lower_expr_de(unit, e));
+            // O valor padrão é constante (§9.2.2): contexto const.
+            let salvo = std::mem::replace(&mut self.em_contexto_const, true);
+            let v = self.lower_expr_de(unit, e);
+            self.em_contexto_const = salvo;
+            return Some(v);
         }
         if !p.super_ {
             return None;
@@ -1340,7 +1344,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Void,
         );
         let unit = self.unit_id;
+        let e_const = self.ctx.program.variables[vid.0 as usize].const_;
+        let salvo = std::mem::replace(&mut self.em_contexto_const, e_const);
+        // Se o inicializador lança, a variável continua não inicializada
+        // (§10 "Variables": a próxima leitura roda o inicializador de novo):
+        // a bandeira volta a 0 e a exceção segue pendente.
+        let b_falha = self.new_block();
+        self.exception_targets.push(b_falha);
         let v = self.lower_expr_de(unit, init);
+        self.exception_targets.pop();
+        self.em_contexto_const = salvo;
+        let continua = self.current_block;
+        self.set_block(b_falha);
+        self.emit(
+            Instruction::StoreGlobal {
+                simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),
+                val: Operand::Constant(Constant::Int(0)),
+                ty: Type::I8,
+                raiz: None,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Return(Some(Self::valor_zero(repr))));
+        self.set_block(continua);
         let v = self.coagir(v, repr);
         let raiz = (repr == Type::Ref).then_some(vid.0);
         self.emit(

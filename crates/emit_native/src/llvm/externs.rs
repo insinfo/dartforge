@@ -712,6 +712,15 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_dyn_unario(i64, i64)",
         efeitos: CONSERVADOR,
     },
+    // --- P3 (α): iteração de lista ou conjunto ---
+    Extern {
+        decl: "declare i64 @dartforge_iteravel_get_ref(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_iteravel_get_bits(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
     // --- P3 (α): records ---
     Extern {
         decl: "declare i64 @dartforge_record_len(i64)",

@@ -9,6 +9,7 @@ pub mod cascata;
 pub mod chamadas;
 pub mod closures;
 pub mod comandos;
+pub mod constantes;
 pub mod despacho;
 pub mod enums;
 pub mod expressoes;
@@ -484,6 +485,8 @@ pub fn lower_program(ctx: &Context) -> Module {
     // tiram o mesmo tear-off geram a mesma entrada. Fica a primeira.
     let mut vistos = std::collections::HashSet::new();
     module.functions.retain(|f| vistos.insert(f.symbol.clone()));
+    let mut vistos = std::collections::HashSet::new();
+    module.globais.retain(|g| vistos.insert(g.2.clone()));
 
     // E3: o verificador roda sobre o módulo pronto; problema aqui é bug do
     // compilador, e o módulo não é emitido.

@@ -71,6 +71,20 @@ pub struct FnBuilder<'a, 'c> {
     pub nomes_locais: std::collections::HashSet<String>,
     /// Entradas de tear-off já geradas por esta função.
     pub entradas_feitas: std::collections::HashSet<String>,
+    // --- P3 (const canônico, α) ---
+    /// Globais criados por esta função (as constantes canônicas).
+    pub globais_extras: Vec<(u32, Type, String)>,
+    /// A expressão constante que o getter canônico corrente avalia (não é
+    /// canonizada de novo dentro dele).
+    pub constante_em_curso: Option<ExprId>,
+    /// Dentro de um contexto constante (inicializador `const`, valor padrão,
+    /// argumentos de um `const C(…)`): `C(…)`, `[…]` e `{…}` são constantes.
+    pub em_contexto_const: bool,
+    /// A chave de valor (`constantes.rs`) de cada local `const` visível.
+    pub chaves_de_const_locais: HashMap<SymbolId, (String, ExprId)>,
+    /// O padrão corrente é de casamento (`case`, `if-case`): um nome solto
+    /// nele é um padrão constante, não uma variável nova.
+    pub padrao_refutavel: bool,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -162,6 +176,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             n_closures: 0,
             nomes_locais: std::collections::HashSet::new(),
             entradas_feitas: std::collections::HashSet::new(),
+            globais_extras: Vec::new(),
+            constante_em_curso: None,
+            em_contexto_const: false,
+            chaves_de_const_locais: HashMap::new(),
+            padrao_refutavel: false,
         }
     }
 
@@ -213,6 +232,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
     pub fn finalizar(self, module: &mut Module) {
         module.erros.extend(self.erros);
+        module.globais.extend(self.globais_extras);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }
@@ -459,6 +479,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let term = match term {
             Terminator::Return(Some(op)) if !matches!(self.func.return_ty, Type::Void) => {
                 let r = self.func.return_ty;
+                // `=> print(x)` numa função que devolve valor: a expressão
+                // `void` vale null (não há valor SSA a devolver).
+                let op = if matches!(self.operand_type(&op), Type::Void) {
+                    Self::valor_zero(r)
+                } else {
+                    op
+                };
                 let op = self.coagir(op, r);
                 if self.is_terminated() {
                     return;
