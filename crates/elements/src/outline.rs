@@ -26,11 +26,11 @@ fn has_patch_annotation(metadata: &[ast::Annotation], interner: &Interner) -> bo
 }
 
 /// Pools de elementos mutáveis separados de units e libraries para satisfazer o borrow checker.
-struct ElementPools<'a> {
-    classes: &'a mut Vec<ClassElement>,
-    extensions: &'a mut Vec<ExtensionElement>,
-    functions: &'a mut Vec<FunctionElement>,
-    variables: &'a mut Vec<VariableElement>,
+pub(crate) struct ElementPools<'a> {
+    pub(crate) classes: &'a mut Vec<ClassElement>,
+    pub(crate) extensions: &'a mut Vec<ExtensionElement>,
+    pub(crate) functions: &'a mut Vec<FunctionElement>,
+    pub(crate) variables: &'a mut Vec<VariableElement>,
 }
 
 /// Constrói o outline completo do programa: declarações, membros, namespaces e supertipos.
@@ -65,6 +65,7 @@ pub fn build_outline(
             variables: &mut program.variables,
         };
 
+        let mut cadeias: Vec<(ClassId, DeclRef)> = Vec::new();
         for unit_id in unit_ids {
             let role = program.units[unit_id.0 as usize].role;
             let decl_ids = program.units[unit_id.0 as usize].unit.declarations.clone();
@@ -72,6 +73,22 @@ pub fn build_outline(
 
             for decl_id in decl_ids {
                 let decl = ast.decl(decl_id);
+                // `augment`: liga-se à declaração de mesmo nome que veio antes
+                // (docs/AUGMENTATIONS.md). As unidades estão na ordem de
+                // aplicação (pré-ordem da árvore de partes, `load.rs`).
+                if decl.augment && role != UnitRole::Patch {
+                    let mut fusao = crate::augmentation::Fusao {
+                        units: &program.units,
+                        library: &mut program.libraries[lib_idx],
+                        lib_id,
+                        empty_sym,
+                        interner,
+                        diagnostics,
+                        cadeias: &mut cadeias,
+                    };
+                    crate::augmentation::aplicar(&mut fusao, &mut pools, unit_id, decl_id);
+                    continue;
+                }
                 let is_patch =
                     role == UnitRole::Patch && has_patch_annotation(&decl.metadata, interner);
 
@@ -322,6 +339,9 @@ pub fn build_outline(
                     }
                 }
             }
+        }
+        for (c, d) in cadeias {
+            program.augmentacoes.entry(c).or_default().push(d);
         }
     }
 
@@ -977,7 +997,7 @@ fn extract_type_params(
 }
 
 /// Extrai métodos, construtores e campos de uma classe/mixin/enum.
-fn extract_members(
+pub(crate) fn extract_members(
     pools: &mut ElementPools,
     ast: &dartforge_frontend::ast::Ast,
     elem: &mut ClassElement,

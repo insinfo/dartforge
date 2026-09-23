@@ -85,6 +85,10 @@ pub struct Program {
     pub core: Option<LibraryId>,
     /// Biblioteca da entrada do programa (a que declara `main`), quando há.
     pub entry: Option<LibraryId>,
+    /// As declarações `augment class`/`augment mixin` de cada classe, na
+    /// ordem de aplicação (docs/AUGMENTATIONS.md). Vazio num programa sem
+    /// augmentations.
+    pub augmentacoes: HashMap<ClassId, Vec<DeclRef>>,
 }
 
 /// Papel de um arquivo dentro da sua biblioteca.
@@ -96,6 +100,12 @@ pub enum UnitRole {
     Part,
     /// Patch file do SDK (`libraries.json`), fundido na biblioteca de origem.
     Patch,
+    /// Biblioteca de augmentation da forma 3.6 (`import augment 'x'` +
+    /// `augment library 'y'`): pertence à biblioteca, como uma parte, e as
+    /// suas declarações `augment` se fundem nas da biblioteca
+    /// (docs/AUGMENTATIONS.md). Na forma atual da spec a augmentation vive
+    /// numa [`UnitRole::Part`] comum.
+    Augmentation,
 }
 
 /// Um arquivo `.dart` já analisado sintaticamente.
@@ -432,6 +442,30 @@ impl Program {
     }
     pub fn variable(&self, id: VariableId) -> &VariableElement {
         &self.variables[id.0 as usize]
+    }
+
+    /// Os membros sintáticos de uma classe: os da declaração introdutória
+    /// seguidos dos de cada augmentation, na ordem de aplicação, cada um com
+    /// a sua unidade. Um membro cuja declaração foi completada por outra da
+    /// cadeia continua na lista; quem emite pega o elemento efetivo pelo mapa
+    /// de membros e pula o membro cujo elemento não é o efetivo.
+    pub fn membros_da_classe(&self, id: ClassId) -> Vec<(UnitId, MemberId)> {
+        let class = self.class(id);
+        let Some(decl) = class.decl else { return Vec::new() };
+        let mut out = Vec::new();
+        let decls = std::iter::once(decl).chain(self.augmentacoes.get(&id).into_iter().flatten().copied());
+        for d in decls {
+            let ast = &self.unit(d.unit).ast;
+            let membros: &[MemberId] = match &ast.decl(d.decl).kind {
+                ast::DeclKind::Class(c) => &c.members,
+                ast::DeclKind::Mixin(m) => &m.members,
+                ast::DeclKind::Enum(e) => &e.members,
+                ast::DeclKind::ExtensionType(e) => &e.members,
+                _ => &[],
+            };
+            out.extend(membros.iter().map(|&m| (d.unit, m)));
+        }
+        out
     }
 
     /// Resolve um nome de topo no escopo de uma biblioteca (sem prefixo).

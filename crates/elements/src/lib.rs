@@ -7,6 +7,7 @@
 //! não são analisados aqui.
 #![allow(clippy::too_many_arguments, clippy::collapsible_if)]
 
+pub mod augmentation;
 pub mod config;
 pub mod gerado;
 pub mod load;

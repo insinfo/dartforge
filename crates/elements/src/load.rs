@@ -14,8 +14,12 @@ use url::Url;
 /// Representação intermediária desvinculada de empréstimos para processar diretivas.
 enum DirectiveAction {
     Library(Vec<SymbolId>),
+    /// `part 'uri'` ou, com `augmentation`, `import augment 'uri'` (forma
+    /// 3.6 das bibliotecas de augmentation): a unidade apontada pertence a
+    /// esta biblioteca.
     Part {
         uri: String,
+        augmentation: bool,
     },
     Import {
         uri: String,
@@ -356,6 +360,11 @@ pub fn load_lenient_gerados(
                 UnitRole::Part
             };
 
+            // As unidades incluídas por esta (`part`, `import augment`) entram
+            // logo depois dela, na ordem das diretivas: `Library::units` fica
+            // na pré-ordem da árvore de partes, que é a ordem de aplicação
+            // das augmentations (spec de augmentations, "Application order").
+            let mut incluidas = 0usize;
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
                 .directives
@@ -368,7 +377,11 @@ pub fn load_lenient_gerados(
                     }
                     DirectiveKind::Part { uri } => {
                         let s = string_lit_value(uri)?;
-                        Some((dir_idx, DirectiveAction::Part { uri: s }))
+                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: false }))
+                    }
+                    DirectiveKind::ImportAugment { uri } => {
+                        let s = string_lit_value(uri)?;
+                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: true }))
                     }
                     DirectiveKind::Import {
                         uri,
@@ -415,7 +428,7 @@ pub fn load_lenient_gerados(
                             program.libraries[lib_id.0 as usize].name = Some(syms);
                         }
                     }
-                    DirectiveAction::Part { uri } => {
+                    DirectiveAction::Part { uri, augmentation } => {
                         if libs_do_cache.contains(&lib_id) {
                             // Partes já vieram do cache, verificadas ao construí-lo.
                             continue;
@@ -440,11 +453,12 @@ pub fn load_lenient_gerados(
                             Versao::Parte { da_biblioteca, config: &package_config, corrente: sdk.versao_corrente }
                         };
 
+                        let papel = if augmentation { UnitRole::Augmentation } else { papel_das_partes };
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            papel_das_partes,
+                            papel,
                             versao_da_parte,
                             interner,
                             &mut program,
@@ -454,8 +468,20 @@ pub fn load_lenient_gerados(
                         );
 
                         if let Some(p_uid) = part_unit {
-                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
-                            program.libraries[lib_id.0 as usize].units.push(p_uid);
+                            if augmentation {
+                                verify_augment_library(&program, p_uid, unit_path.as_deref(), &mut diagnostics);
+                            } else {
+                                verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
+                            }
+                            // O SDK fica na ordem de descoberta de sempre (a
+                            // mesma do cache do SDK): lá não há augmentation.
+                            let libr = &mut program.libraries[lib_id.0 as usize];
+                            if libr.is_sdk {
+                                libr.units.push(p_uid);
+                            } else {
+                                libr.units.insert(unit_idx + incluidas, p_uid);
+                                incluidas += 1;
+                            }
                         }
                     }
                     DirectiveAction::Import {
@@ -1058,6 +1084,42 @@ fn evaluate_configuration(
         return supported;
     }
     false
+}
+
+/// A unidade de `import augment 'x'` tem de começar por `augment library 'y'`
+/// com `y` apontando para quem a importou (a regra do par `part`/`part of`).
+fn verify_augment_library(
+    program: &Program,
+    aug_unit_id: UnitId,
+    quem_importa: Option<&Path>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let unidade = &program.units[aug_unit_id.0 as usize];
+    let cabecalho = unidade.unit.directives.iter().find_map(|d| match &d.kind {
+        DirectiveKind::AugmentLibrary { uri } => Some((d.span, uri)),
+        _ => None,
+    });
+    let Some((span, uri)) = cabecalho else {
+        diagnostics.push(Diagnostic::new(
+            format!("a biblioteca de augmentation '{}' não começa por 'augment library'", unidade.uri),
+            Span { start: 0, end: 0 },
+        ));
+        return;
+    };
+    let (Some(alvo), Some(caminho), Some(importador)) = (string_lit_value(uri), &unidade.path, quem_importa) else {
+        return;
+    };
+    let esperado = normalizar(&caminho.parent().unwrap_or(Path::new(".")).join(&alvo));
+    if esperado != normalizar(importador) {
+        diagnostics.push(Diagnostic::new(
+            format!(
+                "'augment library' aponta para '{}', mas quem importa a augmentation é '{}'",
+                esperado.display(),
+                importador.display()
+            ),
+            span,
+        ));
+    }
 }
 
 fn verify_part_of(
