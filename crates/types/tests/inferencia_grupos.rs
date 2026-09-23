@@ -487,6 +487,25 @@ const lista = [base, deslocado, 'x$base'];
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
+/// Promoção de campo privado final só a partir da versão de linguagem 3.2
+/// (R-FLU-12): em biblioteca `// @dart = 3.1` o `!` é necessário e o campo
+/// fica anulável.
+#[test]
+fn promocao_de_campo_depende_da_versao() {
+    let r = ou_pula!(inferir(
+        r#"// @dart = 3.1
+class A {
+  final int? _x;
+  A(this._x);
+  int f() => _x != null ? _x! : 0;
+}
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "_x").map(|(_, y)| y.as_str()).collect();
+    assert_eq!(tipos, ["int?", "int?"]);
+}
+
 /// Extension type que implementa outro extension type (`Element implements
 /// JSObject`, `JSString implements JSAny` no package:web).
 #[test]

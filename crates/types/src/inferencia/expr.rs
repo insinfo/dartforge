@@ -406,6 +406,12 @@ fn alvo_de_campo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, base: Ba
 /// privado, não `external`, e nenhuma outra declaração da biblioteca com o
 /// mesmo nome o impede (getter concreto ou campo não final).
 fn campo_promovivel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<dartforge_elements::model::VariableId> {
+    // Só em biblioteca com versão de linguagem 3.2 ou mais (o recurso
+    // `inference-update-2`; pacote antigo como o built_collection não
+    // promove, e o `!` dele é necessário).
+    if inf.program.library(cx.lib).language_version.is_some_and(|v| v < (3, 2)) {
+        return None;
+    }
     let r = inf.body_types.units[cx.unit.0 as usize].get_resolved(e)?.clone();
     let Resolved::Member { member: MemberRef::Function(f), .. } = r else { return None };
     let fe = inf.program.function(f);
