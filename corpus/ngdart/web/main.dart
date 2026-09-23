@@ -23,6 +23,11 @@ import 'package:corpus_ngdart/src/a19_atributo_sem_valor.template.dart' as a19;
 import 'package:corpus_ngdart/src/a20_getter_mutavel.template.dart' as a20;
 import 'package:corpus_ngdart/src/a21_imutabilidade_composta.template.dart' as a21;
 import 'package:corpus_ngdart/src/a22_form_com_forms_directives.template.dart' as a22;
+import 'package:corpus_ngdart/src/a23_interp_chamada.template.dart' as a23;
+import 'package:corpus_ngdart/src/a24_interp_ternario_binario.template.dart' as a24;
+import 'package:corpus_ngdart/src/a25_local_ancestral.template.dart' as a25;
+import 'package:corpus_ngdart/src/a26_constantes_em_embutida.template.dart' as a26;
+import 'package:corpus_ngdart/src/a27_on_push.template.dart' as a27;
 import 'package:corpus_ngdart/src/b01_ciclo_de_vida.template.dart' as b01;
 import 'package:corpus_ngdart/src/b02_providers.template.dart' as b02;
 import 'package:corpus_ngdart/src/b03_view_child.template.dart' as b03;
@@ -44,6 +49,8 @@ import 'package:corpus_ngdart/src/b18_providers_vazio.template.dart' as b18;
 import 'package:corpus_ngdart/src/b19_pipes_sem_uso.template.dart' as b19;
 import 'package:corpus_ngdart/src/b20_view_child_dois.template.dart' as b20;
 import 'package:corpus_ngdart/src/b21_host_listener_explicito.template.dart' as b21;
+import 'package:corpus_ngdart/src/b22_estilo_csslib.template.dart' as b22;
+import 'package:corpus_ngdart/src/b23_so_on_destroy.template.dart' as b23;
 import 'package:corpus_ngdart/src/c01_ligacao_e_texto.template.dart' as c01;
 import 'package:corpus_ngdart/src/c02_evento_e_ligacao.template.dart' as c02;
 import 'package:corpus_ngdart/src/c03_dois_elementos_ligados.template.dart' as c03;
@@ -58,6 +65,7 @@ import 'package:corpus_ngdart/src/c11_ligacoes_constantes.template.dart' as c11;
 import 'package:corpus_ngdart/src/c12_handler_atribuicao.template.dart' as c12;
 import 'package:corpus_ngdart/src/c13_evento_em_ng_for.template.dart' as c13;
 import 'package:corpus_ngdart/src/c14_keyup_enter.template.dart' as c14;
+import 'package:corpus_ngdart/src/c16_atributo_interpolado.template.dart' as c16;
 import 'package:corpus_ngdart/src/c18_evento_no_projetado.template.dart' as c18;
 import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
@@ -90,6 +98,11 @@ void main() {
     a20.A20GetterMutavelNgFactory,
     a21.A21ImutabilidadeCompostaNgFactory,
     a22.A22FormComFormsDirectivesNgFactory,
+    a23.A23InterpChamadaNgFactory,
+    a24.A24InterpTernarioBinarioNgFactory,
+    a25.A25LocalAncestralNgFactory,
+    a26.A26ConstantesEmEmbutidaNgFactory,
+    a27.A27OnPushNgFactory,
     b01.B01CicloDeVidaNgFactory,
     b02.B02ProvidersNgFactory,
     b03.B03ViewChildNgFactory,
@@ -111,6 +124,8 @@ void main() {
     b19.B19PipesSemUsoNgFactory,
     b20.B20ViewChildDoisNgFactory,
     b21.B21HostListenerExplicitoNgFactory,
+    b22.B22EstiloCsslibNgFactory,
+    b23.B23SoOnDestroyNgFactory,
     c01.C01LigacaoETextoNgFactory,
     c02.C02EventoELigacaoNgFactory,
     c03.C03DoisElementosLigadosNgFactory,
@@ -125,6 +140,7 @@ void main() {
     c12.C12HandlerAtribuicaoNgFactory,
     c13.C13EventoEmNgForNgFactory,
     c14.C14KeyupEnterNgFactory,
+    c16.C16AtributoInterpoladoNgFactory,
     c18.C18EventoNoProjetadoNgFactory,
     d01.D01DoisFilhosNgFactory,
     d02.D02FilhoAninhadoNgFactory,
