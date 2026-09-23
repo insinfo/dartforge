@@ -180,11 +180,39 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | variável de tipo promovida `X & B` (`Type::Intersection`) | 724 | 783 | 197 | 248 |
 | promoção de campo privado final (Dart 3.2) | 720 | 776 | 176 | 224 |
 | `?.` promove dentro da cadeia, contexto de `clamp`, captura em função local | 712 | 767 | 136 | 183 |
+| corpos do SDK: limites de extensão, typedef que renomeia, `super.x`, `is!`, sombra em função local, funções genéricas, aplicação de mixin | 347 | 375 | 131 | 178 |
+| tipo de extensão subtipo de tipo de extensão (`Element implements JSObject`) | 69 | 97 | 128 | 175 |
+| `FutureOr` cru (`FutureOr<dynamic>`) | 65 | 96 | 125 | 175 |
+| tipos de extensão: construtor primário, campo de representação, UP (R-EXT-04, R-UP-w) | 60 | 91 | 120 | 170 |
+| escrita no membro inteiro demove dentro de closure (R-FLU-07) | 49 | 82 | 109 | 162 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
-com as sete bibliotecas, sobreposição `vm`): **4.447 → 275** diagnósticos
-(`core` 193, `convert` 37, `async` 26, `_internal` 7, `collection` 5,
-`_compact_hash` 4, `math` 3).
+com as sete bibliotecas, sobreposição `vm`): **4.447 → 275 → 18**
+diagnósticos. Os 18 restantes são os que o analyzer também dá: 13 casts
+desnecessários (`implementation.function as RunHandler` em `zone.dart`,
+`.remainder(...) as int` em `date_time.dart`) e 5 código morto (`throw`
+depois de chamada `Never` em `uri.dart`, `s is! String` com `s: String` em
+`string_patch.dart`, `return -1` depois de `while (true)` em
+`convert_patch.dart`). Ferramenta: `cargo run --release -p dartforge-types
+--example avisos -- sdk <sdk/lib> sdk_nativo dartforge_nativo _internal core
+_compact_hash collection math convert async`.
+
+Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
+sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
+**0/95 → 80/95** (antes do `FutureOr` cru todo programa tinha um aviso);
+46 expressões divergentes e 5 avisos, listados em
+`corpus/inferencia/divergencias.txt`.
+
+Avisos restantes no new_sali por causa (frontend 82 / core 49):
+
+| causa | avisos | regra / lacuna |
+|---|---:|---|
+| escrutínio de `switch`/`if-case` não promovido (`XmlEvent` no `annotator`, `Object?` no `builder`, `Widget` no `multi_page`) | ~22 / ~20 | R-FLU-14, L13 |
+| `!` "desnecessário" em templates gerados (local de template tipado não anulável) | 18 / 12 | a investigar |
+| local anulável não promovido (`dart_excel`, `idSolicitado`) | ~13 / – | a investigar |
+| argumento função genérica contra `dynamic Function(dynamic)` (`collection/algorithms.dart`) | 8 / 8 | a investigar |
+| override explícito de extensão `E(x).m` | 3 / 3 | L19 |
+| demais (um ou dois cada) | ~18 / ~6 | — |
 
 Grupos restantes no new_sali (causas; frontend / core):
 
