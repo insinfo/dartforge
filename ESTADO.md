@@ -129,6 +129,11 @@ o que sobra é programa que roda e imprime outra coisa. Ver
 * `crates/diferencial` — harness paralelo com cache dos oráculos;
   `corpus/js/` com 213 programas verificados na VM.
 * `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
+* Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): `dartforge-diferencial
+  determinismo [--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico
+  com qualquer número de trabalhadores e, com `DARTFORGE_KEEP_IR=1`, o mesmo
+  LLVM IR emitido — se a ordem de conclusão mudar o IR, o cache de objeto por
+  hash erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8.
 * `scripts/` — `gerar-dart-sdk.ps1`, `servir.ps1`/`fluxo.mjs` (Edge por
   CDP), `limitless-ui.ps1` (`-Preparar`/`-Montar`/`-Servir`/`-E2e`),
   `medir-lsp.ps1`.
@@ -276,12 +281,20 @@ do `trait Analisador`, que hoje só tem a implementação sintática.
 
 | falhas | causa |
 | --- | --- |
+| 44 | `panic` no runtime: **handle não vivo** |
 | 29 | roda, mas imprime diferente da VM |
 | 28 | nem carrega: falta `dart:math`, `dart:convert`, `dart:typed_data`, `dart:collection` e parte de `dart:async` |
-| 13 | o Clang ainda recusa o IR |
-| ~20 | `NoSuchMethodError: <membro>` — o erro agora carrega o nome, então o placar já lista o que falta: `values` (enums), `$1` (records), `bitLength`, `entries`, `nan`, `done`, `hashCode`… |
+| 27 | `panic` no runtime: **handle inválido (NegOverflow)** — escalar com tag usado como handle |
+| 13 | o Clang ainda recusa o IR (p. ex. `alloca` que não domina todos os usos) |
+| 10 | `panic` no runtime: índice fora de faixa |
+| ~20 | `NoSuchMethodError: <membro>` — o erro carrega o nome, então o placar já lista o que falta: `values` (enums), `$1` (records), `bitLength`, `entries`, `nan`, `done`, `hashCode`… |
 | 6 | estouram o teto de 256 MiB do heap |
-| ~8 | `panic` no runtime (handle não vivo, e semelhantes) |
+| 6 | `panic` no runtime: `RefCell already borrowed` |
+
+Os dois primeiros grupos de `panic` são a mesma família — um valor que não
+é referência sendo tratado como handle do heap, ou um handle já coletado —
+e sozinhos respondem por **71 dos 214**. É o trabalho de maior alavancagem
+que existe hoje no backend nativo.
 
 O lowering de exceções existe (`throw`/`try`/`catch`/`finally`/`rethrow`,
 com o `finally` como sub-rotina e discriminador de razão); falta acertar os
