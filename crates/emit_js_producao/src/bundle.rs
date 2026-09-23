@@ -161,10 +161,18 @@ pub fn entrada_do_mjs(mjs: &str, modulos: &[Modulo]) -> Option<String> {
     m.namespaces.first().and_then(|ns| ns.trim_start_matches("var ").split(' ').next().map(str::to_string))
 }
 
-/// Monta o arquivo único.
-pub fn montar(sdk: &str, modulos: &[Modulo], entrada: &str) -> String {
+/// O `dart_podado` do modo verificador (`DARTFORGE_JSPROD_VERIFICAR=stub`):
+/// um membro que o mundo fechado disse morto foi chamado. Escreve o nome no
+/// stderr e encerra com 97 — nunca um `throw`, que o programa poderia
+/// capturar e seguir com outro comportamento.
+pub const PREAMBULO_STUB: &str = "function dart_podado(nome) {\n  const m = 'DARTFORGE-PODADO: ' + nome;\n  if (typeof process !== 'undefined') { process.stderr.write(m + '\\n'); process.exit(97); }\n  throw new Error(m);\n}\n";
+
+/// Monta o arquivo único. `preambulo` vai logo depois do cabeçalho (vazio no
+/// modo normal).
+pub fn montar(sdk: &str, modulos: &[Modulo], entrada: &str, preambulo: &str) -> String {
     let mut out = String::with_capacity(sdk.len() + modulos.iter().map(|m| m.corpo.len() + 64).sum::<usize>());
     out.push_str("// dartforge — perfil de produção (docs/JS-PRODUCAO.md)\n");
+    out.push_str(preambulo);
     // O `dart_sdk.js` do DDC é o do navegador: `self` é o objeto global.
     out.push_str("if (typeof self === 'undefined') globalThis.self = globalThis;\n");
     out.push_str("if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n});\n");

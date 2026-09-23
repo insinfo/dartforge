@@ -1,0 +1,18 @@
+[package]
+name = "dartforge-mundo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+dartforge-intern = { path = "../intern" }
+dartforge-frontend = { path = "../frontend" }
+dartforge-elements = { path = "../elements" }
+dartforge-types = { path = "../types" }
+
+[dev-dependencies]
+dartforge-emit-js = { path = "../emit_js" }

@@ -10,7 +10,7 @@ use dartforge_emit_js_producao::{Opcoes, compilar};
 
 const USO: &str = "uso: dartforge-jsprod <entrada.dart> -o <saida.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <arquivo>] \
-[--sem-poda] [--sem-membros]";
+[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--verificar-stub]";
 
 fn main() {
     if let Err(e) = executar() {
@@ -40,6 +40,8 @@ fn executar() -> Result<(), String> {
             "--dart-sdk-js" => dart_sdk_js = Some(proximo(&mut i)?),
             "--sem-poda" => op.podar_sdk = false,
             "--sem-membros" => op.por_membro = false,
+            "--sem-poda-usuario" => op.podar_usuario = false,
+            "--verificar-stub" => op.stub = true,
             "-h" | "--help" => {
                 println!("{USO}");
                 return Ok(());
@@ -72,15 +74,38 @@ fn executar() -> Result<(), String> {
     }
     let kb = |n: usize| n as f64 / 1024.0;
     println!(
-        "{} -> {} ({:.0} KB; {} módulos; runtime {:.0} -> {:.0} KB, {}/{} unidades vivas)",
+        "{} -> {} ({:.0} KB; {} módulos; usuário {:.0} KB; runtime {:.0} -> {:.0} KB, {}/{} unidades vivas)",
         entrada.display(),
         saida.display(),
         kb(prod.js.len()),
         prod.modulos,
+        kb(prod.usuario),
         kb(prod.sdk_antes),
         kb(prod.sdk_depois),
         prod.sdk_vivas,
         prod.sdk_unidades,
     );
+    if let Some(m) = &prod.mundo {
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let e = &m.estat;
+        println!(
+            "mundo: classes {}/{} instanciadas + {} só tipo; funções {}/{}; {} seletores; {} rodada(s); mundo {:.0} ms, emissão {:.0} ms, verificador {:.0} ms",
+            e.classes_instanciadas, e.classes_usuario, e.classes_tipo, e.funcoes_vivas, e.funcoes_usuario, e.seletores, m.rodadas,
+            ms(m.tempo_mundo), ms(m.tempo_emissao), ms(m.tempo_verificacao),
+        );
+        let limite = std::env::var("DARTFORGE_JSPROD_CURAS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        if m.curas.len() > limite {
+            eprintln!("aviso: verificador: {} lacuna(s) curada(s); DARTFORGE_JSPROD_CURAS=N mostra mais", m.curas.len());
+        }
+        for c in m.curas.iter().take(limite) {
+            eprintln!("aviso: verificador: {c}");
+        }
+        for s in m.sem_elemento.iter().take(20) {
+            eprintln!("aviso: referência pendente sem elemento: {s}");
+        }
+        if let Some(n) = m.inconsistencias {
+            println!("conferência do mundo: {n} inconsistência(s)");
+        }
+    }
     Ok(())
 }

@@ -1,4 +1,6 @@
 /target/
+# qualquer target/ aninhado: cache do SDK gravado relativo ao crate por testes, e corpus/js/*/target
+**/target/
 /dist/
 /references/
 /work/

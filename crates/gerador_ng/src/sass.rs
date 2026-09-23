@@ -66,7 +66,9 @@ fn separar_modulos(fonte: &str) -> Result<(Vec<String>, String), Motivo> {
     let mut corpo = String::with_capacity(fonte.len());
     for linha in fonte.lines() {
         let t = linha.trim();
-        let regra = t.strip_prefix("@use ").or_else(|| t.strip_prefix("@import "));
+        let regra = t
+            .strip_prefix("@use ")
+            .or_else(|| t.strip_prefix("@import "));
         let Some(regra) = regra else {
             corpo.push_str(linha);
             corpo.push('\n');
@@ -98,7 +100,10 @@ fn separar_modulos(fonte: &str) -> Result<(Vec<String>, String), Motivo> {
 fn achar_modulo(dir: &Path, nome: &str) -> Option<PathBuf> {
     let base = nome.strip_suffix(".scss").unwrap_or(nome);
     let arquivo = Path::new(base).file_name()?.to_string_lossy().to_string();
-    let pai = Path::new(base).parent().map(|p| dir.join(p)).unwrap_or_else(|| dir.to_path_buf());
+    let pai = Path::new(base)
+        .parent()
+        .map(|p| dir.join(p))
+        .unwrap_or_else(|| dir.to_path_buf());
     for candidato in [format!("{arquivo}.scss"), format!("_{arquivo}.scss")] {
         let c = pai.join(candidato);
         if c.is_file() {
@@ -175,7 +180,11 @@ fn valor_normalizado(valor: &str) -> String {
             })
             .map(|(i, _)| i)
             .unwrap_or(resto.len());
-        let token = if fim == 0 { &resto[..c.len_utf8()] } else { &resto[..fim] };
+        let token = if fim == 0 {
+            &resto[..c.len_utf8()]
+        } else {
+            &resto[..fim]
+        };
         saida.push_str(&token_normalizado(token));
         resto = &resto[token.len()..];
     }
@@ -252,8 +261,13 @@ fn token_normalizado(t: &str) -> String {
                 && b[2].eq_ignore_ascii_case(&b[3])
                 && b[4].eq_ignore_ascii_case(&b[5])
             {
-                return format!("#{}{}{}", d.as_bytes()[0] as char, d.as_bytes()[2] as char, d.as_bytes()[4] as char)
-                    .to_lowercase();
+                return format!(
+                    "#{}{}{}",
+                    d.as_bytes()[0] as char,
+                    d.as_bytes()[2] as char,
+                    d.as_bytes()[4] as char
+                )
+                .to_lowercase();
             }
         }
     }
@@ -375,6 +389,9 @@ fn blocos(
         // Declarações deste nível saem antes das regras aninhadas, como o
         // Sass emite.
         let (decls, aninhados) = separar(corpo)?;
+        if tem_funcao_de_cor(&substituir(&decls, variaveis)?) {
+            return Err(Motivo::Estilos);
+        }
         if !decls.trim().is_empty() {
             saida.push_str(&seletor);
             saida.push('{');
@@ -429,6 +446,18 @@ fn juntar(pai: &str, filho: &str) -> String {
     partes.join(",")
 }
 
+/// `rgb(…)`/`hsl(…)` o Sass avalia e escreve como cor (`rgb(47, 88, 141)`
+/// sai `#2f588d`, visto no `visualiza_norma_page` do new_sali). Não
+/// avaliamos funções: recusa.
+fn tem_funcao_de_cor(texto: &str) -> bool {
+    let t = texto.to_ascii_lowercase();
+    ["rgb(", "hsl(", "hsla("].iter().any(|f| {
+        t.match_indices(f).any(|(i, _)| {
+            i == 0 || !t.as_bytes()[i - 1].is_ascii_alphanumeric() && t.as_bytes()[i - 1] != b'-'
+        })
+    })
+}
+
 /// Troca `$nome` pelo valor. Variável desconhecida é recusa, não texto vazio.
 fn substituir(texto: &str, variaveis: &HashMap<String, String>) -> Result<String, Motivo> {
     if !texto.contains('$') {
@@ -445,7 +474,9 @@ fn substituir(texto: &str, variaveis: &HashMap<String, String>) -> Result<String
         if nome.is_empty() {
             return Err(Motivo::Estilos);
         }
-        let Some(v) = variaveis.get(&nome) else { return Err(Motivo::Estilos) };
+        let Some(v) = variaveis.get(&nome) else {
+            return Err(Motivo::Estilos);
+        };
         saida.push_str(v);
         resto = &resto[i + 1 + nome.len()..];
     }
@@ -503,7 +534,6 @@ mod testes {
         );
     }
 
-
     #[test]
     fn variavel() {
         let css = compilar("$c: red;\n.a { color: $c; }\n").unwrap();
@@ -516,8 +546,11 @@ mod testes {
     #[test]
     fn use_carrega_o_modulo() {
         let dir = tempfile::tempdir().expect("tmp");
-        std::fs::write(dir.path().join("tema.scss"), "$c: red;\n.tema { color: $c; }\n")
-            .expect("escreve");
+        std::fs::write(
+            dir.path().join("tema.scss"),
+            "$c: red;\n.tema { color: $c; }\n",
+        )
+        .expect("escreve");
         let css = compilar_em("@use 'tema' as *;\n.a { color: $c; }\n", Some(dir.path()))
             .expect("compila");
         let shim = crate::css::shim(&css).unwrap();
@@ -535,6 +568,9 @@ mod testes {
         assert!(compilar_em("@use 'tema' as t;", None).is_err());
         assert!(compilar(".a { color: $indefinida; }").is_err());
         assert!(compilar(".#{$x} { color: red; }").is_err());
+        // Função de cor o Sass avalia (`rgb(47, 88, 141)` vira `#2f588d`).
+        assert!(compilar(":host { background: rgb(47, 88, 141); }").is_err());
+        assert!(compilar("$c: hsl(0, 0%, 0%);\n.a { color: $c; }").is_err());
     }
 
     /// O caso real do `arvore_organograma.scss`, cujo shim oficial é

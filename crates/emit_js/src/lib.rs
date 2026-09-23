@@ -7,6 +7,7 @@ pub mod body;
 pub mod call;
 pub mod ctx;
 pub mod expr;
+pub mod filtro;
 pub mod js;
 pub mod module;
 pub mod pattern;
@@ -23,6 +24,31 @@ use dartforge_types::table::{CoreTypes, TypeTable};
 pub struct Emitido {
     pub modulos: Vec<(String, String)>,
     pub entrada: String,
+}
+
+/// O programa analisado (elementos, outline, corpos), entregue a quem compila
+/// no perfil de produção para calcular o mundo fechado antes de emitir.
+pub struct Analise<'a> {
+    pub program: &'a Program,
+    pub interner: &'a Interner,
+    pub table: &'a TypeTable,
+    pub core: &'a CoreTypes,
+    pub outline: &'a OutlineTypes,
+    pub bodies: &'a BodyTypes,
+}
+
+impl<'a> Analise<'a> {
+    /// Contexto de emissão sem filtro (para consultas: interop, nomes JS).
+    pub fn ctx(&self) -> ctx::Ctx<'a> {
+        ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies)
+    }
+
+    /// Emite o programa. `filtro: None` é exatamente [`emitir_programa`].
+    pub fn emitir<'b>(&'b self, filtro: Option<&'b dyn filtro::Vivos>) -> Result<Emitido, String> {
+        let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
+        ctx.filtro = filtro;
+        module::emitir_com_cache(&ctx, None, None).map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
+    }
 }
 
 /// Emite um módulo por biblioteca não-SDK do programa e o `main.mjs`.
@@ -216,6 +242,23 @@ pub fn compilar_com_relatorio(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<(Emitido, Relatorio), String> {
+    let (emitido, mut rel) = compilar_com(entrada, sdk_lib, packages, |a| {
+        emitir_programa(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
+            .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
+    })?;
+    rel.modulos = emitido.modulos.len();
+    Ok((emitido, rel))
+}
+
+/// O pipeline inteiro até a inferência de corpos; a emissão é de quem chama
+/// (`fim`), que recebe o programa analisado. O perfil de produção calcula o
+/// mundo fechado aqui dentro, antes de emitir (`crates/emit_js_producao`).
+pub fn compilar_com<R>(
+    entrada: &std::path::Path,
+    sdk_lib: Option<&std::path::Path>,
+    packages: Option<&std::path::Path>,
+    fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
+) -> Result<(R, Relatorio), String> {
     use dartforge_elements::sdk::SdkLayout;
     use std::time::Instant;
     let mut rel = Relatorio::default();
@@ -371,10 +414,8 @@ pub fn compilar_com_relatorio(
         }
     }
     let t = Instant::now();
-    let emitido = emitir_programa(&program, &interner, &table, &core, &outline, &bodies)
-        .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))?;
+    let emitido = fim(&Analise { program: &program, interner: &interner, table: &table, core: &core, outline: &outline, bodies: &bodies })?;
     rel.fase("emissão", t);
-    rel.modulos = emitido.modulos.len();
     let t = Instant::now();
     drop(bodies);
     drop(outline);
