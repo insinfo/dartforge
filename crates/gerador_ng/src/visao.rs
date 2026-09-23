@@ -85,6 +85,7 @@ const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
 const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
 const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
 const EMBEDDED_VIEW: &str = "package:ngdart/src/core/linker/views/embedded_view.dart";
+const PROXIES: &str = "package:ngdart/src/runtime/proxies.dart";
 const RENDER_VIEW: &str = "package:ngdart/src/core/linker/views/render_view.dart";
 const DIRECTIVE_CHANGE_DETECTOR: &str =
     "package:ngdart/src/core/change_detection/directive_change_detector.dart";
@@ -283,8 +284,8 @@ fn referencias_livres(nos: &[No]) -> std::collections::HashSet<String> {
         .collect()
 }
 
-/// As formas do componente que só se decidem olhando o template: se o
-/// `pipes:` é usado e onde está o `#ref` de cada `@ViewChild`. Devolve o que
+/// As formas do componente que só se decidem olhando o template: onde está
+/// o `#ref` de cada `@ViewChild`. Devolve o que
 /// ainda impede a geração, na ordem em que aparece.
 fn formas_contra_o_template(
     c: &Componente,
@@ -294,11 +295,6 @@ fn formas_contra_o_template(
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> Vec<Recusa> {
     let mut fora = Vec::new();
-    // `pipes:` sem uso não muda a visão (caso b19); usado, cria o pipe e o
-    // `pureProxy` no `build()` — ainda não.
-    if c.pipes && usa_pipe(nos) {
-        fora.push(recusa(Motivo::PipesUsados, "pipe usado no template"));
-    }
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
@@ -383,32 +379,390 @@ fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resoluc
             == Some("dart:html")
 }
 
-/// Algum pipe no template? `|` sozinho (o `||` é OU lógico) ou `$pipe`, em
-/// qualquer expressão: interpolação, ligação, evento, `*`.
-fn usa_pipe(nos: &[No]) -> bool {
-    let tem = |t: &str| {
-        let b = t.as_bytes();
-        t.contains("$pipe")
-            || (0..b.len()).any(|i| {
-                b[i] == b'|' && b.get(i + 1) != Some(&b'|') && (i == 0 || b[i - 1] != b'|')
-            })
-    };
-    nos.iter().any(|n| match n {
-        No::Interpolacao { expr, .. } => tem(expr),
-        No::Elemento(e) => {
-            e.propriedades
-                .iter()
-                .chain(&e.eventos)
-                .chain(&e.bananas)
-                .chain(e.estrela.iter())
-                .any(|l| tem(&l.valor))
-                || e.atributos
-                    .iter()
-                    .any(|a| a.valor.contains("{{") && tem(&a.valor))
-                || usa_pipe(&e.filhos)
+/// Um pipe de `pipes:`, com a URI da biblioteca que o declara.
+#[derive(Debug, Clone)]
+pub struct PipeUsado {
+    pub uri: String,
+    pub pipe: crate::componente::Pipe,
+}
+
+/// A instância de um pipe puro, campo da visão do componente
+/// (`_pipe_date_0`): uma por nome, na ordem do primeiro uso
+/// (`compView.purePipes`, `pipeCount`).
+#[derive(Debug, Clone)]
+struct InstanciaDePipe {
+    nome: String,
+    campo: String,
+    classe: String,
+    /// Caminho do import da biblioteca do pipe (`getImportModulePath`).
+    caminho: String,
+}
+
+/// Uma chamada `$pipe.nome(..)`: a visão onde está e o proxy dela
+/// (`_pipe_date_0_1`, `_PurePipeProxy`), que é campo dessa visão.
+#[derive(Debug, Clone)]
+struct ChamadaDePipe {
+    vista: u32,
+    instancia: usize,
+    proxy: String,
+    argumentos: usize,
+    /// `o.FunctionType(retorno, paramTypes.sublist(0, argCount))`.
+    tipo: String,
+    /// O tipo cita o `dart:core` (tudo o que não é `dynamic`).
+    core: bool,
+}
+
+/// Os pipes de um template: as instâncias e cada chamada, na ordem em que o
+/// oficial as converte — a do `bindView`, que desce nas visões embutidas
+/// onde elas estão. É essa ordem que numera os proxies, e ela só se sabe
+/// olhando o template inteiro antes de emitir: as visões embutidas daqui
+/// são emitidas depois da do componente.
+#[derive(Debug, Default)]
+struct PipesDoTemplate {
+    instancias: Vec<InstanciaDePipe>,
+    chamadas: Vec<ChamadaDePipe>,
+}
+
+impl PipesDoTemplate {
+    fn da_vista(&self, vista: u32) -> impl Iterator<Item = &ChamadaDePipe> {
+        self.chamadas.iter().filter(move |c| c.vista == vista)
+    }
+
+    /// Os imports dos campos de pipe desta visão, na ordem da declaração: a
+    /// classe de cada instância (só na visão do componente) e o `dart:core`
+    /// do tipo de um proxy.
+    fn imports_dos_campos(&self, vista: u32) -> Vec<String> {
+        let mut saida = Vec::new();
+        for (k, inst) in self.instancias.iter().enumerate() {
+            if vista == 0 {
+                saida.push(inst.caminho.clone());
+            }
+            if self.da_vista(vista).any(|c| c.instancia == k && c.core) {
+                saida.push("dart:core".to_string());
+            }
         }
-        _ => false,
-    })
+        saida
+    }
+
+    /// Os campos de pipe desta visão, na ordem em que o `create()` de cada
+    /// `CompilePipe` os aloca: a instância e, logo depois, os proxies dela.
+    /// Saem depois dos `_expr_` (alocados no `bindView`) e antes dos `_el_`
+    /// (promovidos a campo no fim).
+    fn campos(&self, vista: u32, imp: &mut Importacoes) -> Vec<String> {
+        let mut saida = Vec::new();
+        for (k, inst) in self.instancias.iter().enumerate() {
+            if vista == 0 {
+                let q = imp.q(&inst.caminho);
+                saida.push(format!("  late final {q}{} {};", inst.classe, inst.campo));
+            }
+            for c in self.da_vista(vista).filter(|c| c.instancia == k) {
+                saida.push(format!("  late final {} {};", c.tipo, c.proxy));
+            }
+        }
+        saida
+    }
+
+    /// A criação no `build()` (`afterNodes`, depois dos ouvintes): a
+    /// instância (`createPipeInstance`) e os proxies (`createPureProxy`),
+    /// que leem a instância pela cadeia de `parentView` (`base`).
+    fn criacao(&self, vista: u32, base: &str, imp: &mut Importacoes) -> Vec<String> {
+        let mut saida = Vec::new();
+        for (k, inst) in self.instancias.iter().enumerate() {
+            if vista == 0 {
+                let q = imp.q(&inst.caminho);
+                saida.push(format!("    this.{} = {q}{}();", inst.campo, inst.classe));
+            }
+            for c in self.da_vista(vista).filter(|c| c.instancia == k) {
+                saida.push(format!(
+                    "    this.{} = {}.pureProxy{}({base}.{}.transform);",
+                    c.proxy,
+                    tardio(PROXIES),
+                    c.argumentos,
+                    inst.campo
+                ));
+            }
+        }
+        saida
+    }
+}
+
+/// Tipo que `fromDartType` escreve sem import próprio: `dynamic` ou um tipo
+/// do `dart:core`, com ou sem `?`.
+fn tipo_do_core(t: &str) -> bool {
+    t == "dynamic"
+        || matches!(
+            t.strip_suffix('?').unwrap_or(t),
+            "String" | "int" | "double" | "num" | "bool" | "Object"
+        )
+}
+
+/// A tabela de pipes do template (ver [`PipesDoTemplate`]). O pipe de cada
+/// chamada é o último de `pipes:` com aquele nome (`_findPipeMeta`).
+fn pipes_do_template(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    pipes: &Result<Vec<PipeUsado>, Recusa>,
+    asset: &str,
+) -> Result<PipesDoTemplate, Recusa> {
+    let mut brutas = Vec::new();
+    let mut proxima = 1;
+    chamadas_brutas(nos, 0, &mut proxima, filhos, &mut brutas)?;
+    let mut t = PipesDoTemplate::default();
+    if brutas.is_empty() {
+        return Ok(t);
+    }
+    let pipes = pipes.as_ref().map_err(Clone::clone)?;
+    let fora = |f: &str| recusa(Motivo::PipesUsados, f);
+    for (vista, nome, argumentos) in brutas {
+        let usado = pipes
+            .iter()
+            .rev()
+            .find(|p| p.pipe.nome == nome)
+            .ok_or_else(|| fora("pipe que não está em pipes:"))?;
+        let p = &usado.pipe;
+        if let Some(f) = p.fora {
+            return Err(fora(f));
+        }
+        if !p.puro {
+            return Err(fora("pipe impuro (`pure: false`)"));
+        }
+        // Mais argumentos que parâmetros é erro de compilação no oficial.
+        if argumentos > p.parametros.len() {
+            return Err(fora("pipe com argumentos demais"));
+        }
+        // `Identifiers.pureProxies`: `pureProxy1` a `pureProxy6` conferidos
+        // no `proxies.dart`.
+        if argumentos > 6 {
+            return Err(fora("pipe com mais de 6 argumentos"));
+        }
+        let parametros: Option<Vec<String>> = p.parametros[..argumentos]
+            .iter()
+            .map(|x| x.clone().filter(|x| tipo_do_core(x)))
+            .collect();
+        let (Some(parametros), true) = (parametros, tipo_do_core(&p.retorno)) else {
+            return Err(fora("transform com tipo fora do dart:core ou sem tipo"));
+        };
+        let core = std::iter::once(&p.retorno)
+            .chain(&parametros)
+            .any(|x| x != "dynamic");
+        let instancia = match t.instancias.iter().position(|i| i.nome == nome) {
+            Some(k) => k,
+            None => {
+                let caminho = asset_de_uri(&usado.uri, "", Path::new(""))
+                    .and_then(|alvo| caminho_do_import(asset, &alvo))
+                    .ok_or_else(|| fora("pipe sem caminho de import"))?;
+                t.instancias.push(InstanciaDePipe {
+                    campo: format!("_pipe_{nome}_{}", t.instancias.len()),
+                    nome: nome.clone(),
+                    classe: p.classe.clone(),
+                    caminho,
+                });
+                t.instancias.len() - 1
+            }
+        };
+        let ja = t
+            .chamadas
+            .iter()
+            .filter(|c| c.instancia == instancia)
+            .count();
+        t.chamadas.push(ChamadaDePipe {
+            vista,
+            instancia,
+            proxy: format!("{}_{ja}", t.instancias[instancia].campo),
+            argumentos,
+            tipo: format!("{} Function({})", p.retorno, parametros.join(", ")),
+            core,
+        });
+    }
+    Ok(t)
+}
+
+/// As chamadas `$pipe.nome(..)` do template (visão, nome, argumentos), na
+/// ordem do `bindView`: em cada elemento as ligações dele antes dos filhos,
+/// e o conteúdo de um `*` no lugar dele, como visão nova. As visões são
+/// numeradas como as embutidas (em profundidade, a partir de 1). Pipe onde
+/// a ordem ainda não foi conferida (evento, `*`, entrada de filho) é
+/// recusado.
+fn chamadas_brutas(
+    nos: &[No],
+    vista: u32,
+    proxima: &mut u32,
+    filhos: &std::collections::HashMap<String, Filho>,
+    saida: &mut Vec<(u32, String, usize)>,
+) -> Result<(), Recusa> {
+    let tem = |t: &str| t.contains("$pipe");
+    for no in nos {
+        match no {
+            No::Interpolacao { expr, .. } => pipes_na_expressao(expr, vista, saida)?,
+            No::Elemento(e) => {
+                if let Some(estrela) = &e.estrela {
+                    if tem(&estrela.valor) {
+                        return Err(recusa(Motivo::PipesUsados, "pipe na entrada de `*`"));
+                    }
+                    let v = *proxima;
+                    *proxima += 1;
+                    let mut sem_estrela = e.clone();
+                    sem_estrela.estrela = None;
+                    let dentro = No::Elemento(sem_estrela);
+                    chamadas_brutas(std::slice::from_ref(&dentro), v, proxima, filhos, saida)?;
+                    continue;
+                }
+                if e.eventos.iter().any(|l| tem(&l.valor)) {
+                    return Err(recusa(Motivo::PipesUsados, "pipe em evento"));
+                }
+                if e.bananas.iter().any(|l| tem(&l.valor)) {
+                    return Err(recusa(Motivo::PipesUsados, "pipe em [(x)]"));
+                }
+                let de_filho = filhos.contains_key(&e.nome) || !dom::tag_html(&e.nome);
+                // `[x]` e depois os atributos interpolados, como o
+                // `elemento_html` converte.
+                for l in &e.propriedades {
+                    if tem(&l.valor) {
+                        if de_filho {
+                            return Err(recusa(
+                                Motivo::PipesUsados,
+                                "pipe em ligação de componente filho",
+                            ));
+                        }
+                        pipes_na_expressao(&l.valor, vista, saida)?;
+                    }
+                }
+                for a in e.atributos.iter().filter(|a| a.valor.contains("{{")) {
+                    if !tem(&a.valor) {
+                        continue;
+                    }
+                    if de_filho {
+                        return Err(recusa(
+                            Motivo::PipesUsados,
+                            "pipe em ligação de componente filho",
+                        ));
+                    }
+                    let Some((_, exprs)) = partes_da_interpolacao(&a.valor) else {
+                        return Err(recusa(Motivo::PipesUsados, "pipe em atributo ilegível"));
+                    };
+                    for x in &exprs {
+                        pipes_na_expressao(x, vista, saida)?;
+                    }
+                }
+                chamadas_brutas(&e.filhos, vista, proxima, filhos, saida)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// As chamadas `$pipe.nome(..)` de uma expressão, em ordem de texto, com o
+/// número de argumentos. Texto entre aspas não conta; pipe dentro de pipe é
+/// recusado (o de dentro seria convertido primeiro).
+fn pipes_na_expressao(
+    texto: &str,
+    vista: u32,
+    saida: &mut Vec<(u32, String, usize)>,
+) -> Result<(), Recusa> {
+    let forma = || {
+        recusa(
+            Motivo::PipesUsados,
+            "`$pipe` fora da forma `$pipe.nome(..)`",
+        )
+    };
+    let e_nome = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    let b = texto.as_bytes();
+    let mut i = 0;
+    let mut aspas: Option<u8> = None;
+    let mut fim_do_ultimo = 0;
+    while i < b.len() {
+        let c = b[i];
+        if let Some(q) = aspas {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == q {
+                aspas = None;
+            }
+            i += 1;
+            continue;
+        }
+        if c == b'\'' || c == b'"' {
+            aspas = Some(c);
+            i += 1;
+            continue;
+        }
+        if !texto[i..].starts_with("$pipe") {
+            i += 1;
+            continue;
+        }
+        if i > 0 && (e_nome(b[i - 1]) || b[i - 1] == b'.') {
+            return Err(forma());
+        }
+        if i < fim_do_ultimo {
+            return Err(recusa(Motivo::PipesUsados, "pipe dentro de pipe"));
+        }
+        if b.get(i + 5) != Some(&b'.') {
+            return Err(forma());
+        }
+        let ini = i + 6;
+        let mut j = ini;
+        while j < b.len() && e_nome(b[j]) {
+            j += 1;
+        }
+        let mut k = j;
+        while k < b.len() && b[k].is_ascii_whitespace() {
+            k += 1;
+        }
+        if j == ini || b.get(k) != Some(&b'(') {
+            return Err(forma());
+        }
+        let (fim, argumentos) = argumentos_da_chamada(texto, k).ok_or_else(forma)?;
+        saida.push((vista, texto[ini..j].to_string(), argumentos));
+        fim_do_ultimo = fim;
+        i = j;
+    }
+    Ok(())
+}
+
+/// Do `(` em `abre`: o índice depois do `)` que fecha e quantos argumentos
+/// há (vírgulas no primeiro nível, mais um).
+fn argumentos_da_chamada(texto: &str, abre: usize) -> Option<(usize, usize)> {
+    let b = texto.as_bytes();
+    let mut nivel = 0u32;
+    let mut virgulas = 0;
+    let mut algum = false;
+    let mut aspas: Option<u8> = None;
+    let mut i = abre;
+    while i < b.len() {
+        let c = b[i];
+        if let Some(q) = aspas {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == q {
+                aspas = None;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' | b'"' => aspas = Some(c),
+            b'(' | b'[' | b'{' => nivel += 1,
+            b')' | b']' | b'}' => {
+                nivel -= 1;
+                if nivel == 0 {
+                    let n = if algum { virgulas + 1 } else { 0 };
+                    return Some((i + 1, n));
+                }
+            }
+            b',' if nivel == 1 => virgulas += 1,
+            _ => {}
+        }
+        if nivel >= 1 && i > abre && !c.is_ascii_whitespace() {
+            algum = true;
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Um componente que este template pode usar, vindo do índice do pacote.
@@ -622,6 +976,14 @@ struct Corpo<'a> {
     proxima_projecao: u32,
     imp: &'a mut Importacoes,
     html: String,
+    /// Os pipes do template, com a chamada de cada visão.
+    pipes: &'a PipesDoTemplate,
+    /// Número desta visão (0 a do componente, o `indice` na embutida) e
+    /// quantas `parentView` a separam da visão do componente.
+    vista: u32,
+    profundidade: u32,
+    /// Quantas chamadas de pipe desta visão já foram convertidas.
+    cursor_pipe: usize,
 }
 
 impl Corpo<'_> {
@@ -669,8 +1031,11 @@ impl Corpo<'_> {
             locais: &locais,
             tipos: self.tipos,
         };
-        let c = crate::expr::converter_no_escopo(texto, &escopo, self.nomes)
+        let mut c = crate::expr::converter_no_escopo(texto, &escopo, self.nomes)
             .map_err(|r| r.em(motivo))?;
+        if c.texto.contains(crate::expr::MARCA_DE_PIPE) {
+            c.texto = self.trocar_pipes(&c.texto)?;
+        }
         for l in &c.locais {
             self.declaracao_do_local(l, motivo)?;
             if !self.locais_raiz.contains(l) {
@@ -678,6 +1043,64 @@ impl Corpo<'_> {
             }
         }
         Ok(c)
+    }
+
+    /// Troca cada marca de pipe do texto convertido pelo proxy da próxima
+    /// chamada desta visão (`this._pipe_date_0_1`), conferindo nome e número
+    /// de argumentos com a tabela — que tem a ordem do oficial.
+    fn trocar_pipes(&mut self, texto: &str) -> Result<String, Recusa> {
+        use crate::expr::{FIM_DE_PIPE, MARCA_DE_PIPE};
+        let chamadas: Vec<(String, usize, String)> = self
+            .pipes
+            .da_vista(self.vista)
+            .map(|c| {
+                (
+                    self.pipes.instancias[c.instancia].nome.clone(),
+                    c.argumentos,
+                    c.proxy.clone(),
+                )
+            })
+            .collect();
+        let mut saida = String::with_capacity(texto.len());
+        let mut resto = texto;
+        while let Some(i) = resto.find(MARCA_DE_PIPE) {
+            saida.push_str(&resto[..i]);
+            let depois = &resto[i + MARCA_DE_PIPE.len_utf8()..];
+            let f = depois.find(FIM_DE_PIPE).unwrap_or(depois.len());
+            let (nome, n) = depois[..f].rsplit_once('/').unwrap_or((&depois[..f], ""));
+            match chamadas.get(self.cursor_pipe) {
+                Some((esperado, argumentos, proxy))
+                    if esperado == nome && argumentos.to_string() == n =>
+                {
+                    saida.push_str("this.");
+                    saida.push_str(proxy);
+                    self.cursor_pipe += 1;
+                }
+                // Na coleta a saída é descartada e a ordem não vale (o
+                // conteúdo recusado é revisto noutro lugar).
+                _ if self.coletando() => saida.push_str("this._pipe"),
+                _ => {
+                    return Err(recusa(
+                        Motivo::PipesUsados,
+                        "chamada de pipe fora da ordem do oficial",
+                    ));
+                }
+            }
+            resto = depois.get(f + FIM_DE_PIPE.len_utf8()..).unwrap_or("");
+        }
+        saida.push_str(resto);
+        Ok(saida)
+    }
+
+    /// Toda chamada de pipe desta visão foi convertida, e na ordem.
+    fn conferir_pipes(&self) -> Result<(), Recusa> {
+        if !self.coletando() && self.cursor_pipe != self.pipes.da_vista(self.vista).count() {
+            return Err(recusa(
+                Motivo::PipesUsados,
+                "chamada de pipe fora da ordem do oficial",
+            ));
+        }
+        Ok(())
     }
 
     /// A declaração de um local desta visão, ou a recusa: local de visão
@@ -1268,6 +1691,7 @@ impl Corpo<'_> {
         }
         self.embutidas.push(EspecEmbutida {
             indice,
+            profundidade: self.profundidade + 1,
             classe: format!("_{}{indice}", self.classe_da_visao),
             fabrica: nome_fabrica,
             nos: vec![No::Elemento(sem_estrela)],
@@ -2062,6 +2486,8 @@ fn campos_em_ordem<'a>(
 struct EspecEmbutida {
     /// Número da visão (`_ViewX3`), atribuído na varredura.
     indice: u32,
+    /// Quantas `parentView` até a visão do componente.
+    profundidade: u32,
     classe: String,
     fabrica: String,
     nos: Vec<No>,
@@ -2096,6 +2522,7 @@ struct Contexto<'a> {
     classe_da_visao: String,
     tipo_do_contexto: String,
     html: String,
+    pipes: &'a PipesDoTemplate,
 }
 
 impl<'a> Contexto<'a> {
@@ -2154,6 +2581,10 @@ impl<'a> Contexto<'a> {
             proxima_projecao: 0,
             imp,
             html: self.html.clone(),
+            pipes: self.pipes,
+            vista: 0,
+            profundidade: 0,
+            cursor_pipe: 0,
         }
     }
 }
@@ -2179,6 +2610,8 @@ fn emitir_embutida(
     let fabrica = espec.fabrica.clone();
     let mut dentro = ctx.corpo(imp, nomes, coleta.take(), true);
     dentro.locais = espec.locais.clone();
+    dentro.vista = espec.indice;
+    dentro.profundidade = espec.profundidade;
     // A numeração continua de onde o pai parou.
     dentro.proxima_embutida = espec.indice + 1;
     let r = corpo_da_embutida(&mut dentro, &espec, ctx, &ev, &classe, &fabrica);
@@ -2204,7 +2637,13 @@ fn corpo_da_embutida(
     if tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
     }
-    if let Err(r) = alocar_imports_dos_campos(dentro.imp, &espec.nos, ctx.filhos, &ctx.asset) {
+    if let Err(r) = alocar_imports_dos_campos(
+        dentro.imp,
+        &espec.nos,
+        ctx.filhos,
+        &ctx.asset,
+        &ctx.pipes.imports_dos_campos(espec.indice),
+    ) {
         dentro.anotar(r)?;
     }
     // O construtor vem depois dos campos e antes do `build()`, e é ele que
@@ -2240,6 +2679,7 @@ fn corpo_da_embutida(
     }
     let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
     dentro.nos(&espec.nos, "")?;
+    dentro.conferir_pipes()?;
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
     // sem estar.
     if dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
@@ -2258,6 +2698,20 @@ fn corpo_da_embutida(
         .iter()
         .map(|o| resolver_tardios(dentro.imp, o))
         .collect();
+    // Os proxies de pipe desta visão (`afterNodes` da visão do componente,
+    // que roda depois do `bindView` de todas): leem a instância na visão do
+    // componente pela cadeia de `parentView` (`getPropertyInView`).
+    let mut cadeia = "(this.parentView!)".to_string();
+    for _ in 1..espec.profundidade {
+        cadeia = format!("({cadeia}.parentView!)");
+    }
+    let base = format!("{util}.unsafeCast<{}0>({cadeia})", ctx.classe_da_visao);
+    let criacao_pipes: Vec<String> = ctx
+        .pipes
+        .criacao(espec.indice, &base, dentro.imp)
+        .iter()
+        .map(|l| resolver_tardios(dentro.imp, l))
+        .collect();
     // `_ctx` no `build()` só se alguém o lê ali (tear-off de evento, texto
     // imutável): `maybeCachedCtxDeclarationStatement`.
     let ctx_build = if cita_ctx(&dentro.linhas) || cita_ctx(&ouvintes) {
@@ -2271,6 +2725,7 @@ fn corpo_da_embutida(
         .linhas
         .iter()
         .chain(&ouvintes)
+        .chain(&criacao_pipes)
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
@@ -2279,6 +2734,7 @@ fn corpo_da_embutida(
     let mut todos = dentro.campos.clone();
     todos.extend(dentro.campos_filho.clone());
     todos.extend(dentro.campos_expr.clone());
+    todos.extend(ctx.pipes.campos(espec.indice, dentro.imp));
     todos.extend(dentro.campos_el.clone());
     let campos = if todos.is_empty() {
         String::new()
@@ -2442,6 +2898,7 @@ fn alocar_imports_dos_campos(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
     asset: &str,
+    pipes: &[String],
 ) -> Result<(), Recusa> {
     let sem_caminho = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
     for campo in campos_em_ordem(nos, filhos) {
@@ -2458,6 +2915,10 @@ fn alocar_imports_dos_campos(
                 imp.alias(uri);
             }
         }
+    }
+    // Os campos de pipe vêm depois dos `_expr_` e antes dos `_el_`.
+    for uri in pipes {
+        imp.alias(uri);
     }
     if tem_elemento_ligado(nos, filhos) {
         imp.alias("dart:html");
@@ -2874,6 +3335,7 @@ pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
 ///
 /// O que não couber volta `Err` com a primeira recusa, e o arquivo continua
 /// vindo do `build_runner`.
+#[allow(clippy::too_many_arguments)]
 pub fn template_de_componente(
     c: &Componente,
     local: &Local,
@@ -2882,6 +3344,7 @@ pub fn template_de_componente(
     nomes: &mut dartforge_intern::Interner,
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
+    pipes: &Result<Vec<PipeUsado>, Recusa>,
 ) -> Result<String, Recusa> {
     let mut coleta = None;
     gerar_componente(
@@ -2892,6 +3355,7 @@ pub fn template_de_componente(
         nomes,
         filhos,
         usadas,
+        pipes,
         &mut coleta,
     )
 }
@@ -2901,6 +3365,7 @@ pub fn template_de_componente(
 /// trava em folha de estilo pode travar também em evento e interpolação, e
 /// contar só o primeiro faz parecer que aprender uma forma destrava o
 /// arquivo.
+#[allow(clippy::too_many_arguments)]
 pub fn coletar(
     c: &Componente,
     local: &Local,
@@ -2909,6 +3374,7 @@ pub fn coletar(
     nomes: &mut dartforge_intern::Interner,
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
+    pipes: &Result<Vec<PipeUsado>, Recusa>,
 ) -> std::collections::BTreeSet<Recusa> {
     let mut coleta = Some(Vec::new());
     let r = gerar_componente(
@@ -2919,6 +3385,7 @@ pub fn coletar(
         nomes,
         filhos,
         usadas,
+        pipes,
         &mut coleta,
     );
     let mut fora: std::collections::BTreeSet<Recusa> =
@@ -2948,6 +3415,7 @@ fn gerar_componente(
     nomes: &mut dartforge_intern::Interner,
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
+    pipes: &Result<Vec<PipeUsado>, Recusa>,
     coleta: &mut Option<Vec<Recusa>>,
 ) -> Result<String, Recusa> {
     // Anota na coleta ou interrompe.
@@ -2966,6 +3434,14 @@ fn gerar_componente(
     for r in formas_contra_o_template(c, local, nos, resolvedor, filhos) {
         anotar(coleta, r)?;
     }
+    // `pipes:` sem uso não muda a visão (caso b19).
+    let tabela = match pipes_do_template(nos, filhos, pipes, &local.asset()) {
+        Ok(t) => t,
+        Err(r) => {
+            anotar(coleta, r)?;
+            PipesDoTemplate::default()
+        }
+    };
     if !c.styles.is_empty() {
         // `styles: ['…']` escrito na anotação ainda não.
         anotar(coleta, recusa(Motivo::Estilos, "styles: [..] na anotação"))?;
@@ -3008,7 +3484,13 @@ fn gerar_componente(
     // alocados nessa mesma ordem. É isso que faz a numeração bater com a do
     // oficial; fora de ordem, a comparação byte a byte não vale nada.
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
-    if let Err(r) = alocar_imports_dos_campos(&mut imp, nos, filhos, &local.asset()) {
+    if let Err(r) = alocar_imports_dos_campos(
+        &mut imp,
+        nos,
+        filhos,
+        &local.asset(),
+        &tabela.imports_dos_campos(0),
+    ) {
         anotar(coleta, r)?;
     }
     let estilos = imp.alias(STYLE_ENCAPSULATION);
@@ -3032,11 +3514,14 @@ fn gerar_componente(
         classe_da_visao: format!("View{}", c.classe),
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         html: html.clone(),
+        pipes: &tabela,
     };
     let mut corpo = ctx.corpo(&mut imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
     corpo.tb = tb;
-    let r = corpo.nos(nos, "parentRenderNode");
+    let r = corpo
+        .nos(nos, "parentRenderNode")
+        .and_then(|()| corpo.conferir_pipes());
     if let Err(r) = r {
         *coleta = corpo.coleta.take();
         return Err(r);
@@ -3067,6 +3552,12 @@ fn gerar_componente(
         .ouvintes
         .iter()
         .map(|o| resolver_tardios(corpo.imp, o))
+        .collect();
+    // Os pipes: instância e proxies, no `afterNodes`, antes das consultas.
+    let criacao_pipes: Vec<String> = tabela
+        .criacao(0, "this", corpo.imp)
+        .iter()
+        .map(|l| resolver_tardios(corpo.imp, l))
         .collect();
     // Os `@HostListener` do componente fecham o `build()`, ligados ao nó
     // raiz (`_writeComponentHostEventListeners`, depois do
@@ -3103,6 +3594,7 @@ fn gerar_componente(
         .linhas
         .iter()
         .chain(&ouvintes)
+        .chain(&criacao_pipes)
         .chain(&consultas)
         .chain(&hospedeiro)
         .cloned()
@@ -3119,6 +3611,7 @@ fn gerar_componente(
     let mut todos = corpo.campos.clone();
     todos.extend(corpo.campos_filho.clone());
     todos.extend(corpo.campos_expr.clone());
+    todos.extend(tabela.campos(0, corpo.imp));
     todos.extend(corpo.campos_el.clone());
     let campos = if todos.is_empty() {
         String::new()
@@ -3476,6 +3969,7 @@ mod testes {
             &mut Interner::new(),
             &Default::default(),
             &[],
+            &Ok(Vec::new()),
         )
         .expect("gera");
         let esperado = include_str!("../testes/form_feedback_component.template.dart");
@@ -3510,6 +4004,7 @@ mod testes {
             &mut Interner::new(),
             &Default::default(),
             &[],
+            &Ok(Vec::new()),
         )
         .expect("gera");
         let esperado = include_str!("../testes/callback_component.template.dart");
@@ -3533,6 +4028,7 @@ mod testes {
                 &mut Interner::new(),
                 &Default::default(),
                 &[],
+                &Ok(Vec::new()),
             )
             .map_err(|r| r.motivo),
             Err(Motivo::Ligacao)
@@ -3556,6 +4052,7 @@ mod testes {
                 &mut Interner::new(),
                 &Default::default(),
                 &[],
+                &Ok(Vec::new()),
             )
             .map_err(|r| r.motivo),
             Err(Motivo::ComponenteNoTemplate)
@@ -3580,6 +4077,7 @@ mod testes {
                 &mut Interner::new(),
                 &Default::default(),
                 &[],
+                &Ok(Vec::new()),
             )
             .map_err(|r| r.motivo),
             Err(Motivo::InjecaoNaoResolvida)
@@ -3621,6 +4119,7 @@ mod testes {
             &mut Interner::new(),
             &Default::default(),
             &[],
+            &Ok(Vec::new()),
         )
         .expect("gera");
         let esperado = include_str!("../testes/callback_com_injecao.template.dart");

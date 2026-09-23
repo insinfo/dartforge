@@ -62,9 +62,13 @@ pub struct Componente {
     /// arquivos uma forma nova destrava. Enquanto houver uma, o arquivo não é
     /// nosso: gerar ignorando isso dá saída **errada**, não incompleta.
     pub nao_entendidos: Vec<Recusa>,
-    /// `pipes:` declarado. A lista em si não muda a visão; o que muda é usar
-    /// um pipe no template, e isso só se sabe olhando o template.
-    pub pipes: bool,
+    /// Nomes escritos em `pipes:`, na ordem, como escritos. Como em
+    /// `directives:`, uma lista constante (`commonPipes`) entra pelo nome e é
+    /// expandida pelo banco semântico. A lista em si não muda a visão; o que
+    /// muda é usar um pipe no template.
+    pub pipes: Vec<String>,
+    /// Algum item de `pipes:` não é um nome: a lista não é conhecida.
+    pub pipes_ilegiveis: bool,
     /// `@ViewChild('ref')` em campo, na ordem de declaração — que é a ordem
     /// em que o oficial escreve as atribuições (`queryIndex`). Se a consulta
     /// sai estática ou não depende de onde `#ref` está no template.
@@ -275,6 +279,105 @@ pub fn ler_diretiva(
     ler(arvore, fonte, interner, classe, anotacao, false)
 }
 
+/// Um `@Pipe`, como o `PipeVisitor` do oficial o lê: o nome, se é puro e o
+/// tipo do `transform` (`fromFunctionType`) — é dele que sai o tipo do
+/// `pureProxyN` de cada chamada.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Pipe {
+    pub classe: String,
+    /// `@Pipe('nome')`.
+    pub nome: String,
+    /// `pure:`, `true` quando omitido (`coerceBool(.., defaultTo: true)`).
+    pub puro: bool,
+    /// Retorno do `transform`, como escrito (`String?`).
+    pub retorno: String,
+    /// Tipo de cada parâmetro posicional do `transform`, na ordem; sem tipo
+    /// escrito, `None` (o tipo inferido de uma sobrescrita daqui não se vê).
+    pub parametros: Vec<Option<String>>,
+    /// Por que este pipe ainda não é instanciado pelo gerador: injeção no
+    /// construtor (`createPipeInstance` pede ao injetor), `OnDestroy`
+    /// (`bindPipeDestroyLifecycleCallbacks`), `transform` herdado, sem tipo
+    /// de retorno ou com parâmetro nomeado.
+    pub fora: Option<&'static str>,
+}
+
+/// Extrai o `@Pipe` de uma classe anotada.
+pub fn ler_pipe(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    anotacao: &ast::Annotation,
+) -> Pipe {
+    let mut p = Pipe {
+        classe: interner.resolve(classe.name.sym).to_string(),
+        puro: true,
+        ..Default::default()
+    };
+    let mut nome_lido = false;
+    if let Some(args) = &anotacao.arguments {
+        for a in args.args.iter() {
+            match a.name.as_ref().map(|n| interner.resolve(n.sym)) {
+                None if !nome_lido => {
+                    nome_lido = true;
+                    match texto_do_argumento(arvore, a.value) {
+                        Some(n) => p.nome = n,
+                        None => p.fora = Some("nome do @Pipe que não é literal"),
+                    }
+                }
+                Some("name") if !nome_lido => {
+                    nome_lido = true;
+                    match texto_do_argumento(arvore, a.value) {
+                        Some(n) => p.nome = n,
+                        None => p.fora = Some("nome do @Pipe que não é literal"),
+                    }
+                }
+                Some("pure") => match &arvore.expr(a.value).kind {
+                    ast::ExprKind::Bool(b) => p.puro = *b,
+                    _ => p.fora = Some("pure: que não é literal"),
+                },
+                _ => p.fora = Some("argumento do @Pipe fora do conhecido"),
+            }
+        }
+    }
+    if !parametros_do_construtor(arvore, fonte, interner, classe).is_empty() {
+        p.fora = Some("pipe com injeção no construtor");
+    }
+    if ganchos_da_classe(arvore, fonte, classe).on_destroy {
+        p.fora = Some("pipe com OnDestroy");
+    }
+    let mut achou = false;
+    for &id in &classe.members {
+        let ast::MemberKind::Method(f) = &arvore.member(id).kind else {
+            continue;
+        };
+        let funcao = arvore.function(*f);
+        if !matches!(funcao.kind, ast::FunctionKind::Function) || funcao.static_ {
+            continue;
+        }
+        if funcao.name.map(|n| interner.resolve(n.sym)) != Some("transform") {
+            continue;
+        }
+        achou = true;
+        match funcao.return_type {
+            Some(t) => p.retorno = texto_do_tipo(arvore, fonte, t),
+            None => p.fora = Some("transform sem tipo de retorno"),
+        }
+        for par in funcao.parameters.as_deref().unwrap_or(&[]) {
+            if matches!(par.kind, ast::ParameterKind::Named) {
+                p.fora = Some("transform com parâmetro nomeado");
+                continue;
+            }
+            p.parametros
+                .push(par.ty.map(|t| texto_do_tipo(arvore, fonte, t)));
+        }
+    }
+    if !achou {
+        p.fora = Some("transform herdado ou ausente");
+    }
+    p
+}
+
 fn ler(
     arvore: &ast::Ast,
     fonte: &str,
@@ -306,7 +409,7 @@ fn ler(
                 "directives" => {
                     (c.diretivas, c.diretivas_ilegiveis) = nomes_da_lista(arvore, interner, a.value)
                 }
-                "pipes" => c.pipes = true,
+                "pipes" => (c.pipes, c.pipes_ilegiveis) = nomes_da_lista(arvore, interner, a.value),
                 "exports" => exportados = nomes_da_lista(arvore, interner, a.value).0,
                 "providers" | "viewProviders" => c.com_provedores |= !lista_vazia(arvore, a.value),
                 _ => {}

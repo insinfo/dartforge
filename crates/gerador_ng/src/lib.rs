@@ -45,7 +45,8 @@ pub struct Achados {
     /// `@Directive`, lidas como o oficial as vê de quem as usa (seletor,
     /// entradas, saídas, construtor).
     pub diretivas: Vec<componente::Componente>,
-    pub pipes: Vec<String>,
+    /// `@Pipe`, com o que quem o usa precisa saber dele.
+    pub pipes: Vec<componente::Pipe>,
     /// `@GenerateInjector` em qualquer declaração de topo.
     pub injetores: Vec<String>,
     /// `@Directive` com `@HostBinding`: cada uma ganha um
@@ -229,7 +230,13 @@ pub fn achar(
                             .extend(hospedeira(arvore, interner, classe));
                     }
                 }
-                "Pipe" => achados.pipes.push(alvo.clone()),
+                "Pipe" => {
+                    if let ast::DeclKind::Class(classe) = &decl.kind {
+                        achados
+                            .pipes
+                            .push(componente::ler_pipe(arvore, fonte, interner, classe, a));
+                    }
+                }
                 "GenerateInjector" => achados.injetores.push(alvo.clone()),
                 _ => {}
             }
@@ -388,6 +395,8 @@ pub struct Indice {
     /// `@Directive` por (URI da biblioteca, classe): o seletor e o que o
     /// emissor precisa para instanciá-la.
     diretivas: std::collections::HashMap<(String, String), componente::Componente>,
+    /// `@Pipe` por (URI da biblioteca, classe).
+    pipes: std::collections::HashMap<(String, String), componente::Pipe>,
     /// Mesmo índice por nome de classe, para quando não há banco semântico
     /// (o teste do corpus). Só vale quando o nome é único no pacote — com
     /// duas classes de mesmo nome, resolver pelo nome seria chute.
@@ -402,6 +411,7 @@ impl Indice {
     ) -> Self {
         let mut por_classe = std::collections::HashMap::new();
         let mut diretivas = std::collections::HashMap::new();
+        let mut pipes = std::collections::HashMap::new();
         // Com o programa carregado, o índice cobre todos os pacotes: um
         // `<li-select>` do limitless_ui é tão componente quanto um do próprio
         // projeto. Sem ele, só o que a varredura de arquivos viu.
@@ -414,6 +424,9 @@ impl Indice {
                 }
                 for d in achados.diretivas {
                     diretivas.insert((uri.to_string(), d.classe.clone()), d);
+                }
+                for p in achados.pipes {
+                    pipes.insert((uri.to_string(), p.classe.clone()), p);
                 }
             }
         }
@@ -432,6 +445,11 @@ impl Indice {
                     .entry((uri.clone(), d.classe.clone()))
                     .or_insert_with(|| d.clone());
             }
+            for p in &achados.pipes {
+                pipes
+                    .entry((uri.clone(), p.classe.clone()))
+                    .or_insert_with(|| p.clone());
+            }
         }
         let mut por_nome: std::collections::HashMap<String, Vec<visao::Filho>> =
             std::collections::HashMap::new();
@@ -441,8 +459,60 @@ impl Indice {
         Indice {
             por_classe,
             diretivas,
+            pipes,
             por_nome,
         }
+    }
+
+    /// Os pipes que este componente usa, na ordem de `pipes:` expandida em
+    /// profundidade (as listas constantes, como `commonPipes`, pelo banco
+    /// semântico). O oficial procura o nome do fim para o começo
+    /// (`_findPipeMeta`), então a ordem importa. Classe que não é pipe fica
+    /// de fora; nome que não se resolve volta como recusa.
+    fn pipes_de(
+        &self,
+        comp: &componente::Componente,
+        arquivo: &Path,
+        resolvedor: Option<&dyn resolucao::Resolucao>,
+    ) -> (Vec<visao::PipeUsado>, Vec<Recusa>) {
+        let mut saida = Vec::new();
+        let mut fora = Vec::new();
+        if comp.pipes_ilegiveis {
+            fora.push(recusa(
+                Motivo::PipesUsados,
+                "pipes: com item que não é nome",
+            ));
+        }
+        let mut pilha: Vec<(String, PathBuf, u32)> = comp
+            .pipes
+            .iter()
+            .rev()
+            .map(|n| (n.clone(), arquivo.to_path_buf(), 0))
+            .collect();
+        while let Some((nome, escopo, profundidade)) = pilha.pop() {
+            if profundidade > 32 {
+                fora.push(recusa(Motivo::PipesUsados, "pipes: lista circular"));
+                break;
+            }
+            let simples = nome.rsplit('.').next().unwrap_or(&nome).to_string();
+            match resolvedor.and_then(|r| r.designado(&escopo, &nome)) {
+                Some(resolucao::Designado::Classe { uri }) => {
+                    if let Some(p) = self.pipes.get(&(uri.clone(), simples)) {
+                        saida.push(visao::PipeUsado {
+                            uri,
+                            pipe: p.clone(),
+                        });
+                    }
+                }
+                Some(resolucao::Designado::Lista { itens, escopo }) => {
+                    for item in itens.iter().rev() {
+                        pilha.push((item.clone(), escopo.clone(), profundidade + 1));
+                    }
+                }
+                None => fora.push(recusa(Motivo::PipesUsados, "pipes: nome não resolvido")),
+            }
+        }
+        (saida, fora)
     }
 
     /// As diretivas e componentes que este componente usa, na ordem do
@@ -764,8 +834,16 @@ fn gerar_arquivo(
         return Err(r);
     }
     let filhos = filhos_por_tag(&usadas);
-    let texto =
-        visao::template_de_componente(comp, &local, &nos, resolvedor, nomes, &filhos, &usadas)?;
+    // A lista de `pipes:` só pesa se o template usa pipe (caso b19): a
+    // recusa dela vai junto e é a visão que decide.
+    let (pipes, fora) = indice.pipes_de(comp, fonte, resolvedor);
+    let pipes = match fora.into_iter().next() {
+        Some(r) => Err(r),
+        None => Ok(pipes),
+    };
+    let texto = visao::template_de_componente(
+        comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes,
+    )?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
     // A folha compilada é um arquivo à parte, como o oficial gera: o
@@ -879,6 +957,11 @@ fn motivos_do_arquivo(
     let (usadas, fora_da_lista) = indice.diretivas_de(comp, fonte, resolvedor);
     fora.extend(fora_da_lista);
     let filhos = filhos_por_tag(&usadas);
+    let (pipes, fora_dos_pipes) = indice.pipes_de(comp, fonte, resolvedor);
+    let pipes = match fora_dos_pipes.into_iter().next() {
+        Some(r) => Err(r),
+        None => Ok(pipes),
+    };
     fora.extend(visao::coletar(
         comp,
         &local,
@@ -887,6 +970,7 @@ fn motivos_do_arquivo(
         nomes,
         &filhos,
         &usadas,
+        &pipes,
     ));
     fora
 }
@@ -967,7 +1051,10 @@ mod testes {
         assert_eq!(a.diretivas.len(), 1);
         assert_eq!(a.diretivas[0].classe, "D");
         assert_eq!(a.diretivas[0].seletor, "[d]");
-        assert_eq!(a.pipes, vec!["P".to_string()]);
+        assert_eq!(a.pipes.len(), 1);
+        assert_eq!(a.pipes[0].classe, "P");
+        assert_eq!(a.pipes[0].nome, "p");
+        assert!(a.pipes[0].puro);
         assert!(!a.trivial());
     }
 

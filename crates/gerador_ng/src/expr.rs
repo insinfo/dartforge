@@ -28,6 +28,12 @@ use dartforge_intern::Interner;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Início e fim da marca de uma chamada de pipe no texto convertido:
+/// `\u{3}nome/argumentos\u{4}`. Quem converte não sabe a visão nem a ordem
+/// das chamadas; a visão troca a marca pelo proxy.
+pub const MARCA_DE_PIPE: char = '\u{3}';
+pub const FIM_DE_PIPE: char = '\u{4}';
+
 /// Um local de visão embutida: o nome em Dart e o tipo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Local {
@@ -321,6 +327,49 @@ impl Conversor<'_> {
         })
     }
 
+    /// `$pipe.nome(entrada, args)`: o `BindingPipe` do parser oficial
+    /// (`_createPipeOrThrow`). A chamada sai como `MARCA(entrada, args)`, e
+    /// quem conhece a visão troca a [`MARCA_DE_PIPE`] pelo `pureProxyN`
+    /// daquele ponto (`CompilePipe._call`). Tipo `dynamic` (`visitPipe` do
+    /// `_TypeResolver`), mutável e pode ser nulo.
+    fn pipe(&self, nome: &str, arguments: &ast::Arguments) -> Result<Convertida, Recusa> {
+        if self.acao {
+            return Err(recusa(Motivo::PipesUsados, "pipe em evento"));
+        }
+        if arguments.args.iter().any(|a| a.name.is_some()) {
+            return Err(recusa(Motivo::PipesUsados, "pipe com argumento nomeado"));
+        }
+        if arguments.args.is_empty() {
+            return Err(recusa(Motivo::PipesUsados, "pipe sem argumento"));
+        }
+        // `visitPipe` converte a entrada e depois os argumentos: é a ordem
+        // em que os locais são pedidos.
+        let mut args = Vec::new();
+        let mut locais = Vec::new();
+        for a in arguments.args.iter() {
+            let v = self.expr(a.value, true)?;
+            // O pipe de dentro ganharia o proxy primeiro; a marca de fora
+            // viria antes no texto. Ainda sem caso.
+            if v.texto.contains(MARCA_DE_PIPE) {
+                return Err(recusa(Motivo::PipesUsados, "pipe dentro de pipe"));
+            }
+            locais.extend(v.locais);
+            args.push(v.texto);
+        }
+        Ok(Convertida {
+            tipo: Some("dynamic".into()),
+            locais: juntar(&[&locais]),
+            ..Convertida::nova(
+                format!(
+                    "{MARCA_DE_PIPE}{nome}/{}{FIM_DE_PIPE}({})",
+                    args.len(),
+                    args.join(", ")
+                ),
+                "pipe",
+            )
+        })
+    }
+
     fn e_event(&self, id: ast::ExprId) -> bool {
         matches!(&self.ast.expr(self.sem_parenteses(id)).kind,
             ast::ExprKind::Identifier(n) if self.interner.resolve(n.sym) == "$event")
@@ -517,6 +566,17 @@ impl Conversor<'_> {
             ast::ExprKind::Call { target, arguments } => {
                 if !arguments.type_args.is_empty() {
                     return Err(fora("chamada com argumento de tipo"));
+                }
+                if let ast::ExprKind::Property {
+                    target: t,
+                    name,
+                    null_aware: false,
+                } = &self.ast.expr(*target).kind
+                    && raiz
+                    && matches!(&self.ast.expr(*t).kind,
+                        ast::ExprKind::Identifier(n) if self.interner.resolve(n.sym) == "$pipe")
+                {
+                    return self.pipe(self.interner.resolve(name.sym), arguments);
                 }
                 // `visitMethodCall` converte os argumentos **antes** do
                 // receptor: é a ordem em que os locais são pedidos.
@@ -864,6 +924,26 @@ mod testes {
             conv("fixo > 1 || fixo < 0").texto,
             "((_ctx.fixo > 1) || (_ctx.fixo < 0))"
         );
+    }
+
+    /// `$pipe.nome(entrada, args)` vira a marca com o nome e o número de
+    /// argumentos, tipo `dynamic`; dentro de outro pipe ou com argumento
+    /// nomeado, recusa.
+    #[test]
+    fn pipe_vira_marca() {
+        let c = conv("$pipe.date(fixo, 'dd/MM')");
+        assert_eq!(c.texto, "\u{3}date/2\u{4}(_ctx.fixo, 'dd/MM')");
+        assert_eq!(c.tipo.as_deref(), Some("dynamic"));
+        assert!(!c.imutavel);
+        let m = &membros();
+        let mut i = Interner::new();
+        for e in ["$pipe.a($pipe.b(fixo))", "$pipe.a(fixo, x: 1)"] {
+            assert_eq!(
+                converter(e, m, &mut i).map_err(|r| r.motivo),
+                Err(Motivo::PipesUsados),
+                "{e}"
+            );
+        }
     }
 
     /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é
