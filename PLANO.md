@@ -1628,3 +1628,10 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
   `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
   corpus, atrás de `--memoria tracing|arc`.
+* **Versões da linguagem além do Dart 3.6** — a meta governante é 3.6.2; a
+  linguagem seguiu (Dart 3.13, 2026-08: construtores primários, `final`/`var`
+  em parâmetro declarando campo, bloco `this { … }`, corpo de classe `;`).
+  Quando entrar: parser e elementos reconhecem a sintaxe e a rebaixam para o
+  construtor comum — é açúcar puro, então `emit_js` e `emit_native` não
+  mudam. Pré-condição: corpus e oráculos com o SDK da versão nova. Notas em
+  `references/NOTAS-ARTIGOS.md` §3.
