@@ -74,6 +74,9 @@ pub struct Ganchos {
     pub after_content_checked: bool,
     pub after_view_init: bool,
     pub after_view_checked: bool,
+    /// `AfterChanges`: não aparece no arquivo do próprio componente, mas
+    /// muda a detecção de quem o usa com `@Input`.
+    pub after_changes: bool,
 }
 
 impl Ganchos {
@@ -264,6 +267,7 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
             "AfterContentChecked" => g.after_content_checked = true,
             "AfterViewInit" => g.after_view_init = true,
             "AfterViewChecked" => g.after_view_checked = true,
+            "AfterChanges" => g.after_changes = true,
             _ => {}
         }
     }

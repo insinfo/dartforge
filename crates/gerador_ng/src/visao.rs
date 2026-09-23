@@ -439,6 +439,10 @@ pub struct Filho {
     pub projeta: bool,
     /// `@Input`s do filho: nome no template -> campo que recebe o valor.
     pub entradas: std::collections::HashMap<String, String>,
+    /// O filho tem ciclo de vida, `AfterChanges` ou é `OnPush`: quem o usa
+    /// chama os ganchos dele (`bindDirectiveDetectChangesLifecycleCallbacks`)
+    /// e marca a checagem ao mudar uma entrada — nada disso ainda.
+    pub muda_o_pai: bool,
 }
 
 /// O que o emissor precisa saber de onde o componente mora.
@@ -475,6 +479,13 @@ impl Local<'_> {
     fn asset(&self) -> String {
         format!("asset:{}/{}", self.pacote, self.relativo)
     }
+}
+
+/// Uma ligação de propriedade já traduzida: a ação de uma constante (vai
+/// para o `if (firstCheck)`) ou o bloco inteiro de uma dinâmica.
+enum Ligada {
+    Constante(String),
+    Dinamica(String),
 }
 
 /// Corpo do `build()` de uma visão, montado enquanto se anda pelo template.
@@ -549,9 +560,11 @@ struct Corpo<'a> {
     /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
     /// alguma ligação imutável é escrita só na primeira checagem.
     usa_primeira_checagem: bool,
-    /// `final _ctx = this.ctx;` no `detectChangesInternal` — uma visão que só
-    /// repassa a detecção para as filhas não precisa dele.
-    usa_ctx_na_deteccao: bool,
+    /// Entradas de diretivas e componentes filhos (`@Input`, `ngIf`,
+    /// `ngForOf`) e o `ngDoCheck` delas: o `detectChangesInInputsMethod`,
+    /// que o oficial escreve **antes** das visões aninhadas e das ligações
+    /// de propriedade e texto (`writeChangeDetectionStatements`).
+    entradas: Vec<String>,
     /// Próximo índice de nó. Vale para elementos e textos juntos, em ordem de
     /// documento; comentário não consome índice porque some antes.
     proximo: u32,
@@ -575,55 +588,124 @@ impl Corpo<'_> {
     /// `[x]="e"`: valor novo, `checkBinding` contra o anterior e a ação sobre
     /// o elemento. O nome da ligação e a URI do template vão na verificação
     /// para a mensagem de "expressão mudou depois da checagem".
-    fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
+    fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<Ligada, Motivo> {
         let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
         let convertida = crate::expr::converter_com_locais(&l.valor, self.membros, self.metodos, &self.locais, self.nomes, self.tipos)?;
         let expr = l.valor.trim();
         let (ini, fim) = (l.inicio, l.fim);
-        // Valor que não muda é escrito uma vez, na primeira checagem, sem
-        // `checkBinding` e sem campo de valor anterior (`isImmutable`).
-        if convertida.imutavel {
-            let acao = self.acao(l, alvo, &convertida.texto)?;
-            self.usa_primeira_checagem = true;
-            self.usa_ctx_na_deteccao = true;
-        self.deteccao.push(format!(
-                "    if (firstCheck) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n    }}"
-            ));
-            return Ok(());
-        }
+        // Toda ligação consome um índice (`createUniqueBindIndex` em
+        // `_checkBinding`), mesmo a imutável, que não ganha campo.
         let k = self.proxima_ligacao;
         self.proxima_ligacao += 1;
+        // Valor que não muda é escrito uma vez, na primeira checagem, sem
+        // `checkBinding` e sem campo de valor anterior (`isImmutable`,
+        // `_bindLiteral`). Valor que pode ser nulo ganharia um
+        // `if (x != null)` em volta, e `null` não gera nada — os dois ainda
+        // não.
+        if convertida.imutavel {
+            let tipo_certo = convertida
+                .tipo
+                .as_deref()
+                .is_some_and(|t| !t.ends_with('?') && t != "dynamic" && t != "Object");
+            if !tipo_certo {
+                return Err(Motivo::Ligacao);
+            }
+            let acao = self.acao(l, alvo, &convertida.texto, &convertida)?;
+            return Ok(Ligada::Constante(format!("      {acao} /* REF:{url}:{ini}:{fim} */;")));
+        }
         self.campos_expr.push(format!("  Object? _expr_{k};"));
-        let acao = self.acao(l, alvo, &format!("currVal_{k}"))?;
-        let chk = self.imp.alias(CHECK_BINDING);
+        let acao = self.acao(l, alvo, &format!("currVal_{k}"), &convertida)?;
+        let chk = tardio(CHECK_BINDING);
         let valor = convertida.texto;
-        self.usa_ctx_na_deteccao = true;
-        self.deteccao.push(format!(
+        Ok(Ligada::Dinamica(format!(
             "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      {acao} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
-        ));
-        Ok(())
+        )))
+    }
+
+    /// As ligações de um elemento, como `bindAndWriteToRenderer` as escreve:
+    /// as constantes primeiro, num `if (firstCheck)` — reaproveitando o do
+    /// elemento anterior se ele for a última coisa escrita
+    /// (`addStmtsIfFirstCheck`) —, depois as dinâmicas, na ordem.
+    fn escrever_ligacoes(&mut self, ligadas: Vec<Ligada>) {
+        let mut constantes = Vec::new();
+        let mut dinamicas = Vec::new();
+        for l in ligadas {
+            match l {
+                Ligada::Constante(s) => constantes.push(s),
+                Ligada::Dinamica(s) => dinamicas.push(s),
+            }
+        }
+        if !constantes.is_empty() {
+            self.usa_primeira_checagem = true;
+            const ABRE: &str = "    if (firstCheck) {\n";
+            const FECHA: &str = "\n    }";
+            match self.deteccao.last_mut() {
+                Some(ultimo) if ultimo.starts_with(ABRE) && ultimo.ends_with(FECHA) => {
+                    ultimo.truncate(ultimo.len() - FECHA.len());
+                    ultimo.push('\n');
+                    ultimo.push_str(&constantes.join("\n"));
+                    ultimo.push_str(FECHA);
+                }
+                _ => self.deteccao.push(format!("{ABRE}{}{FECHA}", constantes.join("\n"))),
+            }
+        }
+        self.deteccao.extend(dinamicas);
     }
 
     /// O que a ligação faz com o elemento, pelo prefixo do nome.
+    ///
+    /// Regras de `_UpdateStatementsVisitor` (`update_statement_visitor.dart`)
+    /// e de `createElementPropertyAst` (`template_parser.dart`). O que muda a
+    /// forma e ainda não tem caso no corpus é recusado: `[attr.x.if]`,
+    /// namespace, `[style.x.unidade]`, estilo de valor que não é `String`
+    /// (sairia `.toString()`), propriedade renomeada pelo esquema
+    /// (`readonly` → `readOnly`, `tabindex`) e propriedade ou atributo com
+    /// contexto de segurança (`href`, `src`, `innerHtml`…), que ganham o
+    /// `sanitize*` em volta.
     fn acao(
         &mut self,
         l: &crate::html::Ligacao,
         alvo: &str,
         valor: &str,
+        c: &crate::expr::Convertida,
     ) -> Result<String, Motivo> {
-        let dom = self.dom();
+        // A ação vai para o `detectChangesInternal`: o import é alocado
+        // quando a detecção é escrita, não agora.
+        let dom = tardio(DOM_HELPERS);
         Ok(if l.nome == "class" {
             format!("this.updateChildClass({alvo}, {valor})")
         } else if let Some(classe) = l.nome.strip_prefix("class.") {
+            if classe.contains('.') {
+                return Err(Motivo::Ligacao);
+            }
             format!("{dom}.updateClassBinding({alvo}, '{classe}', {valor})")
         } else if let Some(attr) = l.nome.strip_prefix("attr.") {
-            format!("{dom}.updateAttribute({alvo}, '{attr}', {valor})")
+            if attr.contains('.') || attr.contains(':') || com_seguranca(attr) {
+                return Err(Motivo::Ligacao);
+            }
+            // `canBeNull` (`analyzed_class.dart`): só o literal não pode ser
+            // nulo, e só ele vai por `setAttribute`. `a ?? b` tem regra
+            // própria; ainda não.
+            if l.valor.contains("??") {
+                return Err(Motivo::Ligacao);
+            }
+            let literal = c.texto.starts_with(['\'', '"']) || matches!(c.texto.as_str(), "true" | "false");
+            let f = if literal { "setAttribute" } else { "updateAttribute" };
+            format!("{dom}.{f}({alvo}, '{attr}', {valor})")
         } else if let Some(estilo) = l.nome.strip_prefix("style.") {
+            if estilo.contains('.') || c.tipo.as_deref() != Some("String") {
+                return Err(Motivo::Ligacao);
+            }
             format!("{alvo}.style.setProperty('{estilo}', {valor})")
         } else if l.nome.contains('.') {
             return Err(Motivo::Ligacao);
         } else {
             let prop = &l.nome;
+            if com_seguranca(prop)
+                || matches!(prop.as_str(), "readonly" | "tabindex" | "tabIndex" | "innerHtml" | "style")
+            {
+                return Err(Motivo::Ligacao);
+            }
             format!("{dom}.setProperty({alvo}, '{prop}', {valor})")
         })
     }
@@ -687,6 +769,9 @@ impl Corpo<'_> {
         {
             // `@Output`, `[(x)]`, `#ref` e atributo estático em filho: ainda
             // não.
+            return Err(Motivo::LigacaoEmFilho);
+        }
+        if filho.muda_o_pai {
             return Err(Motivo::LigacaoEmFilho);
         }
         let n = self.proximo;
@@ -762,17 +847,21 @@ impl Corpo<'_> {
         let convertida =
             crate::expr::converter_com_locais(&l.valor, self.membros, self.metodos, &self.locais, self.nomes, self.tipos)
                 .map_err(|_| Motivo::LigacaoEmFilho)?;
+        // Entrada imutável vai para o `if (firstCheck)` (`_bindLiteral`),
+        // outra forma; ainda não.
+        if convertida.imutavel {
+            return Err(Motivo::LigacaoEmFilho);
+        }
         let k = self.proxima_ligacao;
         self.proxima_ligacao += 1;
         self.campos_expr.push(format!("  Object? _expr_{k};"));
-        let chk = self.imp.alias(CHECK_BINDING);
-        let dev = self.imp.alias(DEVTOOLS);
+        let chk = tardio(CHECK_BINDING);
+        let dev = tardio(DEVTOOLS);
         let expr = l.valor.trim();
         let (ini, fim) = (l.inicio, l.fim);
         let valor = convertida.texto;
         let nome = &l.nome;
-        self.usa_ctx_na_deteccao = true;
-        self.deteccao.push(format!(
+        self.entradas.push(format!(
             "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{expr}', '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', currVal_{k});\n      }}\n      this.{campo_inst}.{campo} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
         ));
         Ok(())
@@ -841,34 +930,38 @@ impl Corpo<'_> {
                 self.nomes,
                 self.tipos,
             )?;
+            // Entrada imutável (`final List<X> itens`) vai para o
+            // `if (firstCheck)`, outra forma; ainda não.
+            if c.imutavel {
+                return Err(Motivo::Ligacao);
+            }
             if prop.ends_with("Of") {
                 tipo_da_colecao = c.tipo.clone();
             }
             let valor = c.texto;
             let (ini, fim) = (estrela.inicio, estrela.fim);
-            self.usa_ctx_na_deteccao = true;
             if dir.direta {
                 // `_isDirectBinding` do ngcompiler: o `NgIf` já compara o
                 // valor antes de agir, então não há `checkBinding` fora.
-                self.deteccao.push(format!(
+                self.entradas.push(format!(
                     "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', {valor});\n    }}\n    this.{campo}.{prop} = {valor} /* REF:{url}:{ini}:{fim} */;"
                 ));
             } else {
                 let k = self.proxima_ligacao;
                 self.proxima_ligacao += 1;
                 self.campos_expr.push(format!("  Object? _expr_{k};"));
-                let chk = self.imp.alias(CHECK_BINDING);
+                let chk = tardio(CHECK_BINDING);
                 // O nome que vai na verificação é a expressão desta
                 // propriedade (`itens`), não o valor inteiro do `*`.
                 let texto = expr.trim();
-                self.deteccao.push(format!(
+                self.entradas.push(format!(
                     "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{texto}', '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', currVal_{k});\n      }}\n      this.{campo}.{prop} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
                 ));
             }
         }
         if dir.do_check {
-            let chk = self.imp.alias(CHECK_BINDING);
-            self.deteccao.push(format!(
+            let chk = tardio(CHECK_BINDING);
+            self.entradas.push(format!(
                 "    if ((!{chk}.debugThrowIfChanged)) {{\n      this.{campo}.ngDoCheck();\n    }}"
             ));
         }
@@ -954,9 +1047,10 @@ impl Corpo<'_> {
         let atualizacao = if primitivo(&nu) {
             format!("updateTextWithPrimitive({acesso})")
         } else {
-            format!("updateText({})", interpolar(self.imp))
+            // Na detecção o import é do momento em que ela é escrita.
+            let f = if nu == "String" { "interpolateString0" } else { "interpolate0" };
+            format!("updateText({}.{f}({acesso}))", tardio(INTERPOLATE))
         };
-        self.usa_ctx_na_deteccao = true;
         self.deteccao.push(format!(
             "    this._textBinding_{n}.{atualizacao} /* REF:{url}:{inicio}:{fim} */;"
         ));
@@ -1083,9 +1177,11 @@ impl Corpo<'_> {
                     // de descer. Os eventos também: o ouvinte do pai vem
                     // antes do dos filhos, e todos saem juntos no fim do
                     // `build()` (ver `ouvintes`).
+                    let mut ligadas = Vec::new();
                     for l in &e.propriedades {
-                        self.propriedade(l, &alvo)?;
+                        ligadas.push(self.propriedade(l, &alvo)?);
                     }
+                    self.escrever_ligacoes(ligadas);
                     // Dois `(click)` no mesmo elemento viram um método só
                     // (`mergeEvents`); ainda não.
                     // Evento em nó projetado num filho ainda não tem caso no
@@ -1310,7 +1406,7 @@ fn emitir_embutida(
         deteccao: Vec::new(),
         nomes,
         usa_primeira_checagem: false,
-        usa_ctx_na_deteccao: false,
+        entradas: Vec::new(),
         tb: None,
         url_do_template: url_do_template.clone(),
         membros,
@@ -1409,17 +1505,24 @@ fn emitir_embutida(
         if todos.is_empty() { String::new() } else { format!("{}
 ", todos.join("
 ")) };
+    // Ligação escrita só na primeira checagem precisaria de `firstCheck`
+    // declarado aqui também; sem caso no corpus, fica de fora.
+    if dentro.usa_primeira_checagem {
+        return Err(Motivo::Ligacao);
+    }
     let mut linhas_det = Vec::new();
     // `_ctx` só é declarado se o corpo o usar de fato: numa visão de `*ngFor`
     // a interpolação costuma usar o local do laço, não o contexto.
-    if cita_ctx(&dentro.deteccao) {
+    if cita_ctx(&dentro.entradas) || cita_ctx(&dentro.deteccao) {
         linhas_det.push("    final _ctx = this.ctx;".to_string());
     }
+    // Mesma ordem da visão de topo, com os locais antes de tudo.
     linhas_det.extend(declaracoes);
-    linhas_det.extend(dentro.deteccao.clone());
+    linhas_det.extend(dentro.entradas.clone());
     for a in &dentro.ancoras {
         linhas_det.push(format!("    this.{a}.detectChangesInNestedViews();"));
     }
+    linhas_det.extend(dentro.deteccao.clone());
     for v in &dentro.vistas_filhas {
         linhas_det.push(format!("    this.{v}.detectChanges();"));
     }
@@ -1437,6 +1540,7 @@ fn emitir_embutida(
 ")
         )
     };
+    let deteccao = resolver_tardios(dentro.imp, &deteccao);
     // Visão embutida também destrói o que pendurou nela.
     let destruicao = if dentro.ancoras.is_empty() && dentro.vistas_filhas.is_empty() {
         String::new()
@@ -1604,6 +1708,57 @@ fn tipo_do_elemento(tipo: &str) -> Option<String> {
         return None;
     }
     Some(dentro.trim().to_string())
+}
+
+/// Prefixo de import alocado mais tarde. O oficial numera os imports na
+/// ordem em que **escreve** o arquivo, e o `detectChangesInternal` é escrito
+/// depois do `build()` inteiro; nós montamos os dois ao mesmo tempo, andando
+/// pelo template. A marca guarda a URI até a detecção ser escrita
+/// ([`resolver_tardios`]).
+fn tardio(uri: &str) -> String {
+    format!("\u{1}{uri}\u{2}")
+}
+
+/// Troca cada marca de [`tardio`] pelo prefixo, alocando na ordem do texto.
+fn resolver_tardios(imp: &mut Importacoes, texto: &str) -> String {
+    let mut saida = String::with_capacity(texto.len());
+    let mut resto = texto;
+    while let Some(i) = resto.find('\u{1}') {
+        saida.push_str(&resto[..i]);
+        let Some(f) = resto[i..].find('\u{2}') else { break };
+        saida.push_str(&imp.alias(&resto[i + 1..i + f]));
+        resto = &resto[i + f + 1..];
+    }
+    saida.push_str(resto);
+    saida
+}
+
+/// Nome de propriedade ou atributo com contexto de segurança em alguma tag
+/// (`_initializeSecuritySchema`, em `dom_element_schema_registry.dart`): o
+/// valor sai embrulhado num `sanitize*`. Sem olhar a tag, recusa o nome em
+/// qualquer elemento.
+fn com_seguranca(nome: &str) -> bool {
+    matches!(
+        nome,
+        "srcdoc"
+            | "innerHTML"
+            | "outerHTML"
+            | "style"
+            | "formAction"
+            | "href"
+            | "ping"
+            | "src"
+            | "cite"
+            | "background"
+            | "action"
+            | "srcset"
+            | "poster"
+            | "code"
+            | "codebase"
+            | "profile"
+            | "manifest"
+            | "data"
+    )
 }
 
 /// `isNativeHtmlEvent` do ngcompiler (`html_events.dart`): só estes vão
@@ -1791,7 +1946,7 @@ pub fn template_de_componente(
         deteccao: Vec::new(),
         nomes,
         usa_primeira_checagem: false,
-        usa_ctx_na_deteccao: false,
+        entradas: Vec::new(),
         tb,
         url_do_template: local.url_do_template.clone(),
         membros: &c.membros,
@@ -1856,19 +2011,22 @@ pub fn template_de_componente(
         if todos.is_empty() { String::new() } else { format!("{}
 ", todos.join("
 ")) };
-    // A detecção junta as ligações do próprio template e o repasse para as
-    // visões-filhas. `_ctx` e `firstCheck` só são declarados se alguém os usa.
-    let mut linhas_deteccao = corpo.deteccao.clone();
+    // A detecção na ordem de `writeChangeDetectionStatements`: entradas de
+    // diretivas e filhos, visões aninhadas, ligações de propriedade e texto,
+    // visões-filhas. `_ctx` e `firstCheck` só são declarados se alguém os
+    // lê (`maybeCachedCtxDeclarationStatement`).
+    let mut linhas_deteccao = corpo.entradas.clone();
     for a in &corpo.ancoras {
         linhas_deteccao.push(format!("    this.{a}.detectChangesInNestedViews();"));
     }
+    linhas_deteccao.extend(corpo.deteccao.iter().cloned());
     for v in &corpo.vistas_filhas {
         linhas_deteccao.push(format!("    this.{v}.detectChanges();"));
     }
     let deteccao = if linhas_deteccao.is_empty() {
         String::new()
     } else {
-        let ctx = if corpo.usa_ctx_na_deteccao { "    final _ctx = this.ctx;
+        let ctx = if cita_ctx(&linhas_deteccao) { "    final _ctx = this.ctx;
 " } else { "" };
         let primeira =
             if corpo.usa_primeira_checagem { "    bool firstCheck = this.firstCheck;
@@ -1884,6 +2042,8 @@ pub fn template_de_componente(
 ")
         )
     };
+    // Os imports da detecção entram agora, depois dos do `build()`.
+    let deteccao = resolver_tardios(corpo.imp, &deteccao);
     // Visão-filha precisa ser destruída com a visão que a criou.
     let destruicao = if corpo.vistas_filhas.is_empty() && corpo.ancoras.is_empty() {
         String::new()

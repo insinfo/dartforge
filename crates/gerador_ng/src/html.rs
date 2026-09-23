@@ -94,8 +94,42 @@ pub fn tem_projecao(nos: &[No]) -> bool {
 /// geração inteira.
 pub fn analisar(fonte: &str) -> Vec<No> {
     let mut p = Parser { b: fonte.as_bytes(), i: 0, fonte };
-    let nos = p.nos(None);
-    reduzir_espacos(nos)
+    let mut nos = reduzir_espacos(p.nos(None));
+    if !fonte.is_ascii() {
+        em_utf16(&mut nos, fonte);
+    }
+    nos
+}
+
+/// O parser anda em bytes, mas o `REF:url:inicio:fim` do oficial conta em
+/// unidades UTF-16: o `ngast` abre o template com `SourceFile.fromString`,
+/// que usa `text.codeUnits`. Um `©` antes da ligação é 2 bytes e 1 unidade.
+fn em_utf16(nos: &mut [No], fonte: &str) {
+    let conv = |b: usize| fonte.get(..b).map_or(b, |s| s.encode_utf16().count());
+    for no in nos {
+        match no {
+            No::Interpolacao { inicio, fim, .. } => {
+                *inicio = conv(*inicio);
+                *fim = conv(*fim);
+            }
+            No::Elemento(e) => {
+                for l in e
+                    .atributos
+                    .iter_mut()
+                    .chain(e.propriedades.iter_mut())
+                    .chain(e.eventos.iter_mut())
+                    .chain(e.bananas.iter_mut())
+                    .chain(e.referencias.iter_mut())
+                    .chain(e.estrela.iter_mut())
+                {
+                    l.inicio = conv(l.inicio);
+                    l.fim = conv(l.fim);
+                }
+                em_utf16(&mut e.filhos, fonte);
+            }
+            _ => {}
+        }
+    }
 }
 
 struct Parser<'a> {
@@ -492,6 +526,23 @@ mod testes {
                 No::Interpolacao { expr: "b".into(), inicio: 1, fim: 8 },
                 No::Texto("c".into())
             ]
+        );
+    }
+
+    /// Caso do footer do new_sali: o `©` antes da interpolação conta uma
+    /// unidade, não dois bytes.
+    #[test]
+    fn posicao_em_unidades_utf16() {
+        assert_eq!(
+            analisar("<span>© {{ano}}</span>"),
+            vec![No::Elemento(Elemento {
+                nome: "span".into(),
+                filhos: vec![
+                    No::Texto("© ".into()),
+                    No::Interpolacao { expr: "ano".into(), inicio: 8, fim: 15 },
+                ],
+                ..Default::default()
+            })]
         );
     }
 

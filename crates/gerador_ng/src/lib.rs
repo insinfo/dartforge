@@ -455,6 +455,7 @@ fn indexar(
             uri_template: uri.replace(".dart", ".template.dart"),
             projeta,
             entradas: comp.entradas.clone(),
+            muda_o_pai: comp.ganchos.algum() || comp.ganchos.after_changes || comp.on_push,
         },
     );
 }

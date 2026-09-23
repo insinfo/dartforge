@@ -375,6 +375,9 @@ fn blocos(
         // Declarações deste nível saem antes das regras aninhadas, como o
         // Sass emite.
         let (decls, aninhados) = separar(corpo)?;
+        if tem_funcao_de_cor(&substituir(&decls, variaveis)?) {
+            return Err(Motivo::Estilos);
+        }
         if !decls.trim().is_empty() {
             saida.push_str(&seletor);
             saida.push('{');
@@ -427,6 +430,18 @@ fn juntar(pai: &str, filho: &str) -> String {
         }
     }
     partes.join(",")
+}
+
+/// `rgb(…)`/`hsl(…)` o Sass avalia e escreve como cor (`rgb(47, 88, 141)`
+/// sai `#2f588d`, visto no `visualiza_norma_page` do new_sali). Não
+/// avaliamos funções: recusa.
+fn tem_funcao_de_cor(texto: &str) -> bool {
+    let t = texto.to_ascii_lowercase();
+    ["rgb(", "hsl(", "hsla("].iter().any(|f| {
+        t.match_indices(f).any(|(i, _)| {
+            i == 0 || !t.as_bytes()[i - 1].is_ascii_alphanumeric() && t.as_bytes()[i - 1] != b'-'
+        })
+    })
 }
 
 /// Troca `$nome` pelo valor. Variável desconhecida é recusa, não texto vazio.
@@ -535,6 +550,9 @@ mod testes {
         assert!(compilar_em("@use 'tema' as t;", None).is_err());
         assert!(compilar(".a { color: $indefinida; }").is_err());
         assert!(compilar(".#{$x} { color: red; }").is_err());
+        // Função de cor o Sass avalia (`rgb(47, 88, 141)` vira `#2f588d`).
+        assert!(compilar(":host { background: rgb(47, 88, 141); }").is_err());
+        assert!(compilar("$c: hsl(0, 0%, 0%);\n.a { color: $c; }").is_err());
     }
 
     /// O caso real do `arvore_organograma.scss`, cujo shim oficial é

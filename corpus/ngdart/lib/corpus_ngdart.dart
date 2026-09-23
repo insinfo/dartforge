@@ -51,6 +51,8 @@ export 'src/c06_interpolacao_em_cadeia.dart';
 export 'src/c07_atributo_interpolado.dart';
 export 'src/c08_eventos_irmaos.dart';
 export 'src/c09_pipe_na_interpolacao.dart';
+export 'src/c10_entrada_antes_da_propriedade.dart';
+export 'src/c11_ligacoes_constantes.dart';
 export 'src/d01_dois_filhos.dart';
 export 'src/d02_filho_aninhado.dart';
 export 'src/d03_filho_com_entrada.dart';

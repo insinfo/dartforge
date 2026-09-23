@@ -50,6 +50,8 @@ import 'package:corpus_ngdart/src/c06_interpolacao_em_cadeia.template.dart' as c
 import 'package:corpus_ngdart/src/c07_atributo_interpolado.template.dart' as c07;
 import 'package:corpus_ngdart/src/c08_eventos_irmaos.template.dart' as c08;
 import 'package:corpus_ngdart/src/c09_pipe_na_interpolacao.template.dart' as c09;
+import 'package:corpus_ngdart/src/c10_entrada_antes_da_propriedade.template.dart' as c10;
+import 'package:corpus_ngdart/src/c11_ligacoes_constantes.template.dart' as c11;
 import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
@@ -108,6 +110,8 @@ void main() {
     c07.C07AtributoInterpoladoNgFactory,
     c08.C08EventosIrmaosNgFactory,
     c09.C09PipeNaInterpolacaoNgFactory,
+    c10.C10EntradaAntesDaPropriedadeNgFactory,
+    c11.C11LigacoesConstantesNgFactory,
     d01.D01DoisFilhosNgFactory,
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
