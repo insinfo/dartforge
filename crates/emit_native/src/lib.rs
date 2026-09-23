@@ -24,6 +24,9 @@ pub struct CompileOptions<'a> {
     pub packages: Option<&'a Path>,
     pub timings: bool,
     pub optimize: bool,
+    /// Versão de linguagem corrente (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
+    /// `None` = a da ferramenta (3.13).
+    pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
 }
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
@@ -72,8 +75,11 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
         None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
 
-    let sdk = SdkLayout::load(&sdk_dir, "vm")
+    let mut sdk = SdkLayout::load(&sdk_dir, "vm")
         .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
+    if let Some(v) = options.versao_linguagem {
+        sdk.versao_corrente = v;
+    }
 
     let mut interner = Interner::new();
     let (program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
@@ -184,7 +190,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 

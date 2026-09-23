@@ -5,6 +5,7 @@ use crate::outline;
 use crate::sdk::SdkLayout;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DirectiveKind};
+use dartforge_frontend::{Feature, LanguageVersion, LibraryFeatures};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -146,7 +147,7 @@ pub fn load_lenient_gerados(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk: true,
-            language_version: None,
+            features: LibraryFeatures::piso(),
         });
         uri_to_library.insert(core_uri, core_id);
         program.core = Some(core_id);
@@ -179,7 +180,7 @@ pub fn load_lenient_gerados(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk,
-            language_version: None,
+            features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
         });
         uri_to_library.insert(entry_uri.clone(), lib_id);
         queue.push_back(lib_id);
@@ -238,6 +239,7 @@ pub fn load_lenient_gerados(
                         unit: u.unit,
                         library: lib_id,
                         role: u.role,
+                        features: LibraryFeatures::piso(),
                     });
                     program.libraries[lib_id.0 as usize].units.push(unit_id);
                 }
@@ -249,6 +251,7 @@ pub fn load_lenient_gerados(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
+                    Versao::Sdk,
                     interner,
                     &mut program,
                     &mut diagnostics,
@@ -270,6 +273,7 @@ pub fn load_lenient_gerados(
                         &patch_uri,
                         lib_id,
                         UnitRole::Patch,
+                        Versao::Sdk,
                         interner,
                         &mut program,
                         &mut diagnostics,
@@ -296,6 +300,7 @@ pub fn load_lenient_gerados(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
+                    Versao::Biblioteca { config: &package_config, corrente: sdk.versao_corrente, experimentos: &sdk.experimentos },
                     interner,
                     &mut program,
                     &mut diagnostics,
@@ -400,12 +405,19 @@ pub fn load_lenient_gerados(
                                 (p, u)
                             }
                         };
+                        let da_biblioteca = program.libraries[lib_id.0 as usize].features;
+                        let versao_da_parte = if program.libraries[lib_id.0 as usize].is_sdk {
+                            Versao::Sdk
+                        } else {
+                            Versao::Parte { da_biblioteca, config: &package_config, corrente: sdk.versao_corrente }
+                        };
 
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
                             lib_id,
                             UnitRole::Part,
+                            versao_da_parte,
                             interner,
                             &mut program,
                             &mut diagnostics,
@@ -629,11 +641,111 @@ pub(crate) fn normalizar(p: &Path) -> PathBuf {
     out
 }
 
+/// De onde vem a versão de linguagem de uma unidade
+/// (`docs/VERSOES-LINGUAGEM.md` §2). Resolvida uma vez por unidade, antes do
+/// parse, a partir da fonte já lida (o marcador) e do `package_config`.
+#[derive(Clone, Copy)]
+enum Versao<'c> {
+    /// Biblioteca, patch ou parte do SDK: sempre o piso (D1).
+    Sdk,
+    /// Unidade principal de uma biblioteca do usuário ou de pacote.
+    Biblioteca { config: &'c PackageConfig, corrente: LanguageVersion, experimentos: &'c [Feature] },
+    /// Parte: analisada com os recursos da biblioteca; a versão da própria
+    /// parte (marcador ou pacote) tem de ser a mesma, senão é erro
+    /// (`LanguageVersionMismatchInPart`).
+    Parte { da_biblioteca: LibraryFeatures, config: &'c PackageConfig, corrente: LanguageVersion },
+}
+
+/// Os recursos de uma unidade e os diagnósticos da escolha da versão.
+fn features_da_unidade(
+    fonte: &str,
+    uri: &str,
+    path: &Path,
+    versao: Versao<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> LibraryFeatures {
+    match versao {
+        Versao::Sdk => LibraryFeatures::piso(),
+        Versao::Biblioteca { config, corrente, experimentos } => {
+            let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
+            LibraryFeatures::para_biblioteca(marcador.map(|m| m.0), padrao, corrente, experimentos)
+        }
+        Versao::Parte { da_biblioteca, config, corrente } => {
+            let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
+            let propria = marcador.map_or(padrao, |m| m.0);
+            if propria != da_biblioteca.versao() {
+                let span = marcador.map_or(Span { start: 0, end: 0 }, |m| m.1);
+                diagnostics.push(Diagnostic::new(
+                    format!(
+                        "{}:{}: a parte está na versão de linguagem {propria}, mas a biblioteca dela está na {}: uma parte tem de ter a versão da sua biblioteca",
+                        path.display(),
+                        span.start,
+                        da_biblioteca.versao()
+                    ),
+                    span,
+                ));
+            }
+            da_biblioteca
+        }
+    }
+}
+
+/// A versão padrão da unidade (a do pacote, ou a corrente fora de pacote) e
+/// o marcador `// @dart = x.y` válido, com o seu intervalo. Marcador acima da
+/// corrente ou abaixo de 2.12 é erro e fica de fora, como no CFE
+/// (`LanguageVersionTooHighExplicit`/`TooLowExplicit`).
+fn versao_propria(
+    fonte: &str,
+    uri: &str,
+    path: &Path,
+    config: &PackageConfig,
+    corrente: LanguageVersion,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> (LanguageVersion, Option<(LanguageVersion, Span)>) {
+    let mut erro = |msg: String, span: Span| {
+        diagnostics.push(Diagnostic::new(format!("{}:{}: {msg}", path.display(), span.start), span));
+    };
+    let zero = Span { start: 0, end: 0 };
+    let padrao = match config.pacote_da_biblioteca(uri, Some(path)) {
+        Some(p) => {
+            if let Some(t) = &p.language_version_invalida {
+                erro(format!("o languageVersion '{t}' do pacote '{}' no package_config.json não é uma versão x.y", p.name), zero);
+            }
+            match p.language_version {
+                Some(v) if v > corrente => {
+                    erro(format!("o pacote '{}' está na versão de linguagem {v}, acima da suportada ({corrente})", p.name), zero);
+                    corrente
+                }
+                Some(v) => v,
+                None => corrente,
+            }
+        }
+        None => corrente,
+    };
+    let marcador = dartforge_frontend::features::marcador_versao(fonte).and_then(|(v, span)| {
+        if v > corrente {
+            erro(format!("a versão de linguagem {v} do marcador está acima da suportada ({corrente})"), span);
+            None
+        } else if v < LanguageVersion::MINIMA {
+            erro(
+                format!("a versão de linguagem {v} do marcador está abaixo da mínima ({}, null safety)", LanguageVersion::MINIMA),
+                span,
+            );
+            None
+        } else {
+            Some((v, span))
+        }
+    });
+    (padrao, marcador)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn load_unit(
     path: &Path,
     uri: &str,
     lib_id: LibraryId,
     role: UnitRole,
+    versao: Versao<'_>,
     interner: &mut Interner,
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
@@ -642,12 +754,21 @@ fn load_unit(
 ) -> Option<UnitId> {
     // Sessão residente: unidade já analisada entra direto (o que mudou já foi
     // invalidado pelo dono do cache; a carga não consulta o disco por isso).
+    // A versão é recalculada da fonte guardada (o marcador) e do
+    // `package_config` de agora: se o `languageVersion` do pacote mudou, a
+    // unidade é analisada de novo.
     let mut unidades = unidades;
     if let Some(cache) = unidades.as_deref_mut() {
         let tirada = cache.tirar(path);
         if let Some(mut u) = tirada {
-            let ok = crate::unidades::serve(&u, uri, role);
+            let mut diags_versao = Vec::new();
+            let features = features_da_unidade(&u.source, uri, path, versao, &mut diags_versao);
+            let ok = crate::unidades::serve(&u, uri, role) && u.features == features;
             if ok {
+                diagnostics.extend(diags_versao);
+                if role == UnitRole::Library {
+                    program.libraries[lib_id.0 as usize].features = features;
+                }
                 u.library = lib_id;
                 let unit_id = UnitId(program.units.len() as u32);
                 program.units.push(u);
@@ -682,8 +803,12 @@ fn load_unit(
         cache.anotar_marca(path);
     }
 
+    let features = features_da_unidade(&source, uri, path, versao, diagnostics);
+    if role == UnitRole::Library {
+        program.libraries[lib_id.0 as usize].features = features;
+    }
     let t = std::time::Instant::now();
-    let parsed = dartforge_frontend::parser::parse_lexed(&source, tokens, interner);
+    let parsed = dartforge_frontend::parser::parse_lexed_com(&source, tokens, interner, features);
     program.tempos.parse += t.elapsed();
     for mut d in parsed.diagnostics {
         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);
@@ -699,6 +824,7 @@ fn load_unit(
         unit: parsed.unit,
         library: lib_id,
         role,
+        features,
     });
 
     Some(unit_id)
@@ -726,7 +852,7 @@ fn get_or_create_library(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk,
-            language_version: None,
+            features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
         });
         uri_to_library.insert(canonical_uri.to_string(), lib_id);
         queue.push_back(lib_id);

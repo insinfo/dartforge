@@ -10,7 +10,8 @@ use dartforge_emit_js_producao::{Opcoes, compilar};
 
 const USO: &str = "uso: dartforge-jsprod <entrada.dart> -o <saida.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <arquivo>] \
-[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--verificar-stub]";
+[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--verificar-stub] \
+[--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 fn main() {
     if let Err(e) = executar() {
@@ -27,6 +28,7 @@ fn executar() -> Result<(), String> {
     let mut packages: Option<PathBuf> = None;
     let mut dart_sdk_js: Option<PathBuf> = None;
     let mut op = Opcoes::default();
+    let mut linguagem = dartforge_elements::sdk::Linguagem::default();
     let mut i = 0;
     while i < args.len() {
         let proximo = |i: &mut usize| -> Result<PathBuf, String> {
@@ -46,6 +48,12 @@ fn executar() -> Result<(), String> {
                 println!("{USO}");
                 return Ok(());
             }
+            outro if outro.starts_with("--versao-linguagem") || outro.starts_with("--enable-experiment") => {
+                let mut resto = args[i + 1..].iter().map(String::as_str);
+                let antes = resto.len();
+                linguagem.ler_opcao(outro, &mut resto)?;
+                i += antes - resto.len();
+            }
             outro if entrada.is_none() && !outro.starts_with('-') => entrada = Some(PathBuf::from(outro)),
             outro => return Err(format!("argumento desconhecido: {outro}\n{USO}")),
         }
@@ -58,7 +66,7 @@ fn executar() -> Result<(), String> {
     let (e2, s2, p2, r2) = (entrada.clone(), sdk.clone(), packages.clone(), runtime.clone());
     let prod = std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || compilar(&e2, s2.as_deref(), p2.as_deref(), &r2, op))
+        .spawn(move || compilar(&e2, s2.as_deref(), p2.as_deref(), &r2, op, &linguagem))
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "a compilação abortou")??;

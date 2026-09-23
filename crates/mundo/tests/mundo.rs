@@ -56,7 +56,7 @@ impl Caso<'_> {
 #[ignore = "compila contra o SDK; rodar com --ignored"]
 fn casos_do_mundo_fechado() {
     let arquivo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programas/casos.dart");
-    let (r, _) = dartforge_emit_js::compilar_com(&arquivo, None, None, |a| {
+    let (r, _) = dartforge_emit_js::compilar_com(&arquivo, None, None, &Default::default(), |a| {
         let e = Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
         let mut raizes = Raizes::default();
         let lib = a.program.entry.expect("entrada");

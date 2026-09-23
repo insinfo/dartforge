@@ -13,6 +13,10 @@ pub mod module;
 pub mod pattern;
 pub mod ty;
 
+/// Opções de linguagem (`--versao-linguagem`, `--enable-experiment`) de quem chama
+/// [`compilar_com`]; ver `docs/VERSOES-LINGUAGEM.md`.
+pub use dartforge_elements::sdk::Linguagem;
+
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
@@ -199,7 +203,7 @@ pub fn compilar(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<Emitido, String> {
-    compilar_com_relatorio(entrada, sdk_lib, packages).map(|(e, _)| e)
+    compilar_com_relatorio(entrada, sdk_lib, packages, &Default::default()).map(|(e, _)| e)
 }
 
 /// Como [`compilar`], devolvendo também o [`Relatorio`] de tempos por fase.
@@ -241,8 +245,9 @@ pub fn compilar_com_relatorio(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
 ) -> Result<(Emitido, Relatorio), String> {
-    let (emitido, mut rel) = compilar_com(entrada, sdk_lib, packages, |a| {
+    let (emitido, mut rel) = compilar_com(entrada, sdk_lib, packages, linguagem, |a| {
         emitir_programa(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
             .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     })?;
@@ -257,6 +262,7 @@ pub fn compilar_com<R>(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
     fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
     use dartforge_elements::sdk::SdkLayout;
@@ -267,7 +273,8 @@ pub fn compilar_com<R>(
         Some(p) => p.to_path_buf(),
         None => SdkLayout::discover().unwrap_or_else(|| std::path::PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
-    let sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
+    let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
+    linguagem.aplicar(&mut sdk);
     rel.fase("layout do SDK", t);
     // Cache do SDK analisado (`target/dartforge/sdk-<hash>.bin`); a primeira
     // compilação o constrói. `DARTFORGE_SDK_CACHE=0` desliga.
