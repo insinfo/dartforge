@@ -187,7 +187,8 @@ impl Motor {
                 let Some(p) = &program.unit(*u).path else { continue };
                 let prefixo = format!("{}:{}: ", p.display(), d.span.start);
                 if let Some(msg) = d.message.strip_prefix(&prefixo) {
-                    let cru = Diagnostic::new(msg, d.span);
+                    let mut cru = d.clone();
+                    cru.message = msg.to_string();
                     let a = analise.arquivos.get_mut(k).expect("próprio");
                     a.diags.push(ponte::codificar_sintaxe(&cru));
                     a.sintaticos += 1;
@@ -213,7 +214,34 @@ impl Motor {
             }
         }
 
-        // 3. Tipos.
+        // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
+        for lib in &libs_proprias {
+            let biblioteca = program.library(*lib);
+            let ids: Vec<UnitId> = biblioteca
+                .units
+                .iter()
+                .copied()
+                .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
+                .collect();
+            let unidades: Vec<dartforge_analise::Unidade<'_>> = ids
+                .iter()
+                .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit })
+                .collect();
+            let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+            let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga);
+            for (i, u) in unidades.iter().enumerate() {
+                achados.extend(dartforge_analise::locais::nao_usados(*u, &interner, curinga).into_iter().map(|d| (i, d)));
+            }
+            for (i, d) in achados {
+                if let Some(p) = &program.unit(ids[i]).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
+        }
+
+        // 4. Tipos.
         let mut table = dartforge_types::TypeTable::new();
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, diags_outline) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
