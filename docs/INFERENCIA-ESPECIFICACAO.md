@@ -905,7 +905,7 @@ flow_analysis.dart` (3.14; **FA:n**); cola do analyzer em
 | `constructor-tearoffs` | 2.15 | com ela, o inicializador de `var` implícita cria versão de valor e estado de condição (sem ela, o bug #1785 é mantido) | ligada (FA:8814-8821; F76:5957-5963) |
 | `patterns` | 3.0 | constantes de `case` promovem; casos inalcançáveis | ligada (FA:6505-6522) |
 | `inference-update-2` | 3.2 | promoção de campo final privado | ligada (F76:5925-5927; AFV76:104-105) |
-| `sound-flow-analysis` | **3.9** | assume null safety sólida (§7.13) | **ausente** |
+| `sound-flow-analysis` | **3.9** | assume null safety sólida (§7.18) | **ausente** |
 | `inference-update-4` | não liberada | `final` pula a junção conservadora; `x = e` devolve referência a `x` | desligada |
 | `this-promotion`, `promotion-chain-intersection-join`, `anonymous-methods` | não liberadas | `this` promovível; junção por subsequência comum; blocos anônimos | ausentes |
 
