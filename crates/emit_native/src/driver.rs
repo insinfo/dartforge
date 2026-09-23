@@ -55,7 +55,12 @@ pub fn compile_and_link(
     let sdk = if llvm_ir.contains("declare void @df.registrar.") {
         let dir = dartforge_elements::sdk::SdkLayout::discover()
             .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
-        let sdk = crate::sdk_modulo::sdk_compilado(&dir, &options.clang)?;
+        let perfil = if options.optimize {
+            crate::sdk_modulo::PerfilDoSdk::Producao
+        } else {
+            crate::sdk_modulo::PerfilDoSdk::Desenvolvimento
+        };
+        let sdk = crate::sdk_modulo::sdk_compilado_no_perfil(&dir, &options.clang, perfil)?;
         if let Some(t) = sdk.frio
             && options.timings
         {
@@ -65,9 +70,17 @@ pub fn compile_and_link(
     } else {
         None
     };
-    // Com o SDK da fonte, o runtime mora na DLL do SDK: o executável liga o
-    // objeto do programa e a biblioteca de importação dela.
+    // Com o SDK da fonte há dois perfis (docs/NATIVO-PLANO.md §7.7):
+    // * desenvolvimento e teste: o runtime e o SDK moram na DLL em cache, e o
+    //   executável liga só o objeto do programa e a biblioteca de importação
+    //   (ligação rápida; a DLL vai ao lado do executável);
+    // * produção (`optimize`): UM executável autocontido — o objeto do
+    //   programa, os objetos do SDK (em cache, compilados com
+    //   `-ffunction-sections`) e o runtime estático, com `/OPT:REF` tirando o
+    //   que o programa não alcança.
+    let producao = options.optimize && sdk.is_some();
     let (ligar_com, sdk_objetos): (PathBuf, Vec<PathBuf>) = match &sdk {
+        Some(s) if producao => (crate::cache::RuntimeCache::para_dll()?.lib_path, s.objetos.clone()),
         Some(s) => (s.importacao.clone(), Vec::new()),
         None => (runtime.lib_path.clone(), Vec::new()),
     };
@@ -88,7 +101,12 @@ pub fn compile_and_link(
     // `-mno-incremental-linker-compatible` zera o TimeDateStamp do cabeçalho
     // COFF: sem ele, o mesmo IR dava objetos diferentes no byte 4 (medido),
     // e o objeto deixava de ser função da chave.
-    let args = ["-x", "ir", "-c", opt_flag, "-mno-incremental-linker-compatible"];
+    let mut args = vec!["-x", "ir", "-c", opt_flag, "-mno-incremental-linker-compatible"];
+    if producao {
+        // Produção com o SDK da fonte: bitcode ThinLTO, otimizado junto com
+        // o do SDK na ligação.
+        args.push("-flto=thin");
+    }
 
     // Fase 1: Clang compila LLVM IR -> Objeto, ou o cache já tem o objeto
     // deste IR com este Clang e estas bandeiras.
@@ -133,7 +151,7 @@ pub fn compile_and_link(
         ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     }
     ligou?;
-    if let Some(s) = &sdk {
+    if let Some(s) = sdk.as_ref().filter(|_| !producao) {
         // A DLL ao lado do executável (o Windows procura primeiro ali):
         // ligação física, sem cópia; cópia só se o volume for outro.
         let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
@@ -181,10 +199,27 @@ fn compilar_objeto(clang: &Path, args: &[&str], llvm_ir: &str, obj: &Path) -> Re
 fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], runtime_lib: &Path, output: &Path) -> Result<(), String> {
     let mut cmd = Command::new(clang);
     cmd.arg(obj).args(sdk).arg(runtime_lib);
-    if runtime_lib.file_name().is_some_and(|n| n.to_string_lossy().starts_with("dfsdk_")) {
-        // Executável do SDK da fonte: o runtime está na DLL, que usa a CRT
-        // dinâmica (a do `rustc`); o executável usa a mesma.
+    let nome = runtime_lib.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if nome.starts_with("dfsdk_") {
+        // Executável do SDK da fonte (desenvolvimento): o runtime está na
+        // DLL, que usa a CRT dinâmica (a do `rustc`); o executável usa a
+        // mesma.
         cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
+    } else if nome.starts_with("dartforge_rtdll_") {
+        // Produção com o SDK da fonte: tudo estático no executável, a mesma
+        // CRT do runtime, ThinLTO entre o programa e o SDK (lld), e o ligador
+        // tira as seções que nada alcança.
+        cmd.args([
+            "-fuse-ld=lld",
+            "-flto=thin",
+            "-O2",
+            "-lws2_32",
+            "-luserenv",
+            "-lntdll",
+            "-Wl,/NODEFAULTLIB:libcmt",
+            "-lmsvcrt",
+            "-Wl,/OPT:REF",
+        ]);
     } else {
         cmd.args(["-lws2_32", "-luserenv", "-lntdll"]);
     }

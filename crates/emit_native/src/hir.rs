@@ -389,7 +389,11 @@ pub struct Module {
     pub biblioteca_sdk: bool,
     /// Tabelas de métodos das classes deste módulo, registradas no runtime
     /// na partida (P5c): (id da classe, [(seletor, símbolo do adaptador)]).
-    pub tabelas_de_metodos: Vec<(u32, Vec<(String, String)>)>,
+    pub tabelas_de_metodos: Vec<(u32, String, Vec<(String, String)>)>,
+    /// A função que devolve a tabela de métodos de cada classe concreta
+    /// compilada (de qualquer módulo), pelo id: a alocação de um objeto da
+    /// classe registra a tabela (`dartforge_object_new_t`).
+    pub funcoes_de_tabela: std::collections::HashMap<u32, String>,
     /// Biblioteca do SDK: o nome da função que registra as classes dela
     /// (nomes, subtipos, tabelas de métodos) no runtime.
     pub registro: Option<String>,

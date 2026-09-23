@@ -755,6 +755,22 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i32 @dartforge_iniciar(ptr, ptr)",
         efeitos: CONSERVADOR,
     },
+    Extern {
+        decl: "declare void @dartforge_rastro_entrada(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rastro_saida()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_object_new_t(i64, i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_tabela(i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
 ];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.

@@ -41,6 +41,30 @@ pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pares: *const i64
     METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n as usize)));
 }
 
+/// Registra a tabela de métodos da classe `cid` pela função que a devolve
+/// (`df.mt.<biblioteca>.<Classe>`, `{cid, n, [hash, entrada]…}`), se ainda
+/// não registrada.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *const i64) {
+    if METODOS.with(|m| m.borrow().contains_key(&cid)) {
+        return;
+    }
+    let t = f();
+    // SAFETY: a tabela é uma constante do módulo: cid, n e os n pares.
+    let n = unsafe { *t.add(1) } as usize;
+    // SAFETY: os pares começam na terceira palavra.
+    let pares = unsafe { t.add(2) };
+    METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n)));
+}
+
+/// `dartforge_object_new` que registra a tabela de métodos da classe na
+/// primeira alocação (SDK da fonte).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_object_new_t(cid: i64, campos: i64, f: extern "C" fn() -> *const i64) -> i64 {
+    dartforge_registrar_tabela(cid, f);
+    dartforge_object_new(cid, campos)
+}
+
 /// Registra os ids de classe dos valores do runtime (SDK da fonte).
 ///
 /// # Safety
@@ -176,4 +200,37 @@ fn depurar() -> bool {
         static D: bool = std::env::var("DARTFORGE_DEPURAR").is_ok_and(|v| v == "1");
     }
     D.with(|d| *d)
+}
+
+thread_local! {
+    /// A pilha de funções Dart (`DARTFORGE_RASTRO=1` na compilação).
+    static RASTRO: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Entrada de uma função (rastro de depuração).
+///
+/// # Safety
+/// `nome` aponta para `len` bytes de uma constante do módulo.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_rastro_entrada(nome: *const u8, len: i64) {
+    RASTRO.with(|r| r.borrow_mut().push((nome as usize, len as usize)));
+}
+
+/// Saída de uma função (rastro de depuração).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rastro_saida() {
+    RASTRO.with(|r| {
+        r.borrow_mut().pop();
+    });
+}
+
+/// A pilha de funções Dart corrente, da mais interna para fora.
+fn mostrar_rastro() {
+    RASTRO.with(|r| {
+        for &(p, n) in r.borrow().iter().rev().take(25) {
+            // SAFETY: constantes do módulo registradas por `dartforge_rastro_entrada`.
+            let b = unsafe { std::slice::from_raw_parts(p as *const u8, n) };
+            eprintln!("    em {}", String::from_utf8_lossy(b));
+        }
+    });
 }

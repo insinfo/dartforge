@@ -738,6 +738,11 @@ pub struct Heap {
     pub imutaveis: std::collections::HashSet<i64>,
     /// Listas de tamanho fixo (`_List` do SDK da fonte, P5c).
     pub fixas: std::collections::HashSet<i64>,
+    /// `_GrowableList` criada por `_withData(data)` (P5c): o vetor tem os
+    /// elementos de `data` (a reserva) e o tamanho lógico ainda é este, até
+    /// o primeiro `_setLength`/`_setData` — na VM a lista aponta para o
+    /// `_List` e o tamanho é outro campo.
+    pub pendentes: std::collections::HashMap<i64, usize>,
     pub iteracoes_ativas: std::collections::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -767,6 +772,7 @@ impl Heap {
             raizes_do_runtime: [0, 0],
             imutaveis: std::collections::HashSet::new(),
             fixas: std::collections::HashSet::new(),
+            pendentes: std::collections::HashMap::new(),
             iteracoes_ativas: std::collections::HashSet::new(),
             origens: std::collections::HashMap::new(),
         }
@@ -1465,6 +1471,7 @@ impl Heap {
         };
         self.imutaveis.retain(|h| vivo(h));
         self.fixas.retain(|h| vivo(h));
+        self.pendentes.retain(|h, _| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
         for (index, slot) in self.slots.iter_mut().enumerate() {

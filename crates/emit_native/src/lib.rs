@@ -105,6 +105,12 @@ pub fn construtos_do_erro(texto: &str) -> Vec<String> {
 /// Construto não suportado também é `Err`, com **todos** os diagnósticos do
 /// módulo (formato em `erro_de_compilacao`); nenhum IR é emitido.
 pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
+    emitir_ir_com(entrada, options, sdk_modulo::sdk_da_fonte_pedido())
+}
+
+/// [`emitir_ir`] escolhendo o SDK: da fonte (P5c/P5d, `sdk_modulo`) ou o
+/// runtime por nome de antes.
+pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
@@ -115,7 +121,6 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     // SDK da fonte (P5c, `DARTFORGE_SDK_DA_FONTE=1`): a seção `vm` com a
     // sobreposição `sdk_nativo/`, e as bibliotecas da fonte ligadas como
     // objetos em cache (`sdk_modulo::sdk_compilado`).
-    let da_fonte = sdk_modulo::sdk_da_fonte_pedido();
     let sdk = if da_fonte {
         sdk_modulo::carregar_sdk_nativo(&sdk_dir)?
     } else {
@@ -201,9 +206,19 @@ pub fn compilar(
     saida: &Path,
     options: &CompileOptions,
 ) -> Result<PathBuf, String> {
+    compilar_com(entrada, saida, options, sdk_modulo::sdk_da_fonte_pedido())
+}
+
+/// [`compilar`] escolhendo o SDK (ver [`emitir_ir_com`]).
+pub fn compilar_com(
+    entrada: &Path,
+    saida: &Path,
+    options: &CompileOptions,
+    da_fonte: bool,
+) -> Result<PathBuf, String> {
     let t_total = Instant::now();
 
-    let ir = emitir_ir(entrada, options)?;
+    let ir = emitir_ir_com(entrada, options, da_fonte)?;
 
     // 4. Clang e Ligação
     let driver_opts = driver::NativeDriverOptions {

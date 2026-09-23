@@ -56,7 +56,13 @@ fn lancar_indice(indice: i64, alvo: i64, tamanho: i64) {
 }
 
 fn lista_len(this: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow().list_len(this) as i64)
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.pendentes.get(&this) {
+            Some(&n) => n as i64,
+            None => heap.list_len(this) as i64,
+        }
+    })
 }
 
 /// `_List(length)`: `length` nulls, tamanho fixo. O parâmetro não tem tipo
@@ -136,19 +142,31 @@ pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, inicio: i64, quan
     })
 }
 
-/// `_GrowableList._withData(data)`: tamanho 0, capacidade a do `_List`.
+/// `_GrowableList._withData(data)`: tamanho 0; os elementos de `data` ficam
+/// como reserva (o `_setLength` seguinte os expõe, como na VM, onde a lista
+/// aponta para o `_List`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_allocate(dados: i64) -> i64 {
-    let cap = lista_len(dados) as usize;
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::with_capacity(cap))))
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let Value::List(itens) = heap.get(dados) else { return 0 };
+        let itens = itens.clone();
+        let h = heap.allocate(Value::List(itens));
+        heap.pendentes.insert(h, 0);
+        h
+    })
 }
 
 /// `_GrowableList._capacity`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_getCapacity(this: i64) -> i64 {
-    HEAP.with(|heap| match heap.borrow().get(this) {
-        Value::List(itens) => itens.capacity() as i64,
-        _ => 0,
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.get(this) {
+            Value::List(itens) if heap.pendentes.contains_key(&this) => itens.len() as i64,
+            Value::List(itens) => itens.capacity() as i64,
+            _ => 0,
+        }
     })
 }
 
@@ -162,7 +180,10 @@ pub extern "C" fn dartforge_nativo_GrowableList_getLength(this: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
     HEAP.with(|heap| {
-        if let Value::List(itens) = heap.borrow_mut().get_mut(this) {
+        let mut heap = heap.borrow_mut();
+        // A reserva de `_withData` vira os elementos até `n`.
+        heap.pendentes.remove(&this);
+        if let Value::List(itens) = heap.get_mut(this) {
             itens.resize(n.max(0) as usize, TaggedValue::reference(0));
         }
     });
@@ -176,8 +197,9 @@ pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, dados: i64) {
         let mut heap = heap.borrow_mut();
         let Value::List(novos) = heap.get(dados) else { return };
         let novos = novos.clone();
+        let pendente = heap.pendentes.remove(&this);
         if let Value::List(itens) = heap.get_mut(this) {
-            let n = itens.len().min(novos.len());
+            let n = pendente.unwrap_or(itens.len()).min(novos.len());
             let mut v = Vec::with_capacity(novos.len());
             v.extend_from_slice(&novos[..n]);
             *itens = v;

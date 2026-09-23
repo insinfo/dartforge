@@ -39,6 +39,11 @@ pub struct LlvmEmitter<'a> {
     externos: std::collections::BTreeMap<String, String>,
     /// Símbolos definidos em `comdat` (`seletores::ligacao_de`).
     comdats: Vec<String>,
+    /// `DARTFORGE_RASTRO=1` na compilação: cada função conta a entrada e a
+    /// saída ao runtime, que mostra a pilha de funções Dart numa exceção
+    /// (`DARTFORGE_DEPURAR=1`). Só para depurar o SDK da fonte.
+    rastro: Option<usize>,
+    nomes_do_rastro: Vec<String>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -60,6 +65,8 @@ impl<'a> LlvmEmitter<'a> {
             nomes_de_seletor: Vec::new(),
             externos: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
+            rastro: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
+            nomes_do_rastro: Vec::new(),
         }
     }
 
@@ -291,6 +298,14 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
+            }
+            if block.id.0 == 0
+                && let Some(k) = self.rastro.as_mut()
+            {
+                let n = *k;
+                *k += 1;
+                self.nomes_do_rastro.push(func.symbol.clone());
+                writeln!(self.out, "  call void @dartforge_rastro_entrada(ptr @df.rastro.{n}, i64 {})", func.symbol.len()).unwrap();
             }
             if block.id.0 == 0 && self.tem_frame {
                 writeln!(self.out, "  %gcf = call i64 @dartforge_gc_push_frame(i64 {})", self.slots.len()).unwrap();
@@ -527,6 +542,20 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %v{v} = call {r} @{symbol}({joined})").unwrap();
                         }
                     }
+                    Instruction::CallRuntime { name, args, ret_ty }
+                        if name == "dartforge_object_new"
+                            && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                                if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
+                    {
+                        // SDK da fonte: a primeira alocação registra a tabela
+                        // de métodos da classe (`seletores.rs`).
+                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
+                        let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
+                        self.anotar_externo(&f, Type::Ptr, &[]);
+                        let n = self.coagir(&args[1].0, Type::I64);
+                        writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap();
+                        let _ = ret_ty;
+                    }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {
                             let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
@@ -760,6 +789,9 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
 
+            if self.rastro.is_some() && matches!(block.terminator, Terminator::Return(_)) {
+                writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
+            }
             // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
             // das saídas por exceção (que retornam o valor padrão).
             if self.tem_frame && matches!(block.terminator, Terminator::Return(_)) {
@@ -1102,6 +1134,14 @@ impl<'a> LlvmEmitter<'a> {
             .unwrap();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
+            // As tabelas das classes dos valores do runtime (que não passam
+            // por `dartforge_object_new_t`).
+            for c in self.module.cids_do_runtime.clone() {
+                if let Some(f) = self.module.funcoes_de_tabela.get(&(c as u32)).cloned() {
+                    self.anotar_externo(&f, Type::Ptr, &[]);
+                    writeln!(self.out, "  call void @dartforge_registrar_tabela(i64 {c}, ptr @{f})").unwrap();
+                }
+            }
             for r in &self.module.registros_do_sdk {
                 writeln!(self.out, "  call void @{r}()").unwrap();
                 self.externos.insert(r.clone(), format!("declare void @{r}()"));

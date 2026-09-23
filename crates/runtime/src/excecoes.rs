@@ -160,6 +160,7 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
         let cid = if value.is_ref { dartforge_value_class(value.bits) } else { -100 };
         let nome = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
         eprintln!("[depurar] throw: classe {cid} {nome}");
+        mostrar_rastro();
     }
     // G6: a exceção pendente é raiz até ser consumida.
     HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, if value.is_ref { value.bits } else { 0 }));

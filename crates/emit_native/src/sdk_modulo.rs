@@ -289,6 +289,9 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMISSOR_HASH").as_bytes());
     h.update(b"\0");
+    // O rastro de depuração muda o código (`llvm/mod.rs`).
+    h.update(std::env::var("DARTFORGE_RASTRO").unwrap_or_default().as_bytes());
+    h.update(b"\0");
     h.update(clang_id.as_bytes());
     for a in args {
         h.update(a.as_bytes());
@@ -309,18 +312,42 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.finalize().to_hex()[..32].to_string()
 }
 
-/// As bandeiras do Clang para os objetos do SDK: as do programa, e cada
-/// função na sua seção (o ligador leva só o que o executável usa).
+/// As bandeiras do Clang para os objetos do SDK no perfil de
+/// desenvolvimento: as do programa, e cada função na sua seção.
 pub const ARGS_CLANG_DO_SDK: &[&str] =
     &["-x", "ir", "-c", "-O0", "-mno-incremental-linker-compatible", "-ffunction-sections", "-fdata-sections"];
+
+/// As do perfil de produção: bitcode para a otimização entre módulos
+/// (ThinLTO) na ligação do executável (docs/PESQUISA-LLVM-DART-AOT.md §5:
+/// desenvolvimento em módulos separados, produção com ThinLTO).
+pub const ARGS_CLANG_DO_SDK_PRODUCAO: &[&str] =
+    &["-x", "ir", "-c", "-O2", "-flto=thin", "-mno-incremental-linker-compatible", "-ffunction-sections", "-fdata-sections"];
+
+/// O perfil em que o SDK da fonte é compilado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PerfilDoSdk {
+    /// Objetos `-O0` e a DLL (runtime + SDK) que o executável importa.
+    Desenvolvimento,
+    /// Bitcode ThinLTO `-O2`, ligado estaticamente no executável.
+    Producao,
+}
 
 /// Os objetos do SDK da fonte: do cache (`<cache nativo>/sdk/<chave>/`), ou
 /// compilados agora — uma vez por conteúdo, as bibliotecas em paralelo.
 pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, String> {
+    sdk_compilado_no_perfil(lib_dir, clang, PerfilDoSdk::Desenvolvimento)
+}
+
+/// [`sdk_compilado`] no perfil pedido.
+pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk) -> Result<SdkCompilado, String> {
     static TRAVA: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = TRAVA.lock().unwrap_or_else(|e| e.into_inner());
     let clang_id = crate::cache_objeto::identidade_clang(clang)?;
-    let chave = chave_do_sdk(lib_dir, &clang_id, ARGS_CLANG_DO_SDK);
+    let args = match perfil {
+        PerfilDoSdk::Desenvolvimento => ARGS_CLANG_DO_SDK,
+        PerfilDoSdk::Producao => ARGS_CLANG_DO_SDK_PRODUCAO,
+    };
+    let chave = chave_do_sdk(lib_dir, &clang_id, args);
     let raiz = crate::cache::dir_cache_nativo().join("sdk");
     let dir = raiz.join(&chave);
     let nome_dll = format!("dfsdk_{}", &chave[..16]);
@@ -376,7 +403,7 @@ pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, Strin
                 let Some(b) = fila.lock().unwrap().pop() else { break };
                 let st = std::process::Command::new(clang)
                     .current_dir(&tmp)
-                    .args(ARGS_CLANG_DO_SDK)
+                    .args(args)
                     .arg(format!("{b}.ll"))
                     .arg("-o")
                     .arg(format!("{b}.obj"))
@@ -392,8 +419,13 @@ pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, Strin
     if let Some(e) = erros.into_inner().unwrap().into_iter().next() {
         return Err(e);
     }
-    // A DLL: os objetos do SDK e o runtime (variante sem `main`).
-    let st = std::process::Command::new(clang)
+    // A DLL (desenvolvimento): os objetos do SDK e o runtime (variante sem
+    // `main`). Em produção, os objetos (bitcode) vão direto para o
+    // executável.
+    let st = if perfil == PerfilDoSdk::Producao {
+        None
+    } else {
+        Some(std::process::Command::new(clang)
         .current_dir(&tmp)
         .arg("-shared")
         .args(BIBLIOTECAS_DA_FONTE.iter().map(|b| format!("{b}.obj")))
@@ -402,8 +434,11 @@ pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, Strin
         .args(["-lws2_32", "-luserenv", "-lntdll", "-o"])
         .arg(format!("{nome_dll}.dll"))
         .status()
-        .map_err(|e| format!("Clang: {e}"))?;
-    if !st.success() {
+        .map_err(|e| format!("Clang: {e}"))?)
+    };
+    if let Some(st) = st
+        && !st.success()
+    {
         return Err(format!("a ligação da DLL do SDK da fonte falhou ({st})"));
     }
     if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
@@ -612,8 +647,9 @@ mod testes {
         let r = std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(move || {
-                // SAFETY do teste: o processo do teste é de uma thread só aqui.
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: true, optimize: false };
+
+                let otimizar = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: true, optimize: otimizar };
                 crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
             })
             .unwrap()
@@ -626,6 +662,41 @@ mod testes {
             }
             Err(e) => println!("ERRO: {e}"),
         }
+    }
+
+    /// Perfil de produção com o SDK da fonte: UM executável autocontido. O
+    /// `.exe` é copiado sozinho para uma pasta vazia e roda sem nenhuma DLL
+    /// do DartForge (docs/NATIVO-PLANO.md §7.7).
+    #[test]
+    #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
+    fn producao_e_um_executavel_autocontido() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let entrada = dir.path().join("main.dart");
+        std::fs::write(&entrada, "void main() {\n  print('oi');\n  print([1, 2, 3].map((x) => x * 2).toList());\n  print({'a': 1});\n}\n").unwrap();
+        let exe = dir.path().join("prog.exe");
+        let (e2, x2) = (entrada.clone(), exe.clone());
+        let r = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(move || {
+
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: true };
+                crate::compilar_com(&e2, &x2, &opcoes, true)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        r.expect("compilar em produção");
+        let sozinho = tempfile::tempdir().unwrap();
+        let copia = sozinho.path().join("prog.exe");
+        std::fs::copy(&exe, &copia).unwrap();
+        let so_um: Vec<_> = std::fs::read_dir(sozinho.path()).unwrap().collect();
+        assert_eq!(so_um.len(), 1, "a pasta tem só o executável");
+        let o = std::process::Command::new(&copia).current_dir(sozinho.path()).output().unwrap();
+        assert!(o.status.success(), "código {:?}; stderr: {}", o.status.code(), String::from_utf8_lossy(&o.stderr));
+        assert_eq!(String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"), "oi\n[2, 4, 6]\n{a: 1}\n");
     }
 
     /// A medição de P5c: quantos membros do SDK da fonte o lowering baixa.

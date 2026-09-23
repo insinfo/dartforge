@@ -246,11 +246,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let ultimo = name.last()?;
         let nome = self.ctx.symbol_name(ultimo.sym).to_string();
+        let mut op = op;
         let repr = self.operand_type(&op);
         if repr != Type::Ref {
-            // Escalar: o tipo é decidido em compilação (como no caminho de
-            // sempre).
-            let r = matches!(
+            // Escalar: verdadeiro já em compilação para os supertipos óbvios;
+            // o resto (`_Smi`, `_IntegerImplementation`, `Pattern`…) pela
+            // classe da caixa — um `int` é `_Smi` ou `_Mint` conforme o valor.
+            let certo = matches!(
                 (nome.as_str(), repr),
                 ("int", Type::I64)
                     | ("double", Type::F64)
@@ -258,7 +260,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     | ("num", Type::I64 | Type::F64)
                     | ("Object" | "dynamic" | "Comparable", _)
             );
-            return Some(Operand::Constant(Constant::Bool(r)));
+            if certo {
+                return Some(Operand::Constant(Constant::Bool(true)));
+            }
+            op = self.coagir(op, Type::Ref);
         }
         if nome == "dynamic" {
             return Some(Operand::Constant(Constant::Bool(true)));
@@ -815,9 +820,31 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
         }
         let concreta = !classe.modifiers.abstract_ && !super::membros::e_mixin(ctx, cid);
         if concreta && let Some(id) = ctx.id_de_classe(cid) {
-            module.tabelas_de_metodos.push((id, tabela_de_metodos(ctx, cid)));
+            module.tabelas_de_metodos.push((id, simbolo_de_tabela(ctx, cid), tabela_de_metodos(ctx, cid)));
         }
     }
+    // A função da tabela de toda classe concreta compilada (a alocação, em
+    // qualquer módulo, registra a tabela da classe).
+    for (k, classe) in ctx.program.classes.iter().enumerate() {
+        let cid = ClassId(k as u32);
+        if !ctx.biblioteca_compilada(classe.library) || classe.modifiers.abstract_ || super::membros::e_mixin(ctx, cid) {
+            continue;
+        }
+        if let Some(id) = ctx.id_de_classe(cid) {
+            module.funcoes_de_tabela.insert(id, simbolo_de_tabela(ctx, cid));
+        }
+    }
+}
+
+/// A função que devolve a tabela de métodos de uma classe:
+/// `df.mt.<biblioteca>.<Classe>`.
+pub fn simbolo_de_tabela(ctx: &Context, cid: ClassId) -> String {
+    let c = &ctx.program.classes[cid.0 as usize];
+    format!(
+        "df.mt.{}.{}",
+        crate::context::escapar(&ctx.nome_da_biblioteca(c.library)),
+        crate::context::escapar(ctx.symbol_name(c.name))
+    )
 }
 
 /// Os adaptadores gerados por `gerar`; os que não baixam viram entradas que

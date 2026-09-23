@@ -78,6 +78,14 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
     }
 
+    /// Os nomes das funções do rastro (`DARTFORGE_RASTRO=1`).
+    pub(super) fn emitir_nomes_do_rastro(&mut self) {
+        for (k, s) in std::mem::take(&mut self.nomes_do_rastro).iter().enumerate() {
+            writeln!(self.out, "@df.rastro.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), bytes_llvm(s)).unwrap();
+        }
+
+    }
+
     /// Os caches dos pontos de chamada e os nomes dos seletores.
     pub(super) fn emitir_globais_de_seletores(&mut self) {
         if self.caches_de_seletor == 0 {
@@ -164,14 +172,17 @@ impl LlvmEmitter<'_> {
         .unwrap();
     }
 
-    /// As tabelas de métodos das classes do módulo, como dados: para cada
-    /// classe, um vetor `[hash, entrada]…` ordenado pelo hash. Devolve as
-    /// chamadas de registro.
+    /// As tabelas de métodos das classes do módulo, como dados, e a função
+    /// pública de cada uma, `df.mt.<biblioteca>.<Classe>`, que devolve o
+    /// endereço dela. A tabela é registrada no runtime **na primeira
+    /// alocação** de um objeto da classe (`dartforge_object_new_t`): uma
+    /// classe que o programa nunca instancia não tem a tabela alcançada, e o
+    /// ligador (`/OPT:REF`, no perfil de produção) tira a tabela, os
+    /// adaptadores e os métodos que só ela alcançava. As classes dos valores
+    /// do runtime são registradas pela entrada do programa.
     fn emitir_tabelas_de_metodos(&mut self) -> String {
         let modulo = self.module;
-        let tabelas = &modulo.tabelas_de_metodos;
-        let mut corpo = String::new();
-        for (idx, (cid, metodos)) in tabelas.iter().enumerate() {
+        for (cid, simbolo, metodos) in &modulo.tabelas_de_metodos {
             let mut pares: Vec<(i64, &str, &str)> =
                 metodos.iter().map(|(s, f)| (hash_seletor(s), s.as_str(), f.as_str())).collect();
             pares.sort();
@@ -184,32 +195,25 @@ impl LlvmEmitter<'_> {
                 );
             }
             pares.dedup_by(|a, b| a.0 == b.0);
-            if pares.is_empty() {
-                continue;
-            }
             for (_, _, f) in &pares {
-                let simbolo = f.to_string();
-                self.anotar_externo(&simbolo, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                let s = f.to_string();
+                self.anotar_externo(&s, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
             }
-            let itens: Vec<String> = pares.iter().map(|(h, _, f)| format!("i64 {h}, ptr @{f}")).collect();
-            let tipos: Vec<&str> = pares.iter().flat_map(|_| ["i64", "ptr"]).collect();
+            let mut itens = vec![format!("i64 {cid}"), format!("i64 {}", pares.len())];
+            itens.extend(pares.iter().map(|(h, _, f)| format!("i64 {h}, ptr @{f}")));
+            let mut tipos = vec!["i64", "i64"];
+            tipos.extend(pares.iter().flat_map(|_| ["i64", "ptr"]));
             writeln!(
                 self.out,
-                "@df.mt.{idx} = private unnamed_addr constant {{ {} }} {{ {} }}",
+                "@{simbolo}$d = private unnamed_addr constant {{ {} }} {{ {} }}",
                 tipos.join(", "),
                 itens.join(", ")
             )
             .unwrap();
-            writeln!(
-                corpo,
-                "  call void @dartforge_registrar_metodos(i64 {cid}, ptr @df.mt.{idx}, i64 {})",
-                pares.len()
-            )
-            .unwrap();
+            writeln!(self.out, "define ptr @{simbolo}() {{\nb0:\n  ret ptr @{simbolo}$d\n}}").unwrap();
         }
-        corpo
+        String::new()
     }
-
     /// `define` de uma função que pode aparecer em mais de um módulo
     /// (entradas de tear-off, constantes canônicas): `linkonce_odr` num
     /// `comdat` próprio — o ligador fica com uma. Os outros símbolos não
@@ -232,11 +236,14 @@ impl LlvmEmitter<'_> {
     /// fora da tabela de externs. Sem o SDK da fonte o módulo é o programa
     /// inteiro, e nada sai aqui.
     pub(super) fn emitir_declaracoes_externas(&mut self) {
+        self.emitir_nomes_do_rastro();
         for c in std::mem::take(&mut self.comdats) {
             writeln!(self.out, "$\"{c}\" = comdat any").unwrap();
         }
-        let definidas: std::collections::HashSet<&str> =
+        let mut definidas: std::collections::HashSet<&str> =
             self.module.functions.iter().map(|f| f.symbol.as_str()).collect();
+        // As funções das tabelas de métodos do módulo (`emitir_tabelas_de_metodos`).
+        definidas.extend(self.module.tabelas_de_metodos.iter().map(|(_, s, _)| s.as_str()));
         let declaradas_runtime: std::collections::HashSet<&str> = super::externs::EXTERNS
             .iter()
             .filter_map(|e| {
