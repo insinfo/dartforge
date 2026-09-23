@@ -1,0 +1,35 @@
+# 06_fluxo/flu13_intersecao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	73	195	FunctionExpression	void Function<T, U extends num?>(T, U)	-	0	<T, U extends num?>(T t, U u) { if (t is int) { print(
+3	7	111	8	IsExpression	bool	-	0	t is int
+3	7	111	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+4	5	127	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/t)
+4	5	127	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+4	16	138	1	SimpleIdentifier	T & int	PARAMETER:f.t	1	t
+5	5	146	20	MethodInvocation	void	FUNCTION:print	0	print(/*@*/t.isEven)
+5	5	146	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	16	157	8	PrefixedIdentifier	bool	GETTER:int.isEven	1	t.isEven
+5	16	157	1	SimpleIdentifier	T & int	PARAMETER:f.t	1	t
+5	18	159	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+7	7	178	9	BinaryExpression	bool	METHOD:num.==	0	u != null
+7	7	178	1	SimpleIdentifier	U	PARAMETER:f.u	0	u
+7	12	183	4	NullLiteral	Null	-	0	null
+7	18	189	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/u)
+7	18	189	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+7	29	200	1	SimpleIdentifier	U & num	PARAMETER:f.u	1	u
+8	7	210	8	IsExpression	bool	-	0	u is int
+8	7	210	1	SimpleIdentifier	U	PARAMETER:f.u	0	u
+8	17	220	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/u)
+8	17	220	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	28	231	1	SimpleIdentifier	U & int	PARAMETER:f.u	1	u
+9	7	241	9	BinaryExpression	bool	METHOD:Object.==	0	t != null
+9	7	241	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+9	12	246	4	NullLiteral	Null	-	0	null
+9	18	252	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/t)
+9	18	252	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	29	263	1	SimpleIdentifier	T & Object	PARAMETER:f.t	1	t
+12	10	279	14	FunctionExpression	void Function()	-	0	() => f(1, 2);
+12	16	285	7	MethodInvocation	void	FUNCTION:f	0	f(1, 2)
+12	16	285	1	SimpleIdentifier	void Function<T, U extends num?>(T, U)	FUNCTION:f	0	f
+12	18	287	1	IntegerLiteral	int	-	0	1
+12	21	290	1	IntegerLiteral	int	-	0	2

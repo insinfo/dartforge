@@ -1,0 +1,28 @@
+# 06_fluxo/flu04_condicional_as_bang.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	99	131	FunctionExpression	void Function(Object, int?)	-	0	(Object o, int? x) { var a = o is int ? (/*@*/o) : (/*@*/o
+4	11	130	30	ConditionalExpression	Object	-	0	o is int ? (/*@*/o) : (/*@*/o)
+4	11	130	8	IsExpression	bool	-	0	o is int
+4	11	130	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+4	22	141	8	ParenthesizedExpression	int	-	0	(/*@*/o)
+4	28	147	1	SimpleIdentifier	int	PARAMETER:f.o	1	o
+4	33	152	8	ParenthesizedExpression	Object	-	0	(/*@*/o)
+4	39	158	1	SimpleIdentifier	Object	PARAMETER:f.o	1	o
+5	3	164	11	AsExpression	String	-	0	o as String
+5	3	164	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+6	3	179	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+6	3	179	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	14	190	1	SimpleIdentifier	String	PARAMETER:f.o	1	o
+7	3	196	2	PostfixExpression	int	-	0	x!
+7	3	196	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+8	3	202	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+8	3	202	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	14	213	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+9	3	219	8	MethodInvocation	void	FUNCTION:print	0	print(a)
+9	3	219	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	9	225	1	SimpleIdentifier	Object	LOCAL_VARIABLE:f.a	0	a
+12	10	241	16	FunctionExpression	void Function()	-	0	() => f('a', 1);
+12	16	247	9	MethodInvocation	void	FUNCTION:f	0	f('a', 1)
+12	16	247	1	SimpleIdentifier	void Function(Object, int?)	FUNCTION:f	0	f
+12	18	249	3	SimpleStringLiteral	String	-	0	'a'
+12	23	254	1	IntegerLiteral	int	-	0	1

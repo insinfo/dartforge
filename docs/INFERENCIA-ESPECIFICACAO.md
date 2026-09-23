@@ -887,6 +887,408 @@ Oráculo (clo07, ctx07): `await (FutureOr<int>)` → `int`; `await
 `int`; `List<num> a = await Future.value([1])` → `Future<List<num>>`;
 `double c = await Future.value(1)` → `Future<double>`.
 
-## 6–12. (partes seguintes)
+## 6. Análise de fluxo — modelo
 
-Análise de fluxo (§6–7), membros, extensões, null safety e padrões (§8–10), casos de borda do SDK (§11) e a tabela 3.6 → 3.14 (§12) entram nas partes 2 e 3 desta especificação.
+Implementação: `fas76:lib/src/flow_analysis/flow_analysis.dart` (3.6; abaixo
+**F76:n**) e `sdk:pkg/_fe_analyzer_shared/lib/src/flow_analysis/
+flow_analysis.dart` (3.14; **FA:n**); cola do analyzer em
+`an611:lib/src/dart/resolver/flow_analysis_visitor.dart` (**AFV76:n**) e
+`sdk:pkg/analyzer/lib/src/dart/resolver/flow_analysis_visitor.dart`
+(**AFV:n**); promovibilidade de campos em `sdk:pkg/_fe_analyzer_shared/lib/src/field_promotability.dart` (**FP:n**, igual em 3.6 salvo formatação). Texto: `lang:resources/type-system/flow-analysis.md` (**LANG:n**)
+— **atrás da implementação** na junção de cadeias (§7.9).
+
+### 6.1 *Flags* que mexem no fluxo
+
+| flag | liberada | o que muda | 3.6 |
+|---|---|---|---|
+| `non-nullable` | 2.12 | análise completa (bibliotecas antigas: `FlowAnalysis.legacy`) | ligada (AFV76:101, 272-284) |
+| `constructor-tearoffs` | 2.15 | com ela, o inicializador de `var` implícita cria versão de valor e estado de condição (sem ela, o bug #1785 é mantido) | ligada (FA:8814-8821; F76:5957-5963) |
+| `patterns` | 3.0 | constantes de `case` promovem; casos inalcançáveis | ligada (FA:6505-6522) |
+| `inference-update-2` | 3.2 | promoção de campo final privado | ligada (F76:5925-5927; AFV76:104-105) |
+| `sound-flow-analysis` | **3.9** | assume null safety sólida (§7.13) | **ausente** |
+| `inference-update-4` | não liberada | `final` pula a junção conservadora; `x = e` devolve referência a `x` | desligada |
+| `this-promotion`, `promotion-chain-intersection-join`, `anonymous-methods` | não liberadas | `this` promovível; junção por subsequência comum; blocos anônimos | ausentes |
+
+Fonte das versões: `sdk:tools/experimental_features.yaml:161-522`;
+`an611:lib/src/dart/analysis/experiments.g.dart:319-326`. Mudanças só no
+CHANGELOG: 3.3 (#54056) getter abstrato não impede promoção
+(`sdk:CHANGELOG.md:2920-2928`); 3.7 (#56893) campo promovido a `Null` afeta
+alcance (`:1886-1890`); 3.13 (#62889) "mudança menor para evitar
+insolidez" (`:265-266`, sem detalhe).
+
+### 6.2 Estado
+
+* **FlowModel(alcançável, promoções)** imutável; cada atualização devolve um
+  novo (F76:2059-2072; FA:3626-3646). O mapa de promoções é persistente e
+  **sem noção de escopo** (variáveis fora de escopo continuam nele).
+* **PromotionModel** por chave (F76:2977-3038; FA:4529-4596; LANG:190-223):
+  `promotedTypes` (cadeia de promoção, cada um subtipo do anterior; [3.6]
+  `null` = sem promoção, [3.14] lista vazia), `tested` (tipos de interesse),
+  `assigned`/`unassigned` (atribuição definitiva), `ssaNode` [3.6] /
+  `version` [3.14] (identidade do valor atual; `null` = **capturada para
+  escrita**, F76:3038), histórico de não promoção. Invariantes: não ambos
+  atribuída e não atribuída; capturada nunca promovida (FA:4570-4581).
+* O tipo declarado não é guardado: vem de `operations.variableType`.
+  `declare(v, inicializada)` cria modelo novo com versão nova (FA:3717-3728).
+* **Alcance**: árvore de pontos de controle; `overallReachable =
+  locallyReachable && pai.overallReachable` (F76:3664; FA:5381-5421);
+  `split`/`unsplit`/`setUnreachable` (FA:5449-5476).
+* **Versões de valor (SSA)**: nova a cada escrita e a cada junção de versões
+  diferentes (F76:3778-3805; FA:5497-5536). Cada versão guarda o *estado de
+  condição* do valor escrito (§7.10) e as chaves das propriedades: uma chave
+  estável por nome para propriedade promovível, chave nova a cada acesso para
+  a não promovível (F76:3813-3836). `this` e `super` têm versões próprias.
+* **ExpressionInfo(tipo, ifTrue, ifFalse)**: trivial quando `ifTrue` e
+  `ifFalse` são o mesmo; `_invert` troca (FA:120-178). Subclasses: referência
+  (chave de promoção + versão), referência de propriedade, `_NullInfo` (o
+  literal `null`). [3.6] a informação fica presa à última `Expression`
+  visitada e é consumida uma vez (`_storeExpressionInfo`/
+  `_getExpressionInfo`, F76:4285-4300, 5691-5747); [3.14] é devolvida
+  explicitamente. Expressão sem informação = trivial do estado atual.
+
+## 7. Análise de fluxo — promoção, demoção, captura, laços, try, junções
+
+### 7.1 Primitivas
+
+* **R-FLU-P1 `tryPromoteForTypeCheck(ref, T)`** (F76:2536-2572; FA:4000-4067):
+  capturada → trivial. `ifTrue`: S1 = `tryPromoteToType(T, atual)`; se passo
+  válido, `T` entra em `tested` e S1 na cadeia. `ifFalse`: `factor(atual, T)`;
+  fator fundo → sem promoção ([3.6] ainda alcançável; [3.9+] ramo
+  **inalcançável**); senão promove ao fator; `T` sempre entra em `tested`.
+* **R-FLU-P2 `tryPromoteToType(para, de)`** (`an611:lib/src/dart/element/
+  type_system.dart:1751-1782`; `sdk:…:1771-1802`): `para <: de` → `para`;
+  senão, se `de` é variável de tipo e `para <: limite(de)` → **`X & para`**
+  (anulabilidade: `X?` com `para` não anulável dá não anulável,
+  `sdk:…:2135-2152`); senão nenhuma. Limite = `promotedBound ?? bound ??
+  dynamic` (`sdk:…/element/type.dart:1656-1657`).
+* **R-FLU-P3 `tryMarkNonNullable(ref)`** (F76:2476-2498): novo = NonNull(anterior)
+  se passo válido; **não** entra em `tested`; `ifFalse` inalterado (nunca
+  promove a `Null`).
+* **R-FLU-P4 `tryPromoteForTypeCast`** (F76:2508-2525): um modelo só, regra do
+  `ifTrue`; `T` entra em `tested`.
+* **Passo válido** [3.6]: `novo != anterior` (F76:2487, 2518, 2549); [3.9+]
+  "não subtipo mútuo" (FA:7039-7057). Ex.: `Object? o; if (o is dynamic) o`
+  promove a `dynamic` em 3.6, não em 3.9+.
+* **factor(T, S)** (`an611:…/type_system.dart:351-383`; LANG:600-610): `T <:
+  S` → `Never`; `R?` → `factor(R,S)` se `Null <: S`, senão `factor(R,S)?`;
+  `FutureOr<R>` → `factor(R,S)` se `Future<R> <: S`, `factor(Future<R>,S)` se
+  `R <: S`; senão T. Oráculo (flu20): `int? x; if (x is int) {} else x` →
+  **`Never?`** (fator de `int?` por `int`, exibido sem normalizar);
+  `FutureOr<int> fo; if (fo is int) {} else fo` → `Future<int>`.
+* **NonNull** (`an611:…/type_system.dart:1500-1531`; §9.1).
+
+### 7.2 `is` / `is!` (R-FLU-01)
+
+`isExpression_end` (F76:4889-4903; FA:6988-7020): `is Never` (F76:4891,
+`isNever`) → como literal booleano; senão, operando referência →
+R-FLU-P1 (invertido para `is!`); [3.9+] tipo estático já `<: T` num
+não-referência → `true`. Texto LANG:711-732.
+
+Oráculo (flu01): `if (o is int) o` → `int`; depois do `if` → `Object`;
+`if (o is! String) return; o` → `String`; `num n; if (n is String) n` →
+`num` (String não é subtipo de num: sem promoção).
+
+### 7.3 Variáveis de tipo e interseção `X & S` (R-FLU-13)
+
+Criada por `is`/`as` quando S é subtipo do limite mas não de X (R-FLU-P2),
+por NonNull de X (`X & NonNull(limite)`, `X & Object` sem limite) e pela
+inicialização de `var` implícita com valor `X & S` (FA:8840-8848). Acesso a
+membro usa `resolveToBound`, que prefere o limite promovido
+(`sdk:…/type_system.dart:1681-1704`); exibição `X & S`, entre parênteses com
+sufixo (`(X & S)?`, `sdk:…/display_string_builder.dart:350-367`). Rebaixada
+na demoção por atribuição, no `var` inferido (`demoteType`,
+`an611:…/type_system.dart:322-325`; tipo **declarado** da variável é X, a
+variável começa promovida a `X & S`) e nos resultados da inferência genérica.
+
+Oráculo (flu13, flu06, nul01): `f<T, U extends num?>`: `if (t is int) t` →
+`T & int`, `t.isEven` → `bool`; `if (u != null) u` → `U & num`; `if (u is
+int) u` → `U & int`; `if (t != null) t` → `T & Object`; `if (t is int) { var
+d = t; d }` → `T & int`; `t!` (T sem limite) → `T & Object`.
+
+### 7.4 `==`/`!=` com `null`, `identical` (R-FLU-02)
+
+`_equalityCheck` (F76:5658-5689; FA:8451-8483) e `equalityOperation_end`
+(F76:4597-4639): ambos `Null` → resultado conhecido; um lado o **literal**
+`null` (`_NullInfo`; parênteses transparentes) → R-FLU-P3 no outro lado
+(invertido para `==`); o resto → sem informação. **Uma variável de tipo
+`Null` não conta** (LANG:702-706). [3.9+] `Null` contra não anulável →
+"sabidamente diferente". `identical(a, b)` passa pelo mesmo caminho
+(`sdk:pkg/analyzer/lib/src/dart/resolver/invocation_inferrer.dart:666-684`).
+
+Oráculo (flu02): `if (x != null) x` → `int`; `if (x == null) return; x` →
+`int`; `if (null != y) y else y` → `int` / `int?`; `if (z == null) z` →
+`int?` (nunca promove a `Null`).
+
+### 7.5 `== true`, propriedades públicas, `this` (R-FLU-17)
+
+Literal booleano não é `_NullInfo`: `b == true` não dá informação
+(FA:8480-8481). `this` **não é promovível** em 3.6 (uma chave só, sempre
+`ThisNotPromoted`, F76:5609-5619, 6127-6134) nem por padrão em 3.14
+(`this-promotion` não liberada, FA:6226-6235). Oráculo (flu17): `bool? b; if
+(b == true) b` → `bool?`; `if (p.v != null) p.v` (campo público) → `int?`;
+`if (this is Q) this` → `P`.
+
+### 7.6 `as` e `!` (R-FLU-04)
+
+`asExpression_end` → R-FLU-P4 (F76:4353-4357); `nonNullAssert_end` →
+NonNull (F76:5040-5047). Oráculo (flu04): `o as String; o` → `String`; `x!;
+x` → `int`; `o is int ? o : o` → `int` / `Object`.
+
+### 7.7 `&&`, `||`, `!`, condicional (R-FLU-03)
+
+`&&`: `true(N) = true(E2)`, `false(N) = junção(false(E1), false(E2))`; `||`
+o dual (F76:4955-4985); `!` inverte; `c ? a : b`: `true(N) =
+junção(true(a), true(b))`, idem `false` (FA:6461-6489). Texto LANG:739-776.
+Oráculo (flu03): `o is int && o.isEven` → `int` à direita; `o is! int ||
+o.isEven` → `int`; `if (!(o is String)) return; o` → `String`; `x == null ||
+x.isEven` → `int`; **variável de condição**: `var t = x != null && …; if (t)
+x` → `int` (§7.10).
+
+### 7.8 Atribuição: demoção e tipos de interesse (R-FLU-05, R-FLU-06, R-FLU-16, R-FLU-19)
+
+`write` (F76:3084-3134; FA:4657-4723; LANG:492-566):
+
+1. Capturada → nada promovido, só `assigned`.
+2. **Demoção**: percorre a cadeia do fim e mantém o maior prefixo cujo último
+   elemento é supertipo do tipo escrito (`_demoteViaAssignment`,
+   FA:4743-4780).
+3. **Promoção a tipo de interesse** (`_tryPromoteToTypeOfInterest`,
+   F76:3207-3309): candidatos = `NonNull(declarado)` (se diferente do
+   declarado) e cada `T` testado e `NonNull(T)`; candidato C serve se `escrito
+   <: C`, `C <: atual` e passo válido; igualdade exata ao tipo escrito vence;
+   senão o único subtipo de todos os outros; senão nenhum. [3.14] também exige
+   `C <: declarado` e tipo escrito não inválido.
+4. **Demoção total** (cadeia vai de não vazia a vazia): [3.6] **limpa
+   `tested`** (F76:3120-3125); [3.9+] mantém (issue #4380).
+
+Declarações (`_initialize`, F76:5947-5978): escrita com promoção a tipo de
+interesse só se **tipo escrito e não `final`**
+(`promoteToTypeOfInterest = !isImplicitlyTyped && !isFinal`, FA:8837);
+`var` implícita com valor de variável de tipo é promovida a esse tipo.
+`var x;` sem inicializador é não atribuída e tem tipo `dynamic`; atribuir
+não a promove (`dynamic` não tem tipo de interesse).
+
+Oráculo (flu05, flu06, flu16, flu19): `if (o is int) { o = 'a'; o }` →
+`Object`; `if (o is int) {} o = 1; o` → `int` (int foi testado); `num n; n =
+1.5; n` → `num` (double não é de interesse); `int? x; x = 1; x` → `int`
+(NonNull(int?)); `x = null; x` → `int?`; `var a; a = 1; a` → `dynamic`; `num b
+= 1; b` → `num`; `int? c = 1; c` → **`int`**; `int e; e = 2; e` → `int`;
+`x ??= 1; x` → `int`; `var z = y ?? (throw 0)` → `z: int` e depois `y:
+int`.
+
+O contexto do lado direito de `x = e` é o tipo **promovido** atual
+(`an611:lib/src/dart/resolver/flow_analysis_visitor.dart:1136-1145`, via
+`assignment_expression_resolver.dart:80-87`): `if (o is List<num>) { o =
+[1]; }` → o literal é `List<num>` e `o` segue `List<num>` (flu19).
+
+### 7.9 Junções (R-FLU-11)
+
+`join` (FA:4195-4273, 4953-4997): um lado inalcançável → o outro; senão, por
+chave presente nos dois: cadeia por `joinPromotedTypes`; `tested` união;
+`assigned` e `unassigned` E lógico; capturada OU lógico (e limpa `tested`);
+versão nova se diferem. Chave só num lado cai (LANG:328-338).
+
+**Junção de cadeias** — padrão em 3.6 e 3.14 (`_legacyJoinPromotedTypes`,
+F76:3385-3419; FA:5240-5277): percorre as duas; iguais → mantém e avança as
+duas; `t2 <: t1` → pula t1; `t1 <: t2` → pula t2; sem relação → **para**; se
+uma cadeia foi consumida sem pulos, é ela; senão o coletado. A junção por
+maior subsequência comum que o texto descreve (LANG:166-186) só existe com a
+*flag* experimental `promotion-chain-intersection-join` (FA:5019-5098).
+Ex.: `A`, `C` sem relação, ambos supertipos de `B`: `if (c) { o as A; o as
+B; } else { o as C; o as B; } o` → tipo declarado (padrão); `B` com a
+*flag*.
+
+Oráculo (flu11): `case 0: if (x == null) return; x` → `int`; `case 1: x` →
+`int?`; `for … { if (x == null) break fora; x }` → `int`; os dois ramos de
+`if/else` com `return` → `int` depois.
+
+### 7.10 Variáveis de condição
+
+A escrita/inicialização guarda na versão nova a `ExpressionInfo` não trivial
+do lado direito; a leitura a restaura (`rebaseForward`), salvo se a variável
+foi capturada ou escrita depois (FA:5849-5934, 8078-8107; [3.6]
+`addPreviousInfo`, F76:4080-4111). `late` nunca guarda (FA:8810-8813).
+Oráculo (flu03): `var t = x != null && …; if (t) x` → `int`.
+
+### 7.11 Closures e captura (R-FLU-07)
+
+Pré-passe (`sdk:pkg/_fe_analyzer_shared/lib/src/type_inference/
+assigned_variables.dart:108-131, 324-347`): por nó, variáveis lidas,
+escritas, capturadas para leitura/escrita e declaradas; escritas dentro de
+closure/inicializador `late` contam como **capturadas** no nó que o contém.
+`_functionExpression_begin` (F76:5708-5722; FA:8485-8507):
+
+1. na função externa, as variáveis escritas **dentro** do literal passam a
+   capturadas **daqui em diante** (`conservativeJoin(∅, escritas)`);
+2. dentro do literal, toda variável escrita **em qualquer lugar** do membro
+   perde as promoções, e toda capturada em qualquer lugar é capturada;
+3. no fim, restaura o modelo externo do passo 1.
+
+`conservativeJoin` (F76:2256-2286): escritas perdem promoções e a não
+atribuição, ganham versão nova; capturadas ficam capturadas. Inicializador
+`late` é tratado como closure (FA:7075-7093).
+
+Oráculo (flu07): `x` nunca escrito → `int` dentro do literal; `y` escrito
+dentro de um literal → `if (y != null) y` → `int?` (capturada); `z` escrito
+**depois** do literal → `int?` dentro dele (regra 2).
+
+[3.14, sem *flag*] **suspensão**: depois de `await`/`yield` numa função
+local, variáveis lidas por ela, escritas em qualquer lugar e não declaradas
+nela são demovidas (FA:7709-7745; motivo `DemoteViaSuspension`). Não existe
+em 3.6.
+
+### 7.12 Laços, saltos e `try` (R-FLU-08, R-FLU-09, R-FLU-10)
+
+* `while` (FA:8110-8144): `antes(cond) = conservativeJoin(split, escritas,
+  capturadas)` do laço; `depois = inheritTested(unsplit(junção(false(cond),
+  breaks)), depois(corpo))`. `for` igual (sem condição = `true`,
+  AFV:307-320; `continue` junta antes dos atualizadores). `do`
+  (FA:6591-6621): `conservativeJoin` no corpo; condição junta os `continue`;
+  `depois = junção(false(E), breaks)`. `for-in` (FA:6753-6772):
+  `conservativeJoin` antes do corpo; `depois = junção(depois(corpo),
+  antes(corpo))`. `break`/`continue` juntam no alvo e tornam o caminho
+  inalcançável (FA:6799-6821). [3.6] F76:4563-4717, 5570-5594. Texto
+  LANG:828-891.
+* **Saídas** (FA:6823-6839; F76:4757-4760): `throw`, `rethrow`, `return` e
+  qualquer expressão de tipo estático fundo (`Never`) tornam o caminho
+  inalcançável (`fas76:lib/src/type_inference/type_analyzer.dart:566-567`);
+  literal booleano torna o ramo oposto inalcançável.
+* `try/catch` (FA:7943-8003): cada `catch` começa de
+  `conservativeJoin(antes do try, escritas(corpo), capturadas(corpo))`;
+  variáveis de exceção e pilha declaradas atribuídas (tipos: o do `on T`,
+  senão `Object`; pilha `StackTrace`).
+* `try/finally` (FA:8010-8068): `antes(finally) = junção(depois do try,
+  conservativeJoin(antes do try, …))`; `depois = attachFinally(depois do try,
+  antes do finally, depois do finally)`. Em `attachFinally` (FA:8203-8413):
+  variável possivelmente mudada no `finally` (capturada ou versão diferente)
+  → fica o estado do `finally`; senão [3.6] `rebasePromotedTypes(base =
+  finally, novo = try)` (F76:2090-2234, a ordem antiga, issue #4382); [3.9+]
+  `rebase(try, finally)` (FA:8367-8380). `rebasePromotedTypes`:
+  F76:3466-3495; LANG:351-372.
+
+Oráculo (flu08, flu09, flu10): `x` atribuído dentro do `while` → `int?` já
+no início do corpo; `y` não atribuído no `while`/`for-in` → `int`; `y`
+atribuído no `do` → `int?`; no `try` que escreve `y`: `x` (não escrito) →
+`int` no `catch`, `y` → `int?` no `catch` e no `finally`; `catch (e)` → `e:
+Object`; `on FormatException catch (e, s)` → `FormatException`,
+`StackTrace`; `try {…} finally { o as int; } o` → `int` (flu20);
+`if (x == null) throw 0; x` → `int`; `if (y == null) falha(); y`
+(`Never falha()`) → `int`.
+
+### 7.13 Campos finais privados (3.2, `inference-update-2`) (R-FLU-12)
+
+`_handleProperty` (F76:5921-5945; FA:8763-8797): promovível se o membro
+existe, a *flag* está ligada e `isPropertyPromotable(membro)` — no analyzer
+`field.isPromotable` de um `PropertyAccessorElement` de `FieldElement`
+(AFV76:577-582). `isPromotable` é calculado por biblioteca
+(`sdk:pkg/_fe_analyzer_shared/lib/src/field_promotability.dart:63-304`;
+`sdk:pkg/analyzer/lib/src/summary2/library_builder.dart:866-960`;
+[3.6] `an611:lib/src/summary2/library_builder.dart:1519-1525`):
+
+1. nome privado (FP:200-204);
+2. campo não final ou `external` de mesmo nome em qualquer lugar da
+   biblioteca → não promovível (FP:213-220);
+3. getter **concreto** de mesmo nome → não promovível; abstrato não (3.3,
+   FP:241-259);
+4. classe concreta da biblioteca cuja interface tem o nome sem implementá-lo
+   (encaminhador de `noSuchMethod`) → não promovível (FP:281-300);
+5. métodos não contam; campo de representação privado de tipo de extensão é
+   sempre promovível; mixins contam como abstratos, enums como concretos.
+
+Alvo: receptor explícito → versão do receptor; `_f`/`this._f` implícito →
+versão de `this`; `super._f` → versão própria. A promoção dura enquanto a
+versão do alvo não muda; escrever a variável-alvo cria versão nova e perde as
+promoções de campo; variável capturada ganha versão nova a cada leitura, então
+os campos dela nunca ficam promovidos.
+
+Oráculo (flu12): `final int? _x`: `if (_x != null) _x` → `int`;
+`this._x` → `int`; `outro._x` (outro objeto) → `int`; `final int? pub` →
+`int?`; `int? _mutavel` → `int?`.
+
+### 7.14 Padrões e `switch` (R-FLU-14)
+
+`if-case` e `switch` promovem o **escrutínio** (FA:6853-6861, 7883-7888);
+declaração/atribuição de padrão e `for-in` com padrão não. `promoteForPattern`
+(F76:5207-5274): tipo casado não anulável → conhecido vira NonNull; promove o
+cache casado e o escrutínio correspondente (quando "denota o valor casado":
+propriedade, ou variável cuja versão não mudou, FA:9143-9168); caminho não
+casado juntado com o `ifFalse` quando o padrão não cobre o tipo. `p?`:
+como `!= null` ([3.6] sempre acrescenta o caminho não casado, F76:5100-5122);
+`p!`: sempre casa e promove. `== null`/`!= null` constantes passam por
+`_handleEqualityCheckPattern` (F76:5848-5919). `switch`: cada caso contra o
+modelo "não casado" dos anteriores (FA:7797-7842); rótulo em caso →
+`conservativeJoin`; no fim, `default` implícito se não exaustivo; sem `break`
+nenhum, o que vem depois é inalcançável. Variáveis que dividem um corpo de
+caso são fundidas e sempre atribuídas.
+
+Oráculo (flu14): `if (o case int i)` → `i: int` e `o: int`; `if (x case var
+v?)` → `v: int`, `x: int`; `switch (o) { case String s: … }` → `s`, `o`:
+`String`; `if (x case != null) x` → `int`.
+
+### 7.15 `?.` e `??` no fluxo (R-FLU-15, R-FLU-16)
+
+`_nullAwareAccess_rightBegin` (F76:5049-5068; FA:8952-9010): `split`, guarda o
+caminho de atalho, promove o alvo a não nulo **dentro da cadeia** (alvo de
+tipo `Null` → caminho não nulo inalcançável); `nullAwareAccess_end` junta com
+o atalho. **A promoção dura só até o fim da cadeia**; a condição `a?.v !=
+null` **não** promove `a` em 3.6 (a referência do alvo é destruída antes de
+`sound-flow-analysis`, FA:8978-8987). `??` (F76:4798-4828): o atalho
+(esquerda não nula) promove a referência da esquerda; esquerda `Null` →
+atalho inalcançável; `end` junta. `??=`: `ifNullExpression_rightBegin(lhs)`,
+lado direito, `write(lhs)`, `end` (`an611:…/assignment_expression_resolver.
+dart:90-92`).
+
+Oráculo (flu15, flu16): `if (a?.v != null) a` → `A?`; `if (b?.w != null) b`
+(`w` não anulável) → `A?`; `x ??= 1; x` → `int`.
+
+### 7.16 `late` e atribuição definitiva (R-FLU-18)
+
+`_checkReadOfNotAssignedLocalVariable` (`sdk:pkg/analyzer/lib/src/generated/
+resolver.dart:5597-5637`): `late` → erro só se **definitivamente não
+atribuída**; `final` não definitivamente atribuída →
+`readPotentiallyUnassignedFinal`; potencialmente não anulável não
+definitivamente atribuída → `notAssignedPotentiallyNonNullableLocalVariable`;
+anulável pode. Escrita em `late final` definitivamente atribuída e em `final`
+não definitivamente não atribuída → erro
+(`sdk:…/assignment_expression_resolver.dart:1265-1290`). O tipo lido é o
+declarado (promovido, se for o caso). Oráculo (flu18): `late int x; if (b) x =
+1; x` → `int`; `late final y = [1.5]` → `List<double>`; `int z` atribuída nos
+dois ramos → `int`; `late int topo` → `int`.
+
+### 7.17 "Por que não promoveu" (NonPromotionReason)
+
+| classe | quando | 3.6/3.14 |
+|---|---|---|
+| `DemoteViaExplicitWrite(variável, nó)` | escrita removeu a promoção | F76:33; FA:54-84, 9254 |
+| `DemoteViaSuspension` | [3.14] `await`/`yield` em função local | FA:86-118 |
+| `PropertyNotPromotedForInherentReason` | getter/tear-off, nome público, `external`, não final | FA:5303-5334 |
+| `PropertyNotPromotedForNonInherentReason` | conflito de nome (campo não promovível, getter concreto, encaminhador de `noSuchMethod`) ou *flag* desligada | FA:5353-5371, 4318-4386 |
+| `ThisNotPromoted` | `this` testado | F76:4036, 5808-5818; FA:5807-5819 |
+
+Cálculo: para propriedades percorre as versões não promovíveis anteriores;
+para variáveis, as entradas do histórico cujo tipo não é supertipo do atual
+(FA:8522-8617). Texto das mensagens no analyzer: AFV76:766-787;
+`sdk:pkg/analyzer/lib/src/generated/resolver.dart:6774-6984`.
+
+### 7.18 `sound-flow-analysis` (3.9) — o que muda em relação ao 3.6
+
+| # | 3.9+ | 3.6 | onde |
+|---|---|---|---|
+| 1 | passo inválido se subtipo mútuo | inválido só se igual | FA:7039-7057; F76:2549 |
+| 2 | `is T` com fator fundo: ramo falso inalcançável | alcançável, sem promoção | FA:4034-4060; F76:2557-2560 |
+| 3 | `Null` × não anulável em `==`: sabidamente diferente | sem informação | FA:8459-8469; F76:5667-5677 |
+| 4 | `is`/`as` que falham pela anulabilidade: `false` / inalcançável | nada | FA:6282-6287, 6994-6999 |
+| 5 | `e is T` em não-referência com tipo `<: T`: `true` | nada | FA:7011-7015 |
+| 6 | `??` com esquerda não anulável: direita inalcançável | alcançável | FA:6907-6911; F76:4809-4812 |
+| 7 | `?.` em alvo não anulável: atalho inalcançável; promoção de campo através de `?.` | alcançável; sem | FA:8970-8987 |
+| 8 | `p?` em valor não anulável sempre casa; padrão que não pode casar pela anulabilidade: inalcançável | pode não casar | FA:8743-8749, 7533-7558; F76:5102-5111 |
+| 9 | demoção total mantém `tested` | limpa | FA:4703-4713; F76:3120-3125 |
+| 10 | `try/finally`: `rebase(try, finally)` | `rebase(base = finally, novo = try)` | FA:8367-8380; F76:2178-2181 |
+
+Ex. (3.9+): `String y; if (i != null) y = 'a'; y` (`int i`) é válido; em 3.6
+é erro "y precisa ser atribuída" (`sdk:tools/experimental_features.yaml:
+258-264`).
+
+## 8–12. (parte seguinte)
+
+Membros, extensões, `call`, tear-offs e operadores (§8), null safety (§9), padrões (§10), casos de borda do SDK (§11) e a tabela 3.6 → 3.14 (§12) entram na parte 3 desta especificação.

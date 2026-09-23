@@ -1,0 +1,43 @@
+# 06_fluxo/flu05_democao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	112	211	FunctionExpression	void Function(Object, num, int?)	-	0	(Object o, num n, int? x) { if (o is int) { o = 'a';
+4	7	146	8	IsExpression	bool	-	0	o is int
+4	7	146	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+5	5	162	7	AssignmentExpression	String	PARAMETER:f.o	0	o = 'a'
+5	5	162	1	SimpleIdentifier	-	PARAMETER:f.o	0	o
+5	9	166	3	SimpleStringLiteral	String	-	0	'a'
+6	5	175	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+6	5	175	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	16	186	1	SimpleIdentifier	Object	PARAMETER:f.o	1	o
+8	7	200	8	IsExpression	bool	-	0	o is int
+8	7	200	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+9	3	215	5	AssignmentExpression	int	PARAMETER:f.o	0	o = 1
+9	3	215	1	SimpleIdentifier	-	PARAMETER:f.o	0	o
+9	7	219	1	IntegerLiteral	int	-	0	1
+10	3	224	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+10	3	224	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	14	235	1	SimpleIdentifier	int	PARAMETER:f.o	1	o
+11	3	241	7	AssignmentExpression	double	PARAMETER:f.n	0	n = 1.5
+11	3	241	1	SimpleIdentifier	-	PARAMETER:f.n	0	n
+11	7	245	3	DoubleLiteral	double	-	0	1.5
+12	3	252	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/n)
+12	3	252	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	14	263	1	SimpleIdentifier	num	PARAMETER:f.n	1	n
+13	3	269	5	AssignmentExpression	int	PARAMETER:f.x	0	x = 1
+13	3	269	1	SimpleIdentifier	-	PARAMETER:f.x	0	x
+13	7	273	1	IntegerLiteral	int	-	0	1
+14	3	278	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+14	3	278	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+14	14	289	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+15	3	295	8	AssignmentExpression	Null	PARAMETER:f.x	0	x = null
+15	3	295	1	SimpleIdentifier	-	PARAMETER:f.x	0	x
+15	7	299	4	NullLiteral	Null	-	0	null
+16	3	307	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+16	3	307	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+16	14	318	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+19	10	334	19	FunctionExpression	void Function()	-	0	() => f('a', 1, 1);
+19	16	340	12	MethodInvocation	void	FUNCTION:f	0	f('a', 1, 1)
+19	16	340	1	SimpleIdentifier	void Function(Object, num, int?)	FUNCTION:f	0	f
+19	18	342	3	SimpleStringLiteral	String	-	0	'a'
+19	23	347	1	IntegerLiteral	int	-	0	1
+19	26	350	1	IntegerLiteral	int	-	0	1

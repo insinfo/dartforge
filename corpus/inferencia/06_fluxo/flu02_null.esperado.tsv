@@ -1,0 +1,36 @@
+# 06_fluxo/flu02_null.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	81	216	FunctionExpression	void Function(int?, int?, int?)	-	0	(int? x, int? y, int? z) { if (x != null) print(/*@*/x);
+3	7	114	9	BinaryExpression	bool	METHOD:num.==	0	x != null
+3	7	114	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+3	12	119	4	NullLiteral	Null	-	0	null
+3	18	125	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+3	18	125	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+3	29	136	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+4	7	146	9	BinaryExpression	bool	METHOD:num.==	0	x == null
+4	7	146	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+4	12	151	4	NullLiteral	Null	-	0	null
+5	3	167	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+5	3	167	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	14	178	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+6	7	188	9	BinaryExpression	bool	METHOD:Object.==	0	null != y
+6	7	188	4	NullLiteral	Null	-	0	null
+6	15	196	1	SimpleIdentifier	int?	PARAMETER:f.y	0	y
+7	5	205	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+7	5	205	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+7	16	216	1	SimpleIdentifier	int	PARAMETER:f.y	1	y
+9	5	235	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+9	5	235	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	16	246	1	SimpleIdentifier	int?	PARAMETER:f.y	1	y
+11	7	260	9	BinaryExpression	bool	METHOD:num.==	0	z == null
+11	7	260	1	SimpleIdentifier	int?	PARAMETER:f.z	0	z
+11	12	265	4	NullLiteral	Null	-	0	null
+12	5	277	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/z)
+12	5	277	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	16	288	1	SimpleIdentifier	int?	PARAMETER:f.z	1	z
+16	10	308	17	FunctionExpression	void Function()	-	0	() => f(1, 2, 3);
+16	16	314	10	MethodInvocation	void	FUNCTION:f	0	f(1, 2, 3)
+16	16	314	1	SimpleIdentifier	void Function(int?, int?, int?)	FUNCTION:f	0	f
+16	18	316	1	IntegerLiteral	int	-	0	1
+16	21	319	1	IntegerLiteral	int	-	0	2
+16	24	322	1	IntegerLiteral	int	-	0	3

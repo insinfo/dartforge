@@ -1,0 +1,25 @@
+# 06_fluxo/flu15_null_aware_cadeia.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	11	102	1	IntegerLiteral	int	-	0	0
+7	7	114	106	FunctionExpression	void Function(A?, A?)	-	0	(A? a, A? b) { if (a?.v != null) { print(/*@*/a); }
+8	7	135	12	BinaryExpression	bool	METHOD:num.==	0	a?.v != null
+8	7	135	4	PropertyAccess	int?	GETTER:A.v	0	a?.v
+8	7	135	1	SimpleIdentifier	A?	PARAMETER:f.a	0	a
+8	10	138	1	SimpleIdentifier	int?	GETTER:A.v	0	v
+8	15	143	4	NullLiteral	Null	-	0	null
+9	5	155	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/a)
+9	5	155	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	16	166	1	SimpleIdentifier	A?	PARAMETER:f.a	1	a
+11	7	180	12	BinaryExpression	bool	METHOD:num.==	0	b?.w != null
+11	7	180	4	PropertyAccess	int?	GETTER:A.w	0	b?.w
+11	7	180	1	SimpleIdentifier	A?	PARAMETER:f.b	0	b
+11	10	183	1	SimpleIdentifier	int	GETTER:A.w	0	w
+11	15	188	4	NullLiteral	Null	-	0	null
+12	5	200	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/b)
+12	5	200	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	16	211	1	SimpleIdentifier	A?	PARAMETER:f.b	1	b
+16	10	231	18	FunctionExpression	void Function()	-	0	() => f(A(), A());
+16	16	237	11	MethodInvocation	void	FUNCTION:f	0	f(A(), A())
+16	16	237	1	SimpleIdentifier	void Function(A?, A?)	FUNCTION:f	0	f
+16	18	239	3	InstanceCreationExpression	A	CONSTRUCTOR:A.	0	A()
+16	23	244	3	InstanceCreationExpression	A	CONSTRUCTOR:A.	0	A()

@@ -1,0 +1,16 @@
+# 06_fluxo/flu19_atribuicao_contexto.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	126	79	FunctionExpression	void Function(Object)	-	0	(Object o) { if (o is List<num>) { o = /*@*/[1]; p
+4	7	145	14	IsExpression	bool	-	0	o is List<num>
+4	7	145	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+5	5	167	12	AssignmentExpression	List<num>	PARAMETER:f.o	0	o = /*@*/[1]
+5	5	167	1	SimpleIdentifier	-	PARAMETER:f.o	0	o
+5	14	176	3	ListLiteral	List<num>	-	1	[1]
+5	15	177	1	IntegerLiteral	int	-	0	1
+6	5	185	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+6	5	185	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	16	196	1	SimpleIdentifier	List<num>	PARAMETER:f.o	1	o
+10	10	216	11	FunctionExpression	void Function()	-	0	() => f(1);
+10	16	222	4	MethodInvocation	void	FUNCTION:f	0	f(1)
+10	16	222	1	SimpleIdentifier	void Function(Object)	FUNCTION:f	0	f
+10	18	224	1	IntegerLiteral	int	-	0	1

@@ -1,0 +1,27 @@
+# 06_fluxo/flu18_late_atribuicao_definitiva.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	93	169	FunctionExpression	void Function(bool)	-	0	(bool b) { late int x; if (b) x = 1; late final y = [1
+5	7	124	1	SimpleIdentifier	bool	PARAMETER:f.b	0	b
+5	10	127	5	AssignmentExpression	int	LOCAL_VARIABLE:f.x	0	x = 1
+5	10	127	1	SimpleIdentifier	-	LOCAL_VARIABLE:f.x	0	x
+5	14	131	1	IntegerLiteral	int	-	0	1
+6	18	151	5	ListLiteral	List<double>	-	0	[1.5]
+6	19	152	3	DoubleLiteral	double	-	0	1.5
+8	7	173	1	SimpleIdentifier	bool	PARAMETER:f.b	0	b
+9	5	182	5	AssignmentExpression	int	LOCAL_VARIABLE:f.z	0	z = 1
+9	5	182	1	SimpleIdentifier	-	LOCAL_VARIABLE:f.z	0	z
+9	9	186	1	IntegerLiteral	int	-	0	1
+11	5	204	5	AssignmentExpression	int	LOCAL_VARIABLE:f.z	0	z = 2
+11	5	204	1	SimpleIdentifier	-	LOCAL_VARIABLE:f.z	0	z
+11	9	208	1	IntegerLiteral	int	-	0	2
+13	3	217	42	MethodInvocation	void	FUNCTION:print	0	print([/*@*/x, /*@*/y, /*@*/z, /*@*/topo])
+13	3	217	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	9	223	35	ListLiteral	List<Object>	-	0	[/*@*/x, /*@*/y, /*@*/z, /*@*/topo]
+13	15	229	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.x	1	x
+13	23	237	1	SimpleIdentifier	List<double>	LOCAL_VARIABLE:f.y	1	y
+13	31	245	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.z	1	z
+13	39	253	4	SimpleIdentifier	int	GETTER:topo	1	topo
+16	10	273	14	FunctionExpression	void Function()	-	0	() => f(true);
+16	16	279	7	MethodInvocation	void	FUNCTION:f	0	f(true)
+16	16	279	1	SimpleIdentifier	void Function(bool)	FUNCTION:f	0	f
+16	18	281	4	BooleanLiteral	bool	-	0	true
