@@ -20,6 +20,14 @@ import 'package:corpus_ngdart/src/a16_entrada_e_saida.template.dart' as a16;
 import 'package:corpus_ngdart/src/a17_projecao_com_select.template.dart' as a17;
 import 'package:corpus_ngdart/src/a18_interpolacao_nula.template.dart' as a18;
 import 'package:corpus_ngdart/src/a19_atributo_sem_valor.template.dart' as a19;
+import 'package:corpus_ngdart/src/a20_getter_mutavel.template.dart' as a20;
+import 'package:corpus_ngdart/src/a21_imutabilidade_composta.template.dart' as a21;
+import 'package:corpus_ngdart/src/a22_form_com_forms_directives.template.dart' as a22;
+import 'package:corpus_ngdart/src/a23_interp_chamada.template.dart' as a23;
+import 'package:corpus_ngdart/src/a24_interp_ternario_binario.template.dart' as a24;
+import 'package:corpus_ngdart/src/a25_local_ancestral.template.dart' as a25;
+import 'package:corpus_ngdart/src/a26_constantes_em_embutida.template.dart' as a26;
+import 'package:corpus_ngdart/src/a27_on_push.template.dart' as a27;
 import 'package:corpus_ngdart/src/b01_ciclo_de_vida.template.dart' as b01;
 import 'package:corpus_ngdart/src/b02_providers.template.dart' as b02;
 import 'package:corpus_ngdart/src/b03_view_child.template.dart' as b03;
@@ -41,6 +49,8 @@ import 'package:corpus_ngdart/src/b18_providers_vazio.template.dart' as b18;
 import 'package:corpus_ngdart/src/b19_pipes_sem_uso.template.dart' as b19;
 import 'package:corpus_ngdart/src/b20_view_child_dois.template.dart' as b20;
 import 'package:corpus_ngdart/src/b21_host_listener_explicito.template.dart' as b21;
+import 'package:corpus_ngdart/src/b22_estilo_csslib.template.dart' as b22;
+import 'package:corpus_ngdart/src/b23_so_on_destroy.template.dart' as b23;
 import 'package:corpus_ngdart/src/c01_ligacao_e_texto.template.dart' as c01;
 import 'package:corpus_ngdart/src/c02_evento_e_ligacao.template.dart' as c02;
 import 'package:corpus_ngdart/src/c03_dois_elementos_ligados.template.dart' as c03;
@@ -52,12 +62,32 @@ import 'package:corpus_ngdart/src/c08_eventos_irmaos.template.dart' as c08;
 import 'package:corpus_ngdart/src/c09_pipe_na_interpolacao.template.dart' as c09;
 import 'package:corpus_ngdart/src/c10_entrada_antes_da_propriedade.template.dart' as c10;
 import 'package:corpus_ngdart/src/c11_ligacoes_constantes.template.dart' as c11;
+import 'package:corpus_ngdart/src/c12_handler_atribuicao.template.dart' as c12;
+import 'package:corpus_ngdart/src/c13_evento_em_ng_for.template.dart' as c13;
+import 'package:corpus_ngdart/src/c14_keyup_enter.template.dart' as c14;
+import 'package:corpus_ngdart/src/c16_atributo_interpolado.template.dart' as c16;
+import 'package:corpus_ngdart/src/c17_pipe_com_argumento.template.dart' as c17;
+import 'package:corpus_ngdart/src/c18_evento_no_projetado.template.dart' as c18;
 import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
 import 'package:corpus_ngdart/src/d04_projecao_no_filho.template.dart' as d04;
+import 'package:corpus_ngdart/src/d05_filho_ciclo.template.dart' as d05;
+import 'package:corpus_ngdart/src/d05_usa_ciclo.template.dart' as d05;
+import 'package:corpus_ngdart/src/d06_filho_saida.template.dart' as d06;
+import 'package:corpus_ngdart/src/d06_usa_saida.template.dart' as d06;
+import 'package:corpus_ngdart/src/d07_filho_on_push.template.dart' as d07;
+import 'package:corpus_ngdart/src/d07_usa_on_push.template.dart' as d07;
+import 'package:corpus_ngdart/src/d08_filho_injetado.template.dart' as d08;
+import 'package:corpus_ngdart/src/d08_usa_injetado.template.dart' as d08;
+import 'package:corpus_ngdart/src/d09_projecao_select.template.dart' as d09;
+import 'package:corpus_ngdart/src/d09_usa_projecao.template.dart' as d09;
+import 'package:corpus_ngdart/src/d10_campo_var.template.dart' as d10;
+import 'package:corpus_ngdart/src/d10_filho_var.template.dart' as d10;
 import 'package:corpus_ngdart/src/f01_if_com_for.template.dart' as f01;
 import 'package:corpus_ngdart/src/f02_dois_ifs_irmaos.template.dart' as f02;
+import 'package:corpus_ngdart/src/g01_form_ng_model.template.dart' as g01;
+import 'package:corpus_ngdart/src/g02_select_ng_model.template.dart' as g02;
 
 void main() {
   print([
@@ -80,6 +110,14 @@ void main() {
     a17.A17ProjecaoComSelectNgFactory,
     a18.A18InterpolacaoNulaNgFactory,
     a19.A19AtributoSemValorNgFactory,
+    a20.A20GetterMutavelNgFactory,
+    a21.A21ImutabilidadeCompostaNgFactory,
+    a22.A22FormComFormsDirectivesNgFactory,
+    a23.A23InterpChamadaNgFactory,
+    a24.A24InterpTernarioBinarioNgFactory,
+    a25.A25LocalAncestralNgFactory,
+    a26.A26ConstantesEmEmbutidaNgFactory,
+    a27.A27OnPushNgFactory,
     b01.B01CicloDeVidaNgFactory,
     b02.B02ProvidersNgFactory,
     b03.B03ViewChildNgFactory,
@@ -101,6 +139,8 @@ void main() {
     b19.B19PipesSemUsoNgFactory,
     b20.B20ViewChildDoisNgFactory,
     b21.B21HostListenerExplicitoNgFactory,
+    b22.B22EstiloCsslibNgFactory,
+    b23.B23SoOnDestroyNgFactory,
     c01.C01LigacaoETextoNgFactory,
     c02.C02EventoELigacaoNgFactory,
     c03.C03DoisElementosLigadosNgFactory,
@@ -112,11 +152,31 @@ void main() {
     c09.C09PipeNaInterpolacaoNgFactory,
     c10.C10EntradaAntesDaPropriedadeNgFactory,
     c11.C11LigacoesConstantesNgFactory,
+    c12.C12HandlerAtribuicaoNgFactory,
+    c13.C13EventoEmNgForNgFactory,
+    c14.C14KeyupEnterNgFactory,
+    c16.C16AtributoInterpoladoNgFactory,
+    c17.C17PipeComArgumentoNgFactory,
+    c18.C18EventoNoProjetadoNgFactory,
     d01.D01DoisFilhosNgFactory,
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
     d04.D04ProjecaoNoFilhoNgFactory,
+    d05.D05FilhoCicloNgFactory,
+    d05.D05UsaCicloNgFactory,
+    d06.D06FilhoSaidaNgFactory,
+    d06.D06UsaSaidaNgFactory,
+    d07.D07FilhoOnPushNgFactory,
+    d07.D07UsaOnPushNgFactory,
+    d08.D08FilhoInjetadoNgFactory,
+    d08.D08UsaInjetadoNgFactory,
+    d09.D09ProjecaoSelectNgFactory,
+    d09.D09UsaProjecaoNgFactory,
+    d10.D10CampoVarNgFactory,
+    d10.D10FilhoVarNgFactory,
     f01.F01IfComForNgFactory,
     f02.F02DoisIfsIrmaosNgFactory,
+    g01.G01FormNgModelNgFactory,
+    g02.G02SelectNgModelNgFactory,
   ].length);
 }

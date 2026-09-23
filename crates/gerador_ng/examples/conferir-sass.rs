@@ -17,11 +17,14 @@ fn main() -> std::process::ExitCode {
         eprintln!("uso: conferir-sass <raiz do projeto>");
         return std::process::ExitCode::FAILURE;
     };
-    let raiz = dartforge_elements::config::sem_verbatim(
-        std::fs::canonicalize(&raiz).unwrap_or(raiz),
-    );
+    let raiz =
+        dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&raiz).unwrap_or(raiz));
     let gerado = raiz.join(".dart_tool/build/generated");
-    let pacote = raiz.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let pacote = raiz
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let mut pacotes: Vec<PathBuf> = Vec::new();
     if let Ok(e) = std::fs::read_dir(&gerado) {
         pacotes.extend(e.flatten().map(|x| x.path()).filter(|p| p.is_dir()));
@@ -34,7 +37,9 @@ fn main() -> std::process::ExitCode {
         if scss.to_string_lossy().contains("assets") {
             continue;
         }
-        let Ok(rel) = scss.strip_prefix(&raiz) else { continue };
+        let Ok(rel) = scss.strip_prefix(&raiz) else {
+            continue;
+        };
         let oficial = pacotes
             .iter()
             .map(|p| p.join(rel).with_extension("css"))
@@ -47,7 +52,9 @@ fn main() -> std::process::ExitCode {
             sem_oficial += 1;
             continue;
         };
-        let Ok(fonte) = std::fs::read_to_string(&scss) else { continue };
+        let Ok(fonte) = std::fs::read_to_string(&scss) else {
+            continue;
+        };
         let nosso = match sass::compilar_em(&fonte, scss.parent()) {
             Ok(c) => c,
             Err(_) => {
@@ -65,7 +72,8 @@ fn main() -> std::process::ExitCode {
             (Ok(a), Ok(b)) if a == b => iguais += 1,
             (Ok(a), Ok(b)) => {
                 diferentes += 1;
-                if exemplos.len() < 30 {
+                // Diferença sempre aparece: é o que quebra o oráculo.
+                {
                     let i = a
                         .char_indices()
                         .zip(b.chars())
@@ -97,7 +105,11 @@ fn main() -> std::process::ExitCode {
     for e in &exemplos {
         println!("  {e}");
     }
-    if diferentes == 0 { std::process::ExitCode::SUCCESS } else { std::process::ExitCode::FAILURE }
+    if diferentes == 0 {
+        std::process::ExitCode::SUCCESS
+    } else {
+        std::process::ExitCode::FAILURE
+    }
 }
 
 fn janela(s: &str, i: usize) -> String {
@@ -110,7 +122,9 @@ fn arquivos(raiz: &Path, ext: &str) -> Vec<PathBuf> {
     let mut saida = Vec::new();
     let mut pilha = vec![raiz.join("lib"), raiz.join("web")];
     while let Some(d) = pilha.pop() {
-        let Ok(entradas) = std::fs::read_dir(&d) else { continue };
+        let Ok(entradas) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in entradas.flatten() {
             let p = e.path();
             if p.is_dir() {
