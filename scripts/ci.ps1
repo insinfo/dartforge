@@ -20,6 +20,7 @@ param(
     [switch]$Acompanhar,
     [string]$Run,
     [string]$Placar,
+    [switch]$Manter,
     [switch]$Listar
 )
 $ErrorActionPreference = 'Stop'
@@ -86,7 +87,10 @@ if ($Acompanhar) {
 
 if ($Placar) {
     gh run view $Placar
-    $dir = Join-Path ([IO.Path]::GetTempPath()) "dartforge-ci-$Placar"
+    # Fora do %TEMP%: o C: é pequeno e os downloads se acumulavam (10 GB em um
+    # dia somados a outras sobras). Vai para target/ do repositório (no D:,
+    # ignorado pelo git) e é apagado depois de impresso, salvo com -Manter.
+    $dir = Join-Path $PSScriptRoot "..\target\ci-placar\$Placar"
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     # Os artefatos relatorio-* e placar-* são texto pequeno; os binários não vêm.
     gh run download $Placar -D $dir -p 'relatorio-*' -p 'placar-*'
@@ -94,7 +98,12 @@ if ($Placar) {
         Write-Host "`n=== $($_.Directory.Name) ===" -ForegroundColor Cyan
         Get-Content $_ -Encoding utf8 | Write-Host
     }
-    Write-Host "`nrelatórios completos em $dir"
+    if ($Manter) {
+        Write-Host "`nrelatórios completos em $dir"
+    } else {
+        Remove-Item -Recurse -Force $dir
+        Write-Host "`n(relatórios apagados; use -Manter para guardá-los em target/ci-placar)"
+    }
 }
 
 if ($Listar) {
