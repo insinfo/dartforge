@@ -351,6 +351,11 @@ struct Corpo<'a> {
     embutida: bool,
     /// Locais do escopo (`let item of itens`), que sombreiam os membros.
     locais: std::collections::HashMap<String, crate::expr::Local>,
+    /// Próximo número de visão embutida. O oficial usa um contador único em
+    /// profundidade (`_view.viewIndex + _nestedViewCount` em
+    /// `view_builder.dart`): o primeiro `*` do topo é 1, o aninhado dentro
+    /// dele é 2, e o irmão seguinte é 3.
+    proxima_embutida: u32,
     /// Tipo do contexto da visão (`import1.X`), para a embutida declarar
     /// `EmbeddedView<X>`.
     tipo_do_contexto: String,
@@ -586,14 +591,6 @@ impl Corpo<'_> {
     ) -> Result<(), Motivo> {
         let Some(url) = self.url_do_template.clone() else { return Err(Motivo::Ligacao) };
         let Some(dir) = Estrutural::conhecida(&estrela.nome) else { return Err(Motivo::Ligacao) };
-        // Visão embutida dentro de visão embutida: o oficial numera as
-        // classes com um contador único, em profundidade
-        // (`_view.viewIndex + _nestedViewCount` em `view_builder.dart`), e
-        // isso ainda não está verificado por nenhum caso do corpus. Recusar
-        // é melhor que emitir numeração errada.
-        if tem_estrutural(&e.filhos) {
-            return Err(Motivo::Ligacao);
-        }
         let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
         let n = self.proximo;
         self.proximo += 1;
@@ -603,7 +600,9 @@ impl Corpo<'_> {
         let qd = self.imp.q(dir.uri);
         let dev = self.imp.alias(DEVTOOLS);
         let classe_dir = dir.classe;
-        let indice = self.embutidas.len() + 1;
+        // O número desta visão, e o salto que o subconjunto dela consome.
+        let indice = self.proxima_embutida;
+        self.proxima_embutida += 1 + contar_estruturais(&e.filhos);
         let nome_fabrica = format!("viewFactory_{}{indice}", &self.classe_da_visao[4..]);
         let campo = format!("_{classe_dir}_{n}_9");
         // Num `<template>` os provedores embutidos ocupam 0..7 e o
@@ -612,8 +611,13 @@ impl Corpo<'_> {
         self.campos_filho.push(format!("  late final {qd}{classe_dir} {campo};"));
         self.ancoras.push(format!("_appEl_{n}"));
         self.linhas.push(format!("    final _anchor_{n} = {dom}.appendAnchor({pai});"));
-        self.linhas
-            .push(format!("    this._appEl_{n} = {vc}ViewContainer({n}, null, this, _anchor_{n});"));
+        // O segundo argumento é o índice do elemento pai, e `null` quando a
+        // âncora está na raiz da visão (`isRootElement ? null :
+        // parent.nodeIndex`, em `compile_element.dart`).
+        let pai_indice = indice_do_elemento(pai);
+        self.linhas.push(format!(
+            "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _anchor_{n});"
+        ));
         self.linhas.push(format!(
             "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
         ));
@@ -690,6 +694,7 @@ impl Corpo<'_> {
         let mut sem_estrela = e.clone();
         sem_estrela.estrela = None;
         self.embutidas.push(EspecEmbutida {
+            indice,
             classe: format!("_{}{indice}", self.classe_da_visao),
             fabrica: nome_fabrica,
             nos: vec![No::Elemento(sem_estrela)],
@@ -1032,6 +1037,8 @@ fn campos_em_ordem<'a>(
 /// O que é preciso para emitir uma visão embutida, guardado durante a
 /// varredura e usado depois.
 struct EspecEmbutida {
+    /// Número da visão (`_ViewX3`), atribuído na varredura.
+    indice: u32,
     classe: String,
     fabrica: String,
     nos: Vec<No>,
@@ -1090,6 +1097,8 @@ fn emitir_embutida(
         ancoras: Vec::new(),
         embutida: true,
         locais: espec.locais.clone(),
+        // A numeração continua de onde o pai parou.
+        proxima_embutida: espec.indice + 1,
         tipo_do_contexto: tipo_do_contexto.to_string(),
         proximo: 0,
         tem_doc: false,
@@ -1103,6 +1112,17 @@ fn emitir_embutida(
     if tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
     }
+    // Local declarado numa visão *ancestral* é lido pela cadeia de
+    // `parentView`, com cast para a classe daquela visão:
+    // `unsafeCast<_ViewX2>((this.parentView!)).locals['$implicit']`.
+    // É mecanismo próprio e ainda não está verificado por caso de corpus.
+    for nome in espec.locais.keys() {
+        let meu = espec.micro.locais.iter().any(|(n, _)| n == nome);
+        if !meu && local_citado(&espec.nos, nome) {
+            return Err(Motivo::Ligacao);
+        }
+    }
+    alocar_imports_dos_campos(dentro.imp, &espec.nos, filhos, asset)?;
     // O construtor vem depois dos campos e antes do `build()`, e é ele que
     // nomeia a `RenderView`.
     let rv = dentro.imp.alias(RENDER_VIEW);
@@ -1116,12 +1136,23 @@ fn emitir_embutida(
         .iter()
         .filter(|(nome, _)| local_citado(&espec.nos, nome))
         .collect();
+    // O argumento de tipo do `unsafeCast` precisa estar importado e
+    // qualificado: do `dart:core` sai sem prefixo, de outra biblioteca sai
+    // com o prefixo dela.
+    let mut tipos_locais: std::collections::HashMap<String, String> = Default::default();
     for (nome, _) in &usados {
-        if let Some(l) = espec.locais.get(nome.as_str()) {
-            if matches!(l.tipo.as_str(), "String" | "int" | "double" | "bool" | "num" | "Object") {
-                dentro.imp.alias("dart:core");
-            }
+        let Some(l) = espec.locais.get(nome.as_str()) else { continue };
+        if matches!(l.tipo.as_str(), "String" | "int" | "double" | "bool" | "num" | "Object") {
+            dentro.imp.alias("dart:core");
+            tipos_locais.insert(nome.to_string(), l.tipo.clone());
+            continue;
         }
+        let Some((r, arquivo)) = tipos else { return Err(Motivo::Ligacao) };
+        let Some(uri) = r.uri_do_tipo(arquivo, &l.tipo) else { return Err(Motivo::Ligacao) };
+        let alvo = asset_de_uri(&uri, "", Path::new("")).ok_or(Motivo::Ligacao)?;
+        let caminho = caminho_do_import(asset, &alvo).ok_or(Motivo::Ligacao)?;
+        let q = dentro.imp.q(&caminho);
+        tipos_locais.insert(nome.to_string(), format!("{q}{}", l.tipo));
     }
     dentro.nos(&espec.nos, "")?;
     if dentro.proximo == 0 {
@@ -1131,27 +1162,71 @@ fn emitir_embutida(
     let mut declaracoes = Vec::new();
     for (nome, chave) in &usados {
         let Some(l) = espec.locais.get(nome.as_str()) else { continue };
-        let (d, t) = (&l.dart, &l.tipo);
+        let d = &l.dart;
+        let t = tipos_locais.get(nome.as_str()).unwrap_or(&l.tipo);
         // A chave sai como literal escapado (`'\$implicit'`): sem o escape,
         // o `$` viraria interpolação em Dart.
         let chave = literal(chave);
         declaracoes.push(format!("    final {d} = {util}.unsafeCast<{t}>(this.locals[{chave}]);"));
     }
     let corpo = dentro.linhas.join("\n");
-    let campos = if dentro.campos.is_empty() {
+    // Mesma ordem da visão de topo: ligações de texto, visões-filhas e
+    // âncoras, valores anteriores, elementos.
+    let mut todos = dentro.campos.clone();
+    todos.extend(dentro.campos_filho.clone());
+    todos.extend(dentro.campos_expr.clone());
+    todos.extend(dentro.campos_el.clone());
+    let campos =
+        if todos.is_empty() { String::new() } else { format!("{}
+", todos.join("
+")) };
+    let mut linhas_det = Vec::new();
+    // `_ctx` só é declarado se o corpo o usar de fato: numa visão de `*ngFor`
+    // a interpolação costuma usar o local do laço, não o contexto.
+    if cita_ctx(&dentro.deteccao) {
+        linhas_det.push("    final _ctx = this.ctx;".to_string());
+    }
+    linhas_det.extend(declaracoes);
+    linhas_det.extend(dentro.deteccao.clone());
+    for a in &dentro.ancoras {
+        linhas_det.push(format!("    this.{a}.detectChangesInNestedViews();"));
+    }
+    for v in &dentro.vistas_filhas {
+        linhas_det.push(format!("    this.{v}.detectChanges();"));
+    }
+    let deteccao = if linhas_det.is_empty() {
         String::new()
     } else {
-        format!("{}\n", dentro.campos.join("\n"))
-    };
-    let deteccao = if dentro.deteccao.is_empty() && declaracoes.is_empty() {
-        String::new()
-    } else {
-        let mut linhas = declaracoes;
-        linhas.extend(dentro.deteccao.clone());
         format!(
-            "\n  @override\n  void detectChangesInternal() {{\n{}\n  }}\n",
-            linhas.join("\n")
+            "
+  @override
+  void detectChangesInternal() {{
+{}
+  }}
+",
+            linhas_det.join("
+")
         )
+    };
+    // Visão embutida também destrói o que pendurou nela.
+    let destruicao = if dentro.ancoras.is_empty() && dentro.vistas_filhas.is_empty() {
+        String::new()
+    } else {
+        let mut linhas: Vec<String> = dentro
+            .ancoras
+            .iter()
+            .map(|a| format!("    this.{a}.destroyNestedViews();"))
+            .collect();
+        linhas.extend(
+            dentro.vistas_filhas.iter().map(|v| format!("    this.{v}.destroyInternalState();")),
+        );
+        format!("
+  @override
+  void destroyInternal() {{
+{}
+  }}
+", linhas.join("
+"))
     };
     let aninhadas = std::mem::take(&mut dentro.embutidas);
     // Tira os dois emprestados de dentro da estrutura: a recursão precisa
@@ -1159,7 +1234,7 @@ fn emitir_embutida(
     let imp = dentro.imp;
     let nomes = dentro.nomes;
     let mut texto = format!(
-        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}{destruicao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
     );
     for a in aninhadas {
         texto.push_str(&emitir_embutida(
@@ -1181,12 +1256,65 @@ fn emitir_embutida(
     Ok(texto)
 }
 
-/// Há outra diretiva estrutural na subárvore?
-fn tem_estrutural(nos: &[No]) -> bool {
-    nos.iter().any(|n| match n {
-        No::Elemento(e) => e.estrela.is_some() || tem_estrutural(&e.filhos),
-        _ => false,
+/// Aloca os imports que os **campos** da classe usam, na ordem em que eles
+/// são declarados — ligações de texto, visões-filhas e diretivas
+/// estruturais, e por fim `dart:html` dos elementos que viram campo.
+///
+/// A ordem dos imports é a ordem em que o oficial escreve o arquivo, e os
+/// campos vêm antes de tudo na classe. Vale igual para a visão de topo e
+/// para cada visão embutida.
+fn alocar_imports_dos_campos(
+    imp: &mut Importacoes,
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    asset: &str,
+) -> Result<(), Motivo> {
+    for campo in campos_em_ordem(nos, filhos) {
+        match campo {
+            CampoDaVisao::Filho(f) => {
+                for uri in [&f.uri_template, &f.uri_dart] {
+                    let alvo =
+                        asset_de_uri(uri, "", Path::new("")).ok_or(Motivo::ComponenteNoTemplate)?;
+                    let caminho =
+                        caminho_do_import(asset, &alvo).ok_or(Motivo::ComponenteNoTemplate)?;
+                    imp.alias(&caminho);
+                }
+            }
+            CampoDaVisao::Estrutural(uri) => {
+                imp.alias(VIEW_CONTAINER);
+                imp.alias(uri);
+            }
+        }
+    }
+    if tem_elemento_ligado(nos, filhos) {
+        imp.alias("dart:html");
+    }
+    Ok(())
+}
+
+/// Alguma linha usa `_ctx`?
+fn cita_ctx(linhas: &[String]) -> bool {
+    linhas.iter().any(|l| {
+        l.split(|c: char| !c.is_alphanumeric() && c != '_').any(|t| t == "_ctx")
     })
+}
+
+/// Índice do elemento que serve de pai, ou `null` se for a raiz da visão.
+fn indice_do_elemento(pai: &str) -> String {
+    pai.rsplit_once("_el_").map(|(_, n)| n.to_string()).unwrap_or_else(|| "null".to_string())
+}
+
+/// Quantas diretivas estruturais há na subárvore — é o salto que a
+/// numeração das visões embutidas dá antes do próximo irmão.
+fn contar_estruturais(nos: &[No]) -> u32 {
+    nos.iter()
+        .map(|n| match n {
+            No::Elemento(e) => {
+                u32::from(e.estrela.is_some()) + contar_estruturais(&e.filhos)
+            }
+            _ => 0,
+        })
+        .sum()
 }
 
 /// O local aparece em alguma expressão da subárvore?
@@ -1331,26 +1459,7 @@ pub fn template_de_componente(
     // alocados nessa mesma ordem. É isso que faz a numeração bater com a do
     // oficial; fora de ordem, a comparação byte a byte não vale nada.
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
-    for campo in campos_em_ordem(nos, filhos) {
-        match campo {
-            CampoDaVisao::Filho(f) => {
-                for uri in [&f.uri_template, &f.uri_dart] {
-                    let asset =
-                        asset_de_uri(uri, "", Path::new("")).ok_or(Motivo::ComponenteNoTemplate)?;
-                    let caminho = caminho_do_import(&local.asset(), &asset)
-                        .ok_or(Motivo::ComponenteNoTemplate)?;
-                    imp.alias(&caminho);
-                }
-            }
-            CampoDaVisao::Estrutural(uri) => {
-                imp.alias(VIEW_CONTAINER);
-                imp.alias(uri);
-            }
-        }
-    }
-    if tem_elemento_ligado(nos, filhos) {
-        imp.alias("dart:html");
-    }
+    alocar_imports_dos_campos(&mut imp, nos, filhos, &local.asset())?;
     let estilos = imp.alias(STYLE_ENCAPSULATION);
     let view = imp.alias(VIEW);
     let cd = imp.alias(CHANGE_DETECTION);
@@ -1373,6 +1482,7 @@ pub fn template_de_componente(
         ancoras: Vec::new(),
         embutida: false,
         locais: Default::default(),
+        proxima_embutida: 1,
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         campos_expr: Vec::new(),
         campos_el: Vec::new(),

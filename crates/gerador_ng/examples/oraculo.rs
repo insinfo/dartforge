@@ -93,9 +93,23 @@ fn main() -> std::process::ExitCode {
         match oficial.obter(caminho) {
             None => sem_oficial += 1,
             Some(o) if o.conteudo == f.conteudo => iguais += 1,
-            Some(_) => {
+            Some(o) => {
                 diferentes += 1;
-                divergentes.push(caminho.display().to_string());
+                // A primeira linha que diverge diz mais que o nome do arquivo.
+                let esperado = o.conteudo.replace("
+", "
+");
+                let primeira = esperado
+                    .lines()
+                    .zip(f.conteudo.lines())
+                    .enumerate()
+                    .find(|(_, (a, b))| a != b)
+                    .map(|(i, (a, b))| format!("
+    linha {}
+    oficial: {a}
+    nosso:   {b}", i + 1))
+                    .unwrap_or_default();
+                divergentes.push(format!("{}{primeira}", caminho.display()));
             }
         }
     }

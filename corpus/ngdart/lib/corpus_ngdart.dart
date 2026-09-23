@@ -52,3 +52,5 @@ export 'src/e01_diretiva_simples.dart';
 export 'src/e02_diretiva_com_host_binding.dart';
 export 'src/e03_diretiva_com_entrada.dart';
 export 'src/e04_pipe.dart';
+export 'src/f01_if_com_for.dart';
+export 'src/f02_dois_ifs_irmaos.dart';

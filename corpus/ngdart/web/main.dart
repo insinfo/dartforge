@@ -47,6 +47,8 @@ import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
 import 'package:corpus_ngdart/src/d04_projecao_no_filho.template.dart' as d04;
+import 'package:corpus_ngdart/src/f01_if_com_for.template.dart' as f01;
+import 'package:corpus_ngdart/src/f02_dois_ifs_irmaos.template.dart' as f02;
 
 void main() {
   print([
@@ -96,5 +98,7 @@ void main() {
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
     d04.D04ProjecaoNoFilhoNgFactory,
+    f01.F01IfComForNgFactory,
+    f02.F02DoisIfsIrmaosNgFactory,
   ].length);
 }
