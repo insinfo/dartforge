@@ -26,7 +26,7 @@ pode fazer o mesmo código-fonte significar outra coisa.
 5. **`dart:mirrors` não será implementado.** O substituto é reflexão estática gerada em
    compilação, dirigida por anotação, com alvo de API em `package:reflectable` — que é
    também a estratégia recomendada pelo time do Dart. O desenho dela está em
-   [MACROS-ARQUITETURA.md](MACROS-ARQUITETURA.md#reflexão-estática-o-que-herdar-da-proposta-de-macros);
+   [historico/MACROS-ARQUITETURA.md](historico/MACROS-ARQUITETURA.md#reflexão-estática-o-que-herdar-da-proposta-de-macros);
    aqui ficam só a evidência de código da Web e a interseção com a serialização de
    isolates. Ver [Recomendação sobre mirrors](#recomendação-sobre-mirrors).
 6. **Não há protótipo neste incremento.** A razão é concreta e está em
@@ -354,7 +354,7 @@ Verificável em `references/dart-sdk`, tag `3.6.2`:
 - `isolate_helper.dart`, `isolate_serialization.dart`, `js_mirrors.dart` e
   `mirrors_patch.dart` **não existem mais** em `sdk/lib/_internal/js_runtime/lib/`.
 - Consequência para imports condicionais, já medida por este projeto em
-  [ENVIRONMENT-REFERENCIAS.md](ENVIRONMENT-REFERENCIAS.md): `dart.library.isolate` é
+  [historico/ENVIRONMENT-REFERENCIAS.md](historico/ENVIRONMENT-REFERENCIAS.md): `dart.library.isolate` é
   **ausente** em dart2js, `true` em Native AOT e em dart2wasm; `dart.library.mirrors` é
   ausente nos três.
 
@@ -953,8 +953,8 @@ de implementação for real:
 | `@pragma` como veículo de gancho | **rejeitada explicitamente** | `crates/parser/src/lib.rs:2518–2535` |
 | Reconhecer `WorkerIsolate.*` como intrínseco | **não existe.** Intrínsecos exigem parser + semantic + `Symbol::intrinsic` no linker + braço no `match` do codegen | `crates/semantic/src/asynchronous.rs:136`; `crates/linker/src/lib.rs:349–367`; `crates/codegen/src/lib.rs:1940–1971` |
 | `dart:isolate` / `dart:js_interop` reconhecidas | **não.** Allowlist tem só `dart:core`, `dart:async`, `dart:ffi` | `crates/packages/src/lib.rs:253–271` |
-| Imports condicionais | **existe** | [IMPLEMENTACAO-15.md](IMPLEMENTACAO-15.md) |
-| Resolução `package:` | **existe** | [PACKAGES.md](PACKAGES.md) |
+| Imports condicionais | **existe** | [historico/IMPLEMENTACAO-15.md](historico/IMPLEMENTACAO-15.md) |
+| Resolução `package:` | **existe** | [historico/PACKAGES.md](historico/PACKAGES.md) |
 | Carregamento diferido (`deferred`) | **rejeitado.** Compartilha maquinaria com chunking | `crates/packages/src/lib.rs:1037–1044` |
 
 ---
@@ -964,7 +964,7 @@ de implementação for real:
 **Não implementar `dart:mirrors`.** O substituto é reflexão estática gerada em
 compilação, dirigida por anotação — e o desenho dela **não pertence a este documento**.
 Ele está em
-[MACROS-ARQUITETURA.md, "Reflexão estática: o que herdar da proposta de macros"](MACROS-ARQUITETURA.md#reflexão-estática-o-que-herdar-da-proposta-de-macros),
+[historico/MACROS-ARQUITETURA.md, "Reflexão estática: o que herdar da proposta de macros"](historico/MACROS-ARQUITETURA.md#reflexão-estática-o-que-herdar-da-proposta-de-macros),
 que fixa o contrato de fases, a decisão de gerar em processo em Rust em vez de hospedar
 macro de usuário por RPC, e a forma da anotação. Esta seção cobre só o que é específico
 da Web e o que a interseção com isolates acrescenta.
@@ -1004,7 +1004,7 @@ Mirar essa API é o que faz a anotação atender à regra de equivalência semâ
 de pacote pub com builder `build_runner`, então dart2js e DDC geram os descritores pela
 etapa de build e o DartForge gera a mesma API nativamente, em processo. Mesmo programa,
 mesma semântica; um dos dois só constrói mais rápido. O raciocínio completo está em
-MACROS-ARQUITETURA.md; ele é o mesmo que §3.2 aplica a `guard`.
+historico/MACROS-ARQUITETURA.md; ele é o mesmo que §3.2 aplica a `guard`.
 
 ### O que é específico da Web
 
@@ -1025,7 +1025,7 @@ MACROS-ARQUITETURA.md; ele é o mesmo que §3.2 aplica a `guard`.
 3. **Recusar mirrors na Web é divergência zero.** `dart:mirrors` não está nas seções
    `dart2js` nem `dartdevc` de `libraries.json` em 3.6.2 — um programa que a importa
    **não compila** para a Web hoje. No perfil nativo, `dart.library.mirrors` é ausente em
-   AOT ([ENVIRONMENT-REFERENCIAS.md](ENVIRONMENT-REFERENCIAS.md)) e o backend nativo do
+   AOT ([historico/ENVIRONMENT-REFERENCIAS.md](historico/ENVIRONMENT-REFERENCIAS.md)) e o backend nativo do
    DartForge reproduz AOT. Em nenhum dos dois casos recusar mirrors muda o significado de
    um programa que hoje compila. É a diferença entre este item e §5.2: recusar `spawnUri`
    estreita uma API que a plataforma teria como sustentar; recusar mirrors não estreita
@@ -1043,7 +1043,7 @@ MACROS-ARQUITETURA.md; ele é o mesmo que §3.2 aplica a `guard`.
 
 A serialização de §3.4 **é** um caso de reflexão estática: `_forgeWrite$T` /
 `_forgeRead$T` são descritores gerados para um conjunto declarado de tipos. Devem sair do
-mesmo gerador e da mesma tabela descritos em MACROS-ARQUITETURA.md, não de um segundo
+mesmo gerador e da mesma tabela descritos em historico/MACROS-ARQUITETURA.md, não de um segundo
 gerador paralelo.
 
 Duas restrições que só existem por causa da Web e que o gerador geral precisa acomodar:
@@ -1056,7 +1056,7 @@ Duas restrições que só existem por causa da Web e que o gerador geral precisa
   amarraria o protocolo ao esquema de nomes e mataria a minificação. Reflexão estática
   pode usar nomes internamente; a serialização entre agentes não pode.
 
-E a assimetria que MACROS-ARQUITETURA.md nomeia aparece aqui na forma mais concreta
+E a assimetria que historico/MACROS-ARQUITETURA.md nomeia aparece aqui na forma mais concreta
 possível: `@JsonCodable` gera código **para a classe anotada**, e o gerador sabe sobre o
 que emitir. Reflexão recebe perguntas **por nome, em execução** — `invoke('foo')` com
 `'foo'` calculado — e o gerador não sabe quais nomes serão pedidos. Na serialização de
@@ -1082,7 +1082,7 @@ capacidades, em isolates pelos argumentos de tipo de `WorkerTask` e `SendPort`.
 - **Compatibilidade de fonte com código que importa `dart:mirrors`.** Não compila. Na Web
   não é regressão (item 3); em cenário de VM JIT, é.
 - **Custo de ferramenta.** Descritores exigem geração, cache e invalidação — complexidade
-  que mirrors não tinha e que MACROS-ARQUITETURA.md trata nas três regras de
+  que mirrors não tinha e que historico/MACROS-ARQUITETURA.md trata nas três regras de
   incrementalidade.
 
 ### O diagnóstico
@@ -1214,10 +1214,10 @@ repositório `google/reflectable.dart`, desenvolvedor principal Erik Ernst), pac
 
 Documentos internos relacionados: [PLANO.md](../PLANO.md) (regra de equivalência
 semântica),
-[MACROS-ARQUITETURA.md](MACROS-ARQUITETURA.md#reflexão-estática-o-que-herdar-da-proposta-de-macros)
+[historico/MACROS-ARQUITETURA.md](historico/MACROS-ARQUITETURA.md#reflexão-estática-o-que-herdar-da-proposta-de-macros)
 (desenho da reflexão estática, contrato de fases e forma da anotação),
-[IMPLEMENTACAO-15.md](IMPLEMENTACAO-15.md) (imports condicionais),
-[ENVIRONMENT-REFERENCIAS.md](ENVIRONMENT-REFERENCIAS.md) (matriz de `dart.library.*`),
-[IMPLEMENTACAO-23.md](IMPLEMENTACAO-23.md) (tree shaking),
-[PACKAGES.md](PACKAGES.md), [MODULES.md](MODULES.md),
+[historico/IMPLEMENTACAO-15.md](historico/IMPLEMENTACAO-15.md) (imports condicionais),
+[historico/ENVIRONMENT-REFERENCIAS.md](historico/ENVIRONMENT-REFERENCIAS.md) (matriz de `dart.library.*`),
+[historico/IMPLEMENTACAO-23.md](historico/IMPLEMENTACAO-23.md) (tree shaking),
+[historico/PACKAGES.md](historico/PACKAGES.md), [historico/MODULES.md](historico/MODULES.md),
 [DART2JS-REFERENCIA.md](DART2JS-REFERENCIA.md).

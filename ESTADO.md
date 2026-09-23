@@ -569,7 +569,7 @@ Duas coisas a preservar ao fazer isso:
   uma vez e executa pelos dois caminhos (ORCv2 e AOT) exigindo saída
   idêntica. Divergir em tempo de compilação é esperado; em resultado, é
   defeito;
-* a recomendação de `docs/CRANELIFT.md`, que é **não adotar** Cranelift:
+* a recomendação de `docs/historico/CRANELIFT.md`, que é **não adotar** Cranelift:
   o experimento foi feito e medido. Quem for mexer em JIT lê isso antes de
   repetir o experimento.
 

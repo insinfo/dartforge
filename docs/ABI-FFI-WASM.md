@@ -1,6 +1,6 @@
 # Contratos iniciais de ABI, FFI e WebAssembly
 
-**Atualização:** o [incremento 16](IMPLEMENTACAO-16.md) implementa o caminho
+**Atualização:** o [incremento 16](historico/IMPLEMENTACAO-16.md) implementa o caminho
 @Native/external escalar com ligação de objetos. As restrições abaixo descrevem
 a infraestrutura inicial do incremento 11; ponteiros e FFI dinâmico continuam pendentes.
 

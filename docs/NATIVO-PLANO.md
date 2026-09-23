@@ -1,6 +1,6 @@
 # Plano do backend nativo — exceções, medição e o que vem depois
 
-Este documento é o plano exigido pelo `docs/BRIEF-NATIVO.md` §5: **qual
+Este documento é o plano exigido pelo `docs/historico/briefs/BRIEF-NATIVO.md` §5: **qual
 mecanismo de exceção** o compilador nativo usa e **por quê**, com o custo no
 caminho feliz; **como `finally` com `return` dentro se comporta**; e a **ordem
 de trabalho**. Ele descreve o que está implementado e o que falta, não uma

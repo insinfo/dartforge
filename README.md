@@ -32,7 +32,7 @@ O protótipo suporta um subconjunto explícito:
 
 Ainda não compila aplicações Dart/ngdart completas. Faltam classes e métodos genéricos,
 bibliotecas padrão completas, LSP e servidor web. Não há benchmarks que demonstrem
-vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
+vantagem sobre DDC/dart2js. Veja [o subconjunto](docs/historico/SUBCONJUNTO.md) e [o roteiro](PLANO.md).
 
 ## Compilar e testar
 
@@ -65,8 +65,8 @@ Na máquina de desenvolvimento original, Rust está em `D:\Rust` e o projeto em
 
 ## Análise, imports e desempenho
 
-Detalhes: [null safety](docs/NULL-SAFETY.md), [classes](docs/CLASSES.md),
-[bibliotecas/imports](docs/MODULES.md), [extensions](docs/EXTENSIONS.md), [pacotes](docs/PACKAGES.md), [cache](docs/CACHE.md) e [benchmarks](docs/BENCHMARKS.md).
+Detalhes: [null safety](docs/historico/NULL-SAFETY.md), [classes](docs/historico/CLASSES.md),
+[bibliotecas/imports](docs/historico/MODULES.md), [extensions](docs/historico/EXTENSIONS.md), [pacotes](docs/historico/PACKAGES.md), [cache](docs/historico/CACHE.md) e [benchmarks](docs/historico/BENCHMARKS.md).
 
     cargo run -p dartforge-cli -- graph caminho/main.dart
     cargo bench --locked -p dartforge-compiler --bench pipeline
@@ -85,13 +85,13 @@ Strings, classes com construtor implícito, herança e despacho virtual usam um 
 Rust com GC preciso que coleta ciclos. Extensions ainda recebem diagnóstico nativo.
 Raízes usam slots reutilizáveis por ativação, sem acumular entradas a cada iteração.
 Valores antigos ainda podem ficar retidos até sobrescrita do slot ou retorno.
-Veja o [contrato do runtime](crates/runtime/README.md) e as [referências Swift](docs/SWIFT-REFERENCIAS.md).
+Veja o [contrato do runtime](crates/runtime/README.md) e as [referências Swift](docs/historico/SWIFT-REFERENCIAS.md).
 
 Funções e métodos aceitam corpos tipados `=>`, por exemplo `int soma(int a, int b) => a + b;`.
 A opção `--merge-identical-functions` funciona em `compile`, `emit-llvm` e `aot`,
 independentemente de `--optimize`. Ela compara estrutura e assinaturas, redireciona
 chamadas e remove definições redundantes; não busca equivalência algébrica geral.
-Consulte [o contrato e os benchmarks da fusão](docs/MERGE-FUNCOES.md).
+Consulte [o contrato e os benchmarks da fusão](docs/historico/MERGE-FUNCOES.md).
 
 Requer Clang/LLVM 17+ e rustc/linker nativo. Configure `DARTFORGE_CLANG` e
 `DARTFORGE_RUSTC` ou use as ferramentas no PATH. Na instalação original,
@@ -103,10 +103,10 @@ externas. O executável não requer o Dart SDK para rodar.
 `--timings` em `aot` emite JSON com tempos do frontend, preparação, Clang,
 compilação/link do runtime Rust, publicação e total, além do tamanho do executável.
 A falha de `!` sobre null encerra o processo com diagnóstico; ainda não há exceções
-Dart capturáveis no alvo nativo. Veja [null safety AOT](docs/AOT-NULL-SAFETY.md).
+Dart capturáveis no alvo nativo. Veja [null safety AOT](docs/historico/AOT-NULL-SAFETY.md).
 
-Detalhes: [driver e ABI](docs/AOT-DRIVER.md), [referências Dartino](docs/AOT-REFERENCIAS.md)
-e [incremento atual de raízes reutilizáveis e fusão](docs/IMPLEMENTACAO-10.md).
+Detalhes: [driver e ABI](docs/historico/AOT-DRIVER.md), [referências Dartino](docs/historico/AOT-REFERENCIAS.md)
+e [incremento atual de raízes reutilizáveis e fusão](docs/historico/IMPLEMENTACAO-10.md).
 
 ## Execução em memória pelo JIT
 
@@ -158,7 +158,7 @@ Exemplos de APIs públicas são verificados como doctests. Para gerar a document
 
 Catálogo: [docs/REFERENCIAS.md](docs/REFERENCIAS.md).
 Revisões dos clones locais: [docs/references-manifest.json](docs/references-manifest.json).
-Avaliação do Rust Sitter: [docs/RUST-SITTER.md](docs/RUST-SITTER.md).
+Avaliação do Rust Sitter: [docs/historico/RUST-SITTER.md](docs/historico/RUST-SITTER.md).
 
 A pasta `references/` inteira é ignorada pelo Git. Nenhum clone de terceiro é publicado
 neste repositório nem usado automaticamente como dependência do build.
@@ -166,7 +166,7 @@ O código original está sob [MIT](LICENSE); projetos de referência mantêm sua
 
 ## Interfaces, enums e contratos de ABI
 
-O [incremento 11](docs/IMPLEMENTACAO-11.md) amplia os backends JS e LLVM.
+O [incremento 11](docs/historico/IMPLEMENTACAO-11.md) amplia os backends JS e LLVM.
 `cargo run -p dartforge-cli -- abi-info wasm32` descreve um perfil de ABI e suas limitações.
 A crate `dartforge-abi` valida assinaturas escalares C. O incremento 16 acrescenta
 `@Native` escalar ao AOT; compilação Dart para WebAssembly permanece pendente.
@@ -174,7 +174,7 @@ Veja [o contrato](docs/ABI-FFI-WASM.md).
 
 ## Coleções e closures
 
-Veja [o contrato e os limites](docs/COLECOES-CLOSURES.md). O backend JavaScript
+Veja [o contrato e os limites](docs/historico/COLECOES-CLOSURES.md). O backend JavaScript
 executa este novo subconjunto; o runtime Rust já tem células, ambientes e listas
 rastreados pelo GC, mas o lowering correspondente para LLVM permanece pendente.
 
@@ -184,67 +184,67 @@ Avisos de componentes: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Genéricos, constantes e enums avançadas
 
-O [incremento 13](docs/IMPLEMENTACAO-13.md) acrescenta funções genéricas top-level,
+O [incremento 13](docs/historico/IMPLEMENTACAO-13.md) acrescenta funções genéricas top-level,
 const locais/listas canônicas e enums avançadas com switch e guardas no JavaScript.
-Veja [contratos e limites](docs/GENERICS-CONST-ENUMS.md).
+Veja [contratos e limites](docs/historico/GENERICS-CONST-ENUMS.md).
 
 ## Modificadores de classe e mixins
 
-O [incremento 14](docs/IMPLEMENTACAO-14.md) acrescenta base/final/sealed, mixin e
+O [incremento 14](docs/historico/IMPLEMENTACAO-14.md) acrescenta base/final/sealed, mixin e
 mixin class, aplicações ordenadas de with e padrões vazios de objeto no JavaScript.
 Mixins do subconjunto também executam no backend nativo.
-Veja [regras por biblioteca e limites](docs/CLASS-MODIFIERS.md).
+Veja [regras por biblioteca e limites](docs/historico/CLASS-MODIFIERS.md).
 
 ## Imports e exports condicionais
 
-O [incremento 15](docs/IMPLEMENTACAO-15.md) seleciona a primeira condição verdadeira
+O [incremento 15](docs/historico/IMPLEMENTACAO-15.md) seleciona a primeira condição verdadeira
 com perfis Dart 3.6.2 para JavaScript e Native AOT. `graph --target wasm` permite
 inspecionar a seleção Wasm; a emissão desse backend permanece pendente.
-Alternativas inativas não são carregadas. Veja a [matriz verificada no SDK](docs/ENVIRONMENT-REFERENCIAS.md).
+Alternativas inativas não são carregadas. Veja a [matriz verificada no SDK](docs/historico/ENVIRONMENT-REFERENCIAS.md).
 
 ## Anotações e FFI escalar
 
-O [incremento 16](docs/IMPLEMENTACAO-16.md) acrescenta metadados reconhecidos e
+O [incremento 16](docs/historico/IMPLEMENTACAO-16.md) acrescenta metadados reconhecidos e
 `@Native` com `external` para Int32/Int64/Void no backend LLVM. O driver AOT aceita
 `--link-object` para ligar implementações nativas. Ponteiros, callbacks, assets,
 finalizadores e FFI dinâmico permanecem pendentes.
 
 ## this e construtores
 
-O [incremento 17](docs/IMPLEMENTACAO-17.md) implementa construtores posicionais,
+O [incremento 17](docs/historico/IMPLEMENTACAO-17.md) implementa construtores posicionais,
 `this.campo`, inicialização definida e escopos com sombreamento em JS e LLVM.
-Veja [contratos e limites](docs/THIS-CONSTRUCTORS.md).
+Veja [contratos e limites](docs/historico/THIS-CONSTRUCTORS.md).
 
 ## Limites genéricos e tipos reificados
 
-O [incremento 18](docs/IMPLEMENTACAO-18.md) amplia funções genéricas top-level com bounds, `T?`, `Object?`
+O [incremento 18](docs/historico/IMPLEMENTACAO-18.md) amplia funções genéricas top-level com bounds, `T?`, `Object?`
 e descritores JavaScript para `is`, `is!` e `as`. Tipos de elementos acompanham
 listas e iteráveis; escritas covariantes são verificadas em execução.
-Veja [referências e limites](docs/GENERICS-REIFIED-REFERENCIAS.md).
+Veja [referências e limites](docs/historico/GENERICS-REIFIED-REFERENCIAS.md).
 
 ## Records e desestruturação
 
-O [incremento 19](docs/IMPLEMENTACAO-19.md) acrescenta records posicionais/nomeados,
+O [incremento 19](docs/historico/IMPLEMENTACAO-19.md) acrescenta records posicionais/nomeados,
 tipos estruturais, igualdade, reificação e desestruturação local var/final no JS.
 Extension types permanecem pendentes. O experimento oficial de macros foi
 cancelado; @JsonCodable não integra a compatibilidade estável anunciada.
 
 ## Cascatas
 
-O [incremento 20](docs/IMPLEMENTACAO-20.md) integra `..` e `?..` ao JavaScript:
+O [incremento 20](docs/historico/IMPLEMENTACAO-20.md) integra `..` e `?..` ao JavaScript:
 receptor único, efeitos em ordem e interrupção de todas as seções quando nulo.
 Atribuições compostas nas seções e lowering LLVM permanecem pendentes.
 Recursos posteriores ao Dart 3.6.2 têm versões explicitadas no relatório.
 
 ## Macros experimentais e mapas
 
-O [incremento 21](docs/IMPLEMENTACAO-21.md) implementa `@JsonCodable()` incorporada
+O [incremento 21](docs/historico/IMPLEMENTACAO-21.md) implementa `@JsonCodable()` incorporada
 em Rust, com expansão da AST, construtor, fábrica `fromJson` e método `toJson`.
 Inclui mapas tipados com chaves String no JavaScript. `dartforge macro-info arquivo.dart`
 mostra contagem e origem das declarações geradas em uma unidade isolada.
 Macros arbitrárias escritas em Dart e integração com pacotes de macros continuam
 pendentes. Dart 3.6.2 é a base mínima; recursos posteriores estão no roteiro.
 
-Detalhes recentes: [fases/cache de macros](docs/IMPLEMENTACAO-22.md) e
-[tree shaking/async](docs/IMPLEMENTACAO-23.md). Streams, isolates e execução de macros
+Detalhes recentes: [fases/cache de macros](docs/historico/IMPLEMENTACAO-22.md) e
+[tree shaking/async](docs/historico/IMPLEMENTACAO-23.md). Streams, isolates e execução de macros
 Dart arbitrárias ainda estão pendentes.

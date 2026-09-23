@@ -8,7 +8,7 @@ reuso não mudou o resultado. Tudo aqui é reprodutível com
 Nada neste documento compara DartForge com DDC ou dart2js. Essa comparação exige
 programas semanticamente equivalentes, com a mesma semântica de inteiros, casts,
 genéricos reificados e null safety, e está registrada separadamente em
-[BENCHMARKS.md](BENCHMARKS.md). Aqui o DartForge é comparado **consigo mesmo**.
+[historico/BENCHMARKS.md](historico/BENCHMARKS.md). Aqui o DartForge é comparado **consigo mesmo**.
 
 ## Os quatro cenários que orientam a arquitetura
 
