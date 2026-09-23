@@ -1,5 +1,5 @@
-/// Biblioteca do corpus: existe para a carga alcanÃ§ar todos os casos numa
-/// entrada sÃ³ â€” Ã© por ela que o teste monta o banco semÃ¢ntico.
+/// Biblioteca do corpus: existe para a carga alcançar todos os casos numa
+/// entrada só — é por ela que o teste monta o banco semântico.
 library corpus_ngdart;
 
 export 'src/a01_interpolacao.dart';
@@ -37,6 +37,11 @@ export 'src/b13_after_content_checked.dart';
 export 'src/b14_ciclo_completo.dart';
 export 'src/b15_estilo_rico.dart';
 export 'src/b16_estilo_formas.dart';
+export 'src/b17_host_listener_com_args.dart';
+export 'src/b18_providers_vazio.dart';
+export 'src/b19_pipes_sem_uso.dart';
+export 'src/b20_view_child_dois.dart';
+export 'src/b21_host_listener_explicito.dart';
 export 'src/c01_ligacao_e_texto.dart';
 export 'src/c02_evento_e_ligacao.dart';
 export 'src/c03_dois_elementos_ligados.dart';
@@ -44,6 +49,8 @@ export 'src/c04_evento_com_argumento.dart';
 export 'src/c05_expressoes.dart';
 export 'src/c06_interpolacao_em_cadeia.dart';
 export 'src/c07_atributo_interpolado.dart';
+export 'src/c08_eventos_irmaos.dart';
+export 'src/c09_pipe_na_interpolacao.dart';
 export 'src/d01_dois_filhos.dart';
 export 'src/d02_filho_aninhado.dart';
 export 'src/d03_filho_com_entrada.dart';
@@ -52,5 +59,7 @@ export 'src/e01_diretiva_simples.dart';
 export 'src/e02_diretiva_com_host_binding.dart';
 export 'src/e03_diretiva_com_entrada.dart';
 export 'src/e04_pipe.dart';
+export 'src/e05_diretiva_so_listener.dart';
+export 'src/e06_hostbinding_getter_e_campo.dart';
 export 'src/f01_if_com_for.dart';
 export 'src/f02_dois_ifs_irmaos.dart';

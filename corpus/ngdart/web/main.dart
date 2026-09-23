@@ -1,5 +1,5 @@
-// Consome os `.template.dart` do corpus. O builder do ngdart Ã©
-// `is_optional: true`: sem alguÃ©m pedindo a saÃ­da, ele nÃ£o roda.
+// Consome os `.template.dart` do corpus. O builder do ngdart é
+// `is_optional: true`: sem alguém pedindo a saída, ele não roda.
 // Gerado por scripts/corpus-ngdart.ps1.
 import 'package:corpus_ngdart/src/a01_interpolacao.template.dart' as a01;
 import 'package:corpus_ngdart/src/a02_texto_estatico.template.dart' as a02;
@@ -36,6 +36,11 @@ import 'package:corpus_ngdart/src/b13_after_content_checked.template.dart' as b1
 import 'package:corpus_ngdart/src/b14_ciclo_completo.template.dart' as b14;
 import 'package:corpus_ngdart/src/b15_estilo_rico.template.dart' as b15;
 import 'package:corpus_ngdart/src/b16_estilo_formas.template.dart' as b16;
+import 'package:corpus_ngdart/src/b17_host_listener_com_args.template.dart' as b17;
+import 'package:corpus_ngdart/src/b18_providers_vazio.template.dart' as b18;
+import 'package:corpus_ngdart/src/b19_pipes_sem_uso.template.dart' as b19;
+import 'package:corpus_ngdart/src/b20_view_child_dois.template.dart' as b20;
+import 'package:corpus_ngdart/src/b21_host_listener_explicito.template.dart' as b21;
 import 'package:corpus_ngdart/src/c01_ligacao_e_texto.template.dart' as c01;
 import 'package:corpus_ngdart/src/c02_evento_e_ligacao.template.dart' as c02;
 import 'package:corpus_ngdart/src/c03_dois_elementos_ligados.template.dart' as c03;
@@ -43,6 +48,8 @@ import 'package:corpus_ngdart/src/c04_evento_com_argumento.template.dart' as c04
 import 'package:corpus_ngdart/src/c05_expressoes.template.dart' as c05;
 import 'package:corpus_ngdart/src/c06_interpolacao_em_cadeia.template.dart' as c06;
 import 'package:corpus_ngdart/src/c07_atributo_interpolado.template.dart' as c07;
+import 'package:corpus_ngdart/src/c08_eventos_irmaos.template.dart' as c08;
+import 'package:corpus_ngdart/src/c09_pipe_na_interpolacao.template.dart' as c09;
 import 'package:corpus_ngdart/src/d01_dois_filhos.template.dart' as d01;
 import 'package:corpus_ngdart/src/d02_filho_aninhado.template.dart' as d02;
 import 'package:corpus_ngdart/src/d03_filho_com_entrada.template.dart' as d03;
@@ -87,6 +94,11 @@ void main() {
     b14.B14CicloCompletoNgFactory,
     b15.B15EstiloRicoNgFactory,
     b16.B16EstiloFormasNgFactory,
+    b17.B17HostListenerComArgsNgFactory,
+    b18.B18ProvidersVazioNgFactory,
+    b19.B19PipesSemUsoNgFactory,
+    b20.B20ViewChildDoisNgFactory,
+    b21.B21HostListenerExplicitoNgFactory,
     c01.C01LigacaoETextoNgFactory,
     c02.C02EventoELigacaoNgFactory,
     c03.C03DoisElementosLigadosNgFactory,
@@ -94,6 +106,8 @@ void main() {
     c05.C05ExpressoesNgFactory,
     c06.C06InterpolacaoEmCadeiaNgFactory,
     c07.C07AtributoInterpoladoNgFactory,
+    c08.C08EventosIrmaosNgFactory,
+    c09.C09PipeNaInterpolacaoNgFactory,
     d01.D01DoisFilhosNgFactory,
     d02.D02FilhoAninhadoNgFactory,
     d03.D03FilhoComEntradaNgFactory,
