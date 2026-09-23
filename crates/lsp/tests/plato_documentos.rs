@@ -1,7 +1,7 @@
 //! Platô de memória do servidor: K documentos abertos, cada um editado K vezes.
 //!
-//! É o teste de platô do compilador (`crates/compiler/tests/plato_memoria.rs`)
-//! aplicado ao dono dos documentos do LSP, e responde à falha observada no
+//! É o teste de platô do compilador antigo (`plato_memoria.rs`, preservado na
+//! branch `exploracao-inicial`) aplicado ao dono dos documentos do LSP, e responde à falha observada no
 //! LSP do Dart: memória que só sobe a cada edição até ser preciso matar o
 //! processo. O `DocumentStore` promete que a chegada da versão N descarta a
 //! N−1 no lugar e que fechar remove tudo; o alocador contador é o que

@@ -740,5 +740,5 @@ for ajustado, `cargo build --workspace` falhará na CI por falta de `llvm-config
   `LLVMErrorRef` por `LLVMGetErrorMessage`.
 - [`llvm-sys` 221.1.0](https://docs.rs/llvm-sys/221.1.0/): assinaturas usadas e a
   convenção `LLVM_SYS_<versão>_PREFIX`.
-- `crates/runtime/CONTRACT.md` e [AOT-DRIVER.md](AOT-DRIVER.md): a ABI que este
+- `crates/runtime/CONTRACT.md` e [historico/AOT-DRIVER.md](historico/AOT-DRIVER.md): a ABI que este
   crate precisa reproduzir e a fronteira `unsafe` do perfil de produção.

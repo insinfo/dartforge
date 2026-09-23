@@ -108,9 +108,16 @@ fn medicao_sessao_persistente() {
     });
     println!("(i)   criar a sessão (LLJIT + símbolos do runtime): mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
 
-    let dir = std::env::temp_dir().join(format!("dartforge-sessao-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let fonte = dir.join("macro.dart");
+    /// Apaga o diretório no `Drop`, também quando a emissão entra em pânico.
+    struct Diretorio(std::path::PathBuf);
+    impl Drop for Diretorio {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir = Diretorio(std::env::temp_dir().join(format!("dartforge-sessao-{}", std::process::id())));
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let fonte = dir.0.join("macro.dart");
     std::fs::write(&fonte, "int dobro(int x) { return x * 2; }\nvoid main() {\n  int y = dobro(21);\n}\n").unwrap();
     let emitido = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -121,7 +128,7 @@ fn medicao_sessao_persistente() {
         .unwrap()
         .join()
         .unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
 
     for (rotulo, ir) in [("trivial", TRIVIAL), ("IR do emissor", emitido.as_str())] {
         let (p50, p95) = medir(n, || {

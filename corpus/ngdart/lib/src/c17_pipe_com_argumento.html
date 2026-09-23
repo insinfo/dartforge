@@ -1,0 +1,5 @@
+<p title="{{ $pipe.date(quando, 'dd/MM/yyyy') }}">{{ $pipe.uppercase(nome) }}</p>
+<ul *ngIf="mostra">
+  <li *ngFor="let item of itens">{{ $pipe.uppercase(item) }} {{ $pipe.lowercase(item) }} {{ $pipe.e04(item) }}</li>
+</ul>
+<span>{{ $pipe.date(quando) }}</span>
