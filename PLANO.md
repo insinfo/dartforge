@@ -704,6 +704,10 @@ As duas granularidades continuam sendo requisitos distintos e ambos necessários
 
 ## Meta governante — qualquer projeto Dart 3.6 válido no dart2js/DDC compila
 
+(3.6 é o **mínimo** desta meta, não o limite: versões posteriores da linguagem
+entram com oráculo da versão correspondente — ver "Experimentos futuros" e o
+Incremento 25.)
+
 **A compilação Dart → JavaScript tem de funcionar para qualquer projeto Dart
 3.6.0 válido que o dart2js ou o DDC compilem.** Registrado em 2026-09-21 por
 instrução do proprietário. Esta meta é superior a toda decisão anterior de
@@ -1628,10 +1632,13 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
   `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
   corpus, atrás de `--memoria tracing|arc`.
-* **Versões da linguagem além do Dart 3.6** — a meta governante é 3.6.2; a
-  linguagem seguiu (Dart 3.13, 2026-08: construtores primários, `final`/`var`
-  em parâmetro declarando campo, bloco `this { … }`, corpo de classe `;`).
-  Quando entrar: parser e elementos reconhecem a sintaxe e a rebaixam para o
-  construtor comum — é açúcar puro, então `emit_js` e `emit_native` não
-  mudam. Pré-condição: corpus e oráculos com o SDK da versão nova. Notas em
-  `references/NOTAS-ARTIGOS.md` §3.
+* **Acompanhar as versões novas da linguagem** — 3.6.2 é o **piso**, não o
+  teto (ver "Dart 3.6.2 é o mínimo de compatibilidade" acima e o Incremento
+  25). Próximo item concreto: Dart 3.13 (2026-08) — construtores primários,
+  `final`/`var` em parâmetro declarando campo, bloco `this { … }`, corpo de
+  classe `;`. Parser e elementos reconhecem a sintaxe, respeitando a versão de
+  linguagem de cada biblioteca (`// @dart=` e `package_config`), e a rebaixam
+  para o construtor comum — é açúcar puro, então `emit_js` e `emit_native`
+  não mudam. Pré-condição: um segundo SDK de oráculo (o da versão nova) ao
+  lado do 3.6.2 no harness e no CI, com os programas marcados pela versão que
+  exigem. Notas em `references/NOTAS-ARTIGOS.md` §3.
