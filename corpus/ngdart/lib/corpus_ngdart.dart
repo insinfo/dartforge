@@ -98,3 +98,6 @@ export 'src/f01_if_com_for.dart';
 export 'src/f02_dois_ifs_irmaos.dart';
 export 'src/g01_form_ng_model.dart';
 export 'src/g02_select_ng_model.dart';
+export 'src/h01_cabecalho.dart';
+export 'src/h01_item.dart';
+export 'src/h01_usa_cabecalho.dart';
