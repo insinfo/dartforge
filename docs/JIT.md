@@ -235,7 +235,15 @@ que terminaram nos dois perfis:
 | **AOT total** | **181,5 ms** | 232,6 ms | 19,1 s |
 
 Pelas somas, Clang + ligação custam **6,9×** o JIT até executar, e o AOT total
-**7,3×** o JIT total. Quase todo o tempo do JIT é criar o processo e carregar a
+**7,3×** o JIT total.
+
+Terceira rodada, com o contrato de representação do nativo e o runtime de fonte
+única (Pesado 35827208951): **222/222 idênticos, 0 divergentes**, e o placar
+contra a VM é **50/222 nos dois perfis**, igual ao do `--nativo`. Nela, 3
+programas não geram IR e nenhum estoura o tempo. Nos 54 que terminaram nos dois
+perfis, o JIT até executar levou 42,7 ms (p95 43,2) e o Clang + ligação
+165,2 ms (p95 182,1), medianas. Pelas somas, **8,1×** até executar e **8,6×**
+no total (AOT 23,8 s, JIT 2,8 s). Quase todo o tempo do JIT é criar o processo e carregar a
 DLL: a sessão persistente leva esse número a décimos de milissegundo por
 execução.
 

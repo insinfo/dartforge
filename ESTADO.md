@@ -246,7 +246,7 @@ O runtime é **fonte única**: o mesmo `runtime_main.rs` vira a `.lib` do AOT e
 o módulo `dartforge_runtime::abi` do JIT, com a tabela de símbolos gerada
 (`crates/runtime/build.rs`). No corpus inteiro, JIT e AOT deram **222/222
 idênticos** a partir do mesmo IR. O JIT até executar leva 43 ms por programa, e
-o Clang + ligação 156 ms (medianas, Pesado 35824630444; `docs/JIT.md`). A
+o Clang + ligação 165 ms (medianas, Pesado 35827208951, placar 50/222 nos dois; `docs/JIT.md`). A
 biblioteca `crates/jit` já serve de executor persistente: `compile_module`
 para o cache, `add_compiled_module`, e várias execuções com estado limpo.
 O `crates/cranelift-jit` continua na trilha velha, fora do CI.
