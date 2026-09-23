@@ -188,6 +188,7 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | `if-case`/`switch` promovem o escrutínio (R-FLU-14) | 29 | 62 | 56 | 109 |
 | promoção de campo só com versão de linguagem ≥ 3.2 (R-FLU-12) — `crates/elements` preenche a versão | 29 | 59 | 52 | 101 |
 | variáveis de condição (§7.10: `final bool v = d != null; if (v) d`) | 26 | 41 | 34 | 61 |
+| chamada genérica recursiva com parâmetros frescos (R-GEN-04) | 18 | 31 | 34 | 59 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
 com as sete bibliotecas, sobreposição `vm`): **4.447 → 275 → 18**
@@ -206,9 +207,9 @@ sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
 38 expressões divergentes e 5 avisos, listados em
 `corpus/inferencia/divergencias.txt`.
 
-Avisos restantes no new_sali por causa (frontend 41 / core 26; a tabela
-abaixo é de antes das variáveis de condição, que levaram o grupo dos locais
-anuláveis):
+Avisos restantes no new_sali por causa (frontend 31 / core 18; a tabela
+abaixo é de antes das variáveis de condição e da chamada recursiva, que
+levaram os grupos dos locais anuláveis e do `collection/algorithms.dart`):
 
 | causa | avisos | regra / lacuna |
 |---|---:|---|
