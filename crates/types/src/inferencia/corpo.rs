@@ -77,7 +77,18 @@ pub(crate) struct Corpo {
     /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
     /// closure eles não ficam promovidos (`functionExpression_begin` faz a
     /// junção conservadora com `assignedVariables.anywhere`).
-    pub escritos_no_corpo: Vec<SymbolId>,
+    /// Calculado na primeira closure (a maioria dos corpos não tem nenhuma).
+    pub escritos_no_corpo: Option<Vec<SymbolId>>,
+    /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
+    pub raiz: Raiz,
+}
+
+/// Corpo de topo em inferência.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Raiz {
+    Nada,
+    Funcao(ast::FunctionId),
+    Construtor(ast::MemberId),
 }
 
 /// Destino de saltos.
@@ -108,7 +119,8 @@ impl Corpo {
             tipo_this: None,
             escritos_em_closure: Vec::new(),
             rotulos_pendentes: Vec::new(),
-            escritos_no_corpo: Vec::new(),
+            escritos_no_corpo: None,
+            raiz: Raiz::Nada,
         };
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).

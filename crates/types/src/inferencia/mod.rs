@@ -155,6 +155,12 @@ impl<'a> BodyInferrer<'a> {
     pub fn infer_all(mut self) -> (BodyTypes, Vec<Diagnostic>) {
         for v in 0..self.program.variables.len() {
             let vid = VariableId(v as u32);
+            // Sessão residente: variáveis de bibliotecas que não serão
+            // reemitidas só são inferidas sob demanda (quem as lê pede o tipo).
+            let lib = self.program.variable(vid).library;
+            if self.apenas_bibliotecas.as_ref().is_some_and(|s| !s.contains(&lib.0)) {
+                continue;
+            }
             self.tipo_variavel(vid);
             self.visitar_inicializador(vid);
         }

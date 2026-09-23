@@ -59,7 +59,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let af = inf.program.unit(unit).ast.function(function);
             let dados = inf.outline.functions[f.0 as usize].clone();
             let mut cx = Corpo::para_funcao(inf, f, unit);
-            cx.escritos_no_corpo = instrucoes::nomes_escritos_em_funcao(inf, unit, af);
+            cx.raiz = super::corpo::Raiz::Funcao(function);
             for &p in dados.type_params.iter() {
                 let nome = inf.table.param(p).name;
                 cx.declarar_tipo_param(nome, p);
@@ -79,7 +79,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else { return };
             let dados = inf.outline.functions[f.0 as usize].clone();
             let mut cx = Corpo::para_funcao(inf, f, unit);
-            cx.escritos_no_corpo = instrucoes::nomes_escritos_em_corpo(inf, unit, &ctor.body);
+            cx.raiz = super::corpo::Raiz::Construtor(member);
             if !fe.factory {
                 cx.estatico = false;
                 if let Some(c) = fe.class {
@@ -300,7 +300,18 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             fluxo_dentro.capturar(id);
         }
     }
-    for e in cx.escritos_no_corpo.clone().iter() {
+    if cx.escritos_no_corpo.is_none() {
+        let a = &inf.program.unit(cx.unit).ast;
+        cx.escritos_no_corpo = Some(match cx.raiz {
+            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_funcao(inf, cx.unit, a.function(f)),
+            super::corpo::Raiz::Construtor(m) => match &a.member(m).kind {
+                ast::MemberKind::Constructor(c) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &c.body),
+                _ => Vec::new(),
+            },
+            super::corpo::Raiz::Nada => Vec::new(),
+        });
+    }
+    for e in cx.escritos_no_corpo.clone().unwrap_or_default().iter() {
         if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
             fluxo_dentro.juncao_conservadora(&[id], &[]);
         }
