@@ -265,3 +265,23 @@ class V {
     assert_eq!(r.tipo("this.nome = cast(o)"), "String");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// Classe do SDK cujo patch vem numa *parte* de um arquivo de patch
+/// (`core_patch.dart` → `part 'bigint_patch.dart'`): uma classe só, com os
+/// membros da declaração original (`BigInt.operator <<`).
+#[test]
+fn patch_em_parte_de_patch() {
+    let r = ou_pula!(inferir(
+        r#"
+void main() {
+  var n = BigInt.parse('1');
+  var s = n << 8;
+  var b = n.bitLength;
+}
+"#
+    ));
+    assert_eq!(r.tipo("BigInt.parse('1')"), "BigInt");
+    assert_eq!(r.tipo("n << 8"), "BigInt");
+    assert_eq!(r.tipo("n.bitLength"), "int");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}

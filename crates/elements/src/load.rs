@@ -322,6 +322,14 @@ pub fn load_lenient_gerados(
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
             let unit_uri = program.units[unit_id.0 as usize].uri.clone();
+            // Parte de um arquivo de patch (`core_patch.dart` tem
+            // `part 'bigint_patch.dart'`) é patch também: as suas classes
+            // `@patch` se fundem na classe de origem, em vez de criarem outra.
+            let papel_das_partes = if program.units[unit_id.0 as usize].role == UnitRole::Patch {
+                UnitRole::Patch
+            } else {
+                UnitRole::Part
+            };
 
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
@@ -405,7 +413,7 @@ pub fn load_lenient_gerados(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            UnitRole::Part,
+                            papel_das_partes,
                             interner,
                             &mut program,
                             &mut diagnostics,
