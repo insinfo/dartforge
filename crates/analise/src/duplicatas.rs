@@ -655,7 +655,7 @@ mod testes {
     fn rodar(fonte: &str) -> Vec<(String, usize, usize)> {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut interner);
-        let u = Unidade { ast: &p.ast, unit: &p.unit };
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
         let mut v: Vec<_> = duplicatas(&[u], &interner, false)
             .into_iter()
             .map(|(_, d)| (d.code.unwrap().info().nome.to_string(), d.span.start, d.span.end))

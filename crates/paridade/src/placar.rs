@@ -12,6 +12,11 @@ use crate::oraculo::Registro;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+/// Amostras de divergência por (código, categoria): `DARTFORGE_PARIDADE_AMOSTRAS`, 3 por padrão.
+fn limite_amostras() -> usize {
+    std::env::var("DARTFORGE_PARIDADE_AMOSTRAS").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
+}
+
 /// Contadores de um código.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Conta {
@@ -65,7 +70,7 @@ impl Placar {
         for (k, v) in &outro.amostras {
             let d = self.amostras.entry(k.clone()).or_default();
             for s in v {
-                if d.len() < 3 {
+                if d.len() < limite_amostras() {
                     d.push(s.clone());
                 }
             }
@@ -74,7 +79,7 @@ impl Placar {
 
     fn amostra(&mut self, codigo: &str, cat: &'static str, r: &Registro, extra: &str) {
         let v = self.amostras.entry((codigo.to_string(), cat)).or_default();
-        if v.len() < 3 {
+        if v.len() < limite_amostras() {
             v.push(format!("{}:{}:{} {}{extra}", r.arquivo, r.line, r.column, r.problem_message));
         }
     }

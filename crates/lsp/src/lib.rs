@@ -298,7 +298,7 @@ impl Analisador for AnalisadorSintatico {
         let mut nomes = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
         let mut saida = parsed.diagnostics;
-        let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit };
+        let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
         let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
         let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga)
             .into_iter()

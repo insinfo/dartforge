@@ -209,7 +209,7 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
         let fontes = corpus::arquivos_dart(&dir);
         let t = Instant::now();
         eprintln!("grupo {nome}: {} arquivos", fontes.len());
-        let lote = if a.lote > 0 { a.lote } else { 48 };
+        let lote = if a.lote > 0 { a.lote } else { 12 };
         let r = rodar_nosso(&motor, &dir, &fontes, Some(&cfg), &filtros::Opcoes::ler(&dir), &execucao(trabalhadores, lote));
         eprintln!("grupo {nome}: {:.1} s", t.elapsed().as_secs_f64());
         arquivos += r.arquivos;

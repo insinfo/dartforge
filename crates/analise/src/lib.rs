@@ -19,4 +19,6 @@ use dartforge_frontend::ast::{Ast, CompilationUnit};
 pub struct Unidade<'a> {
     pub ast: &'a Ast,
     pub unit: &'a CompilationUnit,
+    /// O texto da unidade (anotações locais não ficam na árvore).
+    pub fonte: &'a str,
 }

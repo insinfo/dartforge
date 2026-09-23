@@ -56,7 +56,10 @@ struct Visita<'a> {
     curinga: bool,
     locais: Vec<Local>,
     escopos: Vec<Vec<usize>>,
+    fonte: &'a str,
     grupos: usize,
+    /// Dentro de um padrão refutável.
+    refutavel: bool,
 }
 
 impl<'a> Visita<'a> {
@@ -180,7 +183,7 @@ impl<'a> Visita<'a> {
                 self.expr(*value);
                 for c in cases.iter() {
                     self.entrar();
-                    self.padrao_declarado(c.pattern, None);
+                    self.padrao_de_caso(c.pattern);
                     if let Some(g) = c.guard {
                         self.expr(g);
                     }
@@ -227,7 +230,7 @@ impl<'a> Visita<'a> {
                 self.expr(*condition);
                 self.entrar();
                 if let Some(p) = case_pattern {
-                    self.padrao_declarado(*p, None);
+                    self.padrao_de_caso(*p);
                 }
                 if let Some(g) = guard {
                     self.expr(*g);
@@ -262,11 +265,27 @@ impl<'a> Visita<'a> {
 
     // -- Padrões -------------------------------------------------------------
 
+    /// Padrão de `case`, `if-case` ou caso de `switch` expressão: refutável.
+    fn padrao_de_caso(&mut self, p: PatternId) {
+        let antes = self.refutavel;
+        self.refutavel = true;
+        self.padrao_declarado(p, None);
+        self.refutavel = antes;
+    }
+
     /// Padrão que declara variáveis (`var (a, b) = e`, `case`, `if-case`).
     fn padrao_declarado(&mut self, p: PatternId, grupo: Option<usize>) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
-            PatternKind::Variable { name, .. } => self.declarar(*name, Especie::Variavel, grupo),
+            // Num padrão refutável (`case`), o identificador solto é uma
+            // constante (referência); `var x`, `final x` e `T x` declaram.
+            PatternKind::Variable { name, final_, var_, ty } => {
+                if self.refutavel && !*final_ && !*var_ && ty.is_none() {
+                    self.referir(*name, true)
+                } else {
+                    self.declarar(*name, Especie::Variavel, grupo)
+                }
+            }
             PatternKind::Constant(x) | PatternKind::Relational { value: x, .. } => self.expr(*x),
             PatternKind::Or(a, b) | PatternKind::And(a, b) => {
                 self.padrao_declarado(*a, grupo);
@@ -372,18 +391,95 @@ impl<'a> Visita<'a> {
         }
     }
 
-    fn bloco(&mut self, lista: &[StmtId]) {
-        self.entrar();
-        for &s in lista {
-            self.stmt(s);
+    /// `@nome` no texto `[de, ate)`: leitura do local `nome`, se houver.
+    fn anotacoes_no_texto(&mut self, de: usize, ate: usize) {
+        let Some(trecho) = self.fonte.get(de..ate) else { return };
+        let b = trecho.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'@' {
+                let ini = i + 1;
+                let mut j = ini;
+                while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$') {
+                    j += 1;
+                }
+                if j > ini {
+                    if let Some(sym) = self.interner.lookup(&trecho[ini..j]) {
+                        let span = Span { start: de + ini, end: de + j };
+                        self.referir(ast::Name { sym, span }, true);
+                    }
+                }
+                i = j.max(i + 1);
+            } else {
+                i += 1;
+            }
         }
+    }
+
+    fn bloco(&mut self, lista: &[StmtId], inicio: usize) {
+        self.entrar();
+        self.comandos(lista, inicio);
         self.sair();
+    }
+
+    /// Uma lista de comandos no escopo corrente. O escopo de uma declaração
+    /// local é o bloco inteiro (uma referência antes dela já é a ela, e é o
+    /// erro `referenced_before_declaration`): as declarações são içadas.
+    fn comandos(&mut self, lista: &[StmtId], inicio_da_lista: usize) {
+        let ast = self.ast;
+        for &s in lista {
+            match &ast.stmt(s).kind {
+                StmtKind::Variables(vl) => {
+                    for v in vl.variables.iter() {
+                        self.declarar(v.name, Especie::Variavel, None);
+                    }
+                }
+                StmtKind::Function(f) => {
+                    if let Some(n) = ast.function(*f).name {
+                        self.declarar(n, Especie::Funcao, None);
+                    }
+                }
+                StmtKind::PatternVariables { pattern, .. } => {
+                    let g = self.novo_grupo();
+                    self.padrao_declarado(*pattern, Some(g));
+                }
+                _ => {}
+            }
+        }
+        let mut fim_anterior = Some(inicio_da_lista);
+        for &s in lista {
+            // Anotações de declaração local (`@a var b;`) leem o que nomeiam, e
+            // o parser não as guarda: procuradas no texto entre o comando
+            // anterior e este.
+            // Até o nome declarado: a anotação pode estar dentro do intervalo do comando.
+            let nome = match &ast.stmt(s).kind {
+                StmtKind::Variables(vl) => vl.variables.first().map(|v| v.name.span.start),
+                StmtKind::Function(f) => ast.function(*f).name.map(|n| n.span.start),
+                _ => None,
+            };
+            if let (Some(de), Some(ate)) = (fim_anterior, nome) {
+                self.anotacoes_no_texto(de, ate);
+            }
+            fim_anterior = Some(ast.stmt(s).span.end);
+            match &ast.stmt(s).kind {
+                StmtKind::Variables(vl) => {
+                    for v in vl.variables.iter() {
+                        if let Some(i) = v.initializer {
+                            self.expr(i);
+                        }
+                    }
+                }
+                StmtKind::Function(f) => self.funcao(*f, false),
+                StmtKind::PatternVariables { value, .. } => self.expr(*value),
+                _ => self.stmt(s),
+            }
+        }
     }
 
     fn stmt(&mut self, s: StmtId) {
         let ast = self.ast;
         match &ast.stmt(s).kind {
-            StmtKind::Block(l) => self.bloco(l),
+            StmtKind::Block(l) => self.bloco(l, ast.stmt(s).span.start),
             StmtKind::Variables(vl) => self.variaveis(vl),
             StmtKind::PatternVariables { pattern, value, .. } => {
                 self.expr(*value);
@@ -401,7 +497,7 @@ impl<'a> Visita<'a> {
                 self.expr(*condition);
                 self.entrar();
                 if let Some(p) = case_pattern {
-                    self.padrao_declarado(*p, None);
+                    self.padrao_de_caso(*p);
                 }
                 if let Some(g) = guard {
                     self.expr(*g);
@@ -440,14 +536,13 @@ impl<'a> Visita<'a> {
                 for c in cases.iter() {
                     self.entrar();
                     if let Some(p) = c.pattern {
-                        self.padrao_declarado(p, None);
+                        self.padrao_de_caso(p);
                     }
                     if let Some(g) = c.guard {
                         self.expr(g);
                     }
-                    for &b in c.body.iter() {
-                        self.stmt(b);
-                    }
+                    self.comandos(&c.body, c.span.start);
+
                     self.sair();
                 }
             }
@@ -560,7 +655,7 @@ impl<'a> Visita<'a> {
 /// Locais não usados de uma unidade.
 pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
     let ast = u.ast;
-    let mut v = Visita { ast, interner, curinga, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0 };
+    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.funcao(*f, true),
@@ -617,7 +712,7 @@ mod testes {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut interner);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
-        let u = Unidade { ast: &p.ast, unit: &p.unit };
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
         let mut v: Vec<_> = nao_usados(u, &interner, false)
             .into_iter()
             .map(|d| (d.code.unwrap().info().nome.to_string(), fonte[d.span.start..d.span.end].to_string()))
@@ -633,6 +728,15 @@ mod testes {
         let nomes: Vec<&str> = r.iter().map(|x| x.1.as_str()).collect();
         assert_eq!(nomes, vec!["l", "b", "c", "e", "j", "k", "x"], "{r:?}");
         assert_eq!(r[0].0, "unused_element");
+    }
+
+    #[test]
+    fn caso_refutavel_referencia_e_ancora_e_icamento() {
+        // `case a` lê a constante `a`; `@a` anota e lê; `v;` antes de
+        // `var v` já é a declaração interna.
+        let f = "void f(x) {\n  var a = 0;\n  if (x case a) {}\n  const c = 0;\n  @c\n  var b = 1;\n  print(b);\n  var v = 1;\n  {\n    v;\n    var v = 2;\n  }\n}\n";
+        let r = rodar(f);
+        assert_eq!(r, vec![("unused_local_variable".to_string(), "v".to_string())], "{r:?}");
     }
 
     #[test]

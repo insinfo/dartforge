@@ -225,7 +225,7 @@ impl Motor {
                 .collect();
             let unidades: Vec<dartforge_analise::Unidade<'_>> = ids
                 .iter()
-                .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit })
+                .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
                 .collect();
             let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
             let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga);
