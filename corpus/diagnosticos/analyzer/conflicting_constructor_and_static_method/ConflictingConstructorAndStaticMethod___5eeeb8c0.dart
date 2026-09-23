@@ -1,0 +1,6 @@
+extension type A.bar(int it) {
+  factory A.foo() => throw 0;
+//          ^^^
+// [diag.conflictingConstructorAndStaticMethod] 'foo' can't be used to name both a constructor and a static method in this class.
+  static void foo() {}
+}

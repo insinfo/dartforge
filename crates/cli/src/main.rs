@@ -1,5 +1,6 @@
 //! Interface de linha de comando do compilador DartForge.
 use std::{env, fs, path::PathBuf, process::ExitCode};
+mod analisar;
 mod jit;
 mod motor;
 mod nativo;
@@ -12,7 +13,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
-       dartforge run|reload <input.dart> ...  (compile com --features jit)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
+       dartforge run|reload <input.dart> ...  (compile com --features jit)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );
         return Ok(());
     }
@@ -43,6 +44,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Converte o resultado do comando em mensagem e código de saída do processo.
 fn main() -> ExitCode {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == "analyze") {
+        return match analisar::run(&args[1..]) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(64)
+            }
+        };
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

@@ -1,0 +1,1 @@
+Iterable<void> f() sync* {}

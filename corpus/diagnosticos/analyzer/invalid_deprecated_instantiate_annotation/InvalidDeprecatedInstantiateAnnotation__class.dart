@@ -1,0 +1,2 @@
+@Deprecated.instantiate()
+class C {}

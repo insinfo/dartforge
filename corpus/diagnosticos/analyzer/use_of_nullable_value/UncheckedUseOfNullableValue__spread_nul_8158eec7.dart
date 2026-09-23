@@ -1,0 +1,4 @@
+m() {
+  List? list;
+  [...?list];
+}

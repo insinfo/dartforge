@@ -1,0 +1,29 @@
+[
+  [
+    {
+      "nome": "new_sali-core",
+      "caminho": "C:/MyDartProjects/new_sali/core",
+      "sdk": "3.6.2",
+      "oraculo": 0
+    },
+    []
+  ],
+  [
+    {
+      "nome": "new_sali-frontend",
+      "caminho": "C:/MyDartProjects/new_sali/frontend",
+      "sdk": "3.6.2",
+      "oraculo": 0
+    },
+    []
+  ],
+  [
+    {
+      "nome": "limitless_ui",
+      "caminho": "D:/Projects/dartforge/references/limitless_ui",
+      "sdk": "3.6.2",
+      "oraculo": 0
+    },
+    []
+  ]
+]

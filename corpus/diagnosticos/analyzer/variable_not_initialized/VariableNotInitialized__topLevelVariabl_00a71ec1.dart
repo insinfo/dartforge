@@ -1,0 +1,1 @@
+external final int v;

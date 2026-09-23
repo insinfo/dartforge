@@ -1,0 +1,1 @@
+Stream<void> f() async* {}

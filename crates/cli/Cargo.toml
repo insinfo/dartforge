@@ -15,6 +15,7 @@ dartforge-dev = { path = "../dev" }
 dartforge-build = { path = "../build" }
 dartforge-elements = { path = "../elements" }
 dartforge-intern = { path = "../intern" }
+dartforge-paridade = { path = "../paridade" }
 serde_json = "1"
 
 [features]

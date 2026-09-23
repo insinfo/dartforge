@@ -33,7 +33,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, jit, determinismo, moderno, custo-zero]
+        options: [todos, js, producao, nativo, jit, determinismo, moderno, custo-zero, analise]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -101,14 +101,14 @@ jobs:
           shared-key: pesado-release
           # Só o main grava; as branches ci/** restauram o do main.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Compilar harness, dartforge, dartforge-jsprod e o executor do JIT (release)
+      - name: Compilar harness, dartforge, dartforge-jsprod, paridade e o executor do JIT (release)
         env:
           # O perfil release do workspace (LTO thin, 1 unidade de geração de
           # código) é para medir desempenho; aqui só a correção importa, e ele
           # multiplica o tempo de compilação num runner de 4 núcleos.
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao -p dartforge-jit
+        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao -p dartforge-jit -p dartforge-paridade
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binarios
@@ -117,6 +117,7 @@ jobs:
             target/release/dartforge.exe
             target/release/dartforge-jsprod.exe
             target/release/dartforge-executar-ir.exe
+            target/release/dartforge-paridade.exe
             runtime/ddc/dart_sdk.js
           retention-days: 1
           if-no-files-found: error
@@ -363,6 +364,58 @@ jobs:
           titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
           args: determinismo --nativo --trabalhadores 1,4,8
           exige: '^determinismo \(IR\): '
+  # Paridade de diagnósticos com o `dart analyze` (crates/paridade, plano A1):
+  # o nosso analisador sobre corpus/diagnosticos contra o oráculo GRAVADO em
+  # disco (oraculo.jsonl de cada grupo, regravado localmente pelo
+  # `dartforge-paridade oraculo` com os SDKs 3.6.2 e 3.13.4) — o runner não
+  # roda `dart analyze`. O SDK 3.6.2 do setup-dart só dá o `lib/` que o nosso
+  # lado carrega. Critério: placar completo (código 0: oráculo em dia, nenhum
+  # código de `verificados.txt` divergindo) e relatório idêntico com 1, 4 e 8
+  # trabalhadores. O placar em si (acertos, FP, FN por código) é trabalho em
+  # andamento e não reprova.
+  analise:
+    name: análise (paridade com o dart analyze)
+    needs: compilar
+    if: contains(fromJSON('["todos","analise"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: binarios
+          path: ${{ github.workspace }}
+      - name: dartforge-paridade determinismo --trabalhadores 1,4,8
+        id: rodar
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'analise'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $rel = Join-Path $dir 'relatorio.txt'
+          $inicio = Get-Date
+          $p = Start-Process -FilePath target/release/dartforge-paridade.exe -ArgumentList 'determinismo --trabalhadores 1,4,8 --detalhes' `
+            -RedirectStandardOutput $rel -RedirectStandardError (Join-Path $dir 'progresso.txt') -NoNewWindow -PassThru -Wait
+          $codigo = $p.ExitCode
+          $dur = (Get-Date) - $inicio
+          $tempo = '{0} min {1:D2} s' -f [int][math]::Floor($dur.TotalMinutes), $dur.Seconds
+          $texto = Get-Content $rel -Encoding utf8
+          $linha = $texto | Where-Object { $_ -match '^placar paridade: ' } | Select-Object -First 1
+          $det = $texto | Where-Object { $_ -match '^determinismo: ' } | Select-Object -First 1
+          $tabela = $texto | Where-Object { $_ -notmatch '^\s+\[' }
+          $md = @('### Paridade com o dart analyze (corpus/diagnosticos)', '', "$det", '', '```text') + $tabela + @('```', '', "Código de saída: $codigo. Tempo: $tempo.")
+          Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
+          Write-Host ($texto -join "`n")
+          Write-Host "::notice title=Placar analise::$linha; $det ($tempo)"
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+          exit $codigo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.rodar.outputs.dir != ''
+        with:
+          name: relatorio-analise
+          path: ${{ steps.rodar.outputs.dir }}
+          retention-days: 14
+
 
   # Portão de TEMPO da regra de custo zero (PLANO.md, "geração de código e
   # macros: rápidas, e custo zero para quem não usa"): com o motor de build

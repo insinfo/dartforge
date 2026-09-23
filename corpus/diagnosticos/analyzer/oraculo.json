@@ -1,0 +1,15 @@
+{
+  "sdk": "3.6.2",
+  "hash": "a03d280d19ff4efd",
+  "arquivos": 8253,
+  "diagnosticos": 13330,
+  "excluidos": [
+    "number_literals_with_separators/NumberLiteralsWithSeparators__missing_number_after_e_1.dart",
+    "number_literals_with_separators/NumberLiteralsWithSeparators__missing_number_after_e_2.dart",
+    "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_1.dart",
+    "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_2.dart",
+    "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_3.dart",
+    "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_4.dart",
+    "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_6.dart"
+  ]
+}
