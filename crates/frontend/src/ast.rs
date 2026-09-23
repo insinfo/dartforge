@@ -496,6 +496,8 @@ pub struct Parameter {
     /// Forma antiga `int f(int x)`: parâmetros de tipo e lista do parâmetro-função.
     pub function_type_params: Box<[TypeParameter]>,
     pub function_parameters: Option<Box<[Parameter]>>,
+    /// `int f(int x)?` — o `?` depois da lista da forma antiga.
+    pub function_nullable: bool,
     pub default_value: Option<ExprId>,
 }
 

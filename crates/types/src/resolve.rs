@@ -1242,7 +1242,7 @@ impl<'a> OutlineResolver<'a> {
             positional: pos.into_boxed_slice(),
             optional: opt.into_boxed_slice(),
             named: named.into_boxed_slice(),
-            nullable: false,
+            nullable: p.function_nullable,
         })
     }
 

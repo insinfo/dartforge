@@ -456,9 +456,8 @@ impl<'a> BodyInferrer<'a> {
                 positional: pos.into_boxed_slice(),
                 optional: opt.into_boxed_slice(),
                 named: named.into_boxed_slice(),
-                nullable: false,
+                nullable: p.function_nullable,
             });
-            // `int f(int x)?` não existe; o `?` do parâmetro-função fica no nó.
             return Some(f);
         }
         p.ty.map(|t| self.resolver_anotacao(unit, lib, t, escopo))

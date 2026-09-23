@@ -285,3 +285,21 @@ void main() {
     assert_eq!(r.tipo("n.bitLength"), "int");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// Parâmetro-função da forma antiga com `?` (`int f(int x)?`): o tipo do
+/// parâmetro é anulável (`jsonEncode`, `List.sort`, `Stream.listen`).
+#[test]
+fn parametro_funcao_antigo_anulavel() {
+    let r = ou_pula!(inferir(
+        r#"
+void g([int comparar(String a, String b)?]) {}
+void main() {
+  var x = g;
+  var l = <String>[];
+  var s = l.sort;
+}
+"#
+    ));
+    assert_eq!(r.tipo("g"), "void Function([int Function(String, String)?])");
+    assert_eq!(r.tipo("l.sort"), "void Function([int Function(String, String)?])");
+}
