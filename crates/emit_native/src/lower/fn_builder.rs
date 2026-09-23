@@ -14,6 +14,17 @@ pub struct FinallyScope {
     pub reason_phi: ValueId,
     pub ret_val_phi: ValueId,
     pub incoming: Vec<(BlockId, i64, Operand)>,
+    /// Quantos alvos de `break`/`continue` sem rótulo existiam quando o
+    /// `try` começou: um salto para um deles atravessa este `finally`.
+    pub prof_break: usize,
+    pub prof_continue: usize,
+    /// Rótulos que já existiam quando o `try` começou (os de fora).
+    pub rotulos_break: std::collections::HashSet<SymbolId>,
+    pub rotulos_continue: std::collections::HashSet<SymbolId>,
+    /// Saltos (`break`/`continue`, com o rótulo) que atravessam este
+    /// `finally`: o de índice `k` entra com a razão `5 + k` e, no fim do
+    /// `finally`, continua o salto.
+    pub saltos: Vec<(bool, Option<SymbolId>)>,
 }
 
 pub struct FnBuilder<'a, 'c> {
@@ -37,7 +48,6 @@ pub struct FnBuilder<'a, 'c> {
     pub finally_scopes: Vec<FinallyScope>,
     pub active_catch_stack: Vec<(Operand, u8)>,
     pub terminated_blocks: std::collections::HashSet<BlockId>,
-    pub local_functions: HashMap<SymbolId, (String, Type, Vec<Type>)>,
     pub extra_functions: Vec<Function>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
@@ -52,6 +62,31 @@ pub struct FnBuilder<'a, 'c> {
     pub continuar_cadeia: bool,
     /// Valor lido antes de uma atribuição composta (resultado de `x++`).
     pub valor_antigo: Option<Operand>,
+    // --- P1 (closures, α) ---
+    /// Offsets das declarações desta função que moram numa célula (captura.rs).
+    pub celulas: std::collections::HashSet<usize>,
+    /// Closures anônimas já criadas nesta função (nome do corpo).
+    pub n_closures: u32,
+    /// Nomes de corpos de funções locais já usados nesta função.
+    pub nomes_locais: std::collections::HashSet<String>,
+    /// Entradas de tear-off já geradas por esta função.
+    pub entradas_feitas: std::collections::HashSet<String>,
+    // --- P3 (const canônico, α) ---
+    /// Globais criados por esta função (as constantes canônicas).
+    pub globais_extras: Vec<(u32, Type, String)>,
+    /// A expressão constante que o getter canônico corrente avalia (não é
+    /// canonizada de novo dentro dele).
+    pub constante_em_curso: Option<ExprId>,
+    /// Dentro de um contexto constante (inicializador `const`, valor padrão,
+    /// argumentos de um `const C(…)`): `C(…)`, `[…]` e `{…}` são constantes.
+    pub em_contexto_const: bool,
+    /// A chave de valor (`constantes.rs`) de cada local `const` visível.
+    pub chaves_de_const_locais: HashMap<SymbolId, (String, ExprId)>,
+    /// O padrão corrente é de casamento (`case`, `if-case`): um nome solto
+    /// nele é um padrão constante, não uma variável nova.
+    pub padrao_refutavel: bool,
+    /// O teste de tipo corrente é o de um `as` (confere só a classe).
+    pub cast_so_pela_classe: bool,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -130,7 +165,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             finally_scopes: Vec::new(),
             active_catch_stack: Vec::new(),
             terminated_blocks: std::collections::HashSet::new(),
-            local_functions: HashMap::new(),
             extra_functions: Vec::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
@@ -140,6 +174,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             cadeia_nula: None,
             continuar_cadeia: false,
             valor_antigo: None,
+            celulas: std::collections::HashSet::new(),
+            n_closures: 0,
+            nomes_locais: std::collections::HashSet::new(),
+            entradas_feitas: std::collections::HashSet::new(),
+            globais_extras: Vec::new(),
+            constante_em_curso: None,
+            em_contexto_const: false,
+            chaves_de_const_locais: HashMap::new(),
+            padrao_refutavel: false,
+            cast_so_pela_classe: false,
         }
     }
 
@@ -152,7 +196,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(dados) = self.ctx.outline.functions.get(fid) else {
             return;
         };
-        for p in dados.parameters.iter() {
+        // Os offsets dos nomes na declaração: a chave das células (P1).
+        let program = self.ctx.program;
+        let ast_params: &[ast::Parameter] = match program.functions[fid].node {
+            dartforge_elements::model::FunctionRef::Function { unit, function } => program
+                .unit(unit)
+                .ast
+                .function(function)
+                .parameters
+                .as_deref()
+                .unwrap_or(&[]),
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                match &program.unit(unit).ast.member(member).kind {
+                    ast::MemberKind::Constructor(c) => &c.parameters[..],
+                    _ => &[],
+                }
+            }
+            dartforge_elements::model::FunctionRef::None => &[],
+        };
+        for (i, p) in dados.parameters.iter().enumerate() {
             let p_name = p
                 .name
                 .map(|s| self.ctx.symbol_name(s).to_string())
@@ -160,7 +222,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let p_ty = self.repr(p.ty);
             let vid = self.add_param(p_name, p_ty);
             if let Some(sym) = p.name {
-                self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid));
+                match ast_params.get(i).and_then(|a| a.name) {
+                    Some(n) => {
+                        self.declarar_variavel(sym, n.span.start as usize, p_ty, Operand::Val(vid))
+                    }
+                    None => self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid)),
+                }
             }
         }
     }
@@ -168,6 +235,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
     pub fn finalizar(self, module: &mut Module) {
         module.erros.extend(self.erros);
+        module.globais.extend(self.globais_extras);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }
@@ -414,6 +482,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let term = match term {
             Terminator::Return(Some(op)) if !matches!(self.func.return_ty, Type::Void) => {
                 let r = self.func.return_ty;
+                // `=> print(x)` numa função que devolve valor: a expressão
+                // `void` vale null (não há valor SSA a devolver).
+                let op = if matches!(self.operand_type(&op), Type::Void) {
+                    Self::valor_zero(r)
+                } else {
+                    op
+                };
                 let op = self.coagir(op, r);
                 if self.is_terminated() {
                     return;
@@ -485,6 +560,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_break_to(&mut self, label: Option<SymbolId>) {
+        self.saltar(false, label);
+    }
+
+    /// `break`/`continue` (com ou sem rótulo): direto ao alvo, ou pelo
+    /// `finally` mais interno que o salto atravessa (a razão `5 + k` do
+    /// salto `k` desse `finally`; no fim dele o salto continua — por outros
+    /// `finally` de fora, se atravessar mais). Um salto para um alvo DENTRO
+    /// do `try` (o laço do próprio corpo) não passa pelo `finally`.
+    pub fn saltar(&mut self, e_continue: bool, label: Option<SymbolId>) {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_exception_clear".to_string(),
@@ -493,16 +577,44 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        let target_opt = label
-            .and_then(|sym| self.labeled_break_targets.get(&sym).copied())
-            .or_else(|| self.break_targets.last().copied());
+        let (pilha, rotulados) = if e_continue {
+            (&self.continue_targets, &self.labeled_continue_targets)
+        } else {
+            (&self.break_targets, &self.labeled_break_targets)
+        };
+        let target_opt = match label {
+            Some(sym) => rotulados.get(&sym).copied(),
+            None => pilha.last().copied(),
+        };
+        let indice = pilha.len().checked_sub(1);
         if let Some(target) = target_opt {
-            if self.finally_scopes.is_empty() {
+            let atravessa = self.finally_scopes.last().is_some_and(|fin| match label {
+                Some(sym) => {
+                    if e_continue {
+                        fin.rotulos_continue.contains(&sym)
+                    } else {
+                        fin.rotulos_break.contains(&sym)
+                    }
+                }
+                None => {
+                    let prof = if e_continue { fin.prof_continue } else { fin.prof_break };
+                    indice.is_some_and(|i| i < prof)
+                }
+            });
+            if !atravessa {
                 self.terminate(Terminator::Branch(target));
             } else {
                 let default_ret = self.default_return_operand();
+                let atual = self.current_block;
                 let fin = self.finally_scopes.last_mut().unwrap();
-                fin.incoming.push((self.current_block, 3, default_ret));
+                let k = match fin.saltos.iter().position(|s| *s == (e_continue, label)) {
+                    Some(k) => k,
+                    None => {
+                        fin.saltos.push((e_continue, label));
+                        fin.saltos.len() - 1
+                    }
+                };
+                fin.incoming.push((atual, 5 + k as i64, default_ret));
                 let fin_entry = fin.entry_block;
                 self.terminate(Terminator::Branch(fin_entry));
             }
@@ -516,30 +628,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_continue_to(&mut self, label: Option<SymbolId>) {
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_exception_clear".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
-        let target_opt = label
-            .and_then(|sym| self.labeled_continue_targets.get(&sym).copied())
-            .or_else(|| self.continue_targets.last().copied());
-        if let Some(target) = target_opt {
-            if self.finally_scopes.is_empty() {
-                self.terminate(Terminator::Branch(target));
-            } else {
-                let default_ret = self.default_return_operand();
-                let fin = self.finally_scopes.last_mut().unwrap();
-                fin.incoming.push((self.current_block, 4, default_ret));
-                let fin_entry = fin.entry_block;
-                self.terminate(Terminator::Branch(fin_entry));
-            }
-        }
-        let dead = self.new_block();
-        self.set_block(dead);
+        self.saltar(true, label);
     }
 
     pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
@@ -689,9 +778,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
     /// String…) — sem desreferenciar null (H6).
     pub fn testar_tipo(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
-        let ast::TypeKind::Named { name, .. } = &ast_ty.kind else {
+        let ast::TypeKind::Named { name, args } = &ast_ty.kind else {
             return self.nao_suportado("teste de tipo estrutural", ast_ty.span);
         };
+        // `x is List<int>`: os argumentos de tipo em tempo de execução (RTI)
+        // ainda não existem — responder pela classe só daria a resposta
+        // errada. Argumentos triviais (`dynamic`, `Object?`) não mudam nada.
+        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+        let trivial = |t: &ast::TypeAnnotation| match &t.kind {
+            ast::TypeKind::Named { name, args } if args.is_empty() => name
+                .last()
+                .is_some_and(|n| matches!(self.ctx.symbol_name(n.sym), "dynamic") || (self.ctx.symbol_name(n.sym) == "Object" && t.nullable)),
+            _ => false,
+        };
+        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) && !self.cast_so_pela_classe {
+            return self.nao_suportado("teste de tipo genérico (RTI)", ast_ty.span);
+        }
         let Some(ultimo) = name.last() else {
             return self.nao_suportado("teste de tipo", ast_ty.span);
         };
@@ -740,10 +842,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => {
                 let lib = self.ctx.program.unit(self.unit_id).library;
-                let cid = self
-                    .ctx
-                    .program
-                    .lookup(lib, ultimo.sym)
+                // `p.Tipo` (import com prefixo) ou `Tipo`.
+                let binding = match &name[..] {
+                    [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
+                    _ => self.ctx.program.lookup(lib, ultimo.sym),
+                };
+                let cid = binding
                     .and_then(|b| match b.getter {
                         Some(dartforge_elements::model::Element::Class(c)) => Some(c),
                         _ => None,
@@ -781,7 +885,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`.
     pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) {
+        // `as List<int>`: até a RTI, o cast confere só a classe — num
+        // programa correto ele nunca falha; o que se perde é o `TypeError`
+        // de um cast errado nos argumentos de tipo.
+        let salvo = std::mem::replace(&mut self.cast_so_pela_classe, true);
         let ok = self.testar_tipo(ast_ty, op);
+        self.cast_so_pela_classe = salvo;
         let ok = self.para_bool(ok);
         let fail_b = self.new_block();
         let pass_b = self.new_block();

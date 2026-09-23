@@ -210,18 +210,20 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
         Instruction::Const(Constant::Int(_)) if ty == Type::Ref => {
             c.erro("constante inteira registrada como Ref".to_string());
         }
+        Instruction::CallClosure { closure, args, .. } => {
+            c.checar_ref("chamada de closure", closure, Type::Ref);
+            for a in args {
+                c.checar_ref("chamada de closure", a, Type::Ref);
+                if c.tipo(a) != Type::Ref {
+                    c.erro(format!("argumento de closure não é Ref: {a:?}"));
+                }
+            }
+        }
         Instruction::AllocSet { .. }
-        | Instruction::AllocCell { .. }
-        | Instruction::AllocEnv { .. }
-        | Instruction::AllocClosure { .. }
         | Instruction::GetListElement { .. }
         | Instruction::SetListElement { .. }
-        | Instruction::CellGet { .. }
-        | Instruction::CellSet { .. }
-        | Instruction::EnvGet { .. }
         | Instruction::CallInterface { .. }
         | Instruction::CallDynamic { .. }
-        | Instruction::CallClosure { .. }
         | Instruction::CheckNotNull(_)
         | Instruction::IsClass { .. } => {
             c.erro(format!("instrução sem emissão: {inst:?}"));
