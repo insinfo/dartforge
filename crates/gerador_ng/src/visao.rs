@@ -619,8 +619,20 @@ impl Corpo<'_> {
             "$event" => 1,
             _ => return Err(Motivo::Ligacao),
         };
-        let metodo = crate::expr::converter_com_locais(nome.trim(), self.membros, self.metodos, &self.locais, self.nomes, self.tipos)?
-            .texto;
+        // O alvo é um método do componente, passado por referência
+        // (`_tearOffSimpleHandler`): `_ctx.metodo`. Pelo conversor de
+        // expressões não dá — método solto não é valor lá, e o evento nunca
+        // saía. Local de visão com o mesmo nome sombrearia o método.
+        let nome = nome.trim();
+        if !self.metodos.contains_key(nome) || self.locais.contains_key(nome) {
+            return Err(Motivo::Ligacao);
+        }
+        // Na visão embutida o `build()` não declara `_ctx`; o que o oficial
+        // escreve ali ainda não tem caso no corpus.
+        if self.embutida {
+            return Err(Motivo::Ligacao);
+        }
+        let metodo = format!("_ctx.{nome}");
         self.usa_ctx_no_build = true;
         let evento = &l.nome;
         self.ouvintes.push(format!(
@@ -1040,6 +1052,11 @@ impl Corpo<'_> {
                     }
                     // Dois `(click)` no mesmo elemento viram um método só
                     // (`mergeEvents`); ainda não.
+                    // Evento em nó projetado num filho ainda não tem caso no
+                    // corpus.
+                    if pai.is_empty() && !e.eventos.is_empty() {
+                        return Err(Motivo::Ligacao);
+                    }
                     let mut vistos = std::collections::HashSet::new();
                     for l in &e.eventos {
                         if !vistos.insert(l.nome.as_str()) {
@@ -1553,7 +1570,7 @@ fn tipo_do_elemento(tipo: &str) -> Option<String> {
 
 /// `isNativeHtmlEvent` do ngcompiler (`html_events.dart`): só estes vão
 /// direto para `addEventListener`.
-fn evento_nativo(nome: &str) -> bool {
+pub(crate) fn evento_nativo(nome: &str) -> bool {
     const NATIVOS: &[&str] = &[
         "abort", "afterprint", "animationend", "animationiteration", "animationstart",
         "appinstalled", "audioend", "audiostart", "beforeprint", "beforeunload", "blur",
@@ -1747,13 +1764,31 @@ pub fn template_de_componente(
         html: html.clone(),
     };
     corpo.nos(nos, "parentRenderNode")?;
+    // Os `@HostListener` do componente fecham o `build()`, ligados ao nó
+    // raiz (`_writeComponentHostEventListeners`, depois do
+    // `writeBuildStatements` em `_generateBuildMethod`).
+    let mut hospedeiro = Vec::new();
+    for o in &c.ouvintes {
+        corpo.usa_ctx_no_build = true;
+        hospedeiro.push(format!(
+            "    parentRenderNode.addEventListener('{}', this.eventHandler{}(_ctx.{}));",
+            o.evento, o.aridade, o.metodo
+        ));
+    }
     let ctx_no_build =
         if corpo.usa_ctx_no_build { "
     final _ctx = this.ctx;" } else { "" };
     // Ordem do `build()` oficial (`_generateBuildMethod`): os nós (a fase
     // `_buildView`), os ouvintes (`bindView`) e, por fim, o que o `afterNodes`
     // acrescenta.
-    let linhas = corpo.linhas.iter().chain(&corpo.ouvintes).cloned().collect::<Vec<_>>().join("\n");
+    let linhas = corpo
+        .linhas
+        .iter()
+        .chain(&corpo.ouvintes)
+        .chain(&hospedeiro)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
     let corpo_build =
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
     // Ordem dos campos na classe, como o oficial escreve: ligações de texto,

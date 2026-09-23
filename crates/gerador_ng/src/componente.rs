@@ -47,6 +47,8 @@ pub struct Componente {
     /// em que o oficial escreve as atribuições (`queryIndex`). Se a consulta
     /// sai estática ou não depende de onde `#ref` está no template.
     pub consultas: Vec<Consulta>,
+    /// `@HostListener` da classe, na forma simples, na ordem de declaração.
+    pub ouvintes: Vec<Ouvinte>,
     /// Cada campo e getter da classe. O emissor precisa disto para escolher
     /// entre `interpolateString`, `interpolate` e `updateTextWithPrimitive`,
     /// que o oficial decide pelo tipo estático da expressão do template e por
@@ -124,6 +126,16 @@ pub struct Consulta {
     /// `Element` recebe o próprio nó, qualquer outro tipo um `ElementRef`
     /// (`isElementType` em `find_components.dart`).
     pub tipo: String,
+}
+
+/// Um `@HostListener` do componente na forma que o oficial liga com
+/// `eventHandler0`/`eventHandler1` direto no nó raiz.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ouvinte {
+    pub evento: String,
+    pub metodo: String,
+    /// 0 para `m()`, 1 para `m($event)`.
+    pub aridade: u8,
 }
 
 /// Um parâmetro do construtor do componente.
@@ -217,6 +229,7 @@ pub fn ler_componente(
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
     c.nao_entendidos = o_que_nao_entendemos(arvore, interner, classe, anotacao);
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
+    c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
     c
 }
 
@@ -261,8 +274,9 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
 /// no primeiro. Recusar é obrigatório: gerar sem isso produz um arquivo
 /// **errado**.
 ///
-/// `@ViewChild` não entra aqui: se a consulta é traduzível depende do
-/// template, e quem decide é [`consultas_da_classe`] com a visão.
+/// `@ViewChild` e `@HostListener` não entram aqui: cada um tem a sua
+/// leitura ([`consultas_da_classe`], [`ouvintes_da_classe`]), que recusa o
+/// que não souber.
 fn o_que_nao_entendemos(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -297,7 +311,6 @@ fn o_que_nao_entendemos(
         for a in membro.metadata.iter() {
             let nome = crate::nome_da_anotacao(a, interner);
             let motivo = match nome.as_str() {
-                "HostListener" => Motivo::HostListenerEmComponente,
                 "HostBinding" => Motivo::HostBindingEmComponente,
                 "ContentChild" | "ContentChildren" => Motivo::ContentChild,
                 // Lista de resultados: a atribuição é outra, e com `*ngIf`
@@ -340,6 +353,84 @@ fn consultas_da_classe(
         }
     }
     saida
+}
+
+/// Os `@HostListener` da classe, na ordem de declaração dos métodos (o
+/// `DirectiveVisitor` visita os métodos em ordem). A regra do handler é a de
+/// `_addHostListener` (`find_components.dart`): sem `args`, um método de um
+/// parâmetro recebe `$event`; o texto `metodo(args)` é então classificado
+/// por `handlerTypeFromExpression` (`parse_utils.dart`) — só `m()` e
+/// `m($event)` são simples. O resto vira um método `_handleEvent_N` (caso
+/// b17 do corpus), forma que ainda recusamos.
+fn ouvintes_da_classe(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    fora: &mut Vec<(Motivo, String)>,
+) -> Vec<Ouvinte> {
+    let mut saida: Vec<Ouvinte> = Vec::new();
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        for a in membro.metadata.iter() {
+            if crate::nome_da_anotacao(a, interner) != "HostListener" {
+                continue;
+            }
+            match ouvinte_simples(arvore, interner, membro, a) {
+                Some(o) if !saida.iter().any(|x| x.evento == o.evento) => saida.push(o),
+                // Dois ouvintes do mesmo evento: o mapa do oficial fica com o
+                // último, no lugar do primeiro. Ainda não.
+                _ => fora.push((Motivo::HostListenerEmComponente, "@HostListener(..)".into())),
+            }
+        }
+    }
+    saida
+}
+
+/// Lê um `@HostListener` na forma simples, ou `None`.
+fn ouvinte_simples(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    membro: &ast::Member,
+    anotacao: &ast::Annotation,
+) -> Option<Ouvinte> {
+    let ast::MemberKind::Method(f) = &membro.kind else { return None };
+    let funcao = arvore.function(*f);
+    if funcao.static_ || !matches!(funcao.kind, ast::FunctionKind::Function) {
+        return None;
+    }
+    let metodo = interner.resolve(funcao.name?.sym).to_string();
+    // `element.parameters.length`: todos, opcionais e nomeados inclusive.
+    let parametros = funcao.parameters.as_ref().map_or(0, |p| p.len());
+    let args = anotacao.arguments.as_ref()?;
+    let (evento, lista) = match &args.args[..] {
+        [e] if e.name.is_none() => (e, None),
+        [e, l] if e.name.is_none() && l.name.is_none() => (e, Some(l.value)),
+        _ => return None,
+    };
+    let evento = texto_do_argumento(arvore, evento.value)?;
+    // Evento que não é do DOM (`document:click`, `keyup.enter`) vai pelo
+    // `eventManager`, outra forma.
+    if !crate::visao::evento_nativo(&evento) {
+        return None;
+    }
+    let argumentos = match lista {
+        None => Vec::new(),
+        Some(l) => {
+            let ast::ExprKind::List { elements, .. } = &arvore.expr(l).kind else { return None };
+            let textos = lista_de_textos(arvore, l);
+            if textos.len() != elements.len() {
+                return None;
+            }
+            textos
+        }
+    };
+    let aridade = match argumentos.as_slice() {
+        [] if parametros == 1 => 1,
+        [] => 0,
+        [x] if x == "$event" => 1,
+        _ => return None,
+    };
+    Some(Ouvinte { evento, metodo, aridade })
 }
 
 /// Lê um `@ViewChild` na forma que o gerador conhece, ou diz por que não.
