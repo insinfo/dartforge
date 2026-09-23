@@ -115,6 +115,45 @@ impl<'a> Resolvedor<'a> {
         self.interner
     }
 
+    /// O programa carregado: é dele que saem os metadados das diretivas
+    /// (`metadados.rs`), como o oficial os tira do `analyzer`.
+    pub fn programa(&self) -> &'a Program {
+        self.program
+    }
+
+    /// A classe `classe` declarada na biblioteca de URI `uri`.
+    pub fn classe_por_uri(&self, uri: &str, classe: &str) -> Option<ClassId> {
+        let lib = self.program.libraries.iter().position(|l| l.uri == uri)?;
+        let sym = self.interner.lookup(classe)?;
+        match self.program.libraries[lib].declared.get(&sym)?.getter? {
+            Element::Class(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// O que `nome` (sem prefixo) ou `prefixo.nome` designa no escopo da
+    /// biblioteca `lib`. Nome ambíguo não designa nada.
+    pub fn elemento_em(&self, lib: LibraryId, prefixo: Option<&str>, nome: &str) -> Option<Element> {
+        let biblioteca = self.program.library(lib);
+        let sym = self.interner.lookup(nome)?;
+        let espaco = match prefixo {
+            None => &biblioteca.scope,
+            Some(p) => biblioteca.prefixes.get(&self.interner.lookup(p)?)?,
+        };
+        let ligacao = espaco.get(&sym)?;
+        if ligacao.ambiguous {
+            return None;
+        }
+        ligacao.getter
+    }
+
+    /// `nome` é um prefixo de import no escopo de `lib`?
+    pub fn e_prefixo(&self, lib: LibraryId, nome: &str) -> bool {
+        self.interner
+            .lookup(nome)
+            .is_some_and(|s| self.program.library(lib).prefixes.contains_key(&s))
+    }
+
     /// Biblioteca do arquivo, se ele foi carregado.
     pub fn biblioteca(&self, arquivo: &Path) -> Option<LibraryId> {
         self.por_caminho

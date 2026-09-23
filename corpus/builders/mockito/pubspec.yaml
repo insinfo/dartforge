@@ -1,0 +1,10 @@
+name: corpus_mockito
+description: Mocks do mockito em test/ (build_to source) com build_extensions sobrescrito nas opções.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dev_dependencies:
+  build_runner: ^2.4.15
+  # 5.4.5 quebra com analyzer 7.x; 5.4.4 fixa analyzer 6.
+  mockito: 5.4.4
+  analyzer: '>=6.9.0 <7.0.0'

@@ -1,0 +1,474 @@
+// **************************************************************************
+// BuiltValueGenerator
+// **************************************************************************
+
+const Cor _$azul = const Cor._('azul');
+const Cor _$verde = const Cor._('verde');
+const Cor _$vermelho = const Cor._('vermelho');
+
+Cor _$valueOf(String name) {
+  switch (name) {
+    case 'azul':
+      return _$azul;
+    case 'verde':
+      return _$verde;
+    case 'vermelho':
+      return _$vermelho;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<Cor> _$values = BuiltSet<Cor>(const <Cor>[
+  _$azul,
+  _$verde,
+  _$vermelho,
+]);
+
+Serializers _$serializers = (Serializers().toBuilder()
+      ..add(Cor.serializer)
+      ..add(Item.serializer)
+      ..add(Pedido.serializer)
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(Item)]),
+          () => ListBuilder<Item>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(int)]),
+          () => MapBuilder<String, int>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>()))
+    .build();
+Serializer<Cor> _$corSerializer = _$CorSerializer();
+Serializer<Item> _$itemSerializer = _$ItemSerializer();
+Serializer<Pedido> _$pedidoSerializer = _$PedidoSerializer();
+
+class _$CorSerializer implements PrimitiveSerializer<Cor> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'vermelho': 'VERMELHO',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'VERMELHO': 'vermelho',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[Cor];
+  @override
+  final String wireName = 'Cor';
+
+  @override
+  Object serialize(Serializers serializers, Cor object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  Cor deserialize(Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      Cor.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
+class _$ItemSerializer implements StructuredSerializer<Item> {
+  @override
+  final Iterable<Type> types = const [Item, _$Item];
+  @override
+  final String wireName = 'Item';
+
+  @override
+  Iterable<Object?> serialize(Serializers serializers, Item object,
+      {FullType specifiedType = FullType.unspecified}) {
+    final result = <Object?>[
+      'nome',
+      serializers.serialize(object.nome, specifiedType: const FullType(String)),
+      'quantidade',
+      serializers.serialize(object.quantidade,
+          specifiedType: const FullType(int)),
+      'cor',
+      serializers.serialize(object.cor, specifiedType: const FullType(Cor)),
+      'etiquetas',
+      serializers.serialize(object.etiquetas,
+          specifiedType:
+              const FullType(BuiltList, const [const FullType(String)])),
+    ];
+    Object? value;
+    value = object.nota;
+    if (value != null) {
+      result
+        ..add('nota')
+        ..add(serializers.serialize(value,
+            specifiedType: const FullType(String)));
+    }
+    return result;
+  }
+
+  @override
+  Item deserialize(Serializers serializers, Iterable<Object?> serialized,
+      {FullType specifiedType = FullType.unspecified}) {
+    final result = ItemBuilder();
+
+    final iterator = serialized.iterator;
+    while (iterator.moveNext()) {
+      final key = iterator.current! as String;
+      iterator.moveNext();
+      final Object? value = iterator.current;
+      switch (key) {
+        case 'nome':
+          result.nome = serializers.deserialize(value,
+              specifiedType: const FullType(String))! as String;
+          break;
+        case 'quantidade':
+          result.quantidade = serializers.deserialize(value,
+              specifiedType: const FullType(int))! as int;
+          break;
+        case 'cor':
+          result.cor = serializers.deserialize(value,
+              specifiedType: const FullType(Cor))! as Cor;
+          break;
+        case 'nota':
+          result.nota = serializers.deserialize(value,
+              specifiedType: const FullType(String)) as String?;
+          break;
+        case 'etiquetas':
+          result.etiquetas.replace(serializers.deserialize(value,
+                  specifiedType: const FullType(
+                      BuiltList, const [const FullType(String)]))!
+              as BuiltList<Object?>);
+          break;
+      }
+    }
+
+    return result.build();
+  }
+}
+
+class _$PedidoSerializer implements StructuredSerializer<Pedido> {
+  @override
+  final Iterable<Type> types = const [Pedido, _$Pedido];
+  @override
+  final String wireName = 'Pedido';
+
+  @override
+  Iterable<Object?> serialize(Serializers serializers, Pedido object,
+      {FullType specifiedType = FullType.unspecified}) {
+    final result = <Object?>[
+      'numero',
+      serializers.serialize(object.numero, specifiedType: const FullType(int)),
+      'itens',
+      serializers.serialize(object.itens,
+          specifiedType:
+              const FullType(BuiltList, const [const FullType(Item)])),
+      'descontos',
+      serializers.serialize(object.descontos,
+          specifiedType: const FullType(
+              BuiltMap, const [const FullType(String), const FullType(int)])),
+    ];
+
+    return result;
+  }
+
+  @override
+  Pedido deserialize(Serializers serializers, Iterable<Object?> serialized,
+      {FullType specifiedType = FullType.unspecified}) {
+    final result = PedidoBuilder();
+
+    final iterator = serialized.iterator;
+    while (iterator.moveNext()) {
+      final key = iterator.current! as String;
+      iterator.moveNext();
+      final Object? value = iterator.current;
+      switch (key) {
+        case 'numero':
+          result.numero = serializers.deserialize(value,
+              specifiedType: const FullType(int))! as int;
+          break;
+        case 'itens':
+          result.itens.replace(serializers.deserialize(value,
+                  specifiedType:
+                      const FullType(BuiltList, const [const FullType(Item)]))!
+              as BuiltList<Object?>);
+          break;
+        case 'descontos':
+          result.descontos.replace(serializers.deserialize(value,
+              specifiedType: const FullType(BuiltMap,
+                  const [const FullType(String), const FullType(int)]))!);
+          break;
+      }
+    }
+
+    return result.build();
+  }
+}
+
+class _$Item extends Item {
+  @override
+  final String nome;
+  @override
+  final int quantidade;
+  @override
+  final Cor cor;
+  @override
+  final String? nota;
+  @override
+  final BuiltList<String> etiquetas;
+
+  factory _$Item([void Function(ItemBuilder)? updates]) =>
+      (ItemBuilder()..update(updates))._build();
+
+  _$Item._(
+      {required this.nome,
+      required this.quantidade,
+      required this.cor,
+      this.nota,
+      required this.etiquetas})
+      : super._();
+  @override
+  Item rebuild(void Function(ItemBuilder) updates) =>
+      (toBuilder()..update(updates)).build();
+
+  @override
+  ItemBuilder toBuilder() => ItemBuilder()..replace(this);
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(other, this)) return true;
+    return other is Item &&
+        nome == other.nome &&
+        quantidade == other.quantidade &&
+        cor == other.cor &&
+        nota == other.nota &&
+        etiquetas == other.etiquetas;
+  }
+
+  @override
+  int get hashCode {
+    var _$hash = 0;
+    _$hash = $jc(_$hash, nome.hashCode);
+    _$hash = $jc(_$hash, quantidade.hashCode);
+    _$hash = $jc(_$hash, cor.hashCode);
+    _$hash = $jc(_$hash, nota.hashCode);
+    _$hash = $jc(_$hash, etiquetas.hashCode);
+    _$hash = $jf(_$hash);
+    return _$hash;
+  }
+
+  @override
+  String toString() {
+    return (newBuiltValueToStringHelper(r'Item')
+          ..add('nome', nome)
+          ..add('quantidade', quantidade)
+          ..add('cor', cor)
+          ..add('nota', nota)
+          ..add('etiquetas', etiquetas))
+        .toString();
+  }
+}
+
+class ItemBuilder implements Builder<Item, ItemBuilder> {
+  _$Item? _$v;
+
+  String? _nome;
+  String? get nome => _$this._nome;
+  set nome(String? nome) => _$this._nome = nome;
+
+  int? _quantidade;
+  int? get quantidade => _$this._quantidade;
+  set quantidade(int? quantidade) => _$this._quantidade = quantidade;
+
+  Cor? _cor;
+  Cor? get cor => _$this._cor;
+  set cor(Cor? cor) => _$this._cor = cor;
+
+  String? _nota;
+  String? get nota => _$this._nota;
+  set nota(String? nota) => _$this._nota = nota;
+
+  ListBuilder<String>? _etiquetas;
+  ListBuilder<String> get etiquetas =>
+      _$this._etiquetas ??= ListBuilder<String>();
+  set etiquetas(ListBuilder<String>? etiquetas) =>
+      _$this._etiquetas = etiquetas;
+
+  ItemBuilder() {
+    Item._padroes(this);
+  }
+
+  ItemBuilder get _$this {
+    final $v = _$v;
+    if ($v != null) {
+      _nome = $v.nome;
+      _quantidade = $v.quantidade;
+      _cor = $v.cor;
+      _nota = $v.nota;
+      _etiquetas = $v.etiquetas.toBuilder();
+      _$v = null;
+    }
+    return this;
+  }
+
+  @override
+  void replace(Item other) {
+    _$v = other as _$Item;
+  }
+
+  @override
+  void update(void Function(ItemBuilder)? updates) {
+    if (updates != null) updates(this);
+  }
+
+  @override
+  Item build() => _build();
+
+  _$Item _build() {
+    _$Item _$result;
+    try {
+      _$result = _$v ??
+          _$Item._(
+            nome: BuiltValueNullFieldError.checkNotNull(nome, r'Item', 'nome'),
+            quantidade: BuiltValueNullFieldError.checkNotNull(
+                quantidade, r'Item', 'quantidade'),
+            cor: BuiltValueNullFieldError.checkNotNull(cor, r'Item', 'cor'),
+            nota: nota,
+            etiquetas: etiquetas.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'etiquetas';
+        etiquetas.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(r'Item', _$failedField, e.toString());
+      }
+      rethrow;
+    }
+    replace(_$result);
+    return _$result;
+  }
+}
+
+class _$Pedido extends Pedido {
+  @override
+  final int numero;
+  @override
+  final BuiltList<Item> itens;
+  @override
+  final BuiltMap<String, int> descontos;
+  int? __total;
+
+  factory _$Pedido([void Function(PedidoBuilder)? updates]) =>
+      (PedidoBuilder()..update(updates))._build();
+
+  _$Pedido._(
+      {required this.numero, required this.itens, required this.descontos})
+      : super._();
+  @override
+  int get total => __total ??= super.total;
+
+  @override
+  Pedido rebuild(void Function(PedidoBuilder) updates) =>
+      (toBuilder()..update(updates)).build();
+
+  @override
+  PedidoBuilder toBuilder() => PedidoBuilder()..replace(this);
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(other, this)) return true;
+    return other is Pedido &&
+        numero == other.numero &&
+        itens == other.itens &&
+        descontos == other.descontos;
+  }
+
+  @override
+  int get hashCode {
+    var _$hash = 0;
+    _$hash = $jc(_$hash, numero.hashCode);
+    _$hash = $jc(_$hash, itens.hashCode);
+    _$hash = $jc(_$hash, descontos.hashCode);
+    _$hash = $jf(_$hash);
+    return _$hash;
+  }
+
+  @override
+  String toString() {
+    return (newBuiltValueToStringHelper(r'Pedido')
+          ..add('numero', numero)
+          ..add('itens', itens)
+          ..add('descontos', descontos))
+        .toString();
+  }
+}
+
+class PedidoBuilder implements Builder<Pedido, PedidoBuilder> {
+  _$Pedido? _$v;
+
+  int? _numero;
+  int? get numero => _$this._numero;
+  set numero(int? numero) => _$this._numero = numero;
+
+  ListBuilder<Item>? _itens;
+  ListBuilder<Item> get itens => _$this._itens ??= ListBuilder<Item>();
+  set itens(ListBuilder<Item>? itens) => _$this._itens = itens;
+
+  MapBuilder<String, int>? _descontos;
+  MapBuilder<String, int> get descontos =>
+      _$this._descontos ??= MapBuilder<String, int>();
+  set descontos(MapBuilder<String, int>? descontos) =>
+      _$this._descontos = descontos;
+
+  PedidoBuilder();
+
+  PedidoBuilder get _$this {
+    final $v = _$v;
+    if ($v != null) {
+      _numero = $v.numero;
+      _itens = $v.itens.toBuilder();
+      _descontos = $v.descontos.toBuilder();
+      _$v = null;
+    }
+    return this;
+  }
+
+  @override
+  void replace(Pedido other) {
+    _$v = other as _$Pedido;
+  }
+
+  @override
+  void update(void Function(PedidoBuilder)? updates) {
+    if (updates != null) updates(this);
+  }
+
+  @override
+  Pedido build() => _build();
+
+  _$Pedido _build() {
+    _$Pedido _$result;
+    try {
+      _$result = _$v ??
+          _$Pedido._(
+            numero: BuiltValueNullFieldError.checkNotNull(
+                numero, r'Pedido', 'numero'),
+            itens: itens.build(),
+            descontos: descontos.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'itens';
+        itens.build();
+        _$failedField = 'descontos';
+        descontos.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'Pedido', _$failedField, e.toString());
+      }
+      rethrow;
+    }
+    replace(_$result);
+    return _$result;
+  }
+}
+
+// ignore_for_file: deprecated_member_use_from_same_package,type=lint

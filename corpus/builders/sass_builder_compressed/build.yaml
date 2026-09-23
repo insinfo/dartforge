@@ -1,0 +1,8 @@
+# As opções do alvo sobrepõem os defaults do builder (dev_options liga
+# sourceMaps; outputStyle só vem daqui). Mesma forma do new_sali/frontend.
+targets:
+  $default:
+    builders:
+      sass_builder:
+        options:
+          outputStyle: compressed

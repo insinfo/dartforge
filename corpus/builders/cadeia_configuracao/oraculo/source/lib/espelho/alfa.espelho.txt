@@ -1,0 +1,7 @@
+builder: espelho
+entrada: corpus_cadeia_configuracao|lib/entrada/alfa.txt
+isRoot: true
+opcoes: {"origem":"alvo","so_defaults":"sim"}
+---
+sarvalap siam moc ahnil adnuges
+afla ed ahnil ariemirp

@@ -7,12 +7,40 @@
 //!
 //! O oráculo se regenera com `scripts/corpus-ngdart.ps1` (roda o
 //! `build_runner` oficial uma vez).
+use dartforge_elements::config::PackageConfig;
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_gerador_ng::resolucao::Resolvedor;
 use dartforge_gerador_ng::{Pacote, Placar, caminho_do_template, gerar_em};
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
+
+/// Os nomes em `dependencies:` do `pubspec.yaml` do corpus (o bloco de
+/// primeiro nível, um pacote por linha com dois espaços).
+fn dependencias_do_pubspec(raiz: &Path) -> Vec<String> {
+    let texto =
+        std::fs::read_to_string(raiz.join("pubspec.yaml")).expect("pubspec.yaml do corpus");
+    let mut dentro = false;
+    let mut saida = Vec::new();
+    for linha in texto.lines() {
+        if linha.trim().is_empty() {
+            continue;
+        }
+        if !linha.starts_with(char::is_whitespace) {
+            dentro = linha.trim_end() == "dependencies:";
+            continue;
+        }
+        if dentro
+            && linha.starts_with("  ")
+            && !linha.starts_with("   ")
+            && let Some((nome, _)) = linha.trim().split_once(':')
+        {
+            saida.push(nome.trim().to_string());
+        }
+    }
+    assert!(!saida.is_empty(), "pubspec.yaml do corpus sem dependencies:");
+    saida
+}
 
 fn raiz_do_corpus() -> PathBuf {
     // O diretório do crate é `crates/gerador_ng`.
@@ -22,7 +50,7 @@ fn raiz_do_corpus() -> PathBuf {
 /// Casos do corpus que o gerador tem de recusar, com a sub-forma da recusa.
 const RECUSADOS: &[(&str, &str)] = &[(
     "g02_select_ng_model.dart",
-    "diretiva SelectControlValueAccessor",
+    "diretiva NgSelectOption (OnDestroy)",
 )];
 
 #[test]
@@ -45,6 +73,23 @@ fn o_que_geramos_e_igual_ao_oficial() {
     // tipo de um membro noutra classe — ficariam fora da verificação.
     let entrada = raiz.join("lib").join("corpus_ngdart.dart");
     let cfg = raiz.join(".dart_tool").join("package_config.json");
+    // Sem o `package_config.json` (fora do git) ou com um velho, a carga é
+    // tolerante e segue: `ngdart`/`ngforms` não se resolvem, quase tudo é
+    // recusado e o teste conferiria em silêncio bem menos do que diz. Por
+    // isso a falta de qualquer dependência do `pubspec.yaml` é erro aqui.
+    let config = PackageConfig::load(&cfg).unwrap_or_else(|e| {
+        panic!(
+            "{e}: rode `dart pub get` em corpus/ngdart (o CI roda no passo \
+             \"pub get do corpus do ngdart\")"
+        )
+    });
+    for dep in dependencias_do_pubspec(&raiz) {
+        assert!(
+            config.packages.contains_key(&dep),
+            "`{dep}` falta em {}: rode `dart pub get` em corpus/ngdart",
+            cfg.display()
+        );
+    }
     let sdk_dir =
         SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
     let Ok(sdk) = SdkLayout::load(&sdk_dir, "dartdevc") else {

@@ -1,0 +1,12 @@
+# Builder de um pacote dependência: `dependents` aplica no pacote raiz.
+builders:
+  carimbo:
+    import: 'package:apoio_cadeia/carimbo.dart'
+    builder_factories: ['carimbo']
+    build_extensions: {'.dart': ['.carimbo.txt']}
+    auto_apply: dependents
+    build_to: cache
+    defaults:
+      generate_for: ['lib/**']
+      options:
+        origem: defaults_apoio

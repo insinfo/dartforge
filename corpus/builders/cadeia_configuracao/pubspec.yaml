@@ -1,0 +1,12 @@
+name: corpus_cadeia_configuracao
+description: Builders locais (tool/builders.dart) e um pacote de apoio por caminho — só configuração do build.yaml.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  apoio_cadeia:
+    path: apoio
+dev_dependencies:
+  build: ^2.4.2
+  build_runner: ^2.4.15
+  glob: ^2.1.3

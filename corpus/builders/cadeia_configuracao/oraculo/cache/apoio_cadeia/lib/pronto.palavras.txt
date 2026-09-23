@@ -1,0 +1,6 @@
+builder: contagem/palavras
+entrada: apoio_cadeia|lib/pronto.maiusculas.txt
+isRoot: false
+opcoes: {}
+---
+14

@@ -1,0 +1,20 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "6.11.0",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "2.3.8",
+    "mockito": "5.4.4",
+    "source_gen": "1.5.0"
+  },
+  "saidas": [
+    { "asset": "corpus_mockito|test/mocks/servico_test.mocks.dart", "build_to": "source", "sha256": "1a81ff0ee607d85d9cf47f6b1a260e072ce0efed8d70560ad08ddef08e3ab272" },
+    { "asset": "corpus_mockito|test/mocks/sub/repositorio_test.mocks.dart", "build_to": "source", "sha256": "3d59c1ba2eff16066753c37a0d501d8ecf119f1effc4fb97944dc18d8689ffdf" }
+  ],
+  "excluidos": 16,
+  "executavel": true
+}

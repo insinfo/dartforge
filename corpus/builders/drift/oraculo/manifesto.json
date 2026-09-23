@@ -1,0 +1,31 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "7.7.1",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "3.0.1",
+    "drift": "2.28.2",
+    "drift_dev": "2.28.0",
+    "source_gen": "2.0.0"
+  },
+  "saidas": [
+    { "asset": "corpus_drift|lib/banco.dart.drift_elements.json", "build_to": "cache", "sha256": "6fdfbfe930286f1e23d6f8aa7c1ff9462b512b8af33ad6fdcfb141a84b13fde8" },
+    { "asset": "corpus_drift|lib/banco.dart.drift_module.json", "build_to": "cache", "sha256": "39cb411c85a611f703c7433397a20b569dfe964dc9deee1eeb1bc98ce8b63c99" },
+    { "asset": "corpus_drift|lib/banco.dart.types.temp.dart", "build_to": "cache", "sha256": "919677c85ce9a57a6195d778f06333c27e7297881be33576a8f2abb8456db112" },
+    { "asset": "corpus_drift|lib/banco.drift.g.part", "build_to": "cache", "sha256": "d0f1f6128a4ba6dbb3742fae697f466c4b35d41467e234a3331ad7eb6a764d5f" },
+    { "asset": "corpus_drift|lib/banco.g.dart", "build_to": "source", "sha256": "fb438c192d0ca5e9c15d0f0b44cb212ede676d63cb88f33a8f5dbf7e0338e2ab" },
+    { "asset": "corpus_drift|lib/consultas.drift.drift_elements.json", "build_to": "cache", "sha256": "fb36b874ca223e6ac315c232c6b2590aaef4b94c8a9e61229ffe5c9b7730d70b" },
+    { "asset": "corpus_drift|lib/consultas.drift.drift_module.json", "build_to": "cache", "sha256": "612626e3e0def9ee1ac453be09256fa6b9019610069815a2e0ebd2806e968d8e" },
+    { "asset": "corpus_drift|lib/consultas.drift.types.temp.dart", "build_to": "cache", "sha256": "919677c85ce9a57a6195d778f06333c27e7297881be33576a8f2abb8456db112" },
+    { "asset": "corpus_drift|lib/consultas.drift_prep.json", "build_to": "cache", "sha256": "a36e2cab9cd0f28675d25c8abddb59688c472bc170961949520774f7e0109686" },
+    { "asset": "corpus_drift|lib/consultas.expr.temp.dart", "build_to": "cache", "sha256": "9b4f574d1620c4a0e2611bc2b340973f6cbc93ad28401565b6ff455d3d634ac8" },
+    { "asset": "corpus_drift|lib/consultas.expr.temp.dart.drift_elements.json", "build_to": "cache", "sha256": "3e64c709c806753e9c326d557f75e2f11e25d8a482a3c668a124416d771471cd" },
+    { "asset": "corpus_drift|lib/consultas.expr.temp.dart.drift_module.json", "build_to": "cache", "sha256": "1eb1650c8d2e2fcc285c31e327131503a0d466dbfec5f07da86d0225d20160e5" }
+  ],
+  "excluidos": 10,
+  "executavel": false
+}

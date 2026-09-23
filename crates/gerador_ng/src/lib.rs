@@ -22,6 +22,7 @@ pub mod diretivas;
 pub mod dom;
 pub mod expr;
 pub mod html;
+pub mod metadados;
 pub mod micro;
 pub mod resolucao;
 pub mod sass;
@@ -398,6 +399,10 @@ pub struct Indice {
     diretivas: std::collections::HashMap<(String, String), componente::Componente>,
     /// `@Pipe` por (URI da biblioteca, classe).
     pipes: std::collections::HashMap<(String, String), componente::Pipe>,
+    /// Os metadados de cada `@Directive`, lidos do programa
+    /// (`metadados.rs`): é por eles que o emissor instancia a diretiva num
+    /// nó. Sem programa, vazio — e toda diretiva casada é recusada.
+    metadados: std::collections::HashMap<(String, String), std::sync::Arc<diretivas::Diretiva>>,
     /// Mesmo índice por nome de classe, para quando não há banco semântico
     /// (o teste do corpus). Só vale quando o nome é único no pacote — com
     /// duas classes de mesmo nome, resolver pelo nome seria chute.
@@ -413,6 +418,7 @@ impl Indice {
         let mut por_classe = std::collections::HashMap::new();
         let mut diretivas = std::collections::HashMap::new();
         let mut pipes = std::collections::HashMap::new();
+        let mut metadados = std::collections::HashMap::new();
         // Com o programa carregado, o índice cobre todos os pacotes: um
         // `<li-select>` do limitless_ui é tão componente quanto um do próprio
         // projeto. Sem ele, só o que a varredura de arquivos viu.
@@ -424,6 +430,12 @@ impl Indice {
                     indexar(&mut por_classe, uri, comp, caminho, Some(r));
                 }
                 for d in achados.diretivas {
+                    if let Some(m) = r
+                        .classe_por_uri(uri, &d.classe)
+                        .and_then(|id| crate::metadados::ler(r, id))
+                    {
+                        metadados.insert((uri.to_string(), d.classe.clone()), std::sync::Arc::new(m));
+                    }
                     diretivas.insert((uri.to_string(), d.classe.clone()), d);
                 }
                 for p in achados.pipes {
@@ -467,6 +479,7 @@ impl Indice {
             por_classe,
             diretivas,
             pipes,
+            metadados,
             por_nome,
         }
     }
@@ -589,6 +602,7 @@ impl Indice {
                         uri,
                         seletores: seletor::Seletor::analisar(&f.seletor),
                         filho: Some(f.clone()),
+                        diretiva: None,
                     });
                 } else if let Some(d) = self.diretivas.get(&chave) {
                     saida.push(visao::Usada {
@@ -596,6 +610,7 @@ impl Indice {
                         uri,
                         seletores: seletor::Seletor::analisar(&d.seletor),
                         filho: None,
+                        diretiva: self.metadados.get(&chave).cloned(),
                     });
                 }
             }
@@ -624,6 +639,7 @@ impl Indice {
                                 uri: f.uri_dart.clone(),
                                 seletores: seletor::Seletor::analisar(&f.seletor),
                                 filho: Some(f.clone()),
+                        diretiva: None,
                             });
                         }
                     }

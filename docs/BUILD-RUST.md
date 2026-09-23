@@ -4,6 +4,31 @@ Plano para substituir o `build_runner` no ciclo de desenvolvimento, sem
 quebrar o ecossistema. Escrito em 2026-09-22 a partir de medição dos
 projetos reais do proprietário, não de suposição.
 
+## 0. Onde está (2026-09-23)
+
+A Fase 1 existe: `crates/build` (contrato em `docs/BUILD-MOTOR.md`,
+protocolo do executor Dart em `docs/BUILD-PROTOCOLO.md`), ligado ao
+`dartforge dev`/`serve`/`compile-js` e ao subcomando `dartforge build`.
+Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
+
+* **B0** — contratos escritos (BUILD-MOTOR, BUILD-PROTOCOLO).
+* **B1** — `corpus/builders/`: 10 casos com o oráculo do `build_runner`
+  oficial (2.4.15), `scripts/corpus-builders.ps1`; `go_router_builder` fora
+  (exige Flutter, D-B4).
+* **B2** — o plano de fases do `build_runner` em Rust: **igual** ao
+  `.dart_tool/build/entrypoint/build.dart` nos 9 casos com builders, no
+  `new_sali/frontend` e no `limitless_ui/example` (lidos, nunca gerados).
+* **B3** — grafo de saídas, consultas, impressão digital, agenda
+  determinística, executores (nativo, Dart indisponível, apoio): toda saída
+  dos manifestos é prevista pelo plano (menos a de um pós-processador), 0
+  diferentes, determinismo 1/4/8 e incremental = do zero nas edições.
+* **B4** — sessão, `serve`, `compile-js` (o `emit_js` não depende mais do
+  `gerador_ng`), `dartforge build`, custo zero com os três portões.
+* **B5** — ngdart nativo no estágio A (ação de pacote) e Sass nativo **não
+  verificado** (só medição; a porta de igualdade publica o apoio).
+* **B6** — o estágio B do ngdart depende do que está pedido ao `gerador_ng`
+  em `docs/BUILD-PEDIDOS-GERADOR-NG.md`.
+
 ## 1. O que o `build_runner` custa hoje, medido
 
 `new_sali/frontend` (ngdart 8.0.0-dev.4, 284 arquivos Dart):

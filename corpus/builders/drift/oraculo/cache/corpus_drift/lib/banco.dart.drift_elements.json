@@ -1,0 +1,1 @@
+{"valid_import":true,"imports":[{"uri":"package:drift/drift.dart","transitive":false}],"elements":[{"kind":"databaseAccessor","name":"ContasDao","dart_name":"ContasDao"},{"kind":"database","name":"Banco","dart_name":"Banco"},{"kind":"table","name":"clientes","dart_name":"Clientes"},{"kind":"table","name":"contas","dart_name":"Contas"}]}
