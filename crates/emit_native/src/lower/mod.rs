@@ -8,6 +8,7 @@ pub mod fn_builder;
 pub mod locais;
 pub mod membros;
 pub mod operadores;
+pub mod verificador;
 
 use crate::context::Context;
 use crate::hir::*;
@@ -332,6 +333,13 @@ pub fn lower_program(ctx: &Context) -> Module {
         );
         builder.lower_getter_global(vid, repr);
         builder.finalizar(&mut module);
+    }
+
+    // E3: o verificador roda sobre o módulo pronto; problema aqui é bug do
+    // compilador, e o módulo não é emitido.
+    if module.erros.is_empty() {
+        let problemas = verificador::verificar(&module);
+        module.erros.extend(problemas);
     }
 
     // Propaga to_string_symbol para subclasses que não o sobrescreveram

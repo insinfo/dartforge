@@ -590,6 +590,28 @@ Os 7 que passavam: `01_print`, `03_strings_escapes`, `06_strings_metodos`,
   mesmo ponteiro, ou dois inteiros de mesmo valor, ou dois `double`
   bit a bit iguais; `int` e `double` nunca são idênticos entre si, mas
   `1 == 1.0` é verdadeiro pelo `==` de `num`.
+* **Backend LLVM do Dart VM AOT de linzj/Alibaba
+  (`references/linzj-llvm-project/NOTAS.md` e `COMMITS.md`;
+  `references/dart-sdk-llvm-mraleph/runtime/vm/compiler/backend/llvm`,
+  `ir_translator.cc`, `stack_maps.cc`).** O tradutor monta cada chamada como
+  `gc.statepoint` com os valores vivos (da própria análise de liveness) e lê
+  os stack maps de volta. Cerca de 32 dos 122 commits do fork do LLVM dele
+  corrigem stack maps, statepoints ou registradores salvos errados que
+  derrubavam o GC ("stack maps marking uninitialized slots live, crashing
+  GC", "Incorrect stack maps, missing one stack slot mark"…). É a
+  confirmação empírica da escolha de G: raízes explícitas em slots, que o
+  otimizador do LLVM não tem como invalidar, em vez de statepoints.
+  Duas lições registradas para depois: (1) a VM não emite stack map em
+  chamada a entrada de runtime LEAF (a barreira de escrita), que não pode
+  disparar GC — o equivalente aqui é uma extern que comprovadamente não aloca
+  não exigir os vivos enraizados antes dela; o emissor já conhece as externs
+  pelo nome (a mesma tabela do verificador, `lower/verificador.rs`), e marcar
+  as que não alocam é o gancho do passo 6, não desta etapa; (2) aquele
+  backend **descartava** `AssertAssignable`/`AssertBoolean`/`AssertSubtype`
+  — a equipe da VM chamou de violação da semântica do Dart. N vai no
+  sentido oposto: construto não suportado é erro de compilação, e toda
+  coerção implícita que pode falhar (`Unbox`, `as`, declaração com
+  inicializador `dynamic`) é checada e lança `TypeError`.
 * **`docs/PESQUISA-OTIMIZACAO.md` §2 e §16.** "Nenhum cache cresce sem
   política de descarte": as tabelas laterais por handle do runtime são
   purgadas a cada coleta (G6), e as caixas de `bool` são dois singletons

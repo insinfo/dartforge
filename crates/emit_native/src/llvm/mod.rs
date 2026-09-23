@@ -522,11 +522,12 @@ impl<'a> LlvmEmitter<'a> {
                             "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
                         ).unwrap();
                         for (idx, field) in fields.iter().enumerate() {
+                            // E1: `is_ref` pela representação do valor.
+                            let is_ref = u8::from(self.tipo_de(field) == Type::Ref);
                             let sf = self.coagir(field, Type::I64);
-                            // tag de ref: 0 por enquanto
                             writeln!(
                                 self.out,
-                                "  call void @dartforge_object_set(i64 %v{v}, i64 {idx}, i64 {sf}, i8 0)"
+                                "  call void @dartforge_object_set(i64 %v{v}, i64 {idx}, i64 {sf}, i8 {is_ref})"
                             ).unwrap();
                         }
                     }
@@ -538,11 +539,12 @@ impl<'a> LlvmEmitter<'a> {
                         ).unwrap();
                     }
                     Instruction::SetField { object, index, value } => {
+                        let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
                         let so = self.coagir(object, Type::I64);
                         let sv = self.coagir(value, Type::I64);
                         writeln!(
                             self.out,
-                            "  call void @dartforge_object_set(i64 {so}, i64 {index}, i64 {sv}, i8 0)"
+                            "  call void @dartforge_object_set(i64 {so}, i64 {index}, i64 {sv}, i8 {is_ref})"
                         ).unwrap();
                     }
                     Instruction::CallStatic { symbol, args, ret_ty } => {
@@ -750,8 +752,10 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = phi {t} {joined}").unwrap();
                     }
                     _ => {
-                        // Outras instruções serão expandidas conforme necessário
-                        writeln!(self.out, "  ; inst pendente {:?}", inst).unwrap();
+                        // E3: o verificador da HIR recusa, antes da emissão,
+                        // toda instrução sem lowering aqui (o antigo
+                        // "; inst pendente" que o Clang aceitava calado).
+                        unreachable!("instrução sem emissão passou pelo verificador: {inst:?}");
                     }
                 }
             }
@@ -800,8 +804,14 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, " ]").unwrap();
                 }
                 Terminator::Throw(op) => {
+                    let tag = match self.tipo_de(op) {
+                        Type::I64 => 1,
+                        Type::I1 | Type::I8 => 2,
+                        Type::F64 => 4,
+                        _ => 3,
+                    };
                     let sop = self.coagir(op, Type::I64);
-                    writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 3)").unwrap();
+                    writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})").unwrap();
                     writeln!(self.out, "  unreachable").unwrap();
                 }
                 Terminator::Unreachable => {
@@ -990,7 +1000,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
-            Operand::Constant(Constant::Null) => Type::I64,
+            Operand::Constant(Constant::Null) => Type::Ref,
             Operand::Constant(Constant::String(_)) => Type::Ref,
         }
     }
