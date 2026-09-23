@@ -332,8 +332,8 @@ corrigido lá e vale este.
 
 ## 7. Placar e medições
 
-Medido em 2026-09-23 no CI da branch `ci/moderno` em ce1dc5e (depois do merge
-do `main` 6583c2b): Pesado 35898618924 e CI 35898619080, os dois verdes.
+Medido em 2026-09-23 no CI da branch `ci/moderno` em 5a68e2d (depois do merge
+do `main` d5ca257): Pesado 35904470774 e CI 35904470762, os dois verdes.
 
 | Recurso | Programas | Passam (dev e produção) | DDC×VM 3.13.4 |
 |---|---|---|---|
@@ -348,7 +348,7 @@ do `main` 6583c2b): Pesado 35898618924 e CI 35898619080, os dois verdes.
 Sem regressão: `corpus/js` 223/223 em desenvolvimento e produção (o JS dos
 222 de antes sai **byte a byte igual** ao da base e7cb898 com
 `--versao-linguagem 3.6`); determinismo idêntico (produção e IR nativo);
-nativo e JIT 81/223, os mesmos do `main`; SDK 426/426 e pub 1969/1969
+nativo e JIT 82/223, os do `main`; SDK 426/426 e pub 1969/1969
 aceitos pelo parser.
 
 **Custo para projeto 3.6 (regra governante).** O custo estrutural é o que §2
@@ -359,10 +359,13 @@ nos consumidores. Medido:
 
 | Medida | `main` | esta frente |
 |---|---|---|
-| portão `custo zero (tempo)` do Pesado (5 rodadas alternadas, tolerância 3%) | — | **passou** |
+| portão `custo zero (tempo)` do Pesado, `corpus/js` (mediana de 5 rodadas alternadas) | 9.318 ms | 9.208 ms (razão 0,99) |
+| portão `custo zero (tempo)`, edição de corpo em 300 bibliotecas | 32 ms | 32 ms |
 | `corpus/js`, 223 programas, mínimo de 3 por programa, alternado (local) | 11.783 ms | 11.806 ms (+0,2%) |
 
 Uma rodada anterior do portão reprovou por 15% (Pesado 35874860350): a
 branch ainda não tinha o merge do `main` com a decodificação paralela do
 cache do SDK (5ebe1d2), que o binário de base já tinha. Depois do merge a
-diferença sumiu — era do `main`, não do gating.
+diferença sumiu — era do `main`, não do gating. Outra (Pesado 35900056566)
+reprovou por 1 ms na edição de corpo (33 × 34 ms, razão 1,03, no limite da
+tolerância); a seguinte passou com 32 × 32 ms.
