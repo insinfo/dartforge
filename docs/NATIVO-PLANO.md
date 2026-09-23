@@ -960,6 +960,7 @@ dentro de um mixin.
 | P1–P2 | b156dd2 | 35861971349 | 68/223 | 68/223 | — |
 | P1–P4 parcial | b60a219 | 35863053512 | 74/223 | 74/223 | 0 divergentes |
 | P3 (const, padrões) | 8c313a9 | 35866264097 | 81/223 | 81/223 | 0 divergentes |
+| P4 (RTI como diagnóstico, cast pela classe) | a276d6c | 35871381320 | 81/223 | 81/223 | job verde |
 
 Os 81 passam também com `--gc-stress` (coleta antes de toda alocação),
 rodado localmente programa a programa sobre a lista do CI. O determinismo do

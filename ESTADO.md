@@ -167,7 +167,7 @@ Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
 
-**Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35866264097), JIT
+**Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35871381320), JIT
 81/223 com zero divergências JIT × AOT; os 81 passam também sob
 `--gc-stress`.** Closures com captura em célula e a convenção uniforme de
 chamada de valor função; símbolos estáveis pelo caminho da declaração
@@ -520,7 +520,7 @@ do `trait Analisador`, que hoje só tem a implementação sintática.
 
 ### 2.5 Backend nativo
 
-**Depois de P1–P4 (Pesado 35866264097): 142 dos 223 falham.** Quase todos
+**Depois de P1–P4 (Pesado 35871381320): 142 dos 223 falham.** Quase todos
 por membro do SDK sem implementação no runtime (`where`, `map`, `fold`,
 `toStringAsFixed`, `sort`, `List.filled`/`List.generate`, `parse`,
 `hashCode`…, que o P5 resolve com o SDK da fonte), `await`/`yield` (P6/P7)
