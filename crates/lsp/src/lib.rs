@@ -236,19 +236,61 @@ pub trait Analisador {
 /// assert_eq!(a.diagnosticar("file:///b.dart", "void a() { int x = ; }").len(), 1);
 /// ```
 #[derive(Debug, Default)]
-pub struct AnalisadorSintatico;
+pub struct AnalisadorSintatico {
+    /// `package_config.json` já lidos, pelo caminho (um por projeto aberto):
+    /// a versão de linguagem padrão de cada arquivo vem dele.
+    configs: std::collections::HashMap<std::path::PathBuf, dartforge_elements::config::PackageConfig>,
+    /// Versão padrão (a do pacote) de cada documento já visto.
+    padroes: std::collections::HashMap<String, dartforge_frontend::LanguageVersion>,
+}
 
 impl AnalisadorSintatico {
-    /// Cria o analisador sintático (sem estado: cada chamada é independente).
+    /// Cria o analisador sintático.
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Os recursos de linguagem do arquivo `uri` (`docs/VERSOES-LINGUAGEM.md`
+    /// §2): o marcador `// @dart = x.y`, senão o `languageVersion` do pacote
+    /// no `package_config.json` que o contém, senão a versão corrente. Sem
+    /// isso, um projeto 3.6 veria erro em `final` de parâmetro (proibido na
+    /// 3.13) e um 3.13 veria erro em construtor primário.
+    fn features(&mut self, uri: &str, texto: &str) -> dartforge_frontend::LibraryFeatures {
+        use dartforge_frontend::{LanguageVersion, LibraryFeatures};
+        if let Some((v, _)) = dartforge_frontend::features::marcador_versao(texto) {
+            return LibraryFeatures::new(v, &[]);
+        }
+        if let Some(v) = self.padroes.get(uri) {
+            return LibraryFeatures::new(*v, &[]);
+        }
+        // Uma vez por documento: o caminho canônico (é o que o
+        // `package_config` guarda) e o pacote que o contém.
+        let caminho = uri
+            .strip_prefix("file:///")
+            .map(|p| std::path::PathBuf::from(p.replace("%3A", ":").replace("%3a", ":").replace("%20", " ")))
+            .map(|p| dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&p).unwrap_or(p)));
+        let padrao = caminho
+            .as_deref()
+            .and_then(|p| {
+                let cfg = dartforge_elements::config::PackageConfig::discover(p)?;
+                if !self.configs.contains_key(&cfg) {
+                    let lido = dartforge_elements::config::PackageConfig::load(&cfg).ok()?;
+                    self.configs.insert(cfg.clone(), lido);
+                }
+                self.configs.get(&cfg)?.pacote_da_biblioteca(uri, Some(p))?.language_version
+            })
+            .unwrap_or(LanguageVersion::ATUAL);
+        self.padroes.insert(uri.to_string(), padrao);
+        LibraryFeatures::new(padrao, &[])
     }
 }
 
 impl Analisador for AnalisadorSintatico {
-    /// Analisa com o parser completo de Dart 3.6, com recuperação por declaração.
-    fn diagnosticar(&mut self, _uri: &str, texto: &str) -> Vec<Diagnostic> {
+    /// Analisa com o parser completo, na versão de linguagem do arquivo, com
+    /// recuperação por declaração.
+    fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
+        let features = self.features(uri, texto);
         let mut nomes = dartforge_intern::Interner::new();
-        dartforge_frontend::parser::parse(texto, &mut nomes).diagnostics
+        dartforge_frontend::parser::parse_com(texto, &mut nomes, features).diagnostics
     }
 }
