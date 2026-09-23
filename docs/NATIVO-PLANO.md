@@ -1170,3 +1170,21 @@ runtime): é o SDK da fonte das coleções (P5d). Os geradores (P7: 85, 86, 87,
 110, 119, 185) precisam da API de `Iterable` do `dart:core` sobre o iterável
 do `sync*` — também P5d. `forEach`/`map`/`fold`… sobre listas do runtime no
 código do programa (89b, 212) continuam P5.
+
+### 7.8 Placar de P6/RTI, medido no CI
+
+| passo | commit | CI | Pesado | nativo | JIT | `--gc-stress` |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| base (main) | 48248d5 | — | 35890465508 | 81/223 | 81/223 | 81 (local) |
+| P6 + RTI + `super` em mixin | fe14953 | 35899797501 (vermelho: `sdk_cache`) | 35899797550 | 90/223 | 90/223 | 90/223 |
+| cache do SDK com o papel de patch | 7f226e9 | 35901304602 | 35901304619 | 91/223 | 91/223 | 91/223 |
+| `TypeError` com mensagem, testes | c259fc5 | 35904857783 | 35904857766 | **91/223** | **91/223** | **91/223** |
+
+Nenhuma regressão contra o main (conjunto de falhas comparado programa a
+programa); passam a mais: 80, 81, 82, 83, 89, 181 (`async`), 214 e 219 (RTI),
+06 e 105 (a correção dos patches). JIT × AOT sem divergência, determinismo do
+IR idêntico com 1, 4 e 8 trabalhadores, JS 223/223 nos dois perfis, o portão
+de custo zero verde. O job novo `--gc-stress` roda o corpus inteiro (31 s no
+runner) e o `nativo-placar` confirma: nenhum programa que passa sem estresse
+falha com ele. IR de um programa `async` típico (83): 1,2 MB, a maior parte do
+`dart:async` alcançado.

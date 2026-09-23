@@ -13,8 +13,9 @@
 #     mantém os caches no escopo do main, que toda branch ci/** pode ler.
 #
 # Jobs de uma rodada `todos` com N fragmentos: compilar; depois, EM PARALELO,
-# js, producao, determinismo (produção), determinismo (nativo) e N nativos;
-# depois nativo-placar (Linux, segundos). Pico de simultaneidade = 4 + N.
+# js, producao, determinismo (produção), determinismo (nativo), N nativos e o
+# nativo sob --gc-stress; depois nativo-placar (Linux, segundos), que também
+# compara os dois placares nativos. Pico de simultaneidade = 5 + N.
 # O plano gratuito permite 20 jobs simultâneos na conta inteira (Linux e
 # Windows juntos); o excedente espera na fila, não falha.
 #
