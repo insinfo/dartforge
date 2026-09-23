@@ -92,4 +92,5 @@ jobs:
         if: success() || failure()
         env:
           RUSTDOCFLAGS: '-D warnings -A rustdoc::private_intra_doc_links'
-        run: cargo doc --locked --workspace $env:FORA.Split(' ') --no-deps --document-private-items
+        # --keep-going: um crate que falha não esconde os erros dos outros.
+        run: cargo doc --locked --workspace $env:FORA.Split(' ') --no-deps --document-private-items --keep-going

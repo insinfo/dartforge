@@ -54,7 +54,7 @@ pub fn string_lit_value(lit: &ast::StringLit) -> Option<String> {
     Some(out)
 }
 
-/// Carrega um programa e acumula diagnósticos sem abortar, retornando o Program e Vec<Diagnostic>.
+/// Carrega um programa e acumula diagnósticos sem abortar, retornando o `Program` e `Vec<Diagnostic>`.
 pub fn load_lenient(
     entry: &Path,
     sdk: &SdkLayout,
