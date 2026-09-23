@@ -56,7 +56,7 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
-      # Clang 22.1.8 para os testes que compilam IR (abi, native). A trilha nova\n      # não depende do llvm-sys; o LLVM completo só serviria à trilha velha.
+      # Clang 22.1.8 para os testes que compilam IR (abi, native, jit).
       # `desenvolvimento`: llvm-config, LLVM-C.dll/.lib e os cabeçalhos da API C
       # para o llvm-sys do crates/jit (~73 MB a mais no cache).
       - uses: ./.github/actions/llvm-windows
