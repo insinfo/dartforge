@@ -85,6 +85,11 @@ local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
   (docs/MACROS-COMPATIBILIDADE.md). Placar em MACROS-PROTOCOLO.md §8.
 * **Espera o executor nativo**: executar macros no `compile-js` (hoje: erro
   claro na anotação; `410_json_codable` em `corpus/macros/PENDENTES`).
+* CI da rodada (`ci/macros` em ab2ad4a, os dois verdes): Pesado 35931208832
+  (`macros` 6/7 dev e produção + 1 pendente, 7/7 DDC×VM; `corpus/js`
+  223/223; `moderno` 22/26 como no `main`; custo zero verde) e CI 35931208819
+  (inclusive `vm_executa_a_macro_e_bate_com_o_cfe` e
+  `sessao_gravada_reproduz_o_texto_do_cfe` nos ignorados).
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
