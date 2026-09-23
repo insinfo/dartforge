@@ -116,7 +116,7 @@ cada 50 mensagens. Projeto `C:/MyDartProjects/new_sali` (ngdart + angel3,
 | Platô RSS (média das 10 últimas) | 19,0 MiB | 633,7 MiB |
 | Saída | 0 | 0 |
 
-In-process (alocador contador, `memoria.rs`, tudo retido como num editor
+In-process (alocador contador, `crates/lsp/examples/memoria_lsp.rs`, tudo retido como num editor
 com o projeto aberto): 8,52 MiB de fonte → 19,94 MiB vivos (2,34×),
 pico 20,43 MiB, 893 ms, 1,37 M alocações; após fechar tudo, 1.024 bytes
 acima da base (o `Vec` de caminhos do próprio exemplo ainda vivo na hora

@@ -1,0 +1,1 @@
+<div *ngFor="let g of grupos; let i = index"><span *ngFor="let item of g.itens" (click)="escolher(g, item)">{{g.nome}} {{item}} <b *ngIf="mostrar">{{i}} {{g.nome}}</b></span></div>

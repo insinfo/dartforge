@@ -159,6 +159,19 @@ fn carimbo(raiz: &Path) -> (u128, u64, usize) {
     acc
 }
 
+/// Diretório das gerações de IR do `reload`, apagado em qualquer saída que
+/// desempilhe (retorno, erro por `?`, pânico). `process::exit` não desempilha:
+/// quem sai assim apaga antes, explicitamente.
+#[cfg(feature = "jit")]
+struct DiretorioGeracoes(PathBuf);
+#[cfg(feature = "jit")]
+impl Drop for DiretorioGeracoes {
+    /// Remove o diretório inteiro; só este processo escreve nele (o nome leva o pid).
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// `dartforge reload <entrada.dart> [--sdk] [--packages] [--intervalo <ms>] [--uma-vez] [--timings]`
 ///
 /// **R0: reinício a quente, não hot reload.** A cada mudança nos fontes `.dart`
@@ -211,8 +224,8 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
         .filter(|p| !p.as_os_str().is_empty())
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
     let proprio = std::env::current_exe()?;
-    let temporario = std::env::temp_dir().join(format!("dartforge-reload-{}", std::process::id()));
-    std::fs::create_dir_all(&temporario)?;
+    let temporario = DiretorioGeracoes(std::env::temp_dir().join(format!("dartforge-reload-{}", std::process::id())));
+    std::fs::create_dir_all(&temporario.0)?;
 
     let mut geracao = 0u32;
     let mut filho: Option<std::process::Child> = None;
@@ -240,8 +253,13 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
                         }
                         let _ = anterior.wait();
                     }
+                    // O processo da geração anterior terminou: o IR dela não
+                    // serve mais, e uma sessão longa não acumula um `.ll` por edição.
+                    if geracao > 0 {
+                        let _ = std::fs::remove_file(temporario.0.join(format!("geracao-{geracao}.ll")));
+                    }
                     geracao += 1;
-                    let arquivo = temporario.join(format!("geracao-{geracao}.ll"));
+                    let arquivo = temporario.0.join(format!("geracao-{geracao}.ll"));
                     std::fs::write(&arquivo, &ir.texto)?;
                     eprintln!(
                         "[reload] geração {geracao}: reinício a quente — o estado NÃO é preservado \
@@ -271,8 +289,8 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
                     let codigo = status.code().unwrap_or(-1);
                     eprintln!("[reload] geração {geracao} terminou com código {codigo}");
                     if uma_vez {
-                        let _ = std::fs::remove_dir_all(&temporario);
                         if codigo != 0 {
+                            drop(temporario);
                             std::process::exit(codigo);
                         }
                         return Ok(());
@@ -280,7 +298,6 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
                 }
             }
         } else if uma_vez && geracao == 0 {
-            let _ = std::fs::remove_dir_all(&temporario);
             return Err("a primeira compilação falhou".into());
         }
         std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));

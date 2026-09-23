@@ -10,18 +10,14 @@
 .env.*
 !.env.example
 
-# Diretórios de destino usados em medições A/B de backend e no corpus.
-/target-ab-*
-/target-corpus
-/target-nightly-*
-target-*/
+# Destinos alternativos do Cargo (agentes, medições A/B, corpus) e a saída
+# de scripts/ab-backend.sh. Temporários ficam em target/tmp-* (ESTADO.md §3.1).
+/target-*
 
 # Extensões e ferramentas de desenvolvimento
 editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/package-lock.json
-
-
 
 # SDK compilado pelo DDC: gerado por scripts/gerar-dart-sdk.ps1
 runtime/ddc/dart_sdk.js

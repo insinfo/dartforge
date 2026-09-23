@@ -22,9 +22,9 @@ stdout e código de saída são os do programa, como no executável AOT;
 ## Contrato
 
 * **Entrada:** LLVM IR textual do `emit_native`, com `@dartforge_entry`.
-* **Runtime:** a fonte do harness AOT, `crates/runtime/src/runtime_main.rs`,
+* **Runtime:** a fonte do harness AOT, os fragmentos de `crates/runtime/src` (lista em `crates/runtime/build.rs`),
   compilada como `dartforge_runtime::abi` (fonte única). A tabela de símbolos
-  é `dartforge_runtime::simbolos`, gerada do mesmo arquivo. Nenhuma função do
+  é `dartforge_runtime::simbolos`, gerada dos mesmos arquivos. Nenhuma função do
   runtime é reescrita aqui.
 * **Símbolos:** o runtime entra como símbolos absolutos. Todo nome que o IR
   declara precisa estar na tabela do runtime, na lista de CRT
@@ -70,7 +70,9 @@ Dart 3.6.2.
 ## Pendente
 
 `testes-pendentes/hot_reload.rs` são os testes do hot reload escritos contra a
-trilha velha, que não compilam mais. Eles usam `dartforge_compiler` e a captura
-de saída em processo. Voltam quando forem migrados para o IR do `emit_native`
+trilha velha, que não compilam mais: usam `dartforge_compiler`,
+`dartforge_native` e os crates do front-end antigo (removidos do workspace e
+preservados na branch `exploracao-inicial`) e a captura de saída em processo.
+Ficam aqui, fora de `tests/`, como a lista de cenários a migrar. Voltam quando forem migrados para o IR do `emit_native`
 (plano do JIT, passo 11). O mecanismo em `src/reload.rs` continua coberto pelos
 testes unitários do módulo.

@@ -51857,7 +51857,7 @@ $145_antigo_colecoes.main = function main() {
 // Operadores de bits onde a VM e o alvo web divergem: `int` na web e um
 // double de 64 bits, e `&`, `|`, `^`, `~`, `<<`, `>>` e `>>>` trabalham
 // sobre 32 bits sem sinal. A saida esperada deste fixture e a de
-// `dart compile js -O2`; ver docs/COLECOES-OPERADORES.md.
+// `dart compile js -O2`; ver docs/historico/COLECOES-OPERADORES.md.
 void main() {
   print(~0);
   print(~5);

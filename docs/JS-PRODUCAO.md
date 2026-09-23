@@ -5,7 +5,7 @@ provar o que dele é alcançável a partir de `main`, jogar fora o resto,
 encurtar o que sobra e escrever **um arquivo**.
 
 Este documento é o plano. Foi escrito **antes** do primeiro commit de
-código, como manda `docs/BRIEF-JS-PRODUCAO.md`, e traz junto as medições
+código, como manda `docs/historico/briefs/BRIEF-JS-PRODUCAO.md`, e traz junto as medições
 que o justificam — elas mudaram a ordem de duas etapas e mostraram que uma
 terceira é maior do que parecia.
 

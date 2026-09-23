@@ -188,7 +188,7 @@
     "licenseFile": "LICENSE.md",
     "checkout": "shallow depth 1, default branch, árvore completa",
     "compiled": false,
-    "note": "Referência do experimento de backend por montador (crates/asmjit-jit). Lida para avaliar o emissor UJIT (asmjit/ujit) — a Universal JIT API — e o custo de FFI com C++. A implementação adotada foi dynasm-rs; o levantamento está em docs/ASMJIT.md."
+    "note": "Referência do experimento de backend por montador (crates/asmjit-jit). Lida para avaliar o emissor UJIT (asmjit/ujit) — a Universal JIT API — e o custo de FFI com C++. A implementação adotada foi dynasm-rs; o levantamento está em docs/historico/ASMJIT.md."
   },
   {
     "name": "dart-sdk-1.24.3",

@@ -55,6 +55,41 @@ impl IrEmitido {
     }
 }
 
+/// Começo de todo diagnóstico de construto que o lowering não sabe baixar
+/// (`FnBuilder::nao_suportado`, N1). [`construtos_do_erro`] é quem o lê.
+pub const PREFIXO_NAO_SUPORTADO: &str = "não suportado no backend nativo: ";
+
+/// O erro de um módulo com diagnósticos do lowering.
+///
+/// A primeira linha é `erro de compilação: ` e o primeiro diagnóstico **sem a
+/// posição**: é a chave de agrupamento do harness, e o mesmo construto em
+/// programas diferentes tem de cair no mesmo grupo. Depois vem uma linha por
+/// diagnóstico, todos eles, com a posição e recuados dois espaços.
+fn erro_de_compilacao(erros: &[String]) -> String {
+    let primeiro = &erros[0];
+    let resumo = primeiro.rsplit_once(" (").map_or(primeiro.as_str(), |(a, _)| a);
+    let mut texto = format!("erro de compilação: {resumo}");
+    for e in erros {
+        texto.push_str("\n  ");
+        texto.push_str(e);
+    }
+    texto
+}
+
+/// Os construtos não suportados de um erro de [`emitir_ir`]/[`compilar`], ou
+/// de um texto que o contenha (o stderr que o harness monta com ele): um por
+/// diagnóstico, na ordem, sem a posição. Vazio quando o erro não é de
+/// construto (carga, pânico, verificador da HIR).
+pub fn construtos_do_erro(texto: &str) -> Vec<String> {
+    texto
+        .lines()
+        .filter_map(|l| {
+            let d = l.strip_prefix("  ")?.strip_prefix(PREFIXO_NAO_SUPORTADO)?;
+            Some(d.rsplit_once(" (").map_or(d, |(a, _)| a).to_string())
+        })
+        .collect()
+}
+
 /// Carrega, analisa e baixa um programa até o LLVM IR, sem Clang nem ligação.
 ///
 /// É a parte de [`compilar`] que é nossa: o teste de determinismo do harness
@@ -64,6 +99,9 @@ impl IrEmitido {
 /// emissões rodam no mesmo processo. A primeira linha é o primeiro
 /// diagnóstico, porque é ela que o relatório do harness mostra e agrupa — uma
 /// contagem ("1 erro(s)") juntava num grupo só causas diferentes.
+///
+/// Construto não suportado também é `Err`, com **todos** os diagnósticos do
+/// módulo (formato em `erro_de_compilacao`); nenhum IR é emitido.
 pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
@@ -98,6 +136,9 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     let t_hir = Instant::now();
     let hir_module = lower::lower_program(&ctx);
     let hir_duration = t_hir.elapsed();
+    if !hir_module.erros.is_empty() {
+        return Err(erro_de_compilacao(&hir_module.erros));
+    }
 
     // 3. Emissão de LLVM IR
     let t_llvm = Instant::now();
@@ -218,5 +259,42 @@ mod testes {
         for p in paralelos {
             assert_eq!(p, a.texto);
         }
+    }
+
+    /// Construto não suportado é `Err` de `emitir_ir`, com todos os
+    /// diagnósticos: nenhum IR, e nenhum executável que só os imprime.
+    #[test]
+    fn construto_nao_suportado_e_erro_com_todos_os_diagnosticos() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            eprintln!("SDK ausente em {SDK}; teste pulado");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let entrada = dir.path().join("main.dart");
+        std::fs::write(&entrada, "void main() {\n  var f = () => 1;\n  var g = () => 2;\n  print(1);\n}\n").unwrap();
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
+        let erro = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))
+            .unwrap()
+            .join()
+            .unwrap()
+            .expect_err("closure não é suportada");
+        let linhas: Vec<&str> = erro.lines().collect();
+        assert_eq!(linhas[0], "erro de compilação: não suportado no backend nativo: closure", "{erro}");
+        assert_eq!(linhas[1], "  não suportado no backend nativo: closure (main.dart:2:11)", "{erro}");
+        assert_eq!(linhas[2], "  não suportado no backend nativo: closure (main.dart:3:11)", "{erro}");
+        assert_eq!(construtos_do_erro(&erro), ["closure", "closure"]);
+    }
+
+    #[test]
+    fn construtos_do_erro_ignora_o_que_nao_e_construto() {
+        let texto = "[compile-native] erro de compilação: não suportado no backend nativo: membro `hash`\n\
+                     erro de compilação: não suportado no backend nativo: membro `hash`\n  \
+                     não suportado no backend nativo: membro `hash` (a.dart:1:2)\n  \
+                     verificador da HIR (main): tag 3 para um valor I64\n  \
+                     não suportado no backend nativo: chamada `sort` (a.dart:3:4)";
+        assert_eq!(construtos_do_erro(texto), ["membro `hash`", "chamada `sort`"]);
+        assert!(construtos_do_erro("erro ao carregar o programa: x").is_empty());
     }
 }

@@ -41,10 +41,10 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
+    /// O módulo inteiro. Um módulo com diagnósticos não chega aqui:
+    /// `emitir_ir` devolve o erro antes (N1).
     pub fn emit_all(mut self) -> String {
-        if !self.module.erros.is_empty() {
-            return self.emit_modulo_de_erro();
-        }
+        assert!(self.module.erros.is_empty(), "emit_all com diagnósticos: {:?}", self.module.erros);
         // Coleta literais de strings do módulo para declaração como constantes globais
         self.collect_string_constants();
 
@@ -752,44 +752,6 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
-    }
-
-    /// Programa com construto não suportado (N1): o lowering não gera
-    /// código; o executável só relata os diagnósticos e sai com 254.
-    ///
-    /// O lugar certo deste erro é `compilar` devolver `Err` — o que exige
-    /// mexer em `lib.rs`, congelado nesta sessão por outro trabalho (a
-    /// separação da emissão de IR e o cache de objeto). Até lá o diagnóstico
-    /// chega ao placar pelo executável, com a mesma primeira linha.
-    fn emit_modulo_de_erro(mut self) -> String {
-        self.emit_header();
-        // Primeira linha sem a posição: é a chave de agrupamento do harness,
-        // e o mesmo construto em programas diferentes tem de cair no mesmo
-        // grupo. As posições vêm nas linhas seguintes.
-        let primeiro = &self.module.erros[0];
-        let resumo = primeiro.rsplit_once(" (").map_or(primeiro.as_str(), |(a, _)| a);
-        let mut texto = format!("erro de compilação: {resumo}\n");
-        for e in &self.module.erros {
-            texto.push_str("  ");
-            texto.push_str(e);
-            texto.push('\n');
-        }
-        let bytes = texto.as_bytes();
-        let mut escapado = String::new();
-        for &b in bytes {
-            if (b as char).is_ascii_alphanumeric() || b == b' ' {
-                escapado.push(b as char);
-            } else {
-                write!(escapado, "\\{:02X}", b).unwrap();
-            }
-        }
-        writeln!(self.out, "@.erros = private unnamed_addr constant [{} x i8] c\"{escapado}\"", bytes.len()).unwrap();
-        self.out.push_str("declare void @dartforge_erro_de_compilacao(ptr, i64)\n\n");
-        writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
-        writeln!(self.out, "  call void @dartforge_erro_de_compilacao(ptr @.erros, i64 {})", bytes.len()).unwrap();
-        writeln!(self.out, "  ret void").unwrap();
-        writeln!(self.out, "}}").unwrap();
-        self.out
     }
 
     /// `@dfg_<id>` (valor, no tipo da representação) e `@dfg_<id>_ok`.
