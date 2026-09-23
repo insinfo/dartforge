@@ -239,6 +239,29 @@ travava a máquina.
   `medir-lsp.ps1`.
 * Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
   ler, contra ~105 ms de reanálise).
+* **CI no GitHub Actions** (§3.0): `ci.yml` (rápido, todo push) e
+  `pesado.yml` (corpus JS, produção, nativo em fragmentos, determinismo).
+  Fora do `ci.yml`, declarado no cabeçalho dele:
+  * **`cargo fmt --check` e `clippy -D warnings`** — o workspace nunca foi
+    formatado inteiro nem está limpo no clippy (o primeiro crate,
+    `dartforge-elements`, já para com 3 erros). Voltam num commit **só de
+    formatação/lint**, depois que as branches em andamento entrarem;
+    fazê-lo antes conflita com todas elas.
+  * **a trilha velha e o JIT desligado** (§4): 16 testes não ignorados
+    falham em `dartforge-compiler`, `-lexer`, `-llvm` e `-cranelift-jit`.
+    Nenhum crate da trilha nova depende deles.
+  * **Ubuntu**: a trilha nova falha no Linux em `dartforge-dev` (`hashes`,
+    `plato`), `dartforge-emit-js` (`basico`) e `dartforge-elements`
+    (`sdk_cache`), e passa no Windows.
+  * **falha real, registrada**: `dartforge-native`,
+    `real_executable_prints_ints_and_bools` (`#[ignore]`) — o driver antigo
+    `build_executable` compila o runtime como binário, e o runtime agora
+    define `extern "C" fn main() -> i32` (rustc E0277). O backend nativo
+    novo liga pelo `emit_native` e não passa por ali.
+  * **exemplos**: quatro crates (`lsp`, `frontend`, `types`, `emit_js`) têm
+    um exemplo `memoria`, e o `cargo test` liga os quatro no mesmo
+    `target/debug/examples/memoria.exe` (LNK1104 quando se cruzam). O CI
+    testa `--lib --bins --tests` e `--doc`; renomear os exemplos resolve.
 
 ### 1.7 `dartforge serve` e o gerador do ngdart
 
@@ -467,10 +490,87 @@ executa 7 de 214 programas não acelera ciclo de desenvolvimento nenhum.
 
 ## 3. Como verificar tudo isto
 
+### 3.0 No GitHub Actions — o caminho normal para o que é pesado
+
+A máquina de desenvolvimento (8 GB, compartilhada por vários agentes) não
+roda mais corpus nenhum: o repositório é público, os minutos de Actions são
+gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
+
+* **`ci.yml`** — todo push no `main` e em `ci/**`, todo PR; ~2,5 min.
+  `cargo test` da trilha nova (`--lib --bins --tests` e `--doc`), os
+  `#[ignore]` da trilha nova que o runner satisfaz (SDK Dart 3.6.2, Clang
+  22.1.8, rustc) e `cargo doc -D warnings`. O que fica de fora e por quê
+  está no cabeçalho dele e em §1.6.
+* **`pesado.yml`** — push em `ci/**`, `workflow_dispatch` (suíte e número de
+  fragmentos) e todo dia às 03:17 (Brasília) no `main`. Medido na rodada de
+  2026-09-23 (`ci/infra`, 214 programas):
+
+| job | o que roda | placar | tempo do job (harness) |
+| --- | --- | --- | --- |
+| compilar | release de `dartforge-diferencial`, `dartforge`, `dartforge-jsprod`; completa o cache dos oráculos (`verificar`) | — | 2,2 min |
+| js (desenvolvimento) | `dartforge-diferencial --jobs 4` | **214/214** | 1,2 min (45 s) |
+| js (produção) | `--producao --jobs 4` | **214/214** e 214/214 | 2,3 min (1 min 48 s) |
+| nativo K/2 | `--nativo --jobs 4 --fragmento K/2` | 4/107 e 3/107 | 1,5 e 1,7 min (28 e 30 s) |
+| nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
+| determinismo (produção) | `determinismo --producao --trabalhadores 1,4,8` | idêntico | 7,5 min (7 min) |
+| determinismo (nativo, IR) | `determinismo --nativo --trabalhadores 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
+| **rodada inteira** | | | **9,8 min** |
+
+**Critério de cada job.** JS desenvolvimento e produção: código de saída do
+harness 0, isto é, **todos os programas do corpus** passam — qualquer que
+seja o tamanho do corpus, sem número fixo. Nativo: placar abaixo do total
+é trabalho em andamento e não reprova; reprova se o harness quebrar
+(código fora de {0, 1} ou relatório sem a linha de placar). Determinismo:
+código 0. Cada job escreve placar, tempo, memória livre mínima e o
+agrupamento de falhas no resumo da rodada (`$GITHUB_STEP_SUMMARY`), deixa
+o placar numa anotação (aparece em `gh run view`) e sobe o relatório
+completo como artefato `relatorio-<job>` (14 dias).
+
+**Convenção: uma branch `ci/<frente>` por frente de trabalho** (`ci/nativo`,
+`ci/ngdart`, `ci/verificacao`, `ci/infra`…). Empurrar para ela roda o
+`pesado.yml` inteiro e o `ci.yml` sobre aquele commit, sem mexer no `main`.
+Rodadas de branches diferentes **nunca se cancelam** (o grupo de
+concorrência inclui a ref); uma rodada nova na **mesma** branch cancela a
+anterior. As branches `ci/**` são descartáveis: o push é forçado.
+
+```powershell
+pwsh scripts/ci.ps1 -Frente nativo -Acompanhar   # HEAD -> ci/nativo, acompanha até o fim
+pwsh scripts/ci.ps1 -Listar                      # última rodada de cada ci/** e do main, com placar
+pwsh scripts/ci.ps1 -Placar <run-id>             # placar de cada job + relatórios baixados
+pwsh scripts/ci.ps1 -Suite nativo -Ref ci/nativo -Fragmentos 4   # workflow_dispatch
+gh run view <run-id> --log-failed                # o log do que falhou
+gh run download <run-id> -p 'relatorio-*'        # relatórios completos
+```
+
+`-Suite` (workflow_dispatch) só funciona depois que o `pesado.yml` estiver
+no `main`; até lá, `-Frente`.
+
+**Limites do plano gratuito, e o dimensionamento.**
+
+* **20 jobs simultâneos na conta inteira** (Linux e Windows juntos); o
+  excedente espera na fila, não falha. Uma rodada `todos` com N fragmentos
+  tem pico de 4 + N jobs: com o **N = 2 padrão**, 6 — cabem três frentes ao
+  mesmo tempo. N sai da medição (§3.2): o corpus nativo inteiro custa ~1 min
+  de harness, e cada job gasta ~1,3 min só preparando o ambiente. Subir N
+  (`-Fragmentos`, ou `gh variable set FRAGMENTOS_NATIVO --body N`) quando um
+  fragmento passar de ~20 min.
+* **10 GB de cache por repositório**, e o que foi usado há mais tempo sai
+  primeiro. Um branch só lê o próprio cache e o do `main`; por isso: o
+  `rust-cache` só é **gravado no `main`** (as `ci/**` restauram o do main e
+  não multiplicam entradas); o Clang 22.1.8 tem chave fixa pela versão
+  (`llvm-22.1.8-windows-x64-clang-v2`); os oráculos (`dart run`,
+  `dartdevc`+Node) têm chave pelo hash de `corpus/js/**` e o `restore-keys`
+  traz o anterior, de modo que só programas alterados são recalculados
+  (~55 KB). O SDK Dart não é cacheado: o `setup-dart` o baixa em ~10 s. O
+  agendamento diário no `main` é o que mantém esses caches no escopo que
+  todas as `ci/**` leem.
+
+### Na máquina local
+
 ```powershell
 pwsh scripts/gerar-dart-sdk.ps1              # dart_sdk.js (3 s, uma vez)
 cargo build --release -p dartforge-cli -p dartforge-diferencial
-cargo run --release -p dartforge-diferencial # 212/212
+cargo run --release -p dartforge-diferencial # 214/214
 
 # projeto real
 cargo run --release -p dartforge-cli -- compile-js `
@@ -565,12 +665,23 @@ IR dão o mesmo `.obj`. O Clang também roda no diretório do objeto com o
 nome relativo (o hash), para o `source_filename` não levar o caminho de
 quem compilou.
 
-O que continua em aberto: com Clang + ligação em ~0,15 s por programa, os
-**9 minutos para 10 programas** não se explicam pela compilação. A passada
-executada completa (`--nativo`) não foi remedida nesta mudança — ela roda
-os binários, e o que falta medir é onde o tempo vai (execução até o limite
-de 5 s, o `dart run` do oráculo sem cache, a corrida do cache do runtime já
-corrigida). É a próxima medida a fazer, numa janela com a máquina livre.
+**A passada executada completa roda no CI, em fragmentos, e foi medida**
+(`pesado.yml`, §3.0; runner Windows de 4 núcleos e 16 GB, `--jobs 4`,
+`DARTFORGE_HEAP_MAX_MB=256`): **7/214**, o mesmo placar da máquina local,
+em **28 e 30 s de harness** para os dois fragmentos de 107 programas —
+cada job inteiro, com a preparação, 1,5–1,7 min. Com 8 fragmentos, cada um
+levou 5–10 s. A memória livre do runner nunca caiu abaixo de 12,8 de 16 GB.
+Ou seja: os **9 minutos para 10 programas** eram da máquina local, não do
+backend — sem oráculos em cache, disputando memória e disco com os outros
+agentes. O tempo desta passada vai crescer quando mais programas rodarem
+até o fim (hoje a maioria falha cedo); é aí que N sobe.
+
+Medido também no CI, antes do cache do runtime com `OnceLock` e publicação
+atômica chegar ao `main`: num runner novo, **62 dos 214 programas** caíam
+em "compilação do runtime nativo com rustc falhou" — os trabalhadores
+compilavam a mesma `.lib` ao mesmo tempo. Na máquina local o cache já
+existia e a corrida não aparecia. Com a correção, a rodada seguinte, sem
+aquecimento nenhum, deu 7/214 sem nenhuma dessas falhas.
 
 ## 4. Organização do repositório
 

@@ -54,7 +54,7 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
-      # Clang 22.1.8 para os testes que compilam IR (abi, native).
+      # Clang 22.1.8 para os testes que compilam IR (abi, native). A trilha nova\n      # não depende do llvm-sys; o LLVM completo só serviria à trilha velha.
       - uses: ./.github/actions/llvm-windows
       - name: Rust fixado (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
@@ -64,8 +64,15 @@ jobs:
           # Só o main grava: as branches ci/** restauram o cache do main e não
           # multiplicam entradas (10 GB por repositório).
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # --lib --bins --tests, sem os exemplos: lsp, frontend, types e emit_js
+      # têm cada um um exemplo `memoria`, e o cargo liga os quatro no mesmo
+      # target/debug/examples/memoria.exe — medido: LNK1104 quando duas
+      # ligações se cruzam. Exemplos são medições, não testes.
       - name: test (trilha nova)
-        run: cargo test --locked --workspace $env:FORA.Split(' ') --no-fail-fast
+        run: cargo test --locked --workspace $env:FORA.Split(' ') --lib --bins --tests --no-fail-fast
+      - name: test (doctests da trilha nova)
+        if: success() || failure()
+        run: cargo test --locked --workspace $env:FORA.Split(' ') --doc --no-fail-fast
       # Os #[ignore] da trilha nova que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
       #   corpus_pub*       references/pub é baixado pelo proprietário, fora do git
