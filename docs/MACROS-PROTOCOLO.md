@@ -225,3 +225,10 @@ dos identificadores é local. As declarações `augment` que os builders da fase
   (MACROS-COMPATIBILIDADE.md §3);
 * custo zero: `sem_macro_nao_abre_sessao` (0 sessões, 0 recargas, executor
   nunca tocado).
+
+**Pendente** (registrado, não silencioso): o grafo de espera da fase 2 com
+`MacroIntrospectionCycleException` (hoje a fase 2 roda na ordem do CFE, sem
+espera), os erros de sombreamento (`:960-965`) e de macro aplicada no próprio
+SCC (`elements/src/ciclos.rs`), `inferType`/subtipo genérico (dependem do
+`crates/types`), o cache por digest (§6), a execução paralela na fase, o
+`dartforge dev`/LSP (P10) e o executor nativo (P11).
