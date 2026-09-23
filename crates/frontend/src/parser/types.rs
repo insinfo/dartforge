@@ -34,10 +34,11 @@
 //!   expressões dentro de metadata não componham `>>`.
 use super::{MAX_DEPTH, PResult, Parser};
 use crate::ast::{
-    Annotation, Parameter, ParameterKind, TypeAnnotation, TypeId, TypeKind, TypeParameter,
+    Annotation, Name, Parameter, ParameterKind, TypeAnnotation, TypeId, TypeKind, TypeParameter,
 };
+use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::Span;
+use dartforge_diagnostics::{Diagnostic, Span};
 
 /// Como tratar um `?` final ao ler um tipo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,11 +436,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                 }
                 self.expect_op(Op::RParen)?;
+                self.conferir_nomes_publicos(&params);
                 return Ok(params);
             }
             params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type)?);
             if !self.eat_op(Op::Comma) {
                 self.expect_op(Op::RParen)?;
+                self.conferir_nomes_publicos(&params);
                 return Ok(params);
             }
         }
@@ -464,10 +467,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         // quando nada declarável os segue (`{required}` é um parâmetro
         // chamado `required`).
         loop {
-            if self.eat_kw(Keyword::Final) {
-                final_ = true;
-            } else if self.eat_kw(Keyword::Var) {
-                var_ = true;
+            if self.at_kw(Keyword::Final) || self.at_kw(Keyword::Var) {
+                let t = self.advance();
+                if t.kind == Kind::Keyword(Keyword::Final) {
+                    final_ = true;
+                } else {
+                    var_ = true;
+                }
+                self.conferir_modificador_de_parametro(t.span, in_function_type);
             } else if self.eat_kw(Keyword::Const) {
                 const_ = true;
             } else if self.at_ident("required") && self.modifier_precedes_declaration() {
@@ -523,6 +530,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None
             };
 
+        let public_name = match name {
+            Some(n) if kind == ParameterKind::Named && !in_function_type => {
+                self.nome_publico_do_nomeado(n, this_, var_ || final_)
+            }
+            _ => None,
+        };
+
         Ok(Parameter {
             span: self.span_from(start),
             metadata: metadata.into_boxed_slice(),
@@ -539,7 +553,74 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_type_params: function_type_params.into_boxed_slice(),
             function_parameters: function_parameters.map(Vec::into_boxed_slice),
             default_value,
+            public_name,
         })
+    }
+
+    /// Parâmetro nomeado com nome privado (`{this._x}`): só é permitido
+    /// quando inicializa campo (`this._x`) ou o declara (`var`/`final` num
+    /// construtor primário), a partir da 3.12, e se houver nome público
+    /// correspondente (`accepted/3.12/private-named-parameters`, "Static
+    /// semantics"). Devolve o nome público; os erros ficam registrados e a
+    /// análise continua.
+    fn nome_publico_do_nomeado(&mut self, n: Name, this_: bool, declarante: bool) -> Option<Name> {
+        let texto = &self.source[n.span.start..n.span.end];
+        let resto = texto.strip_prefix('_')?;
+        let inicializa_campo = this_ || (declarante && self.em_construtor_primario);
+        if !inicializa_campo {
+            self.diagnostics.push(Diagnostic::new(
+                format!("um parâmetro nomeado que não inicializa nem declara campo não pode começar com '_': '{texto}'"),
+                n.span,
+            ));
+            return None;
+        }
+        self.exigir(Feature::PrivateNamedParameters, n.span);
+        let valido = resto.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '$')
+            && Keyword::from_text(resto).is_none();
+        if !valido {
+            self.diagnostics.push(Diagnostic::new(
+                format!("o parâmetro nomeado privado '{texto}' não tem nome público correspondente ('_' seguido de um nome público)"),
+                n.span,
+            ));
+            return None;
+        }
+        let sym = self.interner.intern(resto);
+        Some(Name { sym, span: n.span })
+    }
+
+    /// `var`/`final` num parâmetro: a partir da 3.13 só existem em parâmetro
+    /// declarante de construtor primário (quebra da 3.13,
+    /// `primary-constructors` "Language versioning"; o CFE diz `Can't have
+    /// modifier 'final' here`). Antes, `final` é permitido em qualquer
+    /// parâmetro de declaração.
+    fn conferir_modificador_de_parametro(&mut self, span: Span, in_function_type: bool) {
+        if in_function_type || self.em_construtor_primario || !self.features.tem(Feature::PrimaryConstructors) {
+            return;
+        }
+        let texto = &self.source[span.start..span.end];
+        self.diagnostics.push(Diagnostic::new(
+            format!("o modificador '{texto}' não é permitido aqui: desde a 3.13, 'var'/'final' só declaram campo num construtor primário"),
+            span,
+        ));
+    }
+
+    /// Nome público de nomeado privado que repete o de outro parâmetro é
+    /// erro, mesmo contra posicional (spec da 3.12).
+    fn conferir_nomes_publicos(&mut self, params: &[Parameter]) {
+        for (i, p) in params.iter().enumerate() {
+            let Some(publico) = p.public_name else { continue };
+            let colide = params
+                .iter()
+                .enumerate()
+                .any(|(j, q)| j != i && q.name.is_some_and(|qn| qn.sym == publico.sym));
+            if colide {
+                let texto = self.interner.resolve(publico.sym).to_string();
+                self.diagnostics.push(Diagnostic::new(
+                    format!("o nome público '{texto}' do parâmetro nomeado privado colide com outro parâmetro"),
+                    publico.span,
+                ));
+            }
+        }
     }
 
     /// O token após um possível `required`/`covariant` inicia mesmo um
@@ -851,6 +932,9 @@ mod tests {
         let mut nomes = Interner::new();
         let tokens = lex(src).unwrap();
         let mut p = Parser::new(src, tokens, &mut nomes);
+        // A gramática de parâmetros testada aqui é a da 3.6 (`final` em
+        // qualquer parâmetro); a da 3.13 está em `tests/versoes.rs`.
+        p.features = crate::features::LibraryFeatures::piso();
         f(&mut p)
     }
 

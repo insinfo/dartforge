@@ -497,6 +497,18 @@ pub struct Parameter {
     pub function_type_params: Box<[TypeParameter]>,
     pub function_parameters: Option<Box<[Parameter]>>,
     pub default_value: Option<ExprId>,
+    /// Parâmetro nomeado privado que inicializa ou declara campo (Dart 3.12,
+    /// `{this._x}`): o nome **externo** — o da assinatura e da chamada — é
+    /// este (`x`); `name` continua o local e o do campo (`_x`).
+    pub public_name: Option<Name>,
+}
+
+impl Parameter {
+    /// O nome pelo qual o parâmetro é passado e aparece na assinatura: o
+    /// público de um nomeado privado (Dart 3.12), senão o próprio nome.
+    pub fn nome_externo(&self) -> Option<Name> {
+        self.public_name.or(self.name)
+    }
 }
 
 // ---------------------------------------------------------------------------

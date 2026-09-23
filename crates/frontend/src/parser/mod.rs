@@ -197,6 +197,9 @@ pub struct Parser<'s, 'i> {
     pub(crate) scratch_parts: Vec<crate::ast::StringPart>,
     /// Recursos da biblioteca (versão de linguagem e experimentos).
     pub(crate) features: LibraryFeatures,
+    /// Lendo a lista de parâmetros de um construtor primário (Dart 3.13):
+    /// `var`/`final` declaram campo e nomeado privado declarante é permitido.
+    pub(crate) em_construtor_primario: bool,
 }
 
 /// Limite de aninhamento antes de um diagnóstico de profundidade.
@@ -218,6 +221,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             scratch_args: Vec::new(),
             scratch_parts: Vec::new(),
             features: LibraryFeatures::atual(),
+            em_construtor_primario: false,
         }
     }
 
