@@ -52,6 +52,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// quando a unidade é a mesma que este builder está baixando, porque
     /// `lower_expr` recebe o `ast` corrente — uma `ExprId` de outra unidade
     /// indexaria a árvore errada e produziria código silenciosamente errado.
+    /// Indice do elemento de funcao de um membro de instancia que de fato
+    /// vira simbolo no modulo.
+    ///
+    /// `lower_program` so emite funcoes cujo `node` e `FunctionRef::Function`.
+    /// Acessor implicito de campo (um `final int codigo;` gera um getter
+    /// `codigo`) tem `node: FunctionRef::None` e nunca vira simbolo; emitir
+    /// `call @df_fn_N_codigo` da "use of undefined value" e o Clang recusa o
+    /// modulo inteiro — nao so aquela chamada. Quem procura um metodo por nome
+    /// tem de pular esses, e cair no acesso a campo que vem logo depois.
+    pub fn metodo_de_instancia(&self, nome: SymbolId) -> Option<usize> {
+        self.ctx.program.functions.iter().position(|f| {
+            f.class.is_some()
+                && !f.static_
+                && f.name == nome
+                && matches!(f.node, dartforge_elements::model::FunctionRef::Function { .. })
+        })
+    }
+
+    /// Mesma regra para funcoes de topo.
+    pub fn funcao_de_topo(&self, nome: SymbolId) -> Option<usize> {
+        self.ctx.program.functions.iter().position(|f| {
+            f.class.is_none()
+                && f.name == nome
+                && matches!(f.node, dartforge_elements::model::FunctionRef::Function { .. })
+        })
+    }
+
     pub fn variable_initializer(
         &self,
         var_id: dartforge_elements::model::VariableId,
@@ -2198,7 +2225,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else {
-                    if let Some(fid) = self.ctx.program.functions.iter().position(|f| f.class.is_some() && !f.static_ && f.name == name.sym) {
+                    if let Some(fid) = self.metodo_de_instancia(name.sym) {
                         let f_elem = &self.ctx.program.functions[fid];
                         let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
                         let symbol = format!("df_fn_{fid}_{sanitized_name}");
@@ -2251,7 +2278,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Index { target, index, .. } => {
                 let target_op = self.lower_expr(ast, *target);
                 let idx_op = self.lower_expr(ast, *index);
-                if let Some(fid) = self.ctx.program.functions.iter().position(|f| f.class.is_some() && !f.static_ && self.ctx.symbol_name(f.name) == "[]") {
+                if let Some(fid) = self.ctx.program.functions.iter().position(|f| {
+                    f.class.is_some()
+                        && !f.static_
+                        && self.ctx.symbol_name(f.name) == "[]"
+                        && matches!(f.node, dartforge_elements::model::FunctionRef::Function { .. })
+                }) {
                     let f_elem = &self.ctx.program.functions[fid];
                     let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
                     let symbol = format!("df_fn_{fid}_{sanitized_name}");
@@ -2476,7 +2508,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             },
                             ret_ty,
                         );
-                    } else if let Some(fid) = self.ctx.program.functions.iter().position(|f| f.class.is_none() && f.name == id.sym) {
+                    } else if let Some(fid) = self.funcao_de_topo(id.sym) {
                         let f_elem = &self.ctx.program.functions[fid];
                         let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
                         let symbol = format!("df_fn_{fid}_{sanitized_name}");

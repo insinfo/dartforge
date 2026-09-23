@@ -9,8 +9,11 @@ pub struct LlvmEmitter<'a> {
     string_constants: Vec<(String, usize)>,
     /// Tipo de cada valor da funcao sendo emitida, para coercao de operandos.
     tipos: std::collections::HashMap<ValueId, Type>,
-    /// Contador dos temporarios de coercao (`%c0`, `%c1`, ...), por funcao.
+    /// Contador dos temporarios de coercao (%c0, %c1, ...), por funcao.
     prox_coercao: u32,
+    /// Conversoes que uma entrada de phi exige, atribuidas ao bloco de ORIGEM:
+    /// (bloco, nome do temporario, tipo de origem, valor, tipo do phi).
+    conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -21,6 +24,7 @@ impl<'a> LlvmEmitter<'a> {
             string_constants: Vec::new(),
             tipos: std::collections::HashMap::new(),
             prox_coercao: 0,
+            conv_phi: Vec::new(),
         }
     }
 
@@ -274,6 +278,39 @@ impl<'a> LlvmEmitter<'a> {
         for block in &func.blocks {
             for (vid, inst, ty) in &block.instructions {
                 self.tipos.insert(*vid, Self::tipo_do_resultado(inst, *ty));
+            }
+        }
+
+        // Uma entrada de phi nao pode ser convertida onde o phi esta: phi tem de
+        // ser a primeira instrucao do bloco. A conversao pertence ao bloco de
+        // ORIGEM daquela entrada, emitida logo antes do terminador dele. Aqui
+        // so planejamos; a emissao acontece bloco a bloco, mais abaixo.
+        self.conv_phi.clear();
+        let blocos_existentes: std::collections::HashSet<u32> =
+            func.blocks.iter().map(|b| b.id.0).collect();
+        for block in &func.blocks {
+            for (_, inst, _) in &block.instructions {
+                let Instruction::Phi { incoming, ty } = inst else { continue };
+                for (origem, op) in incoming {
+                    let Operand::Val(v) = op else { continue };
+                    if !blocos_existentes.contains(&origem.0) {
+                        continue;
+                    }
+                    let de = self.tipos.get(v).copied().unwrap_or(Type::I64);
+                    let igual = de.llvm_ir() == ty.llvm_ir() && (de == Type::F64) == (*ty == Type::F64);
+                    if igual {
+                        continue;
+                    }
+                    let ja = self.conv_phi.iter().any(|(b, _, _, vv, para)| {
+                        *b == origem.0 && vv == v && para.llvm_ir() == ty.llvm_ir()
+                    });
+                    if ja {
+                        continue;
+                    }
+                    let nome = format!("%p{}", self.prox_coercao);
+                    self.prox_coercao += 1;
+                    self.conv_phi.push((origem.0, nome, de, *v, *ty));
+                }
             }
         }
 
@@ -600,7 +637,19 @@ impl<'a> LlvmEmitter<'a> {
                         let in_strs: Vec<String> = incoming
                             .iter()
                             .map(|(b, op)| {
-                                let sop = self.constante_no_tipo(op, *ty).unwrap_or_else(|| self.operand_str(op));
+                                let sop = self
+                                    .constante_no_tipo(op, *ty)
+                                    .or_else(|| match op {
+                                        Operand::Val(v) => self
+                                            .conv_phi
+                                            .iter()
+                                            .find(|(bb, _, _, vv, para)| {
+                                                *bb == b.0 && vv == v && para.llvm_ir() == ty.llvm_ir()
+                                            })
+                                            .map(|(_, nome, _, _, _)| nome.clone()),
+                                        _ => None,
+                                    })
+                                    .unwrap_or_else(|| self.operand_str(op));
                                 format!("[ {sop}, %b{} ]", b.0)
                             })
                             .collect();
@@ -611,6 +660,13 @@ impl<'a> LlvmEmitter<'a> {
                         // Outras instruções serão expandidas conforme necessário
                         writeln!(self.out, "  ; inst pendente {:?}", inst).unwrap();
                     }
+                }
+            }
+
+            for (b, nome, de, v, para) in self.conv_phi.clone() {
+                if b == block.id.0 {
+                    let origem = format!("%v{}", v.0);
+                    self.emitir_conversao_nomeada(&nome, de, &origem, para);
                 }
             }
 
@@ -868,6 +924,29 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             texto
         }
+    }
+
+    /// Mesma conversao, mas gravando num nome escolhido por quem chama
+    /// (usado pelas entradas de phi, que precisam de um nome estavel).
+    fn emitir_conversao_nomeada(&mut self, nome: &str, de: Type, origem: &str, para: Type) {
+        let mut atual = de;
+        let mut texto = origem.to_string();
+        if atual == Type::F64 && para != Type::F64 && Self::largura(para) != 64 {
+            texto = self.emitir_conversao("bitcast", Type::F64, &texto, Type::I64);
+            atual = Type::I64;
+        }
+        if para == Type::F64 && atual != Type::F64 && Self::largura(atual) != 64 {
+            texto = self.emitir_conversao("zext", atual, &texto, Type::I64);
+            atual = Type::I64;
+        }
+        let op = if atual == Type::F64 || para == Type::F64 {
+            "bitcast"
+        } else if Self::largura(atual) < Self::largura(para) {
+            "zext"
+        } else {
+            "trunc"
+        };
+        writeln!(self.out, "  {nome} = {op} {} {texto} to {}", atual.llvm_ir(), para.llvm_ir()).unwrap();
     }
 
     fn emitir_conversao(&mut self, op: &str, de: Type, texto: &str, para: Type) -> String {
