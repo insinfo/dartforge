@@ -366,7 +366,9 @@ fn partes_de(sdk: &SdkLayout, unidade: &UnitCache, interner: &mut Interner) -> R
         let part_uri = url::Url::from_file_path(&canonico)
             .map(|u| u.to_string())
             .unwrap_or_else(|_| canonico.to_string_lossy().to_string());
-        if let Some(p) = analisar(sdk, &canonico, &part_uri, UnitRole::Part, interner)? {
+        // A parte de um patch é patch (o mesmo papel que `load.rs` dá).
+        let papel = if unidade.role == UnitRole::Patch { UnitRole::Patch } else { UnitRole::Part };
+        if let Some(p) = analisar(sdk, &canonico, &part_uri, papel, interner)? {
             saida.push(p);
         }
     }
