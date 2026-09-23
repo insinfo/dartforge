@@ -891,6 +891,9 @@ pub struct Usada {
     pub seletores: Vec<crate::seletor::Seletor>,
     /// `Some` quando é componente: o que o emissor sabe dele.
     pub filho: Option<Filho>,
+    /// Os metadados lidos do programa (`metadados.rs`), quando é diretiva e
+    /// há programa carregado.
+    pub diretiva: Option<std::sync::Arc<crate::diretivas::Diretiva>>,
 }
 
 impl Usada {
@@ -2352,19 +2355,30 @@ impl Corpo<'_> {
                 (Some(f), Some(g)) => f.classe == g.classe && f.uri_dart == g.uri_dart,
                 _ => false,
             };
-            // Diretiva do catálogo num elemento HTML: o emissor a instancia.
-            let do_catalogo = u.filho.is_none()
-                && filho.is_none()
-                && dom::tag_html(&e.nome)
-                && crate::diretivas::conhecida(&u.uri, &u.classe).is_some();
-            if !e_o_filho && !do_catalogo {
+            if e_o_filho {
+                continue;
+            }
+            if u.filho.is_some() {
                 return Err(recusa(
                     Motivo::DiretivaPorSeletor,
-                    if u.filho.is_some() {
-                        format!("componente {} por seletor composto", u.classe)
-                    } else {
-                        format!("diretiva {}", u.classe)
-                    },
+                    format!("componente {} por seletor composto", u.classe),
+                ));
+            }
+            // Diretiva num elemento HTML: o emissor a instancia se os
+            // metadados lidos do programa não têm nada fora do que ele
+            // escreve (`Diretiva::pendencia`).
+            let pendencia = if filho.is_some() || !dom::tag_html(&e.nome) {
+                Some("em elemento que não é HTML".to_string())
+            } else {
+                match &u.diretiva {
+                    None => Some("sem metadados".to_string()),
+                    Some(d) => d.pendencia(),
+                }
+            };
+            if let Some(p) = pendencia {
+                return Err(recusa(
+                    Motivo::DiretivaPorSeletor,
+                    format!("diretiva {} ({p})", u.classe),
                 ));
             }
         }
@@ -2919,7 +2933,7 @@ impl Corpo<'_> {
             .collect();
         if let Some(r) = &resolvido {
             for d in &casadas {
-                for o in d.ouvintes {
+                for o in &d.ouvintes {
                     if do_no.eventos.iter().any(|l| l.nome == o.evento) {
                         self.anotar(recusa(
                             Motivo::Evento,
@@ -2932,13 +2946,16 @@ impl Corpo<'_> {
             // Os `@HostListener` na ordem das diretivas em `directives:`
             // (`_collectHostListeners`).
             for d in &casadas {
-                let Some((_, campo)) = r.diretivas.iter().find(|(x, _)| std::ptr::eq(*x, *d))
+                let Some((_, campo)) = r
+                    .diretivas
+                    .iter()
+                    .find(|(x, _)| std::sync::Arc::ptr_eq(x, d))
                 else {
                     continue;
                 };
-                for o in d.ouvintes {
+                for o in &d.ouvintes {
                     let h = self.handler_de_hospedeiro(campo, o);
-                    self.ouvinte(o.evento, &alvo, &h);
+                    self.ouvinte(&o.evento, &alvo, &h);
                 }
             }
         } else {
@@ -2975,8 +2992,8 @@ impl Corpo<'_> {
     /// com `$event` é tear-off da instância; com outro argumento, um
     /// `_handleEvent_N` que chama o método.
     fn handler_de_hospedeiro(&mut self, campo: &str, o: &crate::diretivas::Ouvinte) -> String {
-        let m = o.metodo;
-        match o.args {
+        let m = &o.metodo;
+        match o.args.as_str() {
             "" => format!("this.eventHandler0(this.{campo}.{m})"),
             "$event" => format!("this.eventHandler1(this.{campo}.{m})"),
             args => {
@@ -3002,20 +3019,17 @@ impl Corpo<'_> {
     ) -> Result<(), Recusa> {
         use crate::diretivas::{Argumento, Criacao, Token};
         for inst in &r.instancias {
-            let tipo = match (&inst.criacao, inst.token) {
+            let tipo = match (&inst.criacao, &inst.token) {
                 (Criacao::Diretiva { diretiva, .. }, _) => {
-                    format!("{}{}", self.imp.q(diretiva.uri), diretiva.classe)
+                    format!("{}{}", self.imp.q(&diretiva.uri), diretiva.classe)
                 }
-                (Criacao::Lista(_), Token::Multi { tipo: None, .. }) => {
+                (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.e_object() => {
                     format!("List<{}Object>", self.imp.q("dart:core"))
                 }
-                (
-                    Criacao::Lista(_),
-                    Token::Multi {
-                        tipo: Some((uri, classe)),
-                        ..
-                    },
-                ) => format!("List<{}{classe}<dynamic>>", self.imp.q(uri)),
+                (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.genericos > 0 => {
+                    let args = vec!["dynamic"; tipo.genericos].join(", ");
+                    format!("List<{}{}<{args}>>", self.imp.q(&tipo.uri), tipo.classe)
+                }
                 _ => return Err(recusa(Motivo::DiretivaPorSeletor, "provedor sem tipo")),
             };
             self.campos_filho
@@ -3033,7 +3047,7 @@ impl Corpo<'_> {
                         .collect();
                     format!(
                         "{}{}({})",
-                        self.imp.q(diretiva.uri),
+                        self.imp.q(&diretiva.uri),
                         diretiva.classe,
                         args.join(", ")
                     )
@@ -3077,11 +3091,13 @@ impl Corpo<'_> {
             let spec: Vec<(String, String, Option<bool>)> = d
                 .entradas
                 .iter()
-                .map(|x| (x.nome.to_string(), x.membro.to_string(), Some(x.booleana)))
+                .map(|x| (x.nome.clone(), x.membro.clone(), x.booleana))
                 .collect();
+            // Só `AfterChanges` e `OnInit` chegam aqui: os outros ganchos são
+            // recusados pela guarda (`Diretiva::pendencia`).
             let ganchos = crate::componente::Ganchos {
-                after_changes: d.after_changes,
-                on_init: d.on_init,
+                after_changes: d.ganchos.after_changes,
+                on_init: d.ganchos.on_init,
                 ..Default::default()
             };
             self.entradas_de(
@@ -3261,12 +3277,13 @@ fn tem_elemento_ligado(
     })
 }
 
-/// As diretivas do catálogo que casam um elemento HTML, na ordem de
-/// `directives:` (`_matchDirectives`).
+/// As diretivas que casam um elemento HTML, com os metadados lidos do
+/// programa, na ordem de `directives:` (`_matchDirectives`). A guarda do
+/// elemento já recusou as que o emissor não instancia.
 fn diretivas_casadas(
     usadas: &[Usada],
     e: &crate::html::Elemento,
-) -> Vec<&'static crate::diretivas::Conhecida> {
+) -> Vec<std::sync::Arc<crate::diretivas::Diretiva>> {
     if usadas.is_empty() || !dom::tag_html(&e.nome) {
         return Vec::new();
     }
@@ -3274,23 +3291,26 @@ fn diretivas_casadas(
     usadas
         .iter()
         .filter(|u| u.filho.is_none() && crate::seletor::casa_algum(&u.seletores, &desc))
-        .filter_map(|u| crate::diretivas::conhecida(&u.uri, &u.classe))
+        .filter_map(|u| u.diretiva.clone())
         .collect()
 }
 
 /// Algum `@Input` das diretivas tem este nome?
-fn consome_entrada(casadas: &[&crate::diretivas::Conhecida], nome: &str) -> bool {
+fn consome_entrada(casadas: &[std::sync::Arc<crate::diretivas::Diretiva>], nome: &str) -> bool {
     casadas.iter().any(|d| d.entrada(nome).is_some())
 }
 
 /// Algum `@Output` das diretivas tem este nome?
-fn consome_saida(casadas: &[&crate::diretivas::Conhecida], nome: &str) -> bool {
+fn consome_saida(casadas: &[std::sync::Arc<crate::diretivas::Diretiva>], nome: &str) -> bool {
     casadas.iter().any(|d| d.saida(nome).is_some())
 }
 
 /// O nó tem ligação dele mesmo — `[x]` que nenhuma diretiva recebe, ou
 /// atributo com `{{ }}` —, e vira campo da visão.
-fn liga_no_elemento(e: &crate::html::Elemento, casadas: &[&crate::diretivas::Conhecida]) -> bool {
+fn liga_no_elemento(
+    e: &crate::html::Elemento,
+    casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
+) -> bool {
     e.propriedades
         .iter()
         .any(|p| !consome_entrada(casadas, &p.nome))
@@ -3331,11 +3351,12 @@ fn metodo_injetor(injetores: &[NoInjetor]) -> String {
         match t {
             Token::Classe { uri, classe } => format!("{}{classe}", tardio_q(uri)),
             Token::Multi { nome, tipo } => {
-                let arg = match tipo {
-                    None => format!("{}Object", tardio_q("dart:core")),
-                    Some((uri, classe)) => {
-                        format!("\u{1}k:{uri}#token|{uri}\u{2}{classe}<dynamic>")
-                    }
+                let arg = if tipo.e_object() {
+                    format!("{}Object", tardio_q("dart:core"))
+                } else {
+                    let (uri, classe) = (&tipo.uri, &tipo.classe);
+                    let args = vec!["dynamic"; tipo.genericos].join(", ");
+                    format!("\u{1}k:{uri}#token|{uri}\u{2}{classe}<{args}>")
                 };
                 format!(
                     "const {}MultiToken<{arg}>('{nome}')",
@@ -3423,9 +3444,9 @@ enum CampoDaVisao<'a> {
     Filho(&'a Filho),
     /// Diretiva estrutural, com a URI da classe dela.
     Estrutural(&'static str),
-    /// Provedores de diretivas do catálogo num nó: a URI do tipo de cada
-    /// campo, na ordem.
-    Diretivas(Vec<&'static str>),
+    /// Provedores de diretivas num nó: a URI do tipo de cada campo, na
+    /// ordem.
+    Diretivas(Vec<String>),
 }
 
 /// Os campos que o template vai gerar, em ordem de documento. A ordem dos
@@ -3454,16 +3475,12 @@ fn campos_em_ordem<'a>(
                 let uris = r
                     .instancias
                     .iter()
-                    .map(|i| match (&i.criacao, i.token) {
-                        (crate::diretivas::Criacao::Diretiva { diretiva, .. }, _) => diretiva.uri,
-                        (
-                            _,
-                            crate::diretivas::Token::Multi {
-                                tipo: Some((uri, _)),
-                                ..
-                            },
-                        ) => uri,
-                        _ => "dart:core",
+                    .map(|i| match (&i.criacao, &i.token) {
+                        (crate::diretivas::Criacao::Diretiva { diretiva, .. }, _) => {
+                            diretiva.uri.clone()
+                        }
+                        (_, crate::diretivas::Token::Multi { tipo, .. }) => tipo.uri.clone(),
+                        _ => "dart:core".to_string(),
                     })
                     .collect();
                 saida.push(CampoDaVisao::Diretivas(uris));
@@ -3962,7 +3979,7 @@ fn alocar_imports_dos_campos(
             }
             CampoDaVisao::Diretivas(uris) => {
                 for uri in uris {
-                    imp.alias(uri);
+                    imp.alias(&uri);
                 }
             }
         }
