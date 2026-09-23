@@ -1,5 +1,9 @@
 //! Gerador de LLVM IR a partir da HIR nativa.
 
+pub mod externs;
+#[cfg(test)]
+mod testes;
+
 use crate::hir::*;
 use std::fmt::Write;
 
@@ -16,6 +20,10 @@ pub struct LlvmEmitter<'a> {
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
     /// Tipo guardado por cada `alloca` da função (para o `store`).
     apontado: std::collections::HashMap<ValueId, Type>,
+    /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
+    slots: std::collections::HashMap<ValueId, usize>,
+    /// A função abriu um frame de raízes (`%gcf`).
+    tem_frame: bool,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -28,6 +36,8 @@ impl<'a> LlvmEmitter<'a> {
             prox_coercao: 0,
             conv_phi: Vec::new(),
             apontado: std::collections::HashMap::new(),
+            slots: std::collections::HashMap::new(),
+            tem_frame: false,
         }
     }
 
@@ -94,164 +104,12 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_runtime_decls(&mut self) {
-        self.out.push_str("; Declarações do runtime nativo Rust\n");
-        self.out.push_str("declare void @dartforge_print_i64(i64)\n");
-        self.out.push_str("declare void @dartforge_print_f64(double)\n");
-        self.out.push_str("declare void @dartforge_print_bool(i8)\n");
-        self.out.push_str("declare void @dartforge_print_null()\n");
-        self.out.push_str("declare void @dartforge_print_string(i64)\n");
-        self.out.push_str("declare void @dartforge_print_list(i64)\n");
-        self.out.push_str("declare void @dartforge_print_map(i64)\n");
-        self.out.push_str("declare void @dartforge_print_set(i64)\n");
-        self.out.push_str("declare void @dartforge_print_handle(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_concat(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_equal(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_equal(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_register_class_name(i64, ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_object_new(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_object_get(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_object_set(i64, i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_object_class(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_get_bits(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_list_get_tag(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_list_set(i64, i64, i64, i8)\n");
-        self.out.push_str("declare void @dartforge_list_push(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_map_new(ptr, ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_map_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_map_get_bits(i64, i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_map_get_tag(i64, i64, i8)\n");
-        self.out.push_str("declare void @dartforge_map_set(i64, i64, i8, i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_map_contains(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_set_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_set_len(i64)\n");
-        self.out.push_str("declare i8 @dartforge_set_contains(i64, i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_set_add(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_cell_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_cell_get_bits(i64)\n");
-        self.out.push_str("declare i8 @dartforge_cell_get_tag(i64)\n");
-        self.out.push_str("declare void @dartforge_cell_set(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_env_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_env_get(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_closure_new(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_closure_code(i64)\n");
-        self.out.push_str("declare i64 @dartforge_closure_env(i64)\n");
-        self.out.push_str("declare i64 @dartforge_tearoff(i64)\n");
-        self.out.push_str("declare i64 @dartforge_gc_push_frame(i64)\n");
-        self.out.push_str("declare void @dartforge_gc_set_root(i64, i64, i64)\n");
-        self.out.push_str("declare void @dartforge_gc_root(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_gc_pop_frame(i64)\n");
-        self.out.push_str("declare void @dartforge_gc_collect()\n");
-        self.out.push_str("declare void @dartforge_gc_global_root(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_box_int(i64)\n");
-        self.out.push_str("declare i64 @dartforge_box_double(double)\n");
-        self.out.push_str("declare i64 @dartforge_box_bool(i8)\n");
-        self.out.push_str("declare i64 @dartforge_unbox_int(i64)\n");
-        self.out.push_str("declare double @dartforge_unbox_double(i64)\n");
-        self.out.push_str("declare i8 @dartforge_unbox_bool(i64)\n");
-        self.out.push_str("declare i8 @dartforge_identical(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_get_ref(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_first_ref(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_last_ref(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_single_ref(i64)\n");
-        self.out.push_str("declare i64 @dartforge_map_get_ref(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_exception_peek_ref()\n");
-        self.out.push_str("declare void @dartforge_null_assert_fail() noreturn\n");
-        self.out.push_str("declare void @dartforge_exception_throw(i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_exception_pending()\n");
-        self.out.push_str("declare i64 @dartforge_exception_take_bits()\n");
-        self.out.push_str("declare i8 @dartforge_exception_take_tag()\n");
-        self.out.push_str("declare i64 @dartforge_exception_peek_bits()\n");
-        self.out.push_str("declare i8 @dartforge_exception_peek_tag()\n");
-        self.out.push_str("declare void @dartforge_exception_clear()\n");
-        self.out.push_str("declare void @dartforge_register_subclass(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_is_subclass(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_stack_trace_get()\n");
-        self.out.push_str("declare i64 @dartforge_stack_trace_empty()\n");
-        self.out.push_str("declare i64 @dartforge_stack_trace_from_string(i64)\n");
-        self.out.push_str("declare void @dartforge_throw_with_stack_trace(i64, i8, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_first(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_last(i64)\n");
-        self.out.push_str("declare i64 @dartforge_value_class(i64)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_i64(i64)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_f64(double)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_bool(i8)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_handle(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_generic_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_code_unit_at(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_code_units(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_runes(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_to_upper(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_repeat(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_join(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_new_empty()\n");
-        self.out.push_str("declare i64 @dartforge_map_get_to_string(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_record_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_int_to_radix_string(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_int_parse(i64)\n");
-        self.out.push_str("declare i64 @dartforge_int_try_parse(i64)\n");
-        self.out.push_str("declare double @dartforge_double_parse(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_substring(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_from_char_code(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_from_char_codes(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_index_of(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_last_index_of(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_split(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_contains(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_replace_all(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_pad_left(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_pad_right(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_trim(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_trim_left(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_trim_right(i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_starts_with(i64, i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_ends_with(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_to_lower(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_compare_to(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_replace_first(i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_replace_range(i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_reversed(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_buffer_new()\n");
-        self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_regexp_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_split_map_pieces(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_collection_mark_unmodifiable(i64)\n");
-        self.out.push_str("declare i8 @dartforge_collection_is_unmodifiable(i64)\n");
-        self.out.push_str("declare i64 @dartforge_exception_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_format_exception_new(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_state_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_argument_error_new(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_argument_error_value(i64, i8, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_argument_error_not_null(i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_value(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_range(i64, i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_index(i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_unsupported_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_unimplemented_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_assertion_error_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_concurrent_modification_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_type_error_new()\n");
-        self.out.push_str("declare i64 @dartforge_no_such_method_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_message(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_name(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_invalid_value(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_start(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_end(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_source(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_offset(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_stack_trace(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_single(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_sublist(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_remove_at(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_filled(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_map_remove(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_map_keys(i64)\n");
-        self.out.push_str("declare void @dartforge_iteration_begin(i64)\n");
-        self.out.push_str("declare void @dartforge_iteration_end(i64)\n\n");
+        self.out.push_str("; Declarações do runtime nativo Rust (tabela em llvm/externs.rs)\n");
+        for e in externs::EXTERNS {
+            self.out.push_str(e.decl);
+            self.out.push('\n');
+        }
+        self.out.push('\n');
     }
 
     fn emit_string_constants(&mut self) {
@@ -355,11 +213,59 @@ impl<'a> LlvmEmitter<'a> {
 
         writeln!(self.out, "define {ret_ty} @{}({}) {{", func.symbol, params_str).unwrap();
 
+        // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot fixo por `alloca` de
+        // tipo `Ref` e por valor SSA `Ref` (parâmetro, resultado de chamada,
+        // `Load`, `phi`, caixa, alocação). A ordem é a das instruções, para
+        // o IR ser determinístico.
+        self.slots.clear();
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                if matches!(inst, Instruction::Alloca(Type::Ref)) {
+                    let n = self.slots.len();
+                    self.slots.insert(*vid, n);
+                }
+            }
+        }
+        for (vid, _, ty) in &func.params {
+            if *ty == Type::Ref {
+                let n = self.slots.len();
+                self.slots.insert(*vid, n);
+            }
+        }
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                let define_ref = self.tipos.get(vid) == Some(&Type::Ref)
+                    && !matches!(inst, Instruction::Const(Constant::Null) | Instruction::Alloca(_));
+                if define_ref {
+                    let n = self.slots.len();
+                    self.slots.insert(*vid, n);
+                }
+            }
+        }
+        self.tem_frame = !self.slots.is_empty();
+
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
+            if block.id.0 == 0 && self.tem_frame {
+                writeln!(self.out, "  %gcf = call i64 @dartforge_gc_push_frame(i64 {})", self.slots.len()).unwrap();
+                for (vid, _, ty) in &func.params {
+                    if *ty == Type::Ref {
+                        let slot = self.slots[vid];
+                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{})", vid.0).unwrap();
+                    }
+                }
+            }
+            // `phi` tem de ser a primeira instrução do bloco: as raízes dos
+            // `phi` saem todas depois do último deles.
+            let mut raizes_de_phi: Vec<(usize, u32)> = Vec::new();
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
+                if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
+                    for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
+                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{pv})").unwrap();
+                    }
+                }
                 match inst {
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
@@ -665,6 +571,13 @@ impl<'a> LlvmEmitter<'a> {
                         let sp = self.operand_str(ptr);
                         let sv = self.coagir(val, t);
                         writeln!(self.out, "  store {} {sv}, ptr {sp}", t.llvm_ir()).unwrap();
+                        // G2: o local `Ref` tem slot próprio, atualizado a
+                        // cada gravação — ele vive mais que o SSA que o gravou.
+                        if let Operand::Val(pv) = ptr {
+                            if let Some(&slot) = self.slots.get(pv) {
+                                writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 {sv})").unwrap();
+                            }
+                        }
                     }
                     Instruction::Box { op, from } => {
                         match from {
@@ -758,6 +671,19 @@ impl<'a> LlvmEmitter<'a> {
                         unreachable!("instrução sem emissão passou pelo verificador: {inst:?}");
                     }
                 }
+                // G1: a raiz logo depois da definição — nada aloca entre
+                // o retorno da chamada e este `set_root` (G5).
+                if let Some(&slot) = self.slots.get(vid) {
+                    if matches!(inst, Instruction::Phi { .. }) {
+                        raizes_de_phi.push((slot, v));
+                    } else if !matches!(inst, Instruction::Alloca(_)) {
+                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{v})").unwrap();
+                    }
+                }
+                let _ = ty;
+            }
+            for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
+                writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{pv})").unwrap();
             }
 
             for (b, nome, de, v, para) in self.conv_phi.clone() {
@@ -767,6 +693,11 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
 
+            // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
+            // das saídas por exceção (que retornam o valor padrão).
+            if self.tem_frame && matches!(block.terminator, Terminator::Return(_)) {
+                writeln!(self.out, "  call void @dartforge_gc_pop_frame(i64 %gcf)").unwrap();
+            }
             match &block.terminator {
                 Terminator::Return(Some(op)) => {
                     if func.return_ty == Type::Void {

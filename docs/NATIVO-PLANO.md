@@ -505,6 +505,19 @@ representação ser honesta transforma cada escalar em posição `Ref` num
   `ACTIVE_ITERATIONS`, `ORIGIN_COLLECTIONS`) são purgadas dos handles mortos
   a cada coleta, senão um slot reutilizado herda a marca de outro objeto; e
   nenhuma extern chama outra com um `borrow_mut` do heap aberto.
+* **G8. Tabela de efeitos das externs.** Toda extern do runtime é
+  declarada num lugar só — `crates/emit_native/src/llvm/externs.rs` — com a
+  declaração LLVM e os efeitos `{aloca, lança, chama código Dart}`, no molde
+  das entradas LEAF da VM (`runtime_entry.cc:778`) e do `gc-leaf-function`
+  do Dartino. Nesta etapa todas estão marcadas de forma **conservadora**
+  (aloca, lança): a tabela existe para o passo 6 só trocar valores, e cada
+  marca "não aloca" só pode entrar com um teste que roda a extern sob
+  `DARTFORGE_GC_STRESS=1` e exige zero coletas — uma marca otimista errada é
+  o defeito dos stack maps errados do lado de cá. O uso previsto (passo 6):
+  extern que não aloca não é ponto de coleta, então valor `Ref` cuja vida não
+  cruza ponto de coleta não precisa de slot e função sem ponto de coleta não
+  precisa de quadro; e "não aloca ⇒ não lança" dispensa o
+  `exception_pending()` depois dela (`docs/PESQUISA-LLVM-DART-AOT.md` §2.4).
 * **G7.** `DARTFORGE_GC_STRESS=1` coleta antes de toda alocação; o harness
   ganha `--gc-stress`, e um programa só conta como aprovado nesse modo se
   passar também sob estresse.
@@ -621,6 +634,13 @@ Os 7 que passavam: `01_print`, `03_strings_escapes`, `06_strings_metodos`,
 ### 6.8 Custo aceito
 
 `set_root` por definição é uma chamada externa com empréstimo do `RefCell`.
-É deliberadamente o mais simples que é correto; slots por *liveness*, pular
-valores mortos no ponto de coleta e pilha-sombra em memória (ou a estratégia
-`shadow-stack` do LLVM) vêm depois, e só com medição antes e depois.
+É deliberadamente o mais simples que é correto. O passo 6, só com medição
+antes e depois (sem raízes com `DARTFORGE_GC_OFF=1`, raiz por chamada, raiz
+por `store`), tem três partes, nesta ordem: (1) usar a tabela de efeitos
+(G8) — raiz e quadro só onde há ponto de coleta, e sem `exception_pending()`
+depois de extern que não lança; (2) raiz como `store` simples num quadro
+`alloca` da função, encadeado numa lista do isolate (a pilha-sombra de
+Henderson, ISMM 2002, que é a estratégia `shadow-stack` do LLVM), em vez de
+chamada opaca — o LLVM não apaga o `store` (o quadro escapa para o runtime),
+mas deixa de tratar cada raiz como barreira; (3) slots por *liveness* em vez
+de um por definição.

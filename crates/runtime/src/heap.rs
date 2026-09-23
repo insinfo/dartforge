@@ -223,6 +223,18 @@ pub struct Heap {
     globais: std::collections::HashMap<i64, i64>,
     /// As caixas de `false` e `true` (0 = ainda não alocada), permanentes.
     caixas_bool: [i64; 2],
+    /// Raízes que moram no runtime e não num frame (G6): a exceção pendente
+    /// e o rastro corrente. 0 = nenhuma.
+    raizes_do_runtime: [i64; 2],
+    /// Tabelas laterais indexadas por handle. Moram aqui, e não em
+    /// `thread_local`s do runtime, porque são purgadas a cada coleta (G6):
+    /// um slot reutilizado herdaria a marca "imutável" ou "em iteração" de
+    /// outro objeto.
+    pub imutaveis: std::collections::HashSet<i64>,
+    pub iteracoes_ativas: std::collections::HashSet<i64>,
+    /// Lista de chaves → mapa de origem (para acusar modificação do mapa
+    /// durante a iteração das chaves).
+    pub origens: std::collections::HashMap<i64, i64>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -245,7 +257,18 @@ impl Heap {
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             globais: std::collections::HashMap::new(),
             caixas_bool: [0, 0],
+            raizes_do_runtime: [0, 0],
+            imutaveis: std::collections::HashSet::new(),
+            iteracoes_ativas: std::collections::HashSet::new(),
+            origens: std::collections::HashMap::new(),
         }
+    }
+    /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
+    pub fn set_raiz_do_runtime(&mut self, qual: usize, handle: i64) {
+        if handle != 0 {
+            self.get(handle);
+        }
+        self.raizes_do_runtime[qual] = handle;
     }
     /// Caixa de um `bool` (R3): um dos dois singletons permanentes.
     pub fn caixa_bool(&mut self, valor: bool) -> i64 {
@@ -445,12 +468,15 @@ impl Heap {
         let bytes = value.estimated_bytes();
         let perto_do_teto = self.limite_bytes != usize::MAX
             && self.bytes_totais(bytes) > self.limite_bytes / 2;
-        if !self.gc_desligado && (self.stress
-            || (!self.frames.is_empty() && (
-                self.allocations >= self.threshold
+        // G6: coleta em qualquer alocação que passe do limiar. O portão
+        // antigo (`!self.frames.is_empty()`) existia porque o código gerado
+        // não registrava raízes; com o frame de cada função (G1), coletar sem
+        // frame aberto é só coletar com as raízes permanentes.
+        if !self.gc_desligado
+            && (self.stress
+                || self.allocations >= self.threshold
                 || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
-                || perto_do_teto
-            )))
+                || perto_do_teto)
         {
             self.collect();
         }
@@ -852,6 +878,7 @@ impl Heap {
         self.pending.extend(self.tearoffs.values().copied());
         self.pending.extend(self.globais.values().copied());
         self.pending.extend(self.caixas_bool.iter().copied().filter(|&h| h != 0));
+        self.pending.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
         self.pending.extend(
             self.frames
                 .iter()
@@ -875,6 +902,12 @@ impl Heap {
                 .expect("slot vivo verificado")
                 .trace(&mut self.pending);
         }
+        // Tabelas laterais: só ficam os handles que sobreviveram (G6).
+        let marks = &self.marks;
+        let vivo = |h: &i64| usize::try_from(*h - 1).ok().is_some_and(|i| marks.get(i).copied().unwrap_or(false));
+        self.imutaveis.retain(|h| vivo(h));
+        self.iteracoes_ativas.retain(|h| vivo(h));
+        self.origens.retain(|k, v| vivo(k) && vivo(v));
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot.is_some() && !self.marks[index] {
                 self.stats.estimated_bytes -= slot.as_ref().unwrap().estimated_bytes();
@@ -1135,6 +1168,50 @@ mod caixas {
         heap.collect();
         assert!(matches!(heap.get(t1), Value::BoxedBool(true)));
         assert_eq!(heap.stats().permanent_roots, 2);
+    }
+}
+
+#[cfg(test)]
+mod raizes_do_runtime {
+    //! G6: raízes que não moram num frame, e as tabelas laterais.
+    use super::*;
+
+    #[test]
+    fn excecao_pendente_sobrevive_a_coleta_sem_frame() {
+        let mut heap = Heap::new(true);
+        let erro = heap.allocate(Value::String("falhou".into()));
+        heap.set_raiz_do_runtime(0, erro);
+        heap.allocate(Value::String("outra".into()));
+        heap.collect();
+        assert!(matches!(heap.get(erro), Value::String(s) if s == "falhou"));
+        heap.set_raiz_do_runtime(0, 0);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    #[test]
+    fn coleta_sem_frame_aberto() {
+        // O portão antigo só coletava com frame; agora o limiar basta.
+        let mut heap = Heap::new(false);
+        for _ in 0..1000 {
+            heap.allocate(Value::String("lixo".into()));
+        }
+        assert!(heap.stats().collections > 0);
+        assert!(heap.stats().live_objects < 1000);
+    }
+
+    #[test]
+    fn tabela_lateral_purgada_quando_o_slot_e_reutilizado() {
+        let mut heap = Heap::new(false);
+        let lista = heap.create_list(Vec::new());
+        heap.imutaveis.insert(lista);
+        heap.iteracoes_ativas.insert(lista);
+        heap.collect();
+        assert!(heap.imutaveis.is_empty());
+        assert!(heap.iteracoes_ativas.is_empty());
+        let nova = heap.create_list(Vec::new());
+        assert_eq!(nova, lista, "o slot é reutilizado");
+        assert!(!heap.imutaveis.contains(&nova));
     }
 }
 
