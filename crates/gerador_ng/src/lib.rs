@@ -27,11 +27,11 @@ pub mod sass;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
-use visao::Motivo;
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use visao::Motivo;
 
 /// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
@@ -45,9 +45,104 @@ pub struct Achados {
     pub pipes: Vec<String>,
     /// `@GenerateInjector` em qualquer declaração de topo.
     pub injetores: Vec<String>,
-    /// Alguma classe do arquivo tem `@HostBinding`/`@HostListener`, que fazem
-    /// o oficial gerar um `DirectiveChangeDetector`.
-    pub tem_hospedeiro: bool,
+    /// `@Directive` com `@HostBinding`: cada uma ganha um
+    /// `DirectiveChangeDetector` no arquivo gerado.
+    pub hospedeiras: Vec<Hospedeira>,
+    /// `@Directive` com `@HostBinding`/`@HostListener` que herda de alguém
+    /// (`extends`, `with`): o oficial coleta também os membros herdados, que
+    /// daqui não se veem.
+    pub hospedeiro_herdado: bool,
+}
+
+/// Uma `@Directive` com `@HostBinding`: o oficial gera para ela a classe
+/// `XNgCd` (`requiresDirectiveChangeDetector`, em `compile_metadata.dart`).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Hospedeira {
+    pub classe: String,
+    /// `(classe CSS, membro)` de cada `@HostBinding('class.x')`, na ordem em
+    /// que o oficial os coleta (`DirectiveVisitor`, em
+    /// `angular_compiler/analyzer/view/directive.dart`): acessores, depois
+    /// métodos, depois campos — cada grupo em ordem de declaração.
+    pub classes: Vec<(String, String)>,
+    /// Alguma ligação fora do que sabemos traduzir.
+    pub recusada: bool,
+}
+
+/// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
+fn hospedeira(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> Option<Hospedeira> {
+    let mut acessores = Vec::new();
+    let mut campos = Vec::new();
+    let mut recusada = false;
+    let mut alguma = false;
+    for &m in &classe.members {
+        let membro = arvore.member(m);
+        for a in membro.metadata.iter() {
+            if nome_da_anotacao(a, interner) != "HostBinding" {
+                continue;
+            }
+            alguma = true;
+            // Sem argumento, o nome da ligação é o do próprio membro — uma
+            // ligação de propriedade, fora do subconjunto.
+            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
+                [x] if x.name.is_none() => match &arvore.expr(x.value).kind {
+                    ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+                    _ => None,
+                },
+                _ => None,
+            });
+            // Só `class.x`. `attr.`, `style.` e propriedade têm cada um a sua
+            // chamada e ficam de fora até terem caso no corpus.
+            let Some(classe_css) = nome.as_deref().and_then(|n| n.strip_prefix("class.")) else {
+                recusada = true;
+                continue;
+            };
+            match &membro.kind {
+                // Campo `final` é imutável e seria escrito uma vez, na
+                // primeira checagem (`isImmutable`); estático lê pela classe.
+                // Nenhum dos dois ainda.
+                ast::MemberKind::Field(l)
+                    if !l.static_ && !l.final_ && !l.const_ && l.variables.len() == 1 =>
+                {
+                    let membro = interner.resolve(l.variables[0].name.sym).to_string();
+                    campos.push((classe_css.to_string(), membro));
+                }
+                ast::MemberKind::Method(f) => {
+                    let funcao = arvore.function(*f);
+                    match (funcao.kind, funcao.name) {
+                        (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                            let membro = interner.resolve(n.sym).to_string();
+                            acessores.push((classe_css.to_string(), membro));
+                        }
+                        _ => recusada = true,
+                    }
+                }
+                _ => recusada = true,
+            }
+        }
+    }
+    if !alguma {
+        return None;
+    }
+    acessores.extend(campos);
+    // O mapa do oficial é por nome de ligação: repetir o nome sobrescreve o
+    // valor e mantém a posição do primeiro.
+    let mut vistos = std::collections::HashSet::new();
+    if !acessores.iter().all(|(c, _)| vistos.insert(c.clone())) {
+        recusada = true;
+    }
+    // Tipo genérico muda a declaração da classe (`XNgCd<T>`); ainda não.
+    if !classe.type_params.is_empty() {
+        recusada = true;
+    }
+    Some(Hospedeira {
+        classe: interner.resolve(classe.name.sym).to_string(),
+        classes: acessores,
+        recusada,
+    })
 }
 
 impl Achados {
@@ -72,7 +167,10 @@ pub(crate) fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> Stri
             return texto.to_string();
         }
     }
-    a.name.first().map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default()
+    a.name
+        .first()
+        .map(|n| interner.resolve(n.sym).to_string())
+        .unwrap_or_default()
 }
 
 /// Varre as declarações de topo de uma unidade já analisada.
@@ -94,16 +192,6 @@ pub fn achar(
             ast::DeclKind::Class(c) => interner.resolve(c.name.sym).to_string(),
             _ => String::new(),
         };
-        if let ast::DeclKind::Class(classe) = &decl.kind {
-            for &m in &classe.members {
-                for a in arvore.member(m).metadata.iter() {
-                    let n = nome_da_anotacao(a, interner);
-                    if n == "HostBinding" || n == "HostListener" {
-                        achados.tem_hospedeiro = true;
-                    }
-                }
-            }
-        }
         for a in decl.metadata.iter() {
             match nome_da_anotacao(a, interner).as_str() {
                 "Component" => {
@@ -113,7 +201,27 @@ pub fn achar(
                         ));
                     }
                 }
-                "Directive" => achados.diretivas.push(alvo.clone()),
+                "Directive" => {
+                    achados.diretivas.push(alvo.clone());
+                    // Só `@HostBinding` muda o arquivo da diretiva; o
+                    // `@HostListener` vai para quem a usa. Mas o oficial
+                    // coleta os dois também nas superclasses.
+                    if let ast::DeclKind::Class(classe) = &decl.kind {
+                        let herda = classe.extends.is_some() || !classe.with.is_empty();
+                        let anotada = classe.members.iter().any(|&m| {
+                            arvore.member(m).metadata.iter().any(|a| {
+                                matches!(
+                                    nome_da_anotacao(a, interner).as_str(),
+                                    "HostBinding" | "HostListener"
+                                )
+                            })
+                        });
+                        achados.hospedeiro_herdado |= herda && anotada;
+                        achados
+                            .hospedeiras
+                            .extend(hospedeira(arvore, interner, classe));
+                    }
+                }
                 "Pipe" => achados.pipes.push(alvo.clone()),
                 "GenerateInjector" => achados.injetores.push(alvo.clone()),
                 _ => {}
@@ -142,14 +250,17 @@ pub struct Placar {
     /// Conjunto completo de motivos de cada pendente. É por ele que se sabe
     /// quantos arquivos uma forma nova destrava de verdade.
     pub conjuntos: Vec<std::collections::BTreeSet<Motivo>>,
-    /// Quantas vezes cada forma não entendida aparece (`@HostListener`,
-    /// `@ViewChild`, ciclo de vida…).
+    /// Quantas vezes cada forma não entendida aparece (`@HostBinding`,
+    /// `providers: [..]`…), contando todas as de cada componente pendente.
     pub nao_entendidos: std::collections::BTreeMap<String, usize>,
 }
 
 impl Placar {
     pub fn resumo(&self) -> String {
-        format!("ngdart: {}/{} gerados por nós", self.gerados, self.examinados)
+        format!(
+            "ngdart: {}/{} gerados por nós",
+            self.gerados, self.examinados
+        )
     }
 }
 
@@ -197,14 +308,20 @@ pub fn gerar_em(
     for dir in diretorios {
         let mut pilha = vec![dir.clone()];
         while let Some(d) = pilha.pop() {
-            let Ok(entradas) = std::fs::read_dir(&d) else { continue };
+            let Ok(entradas) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in entradas.flatten() {
                 let p = e.path();
                 if p.is_dir() {
                     pilha.push(p);
                     continue;
                 }
-                let nome = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let nome = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 if !nome.ends_with(".dart") || nome.ends_with(".template.dart") {
                     continue;
                 }
@@ -231,8 +348,9 @@ pub fn gerar_em(
                     // Forma que o gerador ainda não cobre: fica com o
                     // build_runner, e a aplicação compila do mesmo jeito.
                     *placar.motivos.entry(motivo).or_default() += 1;
+                    // Toda forma presente conta, não só a que recusou.
                     for c in &achados.componentes {
-                        if let Some(forma) = &c.nao_entendido {
+                        for (_, forma) in &c.nao_entendidos {
                             *placar.nao_entendidos.entry(forma.clone()).or_default() += 1;
                         }
                     }
@@ -285,7 +403,9 @@ impl Indice {
             }
         }
         for (caminho, _nome, achados) in arquivos {
-            let Some(uri) = uri_de_biblioteca(pacote, caminho) else { continue };
+            let Some(uri) = uri_de_biblioteca(pacote, caminho) else {
+                continue;
+            };
             for comp in &achados.componentes {
                 if comp.seletor.is_empty() {
                     continue;
@@ -298,7 +418,10 @@ impl Indice {
         for ((_, classe), f) in &por_classe {
             por_nome.entry(classe.clone()).or_default().push(f.clone());
         }
-        Indice { por_classe, por_nome }
+        Indice {
+            por_classe,
+            por_nome,
+        }
     }
 
     /// Os filhos que este componente pode usar: os nomes de `directives:` que
@@ -355,6 +478,7 @@ fn indexar(
             uri_template: uri.replace(".dart", ".template.dart"),
             projeta,
             entradas: comp.entradas.clone(),
+            muda_o_pai: comp.ganchos.algum() || comp.ganchos.after_changes || comp.on_push,
         },
     );
 }
@@ -368,7 +492,9 @@ pub fn nome_do_pacote(raiz: &Path) -> Option<String> {
     let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).ok()?;
     for linha in texto.lines() {
         // `name:` no primeiro nível, sem indentação.
-        let Some(valor) = linha.strip_prefix("name:") else { continue };
+        let Some(valor) = linha.strip_prefix("name:") else {
+            continue;
+        };
         if linha.starts_with(char::is_whitespace) {
             continue;
         }
@@ -399,19 +525,38 @@ fn gerar_arquivo(
     indice: &Indice,
 ) -> Result<(String, Vec<PathBuf>, Vec<(PathBuf, String)>), Motivo> {
     if achados.trivial() {
-        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new()));
+        return Ok((
+            template_trivial(nome_do_arquivo),
+            vec![fonte.to_path_buf()],
+            Vec::new(),
+        ));
     }
     if !achados.injetores.is_empty() {
         return Err(Motivo::Injetor);
     }
-    // Diretiva e pipe não geram visão: o arquivo deles é o trivial, desde
-    // que nenhuma classe tenha `@HostBinding`/`@HostListener` — esses fazem o
-    // oficial gerar um `DirectiveChangeDetector`.
+    // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
+    // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
+    // `DirectiveChangeDetector` dela.
     if achados.componentes.is_empty() {
-        if achados.tem_hospedeiro {
-            return Err(Motivo::DiretivaOuPipe);
+        if achados.hospedeiro_herdado {
+            return Err(Motivo::HostBindingEmDiretiva);
         }
-        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new()));
+        return match achados.hospedeiras.as_slice() {
+            [] => Ok((
+                template_trivial(nome_do_arquivo),
+                vec![fonte.to_path_buf()],
+                Vec::new(),
+            )),
+            // Uma diretiva só no arquivo: com mais de uma classe gerada a
+            // numeração dos imports passa a ser compartilhada, e isso ainda
+            // não tem caso no corpus.
+            [h] if !h.recusada && achados.diretivas.len() == 1 && achados.pipes.is_empty() => Ok((
+                visao::detector_de_diretiva(h, nome_do_arquivo),
+                vec![fonte.to_path_buf()],
+                Vec::new(),
+            )),
+            _ => Err(Motivo::HostBindingEmDiretiva),
+        };
     }
     if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
         return Err(Motivo::DiretivaOuPipe);
@@ -420,8 +565,8 @@ fn gerar_arquivo(
         return Err(Motivo::VariosComponentes);
     }
     let comp = &achados.componentes[0];
-    if comp.nao_entendido.is_some() {
-        return Err(Motivo::NaoEntendido);
+    if let Some((m, _)) = comp.nao_entendidos.first() {
+        return Err(*m);
     }
     let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
         (Some(t), _) => (t.clone(), None),
@@ -457,8 +602,7 @@ fn gerar_arquivo(
             Ok(t) => (t, css.clone()),
             Err(_) => {
                 let scss = css.with_extension("scss");
-                let fonte_scss =
-                    std::fs::read_to_string(&scss).map_err(|_| Motivo::Estilos)?;
+                let fonte_scss = std::fs::read_to_string(&scss).map_err(|_| Motivo::Estilos)?;
                 (sass::compilar(&fonte_scss)?, scss)
             }
         };
@@ -476,11 +620,7 @@ fn gerar_arquivo(
 /// URI `package:` do arquivo do template — o que o oficial escreve no
 /// comentário `REF` de cada ligação. Só para componentes em `lib/` com
 /// `templateUrl`; com template escrito na anotação a referência é outra.
-fn url_do_template(
-    pacote: &Pacote,
-    fonte: &Path,
-    comp: &componente::Componente,
-) -> Option<String> {
+fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente) -> Option<String> {
     let url = comp.template_url.as_ref()?;
     let html = fonte.parent()?.join(url);
     let rel = pacote.relativo(&html);
@@ -491,13 +631,17 @@ fn url_do_template(
 /// A folha de um componente compila (Sass e shim)? É a mesma conta que o
 /// gerador faz; o placar usa para não marcar como pendente o que já sai.
 pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
-    let Some(dir) = fonte.parent() else { return false };
+    let Some(dir) = fonte.parent() else {
+        return false;
+    };
     let css = dir.join(url);
     let texto = match std::fs::read_to_string(&css) {
         Ok(t) => t,
         Err(_) => {
             let scss = css.with_extension("scss");
-            match std::fs::read_to_string(&scss).ok().map(|f| sass::compilar_em(&f, scss.parent()))
+            match std::fs::read_to_string(&scss)
+                .ok()
+                .map(|f| sass::compilar_em(&f, scss.parent()))
             {
                 Some(Ok(c)) => c,
                 _ => return false,
@@ -531,7 +675,11 @@ fn motivos_do_arquivo(
         (None, None) => String::new(),
     };
     let relativo = pacote.relativo(fonte);
-    let nome = fonte.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let nome = fonte
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let local = visao::Local {
         pacote: &pacote.nome,
         relativo: &relativo,
@@ -541,7 +689,13 @@ fn motivos_do_arquivo(
         url_do_template: url_do_template(pacote, fonte, comp),
     };
     let filhos = indice.filhos_de(comp, fonte, resolvedor);
-    fora.extend(visao::motivos(comp, &local, &html::analisar(&template), resolvedor, &filhos));
+    fora.extend(visao::motivos(
+        comp,
+        &local,
+        &html::analisar(&template),
+        resolvedor,
+        &filhos,
+    ));
     fora
 }
 
@@ -573,7 +727,12 @@ pub fn gerar_com_apoio(
             if c.contem(caminho) {
                 continue;
             }
-            c.por(caminho.clone(), f.conteudo.to_string(), f.gerador, f.entradas.to_vec());
+            c.por(
+                caminho.clone(),
+                f.conteudo.to_string(),
+                f.gerador,
+                f.entradas.to_vec(),
+            );
         }
     }
     let g = c.concluir(1).unwrap_or_else(|erros| {
@@ -630,9 +789,11 @@ mod testes {
     /// vazio no lugar de um injetor inteiro.
     #[test]
     fn acha_injetor_em_variavel_de_topo() {
-        let a = achados_de("@GenerateInjector([])
+        let a = achados_de(
+            "@GenerateInjector([])
 final InjectorFactory injector = self.injector$Injector;
-");
+",
+        );
         assert_eq!(a.injetores.len(), 1);
         assert!(!a.trivial());
     }

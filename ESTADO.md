@@ -286,8 +286,9 @@ travava a máquina.
   gerou no `new_sali/frontend`
   (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
 
-  **new_sali/frontend: 134 arquivos gerados por nós, 125 iguais byte a
-  byte, 0 diferentes. Corpus: 37 de 51 casos.**
+  **new_sali/frontend: 145 arquivos gerados por nós, 140 iguais byte a
+  byte (com os `.css.shim.dart`), 0 diferentes. Corpus: 58 de 66
+  oráculos conferidos, os 8 restantes recusados de propósito.**
 
   Cobre hoje:
   - biblioteca sem Angular, `@Directive` e `@Pipe` (o arquivo trivial);
@@ -295,8 +296,12 @@ travava a máquina.
   - interpolação, com as três formas de atualizar texto
     (`interpolateString`, `interpolate`, `updateTextWithPrimitive`) e o
     caminho da expressão imutável;
-  - ligações `[x]`, `[class.x]`, `[attr.x]`, `[style.x]` e eventos
-    `(x)="m()"`/`(x)="m($event)"`;
+  - ligações `[x]`, `[class.x]`, `[attr.x]`, `[style.x]` (constantes no
+    `if (firstCheck)` compartilhado) e eventos `(x)="m()"`/`(x)="m($event)"`,
+    com os ouvintes no fim do `build()` como o `bindView` oficial;
+  - `@HostListener` em componente (forma simples), `@HostBinding('class.x')`
+    em diretiva (o `XNgCd`), `#ref` em elemento HTML com `@ViewChild`
+    estático, `providers: []` e `pipes:` sem uso;
   - componentes filhos, com `@Input`, projeção e `createAndProject`;
   - injeção no construtor, ciclo de vida (os sete ganchos);
   - folhas de estilo: **Sass** (o subconjunto que os projetos usam) e o
@@ -318,29 +323,48 @@ travava a máquina.
 ### 2.0 O compilador de visões do ngdart
 
 Sem ele, `dartforge serve` ainda depende de o `build_runner` ter rodado
-uma vez no projeto (os 174 arquivos pendentes vêm do disco). Medido no
+uma vez no projeto (os 155 arquivos pendentes vêm do disco). Medido no
 new_sali/frontend, os motivos por que cada pendente não é nosso — com o
-conjunto completo, não só o primeiro:
+conjunto completo de cada arquivo, e cada forma do componente contada à
+parte (não mais só a primeira que recusa):
 
 | forma | aparece em | destrava sozinha |
 |---|---|---|
-| ligação no template (`*ngIf`, `#ref`, `[(x)]`, `[ngX]`) | 151 | 2 |
-| folha de estilo fora do subconjunto | 136 | 0 |
-| forma do componente não entendida | 136 | 0 |
-| interpolação fora do subconjunto | 109 | 0 |
-| componente no template que não resolve | 78 | 1 |
-| ligação em componente filho (`@Output`, `#ref`) | 71 | 0 |
+| interpolação fora do subconjunto | 108 | 1 |
+| ligação no template (`*ngIf` com `#ref`, `[(x)]`, `[ngX]`, evento em `*`) | 106 | 2 |
+| `@ViewChild` de componente ou diretiva (tipo, `read:`, `#ref` em filho) | 83 | 0 |
+| componente no template que não resolve | 78 | 2 |
+| ligação em componente filho (`@Output`, entrada constante, filho com ciclo de vida/OnPush) | 75 | 1 |
 | `style` em linha | 34 | 0 |
-| `<ng-content select>` | 5 | 0 |
-| `@HostBinding`/`@HostListener` em diretiva | 5 | 4 |
+| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 0 |
+| pipe usado no template (`$pipe.x(..)`) | 15 | 0 |
+| `providers:` com provedores | 11 | 0 |
+| folha de estilo fora do subconjunto | 9 | 0 |
+| `@ContentChild`/`@ContentChildren` | 4 | 0 |
+| injeção: tipo não resolvido | 3 | 0 |
+| `<ng-content select>` | 3 | 0 |
+| `encapsulation:` | 2 | 0 |
 | `@GenerateInjector` | 1 | 1 |
+| `@HostBinding`/`@HostListener` em diretiva que herda | 1 | 1 |
+| vários componentes no arquivo | 1 | 1 |
+| `@HostBinding` em componente | 1 | 0 |
 
-Os que estão a **um** motivo de sair: `@HostBinding` em diretiva (o
-`DirectiveChangeDetector`), `@GenerateInjector` (o injetor do `di.dart`),
-e dois componentes que só precisam de mais uma forma de ligação.
+`providers: []` (57 arquivos) e `pipes:` sem uso deixaram de contar: não
+mudam a visão (casos b18 e b19). O `@ViewChild` estático também saiu da
+lista — é gerado. O que sobra de `@ViewChild` é quase todo consulta de
+componente (`@ViewChild('modal') ModalComp?`), que depende do provedor do
+nó e do `OnPush` do filho.
 
-Dentro de "forma não entendida": `providers:` (66), `@ViewChild` (27),
-`pipes:` (17), `encapsulation:` (2).
+Os que estão a **um** motivo de sair: `@GenerateInjector` (o injetor do
+`di.dart`), a diretiva que herda, o arquivo de teste com dois
+componentes, e seis componentes a uma forma de ligação ou interpolação.
+
+Risco conhecido, ainda não coberto por caso: o gerador trata getter como
+imutável (`componente.rs`, `resolucao.rs`), mas o `isImmutable` do
+ngcompiler olha `lookUpGetter(n).variable`, que num getter explícito é
+sintético — logo **mutável**. `{{ getter }}` sairia pelo caminho imutável
+e diferente do oficial; hoje nenhum gerado do new_sali cai nisso (0
+diferentes), mas falta o caso no corpus e a correção.
 
 Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
 arquivo oficial correspondente serve de teste byte a byte.
