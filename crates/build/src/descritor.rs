@@ -62,6 +62,7 @@ fn mapa_de_extensoes(v: &Valor, lista_ou_texto: bool) -> Result<Vec<(String, Vec
 pub fn extensoes_de_execucao(
     chave: &str,
     fabrica: &str,
+    fabricas: &[String],
     opcoes: &Mapa,
     declaradas: &[(String, Vec<String>)],
 ) -> Result<Vec<(String, Vec<String>)>, String> {
@@ -93,6 +94,27 @@ pub fn extensoes_de_execucao(
             Some(v) => mapa_de_extensoes(v, false)?,
             None => e(&[(".dart", &[".mocks.dart"])]),
         },
+        // `SharedPartBuilder(…, 'json_serializable')` escreve
+        // `.json_serializable.g.part`; o `build.yaml` 6.9.5 declara sem o ponto.
+        ("json_serializable:json_serializable", _) => e(&[(".dart", &[".json_serializable.g.part"])]),
+        // `drift_dev-2.28.0/lib/src/backends/build/*.dart`.
+        ("drift_dev:preparing_builder", _) => {
+            e(&[(".moor", &[".expr.temp.dart", ".drift_prep.json"]), (".drift", &[".expr.temp.dart", ".drift_prep.json"])])
+        }
+        ("drift_dev:drift_dev" | "drift_dev:analyzer", "discover") => {
+            e(&[(".drift", &[".drift.drift_elements.json"]), (".dart", &[".dart.drift_elements.json"])])
+        }
+        ("drift_dev:drift_dev" | "drift_dev:analyzer", "analyzer") => e(&[
+            (".drift", &[".drift.drift_module.json", ".drift.types.temp.dart"]),
+            (".dart", &[".dart.drift_module.json", ".dart.types.temp.dart"]),
+        ]),
+        ("drift_dev:drift_dev", "driftBuilder") => e(&[(".dart", &[".drift.g.part"])]),
+        ("drift_dev:not_shared", _) => e(&[(".dart", &[".drift.dart"])]),
+        ("drift_dev:modular", _) => e(&[(".dart", &[".drift.dart"]), (".drift", &[".drift.dart"])]),
+        // Sem descritor e com várias fábricas: cada fábrica é um `Builder`
+        // com extensões próprias, que só o executor Dart revela. As saídas
+        // declaradas ficam com a primeira fábrica (limitação declarada).
+        _ if fabricas.len() > 1 && fabricas.first().map(String::as_str) != Some(fabrica) => Vec::new(),
         _ => declaradas.to_vec(),
     })
 }

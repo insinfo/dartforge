@@ -527,7 +527,7 @@ pub fn fases(
                         None
                     } else {
                         let decl =
-                            crate::descritor::extensoes_de_execucao(&ap.chave, fab, &opcoes, &ap.extensoes_declaradas)?;
+                            crate::descritor::extensoes_de_execucao(&ap.chave, fab, &ap.fabricas, &opcoes, &ap.extensoes_declaradas)?;
                         Some(Extensoes::novas(&decl, &ap.chave)?)
                     };
                     let f = Fase {

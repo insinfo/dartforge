@@ -10,13 +10,21 @@
 //! crate é construído se o `package_config.json` não tem `build_runner`
 //! ([`detectar`]); [`instancias`] conta os motores criados, para o portão.
 pub mod config;
+pub mod consulta;
 pub mod descritor;
+pub mod executor;
 pub mod extensoes;
 pub mod glob;
+pub mod grafo;
+pub mod motor;
+#[cfg(feature = "nativos")]
+pub mod nativos;
 pub mod oraculo;
 pub mod pacotes;
 pub mod plano;
 pub mod valor;
+
+pub use motor::{Atualizacao, Contexto, Demanda, Motor, OpcoesMotor, Placar, RelMotor};
 
 use dartforge_elements::config::PackageConfig;
 use std::path::{Path, PathBuf};
