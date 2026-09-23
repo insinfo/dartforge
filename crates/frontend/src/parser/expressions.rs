@@ -839,9 +839,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 self.parse_instance_creation(start, Some(CreationKeyword::New))
             }
+            // Atalho de ponto (3.10): `.id`, `.new`.
+            Kind::Op(Op::Dot) => self.parse_dot_shorthand(start, false),
             Kind::Keyword(Keyword::Const) => {
                 self.advance();
                 match self.kind() {
+                    // `const .id(args)` / `const .new(args)`.
+                    Kind::Op(Op::Dot) => self.parse_dot_shorthand(start, true),
                     Kind::Op(Op::LBracket) => self.parse_list_literal(start, true, Vec::new()),
                     Kind::Op(Op::LBrace) => self.parse_set_or_map_literal(start, true, Vec::new()),
                     Kind::Op(Op::LParen) => self.parse_parenthesized_or_record(start, true),
@@ -855,6 +859,26 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Keyword(Keyword::Switch) => self.parse_switch_expression(start),
             _ => Err(self.error("esperava uma expressão")),
         }
+    }
+
+    /// O *head* de um atalho de ponto, com o `.` corrente (Dart 3.10,
+    /// `<staticMemberShorthandHead>`): `.id` ou `.new`. Os seletores vêm
+    /// depois, como em qualquer primária. A forma `const` exige argumentos.
+    fn parse_dot_shorthand(&mut self, start: Span, const_: bool) -> PResult<ExprId> {
+        let ponto = self.advance();
+        let name = if self.at_kw(Keyword::New) {
+            let token = self.advance();
+            self.name_from("new", token.span)
+        } else if self.at_identifier() {
+            self.identifier()
+        } else {
+            return Err(self.error("esperava um nome ou 'new' depois de '.' (atalho de ponto)"));
+        };
+        self.exigir(Feature::DotShorthands, Span { start: ponto.span.start, end: name.span.end });
+        if const_ && !self.at_op(Op::LParen) {
+            return Err(self.error("'const .nome' exige argumentos: é uma criação constante"));
+        }
+        Ok(self.push(start, ExprKind::DotShorthand { name, const_ }))
     }
 
     /// Após argumentos de tipo explícitos: `<T>[...]` ou `<K, V>{...}`.

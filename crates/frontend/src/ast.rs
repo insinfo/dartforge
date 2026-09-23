@@ -100,6 +100,25 @@ impl Ast {
         self.functions.push(function);
         FunctionId(self.functions.len() as u32 - 1)
     }
+    /// O atalho de ponto (`.id`, Dart 3.10) na raiz da cadeia de seletores
+    /// que `e` é — `e` mesmo, ou o alvo mais interno de `.x`, `(args)`,
+    /// `[i]`, `<T>` e `!`. O tipo de contexto da cadeia inteira é o
+    /// *shorthand context* dele (spec, "Type inference").
+    pub fn raiz_de_atalho(&self, e: ExprId) -> Option<ExprId> {
+        let mut cur = e;
+        loop {
+            match &self.expr(cur).kind {
+                ExprKind::DotShorthand { .. } => return Some(cur),
+                ExprKind::Property { target, .. }
+                | ExprKind::Call { target, .. }
+                | ExprKind::Index { target, .. }
+                | ExprKind::TypeArguments { target, .. } => cur = *target,
+                ExprKind::Unary { op: UnaryOp::NullAssert, operand } => cur = *operand,
+                _ => return None,
+            }
+        }
+    }
+
     /// Devolve ao alocador a capacidade não usada de cada arena. Chamado ao
     /// fim da análise, quando a árvore deixa de crescer.
     pub fn shrink_to_fit(&mut self) {
@@ -907,6 +926,18 @@ pub enum ExprKind {
     Switch {
         value: ExprId,
         cases: Box<[SwitchExprCase]>,
+    },
+    /// Atalho de ponto (Dart 3.10): o *head* `.id`, `.new`, `const .id` ou
+    /// `const .new`; seletores seguintes são nós comuns em volta dele
+    /// (`.parse('1')` é `Call { target: DotShorthand }`). Denota `D.id`, com
+    /// `D` a declaração do tipo de contexto da cadeia inteira; `types` grava
+    /// `D` em `Resolved::Element(Element::Class(D))` deste nó
+    /// (`docs/VERSOES-LINGUAGEM.md` §4.3).
+    DotShorthand {
+        /// `id`, ou `new` para `.new`.
+        name: Name,
+        /// `const .id(…)`/`const .new(…)`: criação constante.
+        const_: bool,
     },
 }
 

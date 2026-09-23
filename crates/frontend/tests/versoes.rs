@@ -57,6 +57,40 @@ fn final_e_var_em_parametro_comum_so_ate_a_312() {
 }
 
 #[test]
+fn atalho_de_ponto_na_310() {
+    use dartforge_frontend::ast::{ExprKind, StmtKind};
+    let fonte = "void main() { Cor c = .vermelho; var p = const .new(1); int i = .parse('4').abs(); switch (c) { case .azul: break; } }";
+    let (p, nomes) = na((3, 10), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    let atalhos: Vec<(String, bool)> = p
+        .ast
+        .exprs
+        .iter()
+        .filter_map(|e| match &e.kind {
+            ExprKind::DotShorthand { name, const_ } => Some((nomes.resolve(name.sym).to_string(), *const_)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        atalhos,
+        vec![("vermelho".into(), false), ("new".into(), true), ("parse".into(), false), ("azul".into(), false)]
+    );
+    // A cadeia `.parse('4').abs()` tem o atalho na raiz.
+    let init = p.ast.stmts.iter().find_map(|s| match &s.kind {
+        StmtKind::Variables(v) if nomes.resolve(v.variables[0].name.sym) == "i" => v.variables[0].initializer,
+        _ => None,
+    });
+    let raiz = p.ast.raiz_de_atalho(init.unwrap()).unwrap();
+    assert!(matches!(p.ast.expr(raiz).kind, ExprKind::DotShorthand { .. }));
+
+    let (p, _) = na((3, 9), "void main() { Cor c = .vermelho; }");
+    assert_eq!(p.diagnostics.len(), 1);
+    assert!(p.diagnostics[0].message.contains("'dot-shorthands' exige a versão de linguagem 3.10"));
+    let (p, _) = na((3, 10), "var x = const .zero;");
+    assert!(mensagens(&p).iter().any(|m| m.contains("exige argumentos")), "{:?}", mensagens(&p));
+}
+
+#[test]
 fn null_aware_so_na_38() {
     let (p, _) = na((3, 7), "var l = [?a, 'k': ?b];");
     assert_eq!(p.diagnostics.len(), 2, "{:?}", mensagens(&p));
