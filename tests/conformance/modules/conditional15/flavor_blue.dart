@@ -1,1 +1,0 @@
-String flavorLabel() { return 'blue'; }
