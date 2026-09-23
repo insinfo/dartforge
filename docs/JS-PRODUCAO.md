@@ -9,9 +9,26 @@ código, como manda `docs/BRIEF-JS-PRODUCAO.md`, e traz junto as medições
 que o justificam — elas mudaram a ordem de duas etapas e mostraram que uma
 terceira é maior do que parecia.
 
-Referência estudada antes de escrever: `references/dart-sdk/pkg/compiler`
-(`universe/`, `js_backend/`, `js_emitter/`, `deferred_load/`) e
-`references/oxc`. As citações de arquivo:linha abaixo são desses fontes.
+Referência estudada antes de escrever: `docs/PESQUISA-OTIMIZACAO.md` (a
+bibliografia aplicada — RTA, Safe ICF, ThinLTO, Liška, HyFM),
+`references/dart-sdk/pkg/compiler` (`universe/`, `js_backend/`,
+`js_emitter/`, `deferred_load/`) e `references/oxc`. As citações de
+arquivo:linha abaixo são desses fontes.
+
+A regra que governa tudo o que vem a seguir está na primeira página da
+pesquisa, e vale repetir aqui porque o perfil de produção é justamente
+onde ela é fácil de quebrar:
+
+> Compartilhar o texto, a árvore sintática ou a implementação de uma função
+> **não é** a mesma coisa que transformar duas bibliotecas Dart em uma só.
+
+Dois arquivos vendorizados byte a byte iguais têm estado global separado e
+tipos de identidade distinta (`docs/PESQUISA-OTIMIZACAO.md` §3 traz o
+contraexemplo pronto). O empacotador da §4 **concatena** módulos e nunca
+funde bibliotecas: cada `var L$… = Object.create(dart.library)` continua
+sendo uma biblioteca, com os seus símbolos privados e o seu cache de
+constantes. Isso não é um detalhe de implementação, é o limite do que a
+produção pode fazer.
 
 ---
 
@@ -42,6 +59,33 @@ JS pronto, não dentro de uma árvore de elementos Dart.
 ---
 
 ## 1. Mundo fechado
+
+### 1.0 O algoritmo, na forma canônica: RTA
+
+A referência mais antiga e mais direta é o **RTA** de Bacon (Berkeley,
+1997), que `docs/PESQUISA-OTIMIZACAO.md` §5 põe em uma frase: **cruzar
+métodos alcançáveis com classes efetivamente instanciadas, iterando até o
+ponto fixo**. Tudo o que o `dart2js` faz em `universe/` é esse algoritmo
+com precisão maior; tudo o que fazemos aqui é esse algoritmo sobre um
+artefato JS. Os dois avisos que vêm junto são os que mais custam caro:
+
+1. **"Não achei chamada direta" não prova que o método morreu.**
+   `package:js`, tearoffs e despacho dinâmico exigem tratamento
+   conservador. No nosso caso isso virou três regras concretas, e cada uma
+   nasceu de um programa do corpus que quebrou: toda string que pareça um
+   nome é tratada como seletor possível (porque `dart.dsend(o, "nome")`
+   passa o seletor como dado); os nomes gerados pelo DDC com `#` e `|`
+   contam como seletor (`C["_#new#tearOff"]`); e **operador nunca é podado
+   por seletor**, porque o membro se declara `['+'](outro)` e quem chama
+   escreve `p[$plus](x)` — o alias de `dartx['+']`, que não tem relação
+   textual com `+`.
+2. **Alcançabilidade de corpo executável, de dados e de informação de tipo
+   são coisas separadas.** Uma classe pode precisar de identidade sem
+   precisar de um construtor. A nossa classificação já reflete isso sem ter
+   sido desenhada para: as entradas de `addRules` são alcançabilidade de
+   **tipo**, as de `defineLazy(CT, …)` são de **dados** (constantes), e os
+   membros de classe são de **corpo** — três condições diferentes sobre o
+   mesmo símbolo.
 
 ### 1.1 O algoritmo, como o `dart2js` o faz
 
@@ -174,6 +218,35 @@ alcance passa a operar sobre elementos, com granularidade de membro real.
 
 ---
 
+### 1.6 Resumos, e não o mundo na memória (ThinLTO)
+
+Hoje cada compilação de produção lê os 7 MB do `dart_sdk.js`, classifica as
+14.735 declarações em ~45 mil unidades e roda o ponto fixo. Num programa
+pequeno isso domina o tempo; num projeto grande domina a memória. A
+resposta está em `docs/PESQUISA-OTIMIZACAO.md` §6: **análise global por
+resumos**, como o ThinLTO (CGO 2017) — não usar LLVM no caminho Dart→JS,
+usar a arquitetura.
+
+Duas aplicações concretas, nesta ordem:
+
+1. **Índice do `dart_sdk.js` em cache.** A classificação do runtime só
+   depende do arquivo, não do programa: é um índice (símbolo → unidades,
+   unidade → referências e seletores) que deveria ser construído uma vez e
+   lido do disco, como já se faz com o outline do SDK
+   (`target/dartforge/sdk-<hash>.bin`, 5 ms para ler contra ~105 ms de
+   reanálise — `ESTADO.md` §1.6). O ponto fixo em cima do índice é barato;
+   construir o índice é que não é.
+2. **Resumo por biblioteca do usuário**, para a etapa 5: declarações e
+   assinaturas, referências, classes instanciadas, chamadas e efeitos,
+   constantes relevantes. O índice global decide o que é alcançável e quais
+   corpos merecem ser carregados. Com 7,7 GB de RAM na máquina do
+   proprietário, isso deixa de ser elegância e vira requisito — e casa com
+   a propriedade que o `dartforge dev` já tem (platô de memória em +0,00 MB
+   depois de 20 edições).
+
+A regra de higiene que vem junto (§2.1 da pesquisa): **nenhum cache cresce
+sem política de descarte explícita.**
+
 ## 2. Despacho
 
 Hoje o emissor decide entre três formas (`crates/emit_js/src/call.rs`):
@@ -292,6 +365,89 @@ possível.
 
 ---
 
+### 3.4 Emissão pensada para a engine
+
+`docs/PESQUISA-OTIMIZACAO.md` §8 acrescenta três coisas que não são sobre
+tamanho, e sim sobre o que o V8 faz com o que emitimos:
+
+* **Shapes / hidden classes** — inicializar **sempre as mesmas propriedades
+  na mesma ordem, dentro do construtor**. Atribuição condicional fora dele
+  degrada o inline cache de monomórfico para megamórfico. Vale conferir
+  contra o que o nosso `emit_constructor` faz hoje: os campos são
+  inicializados no construtor (`emit_field_inits`), o que é o certo, mas
+  `late` e campos de mixin merecem ser medidos.
+* **Despacho plano** para o que sobrar polimórfico, em vez de cadeias
+  longas de protótipo.
+* **Minificação por frequência** — os símbolos mais frequentes recebem os
+  nomes mais curtos. É o `FrequencyBasedNamer` do dart2js
+  (`frequency_namer.dart:72-86`), que descarta os nomes de refcount zero
+  **antes** de alocar; a pesquisa confirma a regra por outro caminho.
+
+## 3.5 Deduplicação de funções
+
+Fica para depois da minificação, e **não se faz sobre o texto JavaScript**.
+Essa é a lição do SalSSA (`docs/PESQUISA-OTIMIZACAO.md` §13): não
+simplificar um passe destruindo informação que os seguintes terão de
+reconstruir. No texto JS já se perdeu o acesso direto a símbolos, tipos e
+efeitos — que é exatamente o que a verificação de equivalência precisa. A
+comparação e a fusão são na trilha tipada.
+
+Vale marcar a fronteira, porque o resto deste documento faz o contrário: a
+poda do `dart_sdk.js` opera sobre texto **porque não há alternativa** — o
+runtime já vem compilado pelo DDC e não temos IR dele. É uma concessão
+delimitada a um artefato de terceiros, não um método.
+
+`docs/PESQUISA-OTIMIZACAO.md` §4 e §12 dão o algoritmo que evita o erro
+caro:
+
+1. **candidatos baratos primeiro** — agrupar por assinatura, estrutura de
+   controle e sequência de operações normalizada; com 100 mil funções, todos
+   contra todos seriam ~5 bilhões de pares;
+2. **normalizar nomes locais, nunca identidades externas** —
+   `proximo() => ++contador` só é equivalente a outra se o `contador`
+   resolver para o **mesmo** armazenamento;
+3. **refinamento de partição até estabilizar**, como o ICF do `gold`/`mold`:
+   duas funções idênticas que chamam símbolos diferentes só são
+   equivalentes se os alvos também forem — e recursão mútua exige tratar
+   componentes fortemente conexos, que hash recursivo ingênuo não resolve;
+4. **hash igual é candidato, não prova** — depois do hash, comparação
+   estrutural completa;
+5. **preservar identidade observável** (Safe ICF, 2010): se a referência da
+   função escapa para comparação (`identical`, `==`), manter declarações
+   separadas com **corpo compartilhado**.
+
+E as quatro identidades que têm de ficar distintas
+(`docs/PESQUISA-OTIMIZACAO.md` §12) — duas declarações podem compartilhar
+`BodyId` sem compartilhar o resto:
+
+```text
+DefinitionId → a declaração
+TypeId       → identidade e representação do tipo
+StorageId    → o armazenamento de estado
+BodyId       → a implementação executável
+```
+
+Equivalência é **no grafo, não no arquivo**: `validar_publicado` chamando
+`normalizar_publicado` e `validar_vendor` chamando `normalizar_vendor` são
+equivalentes se as duas versões de `normalizar` também forem. Comparar
+incluindo os identificadores dos alvos rejeita cedo demais.
+
+Fusão de funções *parecidas* (Sequence Alignment, CGO 2019; HyFM, LCTES
+2021) é modo orientado a tamanho, com **orçamento explícito de tempo e
+memória e desistência antecipada** (§14): filtro barato → candidatos
+compatíveis → estimativa de economia → análise detalhada só dos
+promissores → transformação → verificação. O modelo de custo é nosso:
+**bytes emitidos, bytes comprimidos, adaptadores necessários e execução no
+navegador** — nunca instruções removidas de uma IR. A memória se mede em
+quatro categorias (programa carregado, caches, temporário do passe, pico do
+processo), e não se cita o número do artigo como se fosse do compilador
+inteiro: os 48 MB do HyFM são do passe avaliado.
+
+**Fora deste plano, e registrado para não se perder tempo**: o BOLT (§15)
+não otimiza `.js` — ele otimizaria o nosso `dartforge.exe`, e só aceita ELF
+x86-64/AArch64, o que exclui o `.exe` de Windows. Acelerar o compilador é
+PGO do `rustc`, e é outro trabalho.
+
 ## 4. Saída
 
 **Um arquivo**, sem `import`/`export`, sem `dart_sdk.js` ao lado.
@@ -362,6 +518,54 @@ Nada entra sem passar por aqui.
    isso, um erro de soundness aparece como "um programa do corpus quebrou"
    três etapas depois.
 
+5. **Determinismo, desde já** (`docs/PESQUISA-OTIMIZACAO.md` §11). Mesmas
+   entradas e mesma configuração têm de dar **o mesmo arquivo** com 1, 4 e
+   8 trabalhadores — inclusive nomes gerados, ordem de diagnósticos e hash
+   do módulo. A razão é prática e visível: o `dartforge serve` recarrega
+   por geração, e geração que muda à toa é um defeito que o usuário vê.
+
+   Onde estamos: o perfil de produção hoje é determinístico por
+   construção — a classificação é sequencial, as unidades são reemitidas na
+   ordem do arquivo e nenhuma decisão depende de endereço ou de ordem de
+   conclusão. Isso **é uma propriedade a preservar**, não um acaso. Duas
+   consequências para o que vem:
+   * quando a classificação for paralelizada, o paralelismo é **dentro** da
+     etapa, com as etapas em sequência, cada trabalhador publicando
+     resultado local — nunca um `Mutex` sobre o índice disputado por todos;
+   * a minificação por frequência precisa de **desempate canônico e
+     estável** (o dart2js desempata pela chave do seletor,
+     `frequency_namer.dart:72-86`); sem isso, dois builds iguais geram
+     nomes diferentes.
+
+   O teste entra no `crates/diferencial`: compilar o mesmo programa com
+   1, 4 e 8 trabalhadores e comparar o arquivo byte a byte.
+
+6. **Os cenários de `docs/PESQUISA-OTIMIZACAO.md` §9**, que são mais do que
+   o corpus mede. Os que este perfil tem de responder:
+
+   | cenário | o que medir |
+   | --- | --- |
+   | compilação de produção sem cache | tempo por fase, pico de RAM, alocações |
+   | pacote copiado 1, 2, 4 e 8 vezes | crescimento do JS emitido — é o teste que prova que a deduplicação funciona **e** que a identidade de biblioteca foi preservada |
+   | identidade de tipos e estado global | dois arquivos vendorizados iguais continuam sendo duas bibliotecas (o contraexemplo do §3 da pesquisa vira caso de corpus) |
+
+   Para deduplicação o teste é de **comportamento**, não de texto:
+   identidade de tipos, estado independente, funções como valores,
+   inicialização, exceções e referências vindas de código gerado. Onde o
+   Dart admite mais de um resultado válido (identidade de closures), o
+   teste aceita o conjunto, não uma implementação.
+
+7. **Relatório de poda, não só um número.** `docs/PESQUISA-OTIMIZACAO.md`
+   §10 pede que a saída explique o resultado. O `--sem-poda`/`--sem-membros`
+   e o `DARTFORGE_JSPROD_QUEM`/`_CAMINHO`/`_GATILHO` já são a metade
+   diagnóstica disso; falta a metade narrativa:
+
+   ```text
+   runtime 6.922 KB -> 1.474 KB (8.450 de 44.965 unidades)
+   maiores sobreviventes: core._BigIntImpl 64 KB, async.Stream 47 KB
+   core._BigIntImpl vivo por: _interceptors.JSNumber -> sel:toRadixString
+   ```
+
 Regra que não muda: **compilar é confirmação, não método de descoberta.**
 Cada etapa abaixo tem o placar do corpus como critério de saída.
 
@@ -385,7 +589,58 @@ Fora deste plano, e registrado como tal: carregamento diferido (`deferred`
 → `import()`), divisão em chunks, e compilar o SDK pelo nosso front-end —
 que é o único caminho para fechar os 30× que faltam para o `dart2js` (§1.5).
 
+### 6.2 Como isto se encaixa na ordem geral (`PESQUISA-OTIMIZACAO.md` §17)
+
+A pesquisa dá cinco etapas para o projeto inteiro. As sete deste documento
+são o recorte do backend JS, e caem assim:
+
+| etapa geral (§17) | o que deste plano a cumpre |
+| --- | --- |
+| 1. medição e determinismo | §0 (a medição que ordena o trabalho) e §5.5 (o teste de 1/4/8 trabalhadores) |
+| 2. representações e incrementalidade | §1.6 — índice do `dart_sdk.js` em cache e resumo por biblioteca |
+| 3. alcançabilidade e fusão conservadora | etapas 1–5 aqui (mundo fechado, poda, granularidade por membro) |
+| 4. fusão por grafo e código semelhante | §3.5, depois da minificação (etapa 7) |
+| 5. PGO do compilador | fora deste plano (§3.5, nota sobre BOLT) |
+
+E os dois modos que a pesquisa exige que fiquem separados já existem: o
+`dartforge serve` é o de incrementalidade e previsibilidade; o
+`dartforge-jsprod` é o de trabalho global. Nenhuma otimização de produção
+entra no caminho do `serve`.
+
 ---
+
+## 6.1 O que já está implementado
+
+Etapas 1 a 4 do quadro acima, em `crates/emit_js_producao`
+(`dartforge-jsprod`). `crates/emit_js` não foi tocado: a produção
+**consome** a emissão de desenvolvimento.
+
+| módulo | o que faz |
+| --- | --- |
+| `varredura.rs` | parte JS de compilador em declarações de topo, entradas de objeto e membros de classe. Não é parser: é um leitor de caracteres que respeita strings, comentários e profundidade. O teste exige **conservação**: a concatenação das fatias é byte a byte a entrada. |
+| `bundle.rs` | separa cada módulo em namespaces içáveis, dependências e corpo; ordena topologicamente pelo grafo de `import` lido do próprio texto; monta o arquivo único com uma IIFE por módulo. |
+| `sdk.rs` | classifica as 14.735 declarações do `dart_sdk.js`, extrai referências (inclusive as das receitas rti) e seletores, e reemite as unidades vivas na ordem do arquivo, recolocando as vírgulas dos grupos. |
+| `alcance.rs` | o ponto fixo: uma unidade acende quando **algum** gatilho está vivo e **todos** os requisitos estão. A conjunção é o que dá granularidade de membro. |
+
+Três defeitos que a medição pegou — e que o diagnóstico embutido
+(`DARTFORGE_JSPROD_QUEM`, `_CAMINHO`, `_GATILHO`) localizou em vez de
+adivinhar. Cada um virou teste de regressão:
+
+1. **`dart.applyMixin(V, M);` lida como declaração de `dart.applyMixin`.**
+   Esse símbolo só é referenciado pelos próprios sítios de chamada: um
+   laço que se apaga sozinho. As 93 aplicações de mixin sumiam, e
+   `defineExtensionAccessors` depois procurava no protótipo um getter que
+   não existia mais. Correção: `lib.Nome` só é declaração quando vem `=`
+   ou `[` depois.
+2. **`dart.defineLazy(html$.Event, {…})` com o alvo lido como `html$`.**
+   O espaço de nomes está sempre vivo e a cabeça do grupo cita a classe,
+   então `dart:html` inteiro entrava num programa que só faz `print`:
+   4.845 KB contra 1.650 KB.
+3. **Classes ligadas por `registerExtension` a tipos embutidos do JS.**
+   `"olá"` é um `String` do JS e só vira `core.String` porque
+   `registerExtension("String", _interceptors.JSString)` rodou — nenhum
+   nome do programa cita a classe. São raiz, como os impactos de
+   `js_backend/backend_impact.dart:93` declaram no dart2js.
 
 ## 7. Território
 
