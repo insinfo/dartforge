@@ -164,7 +164,8 @@ $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $proc = [System.Diagnostics.Process]::Start($psi)
 
-$stdoutArquivo = Join-Path ([System.IO.Path]::GetTempPath()) ("lsp-stdout-{0}.bin" -f $proc.Id)
+# Dreno do stdout no target/ do repositório (D:), nunca no %TEMP% do C:; apagado ao fim.
+$stdoutArquivo = Join-Path (Split-Path $PSScriptRoot -Parent) ("target	mp-medir-lsp-{0}.bin" -f $proc.Id)
 $tarefa = [DrenoLsp]::Iniciar($proc.StandardOutput.BaseStream, $stdoutArquivo)
 $escritor = New-Object System.IO.StreamWriter($proc.StandardInput.BaseStream, (New-Object System.Text.UTF8Encoding($false)))
 
@@ -218,6 +219,7 @@ try {
     if (-not $escritor.BaseStream.CanWrite) { } else { $escritor.Close() }
 }
 $quadrosRecebidos = $tarefa.GetAwaiter().GetResult()
+Remove-Item -LiteralPath $stdoutArquivo -ErrorAction SilentlyContinue
 $codigoSaida = $proc.ExitCode
 $tempoTotal = $cronometro.Elapsed
 

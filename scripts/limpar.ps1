@@ -12,6 +12,8 @@
 #   target/debug            cache de build de desenvolvimento  (~10 min)
 #   target/*/incremental    compilação incremental             (~5 min)
 #   target-*                sobras de experimentos             (nada)
+#   target/tmp-*, target/scratch-*  temporários de testes e scripts (nada)
+#   %TEMP%\dartforge-* etc. sobras antigas no C: (nada; não rode com testes em curso)
 #   target/diferencial/nativo  executáveis e .ll do corpus nativo (nada; sempre)
 #   target/native_cache/dartforge_runtime_*.lib  .lib antigas do runtime, fora
 #                           as 2 mais recentes                (nada; sempre)
@@ -34,6 +36,14 @@ $alvos += Get-ChildItem $raiz -Directory -Filter 'target-*' -EA SilentlyContinue
 $alvos += Get-ChildItem "$raiz\.claude\worktrees" -Directory -EA SilentlyContinue |
   ForEach-Object { [pscustomobject]@{ Caminho = "$($_.FullName)\target"; Quando = 'sempre' } }
 $alvos += [pscustomobject]@{ Caminho = "$raiz\target\release\incremental"; Quando = 'sempre' }
+# Temporários (regra: no D:, em target/tmp-* e target/scratch-*; ESTADO.md §3.1).
+$alvos += Get-ChildItem "$raiz\target" -Directory -EA SilentlyContinue |
+  Where-Object { $_.Name -like 'tmp-*' -or $_.Name -like 'scratch-*' } |
+  ForEach-Object { [pscustomobject]@{ Caminho = $_.FullName; Quando = 'sempre' } }
+# Sobras no %TEMP% (C:) de versões antigas dos testes e scripts, que gravavam lá.
+$alvos += Get-ChildItem ([IO.Path]::GetTempPath()) -Force -EA SilentlyContinue |
+  Where-Object { $_.Name -match '^(dartforge-|dfserve|df-recarga$|lsp-stdout-|verificar-poda-err)' } |
+  ForEach-Object { [pscustomobject]@{ Caminho = $_.FullName; Quando = 'sempre' } }
 # Com -Tudo o diretório inteiro do harness sai logo abaixo; contar o `nativo`
 # à parte somaria o mesmo espaço duas vezes.
 if (-not $Tudo) {

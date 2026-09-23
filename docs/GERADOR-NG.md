@@ -70,6 +70,38 @@ Consequência: acrescentar um `provider:` no elemento ou uma diretiva que
 injeta `ViewContainerRef` **muda a numeração**. Por isso o gerador só emite
 quando a conta é a conhecida, e recusa o resto.
 
+### 2.1 Várias diretivas no nó (`diretivas.rs`)
+
+Com diretivas de atributo (hoje o catálogo do `ngforms`: `NgForm`,
+`NgModel`, `DefaultValueAccessor`, `RequiredValidator`), a ordem e o
+`uniqueId` saem do `provider_parser.dart`:
+
+- `_ProviderResolver.resolve`: primeiro cada diretiva (ansiosa), na ordem
+  de `directives:`; depois os `providers:` de cada uma, com o mesmo token
+  multi acumulando (`NgValidators`, `NgValueAccessor`);
+- `_getOrCreateLocalProvider`: busca em profundidade, as dependências antes
+  de quem depende — por isso `<input required [(ngModel)]>` sai
+  `_RequiredValidator_n_5`, `_NgValidators_n_6`, `_DefaultValueAccessor_n_7`,
+  `_NgValueAccessor_n_8`, `_NgModel_n_9`;
+- `addDirectiveProviders`: `ExistingProvider` de um provedor do próprio nó
+  (não multi) é apelido — não tem campo, mas ocupa um número
+  (`NgControl`, `ControlContainer`);
+- as diretivas são ligadas (entradas, saídas, `registerDirective`) na ordem
+  dos provedores (`transformedDirectiveAsts`); os `@HostListener` na ordem
+  de `directives:` (`_collectHostListeners`), depois dos eventos do
+  template;
+- o `injectorGetInternal` lista os provedores `Visibility.all` e os
+  apelidos, por nó, com o intervalo `[nó, nó + filhos]`
+  (`ProviderForest`): `(n == nodeIndex)`, `(nodeIndex <= fim)` no topo,
+  `((ini <= nodeIndex) && (nodeIndex <= fim))` no meio.
+
+Injeção num componente filho (`injectFromViewParentInjector`): o
+`parentView.injectorGet(T, parentIndex)` é escrito na visão do nó e levado
+(`getPropertyInView`) à visão do nó mais alto da cadeia de injetores — que
+sobe pelos pais e, na raiz de uma visão embutida, continua pelo pai da
+âncora dela. Âncora na raiz da visão do componente: a expressão fica na
+própria visão embutida; âncora aninhada: um `parentView` a mais.
+
 ---
 
 ## 3. Ordem de alocação dos imports
@@ -179,6 +211,10 @@ escopo e passa `@keyframes` inteiro.
 ---
 
 ## 8. O que falta, em ordem
+
+O placar atual (138 pendentes no `new_sali/frontend`, por motivo e
+sub-forma) está no `ESTADO.md` §2.0. A tabela abaixo é a do começo, antes
+dos planos 1 e 2, e fica como registro.
 
 Números do `new_sali/frontend` (166 pendentes) e do
 `limitless_ui/example` (61):

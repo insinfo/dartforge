@@ -18,12 +18,14 @@
 //! o placar diz exatamente onde estamos.
 pub mod componente;
 pub mod css;
+pub mod diretivas;
 pub mod dom;
 pub mod expr;
 pub mod html;
 pub mod micro;
 pub mod resolucao;
 pub mod sass;
+pub mod seletor;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
@@ -31,7 +33,7 @@ use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use visao::Motivo;
+use visao::{Motivo, Recusa, recusa};
 
 /// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
@@ -41,8 +43,11 @@ pub const CABECALHO: &str = "// ************************************************
 pub struct Achados {
     /// `@Component` lidos por inteiro — é deles que sai a visão.
     pub componentes: Vec<componente::Componente>,
-    pub diretivas: Vec<String>,
-    pub pipes: Vec<String>,
+    /// `@Directive`, lidas como o oficial as vê de quem as usa (seletor,
+    /// entradas, saídas, construtor).
+    pub diretivas: Vec<componente::Componente>,
+    /// `@Pipe`, com o que quem o usa precisa saber dele.
+    pub pipes: Vec<componente::Pipe>,
     /// `@GenerateInjector` em qualquer declaração de topo.
     pub injetores: Vec<String>,
     /// `@Directive` com `@HostBinding`: cada uma ganha um
@@ -202,7 +207,11 @@ pub fn achar(
                     }
                 }
                 "Directive" => {
-                    achados.diretivas.push(alvo.clone());
+                    if let ast::DeclKind::Class(classe) = &decl.kind {
+                        achados
+                            .diretivas
+                            .push(componente::ler_diretiva(arvore, fonte, interner, classe, a));
+                    }
                     // Só `@HostBinding` muda o arquivo da diretiva; o
                     // `@HostListener` vai para quem a usa. Mas o oficial
                     // coleta os dois também nas superclasses.
@@ -222,7 +231,13 @@ pub fn achar(
                             .extend(hospedeira(arvore, interner, classe));
                     }
                 }
-                "Pipe" => achados.pipes.push(alvo.clone()),
+                "Pipe" => {
+                    if let ast::DeclKind::Class(classe) = &decl.kind {
+                        achados
+                            .pipes
+                            .push(componente::ler_pipe(arvore, fonte, interner, classe, a));
+                    }
+                }
                 "GenerateInjector" => achados.injetores.push(alvo.clone()),
                 _ => {}
             }
@@ -245,11 +260,12 @@ pub struct Placar {
     pub gerados: usize,
     /// Deixados para quem souber gerar (hoje, o `build_runner`).
     pub pendentes: Vec<PathBuf>,
-    /// Quantos pendentes por motivo — o mapa que ordena o trabalho.
+    /// Quantos pendentes por motivo da primeira recusa.
     pub motivos: std::collections::BTreeMap<Motivo, usize>,
-    /// Conjunto completo de motivos de cada pendente. É por ele que se sabe
-    /// quantos arquivos uma forma nova destrava de verdade.
-    pub conjuntos: Vec<std::collections::BTreeSet<Motivo>>,
+    /// Conjunto completo de recusas (motivo e sub-forma) de cada pendente,
+    /// coletado pela mesma emissão que gera. É por ele que se sabe quantos
+    /// arquivos uma forma nova destrava de verdade.
+    pub conjuntos: Vec<std::collections::BTreeSet<Recusa>>,
     /// Quantas vezes cada forma não entendida aparece (`@HostBinding`,
     /// `providers: [..]`…), contando todas as de cada componente pendente.
     pub nao_entendidos: std::collections::BTreeMap<String, usize>,
@@ -299,7 +315,6 @@ pub fn gerar_em(
     programa: Option<&resolucao::Resolvedor>,
 ) {
     let resolvedor = programa.map(|r| r as &dyn resolucao::Resolucao);
-    let resolvedor = resolvedor.as_deref();
     // Duas passadas: a primeira lê e analisa tudo, a segunda gera. É a
     // primeira que monta o índice de componentes do pacote — sem ele não dá
     // para saber que `<a02-texto-estatico>` é um componente e qual classe o
@@ -344,18 +359,18 @@ pub fn gerar_em(
         let (texto, entradas, extras) =
             match gerar_arquivo(pacote, p, nome, achados, resolvedor, interner, &indice) {
                 Ok(x) => x,
-                Err(motivo) => {
+                Err(primeira) => {
                     // Forma que o gerador ainda não cobre: fica com o
                     // build_runner, e a aplicação compila do mesmo jeito.
-                    *placar.motivos.entry(motivo).or_default() += 1;
+                    *placar.motivos.entry(primeira.motivo).or_default() += 1;
                     // Toda forma presente conta, não só a que recusou.
                     for c in &achados.componentes {
-                        for (_, forma) in &c.nao_entendidos {
-                            *placar.nao_entendidos.entry(forma.clone()).or_default() += 1;
+                        for r in &c.nao_entendidos {
+                            *placar.nao_entendidos.entry(r.forma.clone()).or_default() += 1;
                         }
                     }
                     placar.conjuntos.push(motivos_do_arquivo(
-                        pacote, p, achados, motivo, resolvedor, &indice,
+                        pacote, p, achados, primeira, resolvedor, &indice, interner,
                     ));
                     placar.pendentes.push(p.clone());
                     continue;
@@ -369,14 +384,20 @@ pub fn gerar_em(
     }
 }
 
-/// Os componentes do pacote, por biblioteca e classe.
+/// Os componentes e diretivas do pacote, por biblioteca e classe.
 ///
 /// O oficial pergunta isso ao grafo de assets do `build`; aqui vem da
 /// primeira passada. É o que permite casar `<a02-texto-estatico>` com a
-/// classe que declara esse seletor e emitir a visão-filha.
+/// classe que declara esse seletor e emitir a visão-filha — e saber que um
+/// `<form>` recebe `NgForm`.
 #[derive(Default)]
 pub struct Indice {
     por_classe: std::collections::HashMap<(String, String), visao::Filho>,
+    /// `@Directive` por (URI da biblioteca, classe): o seletor e o que o
+    /// emissor precisa para instanciá-la.
+    diretivas: std::collections::HashMap<(String, String), componente::Componente>,
+    /// `@Pipe` por (URI da biblioteca, classe).
+    pipes: std::collections::HashMap<(String, String), componente::Pipe>,
     /// Mesmo índice por nome de classe, para quando não há banco semântico
     /// (o teste do corpus). Só vale quando o nome é único no pacote — com
     /// duas classes de mesmo nome, resolver pelo nome seria chute.
@@ -390,6 +411,8 @@ impl Indice {
         programa: Option<&resolucao::Resolvedor>,
     ) -> Self {
         let mut por_classe = std::collections::HashMap::new();
+        let mut diretivas = std::collections::HashMap::new();
+        let mut pipes = std::collections::HashMap::new();
         // Com o programa carregado, o índice cobre todos os pacotes: um
         // `<li-select>` do limitless_ui é tão componente quanto um do próprio
         // projeto. Sem ele, só o que a varredura de arquivos viu.
@@ -398,7 +421,13 @@ impl Indice {
             for (uri, arvore, unidade, fonte, caminho) in r.bibliotecas() {
                 let achados = achar(arvore, unidade, fonte, interner);
                 for comp in &achados.componentes {
-                    indexar(&mut por_classe, uri, comp, caminho);
+                    indexar(&mut por_classe, uri, comp, caminho, Some(r));
+                }
+                for d in achados.diretivas {
+                    diretivas.insert((uri.to_string(), d.classe.clone()), d);
+                }
+                for p in achados.pipes {
+                    pipes.insert((uri.to_string(), p.classe.clone()), p);
                 }
             }
         }
@@ -410,7 +439,23 @@ impl Indice {
                 if comp.seletor.is_empty() {
                     continue;
                 }
-                indexar(&mut por_classe, &uri, comp, Some(caminho));
+                indexar(
+                    &mut por_classe,
+                    &uri,
+                    comp,
+                    Some(caminho),
+                    programa.map(|r| r as &dyn resolucao::Resolucao),
+                );
+            }
+            for d in &achados.diretivas {
+                diretivas
+                    .entry((uri.clone(), d.classe.clone()))
+                    .or_insert_with(|| d.clone());
+            }
+            for p in &achados.pipes {
+                pipes
+                    .entry((uri.clone(), p.classe.clone()))
+                    .or_insert_with(|| p.clone());
             }
         }
         let mut por_nome: std::collections::HashMap<String, Vec<visao::Filho>> =
@@ -420,33 +465,239 @@ impl Indice {
         }
         Indice {
             por_classe,
+            diretivas,
+            pipes,
             por_nome,
         }
     }
 
-    /// Os filhos que este componente pode usar: os nomes de `directives:` que
-    /// resolvem para um componente do índice, por seletor.
-    fn filhos_de(
+    /// Os pipes que este componente usa, na ordem de `pipes:` expandida em
+    /// profundidade (as listas constantes, como `commonPipes`, pelo banco
+    /// semântico). O oficial procura o nome do fim para o começo
+    /// (`_findPipeMeta`), então a ordem importa. Classe que não é pipe fica
+    /// de fora; nome que não se resolve volta como recusa.
+    fn pipes_de(
         &self,
         comp: &componente::Componente,
         arquivo: &Path,
         resolvedor: Option<&dyn resolucao::Resolucao>,
-    ) -> std::collections::HashMap<String, visao::Filho> {
-        let mut saida = std::collections::HashMap::new();
-        for nome in &comp.diretivas {
-            let achado = resolvedor
-                .and_then(|r| r.uri_do_tipo(arquivo, nome))
-                .and_then(|uri| self.por_classe.get(&(uri, nome.clone())))
-                .or_else(|| match self.por_nome.get(nome) {
-                    Some(v) if v.len() == 1 => v.first(),
-                    _ => None,
-                });
-            if let Some(f) = achado {
-                saida.insert(f.seletor.clone(), f.clone());
+    ) -> (Vec<visao::PipeUsado>, Vec<Recusa>) {
+        let mut saida = Vec::new();
+        let mut fora = Vec::new();
+        if comp.pipes_ilegiveis {
+            fora.push(recusa(
+                Motivo::PipesUsados,
+                "pipes: com item que não é nome",
+            ));
+        }
+        let mut pilha: Vec<(String, PathBuf, u32)> = comp
+            .pipes
+            .iter()
+            .rev()
+            .map(|n| (n.clone(), arquivo.to_path_buf(), 0))
+            .collect();
+        while let Some((nome, escopo, profundidade)) = pilha.pop() {
+            if profundidade > 32 {
+                fora.push(recusa(Motivo::PipesUsados, "pipes: lista circular"));
+                break;
+            }
+            let simples = nome.rsplit('.').next().unwrap_or(&nome).to_string();
+            match resolvedor.and_then(|r| r.designado(&escopo, &nome)) {
+                Some(resolucao::Designado::Classe { uri }) => {
+                    if let Some(p) = self.pipes.get(&(uri.clone(), simples)) {
+                        saida.push(visao::PipeUsado {
+                            uri,
+                            pipe: p.clone(),
+                        });
+                    }
+                }
+                Some(resolucao::Designado::Lista { itens, escopo }) => {
+                    for item in itens.iter().rev() {
+                        pilha.push((item.clone(), escopo.clone(), profundidade + 1));
+                    }
+                }
+                None => fora.push(recusa(Motivo::PipesUsados, "pipes: nome não resolvido")),
             }
         }
-        saida
+        (saida, fora)
     }
+
+    /// As diretivas e componentes que este componente usa, na ordem do
+    /// oficial: `directives:` expandida em profundidade (as listas
+    /// constantes pelo banco semântico), sem repetição (`removeDuplicates`).
+    /// Classe que não é diretiva nem componente é ignorada, como no oficial
+    /// (`typeDeclarationOf(value)?.accept(...)` devolve `null`). O que não
+    /// se consegue resolver volta como recusa: sem a lista inteira não se
+    /// sabe o que casa com cada elemento.
+    fn diretivas_de(
+        &self,
+        comp: &componente::Componente,
+        arquivo: &Path,
+        resolvedor: Option<&dyn resolucao::Resolucao>,
+    ) -> (Vec<visao::Usada>, Vec<Recusa>) {
+        let mut saida = Vec::new();
+        let mut vistos = std::collections::HashSet::new();
+        let mut fora = Vec::new();
+        if comp.diretivas_ilegiveis {
+            fora.push(recusa(
+                Motivo::DiretivaPorSeletor,
+                "directives: com item que não é nome",
+            ));
+        }
+        for nome in &comp.diretivas {
+            self.expandir(
+                nome,
+                arquivo,
+                resolvedor,
+                &mut saida,
+                &mut vistos,
+                &mut fora,
+                0,
+            );
+        }
+        (saida, fora)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn expandir(
+        &self,
+        nome: &str,
+        escopo: &Path,
+        resolvedor: Option<&dyn resolucao::Resolucao>,
+        saida: &mut Vec<visao::Usada>,
+        vistos: &mut std::collections::HashSet<(String, String)>,
+        fora: &mut Vec<Recusa>,
+        profundidade: u32,
+    ) {
+        if profundidade > 32 {
+            fora.push(recusa(
+                Motivo::DiretivaPorSeletor,
+                "directives: lista circular",
+            ));
+            return;
+        }
+        let simples = nome.rsplit('.').next().unwrap_or(nome).to_string();
+        match resolvedor.and_then(|r| r.designado(escopo, nome)) {
+            Some(resolucao::Designado::Classe { uri }) => {
+                let chave = (uri.clone(), simples.clone());
+                if !vistos.insert(chave.clone()) {
+                    return;
+                }
+                if let Some(f) = self.por_classe.get(&chave) {
+                    saida.push(visao::Usada {
+                        classe: simples,
+                        uri,
+                        seletores: seletor::Seletor::analisar(&f.seletor),
+                        filho: Some(f.clone()),
+                    });
+                } else if let Some(d) = self.diretivas.get(&chave) {
+                    saida.push(visao::Usada {
+                        classe: simples,
+                        uri,
+                        seletores: seletor::Seletor::analisar(&d.seletor),
+                        filho: None,
+                    });
+                }
+            }
+            Some(resolucao::Designado::Lista { itens, escopo }) => {
+                for item in &itens {
+                    self.expandir(
+                        item,
+                        &escopo,
+                        resolvedor,
+                        saida,
+                        vistos,
+                        fora,
+                        profundidade + 1,
+                    );
+                }
+            }
+            None => {
+                // Sem resposta do banco semântico: só um componente de nome
+                // único no pacote (o caminho de antes, sem programa).
+                match self.por_nome.get(&simples).map(Vec::as_slice) {
+                    Some([f]) if !nome.contains('.') => {
+                        let chave = (f.uri_dart.clone(), f.classe.clone());
+                        if vistos.insert(chave) {
+                            saida.push(visao::Usada {
+                                classe: f.classe.clone(),
+                                uri: f.uri_dart.clone(),
+                                seletores: seletor::Seletor::analisar(&f.seletor),
+                                filho: Some(f.clone()),
+                            });
+                        }
+                    }
+                    _ => fora.push(recusa(
+                        Motivo::DiretivaPorSeletor,
+                        "directives: nome não resolvido",
+                    )),
+                }
+            }
+        }
+    }
+}
+
+/// Os componentes que o emissor casa pela tag: os de seletor só com nome de
+/// elemento. O resto da lista só serve à guarda de diretivas.
+fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, visao::Filho> {
+    let mut saida = std::collections::HashMap::new();
+    for u in usadas {
+        let (Some(f), [s]) = (&u.filho, u.seletores.as_slice()) else {
+            continue;
+        };
+        if let Some(tag) = s.so_tag() {
+            saida.entry(tag.to_string()).or_insert_with(|| f.clone());
+        }
+    }
+    saida
+}
+
+/// Como o oficial resolve um parâmetro do construtor de um filho no nó dele:
+/// o nó, a visão do filho ou um serviço de fora da visão. O resto (outro
+/// token do ngdart, `@Inject`, `@Self`, genérico, nomeado) ainda não.
+fn injetado(
+    p: &componente::Parametro,
+    caminho: Option<&Path>,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
+) -> Result<visao::Injetado, &'static str> {
+    let tipo = p
+        .tipo
+        .as_deref()
+        .ok_or("parâmetro sem tipo no construtor do filho")?;
+    if p.nomeado {
+        return Err("parâmetro nomeado no construtor do filho");
+    }
+    if p.anotado && !p.opcional {
+        return Err("@Inject/@Self/@Attribute no construtor do filho");
+    }
+    if tipo.contains('<') {
+        return Err("token genérico no construtor do filho");
+    }
+    let tipo = tipo.trim_end_matches('?');
+    let uri = match (caminho, resolvedor) {
+        (Some(c), Some(r)) => r.uri_do_tipo(c, tipo),
+        _ => None,
+    }
+    .ok_or("tipo injetado no filho sem resolução")?;
+    let simples = tipo.rsplit('.').next().unwrap_or(tipo).to_string();
+    if uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement") {
+        return Ok(visao::Injetado::Elemento);
+    }
+    if uri.starts_with("package:ngdart/") {
+        return if simples == "ChangeDetectorRef" && !p.opcional {
+            Ok(visao::Injetado::Detector)
+        } else {
+            Err("token do ngdart no construtor do filho")
+        };
+    }
+    if uri.starts_with("dart:") {
+        return Err("tipo do SDK no construtor do filho");
+    }
+    Ok(visao::Injetado::Servico {
+        uri,
+        classe: simples,
+        opcional: p.opcional,
+    })
 }
 
 /// Põe um componente no índice, com o que o emissor precisa dele.
@@ -455,20 +706,92 @@ fn indexar(
     uri: &str,
     comp: &componente::Componente,
     caminho: Option<&Path>,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
 ) {
     if comp.seletor.is_empty() {
         return;
     }
     // Se o filho projeta conteúdo, quem o usa chama `createAndProject`.
-    let projeta = match (&comp.template, &comp.template_url) {
-        (Some(t), _) => html::tem_projecao(&html::analisar(t)),
+    let nos = match (&comp.template, &comp.template_url) {
+        (Some(t), _) => Some(html::analisar(t)),
         (None, Some(u)) => caminho
             .and_then(|c| c.parent().map(|d| d.join(u)))
             .and_then(|c| std::fs::read_to_string(c).ok())
-            .map(|t| html::tem_projecao(&html::analisar(&t)))
-            .unwrap_or(false),
-        (None, None) => false,
+            .map(|t| html::analisar(&t)),
+        (None, None) => None,
     };
+    // `ngContentSelectors`: o `select` de cada `<ng-content>`, `*` sem ele.
+    let projecoes: Vec<String> = nos
+        .as_deref()
+        .map(html::projecoes)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.unwrap_or_else(|| "*".to_string()))
+        .collect();
+    // O que no filho muda o código de quem o usa e ainda não é escrito.
+    let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
+    let mut pendencias = Vec::new();
+    let mut parametros = Vec::new();
+    for p in &comp.parametros {
+        match injetado(p, caminho, resolvedor) {
+            Ok(x) => parametros.push(x),
+            Err(f) => {
+                pendencias.push(em_filho(f));
+                break;
+            }
+        }
+    }
+    if comp.liga_hospedeiro {
+        pendencias.push(em_filho("filho com @HostBinding"));
+    }
+    // As consultas de conteúdo, com o alvo resolvido no arquivo do filho.
+    // Tipo do ngdart (`TemplateRef`, diretivas do núcleo) casaria com o que
+    // o emissor põe no conteúdo (`*ngIf`): ainda não.
+    let mut consultas = Vec::new();
+    match &comp.consultas_de_conteudo {
+        None => pendencias.push(em_filho("filho com @ContentChild fora da forma")),
+        Some(lidas) => {
+            for q in lidas {
+                if q.referencia {
+                    consultas.push((
+                        q.campo.clone(),
+                        q.lista,
+                        visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
+                    ));
+                    continue;
+                }
+                let uri = match (caminho, resolvedor) {
+                    (Some(c), Some(r)) => r.uri_do_tipo(c, &q.alvo),
+                    _ => None,
+                };
+                match uri {
+                    Some(u) if !u.starts_with("package:ngdart/") && !u.starts_with("dart:") => {
+                        let simples = q.alvo.rsplit('.').next().unwrap_or(&q.alvo);
+                        consultas.push((
+                            q.campo.clone(),
+                            q.lista,
+                            visao::AlvoDeConsulta::Classe(u, simples.to_string()),
+                        ));
+                    }
+                    _ => {
+                        pendencias.push(em_filho("filho com @ContentChild de tipo não resolvido"));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if comp.com_provedores {
+        pendencias.push(em_filho("filho com providers"));
+    }
+    // Ganchos, `@Input` e `@Output` herdados não se veem daqui (o oficial
+    // os coleta pelos supertipos).
+    if comp.herda {
+        pendencias.push(em_filho("filho que herda (extends/with)"));
+    }
+    if comp.template.is_none() && comp.template_url.is_some() && nos.is_none() {
+        pendencias.push(em_filho("template do filho não encontrado"));
+    }
     por_classe.insert(
         (uri.to_string(), comp.classe.clone()),
         visao::Filho {
@@ -476,9 +799,14 @@ fn indexar(
             seletor: comp.seletor.clone(),
             uri_dart: uri.to_string(),
             uri_template: uri.replace(".dart", ".template.dart"),
-            projeta,
+            projecoes,
             entradas: comp.entradas.clone(),
-            muda_o_pai: comp.ganchos.algum() || comp.ganchos.after_changes || comp.on_push,
+            ganchos: comp.ganchos,
+            on_push: comp.on_push,
+            saidas: comp.saidas.clone(),
+            parametros,
+            consultas,
+            pendencias,
         },
     );
 }
@@ -513,6 +841,10 @@ fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
     Some(format!("package:{}/{dentro}", pacote.nome))
 }
 
+/// O que sai de um arquivo: o `.template.dart`, os arquivos que o alimentam
+/// e os gerados à parte (o `.css.shim.dart` de cada folha).
+type Gerado = (String, Vec<PathBuf>, Vec<(PathBuf, String)>);
+
 /// Conteúdo do `.template.dart` de um arquivo, quando sabemos gerá-lo, com os
 /// arquivos que o alimentam (o `.dart` e o `.html` do template).
 fn gerar_arquivo(
@@ -523,7 +855,7 @@ fn gerar_arquivo(
     resolvedor: Option<&dyn resolucao::Resolucao>,
     nomes: &mut Interner,
     indice: &Indice,
-) -> Result<(String, Vec<PathBuf>, Vec<(PathBuf, String)>), Motivo> {
+) -> Result<Gerado, Recusa> {
     if achados.trivial() {
         return Ok((
             template_trivial(nome_do_arquivo),
@@ -532,14 +864,17 @@ fn gerar_arquivo(
         ));
     }
     if !achados.injetores.is_empty() {
-        return Err(Motivo::Injetor);
+        return Err(recusa(Motivo::Injetor, "@GenerateInjector"));
     }
     // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
     // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
     // `DirectiveChangeDetector` dela.
     if achados.componentes.is_empty() {
         if achados.hospedeiro_herdado {
-            return Err(Motivo::HostBindingEmDiretiva);
+            return Err(recusa(
+                Motivo::HostBindingEmDiretiva,
+                "@HostBinding/@HostListener em diretiva que herda",
+            ));
         }
         return match achados.hospedeiras.as_slice() {
             [] => Ok((
@@ -555,24 +890,34 @@ fn gerar_arquivo(
                 vec![fonte.to_path_buf()],
                 Vec::new(),
             )),
-            _ => Err(Motivo::HostBindingEmDiretiva),
+            _ => Err(recusa(
+                Motivo::HostBindingEmDiretiva,
+                "@HostBinding fora de `class.x` ou várias diretivas no arquivo",
+            )),
         };
     }
     if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
-        return Err(Motivo::DiretivaOuPipe);
+        return Err(recusa(
+            Motivo::DiretivaOuPipe,
+            "componente com diretiva ou pipe no arquivo",
+        ));
     }
     if achados.componentes.len() != 1 {
-        return Err(Motivo::VariosComponentes);
+        return Err(recusa(
+            Motivo::VariosComponentes,
+            "vários componentes no arquivo",
+        ));
     }
     let comp = &achados.componentes[0];
-    if let Some((m, _)) = comp.nao_entendidos.first() {
-        return Err(*m);
+    if let Some(r) = comp.nao_entendidos.first() {
+        return Err(r.clone());
     }
+    let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
     let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
         (Some(t), _) => (t.clone(), None),
         (None, Some(url)) => {
-            let caminho = fonte.parent().ok_or(Motivo::TemplateAusente)?.join(url);
-            let texto = std::fs::read_to_string(&caminho).map_err(|_| Motivo::TemplateAusente)?;
+            let caminho = fonte.parent().ok_or_else(ausente)?.join(url);
+            let texto = std::fs::read_to_string(&caminho).map_err(|_| ausente())?;
             (texto, Some(caminho))
         }
         (None, None) => (String::new(), None),
@@ -587,26 +932,48 @@ fn gerar_arquivo(
         url_do_template: url_do_template(pacote, fonte, comp),
     };
     let nos = html::analisar(&template);
-    let filhos = indice.filhos_de(comp, fonte, resolvedor);
-    let texto = visao::template_de_componente(comp, &local, &nos, resolvedor, nomes, &filhos)?;
+    let (usadas, fora) = indice.diretivas_de(comp, fonte, resolvedor);
+    if let Some(r) = fora.into_iter().next() {
+        return Err(r);
+    }
+    let filhos = filhos_por_tag(&usadas);
+    // A lista de `pipes:` só pesa se o template usa pipe (caso b19): a
+    // recusa dela vai junto e é a visão que decide.
+    let (pipes, fora) = indice.pipes_de(comp, fonte, resolvedor);
+    let pipes = match fora.into_iter().next() {
+        Some(r) => Err(r),
+        None => Ok(pipes),
+    };
+    let texto = visao::template_de_componente(
+        comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes,
+    )?;
     let mut entradas = vec![fonte.to_path_buf()];
     entradas.extend(arquivo_html);
     // A folha compilada é um arquivo à parte, como o oficial gera: o
     // `<nome>.css.shim.dart` que o template importa.
     let mut extras = Vec::new();
+    let folha = |f: &str| recusa(Motivo::Estilos, f);
     for url in &comp.style_urls {
-        let css = fonte.parent().ok_or(Motivo::Estilos)?.join(url);
+        let css = fonte
+            .parent()
+            .ok_or_else(|| folha("folha fora de lib/"))?
+            .join(url);
         // O `.css` do `styleUrls` quase nunca existe no disco: quem o produz
         // é o `sass_builder`, a partir do `.scss` ao lado. Fazemos os dois.
         let (texto_css, entrada) = match std::fs::read_to_string(&css) {
             Ok(t) => (t, css.clone()),
             Err(_) => {
                 let scss = css.with_extension("scss");
-                let fonte_scss = std::fs::read_to_string(&scss).map_err(|_| Motivo::Estilos)?;
-                (sass::compilar(&fonte_scss)?, scss)
+                let fonte_scss =
+                    std::fs::read_to_string(&scss).map_err(|_| folha("folha não encontrada"))?;
+                (
+                    sass::compilar(&fonte_scss)
+                        .map_err(|_| folha("Sass ou CSS fora do subconjunto"))?,
+                    scss,
+                )
             }
         };
-        let shim = css::shim(&texto_css)?;
+        let shim = css::shim(&texto_css).map_err(|_| folha("Sass ou CSS fora do subconjunto"))?;
         let destino = css.with_file_name(format!(
             "{}.shim.dart",
             css.file_name().unwrap_or_default().to_string_lossy()
@@ -651,17 +1018,19 @@ pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
     css::shim(&texto).is_ok()
 }
 
-/// Conjunto de motivos de um arquivo pendente, para o placar.
+/// Conjunto de recusas de um arquivo pendente, para o placar: a primeira,
+/// e todas as que a emissão em modo de coleta encontra.
 fn motivos_do_arquivo(
     pacote: &Pacote,
     fonte: &Path,
     achados: &Achados,
-    primeiro: Motivo,
+    primeira: Recusa,
     resolvedor: Option<&dyn resolucao::Resolucao>,
     indice: &Indice,
-) -> std::collections::BTreeSet<Motivo> {
+    nomes: &mut Interner,
+) -> std::collections::BTreeSet<Recusa> {
     let mut fora = std::collections::BTreeSet::new();
-    fora.insert(primeiro);
+    fora.insert(primeira);
     if achados.componentes.len() != 1 {
         return fora;
     }
@@ -688,13 +1057,23 @@ fn motivos_do_arquivo(
         raiz: &pacote.raiz,
         url_do_template: url_do_template(pacote, fonte, comp),
     };
-    let filhos = indice.filhos_de(comp, fonte, resolvedor);
-    fora.extend(visao::motivos(
+    let (usadas, fora_da_lista) = indice.diretivas_de(comp, fonte, resolvedor);
+    fora.extend(fora_da_lista);
+    let filhos = filhos_por_tag(&usadas);
+    let (pipes, fora_dos_pipes) = indice.pipes_de(comp, fonte, resolvedor);
+    let pipes = match fora_dos_pipes.into_iter().next() {
+        Some(r) => Err(r),
+        None => Ok(pipes),
+    };
+    fora.extend(visao::coletar(
         comp,
         &local,
         &html::analisar(&template),
         resolvedor,
+        nomes,
         &filhos,
+        &usadas,
+        &pipes,
     ));
     fora
 }
@@ -772,8 +1151,13 @@ mod testes {
     #[test]
     fn acha_diretiva_e_pipe() {
         let a = achados_de("@Directive(selector: '[d]')\nclass D {}\n@Pipe('p')\nclass P {}\n");
-        assert_eq!(a.diretivas, vec!["D".to_string()]);
-        assert_eq!(a.pipes, vec!["P".to_string()]);
+        assert_eq!(a.diretivas.len(), 1);
+        assert_eq!(a.diretivas[0].classe, "D");
+        assert_eq!(a.diretivas[0].seletor, "[d]");
+        assert_eq!(a.pipes.len(), 1);
+        assert_eq!(a.pipes[0].classe, "P");
+        assert_eq!(a.pipes[0].nome, "p");
+        assert!(a.pipes[0].puro);
         assert!(!a.trivial());
     }
 
