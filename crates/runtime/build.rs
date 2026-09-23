@@ -33,7 +33,15 @@ use std::path::PathBuf;
 
 /// Os fragmentos do runtime, na ordem de concatenação. Acrescentar um
 /// fragmento é acrescentar o nome aqui (e o arquivo em `src/`).
-const FRAGMENTOS: &[&str] = &["nucleo", "gc_raizes", "excecoes", "saida", "strings", "colecoes", "closures"];
+const FRAGMENTOS: &[&str] = &[
+    "nucleo",
+    "gc_raizes",
+    "excecoes",
+    "saida",
+    "strings",
+    "colecoes",
+    "closures",
+];
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
@@ -41,7 +49,8 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_embutido)");
     println!("cargo::rustc-cfg=dartforge_runtime_embutido");
 
-    let manifesto = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifesto =
+        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let src = manifesto.join("src");
     conferir_lista(&src);
 
@@ -51,7 +60,11 @@ fn main() {
         let caminho = src.join(format!("{f}.rs"));
         let conteudo = std::fs::read_to_string(&caminho)
             .unwrap_or_else(|e| panic!("ler {}: {e}", caminho.display()));
-        assert!(conteudo.ends_with('\n'), "{} não termina em fim de linha", caminho.display());
+        assert!(
+            conteudo.ends_with('\n'),
+            "{} não termina em fim de linha",
+            caminho.display()
+        );
         texto.push_str(&conteudo);
         let literal = format!("{:?}", caminho.to_str().expect("caminho UTF-8"));
         abi.push_str(&format!("include!({literal});\n"));
@@ -61,7 +74,10 @@ fn main() {
     let mut ordenados = nomes.clone();
     ordenados.sort_unstable();
     ordenados.dedup();
-    assert!(ordenados.len() == nomes.len(), "o runtime define algum símbolo #[unsafe(no_mangle)] duas vezes");
+    assert!(
+        ordenados.len() == nomes.len(),
+        "o runtime define algum símbolo #[unsafe(no_mangle)] duas vezes"
+    );
 
     let mut saida = String::from(
         "// GERADO por crates/runtime/build.rs a partir dos fragmentos de src/ — não editar.\n\n\
@@ -84,7 +100,9 @@ fn main() {
          pub fn tabela() -> Vec<(&'static str, usize)> {\n    vec![\n",
     );
     for nome in &nomes {
-        saida.push_str(&format!("        (\"{nome}\", crate::abi::{nome} as *const () as usize),\n"));
+        saida.push_str(&format!(
+            "        (\"{nome}\", crate::abi::{nome} as *const () as usize),\n"
+        ));
     }
     saida.push_str("    ]\n}\n");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -133,8 +151,15 @@ fn nomes_exportados(texto: &str) -> Vec<String> {
         let assinatura = seguinte
             .strip_prefix("pub unsafe extern \"C\" fn ")
             .or_else(|| seguinte.strip_prefix("pub extern \"C\" fn "))
-            .unwrap_or_else(|| panic!("#[unsafe(no_mangle)] seguido de forma não reconhecida no runtime: `{seguinte}`"));
-        let nome: String = assinatura.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            .unwrap_or_else(|| {
+                panic!(
+                    "#[unsafe(no_mangle)] seguido de forma não reconhecida no runtime: `{seguinte}`"
+                )
+            });
+        let nome: String = assinatura
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         if nome != "main" {
             nomes.push(nome);
         }
