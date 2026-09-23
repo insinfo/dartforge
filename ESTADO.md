@@ -22,7 +22,7 @@ Alvos reais usados como critério:
 | Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
-| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 29 avisos e 52 de 634.368 expressões divergentes, `frontend` 59 avisos e 101 de 1.259.011; SDK da fonte (nativo) 18 diagnósticos, os mesmos do analyzer; corpus de conformidade 81/95 programas iguais ao oráculo (ver §2.1) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 26 avisos e 34 de 634.368 expressões divergentes, `frontend` 41 avisos e 61 de 1.259.011; SDK da fonte (nativo) 18 diagnósticos, os mesmos do analyzer; corpus de conformidade 82/95 programas iguais ao oráculo (ver §2.1) |
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
@@ -550,10 +550,10 @@ arquivo oficial correspondente serve de teste byte a byte.
 1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0
    diagnósticos nos projetos: todo aviso nosso é falso positivo). Medido
    em 2026-09-23 com o oráculo (`tools/oraculo_tipos`, método em
-   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **29** avisos,
-   `frontend` 57.883 → **59**; divergências de tipo estático por
-   expressão 137.428 → 52 (core) e 316.756 → 101 (frontend); corpus
-   `corpus/inferencia` 81/95 programas iguais ao oráculo (teste no CI). Os
+   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **26** avisos,
+   `frontend` 57.883 → **41**; divergências de tipo estático por
+   expressão 137.428 → 34 (core) e 316.756 → 61 (frontend); corpus
+   `corpus/inferencia` 82/95 programas iguais ao oráculo (teste no CI). Os
    grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
    O contrato é `docs/INFERENCIA-ESPECIFICACAO.md` (regras do analyzer
    6.11 com arquivo:linha, e o que muda até 3.14), com o corpus de

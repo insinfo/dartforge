@@ -187,6 +187,7 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | escrita no membro inteiro demove dentro de closure (R-FLU-07) | 49 | 82 | 109 | 162 |
 | `if-case`/`switch` promovem o escrutínio (R-FLU-14) | 29 | 62 | 56 | 109 |
 | promoção de campo só com versão de linguagem ≥ 3.2 (R-FLU-12) — `crates/elements` preenche a versão | 29 | 59 | 52 | 101 |
+| variáveis de condição (§7.10: `final bool v = d != null; if (v) d`) | 26 | 41 | 34 | 61 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
 com as sete bibliotecas, sobreposição `vm`): **4.447 → 275 → 18**
@@ -201,11 +202,13 @@ _compact_hash collection math convert async`.
 
 Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
 sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
-**0/95 → 81/95** (antes do `FutureOr` cru todo programa tinha um aviso);
-39 expressões divergentes e 5 avisos, listados em
+**0/95 → 82/95** (antes do `FutureOr` cru todo programa tinha um aviso);
+38 expressões divergentes e 5 avisos, listados em
 `corpus/inferencia/divergencias.txt`.
 
-Avisos restantes no new_sali por causa (frontend 59 / core 29):
+Avisos restantes no new_sali por causa (frontend 41 / core 26; a tabela
+abaixo é de antes das variáveis de condição, que levaram o grupo dos locais
+anuláveis):
 
 | causa | avisos | regra / lacuna |
 |---|---:|---|
