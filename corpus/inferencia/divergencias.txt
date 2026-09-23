@@ -1,6 +1,6 @@
 # Divergências e avisos conhecidos do corpus/inferencia contra o oráculo
 # (catraca de crates/types/tests/corpus_inferencia.rs; só encolhe).
-# programas iguais ao oráculo: 77/95; expressões comparadas: 2433; divergentes: 70; avisos: 13
+# programas iguais ao oráculo: 79/95; expressões comparadas: 2433; divergentes: 47; avisos: 5
 01_contexto/ctx11_override.dart:461:2	List	nós=List<dynamic>	oráculo=List<double>
 01_contexto/ctx11_override.dart:490:32	List	nós=List<dynamic>	oráculo=List<Object>
 01_contexto/ctx11_override.dart:512:9	Property	nós=dynamic	oráculo=List<double>
@@ -23,21 +23,6 @@
 02_genericos/gen14_horizontal_cadeia.dart:aviso:270	O getter '{0}' não está definido para o tipo '{1}'.: getter 'isEven' não definido para o tipo 'Object?'
 03_literais/lit03_conjunto_mapa.dart:269:6	SetOrMap	nós=Map<dynamic, dynamic>	oráculo=Set<int>
 03_literais/lit03_conjunto_mapa.dart:401:1	Identifier	nós=Map<dynamic, dynamic>	oráculo=Set<int>
-04_up_down/up09_tipos_de_extensao.dart:292:30	Conditional	nós=dynamic	oráculo=E<num>
-04_up_down/up09_tipos_de_extensao.dart:296:9	Call	nós=dynamic	oráculo=E<int>
-04_up_down/up09_tipos_de_extensao.dart:308:14	Call	nós=dynamic	oráculo=E<double>
-04_up_down/up09_tipos_de_extensao.dart:339:17	Conditional	nós=dynamic	oráculo=Object?
-04_up_down/up09_tipos_de_extensao.dart:343:9	Call	nós=dynamic	oráculo=E<int>
-04_up_down/up09_tipos_de_extensao.dart:373:12	Conditional	nós=dynamic	oráculo=int
-04_up_down/up09_tipos_de_extensao.dart:377:4	Call	nós=dynamic	oráculo=F
-04_up_down/up09_tipos_de_extensao.dart:395:9	List	nós=List<dynamic>	oráculo=List<Object?>
-04_up_down/up09_tipos_de_extensao.dart:396:1	Identifier	nós=dynamic	oráculo=E<num>
-04_up_down/up09_tipos_de_extensao.dart:399:1	Identifier	nós=dynamic	oráculo=Object?
-04_up_down/up09_tipos_de_extensao.dart:402:1	Identifier	nós=dynamic	oráculo=int
-04_up_down/up09_tipos_de_extensao.dart:aviso:303	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
-04_up_down/up09_tipos_de_extensao.dart:aviso:315	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
-04_up_down/up09_tipos_de_extensao.dart:aviso:350	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
-04_up_down/up09_tipos_de_extensao.dart:aviso:384	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
 05_closures/clo04_geradores.dart:239:11	FunctionExpression	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()
 05_closures/clo04_geradores.dart:267:39	FunctionExpression	nós=Iterable<int> Function()	oráculo=Iterable<int?> Function()
 05_closures/clo04_geradores.dart:434:1	Identifier	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()
@@ -65,22 +50,6 @@
 08_extensoes/ext02_especificidade.dart:363:13	Property	nós=dynamic	oráculo=String
 08_extensoes/ext02_especificidade.dart:aviso:337	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
 08_extensoes/ext02_especificidade.dart:aviso:369	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
-08_extensoes/ext04_tipo_extensao.dart:158:9	Call	nós=dynamic	oráculo=Id
-08_extensoes/ext04_tipo_extensao.dart:161:1	Identifier	nós=dynamic	oráculo=int
-08_extensoes/ext04_tipo_extensao.dart:161:5	Binary	nós=dynamic	oráculo=int
-08_extensoes/ext04_tipo_extensao.dart:253:5	Call	nós=dynamic	oráculo=Id
-08_extensoes/ext04_tipo_extensao.dart:268:66	List	nós=List<dynamic>	oráculo=List<Object?>
-08_extensoes/ext04_tipo_extensao.dart:274:1	Identifier	nós=dynamic	oráculo=Id
-08_extensoes/ext04_tipo_extensao.dart:274:11	Call	nós=dynamic	oráculo=Id
-08_extensoes/ext04_tipo_extensao.dart:292:1	Identifier	nós=dynamic	oráculo=Id
-08_extensoes/ext04_tipo_extensao.dart:292:3	Property	nós=dynamic	oráculo=int
-08_extensoes/ext04_tipo_extensao.dart:302:16	Property	nós=dynamic	oráculo=int
-08_extensoes/ext04_tipo_extensao.dart:302:9	Call	nós=dynamic	oráculo=Nome
-08_extensoes/ext04_tipo_extensao.dart:325:1	Identifier	nós=dynamic	oráculo=Id
-08_extensoes/ext04_tipo_extensao.dart:aviso:165	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
-08_extensoes/ext04_tipo_extensao.dart:aviso:168	Nome indefinido '{0}'.: 'v'
-08_extensoes/ext04_tipo_extensao.dart:aviso:260	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
-08_extensoes/ext04_tipo_extensao.dart:aviso:309	O método '{0}' não está definido para o tipo '{1}'.: expressão de tipo 'Type' não é invocável
 09_null_safety/nul01_bang.dart:190:1	Identifier	nós=void Function<T, U>(int?, List<int>?, T?, T, U)	oráculo=void Function<T, U extends Object?>(int?, List<int>?, T?, T, U)
 09_null_safety/nul01_bang.dart:aviso:156	O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.
 09_null_safety/nul01_bang.dart:aviso:166	O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.

@@ -390,7 +390,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
 }
 
 /// Se `target` (alvo de uma chamada) nomeia um construtor: `(classe, construtor, args explícitos)`.
-fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -> Option<(ClassId, FunctionElementId, Option<Vec<TypeId>>)> {
+fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -> Option<(ClassId, Option<FunctionElementId>, Option<Vec<TypeId>>)> {
     let vazio = inf.sym.vazio?;
     let tipo_args = |inf: &mut BodyInferrer<'_>, cx: &Corpo, rt: &RefTipo| -> (ClassId, Option<Vec<TypeId>>) {
         match rt {
@@ -405,7 +405,7 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
             return None;
         }
         let (c, args) = tipo_args(inf, cx, &rt);
-        let f = inf.construtor_de(c, vazio)?;
+        let f = inf.construtor_ou_primario(c, vazio)?;
         registrar_referencia(inf, cx, target);
         return Some((c, f, args));
     }
@@ -418,9 +418,11 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
         }
         let (c, args) = tipo_args(inf, cx, &rt);
         let chave = if Some(name.sym) == inf.sym.new_ { vazio } else { name.sym };
-        let f = inf.construtor_de(c, chave)?;
+        let f = inf.construtor_ou_primario(c, chave)?;
         registrar_referencia(inf, cx, recv);
-        if inf.program.function(f).class == Some(c) {
+        if let Some(f) = f
+            && inf.program.function(f).class == Some(c)
+        {
             resolver(inf, cx, target, Resolved::Constructor(f));
         }
         return Some((c, f, args));
@@ -477,6 +479,41 @@ impl<'a> BodyInferrer<'a> {
         (!self.program.function(f).factory).then_some(f)
     }
 
+    /// Construtor `nome` de `c`, ou `Some(None)` para o construtor primário
+    /// de um tipo de extensão (`extension type Id(int v)`, R-EXT-04), que o
+    /// modelo de elementos não cria.
+    pub(crate) fn construtor_ou_primario(&self, c: ClassId, nome: dartforge_intern::SymbolId) -> Option<Option<FunctionElementId>> {
+        if let Some(f) = self.construtor_de(c, nome) {
+            return Some(Some(f));
+        }
+        let cl = self.program.class(c);
+        if cl.kind != ClassKind::ExtensionType {
+            return None;
+        }
+        let d = cl.decl?;
+        match &self.program.unit(d.unit).ast.decl(d.decl).kind {
+            ast::DeclKind::ExtensionType(et) if et.constructor.map(|n| n.sym).or(self.sym.vazio) == Some(nome) => Some(None),
+            _ => None,
+        }
+    }
+
+    /// `(Representação) -> E<parâmetros>`: o construtor primário.
+    pub(crate) fn assinatura_primario(&mut self, c: ClassId) -> TypeId {
+        let rep = self.program.class(c).representation;
+        let t = rep
+            .and_then(|v| self.outline.variables[v.0 as usize].declared_type)
+            .unwrap_or(self.core.dynamic_);
+        let this = self.tipo_this_classe(c);
+        self.table.intern(Type::Function {
+            type_params: Box::new([]),
+            ret: this,
+            positional: Box::new([t]),
+            optional: Box::new([]),
+            named: Box::new([]),
+            nullable: false,
+        })
+    }
+
     /// Assinatura do construtor `f` vista de `c` (encaminhado quando `f` é
     /// da superclasse de uma aplicação de mixin): tipos pelos argumentos do
     /// supertipo e retorno `c<parâmetros>`.
@@ -519,19 +556,25 @@ pub(crate) fn construir(
     cx: &mut Corpo,
     e: Option<ExprId>,
     c: ClassId,
-    f: FunctionElementId,
+    f: Option<FunctionElementId>,
     explicitos: Option<Vec<TypeId>>,
     args: &ast::Arguments,
     ctx: TypeId,
 ) -> TypeId {
     // Construtor encaminhado de aplicação de mixin: sem resolução (o
-    // elemento é o da superclasse).
-    if let Some(e) = e
-        && inf.program.function(f).class == Some(c)
-    {
-        resolver(inf, cx, e, Resolved::Constructor(f));
-    }
-    let sig = inf.assinatura_construtor(c, f);
+    // elemento é o da superclasse). `None`: construtor primário de tipo de
+    // extensão (R-EXT-04), sem elemento.
+    let sig = match f {
+        Some(f) => {
+            if let Some(e) = e
+                && inf.program.function(f).class == Some(c)
+            {
+                resolver(inf, cx, e, Resolved::Constructor(f));
+            }
+            inf.assinatura_construtor(c, f)
+        }
+        None => inf.assinatura_primario(c),
+    };
     let (originais, novos) = inf.parametros_de_construtor(c);
     if originais.is_empty() {
         let (r, _) = invocar(inf, cx, sig, args, ctx, None);
@@ -614,7 +657,7 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         Some(n) if Some(n.sym) != inf.sym.new_ => Some(n.sym),
         _ => inf.sym.vazio,
     };
-    let Some(f) = chave.and_then(|k| inf.construtor_de(c, k)) else {
+    let Some(f) = chave.and_then(|k| inf.construtor_ou_primario(c, k)) else {
         for x in args.args.iter() {
             inferir_livre(inf, cx, x.value);
         }

@@ -7,9 +7,44 @@ não altera código. Cada item traz a regra (R-…), um exemplo mínimo com o
 resultado do **oráculo** (analyzer 6.11, gravado em `corpus/inferencia/`) e
 onde está o nosso código (linhas lidas em `0ac6357`).
 
-Como confirmar/fechar um item: rodar o `despejo_tipos` sobre o programa do
-corpus indicado e comparar com o `.esperado.tsv` pelo `comparar.py`
+Como confirmar/fechar um item: o teste `crates/types/tests/corpus_inferencia.rs`
+despeja cada programa do corpus e o compara com o `.esperado.tsv`; o que ainda
+diverge está em `corpus/inferencia/divergencias.txt` (catraca, só encolhe)
 (docs/INFERENCIA-ESPECIFICACAO.md §0.3).
+
+## Situação medida (teste do corpus, dono do `crates/types`)
+
+Reconciliado pelo teste do corpus sobre o main depois de `dcedb20`
+(programas iguais ao oráculo: 77/95; depois das correções abaixo, 79/95).
+
+| item | situação | evidência |
+|---|---|---|
+| L01 | aberta | ctx12 (4 divergências) |
+| L02 | aberta | lit03 (2) |
+| L03 | aberta | gen14 (6 + 1 aviso) |
+| L04 | aberta | gen13 (6); nul01 (limite `Object?` escrito não aparece no tipo) |
+| L05 | parcial: posição e ordem feitas em `cf59fe9`; falta o getter implícito de campo inferido | ctx11 (3) |
+| L06 | resolvida antes de `d5ca257` (Left Null com `X?`) | sem programa |
+| L07 | resolvida (UP de tipos de extensão: mesma declaração, `Object?` no conjunto de superinterfaces) | up09 igual |
+| L08 | aberta (sem medida) | sem programa |
+| L09 | aberta | clo04 (4) |
+| L10 | sem medida | — |
+| L11 | resolvida em `6487c26` (`Type::Intersection`) | flu06, flu13 iguais |
+| L12 | resolvida em `3e4c604` | flu12 igual |
+| L13 | aberta | flu14 (8) |
+| L14 | aberta | flu07 (1) |
+| L15 | aberta | flu20 (1) |
+| L16 | resolvida em `f05aa61`/`8ca11ec` | flu15 igual |
+| L17 | aberta | flu03 (1) |
+| L18 | sem medida | — |
+| L19 | aberta | ext02 (3 + 1 aviso) |
+| L20 | aberta | mem01 (1) |
+| L21 | aberta | mem11 (3) |
+| L22 | resolvida em `f05aa61` | gen01 igual |
+| L23 | resolvida em `67203d2` (renomeia os parâmetros, regra 17) | mem11 sem aviso |
+| L24–L27 | sem medida | — |
+| L28 | aberta | mem03 (1) |
+| novas | ext04 resolvida (construtor primário e campo de representação, R-EXT-04); abertas: flu16 (2), flu20 `Null`×`Never?` (1) | ext04 igual |
 
 Situação: **confirmada** = o código lido faz outra coisa que o oráculo grava;
 **provável** = o código lido diverge da regra, sem programa no corpus ainda.

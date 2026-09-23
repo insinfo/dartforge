@@ -113,6 +113,11 @@ impl<'a> BodyInferrer<'a> {
         let chave = if setter { self.chave_setter(nome)? } else { nome };
         match self.table.get(recv).clone() {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                if !setter
+                    && let Some(m) = self.membro_representacao(recv, class, chave)
+                {
+                    return Some(m);
+                }
                 let (dono, f) = self.declaracao_em_classe(class, chave)?;
                 let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
                 let t = self.substituir_do_dono(recv, class, dono, t);
@@ -171,6 +176,29 @@ impl<'a> BodyInferrer<'a> {
             }
             _ => None,
         }
+    }
+
+    /// Campo de representação de um tipo de extensão (`extension type
+    /// Id(int v)`: `i.v`, `v` no corpo; R-EXT-04). O modelo de elementos não
+    /// cria o getter implícito.
+    fn membro_representacao(&mut self, recv: TypeId, class: ClassId, nome: SymbolId) -> Option<Membro> {
+        let cl = self.program.class(class);
+        if cl.kind != dartforge_elements::model::ClassKind::ExtensionType {
+            return None;
+        }
+        let rep = cl.representation?;
+        if self.program.variable(rep).name != nome {
+            return None;
+        }
+        let t = self.outline.variables[rep.0 as usize].declared_type?;
+        let tipo = self.substituir_do_dono(recv, class, class, t);
+        Some(Membro {
+            resolved: Resolved::Member { class, member: MemberRef::Variable(rep), via_super: false },
+            tipo,
+            metodo: false,
+            funcao: None,
+            de_extensao: false,
+        })
     }
 
     /// Substitui os parâmetros de tipo da classe dona pelo que o receptor

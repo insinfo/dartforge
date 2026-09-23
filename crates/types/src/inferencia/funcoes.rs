@@ -589,7 +589,7 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                                 Some(k.type_args.iter().map(|&t| inf.tipo_de_anotacao(&cx, t)).collect())
                             };
                             let u = inf.core.unknown;
-                            super::chamadas::construir(inf, &mut cx, None, c, f, explicitos, args, u);
+                            super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
                         } else {
                             for x in args.args.iter() {
                                 inferir_livre(inf, &mut cx, x.value);
@@ -665,7 +665,7 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
             } else {
                 Some(m.type_args.iter().map(|&t| inf.tipo_de_anotacao(&cx, t)).collect())
             };
-            super::chamadas::construir(inf, &mut cx, None, c, f, explicitos, args, u);
+            super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
             return;
         }
     }
