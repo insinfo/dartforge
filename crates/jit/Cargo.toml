@@ -24,13 +24,9 @@ llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }
 
 [dev-dependencies]
 # Só para `tests/execucao.rs`: produzir o IR de um programa Dart pela trilha
-# nova e ligá-lo pelo driver AOT, para o diferencial JIT × AOT sobre o mesmo
-# texto. O pipeline até o IR é repetido no teste enquanto `emitir_ir` não
-# existe no `emit_native` (plano do JIT, §3.3).
+# nova (`emitir_ir`) e ligá-lo pelo driver AOT, para o diferencial JIT × AOT
+# sobre o mesmo texto.
 dartforge-emit-native = { path = "../emit_native" }
-dartforge-elements = { path = "../elements" }
-dartforge-intern = { path = "../intern" }
-dartforge-types = { path = "../types" }
 
 # Executor isolado: um processo por programa, para que `process::exit` e
 # `abort` do runtime encerrem a execução e não quem a pediu (testes, harness).

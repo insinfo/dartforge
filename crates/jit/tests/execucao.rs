@@ -325,28 +325,13 @@ void main() {
 /// Saída esperada, com quebras `\n` em qualquer sistema.
 const ESPERADO: &str = "10\ntrue\n42\nola mundo\n";
 
-/// Emite o LLVM IR de um arquivo Dart pela trilha nova.
-///
-/// PROVISÓRIO: repete as etapas de `dartforge_emit_native::compilar` até o IR
-/// (`crates/emit_native/src/lib.rs`), porque a separação `emitir_ir` ainda não
-/// entrou. Quando entrar, esta função vira uma chamada a ela.
+/// Emite o LLVM IR de um arquivo Dart pela trilha nova (`emitir_ir`), o mesmo
+/// texto que o driver AOT entrega ao Clang.
 fn emitir_ir(entrada: &Path) -> String {
-    use dartforge_elements::sdk::SdkLayout;
-    use dartforge_types::table::{CoreTypes, TypeTable};
-    let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
-    let sdk = SdkLayout::load(&sdk_dir, "vm").expect("SDK da VM");
-    let mut interner = dartforge_intern::Interner::new();
-    let (program, diags) = dartforge_elements::load::load_lenient(entrada, &sdk, None, &mut interner);
-    let diags: Vec<String> = diags.iter().map(ToString::to_string).collect();
-    assert!(diags.is_empty(), "o programa de teste não carregou: {diags:?}");
-    let mut table = TypeTable::new();
-    let core = CoreTypes::init(&mut table, &program, &interner);
-    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, _) =
-        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-    let ctx = dartforge_emit_native::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
-    let module = dartforge_emit_native::lower::lower_program(&ctx);
-    dartforge_emit_native::llvm::LlvmEmitter::new(&module).emit_all()
+    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false };
+    dartforge_emit_native::emitir_ir(entrada, &opcoes)
+        .unwrap_or_else(|erro| panic!("o programa de teste não emitiu IR: {erro}"))
+        .texto
 }
 
 /// O mesmo IR precisa produzir a mesma saída e o mesmo código nos dois perfis.
