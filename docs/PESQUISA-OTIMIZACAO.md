@@ -207,3 +207,161 @@ Corpos não compartilhados:
   - 4 dependem de estado diferente
   - 2 não produziram economia
 ```
+
+---
+
+# Segunda leva — paralelismo, determinismo e o custo da fusão
+
+Acréscimos que mudam decisões concretas, não só a bibliografia.
+
+## 11. Mold: paralelizar **dentro** da etapa, e exigir determinismo
+
+O `mold` (Ueyama, 2026) executa as etapas principais **em sequência**, mas
+cada etapa processa os seus dados **em paralelo**, e separa parsing de
+resolução de símbolos em vez de entrelaçá-los. A forma que isso toma aqui:
+
+```text
+descobrir o conjunto afetado
+  → parsear as fontes afetadas em paralelo
+  → publicar declarações e resolver dependências
+  → analisar corpos independentes em paralelo
+  → otimizar e emitir módulos independentes em paralelo
+  → publicar uma geração consistente
+```
+
+**Não transformar o banco semântico num ponto de contenção.** Nada de
+todos os trabalhadores disputando um `Mutex<Program>` para inserir cada
+nó: cada um produz resultado local, que é publicado em tabelas
+compartilhadas de forma controlada, e as consultas veem um instantâneo
+imutável do que já consolidou.
+
+**Teste de determinismo, obrigatório:**
+
+```text
+mesmas entradas + mesma configuração
+  1 trabalhador   → saída A
+  4 trabalhadores → saída A
+  8 trabalhadores → saída A
+```
+
+Vale para nomes gerados, ordem dos diagnósticos e metadados persistidos.
+A razão é prática: se a ordem de conclusão dos trabalhadores mudar um nome
+emitido ou o hash de um módulo, o cache invalida e o navegador recarrega
+sem nenhuma mudança real no programa. Para nós isso é direto — o
+`dartforge serve` recarrega por geração, e geração que muda à toa é um
+defeito visível.
+
+## 12. Equivalência é no grafo, não no arquivo
+
+Comparação que inclui os identificadores dos símbolos chamados rejeita
+cedo demais:
+
+```text
+validar_publicado chama normalizar_publicado
+validar_vendor    chama normalizar_vendor
+```
+
+Se as duas versões de `normalizar` também forem equivalentes, a
+oportunidade existe. O caminho é o refinamento de partição: agrupar por
+características locais normalizadas, refinar pelas classes de equivalência
+dos alvos, repetir até estabilizar, **validar estruturalmente** e só então
+transformar. Recursão mútua exige tratar o grupo, não expandir chamadas.
+
+E separar **referência a código** de **referência a estado**: dois alvos de
+chamada podem compartilhar implementação; dois armazenamentos globais
+independentes, não.
+
+As quatro identidades a manter distintas:
+
+```text
+DefinitionId → a declaração
+TypeId       → identidade e representação do tipo
+StorageId    → o armazenamento de estado
+BodyId       → a implementação executável
+```
+
+Duas declarações podem compartilhar `BodyId` sem compartilhar o resto.
+Funções usadas como valores têm regras próprias de igualdade em Dart
+(`Function.==`): "mesmo corpo, mesmo objeto função" não vale.
+
+## 13. SalSSA: não destrua informação que o passe seguinte vai reconstruir
+
+A tese de Rocha (2021) organiza FMSA (cap. 4), **SalSSA** (cap. 5) e HyFM
+(cap. 6). A contribuição do SalSSA interessa ao desenho da nossa IR: o
+trabalho anterior substituía nós `phi` por operações de memória; o SalSSA
+passa a lidar diretamente com a forma SSA, sem essa transformação
+intermediária.
+
+A regra que fica: **não simplifique um passe destruindo informação que os
+seguintes terão de reconstruir.** Em concreto, não descer para texto
+JavaScript só para comparar funções — ali já se perdeu o acesso direto a
+símbolos, tipos e efeitos que a verificação precisa.
+
+## 14. HyFM: orçamento e desistência antecipada
+
+```text
+filtro barato
+  → candidatos estruturalmente compatíveis
+  → estimativa inicial de economia
+  → análise detalhada só dos promissores
+  → transformação
+  → verificação e decisão final
+```
+
+Com orçamento explícito de tempo e memória, e dois passes separados:
+idênticas (conservador, previsível) e semelhantes (caro, pode introduzir
+parâmetros e desvios).
+
+**Cuidado com os números do artigo**: os 48 MB / 5,6 MB contra 32 GB são
+do trabalho de fusão avaliado, não do compilador inteiro. Por isso, medir
+em categorias:
+
+```text
+memória do programa carregado
+memória dos caches
+memória temporária do passe
+pico total do processo
+```
+
+E o modelo de custo para JavaScript é **nosso**: bytes emitidos, bytes
+comprimidos, adaptadores necessários e execução no navegador — não
+instruções removidas da IR. Estimativa barata na decisão; medição real
+para validar a estimativa, fora do caminho de cada decisão individual.
+
+## 15. BOLT e PGO: aceleram o **nosso executável**, não o JS emitido
+
+O BOLT otimiza executáveis nativos depois da ligação, com perfil de
+execução. Duas consequências:
+
+1. Ele **não** otimiza `.js`; o que pode acelerar é o `dartforge.exe`.
+2. O README do BOLT documenta entrada **ELF x86-64 e AArch64** — não se
+   aplica direto ao nosso `.exe` de Windows.
+
+O caminho acessível é o **PGO do próprio `rustc`**: compilar com
+instrumentação, rodar cargas representativas, recompilar com o perfil. As
+cargas de treino têm de ser variadas — compilação inicial, edição
+incremental, componente com codegen, biblioteca grande e erro de
+compilação — para não otimizar o executável para um exemplo só.
+
+## 16. Contraponto sobre arenas
+
+O artigo do `mold` relata que um alocador experimental simples, por
+buffers de thread e sem liberação individual, saiu **pior** que o
+`mimalloc` naquele teste. Arena não é ganho automático: medir, não
+presumir. E, no daemon, o que importa é conseguir explicar a vida útil de
+cada categoria de dado e verificar se o consumo **estabiliza** depois de
+muitas edições — pico baixo na primeira compilação não basta.
+
+## 17. A ordem, revisada
+
+| etapa | entrega verificável |
+|---|---|
+| 1. medição e determinismo | tempo por fase, memória por categoria, mesma saída com 1, 4 e 8 trabalhadores |
+| 2. representações e incrementalidade | biblioteca não reanalisada à toa; revisão antiga descartada |
+| 3. alcançabilidade e fusão conservadora | código morto removido, corpos equivalentes compartilhados, com teste de semântica |
+| 4. fusão por grafo e código semelhante | conjuntos duplicados reconhecidos, com análise de benefício e limite de recursos |
+| 5. PGO (e avaliação de BOLT) | executável do compilador medido em cargas representativas |
+
+Com modos separados: no `serve`, incrementalidade, previsibilidade e baixo
+custo por edição; no build de produção, trabalho global para reduzir
+código.
