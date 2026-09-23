@@ -14,6 +14,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_call(&mut self, target: ExprId, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty, Vec<Guard>) {
         let t = self.expr(target);
         match &t.kind {
+            // `.nome(args)` / `.new(args)` / `const .nome(args)` (3.10): a
+            // chamada de `D.nome` — método estático ou construtor, com os
+            // argumentos de tipo inferidos do contexto da chamada.
+            ExprKind::DotShorthand { name, const_ } => {
+                let n = self.name(name.sym).to_string();
+                let span = t.span;
+                let Some(d) = self.classe_do_atalho(target, expected) else {
+                    return (Js::prim("null"), Ty::Dynamic, vec![]);
+                };
+                let salvo = self.in_const;
+                self.in_const |= *const_;
+                let r = self.static_call_on_class(d, &n, arguments, expected);
+                self.in_const = salvo;
+                match r {
+                    Some((js, ty)) => (js, ty, vec![]),
+                    None => {
+                        let msg = format!("'{}' não tem membro estático nem construtor '{n}' para o atalho de ponto", self.ctx.class_name(d));
+                        self.erro_de_linguagem(span, msg);
+                        (Js::prim("null"), Ty::Dynamic, vec![])
+                    }
+                }
+            }
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
                 if let Some(r) = self.try_static_call(*recv, &n, arguments, expected) {
@@ -679,7 +701,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
             let p = self.ctx.fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
-            scope_params.push((p.id, js::ident(&p.name)));
+            let jsn = self.nome_js_parametro_de_tipo(&p.name);
+            scope_params.push((p.id, jsn));
             tps.push(p);
         }
         let saved_tps = self.fn_type_params.clone();
@@ -799,7 +822,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
-                ast::ParameterKind::Named => named.push((self.name(n.sym).to_string(), t, p.required)),
+                ast::ParameterKind::Named => named.push((self.name(p.nome_externo().unwrap_or(n).sym).to_string(), t, p.required)),
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));

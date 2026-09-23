@@ -23,6 +23,7 @@
 //! do inicializador, com detecção de ciclo (`inference.md`, "Top-level
 //! inference procedure").
 
+mod atalhos;
 mod chamadas;
 mod colecoes;
 mod corpo;
@@ -355,6 +356,15 @@ impl<'a> BodyInferrer<'a> {
 
     pub(crate) fn aviso(&mut self, msg: String, span: Span) {
         self.diagnostics.push(Diagnostic::new(msg, span));
+    }
+
+    /// Registra um erro de linguagem (`codes::ERRO_DE_LINGUAGEM`,
+    /// docs/VERSOES-LINGUAGEM.md §3): aborta a compilação, com o arquivo e o
+    /// deslocamento na mensagem, como os erros de carga.
+    pub(crate) fn erro_de_linguagem(&mut self, unit: UnitId, span: Span, msg: String) {
+        let arquivo = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        let texto = format!("{}{arquivo}:{}: {msg}", crate::codes::ERRO_DE_LINGUAGEM, span.start);
+        self.diagnostics.push(Diagnostic::new(texto, span));
     }
 
     pub(crate) fn span_expr(&self, unit: UnitId, e: ast::ExprId) -> Span {

@@ -12,6 +12,11 @@ use dartforge_diferencial::{
 const USO: &str = "uso:
   dartforge-diferencial [--nativo [--gc-stress]] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
       roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
+      (dois SDKs de oráculo: DARTFORGE_DART_SDK, o piso 3.6.2, e DARTFORGE_DART_SDK_3_13;
+      cada programa vai para o menor SDK que cobre o `// requer-dart: x.y` e o `// @dart=x.y`
+      dele, e o DartForge recebe --versao-linguagem igual; `// erro-de-compilacao` marca
+      programa negativo; `PENDENTES` no diretório do corpus lista o que ainda falha por
+      recurso não implementado — docs/VERSOES-LINGUAGEM.md §5)
       (--gc-stress: o executável nativo roda com DARTFORGE_GC_STRESS=1, coleta antes de
       toda alocação — um programa só passa se passar também assim; docs/NATIVO-PLANO.md G7)
       (código 0 se todos batem; 1 se algum falha)
@@ -193,7 +198,9 @@ fn main() {
             }
             "--corpus" => {
                 i += 1;
-                corpus = PathBuf::from(&args[i]);
+                // Absoluto: o `dartforge` e o `dart run` rodam no diretório do
+                // programa, e um caminho relativo à raiz não o acharia lá.
+                corpus = std::path::absolute(&args[i]).unwrap_or_else(|_| PathBuf::from(&args[i]));
             }
             "--filtro" => {
                 i += 1;
@@ -339,7 +346,9 @@ fn main() {
                 if silencioso {
                     return;
                 }
-                let estado = if r.producao.is_some() {
+                let estado = if r.programa.pendente && r.forge.is_some() {
+                    if r.ok() { "PASSOU" } else { "PEND" }
+                } else if r.producao.is_some() {
                     if r.ok() { "ok" } else if r.forge_vs_referencia().is_some() { "FALHA" } else { "PROD!" }
                 } else if r.forge.is_some() {
                     if r.ok() { "ok" } else { "FALHA" }
@@ -357,7 +366,8 @@ fn main() {
             print!("{}", relatorio(&resultados));
             println!("({} programas em {:.1} s)", resultados.len(), inicio.elapsed().as_secs_f64());
             let todos_ok = if op.com_forge {
-                resultados.iter().all(|r| r.ok())
+                // Pendente (`PENDENTES`) tem de falhar; os demais, passar.
+                resultados.iter().all(|r| r.ok() != r.programa.pendente)
             } else if op.nativo {
                 resultados.iter().all(|r| r.dart.codigo == 0)
             } else {

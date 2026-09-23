@@ -9,6 +9,7 @@
 //! Regras de memória (docs/FRONTEND-ARQUITETURA.md §2): tudo em `Vec` indexado
 //! por id `u32`; nomes são [`SymbolId`]; nós da árvore são referenciados por
 //! `(UnitId, id na arena)`, nunca copiados.
+use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_intern::SymbolId;
 use std::collections::{BTreeMap, HashMap};
@@ -108,6 +109,9 @@ pub struct Unit {
     pub unit: CompilationUnit,
     pub library: LibraryId,
     pub role: UnitRole,
+    /// Recursos com que a unidade foi analisada (os da biblioteca). A sessão
+    /// residente só reaproveita a unidade se continuarem os mesmos.
+    pub features: LibraryFeatures,
 }
 
 /// Importação já resolvida para uma biblioteca do programa.
@@ -216,8 +220,11 @@ pub struct Library {
     pub prefixes: HashMap<SymbolId, Namespace>,
     /// Biblioteca do SDK (`dart:`), que pode usar `JS()`, `@patch`, `native`.
     pub is_sdk: bool,
-    /// Versão de linguagem `// @dart = x.y`, quando declarada.
-    pub language_version: Option<(u8, u8)>,
+    /// Versão de linguagem e recursos ligados (`docs/VERSOES-LINGUAGEM.md`):
+    /// o marcador `// @dart = x.y`, senão o `languageVersion` do pacote,
+    /// senão a versão corrente; `dart:*` no piso 3.6. Resolvida uma vez, na
+    /// carga, antes do parse.
+    pub features: LibraryFeatures,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

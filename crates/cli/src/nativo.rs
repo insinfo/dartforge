@@ -109,6 +109,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
                 packages: packages.as_deref(),
                 timings,
                 optimize,
+                versao_linguagem: None,
             };
             dartforge_emit_native::compilar(&input, &output, &options)
         })
@@ -173,6 +174,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                 packages: p2.as_deref(),
                 timings,
                 optimize,
+                versao_linguagem: None,
             };
             dartforge_emit_native::compilar(&i2, &o2, &options)
         })
@@ -203,6 +205,7 @@ fn emitir_ir_nativo(
                 packages: packages.as_deref(),
                 timings,
                 optimize: false,
+                versao_linguagem: None,
             };
             dartforge_emit_native::emitir_ir(&input, &options)
         })

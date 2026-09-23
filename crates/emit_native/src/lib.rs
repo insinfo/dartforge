@@ -27,6 +27,9 @@ pub struct CompileOptions<'a> {
     pub packages: Option<&'a Path>,
     pub timings: bool,
     pub optimize: bool,
+    /// Versão de linguagem corrente (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
+    /// `None` = a da ferramenta (3.13).
+    pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
 }
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
@@ -114,9 +117,13 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     };
 
     // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): o `dart:async` que
-    // o programa compila da fonte (P6) é o dela.
-    let sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
+    // o programa compila da fonte (P6) é o dela. `mut`: a versão de linguagem
+    // corrente pode vir de `--versao-linguagem` (Dart moderno, P2).
+    let mut sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
         .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
+    if let Some(v) = options.versao_linguagem {
+        sdk.versao_corrente = v;
+    }
 
     let mut interner = Interner::new();
     let (mut program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
@@ -139,9 +146,22 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
-    let (mut outline, _outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, _body_diags) =
+    let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    // Erros de linguagem dos recursos 3.7–3.13 abortam (docs/VERSOES-LINGUAGEM.md §3);
+    // o resto de `types` é aviso e não aparece aqui.
+    let mut erros = outline_diags
+        .iter()
+        .chain(body_diags.iter())
+        .filter(|d| dartforge_types::codes::e_erro_de_linguagem(&d.message));
+    if let Some(primeiro) = erros.next() {
+        let mut msg = format!("erro: {primeiro}");
+        for d in erros {
+            msg.push_str(&format!("\nerro: {d}"));
+        }
+        return Err(msg);
+    }
 
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
     ctx.da_fonte = da_fonte.into_iter().collect();
@@ -239,7 +259,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -286,7 +306,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  var f = #a;\n  var g = #b;\n  print(1);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))

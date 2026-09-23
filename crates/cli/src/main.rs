@@ -54,19 +54,24 @@ fn main() -> ExitCode {
 
 /// `compile-js`: pipeline inteiro e escrita dos módulos ES no diretório dado.
 fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings]";
+    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--versao-linguagem x.y] [--enable-experiment=a,b]";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
-    let mut it = args.iter();
+    let mut linguagem = dartforge_emit_js::Linguagem::default();
+    let textos: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let mut it = textos.iter().map(String::as_str);
     while let Some(a) = it.next() {
-        match a.to_str() {
-            Some("-o") => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--timings") => timings = true,
+        if linguagem.ler_opcao(a, &mut it)? {
+            continue;
+        }
+        match a {
+            "-o" => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            "--sdk" => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            "--packages" => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            "--timings" => timings = true,
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
@@ -96,7 +101,7 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
                 }
             };
             let gerador: Option<dartforge_emit_js::Gerador<'_>> = motor.as_ref().map(|_| &gerar as _);
-            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), gerador)?;
+            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), &linguagem, gerador)?;
             Ok((e, r, rel_motor.into_inner()))
         })
         .map_err(|e| e.to_string())?

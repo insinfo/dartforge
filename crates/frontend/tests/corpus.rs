@@ -20,6 +20,32 @@ fn coletar(dir: &Path, saida: &mut Vec<PathBuf>) {
     }
 }
 
+/// A versão de linguagem do pacote dono de `arquivo`: o `x.y` do limite
+/// inferior de `sdk:` no `pubspec.yaml` mais próximo (`^3.8.0`,
+/// `'>=3.8.0 <4.0.0'`), como o `languageVersion` que o `pub get` grava.
+fn versao_do_pacote(arquivo: &Path) -> Option<dartforge_frontend::LanguageVersion> {
+    let pubspec = arquivo
+        .ancestors()
+        .skip(1)
+        .map(|d| d.join("pubspec.yaml"))
+        .find(|p| p.is_file())?;
+    let texto = std::fs::read_to_string(pubspec).ok()?;
+    let linha = texto.lines().find(|l| l.trim_start().starts_with("sdk:"))?;
+    let valor = linha
+        .trim_start()
+        .trim_start_matches("sdk:")
+        .trim()
+        .trim_matches(['\'', '"']);
+    let inferior = valor
+        .trim_start_matches('^')
+        .trim_start_matches(">=")
+        .trim();
+    let mut partes = inferior.split(['.', ' ']);
+    let maior: u16 = partes.next()?.parse().ok()?;
+    let menor: u16 = partes.next()?.parse().ok()?;
+    Some(dartforge_frontend::LanguageVersion::new(maior, menor))
+}
+
 fn medir(raiz: &Path) -> (usize, usize, Vec<String>) {
     let mut arquivos = Vec::new();
     coletar(raiz, &mut arquivos);
@@ -33,7 +59,15 @@ fn medir(raiz: &Path) -> (usize, usize, Vec<String>) {
             continue;
         };
         total += 1;
-        let saida = dartforge_frontend::parser::parse(&fonte, &mut nomes);
+        // A versão de cada arquivo (docs/VERSOES-LINGUAGEM.md §2): o
+        // marcador; senão a do pacote, que o `pub` tira do limite inferior
+        // de `environment: sdk:` no pubspec; senão o piso 3.6 (o SDK).
+        let versao = dartforge_frontend::features::marcador_versao(&fonte)
+            .map(|m| m.0)
+            .or_else(|| versao_do_pacote(arquivo))
+            .unwrap_or(dartforge_frontend::LanguageVersion::PISO);
+        let features = dartforge_frontend::LibraryFeatures::new(versao, &[]);
+        let saida = dartforge_frontend::parser::parse_com(&fonte, &mut nomes, features);
         if saida.diagnostics.is_empty() {
             aceitos += 1;
         } else {
@@ -62,7 +96,11 @@ fn sdk_lib_inteiro_e_aceito() {
 #[test]
 #[ignore = "depende do SDK 3.6.2 e do corpus em references/pub"]
 fn corpus_pub_inteiro_e_aceito() {
-    let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../references/pub");
+    // `DARTFORGE_PUB_CORPUS` aponta outro clone (numa worktree, o do checkout
+    // principal: `references/` fica fora do git).
+    let raiz = std::env::var("DARTFORGE_PUB_CORPUS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../references/pub"));
     let (aceitos, total, falhas) = medir(&raiz);
     assert!(total > 0, "corpus não encontrado em {}", raiz.display());
     assert_eq!(

@@ -121,6 +121,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
         let expr = self.expr(e);
+        let registro = self.registrar_contexto_atalho(e, expected);
         let (js, ty) = match &expr.kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
                 let (js, ty, guards) = self.emit_selector(e, expected);
@@ -128,9 +129,122 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => self.emit_expr_inner(e, expected),
         };
+        if let Some((raiz, anterior)) = registro {
+            match anterior {
+                Some(a) => {
+                    self.contextos_atalho.insert(raiz, a);
+                }
+                None => {
+                    self.contextos_atalho.remove(&raiz);
+                }
+            }
+        }
         match expected {
             Some(exp) => self.coerce_to(js, ty, exp),
             None => (js, ty),
+        }
+    }
+
+    /// Atalho de ponto (3.10): se `e` é um nó de uma cadeia de seletores
+    /// (`.x`, `(…)`, `[…]`, `<T>`, `!`) cuja raiz é `.id`, o contexto da
+    /// cadeia (`expected`) vira o *shorthand context* da raiz, salvo se um
+    /// nó mais externo (ou `==`, ou um padrão) já registrou um contexto
+    /// conhecido. Devolve o que restaurar ao fim da emissão de `e`.
+    fn registrar_contexto_atalho(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<(ExprId, Option<Option<Ty>>)> {
+        if !self.atalhos {
+            return None;
+        }
+        if !matches!(
+            self.expr(e).kind,
+            ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } | ExprKind::TypeArguments { .. } | ExprKind::Unary { op: UnaryOp::NullAssert, .. }
+        ) {
+            return None;
+        }
+        let raiz = self.ast().raiz_de_atalho(e)?;
+        let anterior = self.contextos_atalho.get(&raiz).cloned();
+        if matches!(anterior, Some(Some(_))) || (anterior.is_some() && expected.is_none()) {
+            return None;
+        }
+        self.contextos_atalho.insert(raiz, expected.cloned());
+        Some((raiz, anterior))
+    }
+
+    /// Registra `ctx` como contexto do atalho na raiz de `e` (se houver)
+    /// enquanto `f` emite; `==` e padrões dão o contexto assim (spec 3.10,
+    /// "Special case for `==`").
+    pub fn com_contexto_de_atalho<R>(&mut self, e: ExprId, ctx: &Ty, f: impl FnOnce(&mut Self) -> R) -> R {
+        let raiz = if self.atalhos { self.ast().raiz_de_atalho(e) } else { None };
+        let Some(raiz) = raiz else { return f(self) };
+        let anterior = self.contextos_atalho.insert(raiz, Some(ctx.clone()));
+        let r = f(self);
+        match anterior {
+            Some(a) => {
+                self.contextos_atalho.insert(raiz, a);
+            }
+            None => {
+                self.contextos_atalho.remove(&raiz);
+            }
+        }
+        r
+    }
+
+    /// A declaração que o contexto de um atalho denota (spec 3.10): `C`,
+    /// `C<…>` e `C?` denotam `C`; `FutureOr<S>` denota o que `S` denota;
+    /// tipo de função, record, parâmetro de tipo e `dynamic` não denotam
+    /// nada.
+    pub fn declaracao_do_contexto(&self, t: &Ty) -> Option<ClassId> {
+        match t {
+            Ty::Iface { class, args, .. } if Some(*class) == self.ctx.future_or => args.first().and_then(|a| self.declaracao_do_contexto(a)),
+            Ty::Iface { class, .. } => Some(*class),
+            Ty::FutureOr { arg, .. } => self.declaracao_do_contexto(arg),
+            _ => None,
+        }
+    }
+
+    /// `D` de um atalho de ponto: pelo contexto registrado para ele, senão
+    /// pelo `expected` da própria posição. Sem declaração, registra o erro
+    /// de linguagem (fora de emissão especulativa).
+    pub(crate) fn classe_do_atalho(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<ClassId> {
+        let ctx = match self.contextos_atalho.get(&e) {
+            Some(Some(t)) => Some(t.clone()),
+            _ => expected.cloned(),
+        };
+        let d = ctx.as_ref().and_then(|t| self.declaracao_do_contexto(t));
+        if d.is_none() {
+            let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else { return None };
+            let msg = format!("nenhum tipo de contexto para achar o atalho de ponto '.{}'", self.name(name.sym));
+            self.erro_de_linguagem(self.expr(e).span, msg);
+        }
+        d
+    }
+
+    /// Registra um erro de linguagem na emissão (ignorado quando a emissão
+    /// é só para descobrir um tipo).
+    pub fn erro_de_linguagem(&self, span: dartforge_diagnostics::Span, msg: String) {
+        if self.especulando > 0 {
+            return;
+        }
+        let arquivo = self.ctx.program.unit(self.unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        self.ctx.erros.borrow_mut().push(dartforge_diagnostics::Diagnostic::new(
+            format!("{}{arquivo}:{}: {msg}", dartforge_types::codes::ERRO_DE_LINGUAGEM, span.start),
+            span,
+        ));
+    }
+
+    /// `.id` / `.new` sem chamada: `D.id` (getter, campo, constante de enum,
+    /// tear-off de método ou de construtor).
+    fn emit_atalho(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
+        let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else { unreachable!() };
+        let nome = self.name(name.sym).to_string();
+        let span = self.expr(e).span;
+        let Some(d) = self.classe_do_atalho(e, expected) else { return (Js::prim("null"), Ty::Dynamic) };
+        match self.static_member_get(d, &nome) {
+            Some(r) => r,
+            None => {
+                let msg = format!("'{}' não tem membro estático nem construtor '{nome}' para o atalho de ponto", self.ctx.class_name(d));
+                self.erro_de_linguagem(span, msg);
+                (Js::prim("null"), Ty::Dynamic)
+            }
         }
     }
 
@@ -243,6 +357,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 )
             }
             ExprKind::Identifier(name) => self.emit_identifier(name.sym, e),
+            ExprKind::DotShorthand { .. } => self.emit_atalho(e, expected),
             ExprKind::This => {
                 if let Some(t) = &self.extension_this {
                     return (Js::prim("$this"), t.clone());
@@ -608,7 +723,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let saved_temps = self.temps.len();
         let saved_counter = self.temp_counter;
         let saved_ret = self.returns.len();
+        self.especulando += 1;
         let (_, t) = self.emit_expr(e, None);
+        self.especulando -= 1;
         self.w = saved;
         self.temps.truncate(saved_temps);
         self.temp_counter = saved_counter;
@@ -637,17 +754,44 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 add(self, v.code);
             }
             CollectionElement::NullAwareExpression(e) => {
-                let (v, _) = self.emit_expr(*e, Some(elem_ty));
+                // Contexto anulável para o operando (spec 3.8): o `null` é
+                // descartado aqui, não chega ao literal.
+                let (v, _) = self.emit_expr(*e, Some(&elem_ty.with_nullable(true)));
                 let t = self.temp();
                 crate::linha!(self.w, "{t} = {};", v.code);
                 crate::abre!(self.w, "if ({t} != null) {{");
                 add(self, t);
                 self.w.close("}");
             }
-            CollectionElement::MapEntry { key, value, .. } => {
+            CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } => {
                 let (k, _) = self.emit_expr(*key, Some(elem_ty));
                 let (v, _) = self.emit_expr(*value, value_ty);
                 add(self, format!("{}\u{0}{}", k.code, v.code));
+            }
+            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
+                // Entrada null-aware (3.8): a chave antes do valor; chave
+                // null-aware nula descarta a entrada SEM avaliar o valor.
+                let kctx = if *null_aware_key { elem_ty.with_nullable(true) } else { elem_ty.clone() };
+                let (k, _) = self.emit_expr(*key, Some(&kctx));
+                let tk = self.temp();
+                crate::linha!(self.w, "{tk} = {};", k.code);
+                if *null_aware_key {
+                    crate::abre!(self.w, "if ({tk} != null) {{");
+                }
+                let vctx = value_ty.map(|t| if *null_aware_value { t.with_nullable(true) } else { t.clone() });
+                let (v, _) = self.emit_expr(*value, vctx.as_ref());
+                let tv = self.temp();
+                crate::linha!(self.w, "{tv} = {};", v.code);
+                if *null_aware_value {
+                    crate::abre!(self.w, "if ({tv} != null) {{");
+                }
+                add(self, format!("{tk}\u{0}{tv}"));
+                if *null_aware_value {
+                    self.w.close("}");
+                }
+                if *null_aware_key {
+                    self.w.close("}");
+                }
             }
             CollectionElement::Spread { value, null_aware } => {
                 let (v, vty) = self.emit_expr(*value, None);
@@ -953,9 +1097,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut vs = Vec::new();
         for el in elements {
             match el {
-                CollectionElement::MapEntry { key, value, .. } => {
-                    ks.push(self.type_of(*key));
-                    vs.push(self.type_of(*value));
+                CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
+                    // Parte null-aware entra sem o `null` (spec 3.8, NonNull).
+                    let k = self.type_of(*key);
+                    let v = self.type_of(*value);
+                    ks.push(if *null_aware_key { k.non_null() } else { k });
+                    vs.push(if *null_aware_value { v.non_null() } else { v });
                 }
                 CollectionElement::Spread { value, .. } => {
                     let t = self.type_of(*value);
@@ -2148,7 +2295,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 _ => None,
             })
         };
-        let (r, rt) = self.emit_expr(right, r_expected.as_ref());
+        // `e == .x` (3.10): o atalho à direita usa o tipo estático da esquerda.
+        let (r, rt) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+            let esquerda = lt.clone();
+            self.com_contexto_de_atalho(right, &esquerda, |s| s.emit_expr(right, r_expected.as_ref()))
+        } else {
+            self.emit_expr(right, r_expected.as_ref())
+        };
         self.emit_binop_values(op, l, &lt, r, &rt)
     }
 

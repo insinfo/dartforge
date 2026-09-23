@@ -208,7 +208,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 | Keyword::New
                 | Keyword::Switch,
             )
-            | Kind::Op(Op::Minus | Op::Hash | Op::Bang | Op::Tilde) => {
+            | Kind::Op(Op::Minus | Op::Hash | Op::Bang | Op::Tilde | Op::Dot) => {
+                // `.x` é atalho de ponto constante (3.10).
                 self.parse_constant_pattern(start)
             }
             _ => Err(self.error("esperava um padrão")),

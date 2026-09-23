@@ -753,6 +753,36 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             expr(m, ctx, *target);
             expr(m, ctx, *index);
         }
+        // Atalho de ponto (3.10): `.nome` é `D.nome`, com `D` gravada por
+        // `types` em `Resolved` (docs/VERSOES-LINGUAGEM.md §4.3). Onde
+        // `types` não chega (padrões de `switch`), vale toda declaração que
+        // tem estático, constante de enum ou construtor com esse nome: mais
+        // vivo, nunca menos.
+        ExprKind::DotShorthand { name, .. } => {
+            let resolvida = e.bodies.units.get(ctx.unidade.0 as usize).and_then(|u| u.get_resolved(id)).and_then(|r| match r {
+                Resolved::Element(Element::Class(c)) => Some(*c),
+                _ => None,
+            });
+            let classes: Vec<ClassId> = match resolvida {
+                Some(c) => vec![c],
+                None => {
+                    let texto = e.interner.resolve(name.sym);
+                    let chave_ctor = if texto == "new" { e.interner.lookup("") } else { Some(name.sym) };
+                    (0..p.classes.len() as u32)
+                        .map(ClassId)
+                        .filter(|&c| {
+                            let k = p.class(c);
+                            k.static_members.contains_key(&name.sym)
+                                || k.enum_constants.iter().any(|v| p.variable(*v).name == name.sym)
+                                || chave_ctor.is_some_and(|s| k.constructors.contains_key(&s))
+                        })
+                        .collect()
+                }
+            };
+            for c in classes {
+                membro_estatico(m, ctx, Alvo::Classe(c), name.sym);
+            }
+        }
         ExprKind::Call { target, arguments } => {
             // `C(..)` / `p.C(..)` sem `new`: criação pelo construtor sem nome.
             if let Some(Alvo::Classe(c)) = alvo_estatico(m, ctx, *target) {

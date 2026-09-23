@@ -5,6 +5,7 @@
 //! o tipo não anulável e só o nó que termina a cadeia recebe o `?`
 //! ([`inferir_no`] devolve se a cadeia está em curto).
 
+use super::atalhos;
 use super::chamadas;
 use super::colecoes;
 use super::corpo::{Base, Corpo, Local, Nome};
@@ -329,6 +330,12 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             inf.aviso(msg, n.span);
             inf.core.dynamic_
         }
+        // Só curingas declaram `_` aqui (3.7): usar `_` é erro
+        // (`Undefined name '_'` no CFE).
+        RefNome::Nenhum if cx.curinga == Some(n.sym) => {
+            inf.erro_de_linguagem(cx.unit, n.span, WILDCARD_NAO_LIGA.template.to_string());
+            inf.core.dynamic_
+        }
         RefNome::Nenhum => {
             let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
             inf.aviso(msg, n.span);
@@ -480,7 +487,9 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     let expr = a.expr(e);
     let span = expr.span;
     let mut curto = false;
+    atalhos::registrar_cadeia(inf, cx, e, ctx);
     let t = match &expr.kind {
+        ExprKind::DotShorthand { name, .. } => atalhos::valor(inf, cx, e, name.sym, ctx),
         ExprKind::Int(_) => {
             let s = inf.fecho_maior(ctx);
             let (int, double) = (inf.core.int, inf.core.double);
@@ -556,9 +565,13 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             t
         }
         ExprKind::Call { .. } => {
-            let (t, c) = chamadas::chamada(inf, cx, e, ctx);
-            curto = c;
-            t
+            if let Some(t) = atalhos::construcao(inf, cx, e, ctx) {
+                t
+            } else {
+                let (t, c) = chamadas::chamada(inf, cx, e, ctx);
+                curto = c;
+                t
+            }
         }
         ExprKind::TypeArguments { target, type_args } => {
             if referencia_a_tipo(inf, cx, e).is_some() {
@@ -1276,6 +1289,12 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             }
         }
         RefNome::ConstanteEnum(v) => inf.tipo_variavel(v),
+        // Só curingas declaram `_` aqui (3.7): usar `_` é erro
+        // (`Undefined name '_'` no CFE).
+        RefNome::Nenhum if cx.curinga == Some(n.sym) => {
+            inf.erro_de_linguagem(cx.unit, n.span, WILDCARD_NAO_LIGA.template.to_string());
+            inf.core.dynamic_
+        }
         RefNome::Nenhum => {
             let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
             inf.aviso(msg, n.span);
@@ -1571,6 +1590,8 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
             // `==` / `!=`
             let u = inf.core.unknown;
             let tl = inferir(inf, cx, left, u);
+            // `e == .x`: o atalho à direita usa o tipo de `e` (3.10).
+            atalhos::registrar_igualdade(inf, cx, right, tl);
             let tr = inferir(inf, cx, right, u);
             if matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);

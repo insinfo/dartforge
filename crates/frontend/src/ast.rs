@@ -100,6 +100,28 @@ impl Ast {
         self.functions.push(function);
         FunctionId(self.functions.len() as u32 - 1)
     }
+    /// O atalho de ponto (`.id`, Dart 3.10) na raiz da cadeia de seletores
+    /// que `e` é — `e` mesmo, ou o alvo mais interno de `.x`, `(args)`,
+    /// `[i]`, `<T>` e `!`. O tipo de contexto da cadeia inteira é o
+    /// *shorthand context* dele (spec, "Type inference").
+    pub fn raiz_de_atalho(&self, e: ExprId) -> Option<ExprId> {
+        let mut cur = e;
+        loop {
+            match &self.expr(cur).kind {
+                ExprKind::DotShorthand { .. } => return Some(cur),
+                ExprKind::Property { target, .. }
+                | ExprKind::Call { target, .. }
+                | ExprKind::Index { target, .. }
+                | ExprKind::TypeArguments { target, .. } => cur = *target,
+                ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    operand,
+                } => cur = *operand,
+                _ => return None,
+            }
+        }
+    }
+
     /// Devolve ao alocador a capacidade não usada de cada arena. Chamado ao
     /// fim da análise, quando a árvore deixa de crescer.
     pub fn shrink_to_fit(&mut self) {
@@ -239,6 +261,11 @@ pub struct ClassDecl {
     /// `class C = S with M implements I;` — sem corpo.
     pub mixin_application: bool,
     pub members: Vec<MemberId>,
+    /// O construtor primário (Dart 3.13) já elaborado: o membro `k2` em
+    /// `members`. Os inicializadores de campo não-`late` desta classe são
+    /// avaliados no escopo dos parâmetros dele (spec, "primary initializer
+    /// scope"); fora isso, é um construtor comum.
+    pub primary_constructor: Option<MemberId>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -259,6 +286,8 @@ pub struct EnumDecl {
     pub implements: Box<[TypeId]>,
     pub constants: Vec<EnumConstant>,
     pub members: Vec<MemberId>,
+    /// Construtor primário elaborado (Dart 3.13), como em [`ClassDecl`].
+    pub primary_constructor: Option<MemberId>,
 }
 
 /// `@meta nome<T>.ctor(args)` dentro de um `enum`.
@@ -373,6 +402,10 @@ pub struct Constructor {
     /// `initializers` como [`Initializer::Redirect`].
     pub redirect: Option<RedirectTarget>,
     pub body: FunctionBody,
+    /// `this : inits { corpo }` (Dart 3.13): a parte de corpo de um
+    /// construtor primário, antes da elaboração. Depois dela só sobra onde é
+    /// erro (sem cabeçalho primário, ou repetida).
+    pub parte_primaria: bool,
 }
 
 /// Alvo de `factory C() = Outra.nome;`
@@ -499,6 +532,18 @@ pub struct Parameter {
     /// `int f(int x)?` — o `?` depois da lista da forma antiga.
     pub function_nullable: bool,
     pub default_value: Option<ExprId>,
+    /// Parâmetro nomeado privado que inicializa ou declara campo (Dart 3.12,
+    /// `{this._x}`): o nome **externo** — o da assinatura e da chamada — é
+    /// este (`x`); `name` continua o local e o do campo (`_x`).
+    pub public_name: Option<Name>,
+}
+
+impl Parameter {
+    /// O nome pelo qual o parâmetro é passado e aparece na assinatura: o
+    /// público de um nomeado privado (Dart 3.12), senão o próprio nome.
+    pub fn nome_externo(&self) -> Option<Name> {
+        self.public_name.or(self.name)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -897,6 +942,18 @@ pub enum ExprKind {
     Switch {
         value: ExprId,
         cases: Box<[SwitchExprCase]>,
+    },
+    /// Atalho de ponto (Dart 3.10): o *head* `.id`, `.new`, `const .id` ou
+    /// `const .new`; seletores seguintes são nós comuns em volta dele
+    /// (`.parse('1')` é `Call { target: DotShorthand }`). Denota `D.id`, com
+    /// `D` a declaração do tipo de contexto da cadeia inteira; `types` grava
+    /// `D` em `Resolved::Element(Element::Class(D))` deste nó
+    /// (`docs/VERSOES-LINGUAGEM.md` §4.3).
+    DotShorthand {
+        /// `id`, ou `new` para `.new`.
+        name: Name,
+        /// `const .id(…)`/`const .new(…)`: criação constante.
+        const_: bool,
     },
 }
 

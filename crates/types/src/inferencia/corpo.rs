@@ -74,6 +74,12 @@ pub(crate) struct Corpo {
     pub escritos_em_closure: Vec<SymbolId>,
     /// Rótulos da instrução rotulada cujo corpo é o próximo laço/`switch`.
     pub rotulos_pendentes: Vec<SymbolId>,
+    /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): declarar
+    /// `_` cria o local (tem `LocalId` e tipo) mas não liga o nome.
+    pub curinga: Option<SymbolId>,
+    /// Atalhos de ponto (3.10): o contexto da cadeia de seletores, pela
+    /// expressão `DotShorthand` da raiz (ver `atalhos`).
+    pub contexto_atalho: HashMap<u32, TypeId>,
     /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
     /// closure eles não ficam promovidos (`functionExpression_begin` faz a
     /// junção conservadora com `assignedVariables.anywhere`).
@@ -131,11 +137,16 @@ impl Corpo {
             tipo_this: None,
             escritos_em_closure: Vec::new(),
             rotulos_pendentes: Vec::new(),
+            curinga: None,
+            contexto_atalho: HashMap::new(),
             escritos_no_corpo: None,
             raiz: Raiz::Nada,
             campos: HashMap::new(),
             cadeias: Vec::new(),
         };
+        if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
+            cx.curinga = inf.interner.lookup("_");
+        }
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).
         if let Some(c) = classe {
@@ -201,6 +212,10 @@ impl Corpo {
         let id = LocalId(self.locais.len() as u32);
         let nome = local.nome;
         self.locais.push(local);
+        if self.curinga == Some(nome) {
+            self.fluxo.declarar(id);
+            return id;
+        }
         if let Some(e) = self.escopos.last_mut() {
             e.push((nome, Nome::Local(id)));
         }
@@ -210,6 +225,9 @@ impl Corpo {
 
     /// Registra um nome declarado adiante no bloco corrente.
     pub fn declarar_adiante(&mut self, nome: SymbolId) {
+        if self.curinga == Some(nome) {
+            return;
+        }
         if let Some(e) = self.escopos.last_mut() {
             e.push((nome, Nome::Adiante));
         }
