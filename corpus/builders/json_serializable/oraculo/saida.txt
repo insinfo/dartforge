@@ -1,0 +1,4 @@
+{"id":7,"nome":"Ana","situacao":"suspenso_2","nascimento":"1990-03-14T15:09:26.000Z","enderecos":[{"rua":"Central","numero":42,"cep_formatado":"28890-000"}],"pontuacoes":{"a":1,"b":2}}
+7 Ana Situacao.suspenso 1990-03-14T15:09:26.000Z
+Central/42/28890-000
+{a: 1, b: 2} segredo=x salario=null

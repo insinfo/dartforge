@@ -1,0 +1,38 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "7.7.1",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "3.0.1"
+  },
+  "saidas": [
+    { "asset": "apoio_cadeia|lib/pronto.linhas.txt", "build_to": "cache", "sha256": "0c8e672a94ea785c02796917b530a96a068dc6ea1f9e9bfbadb7d18b13b7fbac" },
+    { "asset": "apoio_cadeia|lib/pronto.palavras.txt", "build_to": "cache", "sha256": "4ac2d2c8b45a1ea1a453d5e43c030e76516213b76085ee100543b829523e3d35" },
+    { "asset": "corpus_cadeia_configuracao|lib/cadeia.carimbo.txt", "build_to": "cache", "sha256": "b89ad5ba0f028d100b5bec50b33c295da7c69e40b82f0cc0b91ff69d62886e02" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/alfa.linhas.txt", "build_to": "cache", "sha256": "9facf16cfb1e7c8737bc15e7364ae24d1943eacfa2e373aa04dc24e96440ddef" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/alfa.maiusculas.txt", "build_to": "cache", "sha256": "d865c17cf068d4587c0bdb58a67c18b8ca24122659511d384510d344f98d365f" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/alfa.palavras.txt", "build_to": "cache", "sha256": "e25f49cdc968d14fa5bc50733a32c81acb88ee1d0f5ce04a102a3d6f6f55686a" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/ignorar_gama.linhas.txt", "build_to": "cache", "sha256": "81c72bb319ec2af7a365a53c1a1ed03b3f48a15b97a8cb8240ae93ec0a8af48b" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/ignorar_gama.maiusculas.txt", "build_to": "cache", "sha256": "57e765160c74f7c30b98eda36bfae9d353bcfab6125daecd1bbf44fe757cb246" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/ignorar_gama.palavras.txt", "build_to": "cache", "sha256": "834b403674caef0e25d38d49c756a871035076486ca7c4b4de7a5ecedc092ee0" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/notas.rascunho.resumo", "build_to": "cache", "sha256": "203e324eabb3413807228043f653d5a407c76337c50b9f94607b90b8e5327e9e" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/sub/beta.linhas.txt", "build_to": "cache", "sha256": "9bd808a8b170ee0a753938f032fac5c4a8ea610606a50643f63a0ee7beb7dadb" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/sub/beta.maiusculas.txt", "build_to": "cache", "sha256": "0f153df08a1e000705c5f623319e61daa0664b07d73dc99625d32b9ccece88c2" },
+    { "asset": "corpus_cadeia_configuracao|lib/entrada/sub/beta.palavras.txt", "build_to": "cache", "sha256": "db045b44d2e03b2a3578bf426229830408a73d72399fe0bfa54e39e8da8a0a16" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/alfa.espelho.linhas.txt", "build_to": "cache", "sha256": "a00793442810de798baaa07937d3eaa8a99bf287a7d17127e5e1e49e61d1ee8f" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/alfa.espelho.maiusculas.txt", "build_to": "cache", "sha256": "ebd31900b14cde78024e2aaccf5483d9d993d2fd211e94e9cb341bcb0bacfa13" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/alfa.espelho.palavras.txt", "build_to": "cache", "sha256": "9689e48e6357f18fbafaebdd4dafbcb48774890a5196e4234f89d3dc21b6af13" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/alfa.espelho.txt", "build_to": "source", "sha256": "31977aadba604f6bcd7cd4b8fb0988ad8da0002e5636538d5d113c2cfee88633" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.linhas.txt", "build_to": "cache", "sha256": "4fe7a2c6a3bbc07aefb20626c9c4b5b1337c51951af38c9dc2d6c981953aba92" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.maiusculas.txt", "build_to": "cache", "sha256": "5f23a7f5cd567c73fdb6b270bed3fea7037e3e991d1d80b42c118d7dddb6ef4f" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.palavras.txt", "build_to": "cache", "sha256": "2e285dc1fefd8bb6712a8f97a989852d2e226db31259783dfe3f2ecbc020ee4d" },
+    { "asset": "corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.txt", "build_to": "source", "sha256": "ba188229f6021af4c6f84900fa9fa61f3b4239fb1fb52b7ae32441a42bdb3de8" },
+    { "asset": "corpus_cadeia_configuracao|lib/indice.g.txt", "build_to": "source", "sha256": "b0654bacdfdd8d4c147bdd7f895f37e5102b7323c38be3f6d7812a4be6c45a6a" }
+  ],
+  "excluidos": 0,
+  "executavel": true
+}

@@ -1,0 +1,11 @@
+.painel {
+  background: #f4f4f4;
+}
+.painel__titulo {
+  font-weight: bold;
+}
+.painel__titulo:first-child {
+  margin-top: 0;
+}
+
+/*# sourceMappingURL=indentado.css.map */

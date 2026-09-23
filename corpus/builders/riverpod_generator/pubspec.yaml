@@ -1,0 +1,11 @@
+name: corpus_riverpod_generator
+description: riverpod_generator com riverpod_annotation (Dart puro, sem Flutter).
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+dev_dependencies:
+  build_runner: ^2.4.15
+  riverpod_generator: ^2.6.5
