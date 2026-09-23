@@ -908,3 +908,115 @@ pub fn lower_global_ou_recusa(
     s.terminate(Terminator::Return(None));
     s.finalizar(module);
 }
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// `{}` com o SDK da fonte: um `_Map` (ou `_Set`) novo da fonte, o
+    /// `LinkedHashMap`/`LinkedHashSet` padrão que o literal constrói.
+    pub fn colecao_vazia_fonte(&mut self, mapa: bool) -> Operand {
+        let nome = if mapa { "_Map" } else { "_Set" };
+        let span = Span { start: 0, end: 0 };
+        let Some(cid) = self.ctx.classe_do_sdk("_compact_hash", nome) else {
+            return self.nao_suportado(&format!("literal de coleção sem `{nome}`"), span);
+        };
+        let vazio = self.ctx.interner.lookup("");
+        let Some(ctor) = vazio.and_then(|v| self.ctx.program.classes[cid.0 as usize].constructors.get(&v).copied()) else {
+            return self.nao_suportado(&format!("`{nome}()` ausente"), span);
+        };
+        self.instanciar_avaliados(ctor, &[], span)
+    }
+
+    /// `for (x in fonte) f(x)` pelo protocolo do `Iterator` (§17.7.3):
+    /// `iterator`, `moveNext()` e `current`, pelos seletores.
+    pub fn iterar_fonte(&mut self, fonte: Operand, f: &mut dyn FnMut(&mut Self, Operand)) {
+        let it = self.chamar_por_seletor(fonte, "g:iterator".to_string(), &[]);
+        let cabeca = self.new_block();
+        let corpo = self.new_block();
+        let fim = self.new_block();
+        self.terminate(Terminator::Branch(cabeca));
+        self.set_block(cabeca);
+        let ok = self.chamar_por_seletor(it.clone(), "c:moveNext".to_string(), &[]);
+        let ok = self.coagir(ok, Type::I1);
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
+        self.set_block(corpo);
+        let x = self.chamar_por_seletor(it, "g:current".to_string(), &[]);
+        f(self, x);
+        self.terminate(Terminator::Branch(cabeca));
+        self.set_block(fim);
+    }
+
+    /// Liga o elemento corrente de um `for-in` ao alvo dele (variável
+    /// declarada, local existente ou padrão), na representação do alvo.
+    pub fn ligar_alvo_de_for_in(
+        &mut self,
+        ast: &dartforge_frontend::ast::Ast,
+        target: &dartforge_frontend::ast::ForInTarget,
+        x: Operand,
+        iterable: dartforge_frontend::ast::ExprId,
+        span: Span,
+    ) {
+        use dartforge_frontend::ast::{ExprKind, ForInTarget};
+        match target {
+            ForInTarget::Declared { name, .. } => {
+                let ty = self.repr_do_local(name.span.start as usize);
+                let x = self.coagir(x, ty);
+                self.declarar_variavel(name.sym, name.span.start as usize, ty, x);
+            }
+            ForInTarget::Expression(e) => {
+                if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
+                    let ty = self.buscar_local(id.sym).map_or(Type::Ref, |l| l.ty);
+                    let x = self.coagir(x, ty);
+                    self.gravar_local(id.sym, x);
+                } else {
+                    self.nao_suportado("alvo de for-in", span);
+                }
+            }
+            ForInTarget::Pattern { pattern, .. } => {
+                self.casar_irrefutavel(ast, *pattern, x, super::padroes::Ligacao::Declarar, iterable);
+            }
+        }
+    }
+
+    /// `for (alvo in iterável) corpo` com o SDK da fonte: o protocolo do
+    /// `Iterator`, com `break`/`continue` (e os rótulos) como o `for-in` de
+    /// sempre.
+    pub fn lower_for_in_fonte(
+        &mut self,
+        ast: &dartforge_frontend::ast::Ast,
+        target: &dartforge_frontend::ast::ForInTarget,
+        iterable: dartforge_frontend::ast::ExprId,
+        body: dartforge_frontend::ast::StmtId,
+        span: Span,
+    ) {
+        let fonte = self.lower_expr(ast, iterable);
+        let it = self.chamar_por_seletor(fonte, "g:iterator".to_string(), &[]);
+        let cabeca = self.new_block();
+        let corpo = self.new_block();
+        let fim = self.new_block();
+        let rotulos = std::mem::take(&mut self.pending_labels);
+        for &r in &rotulos {
+            self.labeled_break_targets.insert(r, fim);
+            self.labeled_continue_targets.insert(r, cabeca);
+        }
+        self.terminate(Terminator::Branch(cabeca));
+        self.set_block(cabeca);
+        let ok = self.chamar_por_seletor(it.clone(), "c:moveNext".to_string(), &[]);
+        let ok = self.coagir(ok, Type::I1);
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
+        self.set_block(corpo);
+        self.break_targets.push(fim);
+        self.continue_targets.push(cabeca);
+        self.abrir_escopo();
+        let x = self.chamar_por_seletor(it, "g:current".to_string(), &[]);
+        self.ligar_alvo_de_for_in(ast, target, x, iterable, span);
+        self.lower_stmt(ast, body);
+        self.fechar_escopo();
+        self.terminate(Terminator::Branch(cabeca));
+        self.break_targets.pop();
+        self.continue_targets.pop();
+        for &r in &rotulos {
+            self.labeled_break_targets.remove(&r);
+            self.labeled_continue_targets.remove(&r);
+        }
+        self.set_block(fim);
+    }
+}

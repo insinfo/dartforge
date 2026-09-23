@@ -242,7 +242,7 @@ mod tests {
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo");
         let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
-        assert_eq!(sdk.substituicoes.len(), 6);
+        assert_eq!(sdk.substituicoes.len(), 8);
         let async_patch = &sdk.library("async").unwrap().patches[0];
         let novo = sdk.substituto(async_patch).expect("async_patch trocado");
         assert!(novo.ends_with("async_patch.dart") && novo.starts_with(crate::load::normalizar(&dir)));

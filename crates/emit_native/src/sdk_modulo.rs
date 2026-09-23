@@ -21,7 +21,8 @@ pub const ALVO_SOBREPOSICAO: &str = "dartforge_nativo";
 /// As bibliotecas que o nativo compila da fonte do SDK (decisão 1 de
 /// NATIVO-PLANO §7.1), na ordem de dependência aproximada. `typed_data`
 /// entra depois (P9).
-pub const BIBLIOTECAS_DA_FONTE: &[&str] = &["_internal", "core", "_compact_hash", "collection", "math", "convert", "async"];
+pub const BIBLIOTECAS_DA_FONTE: &[&str] =
+    &["_internal", "core", "_compact_hash", "collection", "math", "convert", "async", "typed_data"];
 
 /// Diretório da sobreposição: `DARTFORGE_SDK_NATIVO`, senão o `sdk_nativo/`
 /// do repositório que compilou este binário.
@@ -511,7 +512,7 @@ mod testes {
             return;
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK)).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 6);
+        assert_eq!(sdk.substituicoes.len(), 8);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
