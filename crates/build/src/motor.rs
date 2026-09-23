@@ -71,6 +71,10 @@ pub struct Registro {
     pub motivo: Option<String>,
     /// Medição de um nativo não verificado (só com `medir_nao_verificados`).
     pub medido: Vec<(AssetId, Arc<[u8]>)>,
+    /// Numa ação nativa, as saídas que o nativo não escreve e vieram do
+    /// apoio (o `.css.dart` que o ngdart oficial escreve ao lado do
+    /// `.css.shim.dart`): contam como pendentes, não como iguais.
+    pub do_apoio: Vec<AssetId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -794,8 +798,19 @@ impl Motor {
         let recusa = rodada.and_then(|r| r.erro.clone().or_else(|| r.recusas.get(&entrada).cloned()));
         let gerou_algo = saidas.iter().any(|(_, c)| c.is_some());
         if gerador.verificado() && recusa.is_none() && gerou_algo {
-            // Saídas que o nativo não escreveu (ex.: o `.css.dart` não
-            // compartilhado, que nenhum template importa) ficam não escritas.
+            // Saída que o nativo não escreve e o oficial sim (o `.css.dart`
+            // ao lado do `.css.shim.dart`) vem do apoio e é marcada como tal.
+            let mut saidas = saidas;
+            let mut do_apoio = Vec::new();
+            let oculta = self.fases[acao.fase].oculta;
+            for (s, c) in saidas.iter_mut() {
+                if c.is_none() {
+                    if let Ok(b) = std::fs::read(self.caminho_de_apoio(s, oculta)) {
+                        *c = Some(Arc::from(b));
+                        do_apoio.push(s.clone());
+                    }
+                }
+            }
             return Registro {
                 impressao: [0; 32],
                 consultas,
@@ -803,6 +818,7 @@ impl Motor {
                 origem: Origem::Nativo(gerador.chave()),
                 motivo: None,
                 medido: Vec::new(),
+                do_apoio,
             };
         }
         // O apoio de uma ação que já vinha dele não é relido: o disco do
@@ -858,6 +874,7 @@ impl Motor {
                 origem: Origem::Nativo(gerador.chave()),
                 motivo: None,
                 medido: Vec::new(),
+                do_apoio: Vec::new(),
             },
             Ok(s) => {
                 let mut r = self.apoio(a, motivo_dart);
@@ -945,6 +962,7 @@ impl Motor {
                 origem: Origem::Pendente,
                 motivo: Some(m),
                 medido: Vec::new(),
+                do_apoio: Vec::new(),
             };
         }
         Registro {
@@ -954,6 +972,7 @@ impl Motor {
             origem: Origem::Apoio,
             motivo: motivo_dart.map(|m| format!("apoio do build_runner: {m}")),
             medido: Vec::new(),
+            do_apoio: Vec::new(),
         }
     }
 
@@ -1107,6 +1126,9 @@ impl Motor {
                 Some(r) => {
                     let c = r.saidas.iter().find(|(s, _)| s == id).and_then(|(_, c)| c.clone());
                     match (&r.origem, c) {
+                        (Origem::Nativo(n), _) if r.do_apoio.contains(id) => {
+                            p.pendentes.push((id.clone(), format!("{n}: saída não gerada pelo nativo; apoio do build_runner")))
+                        }
                         (Origem::Nativo(_), Some(c)) if c.as_ref() == esperado.as_slice() => p.iguais.push(id.clone()),
                         (Origem::Nativo(n), _) => p.diferentes.push((id.clone(), format!("{n}: difere do oficial"))),
                         _ => {
