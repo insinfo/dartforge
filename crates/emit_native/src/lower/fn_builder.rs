@@ -2,7 +2,6 @@
 
 use crate::context::Context;
 use crate::hir::*;
-use dartforge_elements::model::{ClassId, FunctionElementId};
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, FunctionBody, StmtId, StmtKind, UnaryOp};
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::{LocalId, MemberRef, Resolved};
@@ -25,7 +24,10 @@ pub struct FnBuilder<'a, 'c> {
     pub next_value: u32,
     pub next_block: u32,
     pub locals: HashMap<LocalId, Operand>,
-    pub named_locals: HashMap<SymbolId, Operand>,
+    /// Escopos léxicos dos locais, do mais externo (parâmetros) ao corrente (R6).
+    pub escopos: Vec<HashMap<SymbolId, super::locais::Local>>,
+    /// Quantos `alloca` já estão no começo do bloco de entrada.
+    pub n_allocas: usize,
     pub value_types: HashMap<ValueId, Type>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
@@ -35,13 +37,21 @@ pub struct FnBuilder<'a, 'c> {
     pub finally_scopes: Vec<FinallyScope>,
     pub active_catch_stack: Vec<(Operand, u8)>,
     pub terminated_blocks: std::collections::HashSet<BlockId>,
-    pub local_ptrs: HashMap<SymbolId, Operand>,
     pub local_functions: HashMap<SymbolId, (String, Type, Vec<Type>)>,
     pub extra_functions: Vec<Function>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
     pub current_cascade_target: Option<Operand>,
+    /// Diagnósticos de construto não suportado (N1).
+    pub erros: Vec<String>,
+    /// Cadeia `?.` em curso: bloco de saída com null e as entradas do phi
+    /// (N3). `None` fora de cadeia.
+    pub cadeia_nula: Option<(BlockId, Vec<(BlockId, Operand)>)>,
+    /// O próximo `lower_expr` é o alvo de um elo da cadeia corrente.
+    pub continuar_cadeia: bool,
+    /// Valor lido antes de uma atribuição composta (resultado de `x++`).
+    pub valor_antigo: Option<Operand>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -58,8 +68,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// numa variavel volta como i64 0/1; comparar com zero recupera o i1 sem
     /// supor nada sobre a largura de origem.
     pub fn para_bool(&mut self, op: Operand) -> Operand {
-        if self.operand_type(&op) == Type::I1 {
-            return op;
+        match self.operand_type(&op) {
+            Type::I1 => return op,
+            // Um `bool` encaixotado não é "diferente de zero": o handle da
+            // caixa de `false` também é. Volta pelo `Unbox` (R3).
+            Type::Ref => return self.coagir(op, Type::I1),
+            _ => {}
         }
         self.emit(
             Instruction::ICmp(ICmpOp::Ne, op, Operand::Constant(Constant::Int(0))),
@@ -83,49 +97,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         op: BinaryOp,
         left: ExprId,
         right: ExprId,
+        expr_id: ExprId,
     ) -> Operand {
         let lop = self.lower_expr(ast, left);
+        if op == BinaryOp::IfNull {
+            return self.lower_se_nulo(ast, lop, right, expr_id);
+        }
+        let cond = self.para_bool(lop);
+        // O bloco de origem é o que termina com o desvio — `para_bool` pode
+        // ter aberto blocos (o `Unbox` de um `bool` encaixotado).
         let bloco_esq = self.current_block;
         let bloco_dir = self.new_block();
         let bloco_fim = self.new_block();
-
-        match op {
-            BinaryOp::IfNull => {
-                let e_nulo = self.emit(
-                    Instruction::ICmp(
-                        ICmpOp::Eq,
-                        lop.clone(),
-                        Operand::Constant(Constant::Int(0)),
-                    ),
-                    Type::I1,
-                );
-                self.terminate(Terminator::CondBranch {
-                    cond: e_nulo,
-                    then_block: bloco_dir,
-                    else_block: bloco_fim,
-                });
-            }
-            BinaryOp::And => {
-                let cond = self.para_bool(lop.clone());
-                self.terminate(Terminator::CondBranch {
-                    cond,
-                    then_block: bloco_dir,
-                    else_block: bloco_fim,
-                });
-            }
-            _ => {
-                let cond = self.para_bool(lop.clone());
-                self.terminate(Terminator::CondBranch {
-                    cond,
-                    then_block: bloco_fim,
-                    else_block: bloco_dir,
-                });
-            }
+        if op == BinaryOp::And {
+            self.terminate(Terminator::CondBranch { cond, then_block: bloco_dir, else_block: bloco_fim });
+        } else {
+            self.terminate(Terminator::CondBranch { cond, then_block: bloco_fim, else_block: bloco_dir });
         }
 
         self.set_block(bloco_dir);
         let rop = self.lower_expr(ast, right);
-        let rop = if op == BinaryOp::IfNull { rop } else { self.para_bool(rop) };
+        let rop = self.para_bool(rop);
         let bloco_dir_fim = self.current_block;
         let direita_alcanca = !self.is_terminated();
         if direita_alcanca {
@@ -133,90 +125,66 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(bloco_fim);
-        if !direita_alcanca {
-            // O lado direito nao volta (lancou ou retornou): o valor que chega
-            // ao fim so pode vir da esquerda.
-            return match op {
-                BinaryOp::IfNull => lop,
-                BinaryOp::And => Operand::Constant(Constant::Bool(false)),
-                _ => Operand::Constant(Constant::Bool(true)),
-            };
-        }
-
         // O valor que vem do lado esquerdo quando ele decide sozinho: em `&&`
         // a esquerda so pula o direito sendo falsa, em `||` sendo verdadeira.
-        let (de_esquerda, ty) = match op {
-            BinaryOp::IfNull => (lop, self.operand_type(&rop)),
-            BinaryOp::And => (Operand::Constant(Constant::Bool(false)), Type::I1),
-            _ => (Operand::Constant(Constant::Bool(true)), Type::I1),
-        };
+        let de_esquerda = Operand::Constant(Constant::Bool(op != BinaryOp::And));
+        if !direita_alcanca {
+            return de_esquerda;
+        }
         self.emit(
             Instruction::Phi {
                 incoming: vec![(bloco_esq, de_esquerda), (bloco_dir_fim, rop)],
-                ty,
+                ty: Type::I1,
             },
-            ty,
+            Type::I1,
         )
     }
 
-    /// Indice do elemento de funcao de um membro de instancia que de fato
-    /// vira simbolo no modulo.
-    ///
-    /// `lower_program` so emite funcoes cujo `node` e `FunctionRef::Function`.
-    /// Acessor implicito de campo (um `final int codigo;` gera um getter
-    /// `codigo`) tem `node: FunctionRef::None` e nunca vira simbolo; emitir
-    /// `call @df_fn_N_codigo` da "use of undefined value" e o Clang recusa o
-    /// modulo inteiro — nao so aquela chamada. Quem procura um metodo por nome
-    /// tem de pular esses, e cair no acesso a campo que vem logo depois.
-    pub fn metodo_de_instancia(&self, nome: SymbolId) -> Option<usize> {
-        self.ctx.program.functions.iter().position(|f| {
-            f.class.is_some()
-                && !f.static_
-                && f.name == nome
-                && matches!(f.node, dartforge_elements::model::FunctionRef::Function { .. })
-        })
-    }
-
-    /// Mesma regra para funcoes de topo.
-    pub fn funcao_de_topo(&self, nome: SymbolId) -> Option<usize> {
-        self.ctx.program.functions.iter().position(|f| {
-            f.class.is_none()
-                && f.name == nome
-                && matches!(f.node, dartforge_elements::model::FunctionRef::Function { .. })
-        })
-    }
-
-    pub fn variable_initializer(
-        &self,
-        var_id: dartforge_elements::model::VariableId,
-    ) -> Option<dartforge_frontend::ast::ExprId> {
-        use dartforge_elements::model::VariableRef;
-        use dartforge_frontend::ast::{DeclKind, MemberKind};
-        let v_elem = &self.ctx.program.variables[var_id.0 as usize];
-        match v_elem.node {
-            VariableRef::Field { unit, member, index } => {
-                if unit != self.unit_id {
-                    return None;
-                }
-                let ast = &self.ctx.program.unit(unit).ast;
-                match &ast.member(member).kind {
-                    MemberKind::Field(list) => list.variables.get(index)?.initializer,
-                    _ => None,
-                }
-            }
-            VariableRef::TopLevel { unit, decl, index } => {
-                if unit != self.unit_id {
-                    return None;
-                }
-                let ast = &self.ctx.program.unit(unit).ast;
-                match &ast.decl(decl).kind {
-                    DeclKind::Variables(list) => list.variables.get(index)?.initializer,
-                    _ => None,
-                }
-            }
-            _ => None,
+    /// `a ?? b`: `b` só é avaliado quando `a` é null. As duas entradas do
+    /// phi saem na representação do resultado (R4) — a da esquerda num
+    /// bloco próprio, porque o `Unbox` de `a` só vale quando ele não é null.
+    fn lower_se_nulo(&mut self, ast: &ast::Ast, lop: Operand, right: ExprId, expr_id: ExprId) -> Operand {
+        if self.operand_type(&lop) != Type::Ref {
+            // Escalar nunca é null: a direita é código morto.
+            return lop;
         }
+        let ty = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+        let e_nulo = self.emit(Instruction::ICmp(ICmpOp::Eq, lop.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+        let bloco_dir = self.new_block();
+        let bloco_nn = self.new_block();
+        let bloco_fim = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: e_nulo, then_block: bloco_dir, else_block: bloco_nn });
+        let mut entradas = Vec::new();
+        self.set_block(bloco_nn);
+        let v = self.coagir(lop, ty);
+        entradas.push((self.current_block, v));
+        self.terminate(Terminator::Branch(bloco_fim));
+        self.set_block(bloco_dir);
+        let r = self.lower_expr(ast, right);
+        if !self.is_terminated() {
+            let r = self.coagir(r, ty);
+            if !self.is_terminated() {
+                entradas.push((self.current_block, r));
+                self.terminate(Terminator::Branch(bloco_fim));
+            }
+        }
+        self.set_block(bloco_fim);
+        if entradas.len() == 1 {
+            return entradas.pop().expect("uma entrada").1;
+        }
+        self.emit(Instruction::Phi { incoming: entradas, ty }, ty)
     }
+
+    /// Representação do tipo estático de uma expressão, quando ele é
+    /// conhecido e não é `dynamic`.
+    pub fn repr_da_expressao(&self, e: ExprId) -> Option<Type> {
+        let t = self.ctx.get_type(self.unit_id, e)?;
+        if t == self.ctx.core.dynamic_ || self.ctx.is_void(t) {
+            return None;
+        }
+        Some(self.ctx.to_hir_type(t))
+    }
+
     pub fn new(
         ctx: &'c Context<'a>,
         unit_id: dartforge_elements::model::UnitId,
@@ -245,7 +213,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             next_value: 0,
             next_block: 1,
             locals: HashMap::new(),
-            named_locals: HashMap::new(),
+            escopos: vec![HashMap::new()],
+            n_allocas: 0,
             value_types: HashMap::new(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
@@ -255,29 +224,157 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             finally_scopes: Vec::new(),
             active_catch_stack: Vec::new(),
             terminated_blocks: std::collections::HashSet::new(),
-            local_ptrs: HashMap::new(),
             local_functions: HashMap::new(),
             extra_functions: Vec::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
             current_cascade_target: None,
+            erros: Vec::new(),
+            cadeia_nula: None,
+            continuar_cadeia: false,
+            valor_antigo: None,
         }
     }
 
-    pub fn class_all_fields(&self, cid: dartforge_elements::model::ClassId) -> Vec<dartforge_elements::model::VariableId> {
-        let mut fields = Vec::new();
-        let class = &self.ctx.program.classes[cid.0 as usize];
-        if let Some(sup) = class.supertype_class {
-            fields.extend(self.class_all_fields(sup));
+    /// Declara `this` (quando `com_this`) e os parâmetros do outline de `fid`.
+    pub fn declarar_parametros(&mut self, fid: usize, com_this: bool) {
+        if com_this {
+            let this_vid = self.add_param("this".to_string(), Type::Ref);
+            self.this_param = Some(Operand::Val(this_vid));
         }
-        fields.extend(class.fields.iter().copied());
-        fields
+        let Some(dados) = self.ctx.outline.functions.get(fid) else { return };
+        for p in dados.parameters.iter() {
+            let p_name = p.name.map(|s| self.ctx.symbol_name(s).to_string()).unwrap_or_else(|| "arg".to_string());
+            let p_ty = self.repr(p.ty);
+            let vid = self.add_param(p_name, p_ty);
+            if let Some(sym) = p.name {
+                self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid));
+            }
+        }
     }
 
-    pub fn find_field_index(&self, cid: dartforge_elements::model::ClassId, sym: SymbolId) -> Option<usize> {
-        let all = self.class_all_fields(cid);
-        all.iter().position(|&vid| self.ctx.program.variables[vid.0 as usize].name == sym)
+    /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
+    pub fn finalizar(self, module: &mut Module) {
+        module.erros.extend(self.erros);
+        module.functions.push(self.func);
+        module.functions.extend(self.extra_functions);
+    }
+
+    /// Construto que o lowering não sabe baixar: diagnóstico com posição
+    /// (N1). O operando devolvido nunca chega a ser emitido — um módulo com
+    /// erros não gera código.
+    pub fn nao_suportado(&mut self, oque: &str, span: dartforge_diagnostics::Span) -> Operand {
+        let unit = self.ctx.program.unit(self.unit_id);
+        let fonte = &unit.source;
+        let ini = span.start.min(fonte.len());
+        let antes = &fonte[..ini];
+        let linha = antes.matches('\n').count() + 1;
+        let coluna = ini - antes.rfind('\n').map_or(0, |p| p + 1) + 1;
+        let arquivo = unit
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map_or_else(|| unit.uri.clone(), |n| n.to_string_lossy().into_owned());
+        self.erros.push(format!("não suportado no backend nativo: {oque} ({arquivo}:{linha}:{coluna})"));
+        Operand::Constant(Constant::Null)
+    }
+
+    /// Converte um operando para a representação `para` (R4).
+    ///
+    /// É o único lugar que muda representação: escalar numa posição `Ref`
+    /// vira caixa (`Box`), `Ref` numa posição escalar volta por `Unbox` —
+    /// que lança `TypeError` para null ou outro tipo, com a verificação de
+    /// exceção de uma chamada. `int` para `double` é conversão numérica (o
+    /// literal `1` num contexto `double`); os bits de `double` que vêm do
+    /// heap usam `Bitcast` explícito, nunca esta função.
+    pub fn coagir(&mut self, op: Operand, para: Type) -> Operand {
+        let de = self.operand_type(&op);
+        if de == para || matches!(para, Type::Void | Type::Ptr) || matches!(de, Type::Void | Type::Ptr) {
+            return op;
+        }
+        match (de, para) {
+            (Type::I64 | Type::F64 | Type::I1, Type::Ref) => self.emit(Instruction::Box { op, from: de }, Type::Ref),
+            (Type::I8, Type::Ref) => {
+                let b = self.emit(Instruction::Trunc { op, from: Type::I8, to: Type::I1 }, Type::I1);
+                self.emit(Instruction::Box { op: b, from: Type::I1 }, Type::Ref)
+            }
+            (Type::Ref, Type::I64 | Type::F64 | Type::I1) => {
+                self.emit_call_with_check(Instruction::Unbox { op, to: para }, para)
+            }
+            (Type::Ref, Type::I8) => {
+                let b = self.emit_call_with_check(Instruction::Unbox { op, to: Type::I1 }, Type::I1);
+                self.emit(Instruction::ZExt { op: b, from: Type::I1, to: Type::I8 }, Type::I8)
+            }
+            (Type::I64, Type::F64) => match op {
+                Operand::Constant(Constant::Int(n)) => Operand::Constant(Constant::Double(n as f64)),
+                op => self.emit(Instruction::IntToDouble(op), Type::F64),
+            },
+            (Type::F64, Type::I64) => self.emit(Instruction::DoubleToInt(op), Type::I64),
+            (Type::I1, Type::I64 | Type::I8) => self.emit(Instruction::ZExt { op, from: Type::I1, to: para }, para),
+            (Type::I8, Type::I64) => self.emit(Instruction::ZExt { op, from: Type::I8, to: Type::I64 }, Type::I64),
+            (Type::I8, Type::I1) => self.emit(Instruction::Trunc { op, from: Type::I8, to: Type::I1 }, Type::I1),
+            (Type::I64, Type::I1) => {
+                self.emit(Instruction::ICmp(ICmpOp::Ne, op, Operand::Constant(Constant::Int(0))), Type::I1)
+            }
+            (Type::I64, Type::I8) => self.emit(Instruction::Trunc { op, from: Type::I64, to: Type::I8 }, Type::I8),
+            (Type::F64, Type::I1 | Type::I8) => {
+                self.emit(Instruction::FCmp(FCmpOp::Ne, op, Operand::Constant(Constant::Double(0.0))), Type::I1)
+            }
+            (Type::I1 | Type::I8, Type::F64) => {
+                let i = self.emit(Instruction::ZExt { op, from: de, to: Type::I64 }, Type::I64);
+                self.emit(Instruction::IntToDouble(i), Type::F64)
+            }
+            _ => op,
+        }
+    }
+
+    /// Inicializador de uma variável/campo, de qualquer unidade (quem baixa
+    /// usa `lower_expr_de` com a unidade da variável).
+    pub fn variable_initializer_em(
+        &self,
+        var_id: dartforge_elements::model::VariableId,
+    ) -> Option<dartforge_frontend::ast::ExprId> {
+        use dartforge_elements::model::VariableRef;
+        use dartforge_frontend::ast::{DeclKind, MemberKind};
+        let v_elem = &self.ctx.program.variables[var_id.0 as usize];
+        match v_elem.node {
+            VariableRef::Field { unit, member, index } => match &self.ctx.program.unit(unit).ast.member(member).kind {
+                MemberKind::Field(list) => list.variables.get(index)?.initializer,
+                _ => None,
+            },
+            VariableRef::TopLevel { unit, decl, index } => match &self.ctx.program.unit(unit).ast.decl(decl).kind {
+                DeclKind::Variables(list) => list.variables.get(index)?.initializer,
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// `assert(cond, msg)`: lança `AssertionError` capturável (asserts
+    /// ligados, como no oráculo `dart run --enable-asserts`).
+    pub fn lower_assert(&mut self, ast: &ast::Ast, condition: ExprId, message: Option<ExprId>) {
+        let c = self.lower_expr(ast, condition);
+        let c = self.para_bool(c);
+        let fail_b = self.new_block();
+        let cont_b = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: c, then_block: cont_b, else_block: fail_b });
+        self.set_block(fail_b);
+        let msg = match message {
+            Some(m) => self.lower_expr(ast, m),
+            None => Operand::Constant(Constant::Null),
+        };
+        let (bits, is_ref) = self.para_bits(msg);
+        let err = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_assertion_error_new".to_string(),
+                args: vec![(bits, Type::I64), (Operand::Constant(Constant::Int(i64::from(is_ref))), Type::I8)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(err);
+        self.set_block(cont_b);
     }
 
     pub fn add_param(&mut self, name: String, ty: Type) -> ValueId {
@@ -349,6 +446,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.is_terminated() {
             return;
         }
+        // R4: o valor devolvido na representação do retorno da função.
+        let term = match term {
+            Terminator::Return(Some(op)) if !matches!(self.func.return_ty, Type::Void) => {
+                let r = self.func.return_ty;
+                let op = self.coagir(op, r);
+                if self.is_terminated() {
+                    return;
+                }
+                Terminator::Return(Some(op))
+            }
+            t => t,
+        };
         self.terminated_blocks.insert(self.current_block);
         let idx = self.func.blocks.iter().position(|b| b.id == self.current_block).unwrap();
         self.func.blocks[idx].terminator = term;
@@ -385,6 +494,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             let default_val = self.default_return_operand();
             let val = ret_val.unwrap_or(default_val);
+            // Entrada do phi do valor de retorno do `finally`: na
+            // representação dele (R4), coagida aqui, no bloco de origem.
+            let ty_phi = if self.func.return_ty == Type::Void { Type::Ref } else { self.func.return_ty };
+            let val = self.coagir(val, ty_phi);
             let fin = self.finally_scopes.last_mut().unwrap();
             fin.incoming.push((self.current_block, 1, val));
             let fin_entry = fin.entry_block;
@@ -587,64 +700,100 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.default_return_operand()
     }
 
-    pub fn lower_type_match(&mut self, ast_ty: &ast::TypeAnnotation, ex_bits: Operand, ex_tag: Operand) -> Operand {
-        if let ast::TypeKind::Named { name, .. } = &ast_ty.kind {
-            if let Some(first) = name.first() {
-                let name_str = self.ctx.symbol_name(first.sym);
-                match name_str {
-                    "int" => {
-                        return self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(1))), Type::I1);
-                    }
-                    "bool" => {
-                        return self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(2))), Type::I1);
-                    }
-                    "double" => {
-                        return self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(4))), Type::I1);
-                    }
-                    "String" => {
-                        let is_ref = self.emit(Instruction::ICmp(ICmpOp::Eq, ex_tag, Operand::Constant(Constant::Int(3))), Type::I1);
-                        let cls = self.emit(Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(ex_bits, Type::I64)], ret_ty: Type::I64 }, Type::I64);
-                        let is_str_cls = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-2))), Type::I1);
-                        return self.emit(Instruction::And(is_ref, is_str_cls), Type::I1);
-                    }
-                    "Object" | "dynamic" => {
-                        let not_null_tag = self.emit(Instruction::ICmp(ICmpOp::Ne, ex_tag, Operand::Constant(Constant::Int(0))), Type::I1);
-                        let not_null_bits = self.emit(Instruction::ICmp(ICmpOp::Ne, ex_bits, Operand::Constant(Constant::Int(0))), Type::I1);
-                        return self.emit(Instruction::And(not_null_tag, not_null_bits), Type::I1);
-                    }
-                    _ => {
-                        let target_cid = match name_str {
-                            "Exception" => 1000,
-                            "FormatException" => 1001,
-                            "StateError" => 1002,
-                            "ArgumentError" => 1003,
-                            "RangeError" => 1004,
-                            "UnsupportedError" => 1005,
-                            "StackTrace" => 1006,
-                            "Error" => 1007,
-                            "UnimplementedError" => 1008,
-                            "AssertionError" => 1009,
-                            "ConcurrentModificationError" => 1010,
-                            "TypeError" => 1011,
-                            "NoSuchMethodError" => 1012,
-                            _ => {
-                                self.ctx.program.classes.iter().position(|c| self.ctx.symbol_name(c.name) == name_str)
-                                    .map(|idx| (idx + 1) as i64)
-                                    .unwrap_or(0)
-                            }
-                        };
-                        let cls = self.emit(Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(ex_bits, Type::I64)], ret_ty: Type::I64 }, Type::I64);
-                        let is_sub = self.emit(Instruction::CallRuntime {
+    /// `op is T` na representação de `op`.
+    ///
+    /// Escalar (`I64`/`F64`/`I1`) tem o tipo decidido em compilação. `Ref`
+    /// pergunta a classe ao runtime (`dartforge_value_class`, que devolve
+    /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
+    /// String…) — sem desreferenciar null (H6).
+    pub fn testar_tipo(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
+        let ast::TypeKind::Named { name, .. } = &ast_ty.kind else {
+            return self.nao_suportado("teste de tipo estrutural", ast_ty.span);
+        };
+        let Some(ultimo) = name.last() else {
+            return self.nao_suportado("teste de tipo", ast_ty.span);
+        };
+        let nome = self.ctx.symbol_name(ultimo.sym).to_string();
+        let repr = self.operand_type(&op);
+        if repr != Type::Ref {
+            let r = matches!(
+                (nome.as_str(), repr),
+                ("int", Type::I64)
+                    | ("double", Type::F64)
+                    | ("bool", Type::I1 | Type::I8)
+                    | ("num", Type::I64 | Type::F64)
+                    | ("Object" | "dynamic" | "Comparable", _)
+            );
+            return Operand::Constant(Constant::Bool(r));
+        }
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(op, Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let igual = |b: &mut Self, v: i64| {
+            b.emit(Instruction::ICmp(ICmpOp::Eq, cls.clone(), Operand::Constant(Constant::Int(v))), Type::I1)
+        };
+        let base = match nome.as_str() {
+            "dynamic" => Operand::Constant(Constant::Bool(true)),
+            "Object" => self.emit(
+                Instruction::ICmp(ICmpOp::Ne, cls.clone(), Operand::Constant(Constant::Int(-12))),
+                Type::I1,
+            ),
+            "Null" => igual(self, -12),
+            "num" => {
+                let i = igual(self, -9);
+                let d = igual(self, -10);
+                self.emit(Instruction::Or(i, d), Type::I1)
+            }
+            _ => {
+                let lib = self.ctx.program.unit(self.unit_id).library;
+                let cid = self.ctx.program.lookup(lib, ultimo.sym).and_then(|b| match b.getter {
+                    Some(dartforge_elements::model::Element::Class(c)) => Some(c),
+                    _ => None,
+                });
+                let Some(id) = cid.and_then(|c| self.id_de_classe(c)) else {
+                    return self.nao_suportado(&format!("teste de tipo `{nome}`"), ast_ty.span);
+                };
+                if id < 0 {
+                    igual(self, id)
+                } else {
+                    let sub = self.emit(
+                        Instruction::CallRuntime {
                             name: "dartforge_is_subclass".to_string(),
-                            args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(target_cid)), Type::I64)],
+                            args: vec![(cls.clone(), Type::I64), (Operand::Constant(Constant::Int(id)), Type::I64)],
                             ret_ty: Type::I8,
-                        }, Type::I8);
-                        return self.emit(Instruction::ICmp(ICmpOp::Eq, is_sub, Operand::Constant(Constant::Int(1))), Type::I1);
-                    }
+                        },
+                        Type::I8,
+                    );
+                    self.emit(Instruction::ICmp(ICmpOp::Ne, sub, Operand::Constant(Constant::Int(0))), Type::I1)
                 }
             }
+        };
+        if !ast_ty.nullable {
+            return base;
         }
-        self.emit(Instruction::Const(Constant::Bool(true)), Type::I1)
+        let nulo = igual(self, -12);
+        self.emit(Instruction::Or(base, nulo), Type::I1)
+    }
+
+    /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`.
+    pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) {
+        let ok = self.testar_tipo(ast_ty, op);
+        let ok = self.para_bool(ok);
+        let fail_b = self.new_block();
+        let pass_b = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: pass_b, else_block: fail_b });
+        self.set_block(fail_b);
+        let err_op = self.emit(
+            Instruction::CallRuntime { name: "dartforge_type_error_new".to_string(), args: Vec::new(), ret_ty: Type::Ref },
+            Type::Ref,
+        );
+        self.emit_throw_op(err_op);
+        self.set_block(pass_b);
     }
 
     pub fn emit_trunc_div(&mut self, lop: Operand, rop: Operand) -> Operand {
@@ -697,78 +846,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::SDiv(lop, rop), Type::I64)
     }
 
+    /// Operador de uma atribuição composta (`a op= b`).
     pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand) -> Operand {
-        let lop_ty = self.operand_type(&lop);
-        let rop_ty = self.operand_type(&rop);
-        let is_float = lop_ty == Type::F64 || rop_ty == Type::F64;
-        let is_string = lop_ty == Type::Ref || rop_ty == Type::Ref;
-
-        match op {
-            BinaryOp::Add => {
-                if is_string {
-                    self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_string_concat".to_string(),
-                            args: vec![(lop, Type::Ref), (rop, Type::Ref)],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    )
-                } else if is_float {
-                    self.emit(Instruction::FAdd(lop, rop), Type::F64)
-                } else {
-                    self.emit(Instruction::Add(lop, rop), Type::I64)
-                }
-            }
-            BinaryOp::Sub => {
-                if is_float {
-                    self.emit(Instruction::FSub(lop, rop), Type::F64)
-                } else {
-                    self.emit(Instruction::Sub(lop, rop), Type::I64)
-                }
-            }
-            BinaryOp::Mul => {
-                if is_float {
-                    self.emit(Instruction::FMul(lop, rop), Type::F64)
-                } else {
-                    self.emit(Instruction::Mul(lop, rop), Type::I64)
-                }
-            }
-            BinaryOp::Div => {
-                self.emit(Instruction::FDiv(lop, rop), Type::F64)
-            }
-            BinaryOp::TruncDiv => {
-                self.emit_trunc_div(lop, rop)
-            }
-            BinaryOp::Rem => {
-                self.emit(Instruction::SRem(lop, rop), Type::I64)
-            }
-            BinaryOp::Shl => {
-                self.emit(Instruction::Shl(lop, rop), Type::I64)
-            }
-            BinaryOp::Shr => {
-                self.emit(Instruction::AShr(lop, rop), Type::I64)
-            }
-            BinaryOp::BitAnd => {
-                self.emit(Instruction::And(lop, rop), Type::I64)
-            }
-            BinaryOp::BitOr => {
-                self.emit(Instruction::Or(lop, rop), Type::I64)
-            }
-            BinaryOp::BitXor => {
-                self.emit(Instruction::Xor(lop, rop), Type::I64)
-            }
-            _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
-        }
+        // Local `int?` promovido: o valor corrente é `Ref`, o outro lado diz
+        // o escalar.
+        let (tl, tr) = (self.operand_type(&lop), self.operand_type(&rop));
+        let lop = if tl == Type::Ref && matches!(tr, Type::I64 | Type::F64) {
+            self.coagir(lop, tr)
+        } else {
+            lop
+        };
+        let rop = if tr == Type::Ref && matches!(tl, Type::I64 | Type::F64) {
+            self.coagir(rop, tl)
+        } else {
+            rop
+        };
+        let texto = self.operand_type(&lop) == Type::Ref && matches!(op, BinaryOp::Add | BinaryOp::Mul);
+        self.operar(op, lop, rop, texto, dartforge_diagnostics::Span { start: 0, end: 0 })
     }
 
     pub fn lower_stmt(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
         let stmt = ast.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Block(stmts) => {
+                self.abrir_escopo();
                 for &s in stmts.iter() {
                     self.lower_stmt(ast, s);
                 }
+                self.fechar_escopo();
             }
             StmtKind::Expression(expr_id) => {
                 self.lower_expr(ast, *expr_id);
@@ -777,46 +882,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let var_ty_opt = var_list.ty;
                 for var in &var_list.variables {
                     let sym = var.name.sym;
+                    // R6: o local guarda a representação do tipo declarado
+                    // (ou inferido do inicializador), não a do valor.
+                    let ty = self.repr_do_local(var.name.span.start);
                     let init_op = if let Some(init_id) = var.initializer {
                         let op = self.lower_expr(ast, init_id);
-                        if let Some(tid) = var_ty_opt {
-                            let ast_ty = ast.ty(tid);
-                            if let ast::TypeKind::Named { name, .. } = &ast_ty.kind {
-                                if let Some(first) = name.first() {
-                                    let ty_name = self.ctx.symbol_name(first.sym);
-                                    if ty_name != "dynamic" && ty_name != "var" && ty_name != "Object" {
-                                        let tag = self.operand_tag(&op);
-                                        let is_m = self.lower_type_match(ast_ty, op.clone(), Operand::Constant(Constant::Int(tag as i64)));
-                                        let fail_b = self.new_block();
-                                        let pass_b = self.new_block();
-                                        self.terminate(Terminator::CondBranch {
-                                            cond: is_m,
-                                            then_block: pass_b,
-                                            else_block: fail_b,
-                                        });
-                                        self.set_block(fail_b);
-                                        let err_op = self.emit(
-                                            Instruction::CallRuntime {
-                                                name: "dartforge_type_error_new".to_string(),
-                                                args: Vec::new(),
-                                                ret_ty: Type::Ref,
-                                            },
-                                            Type::Ref,
-                                        );
-                                        self.emit_throw_op(err_op);
-                                        self.set_block(pass_b);
-                                    }
-                                }
-                            }
+                        // Checagem na declaração só quando o estático não a
+                        // garante: inicializador `dynamic` num tipo declarado.
+                        // Antes ela rodava sempre, e `Foo? x = null` chamava
+                        // `dartforge_value_class(0)` (H6).
+                        let init_dinamico = self.ctx.get_type(self.unit_id, init_id) == Some(self.ctx.core.dynamic_);
+                        if let Some(tid) = var_ty_opt.filter(|_| init_dinamico) {
+                            self.checar_tipo_ou_lancar(ast.ty(tid), op.clone());
                         }
                         op
                     } else {
-                        self.emit(Instruction::Const(Constant::Null), Type::Ref)
+                        Self::valor_zero(ty)
                     };
-                    let ptr = self.emit(Instruction::Alloca(Type::I64), Type::Ref);
-                    self.emit(Instruction::Store { ptr: ptr.clone(), val: init_op.clone() }, Type::Void);
-                    self.local_ptrs.insert(sym, ptr);
-                    self.named_locals.insert(sym, init_op);
+                    self.declarar_local_com_valor(sym, ty, init_op);
                 }
             }
             StmtKind::If {
@@ -826,6 +909,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ..
             } => {
                 let cond_op = self.lower_expr(ast, *condition);
+                let cond_op = self.para_bool(cond_op);
                 let then_b = self.new_block();
                 let else_b = self.new_block();
                 let merge_b = self.new_block();
@@ -864,6 +948,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.set_block(loop_header);
 
                 let cond_op = self.lower_expr(ast, *condition);
+                let cond_op = self.para_bool(cond_op);
                 self.terminate(Terminator::CondBranch {
                     cond: cond_op,
                     then_block: loop_body,
@@ -917,6 +1002,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.set_block(loop_cond);
                 let cond_op = self.lower_expr(ast, *condition);
+                let cond_op = self.para_bool(cond_op);
                 self.terminate(Terminator::CondBranch {
                     cond: cond_op,
                     then_block: loop_body,
@@ -932,17 +1018,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 body,
                 ..
             } => {
+                // A variável do `for` vive num `alloca` (R6): antes ela era só
+                // um valor SSA no mapa por nome, e a condição, baixada antes
+                // do `i++`, lia para sempre o valor inicial.
+                self.abrir_escopo();
                 if let Some(init) = init {
                     match init {
                         ast::ForInit::Variables(var_list) => {
                             for var in &var_list.variables {
                                 let sym = var.name.sym;
+                                let ty = self.repr_do_local(var.name.span.start);
                                 let init_op = if let Some(init_id) = var.initializer {
                                     self.lower_expr(ast, init_id)
                                 } else {
-                                    self.emit(Instruction::Const(Constant::Null), Type::Ref)
+                                    Self::valor_zero(ty)
                                 };
-                                self.named_locals.insert(sym, init_op);
+                                self.declarar_local_com_valor(sym, ty, init_op);
                             }
                         }
                         ast::ForInit::Expression(e) => {
@@ -967,6 +1058,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 if let Some(cond_id) = condition {
                     let cond_op = self.lower_expr(ast, *cond_id);
+                    let cond_op = self.para_bool(cond_op);
                     self.terminate(Terminator::CondBranch {
                         cond: cond_op,
                         then_block: loop_body,
@@ -998,6 +1090,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
 
                 self.set_block(exit_block);
+                self.fechar_escopo();
             }
             StmtKind::Return(expr_opt) => {
                 let op = expr_opt.map(|e| self.lower_expr(ast, e));
@@ -1011,29 +1104,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let sym = lbl.as_ref().map(|n| n.sym);
                 self.route_continue_to(sym);
             }
-            StmtKind::Assert { condition, .. } => {
-                let cond_op = self.lower_expr(ast, *condition);
-                let fail_b = self.new_block();
-                let cont_b = self.new_block();
-
-                self.terminate(Terminator::CondBranch {
-                    cond: cond_op,
-                    then_block: cont_b,
-                    else_block: fail_b,
-                });
-
-                self.set_block(fail_b);
-                self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_null_assert_fail".to_string(),
-                        args: Vec::new(),
-                        ret_ty: Type::Void,
-                    },
-                    Type::Void,
-                );
-                self.terminate(Terminator::Unreachable);
-
-                self.set_block(cont_b);
+            StmtKind::Assert { condition, message } => {
+                self.lower_assert(ast, *condition, *message);
             }
             StmtKind::ForIn { target, iterable, body, .. } => {
                 let iterable_op = self.lower_expr(ast, *iterable);
@@ -1093,28 +1165,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.continue_targets.push(loop_update);
 
                 self.set_block(loop_body);
-                let item_val = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_list_get_bits".to_string(),
-                        args: vec![(iterable_op.clone(), Type::Ref), (phi_op.clone(), Type::I64)],
-                        ret_ty: Type::I64,
-                    },
-                    Type::I64,
-                );
-
+                self.abrir_escopo();
                 match target {
                     ast::ForInTarget::Declared { name, .. } => {
-                        self.named_locals.insert(name.sym, item_val);
+                        // O elemento é lido na representação da variável (R5):
+                        // `for (Cell c in cells)` quer o handle, `for (int n
+                        // in ns)` quer os bits.
+                        let ty = self.repr_do_local(name.span.start);
+                        let item_val = self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
+                        self.declarar_local_com_valor(name.sym, ty, item_val);
                     }
                     ast::ForInTarget::Expression(e) => {
                         if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
-                            self.named_locals.insert(id.sym, item_val);
+                            let ty = self.buscar_local(id.sym).map_or(Type::Ref, |l| l.ty);
+                            let item_val = self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
+                            self.gravar_local(id.sym, item_val);
+                        } else {
+                            self.nao_suportado("alvo de for-in", stmt.span);
                         }
                     }
-                    _ => {}
+                    ast::ForInTarget::Pattern { .. } => {
+                        self.nao_suportado("for-in com padrão", stmt.span);
+                    }
                 }
 
                 self.lower_stmt(ast, *body);
+                self.fechar_escopo();
                 self.terminate(Terminator::Branch(loop_update));
 
                 self.break_targets.pop();
@@ -1173,7 +1249,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             let p_name = p.name.map(|n| self.ctx.symbol_name(n.sym).to_string()).unwrap_or_else(|| "arg".to_string());
                             let vid = b.add_param(p_name, Type::Ref);
                             if let Some(n) = p.name {
-                                b.named_locals.insert(n.sym, Operand::Val(vid));
+                                b.declarar_local_com_valor(n.sym, Type::Ref, Operand::Val(vid));
                             }
                         }
                     }
@@ -1204,7 +1280,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_stmt(ast, *body);
             }
             StmtKind::Empty => {}
-            _ => {}
+            StmtKind::PatternVariables { .. } => {
+                self.nao_suportado("declaração por padrão", stmt.span);
+            }
+            StmtKind::Switch { .. } => {
+                self.nao_suportado("comando switch", stmt.span);
+            }
+            StmtKind::Yield { .. } => {
+                self.nao_suportado("yield", stmt.span);
+            }
         }
     }
 
@@ -1288,21 +1372,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         if let Some(dispatch_block) = catch_dispatch_block {
             self.set_block(dispatch_block);
+            // A exceção como referência (R5): `throw 42` chega encaixotado, e
+            // os testes `on T` e a variável do `catch` são sobre um `Ref`.
             let ex_bits = self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_exception_peek_bits".to_string(),
+                    name: "dartforge_exception_peek_ref".to_string(),
                     args: Vec::new(),
-                    ret_ty: Type::I64,
+                    ret_ty: Type::Ref,
                 },
-                Type::I64,
-            );
-            let ex_tag = self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_exception_peek_tag".to_string(),
-                    args: Vec::new(),
-                    ret_ty: Type::I8,
-                },
-                Type::I8,
+                Type::Ref,
             );
 
             let mut current_test_block = dispatch_block;
@@ -1314,7 +1392,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 if let Some(on_tid) = clause.on_type {
                     let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(on_tid);
-                    let is_match = self.lower_type_match(ast_ty, ex_bits.clone(), ex_tag.clone());
+                    let is_match = self.testar_tipo(ast_ty, ex_bits.clone());
                     self.terminate(Terminator::CondBranch {
                         cond: is_match,
                         then_block: body_b,
@@ -1334,11 +1412,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Void,
                 );
 
+                self.abrir_escopo();
                 if let Some(ex_name) = &clause.exception {
-                    let ptr = self.emit(Instruction::Alloca(Type::I64), Type::Ref);
-                    self.emit(Instruction::Store { ptr: ptr.clone(), val: ex_bits.clone() }, Type::Void);
-                    self.local_ptrs.insert(ex_name.sym, ptr);
-                    self.named_locals.insert(ex_name.sym, ex_bits.clone());
+                    self.declarar_local_com_valor(ex_name.sym, Type::Ref, ex_bits.clone());
                 }
                 if let Some(st_name) = &clause.stack_trace {
                     let st_val = self.emit(
@@ -1349,14 +1425,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         },
                         Type::Ref,
                     );
-                    let ptr = self.emit(Instruction::Alloca(Type::I64), Type::Ref);
-                    self.emit(Instruction::Store { ptr: ptr.clone(), val: st_val.clone() }, Type::Void);
-                    self.local_ptrs.insert(st_name.sym, ptr);
-                    self.named_locals.insert(st_name.sym, st_val);
+                    self.declarar_local_com_valor(st_name.sym, Type::Ref, st_val);
                 }
 
                 self.active_catch_stack.push((ex_bits.clone(), 3));
                 self.lower_stmt(ast, clause.body);
+                self.fechar_escopo();
                 self.active_catch_stack.pop();
 
                 if !self.is_terminated() {
@@ -1465,7 +1539,103 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(merge_block);
     }
 
+    /// Elo de cadeia de acesso: `a.b`, `a[i]`, `a.m()`.
+    fn e_elo(ast: &ast::Ast, e: ExprId) -> bool {
+        match &ast.expr(e).kind {
+            ExprKind::Property { .. } | ExprKind::Index { .. } => true,
+            ExprKind::Call { target, .. } => matches!(ast.expr(*target).kind, ExprKind::Property { .. }),
+            _ => false,
+        }
+    }
+
+    /// A cadeia que termina em `e` tem algum `?.`/`?[`?
+    fn cadeia_tem_null_aware(ast: &ast::Ast, e: ExprId) -> bool {
+        let mut atual = e;
+        loop {
+            match &ast.expr(atual).kind {
+                ExprKind::Property { target, null_aware, .. } | ExprKind::Index { target, null_aware, .. } => {
+                    if *null_aware {
+                        return true;
+                    }
+                    atual = *target;
+                }
+                ExprKind::Call { target, .. } if matches!(ast.expr(*target).kind, ExprKind::Property { .. }) => {
+                    atual = *target;
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// Baixa o receptor de um elo mantendo a cadeia `?.` corrente (N3).
+    pub fn lower_alvo(&mut self, ast: &ast::Ast, alvo: ExprId) -> Operand {
+        self.continuar_cadeia = true;
+        self.lower_expr(ast, alvo)
+    }
+
+    /// `?.`: se o receptor é null, a cadeia inteira vale null (N3).
+    pub fn desviar_se_nulo(&mut self, recv: &Operand) {
+        let Some((saida, _)) = self.cadeia_nula.as_ref() else { return };
+        let saida = *saida;
+        let e_nulo = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, recv.clone(), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let segue = self.new_block();
+        let origem = self.current_block;
+        self.terminate(Terminator::CondBranch { cond: e_nulo, then_block: saida, else_block: segue });
+        if let Some((_, entradas)) = self.cadeia_nula.as_mut() {
+            entradas.push((origem, Operand::Constant(Constant::Null)));
+        }
+        self.set_block(segue);
+    }
+
     pub fn lower_expr(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
+        let continuar = std::mem::replace(&mut self.continuar_cadeia, false);
+        let salvo = if continuar { None } else { self.cadeia_nula.take() };
+        let raiz = !continuar && Self::e_elo(ast, expr_id) && Self::cadeia_tem_null_aware(ast, expr_id);
+        if raiz {
+            let saida = self.new_block();
+            self.cadeia_nula = Some((saida, Vec::new()));
+        }
+        let mut v = self.lower_expr_interno(ast, expr_id);
+        if raiz {
+            let (saida, mut entradas) = self.cadeia_nula.take().expect("cadeia aberta");
+            // A cadeia `?.` vale null ou o valor: sempre `Ref` na junção.
+            let ty = Type::Ref;
+            if !self.is_terminated() {
+                if self.operand_type(&v) != Type::Void {
+                    v = self.coagir(v, Type::Ref);
+                }
+                entradas.push((self.current_block, v.clone()));
+                self.terminate(Terminator::Branch(saida));
+            }
+            self.set_block(saida);
+            v = if entradas.is_empty() {
+                Operand::Constant(Constant::Null)
+            } else {
+                self.emit(Instruction::Phi { incoming: entradas, ty }, ty)
+            };
+        }
+        if !continuar {
+            self.cadeia_nula = salvo;
+        }
+        // R5: a expressão sai na representação do seu tipo estático. Tipo
+        // `dynamic` (ou ausente) não força nada: o operando fica na
+        // representação em que foi produzido, e cada fronteira coage pelo
+        // tipo real do operando.
+        if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
+            if t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
+                let r = self.ctx.to_hir_type(t);
+                if !matches!(r, Type::Void) && !matches!(self.operand_type(&v), Type::Void) {
+                    v = self.coagir(v, r);
+                }
+            }
+        }
+        v
+    }
+
+    fn lower_expr_interno(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let expr = ast.expr(expr_id);
         match &expr.kind {
             ExprKind::Int(span) => {
@@ -1502,62 +1672,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 self.emit(Instruction::Const(Constant::String(s)), Type::Ref)
                             }
                             ast::StringPart::Interpolation(sub_expr) => {
-                                if let ExprKind::Index { target: idx_target, index: idx_index, .. } = &ast.expr(*sub_expr).kind {
-                                    let t_op = self.lower_expr(ast, *idx_target);
-                                    let i_op = self.lower_expr(ast, *idx_index);
-                                    let target_ty = self.ctx.get_type(self.unit_id, *idx_target);
-                                    let is_map = target_ty.map_or(false, |t| self.ctx.is_map(t))
-                                        || self.operand_type(&i_op) == Type::Ref;
-                                    if is_map {
-                                        let itag = self.operand_tag(&i_op);
-                                        self.emit(
-                                            Instruction::CallRuntime {
-                                                name: "dartforge_map_get_to_string".to_string(),
-                                                args: vec![
-                                                    (t_op, Type::Ref),
-                                                    (i_op, Type::I64),
-                                                    (Operand::Constant(Constant::Int(itag as i64)), Type::I8),
-                                                ],
-                                                ret_ty: Type::Ref,
-                                            },
-                                            Type::Ref,
-                                        )
-                                    } else {
-                                        let target_ty = self.ctx.get_type(self.unit_id, *idx_target);
-                                        let is_string_or_match = target_ty.map_or(false, |t| self.ctx.is_string(t))
-                                            || matches!(ast.expr(*idx_target).kind, ExprKind::String(_))
-                                            || (if let ExprKind::Identifier(id) = &ast.expr(*idx_target).kind {
-                                                self.ctx.symbol_name(id.sym) == "m"
-                                            } else { false });
-                                        if is_string_or_match {
-                                            self.emit(
-                                                Instruction::CallRuntime {
-                                                    name: "dartforge_list_get_bits".to_string(),
-                                                    args: vec![(t_op, Type::Ref), (i_op, Type::I64)],
-                                                    ret_ty: Type::Ref,
-                                                },
-                                                Type::Ref,
-                                            )
-                                        } else {
-                                            let item_op = self.emit(
-                                                Instruction::CallRuntime {
-                                                    name: "dartforge_list_get_bits".to_string(),
-                                                    args: vec![(t_op, Type::Ref), (i_op, Type::I64)],
-                                                    ret_ty: Type::I64,
-                                                },
-                                                Type::I64,
-                                            );
-                                            self.emit(
-                                                Instruction::CallRuntime {
-                                                    name: "dartforge_to_string_i64".to_string(),
-                                                    args: vec![(item_op, Type::I64)],
-                                                    ret_ty: Type::Ref,
-                                                },
-                                                Type::Ref,
-                                            )
-                                        }
-                                    }
-                                } else {
+                                {
                                     let raw_op = self.lower_expr(ast, *sub_expr);
                                     let raw_ty = self.operand_type(&raw_op);
                                     match raw_ty {
@@ -1607,7 +1722,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                             },
                                             Type::Ref,
                                         ),
-                                        Type::Void => self.emit(
+                                        Type::Void | Type::Ptr => self.emit(
                                             Instruction::Const(Constant::String("null".to_string())),
                                             Type::Ref,
                                         ),
@@ -1637,76 +1752,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Identifier(name) => {
                 let sym = name.sym;
-                if let Some(ptr) = self.local_ptrs.get(&sym) {
-                    return self.emit(Instruction::Load { ptr: ptr.clone(), ty: Type::I64 }, Type::I64);
+                let span = expr.span;
+                // A resolução manda (R6/N1): um local sombreia um campo, um
+                // campo sombreia um global. O mapa por nome só vale para o
+                // que a resolução diz que é local ou parâmetro.
+                match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
+                    Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) | None => {
+                        if let Some(op) = self.ler_local_por_nome(sym) {
+                            return op;
+                        }
+                    }
+                    Some(Resolved::Member { member, .. }) => {
+                        return self.ler_membro_implicito(member, span);
+                    }
+                    Some(Resolved::Element(el)) => {
+                        return self.ler_elemento(el, span);
+                    }
+                    _ => {}
                 }
-                if let Some(op) = self.named_locals.get(&sym) {
-                    return op.clone();
+                if let Some(op) = self.ler_local_por_nome(sym) {
+                    return op;
                 }
-                if let Some(resolved) = self.ctx.get_resolved(self.unit_id, expr_id) {
-                    match resolved {
-                        Resolved::Local(lid) => {
-                            if let Some(op) = self.locals.get(lid) {
-                                return op.clone();
-                            }
-                        }
-                        Resolved::Parameter { name, .. } => {
-                            if let Some(op) = self.named_locals.get(name) {
-                                return op.clone();
-                            }
-                        }
-                        Resolved::Member { class, member, .. } => {
-                            if let Some(this_op) = &self.this_param {
-                                let field_idx_opt = match member {
-                                    MemberRef::Variable(var_id) => {
-                                        self.ctx.program.classes[class.0 as usize]
-                                            .fields
-                                            .iter()
-                                            .position(|&v| v == *var_id)
-                                    }
-                                    MemberRef::Function(fid) => {
-                                        let func = &self.ctx.program.functions[fid.0 as usize];
-                                        if let Some(var_id) = func.variable {
-                                            self.ctx.program.classes[class.0 as usize]
-                                                .fields
-                                                .iter()
-                                                .position(|&v| v == var_id)
-                                        } else {
-                                            self.ctx.program.classes[class.0 as usize]
-                                                .fields
-                                                .iter()
-                                                .position(|&v| self.ctx.program.variables[v.0 as usize].name == func.name)
-                                        }
-                                    }
-                                };
-                                if let Some(field_idx) = field_idx_opt {
-                                    return self.emit(
-                                        Instruction::CallRuntime {
-                                            name: "dartforge_object_get".to_string(),
-                                            args: vec![
-                                                (this_op.clone(), Type::Ref),
-                                                (Operand::Constant(Constant::Int(field_idx as i64)), Type::I64),
-                                            ],
-                                            ret_ty: Type::I64,
-                                        },
-                                        Type::I64,
-                                    );
-                                }
-                            }
-                        }
-                        _ => {}
+                // `x` no corpo de um construtor com `this.x`: a inferência o
+                // resolve como parâmetro, mas o parâmetro de inicialização não
+                // está no escopo do corpo — ali `x` é o campo.
+                if let (Some(this), Some(cid)) = (self.this_param.clone(), self.enclosing_class) {
+                    let campo = super::membros::layout(self.ctx, cid)
+                        .into_iter()
+                        .find(|v| self.ctx.program.variables[v.0 as usize].name == sym);
+                    if let Some(vid) = campo {
+                        return self.ler_campo_com_late(this, vid, span);
                     }
                 }
-                let id_name = self.ctx.symbol_name(sym);
-                if id_name == "String" {
-                    return Operand::Constant(Constant::Int(-2));
-                } else if id_name == "Error" {
-                    return Operand::Constant(Constant::Int(1007));
-                } else if let Some(idx) = self.ctx.program.classes.iter().position(|c| self.ctx.symbol_name(c.name) == id_name) {
-                    let class_id = (idx + 1) as i64;
-                    return Operand::Constant(Constant::Int(class_id));
-                }
-                self.emit(Instruction::Const(Constant::Int(0)), Type::I64)
+                let nome = self.ctx.symbol_name(sym).to_string();
+                self.nao_suportado(&format!("identificador `{nome}`"), span)
             }
             ExprKind::Parenthesized(sub) => self.lower_expr(ast, *sub),
             ExprKind::Binary { op, left, right } => {
@@ -1716,188 +1795,66 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // aritmetico abaixo avalia os dois de uma vez, entao esses tres
                 // nao podem passar por ele.
                 if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {
-                    return self.lower_curto_circuito(ast, *op, *left, *right);
+                    return self.lower_curto_circuito(ast, *op, *left, *right, expr_id);
                 }
                 let lop = self.lower_expr(ast, *left);
                 let rop = self.lower_expr(ast, *right);
-
                 let l_ty = self.ctx.get_type(self.unit_id, *left);
-                let is_double = l_ty.map_or(false, |t| self.ctx.is_double(t))
-                    || self.operand_type(&lop) == Type::F64
-                    || self.operand_type(&rop) == Type::F64;
                 let r_ty = self.ctx.get_type(self.unit_id, *right);
-                let is_string = l_ty.map_or(false, |t| self.ctx.is_string(t))
-                    || r_ty.map_or(false, |t| self.ctx.is_string(t))
-                    || matches!(ast.expr(*left).kind, ExprKind::String(_))
-                    || matches!(ast.expr(*right).kind, ExprKind::String(_));
-
-                match op {
-                    BinaryOp::Add => {
-                        if is_string {
-                            self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_string_concat".to_string(),
-                                    args: vec![(lop, Type::Ref), (rop, Type::Ref)],
-                                    ret_ty: Type::Ref,
-                                },
-                                Type::Ref,
-                            )
-                        } else if is_double {
-                            self.emit(Instruction::FAdd(lop, rop), Type::F64)
-                        } else {
-                            self.emit(Instruction::Add(lop, rop), Type::I64)
-                        }
-                    }
-                    BinaryOp::Sub => {
-                        if is_double {
-                            self.emit(Instruction::FSub(lop, rop), Type::F64)
-                        } else {
-                            self.emit(Instruction::Sub(lop, rop), Type::I64)
-                        }
-                    }
-                    BinaryOp::Mul => {
-                        let lop_is_ref = self.operand_type(&lop) == Type::Ref;
-                        if is_string || lop_is_ref {
-                            self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_string_repeat".to_string(),
-                                    args: vec![(lop, Type::Ref), (rop, Type::I64)],
-                                    ret_ty: Type::Ref,
-                                },
-                                Type::Ref,
-                            )
-                        } else if is_double {
-                            self.emit(Instruction::FMul(lop, rop), Type::F64)
-                        } else {
-                            self.emit(Instruction::Mul(lop, rop), Type::I64)
-                        }
-                    }
-                    BinaryOp::Div => self.emit(Instruction::FDiv(lop, rop), Type::F64),
-                    BinaryOp::TruncDiv => self.emit_trunc_div(lop, rop),
-                    BinaryOp::Rem => self.emit(Instruction::SRem(lop, rop), Type::I64),
-                    BinaryOp::Shl => self.emit(Instruction::Shl(lop, rop), Type::I64),
-                    BinaryOp::Shr => self.emit(Instruction::AShr(lop, rop), Type::I64),
-                    BinaryOp::BitAnd => self.emit(Instruction::And(lop, rop), Type::I64),
-                    BinaryOp::BitOr => self.emit(Instruction::Or(lop, rop), Type::I64),
-                    BinaryOp::BitXor => self.emit(Instruction::Xor(lop, rop), Type::I64),
-                    BinaryOp::Eq => {
-                        let is_ref_cmp = self.operand_type(&lop) == Type::Ref && self.operand_type(&rop) == Type::Ref;
-                        if is_string || is_ref_cmp {
-                            let eq_i8 = self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_equal".to_string(),
-                                    args: vec![(lop, Type::Ref), (rop, Type::Ref)],
-                                    ret_ty: Type::I8,
-                                },
-                                Type::I8,
-                            );
-                            self.emit(
-                                Instruction::Trunc {
-                                    op: eq_i8,
-                                    from: Type::I8,
-                                    to: Type::I1,
-                                },
-                                Type::I1,
-                            )
-                        } else if is_double {
-                            self.emit(Instruction::FCmp(FCmpOp::Eq, lop, rop), Type::I1)
-                        } else {
-                            self.emit(Instruction::ICmp(ICmpOp::Eq, lop, rop), Type::I1)
-                        }
-                    }
-                    BinaryOp::NotEq => {
-                        let is_ref_cmp = self.operand_type(&lop) == Type::Ref && self.operand_type(&rop) == Type::Ref;
-                        if is_string || is_ref_cmp {
-                            let eq_i8 = self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_equal".to_string(),
-                                    args: vec![(lop, Type::Ref), (rop, Type::Ref)],
-                                    ret_ty: Type::I8,
-                                },
-                                Type::I8,
-                            );
-                            let eq_i1 = self.emit(
-                                Instruction::Trunc {
-                                    op: eq_i8,
-                                    from: Type::I8,
-                                    to: Type::I1,
-                                },
-                                Type::I1,
-                            );
-                            self.emit(Instruction::LNot(eq_i1), Type::I1)
-                        } else if is_double {
-                            self.emit(Instruction::FCmp(FCmpOp::Ne, lop, rop), Type::I1)
-                        } else {
-                            self.emit(Instruction::ICmp(ICmpOp::Ne, lop, rop), Type::I1)
-                        }
-                    }
-                    BinaryOp::Lt => {
-                        if is_double {
-                            self.emit(Instruction::FCmp(FCmpOp::Lt, lop, rop), Type::I1)
-                        } else {
-                            self.emit(Instruction::ICmp(ICmpOp::Slt, lop, rop), Type::I1)
-                        }
-                    }
-                    BinaryOp::LtEq => {
-                        if is_double {
-                            self.emit(Instruction::FCmp(FCmpOp::Le, lop, rop), Type::I1)
-                        } else {
-                            self.emit(Instruction::ICmp(ICmpOp::Sle, lop, rop), Type::I1)
-                        }
-                    }
-                    BinaryOp::Gt => {
-                        if is_double {
-                            self.emit(Instruction::FCmp(FCmpOp::Gt, lop, rop), Type::I1)
-                        } else {
-                            self.emit(Instruction::ICmp(ICmpOp::Sgt, lop, rop), Type::I1)
-                        }
-                    }
-                    BinaryOp::GtEq => {
-                        if is_double {
-                            self.emit(Instruction::FCmp(FCmpOp::Ge, lop, rop), Type::I1)
-                        } else {
-                            self.emit(Instruction::ICmp(ICmpOp::Sge, lop, rop), Type::I1)
-                        }
-                    }
-                    // BinaryOp::And, Or e IfNull foram desviados no inicio deste
-                    // arm, para lower_curto_circuito.
-                    _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
-                }
+                let desconhecido = |t: Option<dartforge_types::table::TypeId>| t.is_none_or(|t| t == self.ctx.core.dynamic_);
+                // `String` pelo tipo estático; com o tipo desconhecido (corpo
+                // não inferido, parâmetro de closure sem tipo) um `Ref` à
+                // esquerda de `+`/`*` é texto, como era antes.
+                let texto = l_ty.is_some_and(|t| self.ctx.is_string(t))
+                    || (matches!(op, BinaryOp::Add) && r_ty.is_some_and(|t| self.ctx.is_string(t)))
+                    || (matches!(op, BinaryOp::Add | BinaryOp::Mul)
+                        && desconhecido(l_ty)
+                        && self.operand_type(&lop) == Type::Ref);
+                // `int?`/`double?` promovido pelo fluxo (`if (x != null) x + 1`):
+                // a inferência ainda não grava a promoção no tipo da leitura,
+                // então o operando chega `Ref` e volta ao escalar aqui.
+                // (`==`/`!=` fica de fora: comparar com null é legítimo.)
+                let (lop, rop) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) || texto {
+                    (lop, rop)
+                } else {
+                    let l = self.desnulificar_numerico(*left, lop);
+                    let r = self.desnulificar_numerico(*right, rop);
+                    (l, r)
+                };
+                self.operar(*op, lop, rop, texto, expr.span)
             }
             ExprKind::Unary { op, operand } => {
                 match op {
                     UnaryOp::PrefixInc | UnaryOp::PostfixInc | UnaryOp::PrefixDec | UnaryOp::PostfixDec => {
-                        if let ExprKind::Identifier(id) = &ast.expr(*operand).kind {
-                            let curr = if let Some(ptr) = self.local_ptrs.get(&id.sym) {
-                                self.emit(Instruction::Load { ptr: ptr.clone(), ty: Type::I64 }, Type::I64)
-                            } else if let Some(op) = self.named_locals.get(&id.sym) {
-                                op.clone()
-                            } else {
-                                Operand::Constant(Constant::Int(0))
-                            };
-                            let delta = Operand::Constant(Constant::Int(1));
-                            let next = match op {
-                                UnaryOp::PrefixInc | UnaryOp::PostfixInc => {
-                                    self.emit(Instruction::Add(curr.clone(), delta), Type::I64)
-                                }
-                                _ => {
-                                    self.emit(Instruction::Sub(curr.clone(), delta), Type::I64)
-                                }
-                            };
-                            if let Some(ptr) = self.local_ptrs.get(&id.sym).cloned() {
-                                self.emit(Instruction::Store { ptr, val: next.clone() }, Type::Void);
-                            }
-                            self.named_locals.insert(id.sym, next.clone());
-                            match op {
-                                UnaryOp::PrefixInc | UnaryOp::PrefixDec => return next,
-                                _ => return curr,
-                            }
-                        }
+                        // `x++` = `x += 1` devolvendo o valor antigo; vale para
+                        // local, campo, global e índice (antes só local, e um
+                        // campo virava a constante 0).
+                        let bin = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) {
+                            BinaryOp::Add
+                        } else {
+                            BinaryOp::Sub
+                        };
+                        let novo = self.lower_atribuicao(
+                            ast,
+                            ast::AssignOp::Compound(bin),
+                            *operand,
+                            super::atribuicao::Rhs::Um,
+                            expr.span,
+                        );
+                        let antigo = self.valor_antigo.take();
+                        return match op {
+                            UnaryOp::PrefixInc | UnaryOp::PrefixDec => novo,
+                            _ => antigo.unwrap_or(novo),
+                        };
                     }
                     _ => {}
                 }
                 if *op == UnaryOp::NullAssert {
                     let sub_op = self.lower_expr(ast, *operand);
+                    if self.operand_type(&sub_op) != Type::Ref {
+                        // Escalar não é null (R1): nada a checar.
+                        return sub_op;
+                    }
                     let is_null = self.emit(
                         Instruction::ICmp(
                             ICmpOp::Eq,
@@ -1927,15 +1884,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return sub_op;
                 }
                 let sub_op = self.lower_expr(ast, *operand);
+                let sub_op = if matches!(op, UnaryOp::Neg | UnaryOp::BitNot) {
+                    self.desnulificar_numerico(*operand, sub_op)
+                } else {
+                    sub_op
+                };
                 match op {
+                    UnaryOp::Neg if self.operand_type(&sub_op) == Type::F64 => self.emit(Instruction::FNeg(sub_op), Type::F64),
                     UnaryOp::Neg => self.emit(Instruction::Neg(sub_op), Type::I64),
-                    UnaryOp::Not => self.emit(Instruction::LNot(sub_op), Type::I1),
+                    UnaryOp::Not => {
+                        let b = self.para_bool(sub_op);
+                        self.emit(Instruction::LNot(b), Type::I1)
+                    }
                     UnaryOp::BitNot => self.emit(Instruction::Not(sub_op), Type::I64),
-                    _ => sub_op,
+                    _ => self.nao_suportado("incremento/decremento de não-local", expr.span),
                 }
             }
             ExprKind::Conditional { condition, then, else_ } => {
                 let cond_op = self.lower_expr(ast, *condition);
+                let cond_op = self.para_bool(cond_op);
                 let then_block = self.new_block();
                 let else_block = self.new_block();
                 let merge_block = self.new_block();
@@ -1944,8 +1911,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     then_block,
                     else_block,
                 });
+                // As duas entradas do phi na representação do resultado
+                // (R4), coagidas no bloco de origem de cada uma.
+                let ty = self.repr_da_expressao(expr_id);
                 self.set_block(then_block);
                 let then_op = self.lower_expr(ast, *then);
+                let then_op = match ty {
+                    Some(t) => self.coagir(then_op, t),
+                    None => then_op,
+                };
                 let then_end = self.current_block;
                 let then_reaches = !self.is_terminated();
                 if then_reaches {
@@ -1954,15 +1928,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.set_block(else_block);
                 let else_op = self.lower_expr(ast, *else_);
+                let ty = ty.unwrap_or_else(|| {
+                    let (a, b) = (self.operand_type(&then_op), self.operand_type(&else_op));
+                    if a == b { a } else { Type::Ref }
+                });
+                let else_op = self.coagir(else_op, ty);
                 let else_end = self.current_block;
                 let else_reaches = !self.is_terminated();
                 if else_reaches {
                     self.terminate(Terminator::Branch(merge_block));
                 }
+                // Sem tipo estático, o `then` pode ter ficado noutra
+                // representação; o phi exige as duas iguais.
+                if then_reaches && self.operand_type(&then_op) != ty {
+                    self.set_block(merge_block);
+                    self.set_block(then_end);
+                    return self.nao_suportado("condicional com ramos de representações diferentes", expr.span);
+                }
 
                 self.set_block(merge_block);
                 if then_reaches && else_reaches {
-                    let ty = self.operand_type(&then_op);
                     self.emit(
                         Instruction::Phi {
                             incoming: vec![(then_end, then_op), (else_end, else_op)],
@@ -1978,7 +1963,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.default_return_operand()
                 }
             }
-            ExprKind::Property { target, name, .. } => {
+            ExprKind::Property { target, name, null_aware } => {
                 let prop_name = self.ctx.symbol_name(name.sym);
 
                 if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
@@ -2005,95 +1990,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
 
-                let target_op = self.lower_expr(ast, *target);
+                let span = expr.span;
+                let resolved = self.ctx.get_resolved(self.unit_id, expr_id).cloned();
 
-                if let Some(resolved) = self.ctx.get_resolved(self.unit_id, expr_id) {
-                    if let Resolved::Member { class, member, .. } = resolved {
-                        let field_idx_opt = match member {
-                            MemberRef::Variable(var_id) => {
-                                self.ctx.program.classes[class.0 as usize]
-                                    .fields
-                                    .iter()
-                                    .position(|&v| v == *var_id)
-                            }
-                            MemberRef::Function(fid) => {
-                                let func = &self.ctx.program.functions[fid.0 as usize];
-                                if let Some(var_id) = func.variable {
-                                    self.ctx.program.classes[class.0 as usize]
-                                        .fields
-                                        .iter()
-                                        .position(|&v| v == var_id)
-                                } else {
-                                    self.ctx.program.classes[class.0 as usize]
-                                        .fields
-                                        .iter()
-                                        .position(|&v| self.ctx.program.variables[v.0 as usize].name == func.name)
-                                }
-                            }
+                // `C.x`: membro estático (o alvo é um literal de classe).
+                let alvo_e_classe = matches!(
+                    self.ctx.get_resolved(self.unit_id, *target),
+                    Some(Resolved::Element(dartforge_elements::model::Element::Class(_)))
+                );
+                if alvo_e_classe {
+                    return match resolved {
+                        Some(Resolved::Member { member, .. }) => self.ler_membro_estatico(member, span),
+                        _ => self.nao_suportado(&format!("membro estático `{prop_name}`"), span),
+                    };
+                }
+
+                let target_op = self.lower_alvo(ast, *target);
+                if *null_aware {
+                    self.desviar_se_nulo(&target_op);
+                }
+
+                // Membro de classe do usuário: pelo elemento resolvido (R7),
+                // nunca pelo nome.
+                if let Some((_, member)) = self.membro_do_usuario(expr_id, *target, name.sym, false) {
+                    {
+                        let vid = match member {
+                            MemberRef::Variable(v) => Some(v),
+                            MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].variable,
                         };
-                        if let Some(field_idx) = field_idx_opt {
-                            let curr_val = self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_object_get".to_string(),
-                                    args: vec![
-                                        (target_op.clone(), Type::Ref),
-                                        (Operand::Constant(Constant::Int(field_idx as i64)), Type::I64),
-                                    ],
-                                    ret_ty: Type::I64,
-                                },
-                                Type::I64,
-                            );
-                            if let MemberRef::Variable(var_id) = member {
-                                let v_elem = &self.ctx.program.variables[var_id.0 as usize];
-                                if v_elem.late {
-                                    if let Some(init_id) = self.variable_initializer(*var_id) {
-                                        let is_null = self.emit(
-                                            Instruction::ICmp(
-                                                ICmpOp::Eq,
-                                                curr_val.clone(),
-                                                Operand::Constant(Constant::Int(0)),
-                                            ),
-                                            Type::I1,
-                                        );
-                                        let init_b = self.new_block();
-                                        let done_b = self.new_block();
-                                        let curr_b = self.current_block;
-                                        self.terminate(Terminator::CondBranch {
-                                            cond: is_null,
-                                            then_block: init_b,
-                                            else_block: done_b,
-                                        });
-                                        self.set_block(init_b);
-                                        let init_val = self.lower_expr(ast, init_id);
-                                        let is_ref = if self.operand_type(&init_val) == Type::Ref { 1 } else { 0 };
-                                        self.emit(
-                                            Instruction::CallRuntime {
-                                                name: "dartforge_object_set".to_string(),
-                                                args: vec![
-                                                    (target_op, Type::Ref),
-                                                    (Operand::Constant(Constant::Int(field_idx as i64)), Type::I64),
-                                                    (init_val.clone(), Type::I64),
-                                                    (Operand::Constant(Constant::Int(is_ref)), Type::I8),
-                                                ],
-                                                ret_ty: Type::Void,
-                                            },
-                                            Type::Void,
-                                        );
-                                        let init_end = self.current_block;
-                                        self.terminate(Terminator::Branch(done_b));
-                                        self.set_block(done_b);
-                                        return self.emit(
-                                            Instruction::Phi {
-                                                incoming: vec![(curr_b, curr_val), (init_end, init_val)],
-                                                ty: Type::I64,
-                                            },
-                                            Type::I64,
-                                        );
-                                    }
-                                }
+                        if let Some(vid) = vid {
+                            if crate::lower::e_global(self.ctx, vid) {
+                                return self.ler_global(vid, span);
                             }
-                            return curr_val;
+                            return self.ler_campo_com_late(target_op, vid, span);
                         }
+                        let MemberRef::Function(f) = member else { unreachable!() };
+                        if self.ctx.program.functions[f.0 as usize].kind == dartforge_elements::model::FunctionKind::Getter {
+                            return self.chamar_membro(target_op, f.0 as usize, &[], span);
+                        }
+                        return self.nao_suportado(&format!("tear-off de método `{prop_name}`"), span);
                     }
                 }
 
@@ -2141,32 +2076,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::I1,
                     )
                 } else if prop_name == "last" {
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_last".to_string(),
-                            args: vec![(target_op, Type::Ref)],
-                            ret_ty: Type::I64,
-                        },
-                        Type::I64,
-                    )
+                    self.ler_extremo_lista(target_op, "last", expr_id)
                 } else if prop_name == "first" {
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_first".to_string(),
-                            args: vec![(target_op, Type::Ref)],
-                            ret_ty: Type::I64,
-                        },
-                        Type::I64,
-                    )
+                    self.ler_extremo_lista(target_op, "first", expr_id)
                 } else if prop_name == "single" {
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_single".to_string(),
-                            args: vec![(target_op, Type::Ref)],
-                            ret_ty: Type::I64,
-                        },
-                        Type::I64,
-                    )
+                    self.ler_extremo_lista(target_op, "single", expr_id)
                 } else if prop_name == "codeUnits" {
                     self.emit(
                         Instruction::CallRuntime {
@@ -2195,6 +2109,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else if prop_name == "isOdd" {
+                    // O receptor é `int`: um `Ref` (parâmetro de função local,
+                    // `int?` promovido) é a CAIXA — a paridade do handle não é
+                    // a do número (R3).
+                    let target_op = self.coagir(target_op, Type::I64);
                     let rem = self.emit(
                         Instruction::And(target_op, Operand::Constant(Constant::Int(1))),
                         Type::I64,
@@ -2204,6 +2122,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::I1,
                     )
                 } else if prop_name == "isEven" {
+                    // O receptor é `int`: um `Ref` (parâmetro de função local,
+                    // `int?` promovido) é a CAIXA — a paridade do handle não é
+                    // a do número (R3).
+                    let target_op = self.coagir(target_op, Type::I64);
                     let rem = self.emit(
                         Instruction::And(target_op, Operand::Constant(Constant::Int(1))),
                         Type::I64,
@@ -2235,9 +2157,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Instruction::CallRuntime {
                             name: "dartforge_error_get_invalid_value".to_string(),
                             args: vec![(target_op, Type::Ref)],
-                            ret_ty: Type::I64,
+                            ret_ty: Type::Ref,
                         },
-                        Type::I64,
+                        Type::Ref,
                     )
                 } else if prop_name == "start" {
                     self.emit(
@@ -2303,95 +2225,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else {
-                    if let Some(fid) = self.metodo_de_instancia(name.sym) {
-                        let f_elem = &self.ctx.program.functions[fid];
-                        let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
-                        let symbol = format!("df_fn_{fid}_{sanitized_name}");
-                        let ret_ty = self.ctx.outline.functions.get(fid)
-                            .map(|fd| self.ctx.to_hir_type(fd.return_type))
-                            .unwrap_or(Type::Ref);
-                        return self.emit_call_with_check(
-                            Instruction::CallStatic {
-                                symbol,
-                                args: vec![target_op],
-                                ret_ty,
-                            },
-                            ret_ty,
-                        );
-                    }
-                    let mut found_field = None;
-                    for (c_idx, _) in self.ctx.program.classes.iter().enumerate() {
-                        let cid = dartforge_elements::model::ClassId(c_idx as u32);
-                        if let Some(f_idx) = self.find_field_index(cid, name.sym) {
-                            found_field = Some(f_idx);
-                            break;
-                        }
-                    }
-                    if let Some(f_idx) = found_field {
-                        return self.emit(
-                            Instruction::CallRuntime {
-                                name: "dartforge_object_get".to_string(),
-                                args: vec![
-                                    (target_op, Type::Ref),
-                                    (Operand::Constant(Constant::Int(f_idx as i64)), Type::I64),
-                                ],
-                                ret_ty: Type::I64,
-                            },
-                            Type::I64,
-                        );
-                    }
-                    // Getter inexistente: lanca NoSuchMethodError carregando o
-                    // NOME do membro. Sem o nome, 31 programas do corpus caiam
-                    // todos no mesmo grupo do relatorio ("Uncaught exception:
-                    // NoSuchMethodError") e nao dava para saber o que falta
-                    // implementar; com o nome, o agrupamento por primeira linha
-                    // do stderr vira a lista de membros do dart:core a fazer.
-                    let nome_op = self.emit(
-                        Instruction::Const(Constant::String(
-                            self.ctx.symbol_name(name.sym).to_string(),
-                        )),
-                        Type::Ref,
-                    );
-                    let err_op = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_no_such_method_error_new".to_string(),
-                            args: vec![(nome_op, Type::Ref)],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
-                    self.emit_throw_op(err_op);
-                    self.default_return_operand()
+                    self.nao_suportado(&format!("membro `{prop_name}`"), span)
                 }
             }
-            ExprKind::Index { target, index, .. } => {
-                let target_op = self.lower_expr(ast, *target);
+            ExprKind::Index { target, index, null_aware } => {
+                let target_op = self.lower_alvo(ast, *target);
+                if *null_aware {
+                    self.desviar_se_nulo(&target_op);
+                }
                 let idx_op = self.lower_expr(ast, *index);
-                if let Some(fid) = self.ctx.program.functions.iter().position(|f| {
-                    f.class.is_some()
-                        && !f.static_
-                        && self.ctx.symbol_name(f.name) == "[]"
-                        && matches!(f.node, dartforge_elements::model::FunctionRef::Function { .. })
-                }) {
-                    let f_elem = &self.ctx.program.functions[fid];
-                    let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
-                    let symbol = format!("df_fn_{fid}_{sanitized_name}");
-                    let ret_ty = self.ctx.outline.functions.get(fid)
-                        .map(|fd| self.ctx.to_hir_type(fd.return_type))
-                        .unwrap_or(Type::Ref);
-                    let target_ty = self.ctx.get_type(self.unit_id, *target);
-                    let is_std_map = target_ty.map_or(false, |t| self.ctx.is_map(t));
-                    let is_std_list = target_ty.map_or(false, |t| self.ctx.is_list(t));
-                    if !is_std_map && !is_std_list && !matches!(ast.expr(*target).kind, ExprKind::List { .. } | ExprKind::SetOrMap { .. }) {
-                        return self.emit_call_with_check(
-                            Instruction::CallStatic {
-                                symbol,
-                                args: vec![target_op, idx_op],
-                                ret_ty,
-                            },
-                            ret_ty,
-                        );
-                    }
+                // `operator []` de classe do usuário, pela classe estática.
+                if let Some(cid) = self.classe_do_usuario_de(*target) {
+                    let Some(fid) = self.membro_na_classe(cid, "[]") else {
+                        return self.nao_suportado("operador [] ausente", expr.span);
+                    };
+                    return self.chamar_membro(target_op, fid, &[(None, idx_op)], expr.span);
                 }
                 let target_ty = self.ctx.get_type(self.unit_id, *target);
                 let is_map = target_ty.map_or(false, |t| self.ctx.is_map(t))
@@ -2402,17 +2250,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.ctx.symbol_name(id.sym) == "m"
                     } else { false });
                 if is_map {
+                    // E2: a chave com a tag real (antes, 3 fixo). R5: o
+                    // valor de `mapa[k]` é `V?`, sempre `Ref`.
+                    let ktag = self.operand_tag(&idx_op);
+                    let (kbits, _) = self.para_bits(idx_op);
                     self.emit(
                         Instruction::CallRuntime {
-                            name: "dartforge_map_get_bits".to_string(),
+                            name: "dartforge_map_get_ref".to_string(),
                             args: vec![
                                 (target_op, Type::Ref),
-                                (idx_op, Type::Ref),
-                                (Operand::Constant(Constant::Int(3)), Type::I8),
+                                (kbits, Type::I64),
+                                (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
                             ],
-                            ret_ty: Type::I64,
+                            ret_ty: Type::Ref,
                         },
-                        Type::I64,
+                        Type::Ref,
                     )
                 } else if is_string_or_match {
                     self.emit_call_with_check(
@@ -2424,14 +2276,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else {
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_get_bits".to_string(),
-                            args: vec![(target_op, Type::Ref), (idx_op, Type::I64)],
-                            ret_ty: Type::I64,
-                        },
-                        Type::I64,
-                    )
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    self.ler_elemento_lista(target_op, idx_op, repr)
                 }
             }
             ExprKind::Record { positional, .. } => {
@@ -2457,83 +2303,55 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if self.ctx.symbol_name(name.sym) == "print" {
                         if let Some(first_arg) = arguments.args.first() {
                             let arg_op = self.lower_expr(ast, first_arg.value);
-                            // O tipo ESTATICO do argumento manda, e so depois o
-                            // tipo do operando. Um local passa por alloca/store/
-                            // load como i64, entao `bool x = a < b; print(x)`
-                            // chegava aqui como i64 e imprimia 1 em vez de true.
-                            let ty_estatico = self.ctx.get_type(self.unit_id, first_arg.value);
-                            let e_bool = ty_estatico.map_or(false, |t| self.ctx.is_bool(t));
-                            let e_int = ty_estatico.map_or(false, |t| self.ctx.is_int(t));
-                            let e_double = ty_estatico.map_or(false, |t| self.ctx.is_double(t));
-                            let op_ty = self.operand_type(&arg_op);
-                            let op_ty = if e_bool {
-                                if op_ty == Type::I1 { Type::I1 } else { Type::I8 }
-                            } else if e_int {
-                                Type::I64
-                            } else if e_double {
-                                Type::F64
-                            } else {
-                                op_ty
-                            };
-
-                            if op_ty == Type::F64 {
-                                return self.emit(
+                            // R5: a representação do operando É o tipo. Um
+                            // `Ref` é impresso pelo `toString` dele (o do
+                            // usuário, pelo despacho; o do runtime para
+                            // coleções, strings, caixas e null).
+                            return match self.operand_type(&arg_op) {
+                                Type::F64 => self.emit(
                                     Instruction::CallRuntime {
                                         name: "dartforge_print_f64".to_string(),
                                         args: vec![(arg_op, Type::F64)],
                                         ret_ty: Type::Void,
                                     },
                                     Type::Void,
-                                );
-                            } else if op_ty == Type::I64 {
-                                return self.emit(
+                                ),
+                                Type::I64 => self.emit(
                                     Instruction::CallRuntime {
                                         name: "dartforge_print_i64".to_string(),
                                         args: vec![(arg_op, Type::I64)],
                                         ret_ty: Type::Void,
                                     },
                                     Type::Void,
-                                );
-                            } else if op_ty == Type::I1 || op_ty == Type::I8 {
-                                let arg_i8 = if op_ty == Type::I1 {
-                                    self.emit(
-                                        Instruction::ZExt {
-                                            op: arg_op,
-                                            from: Type::I1,
-                                            to: Type::I8,
-                                        },
-                                        Type::I8,
-                                    )
-                                } else {
-                                    arg_op
-                                };
-                                return self.emit(
+                                ),
+                                Type::I1 | Type::I8 => self.emit(
                                     Instruction::CallRuntime {
                                         name: "dartforge_print_bool".to_string(),
-                                        args: vec![(arg_i8, Type::I8)],
+                                        args: vec![(arg_op, Type::I8)],
                                         ret_ty: Type::Void,
                                     },
                                     Type::Void,
-                                );
-                            } else if matches!(ast.expr(first_arg.value).kind, ExprKind::Null) {
-                                return self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_print_null".to_string(),
-                                        args: Vec::new(),
-                                        ret_ty: Type::Void,
-                                    },
-                                    Type::Void,
-                                );
-                            } else {
-                                return self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_print_handle".to_string(),
-                                        args: vec![(arg_op, Type::I64)],
-                                        ret_ty: Type::Void,
-                                    },
-                                    Type::Void,
-                                );
-                            }
+                                ),
+                                _ => {
+                                    let arg_op = self.coagir(arg_op, Type::Ref);
+                                    let texto = self.emit_call_with_check(
+                                        Instruction::CallStatic {
+                                            symbol: "dartforge_dispatch_toString".to_string(),
+                                            args: vec![arg_op],
+                                            ret_ty: Type::Ref,
+                                        },
+                                        Type::Ref,
+                                    );
+                                    self.emit(
+                                        Instruction::CallRuntime {
+                                            name: "dartforge_print_handle".to_string(),
+                                            args: vec![(texto, Type::Ref)],
+                                            ret_ty: Type::Void,
+                                        },
+                                        Type::Void,
+                                    )
+                                }
+                            };
                         }
                     }
                 }
@@ -2575,10 +2393,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     } else if id_str == "identical" && arguments.args.len() == 2 {
                         let a_op = self.lower_expr(ast, arguments.args[0].value);
                         let b_op = self.lower_expr(ast, arguments.args[1].value);
-                        return self.emit(
-                            Instruction::ICmp(ICmpOp::Eq, a_op, b_op),
-                            Type::I1,
-                        );
+                        return self.identicos(a_op, b_op);
                     } else if let Some(err_cid) = match id_str {
                         "Exception" => Some(1000),
                         "FormatException" => Some(1001),
@@ -2602,9 +2417,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Type::Ref,
                         );
                     } else if let Some((sym, ret_ty, _)) = self.local_functions.get(&id.sym).cloned() {
+                        // Função local: parâmetros e retorno são `Ref` (R4).
                         let mut args_ops = Vec::new();
                         for a in &arguments.args {
-                            args_ops.push(self.lower_expr(ast, a.value));
+                            let v = self.lower_expr(ast, a.value);
+                            args_ops.push(self.coagir(v, Type::Ref));
                         }
                         return self.emit_call_with_check(
                             Instruction::CallStatic {
@@ -2614,25 +2431,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             },
                             ret_ty,
                         );
-                    } else if let Some(fid) = self.funcao_de_topo(id.sym) {
-                        let f_elem = &self.ctx.program.functions[fid];
-                        let sanitized_name = crate::lower::sanitize_symbol(self.ctx.symbol_name(f_elem.name));
-                        let symbol = format!("df_fn_{fid}_{sanitized_name}");
-                        let ret_ty = self.ctx.outline.functions.get(fid)
-                            .map(|fd| self.ctx.to_hir_type(fd.return_type))
-                            .unwrap_or(Type::Ref);
-                        let mut args_ops = Vec::new();
-                        for a in &arguments.args {
-                            args_ops.push(self.lower_expr(ast, a.value));
+                    }
+                    // Função de topo, membro implícito (`m()` = `this.m()`) ou
+                    // estático: pelo elemento resolvido do alvo.
+                    match self.ctx.get_resolved(self.unit_id, *target).cloned() {
+                        Some(Resolved::Element(dartforge_elements::model::Element::Function(f)))
+                            if crate::lower::funcao_do_usuario(self.ctx, f.0 as usize)
+                                && self.ctx.program.functions[f.0 as usize].variable.is_none() =>
+                        {
+                            let fid = f.0 as usize;
+                            let avaliados = self.avaliar_args(ast, &arguments.args);
+                            let args = self.casar_args(fid, &avaliados);
+                            return self.chamar_direto(fid, None, args);
                         }
-                        return self.emit_call_with_check(
-                            Instruction::CallStatic {
-                                symbol,
-                                args: args_ops,
-                                ret_ty,
-                            },
-                            ret_ty,
-                        );
+                        Some(Resolved::Member { member: MemberRef::Function(f), .. })
+                            if crate::lower::funcao_do_usuario(self.ctx, f.0 as usize)
+                                && self.ctx.program.functions[f.0 as usize].variable.is_none() =>
+                        {
+                            let fid = f.0 as usize;
+                            let avaliados = self.avaliar_args(ast, &arguments.args);
+                            if self.ctx.program.functions[fid].static_ {
+                                let args = self.casar_args(fid, &avaliados);
+                                return self.chamar_direto(fid, None, args);
+                            }
+                            let Some(this) = self.this_param.clone() else {
+                                return self.nao_suportado("método de instância fora de membro de instância", expr.span);
+                            };
+                            return self.chamar_membro(this, fid, &avaliados, expr.span);
+                        }
+                        _ => {}
                     }
                 }
 
@@ -2644,6 +2471,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if id_str == "String" {
                             if m_name == "fromCharCode" {
                                 let code_op = self.lower_expr(ast, arguments.args[0].value);
+                                let code_op = self.coagir(code_op, Type::I64);
                                 return self.emit(
                                     Instruction::CallRuntime {
                                         name: "dartforge_string_from_char_code".to_string(),
@@ -2667,44 +2495,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
 
-                // Verifica construtor via Resolved
-                if let Some(resolved) = self.ctx.get_resolved(self.unit_id, expr_id) {
-                    if let Resolved::Constructor(fid) = resolved {
-                        return self.lower_constructor(ast, *fid, &arguments.args);
-                    }
-                }
-
-                // Verifica construtor via Identifier de classe de usuário
-                if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
-                    let id_str = self.ctx.symbol_name(id.sym);
-                    for (c_idx, c) in self.ctx.program.classes.iter().enumerate() {
-                        if self.ctx.symbol_name(c.name) == id_str {
-                            let empty_sym = self.ctx.interner.lookup("");
-                            let cfid_opt = empty_sym.and_then(|sym| c.constructors.get(&sym).copied());
-                            if let Some(cfid) = cfid_opt {
-                                return self.lower_constructor(ast, cfid, &arguments.args);
-                            } else {
-                                let class_id = (c_idx + 1) as u32;
-                                return self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_object_new".to_string(),
-                                        args: vec![
-                                            (Operand::Constant(Constant::Int(class_id as i64)), Type::I64),
-                                            (Operand::Constant(Constant::Int(c.fields.len() as i64)), Type::I64),
-                                        ],
-                                        ret_ty: Type::Ref,
-                                    },
-                                    Type::Ref,
-                                );
-                            }
-                        }
-                    }
+                // Instanciação sem `new`: `C(…)`, `C.nome(…)`.
+                if let Some(Resolved::Constructor(fid)) = self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
+                    return self.instanciar(ast, fid, &arguments.args, expr.span);
                 }
 
                 // Chamadas de método sobre objeto / coleção
-                if let ExprKind::Property { target: inner_target, name: method_name, .. } = &ast.expr(*target).kind {
+                if let ExprKind::Property { target: inner_target, name: method_name, null_aware } = &ast.expr(*target).kind {
                     let m_name = self.ctx.symbol_name(method_name.sym);
-                    let recv_op = self.lower_expr(ast, *inner_target);
+                    let resolved_alvo = self.ctx.get_resolved(self.unit_id, *target).cloned();
+
+                    // `C.m(…)`: método estático do usuário.
+                    let alvo_e_classe = matches!(
+                        self.ctx.get_resolved(self.unit_id, *inner_target),
+                        Some(Resolved::Element(dartforge_elements::model::Element::Class(_)))
+                    );
+                    if alvo_e_classe {
+                        if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = resolved_alvo {
+                            let fid = f.0 as usize;
+                            if crate::lower::funcao_do_usuario(self.ctx, fid) && self.ctx.program.functions[fid].static_ {
+                                let avaliados = self.avaliar_args(ast, &arguments.args);
+                                let args = self.casar_args(fid, &avaliados);
+                                return self.chamar_direto(fid, None, args);
+                            }
+                        }
+                        return self.nao_suportado(&format!("chamada estática `{m_name}`"), expr.span);
+                    }
+
+                    let recv_op = self.lower_alvo(ast, *inner_target);
+                    if *null_aware {
+                        self.desviar_se_nulo(&recv_op);
+                    }
+
+                    // Método de classe do usuário: pelo elemento resolvido, com
+                    // despacho pela classe dinâmica (R7).
+                    if let Some((_, member)) = self.membro_do_usuario(*target, *inner_target, method_name.sym, false) {
+                        {
+                            let MemberRef::Function(f) = member else {
+                                return self.nao_suportado("chamada de campo de tipo função", expr.span);
+                            };
+                            if self.ctx.program.functions[f.0 as usize].variable.is_some() {
+                                return self.nao_suportado("chamada de campo de tipo função", expr.span);
+                            }
+                            let avaliados = self.avaliar_args(ast, &arguments.args);
+                            return self.chamar_membro(recv_op, f.0 as usize, &avaliados, expr.span);
+                        }
+                    }
 
                     if m_name == "add" {
                         if let Some(first_arg) = arguments.args.first() {
@@ -2747,11 +2583,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Type::I64,
                         );
                     } else if m_name == "toRadixString" {
+                        let recv_op = self.coagir(recv_op, Type::I64);
                         let radix_op = if let Some(first_arg) = arguments.args.first() {
                             self.lower_expr(ast, first_arg.value)
                         } else {
                             Operand::Constant(Constant::Int(10))
                         };
+                        let radix_op = self.coagir(radix_op, Type::I64);
                         return self.emit(
                             Instruction::CallRuntime {
                                 name: "dartforge_int_to_radix_string".to_string(),
@@ -3000,26 +2838,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         );
                     } else if m_name == "write" {
                         let arg_op = self.lower_expr(ast, arguments.args[0].value);
-                        let arg_ty = self.operand_type(&arg_op);
-                        let str_op = match arg_ty {
-                            Type::I64 => self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_to_string_i64".to_string(),
-                                    args: vec![(arg_op, Type::I64)],
-                                    ret_ty: Type::Ref,
-                                },
-                                Type::Ref,
-                            ),
-                            Type::Ref => self.emit(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_to_string_handle".to_string(),
-                                    args: vec![(arg_op, Type::I64)],
-                                    ret_ty: Type::Ref,
-                                },
-                                Type::Ref,
-                            ),
-                            _ => arg_op,
-                        };
+                        let str_op = self.texto_de(arg_op);
                         return self.emit(
                             Instruction::CallRuntime {
                                 name: "dartforge_string_buffer_write".to_string(),
@@ -3029,14 +2848,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Type::Void,
                         );
                     } else if m_name == "toString" {
-                        return self.emit(
-                            Instruction::CallStatic {
-                                symbol: "dartforge_dispatch_toString".to_string(),
-                                args: vec![recv_op],
-                                ret_ty: Type::Ref,
-                            },
-                            Type::Ref,
-                        );
+                        return self.texto_de(recv_op);
                     } else if m_name == "join" {
                         let sep_op = if let Some(first_arg) = arguments.args.first() {
                             self.lower_expr(ast, first_arg.value)
@@ -3108,26 +2920,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 });
 
                                 self.set_block(loop_body);
-                                let item_val = self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_list_get_bits".to_string(),
-                                        args: vec![(recv_op.clone(), Type::Ref), (phi_op.clone(), Type::I64)],
-                                        ret_ty: Type::I64,
-                                    },
-                                    Type::I64,
-                                );
+                                // O elemento na representação do tipo de
+                                // elemento da lista (R5).
+                                let repr_item = self
+                                    .ctx
+                                    .get_type(self.unit_id, *inner_target)
+                                    .and_then(|t| self.tipo_elemento(t))
+                                    .map_or(Type::Ref, |t| self.repr(t));
+                                let item_val = self.ler_elemento_lista(recv_op.clone(), phi_op.clone(), repr_item);
 
                                 if let Some(sym) = param_sym {
-                                    self.named_locals.insert(sym, item_val);
+                                    self.ligar_local(sym, item_val);
                                 }
 
                                 let mapped_val = match &closure.body {
                                     FunctionBody::Expression(eid) => self.lower_expr(ast, *eid),
-                                    _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
+                                    _ => self.nao_suportado("closure com corpo de bloco", expr.span),
                                 };
 
-                                let mapped_is_ref = if self.operand_type(&mapped_val) == Type::Ref { 1 } else { 0 };
-                                let mapped_tag = if mapped_is_ref == 1 { 3 } else { 1 };
+                                let mapped_tag = i64::from(self.operand_tag(&mapped_val));
                                 self.emit(
                                     Instruction::CallRuntime {
                                         name: "dartforge_list_push".to_string(),
@@ -3273,7 +3084,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                     .and_then(|p| p.name.as_ref())
                                     .map(|n| n.sym);
                                 if let Some(sym) = param_sym {
-                                    self.named_locals.insert(sym, part_val.clone());
+                                    self.ligar_local(sym, part_val.clone());
                                 }
                                 match &closure.body {
                                     FunctionBody::Expression(eid) => self.lower_expr(ast, *eid),
@@ -3298,7 +3109,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                     .and_then(|p| p.name.as_ref())
                                     .map(|n| n.sym);
                                 if let Some(sym) = param_sym {
-                                    self.named_locals.insert(sym, part_val.clone());
+                                    self.ligar_local(sym, part_val.clone());
                                 }
                                 match &closure.body {
                                     FunctionBody::Expression(eid) => self.lower_expr(ast, *eid),
@@ -3360,12 +3171,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
 
-                let mut args_ops = Vec::new();
-                for a in &arguments.args {
-                    args_ops.push(self.lower_expr(ast, a.value));
-                }
-
-                self.emit(Instruction::Const(Constant::Int(0)), Type::I64)
+                let oque = match &ast.expr(*target).kind {
+                    ExprKind::Property { name, .. } | ExprKind::Identifier(name) => {
+                        format!("chamada `{}`", self.ctx.symbol_name(name.sym))
+                    }
+                    _ => "chamada de valor de função".to_string(),
+                };
+                self.nao_suportado(&oque, expr.span)
             }
             ExprKind::List { elements, .. } => {
                 let mut elem_ops = Vec::new();
@@ -3392,22 +3204,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.emit(Instruction::AllocMap { entries }, Type::Ref)
             }
             ExprKind::InstanceCreation { arguments, .. } => {
-                if let Some(resolved) = self.ctx.get_resolved(self.unit_id, expr_id) {
-                    if let Resolved::Constructor(fid) = resolved {
-                        return self.lower_constructor(ast, *fid, &arguments.args);
-                    }
+                match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
+                    Some(Resolved::Constructor(fid)) => self.instanciar(ast, fid, &arguments.args, expr.span),
+                    _ => self.nao_suportado("instanciação não resolvida", expr.span),
                 }
-                let mut args_ops = Vec::new();
-                for a in &arguments.args {
-                    args_ops.push(self.lower_expr(ast, a.value));
-                }
-                self.emit(
-                    Instruction::AllocObject {
-                        class_id: 0,
-                        fields: args_ops,
-                    },
-                    Type::Ref,
-                )
             }
             ExprKind::Throw(inner) => {
                 self.emit_throw(ast, *inner)
@@ -3417,9 +3217,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Is { value, ty, negated } => {
                 let val_op = self.lower_expr(ast, *value);
-                let tag = self.operand_tag(&val_op);
                 let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(*ty);
-                let is_m = self.lower_type_match(ast_ty, val_op, Operand::Constant(Constant::Int(tag as i64)));
+                let is_m = self.testar_tipo(ast_ty, val_op);
+                let is_m = self.para_bool(is_m);
                 if *negated {
                     self.emit(Instruction::LNot(is_m), Type::I1)
                 } else {
@@ -3428,89 +3228,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::As { value, ty } => {
                 let val_op = self.lower_expr(ast, *value);
-                let tag = self.operand_tag(&val_op);
                 let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(*ty);
-                let is_m = self.lower_type_match(ast_ty, val_op.clone(), Operand::Constant(Constant::Int(tag as i64)));
-                let fail_block = self.new_block();
-                let pass_block = self.new_block();
-                self.terminate(Terminator::CondBranch {
-                    cond: is_m,
-                    then_block: pass_block,
-                    else_block: fail_block,
-                });
-                self.set_block(fail_block);
-                let err_op = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_type_error_new".to_string(),
-                        args: Vec::new(),
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                );
-                self.emit_throw_op(err_op);
-                self.set_block(pass_block);
+                self.checar_tipo_ou_lancar(ast_ty, val_op.clone());
                 val_op
             }
             ExprKind::Assign { op, target, value } => {
-                let val_op = self.lower_expr(ast, *value);
-                if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
-                    let final_val = match op {
-                        ast::AssignOp::Assign => val_op,
-                        ast::AssignOp::Compound(bin_op) => {
-                            let curr = if let Some(ptr) = self.local_ptrs.get(&id.sym) {
-                                self.emit(Instruction::Load { ptr: ptr.clone(), ty: Type::I64 }, Type::I64)
-                            } else if let Some(op) = self.named_locals.get(&id.sym) {
-                                op.clone()
-                            } else {
-                                Operand::Constant(Constant::Int(0))
-                            };
-                            self.lower_binary_op_helper(*bin_op, curr, val_op)
-                        }
-                    };
-                    if let Some(ptr) = self.local_ptrs.get(&id.sym).cloned() {
-                        self.emit(Instruction::Store { ptr, val: final_val.clone() }, Type::Void);
-                    }
-                    self.named_locals.insert(id.sym, final_val.clone());
-                    return final_val;
-                }
-                val_op
+                self.lower_atribuicao(ast, *op, *target, super::atribuicao::Rhs::Expr(*value), expr.span)
             }
-            _ => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
-        }
-    }
-
-    fn lower_constructor(&mut self, ast: &ast::Ast, fid: FunctionElementId, args: &[ast::Argument]) -> Operand {
-        let cid = self.ctx.program.functions[fid.0 as usize].class.unwrap_or(dartforge_elements::model::ClassId(0));
-        let class_id = (cid.0 + 1) as u32;
-        let field_count = self.ctx.program.classes.get(cid.0 as usize).map_or(0, |c| c.fields.len());
-        let obj = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_object_new".to_string(),
-                args: vec![
-                    (Operand::Constant(Constant::Int(class_id as i64)), Type::I64),
-                    (Operand::Constant(Constant::Int(field_count as i64)), Type::I64),
-                ],
-                ret_ty: Type::Ref,
+            ExprKind::This => match self.this_param.clone() {
+                Some(t) => t,
+                None => self.nao_suportado("`this` fora de membro de instância", expr.span),
             },
-            Type::Ref,
-        );
-        for (i, arg) in args.iter().enumerate() {
-            let arg_op = self.lower_expr(ast, arg.value);
-            let is_ref = if self.operand_type(&arg_op) == Type::Ref { 1 } else { 0 };
-            self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_object_set".to_string(),
-                    args: vec![
-                        (obj.clone(), Type::Ref),
-                        (Operand::Constant(Constant::Int(i as i64)), Type::I64),
-                        (arg_op, Type::I64),
-                        (Operand::Constant(Constant::Int(is_ref)), Type::I8),
-                    ],
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            );
+            outro => {
+                let oque = match outro {
+                    ExprKind::Super => "`super` como valor",
+                    ExprKind::Symbol(_) => "literal de símbolo",
+                    ExprKind::FunctionExpression(_) => "closure",
+                    ExprKind::TypeArguments { .. } => "instanciação de tipo genérico",
+                    ExprKind::PatternAssign { .. } => "atribuição por padrão",
+                    ExprKind::Cascade { .. } | ExprKind::CascadeTarget => "cascata",
+                    ExprKind::Await(_) => "await",
+                    ExprKind::Switch { .. } => "expressão switch",
+                    _ => "expressão",
+                };
+                self.nao_suportado(oque, expr.span)
+            }
         }
-        obj
     }
 }

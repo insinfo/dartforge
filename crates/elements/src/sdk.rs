@@ -46,12 +46,45 @@ impl SdkLayout {
             .map_err(|e| format!("não foi possível ler {}: {e}", path.display()))?;
         let json: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| format!("{} inválido: {e}", path.display()))?;
-        let section = json
+        let mut libraries = HashMap::new();
+        Self::ler_secao(&json, lib_dir, target, &path, &mut libraries, 0)?;
+        Ok(SdkLayout {
+            root: lib_dir.to_path_buf(),
+            libraries,
+        })
+    }
+
+    /// Lê uma seção e, antes dela, as que ela inclui (`"include": [{"target":
+    /// "vm_common"}]`). A seção `vm` do SDK 3.6.2 só declara `cli`: `core`,
+    /// `async`, `collection`… estão em `vm_common`. Sem seguir o `include`, o
+    /// backend nativo carregava o programa **sem `dart:core`** — e todo tipo
+    /// estático (`int`, `String`…) virava `dynamic`. As bibliotecas da própria
+    /// seção sobrescrevem as incluídas, como no `libraries.yaml` do SDK.
+    fn ler_secao(
+        json: &serde_json::Value,
+        lib_dir: &Path,
+        target: &str,
+        path: &Path,
+        libraries: &mut HashMap<String, SdkLibrary>,
+        profundidade: usize,
+    ) -> Result<(), String> {
+        if profundidade > 8 {
+            return Err(format!("include cíclico na seção {target} de {}", path.display()));
+        }
+        let secao = json
             .get(target)
-            .and_then(|t| t.get("libraries"))
+            .ok_or_else(|| format!("seção {target} ausente em {}", path.display()))?;
+        if let Some(includes) = secao.get("include").and_then(|i| i.as_array()) {
+            for inc in includes {
+                if let Some(t) = inc.get("target").and_then(|t| t.as_str()) {
+                    Self::ler_secao(json, lib_dir, t, path, libraries, profundidade + 1)?;
+                }
+            }
+        }
+        let section = secao
+            .get("libraries")
             .and_then(|l| l.as_object())
             .ok_or_else(|| format!("seção {target}.libraries ausente em {}", path.display()))?;
-        let mut libraries = HashMap::new();
         for (name, entry) in section {
             let uri = entry
                 .get("uri")
@@ -81,13 +114,9 @@ impl SdkLayout {
                 },
             );
         }
-        Ok(SdkLayout {
-            root: lib_dir.to_path_buf(),
-            libraries,
-        })
+        Ok(())
     }
 
-    /// Biblioteca pelo nome sem o prefixo `dart:`.
     pub fn library(&self, name: &str) -> Option<&SdkLibrary> {
         self.libraries.get(name)
     }
@@ -138,5 +167,19 @@ mod tests {
         assert_eq!(core.patches.len(), 2);
         assert!(!sdk.library("io").unwrap().supported);
         assert!(sdk.library("_runtime").is_some());
+    }
+
+    /// A seção `vm` só tem `cli`; `core` vem do `include` de `vm_common`.
+    #[test]
+    fn secao_vm_segue_o_include() {
+        let Some(lib) = SdkLayout::discover() else {
+            eprintln!("SDK não encontrado; teste pulado");
+            return;
+        };
+        let sdk = SdkLayout::load(&lib, "vm").unwrap();
+        assert!(sdk.library("cli").is_some());
+        let core = sdk.library("core").expect("core de vm_common");
+        assert!(core.path.ends_with("core/core.dart"));
+        assert!(!core.patches.is_empty());
     }
 }

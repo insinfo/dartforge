@@ -112,6 +112,13 @@ pub enum Value {
     Set(Vec<TaggedValue>),
     /// Record do Dart: `(1, 'b')`
     Record(Vec<TaggedValue>),
+    /// `int` numa posição `Ref` (R3 do contrato, docs/NATIVO-PLANO.md §6.2).
+    /// Coleções nunca guardam a caixa: a entrada normaliza para o escalar.
+    BoxedInt(i64),
+    /// `double` numa posição `Ref`.
+    BoxedDouble(f64),
+    /// `bool` numa posição `Ref`: só existem dois, permanentes.
+    BoxedBool(bool),
 }
 impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
@@ -123,7 +130,7 @@ impl Value {
                 .capacity()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
-            Self::Cell(_) | Self::Closure { .. } => 0,
+            Self::Cell(_) | Self::Closure { .. } | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
             Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => values
                 .capacity()
                 .checked_mul(std::mem::size_of::<TaggedValue>())
@@ -140,7 +147,14 @@ impl Value {
     /// Igualdade de chaves de `Map`/`Set` segundo `==` observável de Dart.
     fn trace(&self, pending: &mut Vec<i64>) {
         match self {
-            Self::String(_) | Self::RawString(_) | Self::StringBuffer(_) | Self::RegExp(_) | Self::Match(_) => {}
+            Self::String(_)
+            | Self::RawString(_)
+            | Self::StringBuffer(_)
+            | Self::RegExp(_)
+            | Self::Match(_)
+            | Self::BoxedInt(_)
+            | Self::BoxedDouble(_)
+            | Self::BoxedBool(_) => {}
             Self::Object { fields, .. } => pending.extend(
                 fields
                     .iter()
@@ -199,6 +213,28 @@ pub struct Heap {
     /// tear-offs da mesma função top-level; cada `code_id` tem um único handle,
     /// mantido vivo como raiz permanente, como os singletons de enum.
     tearoffs: std::collections::HashMap<i64, i64>,
+    /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
+    /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
+    /// coletado" e passa com a coleta desligada tem raiz faltando; um que
+    /// morre igual nos dois modos tem escalar usado como handle.
+    gc_desligado: bool,
+    /// Valor corrente de cada global `Ref` do programa (variável de topo ou
+    /// campo estático), por id: raízes permanentes (N6/G6 do contrato).
+    globais: std::collections::HashMap<i64, i64>,
+    /// As caixas de `false` e `true` (0 = ainda não alocada), permanentes.
+    caixas_bool: [i64; 2],
+    /// Raízes que moram no runtime e não num frame (G6): a exceção pendente
+    /// e o rastro corrente. 0 = nenhuma.
+    raizes_do_runtime: [i64; 2],
+    /// Tabelas laterais indexadas por handle. Moram aqui, e não em
+    /// `thread_local`s do runtime, porque são purgadas a cada coleta (G6):
+    /// um slot reutilizado herdaria a marca "imutável" ou "em iteração" de
+    /// outro objeto.
+    pub imutaveis: std::collections::HashSet<i64>,
+    pub iteracoes_ativas: std::collections::HashSet<i64>,
+    /// Lista de chaves → mapa de origem (para acusar modificação do mapa
+    /// durante a iteração das chaves).
+    pub origens: std::collections::HashMap<i64, i64>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -218,6 +254,61 @@ impl Heap {
             limite_bytes: Self::limite_do_ambiente(),
             enum_values: std::collections::HashMap::new(),
             tearoffs: std::collections::HashMap::new(),
+            gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
+            globais: std::collections::HashMap::new(),
+            caixas_bool: [0, 0],
+            raizes_do_runtime: [0, 0],
+            imutaveis: std::collections::HashSet::new(),
+            iteracoes_ativas: std::collections::HashSet::new(),
+            origens: std::collections::HashMap::new(),
+        }
+    }
+    /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
+    pub fn set_raiz_do_runtime(&mut self, qual: usize, handle: i64) {
+        if handle != 0 {
+            self.get(handle);
+        }
+        self.raizes_do_runtime[qual] = handle;
+    }
+    /// Caixa de um `bool` (R3): um dos dois singletons permanentes.
+    pub fn caixa_bool(&mut self, valor: bool) -> i64 {
+        let i = usize::from(valor);
+        if self.caixas_bool[i] == 0 {
+            self.caixas_bool[i] = self.allocate(Value::BoxedBool(valor));
+        }
+        self.caixas_bool[i]
+    }
+    /// Valor como referência: escalar vira caixa; referência passa direto.
+    /// Quem chama enraíza o resultado antes da próxima alocação.
+    pub fn como_ref(&mut self, v: TaggedValue) -> i64 {
+        match v.tag {
+            ValueTag::Ref => v.bits,
+            ValueTag::Int => self.allocate(Value::BoxedInt(v.bits)),
+            ValueTag::Double => self.allocate(Value::BoxedDouble(f64::from_bits(v.bits as u64))),
+            ValueTag::Bool => self.caixa_bool(v.bits != 0),
+        }
+    }
+    /// Referência para uma caixa vira o escalar (R8): coleções, células e
+    /// ambientes nunca guardam caixas, então `[1]` e `<Object>[1]` têm o
+    /// mesmo conteúdo e a chave `1` é a mesma encaixotada ou não.
+    pub fn normalizar(&self, v: TaggedValue) -> TaggedValue {
+        if !v.is_ref || v.bits == 0 {
+            return v;
+        }
+        match self.try_get(v.bits) {
+            Some(Value::BoxedInt(i)) => TaggedValue::scalar(*i),
+            Some(Value::BoxedDouble(d)) => TaggedValue::double(*d),
+            Some(Value::BoxedBool(b)) => TaggedValue::boolean(*b),
+            _ => v,
+        }
+    }
+    /// Registra o valor corrente de um global `Ref`; 0 (null) solta a raiz.
+    pub fn set_global_root(&mut self, id: i64, handle: i64) {
+        if handle == 0 {
+            self.globais.remove(&id);
+        } else {
+            self.get(handle);
+            self.globais.insert(id, handle);
         }
     }
     /// Le o teto do heap do ambiente uma vez, na criacao.
@@ -377,12 +468,15 @@ impl Heap {
         let bytes = value.estimated_bytes();
         let perto_do_teto = self.limite_bytes != usize::MAX
             && self.bytes_totais(bytes) > self.limite_bytes / 2;
-        if self.stress
-            || (!self.frames.is_empty() && (
-                self.allocations >= self.threshold
+        // G6: coleta em qualquer alocação que passe do limiar. O portão
+        // antigo (`!self.frames.is_empty()`) existia porque o código gerado
+        // não registrava raízes; com o frame de cada função (G1), coletar sem
+        // frame aberto é só coletar com as raízes permanentes.
+        if !self.gc_desligado
+            && (self.stress
+                || self.allocations >= self.threshold
                 || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
-                || perto_do_teto
-            ))
+                || perto_do_teto)
         {
             self.collect();
         }
@@ -408,14 +502,38 @@ impl Heap {
         };
         i64::try_from(index + 1).expect("handles esgotados")
     }
+    /// Índice do slot de um handle vivo, ou `panic` que diz QUAL contrato
+    /// foi quebrado (docs/NATIVO-PLANO.md §6.4, N4).
+    ///
+    /// As quatro falhas têm causas diferentes e a mensagem é a chave de
+    /// agrupamento do harness, então cada uma tem texto fixo na primeira
+    /// linha (sem o número do handle, que separaria o grupo) e o detalhe
+    /// na segunda:
+    /// * `0` — null desreferenciado: o lowering devia ter testado antes;
+    /// * negativo — escalar (ou -2 de "classe String") usado como handle;
+    /// * além da tabela — escalar positivo usado como handle;
+    /// * slot vazio — o objeto foi coletado: faltou raiz.
+    fn indice_vivo(&self, handle: i64) -> usize {
+        if handle == 0 {
+            panic!("bug do compilador: handle null (0) desreferenciado");
+        }
+        if handle < 0 {
+            panic!("bug do compilador: handle negativo (escalar usado como handle)\nhandle {handle}");
+        }
+        let index = usize::try_from(handle - 1).expect("handle positivo cabe em usize");
+        match self.slots.get(index) {
+            None => panic!(
+                "bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}, {} slots",
+                self.slots.len()
+            ),
+            Some(None) => panic!("bug do compilador: handle já coletado (raiz faltando)\nhandle {handle}"),
+            Some(Some(_)) => index,
+        }
+    }
     /// Obtém valor vivo; o protocolo ABI não permite handles obsoletos.
     pub fn get(&self, handle: i64) -> &Value {
-        let index = usize::try_from(handle.checked_sub(1).expect("handle inválido"))
-            .expect("handle inválido");
-        self.slots
-            .get(index)
-            .and_then(Option::as_ref)
-            .expect("handle não vivo")
+        let index = self.indice_vivo(handle);
+        self.slots[index].as_ref().expect("slot vivo verificado")
     }
     /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
     pub fn try_get(&self, handle: i64) -> Option<&Value> {
@@ -427,13 +545,8 @@ impl Heap {
         if is_ref && bits != 0 {
             self.get(bits);
         }
-        let slot = usize::try_from(handle - 1).expect("handle inválido");
-        let Value::Object { fields, .. } = self
-            .slots
-            .get_mut(slot)
-            .and_then(Option::as_mut)
-            .expect("handle não vivo")
-        else {
+        let slot = self.indice_vivo(handle);
+        let Value::Object { fields, .. } = self.slots[slot].as_mut().expect("slot vivo verificado") else {
             panic!("objeto esperado")
         };
         fields[usize::try_from(index).expect("índice inválido")] = (bits, is_ref);
@@ -481,6 +594,7 @@ impl Heap {
     }
     /// Cria célula compartilhável; proteja o resultado antes da próxima alocação.
     pub fn create_cell(&mut self, value: TaggedValue) -> i64 {
+        let value = self.normalizar(value);
         self.allocate_linked(Value::Cell(value))
     }
     /// Lê captura mutável sem copiar o objeto apontado por uma referência.
@@ -492,6 +606,7 @@ impl Heap {
     }
     /// Muda a captura observada por todos os ambientes que compartilham esta célula.
     pub fn cell_set(&mut self, handle: i64, value: TaggedValue) {
+        let value = self.normalizar(value);
         self.validate_tag(value);
         let Value::Cell(current) = self.get_mut(handle) else {
             panic!("célula esperada")
@@ -500,6 +615,7 @@ impl Heap {
     }
     /// Cria ambiente imutável; cada captura mutável deve apontar para uma célula.
     pub fn create_environment(&mut self, captures: Vec<TaggedValue>) -> i64 {
+        let captures = captures.into_iter().map(|v| self.normalizar(v)).collect();
         self.allocate_linked(Value::Environment(captures))
     }
     /// Obtém captura por índice; índice inválido provoca panic, sem acesso inseguro.
@@ -534,6 +650,7 @@ impl Heap {
     }
     /// Cria lista expansível com tracing preciso de seus elementos gerenciados.
     pub fn create_list(&mut self, values: Vec<TaggedValue>) -> i64 {
+        let values = values.into_iter().map(|v| self.normalizar(v)).collect();
         self.allocate_linked(Value::List(values))
     }
     /// Quantidade de elementos inicializados; capacidade interna não é comprimento.
@@ -552,6 +669,7 @@ impl Heap {
     }
     /// Substitui elemento existente; referências removidas deixam de ser rastreadas.
     pub fn list_set(&mut self, handle: i64, index: usize, value: TaggedValue) {
+        let value = self.normalizar(value);
         self.validate_tag(value);
         let Value::List(values) = self.get_mut(handle) else {
             panic!("lista esperada")
@@ -561,6 +679,7 @@ impl Heap {
     /// Acrescenta elemento e contabiliza capacidade real do buffer na política de GC.
     /// A lista permanece protegida durante eventual coleta causada pelo crescimento.
     pub fn list_push(&mut self, handle: i64, value: TaggedValue) {
+        let value = self.normalizar(value);
         self.validate_tag(value);
         let previous = self.get(handle).estimated_bytes();
         let Value::List(values) = self.get_mut(handle) else {
@@ -578,7 +697,7 @@ impl Heap {
             .peak_estimated_bytes
             .max(self.stats.estimated_bytes);
         self.verificar_teto(0);
-        if self.stress || self.stats.estimated_bytes > self.byte_threshold {
+        if !self.gc_desligado && (self.stress || self.stats.estimated_bytes > self.byte_threshold) {
             let frame = self.push_frame_with_slots(1);
             self.set_root(frame, 0, handle);
             self.collect();
@@ -593,6 +712,8 @@ impl Heap {
     pub fn create_map(&mut self, entries: Vec<(TaggedValue, TaggedValue)>) -> i64 {
         let mut unique: Vec<(TaggedValue, TaggedValue)> = Vec::with_capacity(entries.len());
         for (key, value) in entries {
+            let key = self.normalizar(key);
+            let value = self.normalizar(value);
             self.validate_tag(key);
             self.validate_tag(value);
             if let Some(slot) = unique.iter_mut().find(|(existing, _)| {
@@ -616,6 +737,7 @@ impl Heap {
     }
     /// Diz se a chave existe, sem distinguir valor null de ausência pelo valor.
     pub fn map_contains(&self, handle: i64, key: TaggedValue) -> bool {
+        let key = self.normalizar(key);
         match self.get(handle) {
             Value::Map(entries) => entries
                 .iter()
@@ -628,6 +750,7 @@ impl Heap {
     /// O protocolo LLVM consulta `map_contains` antes; esta API não devolve
     /// "null por ausência" para não confundir valor null armazenado com falta.
     pub fn map_get(&self, handle: i64, key: TaggedValue) -> TaggedValue {
+        let key = self.normalizar(key);
         match self.get(handle) {
             Value::Map(entries) => entries
                 .iter()
@@ -639,6 +762,8 @@ impl Heap {
     }
     /// Insere ou substitui, preservando a posição da primeira ocorrência.
     pub fn map_set(&mut self, handle: i64, key: TaggedValue, value: TaggedValue) {
+        let key = self.normalizar(key);
+        let value = self.normalizar(value);
         self.validate_tag(key);
         self.validate_tag(value);
         let index = match self.get(handle) {
@@ -660,6 +785,7 @@ impl Heap {
     pub fn create_set(&mut self, values: Vec<TaggedValue>) -> i64 {
         let mut unique = Vec::with_capacity(values.len());
         for value in values {
+            let value = self.normalizar(value);
             self.validate_tag(value);
             if !unique
                 .iter()
@@ -679,6 +805,7 @@ impl Heap {
     }
     /// Pertinência segundo `==` observável de chaves.
     pub fn set_contains(&self, handle: i64, value: TaggedValue) -> bool {
+        let value = self.normalizar(value);
         match self.get(handle) {
             Value::Set(values) => values
                 .iter()
@@ -688,6 +815,7 @@ impl Heap {
     }
     /// Insere quando ausente; devolve se houve inserção (`Set.add` de Dart).
     pub fn set_add(&mut self, handle: i64, value: TaggedValue) -> bool {
+        let value = self.normalizar(value);
         self.validate_tag(value);
         let present = match self.get(handle) {
             Value::Set(values) => values
@@ -729,12 +857,8 @@ impl Heap {
     }
     /// Obtém armazenamento mutável; não oferece acesso a slots já coletados.
     pub fn get_mut(&mut self, handle: i64) -> &mut Value {
-        let slot = usize::try_from(handle.checked_sub(1).expect("handle inválido"))
-            .expect("handle inválido");
-        self.slots
-            .get_mut(slot)
-            .and_then(Option::as_mut)
-            .expect("handle não vivo")
+        let slot = self.indice_vivo(handle);
+        self.slots[slot].as_mut().expect("slot vivo verificado")
     }
     /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
     pub fn collect(&mut self) {
@@ -752,6 +876,9 @@ impl Heap {
         self.pending.clear();
         self.pending.extend(self.enum_values.values().copied());
         self.pending.extend(self.tearoffs.values().copied());
+        self.pending.extend(self.globais.values().copied());
+        self.pending.extend(self.caixas_bool.iter().copied().filter(|&h| h != 0));
+        self.pending.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
         self.pending.extend(
             self.frames
                 .iter()
@@ -762,7 +889,9 @@ impl Heap {
             if handle == 0 {
                 continue;
             }
-            let index = usize::try_from(handle - 1).expect("handle inválido");
+            // Raiz ou aresta que não é um handle vivo: mesmas quatro
+            // mensagens de `get`, porque a causa é a mesma (N4).
+            let index = self.indice_vivo(handle);
             if self.marks[index] {
                 continue;
             }
@@ -770,9 +899,15 @@ impl Heap {
             live += 1;
             self.slots[index]
                 .as_ref()
-                .expect("handle não vivo")
+                .expect("slot vivo verificado")
                 .trace(&mut self.pending);
         }
+        // Tabelas laterais: só ficam os handles que sobreviveram (G6).
+        let marks = &self.marks;
+        let vivo = |h: &i64| usize::try_from(*h - 1).ok().is_some_and(|i| marks.get(i).copied().unwrap_or(false));
+        self.imutaveis.retain(|h| vivo(h));
+        self.iteracoes_ativas.retain(|h| vivo(h));
+        self.origens.retain(|k, v| vivo(k) && vivo(v));
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot.is_some() && !self.marks[index] {
                 self.stats.estimated_bytes -= slot.as_ref().unwrap().estimated_bytes();
@@ -795,7 +930,9 @@ impl Heap {
         HeapStats {
             live_objects: self.slots.len() - self.free.len(),
             reserved_slots: self.slots.len(),
-            permanent_roots: self.enum_values.len() + self.tearoffs.len(),
+            permanent_roots: self.enum_values.len()
+                + self.tearoffs.len()
+                + self.caixas_bool.iter().filter(|&&h| h != 0).count(),
             ..self.stats
         }
     }
@@ -951,6 +1088,130 @@ mod tests {
         heap.collect();
         assert_eq!(heap.slots.iter().flatten().count(), 1);
         assert!(heap.slots.len() <= 2);
+    }
+}
+
+#[cfg(test)]
+mod falhas_de_handle {
+    //! N4: cada contrato quebrado tem mensagem própria.
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "handle null (0) desreferenciado")]
+    fn null_desreferenciado() {
+        Heap::new(false).get(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "handle negativo")]
+    fn handle_negativo() {
+        Heap::new(false).get(-2);
+    }
+
+    #[test]
+    #[should_panic(expected = "handle além da tabela")]
+    fn handle_alem_da_tabela() {
+        let mut heap = Heap::new(false);
+        heap.allocate(Value::String("x".into()));
+        heap.get(42);
+    }
+
+    #[test]
+    #[should_panic(expected = "handle já coletado")]
+    fn handle_coletado() {
+        let mut heap = Heap::new(false);
+        let h = heap.allocate(Value::String("x".into()));
+        heap.collect();
+        heap.get(h);
+    }
+}
+
+#[cfg(test)]
+mod caixas {
+    //! R3/R8/R9: caixas de escalares e a normalização nas coleções.
+    use super::*;
+
+    #[test]
+    fn caixa_de_int_e_a_mesma_chave_que_o_int() {
+        let mut heap = Heap::new(true);
+        let frame = heap.push_frame_with_slots(2);
+        let caixa = heap.allocate(Value::BoxedInt(7));
+        heap.set_root(frame, 0, caixa);
+        let mapa = heap.create_map(vec![(TaggedValue::reference(caixa), TaggedValue::scalar(1))]);
+        heap.set_root(frame, 1, mapa);
+        // A chave entrou como escalar: a caixa não é aresta do mapa.
+        assert!(heap.map_contains(mapa, TaggedValue::scalar(7)));
+        assert!(heap.map_contains(mapa, TaggedValue::reference(caixa)));
+        heap.set_root(frame, 0, 0);
+        heap.collect();
+        assert!(heap.map_contains(mapa, TaggedValue::scalar(7)));
+    }
+
+    #[test]
+    fn lista_nao_guarda_caixa_e_devolve_caixa_nova() {
+        let mut heap = Heap::new(false);
+        let caixa = heap.allocate(Value::BoxedDouble(2.5));
+        let lista = heap.create_list(vec![TaggedValue::reference(caixa)]);
+        assert_eq!(heap.list_get(lista, 0), TaggedValue::double(2.5));
+        let de_volta = heap.como_ref(heap.list_get(lista, 0));
+        assert!(matches!(heap.get(de_volta), Value::BoxedDouble(d) if *d == 2.5));
+    }
+
+    #[test]
+    fn caixas_de_bool_sao_dois_singletons_permanentes() {
+        let mut heap = Heap::new(true);
+        let t1 = heap.caixa_bool(true);
+        let t2 = heap.caixa_bool(true);
+        let f = heap.caixa_bool(false);
+        assert_eq!(t1, t2);
+        assert_ne!(t1, f);
+        heap.collect();
+        assert!(matches!(heap.get(t1), Value::BoxedBool(true)));
+        assert_eq!(heap.stats().permanent_roots, 2);
+    }
+}
+
+#[cfg(test)]
+mod raizes_do_runtime {
+    //! G6: raízes que não moram num frame, e as tabelas laterais.
+    use super::*;
+
+    #[test]
+    fn excecao_pendente_sobrevive_a_coleta_sem_frame() {
+        let mut heap = Heap::new(true);
+        let erro = heap.allocate(Value::String("falhou".into()));
+        heap.set_raiz_do_runtime(0, erro);
+        heap.allocate(Value::String("outra".into()));
+        heap.collect();
+        assert!(matches!(heap.get(erro), Value::String(s) if s == "falhou"));
+        heap.set_raiz_do_runtime(0, 0);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    #[test]
+    fn coleta_sem_frame_aberto() {
+        // O portão antigo só coletava com frame; agora o limiar basta.
+        let mut heap = Heap::new(false);
+        for _ in 0..1000 {
+            heap.allocate(Value::String("lixo".into()));
+        }
+        assert!(heap.stats().collections > 0);
+        assert!(heap.stats().live_objects < 1000);
+    }
+
+    #[test]
+    fn tabela_lateral_purgada_quando_o_slot_e_reutilizado() {
+        let mut heap = Heap::new(false);
+        let lista = heap.create_list(Vec::new());
+        heap.imutaveis.insert(lista);
+        heap.iteracoes_ativas.insert(lista);
+        heap.collect();
+        assert!(heap.imutaveis.is_empty());
+        assert!(heap.iteracoes_ativas.is_empty());
+        let nova = heap.create_list(Vec::new());
+        assert_eq!(nova, lista, "o slot é reutilizado");
+        assert!(!heap.imutaveis.contains(&nova));
     }
 }
 

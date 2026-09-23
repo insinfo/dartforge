@@ -1,11 +1,11 @@
 //! Contexto de compilação da crate `dartforge-emit-native`.
 
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId, Program, UnitId, VariableId};
+use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::resolved::{BodyTypes, Resolved};
 use dartforge_types::table::{CoreTypes, Type, TypeId, TypeTable};
-use std::collections::HashMap;
+
 
 pub struct Context<'a> {
     pub program: &'a Program,
@@ -132,18 +132,36 @@ impl<'a> Context<'a> {
         ty == self.core.void_
     }
 
+    /// Representação de um tipo Dart (R1, `docs/NATIVO-PLANO.md` §6.2).
+    ///
+    /// Só `int`, `double` e `bool` **não anuláveis** são escalares; qualquer
+    /// tipo anulável (`int?` inclusive), `num`, `Object`, `dynamic` e
+    /// parâmetros de tipo são `Ref`. `Type` (não anulável) é o id de classe
+    /// que o runtime usa nos testes de tipo, um `I64` — provisório, até os
+    /// objetos `Type` existirem no heap.
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
         if self.is_void(ty) {
-            crate::hir::Type::Void
-        } else if self.is_int(ty) {
-            crate::hir::Type::I64
-        } else if self.is_double(ty) {
-            crate::hir::Type::F64
-        } else if self.is_bool(ty) {
-            crate::hir::Type::I1
-        } else {
-            crate::hir::Type::Ref
+            return crate::hir::Type::Void;
         }
+        let Type::Interface { class, nullable, .. } = self.table.get(ty) else {
+            return crate::hir::Type::Ref;
+        };
+        let classe = &self.program.classes[class.0 as usize];
+        if *nullable || !self.program.library(classe.library).is_sdk {
+            return crate::hir::Type::Ref;
+        }
+        match self.symbol_name(classe.name) {
+            "int" | "Type" => crate::hir::Type::I64,
+            "double" => crate::hir::Type::F64,
+            "bool" => crate::hir::Type::I1,
+            _ => crate::hir::Type::Ref,
+        }
+    }
+
+    /// Tipo declarado (ou inferido) da variável local cujo nome começa em
+    /// `offset` (R6).
+    pub fn tipo_local(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
+        self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
     }
 }
 

@@ -1,11 +1,19 @@
 //! Lowering do AST e tabelas de tipos para a HIR nativa.
+//!
+//! O contrato entre este lowering, o emissor e o runtime está em
+//! `docs/NATIVO-PLANO.md` §6 (R, E, N, G).
 
+pub mod atribuicao;
 pub mod fn_builder;
+pub mod locais;
+pub mod membros;
+pub mod operadores;
+pub mod verificador;
 
 use crate::context::Context;
 use crate::hir::*;
-use dartforge_elements::model::{ClassId, FunctionElementId, FunctionKind, FunctionRef, Program, UnitId};
-use dartforge_frontend::ast::FunctionBody;
+use dartforge_elements::model::{FunctionKind, FunctionRef, VariableId, VariableRef};
+use dartforge_frontend::ast::{FunctionBody, MemberKind};
 
 pub fn sanitize_symbol(name: &str) -> String {
     name.chars().map(|c| match c {
@@ -27,6 +35,55 @@ pub fn sanitize_symbol(name: &str) -> String {
         c if c.is_ascii_alphanumeric() || c == '_' => c.to_string(),
         _ => format!("_x{:02x}_", c as u32),
     }).collect()
+}
+
+/// A função é do programa do usuário (não do SDK)?
+///
+/// Com a seção `vm` carregada de verdade, `Program::functions` tem o
+/// `dart:core` inteiro. O backend nativo não compila o SDK a partir da fonte
+/// (ainda — `docs/NATIVO-PLANO.md` §4, item 7): o runtime em Rust implementa
+/// o que o corpus usa. Então só as funções do usuário viram símbolo, e uma
+/// chamada a uma função do SDK que não tem implementação no runtime é
+/// diagnóstico (N1), não `call` para um símbolo que não existe.
+pub fn funcao_do_usuario(ctx: &Context, fid: usize) -> bool {
+    let f = &ctx.program.functions[fid];
+    !ctx.program.library(f.library).is_sdk
+}
+
+/// Símbolo LLVM de uma função do usuário.
+///
+/// Construtor generativo (inclusive o sintético) é `df_ctor_<id>(this, …)`
+/// e não devolve nada (N5); `main` da biblioteca de entrada é `dart_main`;
+/// o resto é `df_fn_<id>_<nome>`.
+pub fn simbolo_de(ctx: &Context, fid: usize) -> String {
+    let f = &ctx.program.functions[fid];
+    let nome = ctx.symbol_name(f.name);
+    if f.class.is_none() && nome == "main" && Some(f.library) == ctx.entry_lib {
+        return "dart_main".to_string();
+    }
+    let construtor_generativo = match f.node {
+        FunctionRef::Constructor { .. } => !f.factory,
+        FunctionRef::None => f.kind == FunctionKind::SyntheticConstructor,
+        FunctionRef::Function { .. } => false,
+    };
+    if construtor_generativo {
+        format!("df_ctor_{fid}")
+    } else {
+        format!("df_fn_{fid}_{}", sanitize_symbol(nome))
+    }
+}
+
+/// Variável de topo ou campo estático: mora num global do módulo (N6).
+pub fn e_global(ctx: &Context, vid: VariableId) -> bool {
+    let v = &ctx.program.variables[vid.0 as usize];
+    (v.class.is_none() || v.static_)
+        && v.extension.is_none()
+        && matches!(v.node, VariableRef::TopLevel { .. } | VariableRef::Field { .. })
+}
+
+/// Getter preguiçoso de um global (`df_global_<id>`).
+pub fn simbolo_global(vid: VariableId) -> String {
+    format!("df_global_{}", vid.0)
 }
 
 pub fn lower_program(ctx: &Context) -> Module {
@@ -84,12 +141,17 @@ pub fn lower_program(ctx: &Context) -> Module {
     module.subtyping_edges.push((1006, 0)); // StackTrace <: Object
 
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
+        // Classes do SDK não viram objetos do nosso heap (o runtime tem as
+        // suas próprias representações); só as do usuário são registradas.
+        if ctx.program.library(class.library).is_sdk {
+            continue;
+        }
         let name = ctx.symbol_name(class.name).to_string();
         let class_id = (c_idx + 1) as u32; // Evita colisão com Object = 0
         module.classes.push(ClassDef {
             id: class_id,
             name,
-            field_count: class.fields.len(),
+            field_count: membros::layout(ctx, dartforge_elements::model::ClassId(c_idx as u32)).len(),
             vtable: Vec::new(),
             to_string_symbol: None,
         });
@@ -99,87 +161,74 @@ pub fn lower_program(ctx: &Context) -> Module {
         if let Some(sup) = class.supertype_class {
             module.subtyping_edges.push((class_id, (sup.0 + 1) as u32));
         }
-        if let Some((unit, tid)) = class.supertype {
-            let ast_ty = ctx.program.unit(unit).ast.ty(tid);
-            if let dartforge_frontend::ast::TypeKind::Named { name, .. } = &ast_ty.kind {
-                if let Some(first) = name.first() {
-                    let sup_name = ctx.symbol_name(first.sym);
-                    match sup_name {
-                        "Exception" => module.subtyping_edges.push((class_id, 1000)),
-                        "FormatException" => module.subtyping_edges.push((class_id, 1001)),
-                        "StateError" => module.subtyping_edges.push((class_id, 1002)),
-                        "ArgumentError" => module.subtyping_edges.push((class_id, 1003)),
-                        "RangeError" => module.subtyping_edges.push((class_id, 1004)),
-                        "UnsupportedError" => module.subtyping_edges.push((class_id, 1005)),
-                        "StackTrace" => module.subtyping_edges.push((class_id, 1006)),
-                        "Error" => module.subtyping_edges.push((class_id, 1007)),
-                        "UnimplementedError" => module.subtyping_edges.push((class_id, 1008)),
-                        "AssertionError" => module.subtyping_edges.push((class_id, 1009)),
-                        "ConcurrentModificationError" => module.subtyping_edges.push((class_id, 1010)),
-                        "TypeError" => module.subtyping_edges.push((class_id, 1011)),
-                        "NoSuchMethodError" => module.subtyping_edges.push((class_id, 1012)),
-                        _ => {}
-                    }
-                }
-            }
+        let mut nomes_de_supertipo: Vec<&str> = Vec::new();
+        if let Some(sup) = class.supertype_class {
+            nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[sup.0 as usize].name));
         }
         for mix in &class.mixin_classes {
             module.subtyping_edges.push((class_id, (mix.0 + 1) as u32));
         }
         for iface in &class.interface_classes {
             module.subtyping_edges.push((class_id, (iface.0 + 1) as u32));
+            nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[iface.0 as usize].name));
         }
-        for (unit, tid) in &class.interfaces {
-            let ast_ty = ctx.program.unit(*unit).ast.ty(*tid);
-            if let dartforge_frontend::ast::TypeKind::Named { name, .. } = &ast_ty.kind {
-                if let Some(first) = name.first() {
-                    let iface_name = ctx.symbol_name(first.sym);
-                    match iface_name {
-                        "Exception" => module.subtyping_edges.push((class_id, 1000)),
-                        "FormatException" => module.subtyping_edges.push((class_id, 1001)),
-                        "StateError" => module.subtyping_edges.push((class_id, 1002)),
-                        "ArgumentError" => module.subtyping_edges.push((class_id, 1003)),
-                        "RangeError" => module.subtyping_edges.push((class_id, 1004)),
-                        "UnsupportedError" => module.subtyping_edges.push((class_id, 1005)),
-                        "StackTrace" => module.subtyping_edges.push((class_id, 1006)),
-                        "Error" => module.subtyping_edges.push((class_id, 1007)),
-                        "UnimplementedError" => module.subtyping_edges.push((class_id, 1008)),
-                        "AssertionError" => module.subtyping_edges.push((class_id, 1009)),
-                        "ConcurrentModificationError" => module.subtyping_edges.push((class_id, 1010)),
-                        "TypeError" => module.subtyping_edges.push((class_id, 1011)),
-                        "NoSuchMethodError" => module.subtyping_edges.push((class_id, 1012)),
-                        _ => {}
-                    }
-                }
+        for sup_name in nomes_de_supertipo {
+            let builtin = match sup_name {
+                "Exception" => Some(1000),
+                "FormatException" => Some(1001),
+                "StateError" => Some(1002),
+                "ArgumentError" => Some(1003),
+                "RangeError" => Some(1004),
+                "UnsupportedError" => Some(1005),
+                "StackTrace" => Some(1006),
+                "Error" => Some(1007),
+                "UnimplementedError" => Some(1008),
+                "AssertionError" => Some(1009),
+                "ConcurrentModificationError" => Some(1010),
+                "TypeError" => Some(1011),
+                "NoSuchMethodError" => Some(1012),
+                _ => None,
+            };
+            if let Some(b) = builtin {
+                module.subtyping_edges.push((class_id, b));
             }
         }
     }
 
-    // 2. Itera sobre funções do programa
+    // 2. Funções do usuário
     for (f_idx, func_elem) in ctx.program.functions.iter().enumerate() {
+        if !funcao_do_usuario(ctx, f_idx) {
+            continue;
+        }
+        // Membros de extensão não são compilados (o receptor implícito não
+        // tem lowering ainda); o USO de um deles é que é diagnóstico (N1), e
+        // uma extensão declarada e nunca chamada não impede o programa.
+        if func_elem.extension.is_some() {
+            continue;
+        }
         let name = ctx.symbol_name(func_elem.name);
-        let sanitized_name = sanitize_symbol(name);
+        let symbol = simbolo_de(ctx, f_idx);
 
         match func_elem.node {
             FunctionRef::Function { unit, function } => {
                 let ast = &ctx.program.unit(unit).ast;
                 let ast_func = ast.function(function);
+                if matches!(ast_func.body, FunctionBody::Empty | FunctionBody::Native(_)) {
+                    // Abstrato ou externo: não há corpo a compilar.
+                    continue;
+                }
 
-                let is_main = func_elem.class.is_none() && name == "main";
-                let symbol = if is_main {
-                    "dart_main".to_string()
-                } else {
-                    format!("df_fn_{f_idx}_{sanitized_name}")
-                };
-
+                let is_main = symbol == "dart_main";
                 if is_main {
                     module.entry_symbol = Some(symbol.clone());
                 }
 
-                if let Some(c_id) = func_elem.class {
-                    if name == "toString" && !func_elem.static_ {
-                        module.classes[c_id.0 as usize + 1].to_string_symbol = Some(symbol.clone());
-                    }
+                if let Some(c_id) = func_elem.class
+                    && name == "toString"
+                    && !func_elem.static_
+                    && let Some(c) = module.classes.iter_mut().find(|c| c.id == c_id.0 + 1)
+                {
+                    c.to_string_symbol = Some(symbol.clone());
                 }
 
                 let ret_ty = if is_main {
@@ -190,34 +239,13 @@ pub fn lower_program(ctx: &Context) -> Module {
                     Type::Void
                 };
 
-                // Cria o construtor da função
-                let mut builder = fn_builder::FnBuilder::new(
-                    ctx,
-                    unit,
-                    symbol,
-                    name.to_string(),
-                    ret_ty,
-                );
-
+                let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
                 let is_instance_member = func_elem.class.is_some() && !func_elem.static_;
+                builder.declarar_parametros(f_idx, is_instance_member);
                 if is_instance_member {
-                    let this_vid = builder.add_param("this".to_string(), Type::Ref);
-                    builder.this_param = Some(Operand::Val(this_vid));
                     builder.enclosing_class = func_elem.class;
                 }
 
-                if let Some(fdata) = ctx.outline.functions.get(f_idx) {
-                    for p in fdata.parameters.iter() {
-                        let p_name = p.name.map(|s| ctx.symbol_name(s).to_string()).unwrap_or_else(|| "arg".to_string());
-                        let p_ty = ctx.to_hir_type(p.ty);
-                        let vid = builder.add_param(p_name, p_ty);
-                        if let Some(sym) = p.name {
-                            builder.named_locals.insert(sym, Operand::Val(vid));
-                        }
-                    }
-                }
-
-                // Baixa o corpo
                 match &ast_func.body {
                     FunctionBody::Block(stmt_id) => {
                         builder.lower_stmt(ast, *stmt_id);
@@ -228,12 +256,89 @@ pub fn lower_program(ctx: &Context) -> Module {
                     }
                     _ => {}
                 }
-
-                module.functions.push(builder.func);
-                module.functions.extend(builder.extra_functions);
+                builder.finalizar(&mut module);
             }
-            _ => {}
+            FunctionRef::Constructor { unit, member } => {
+                let ast = &ctx.program.unit(unit).ast;
+                let MemberKind::Constructor(ctor) = &ast.member(member).kind else {
+                    continue;
+                };
+                let Some(cid) = func_elem.class else { continue };
+                if func_elem.factory {
+                    let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Ref);
+                    builder.declarar_parametros(f_idx, false);
+                    if ctor.redirect.is_some() {
+                        let span = ast.member(member).span;
+                        builder.nao_suportado("factory redirecionadora", span);
+                        builder.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+                    } else {
+                        match &ctor.body {
+                            FunctionBody::Block(stmt_id) => builder.lower_stmt(ast, *stmt_id),
+                            FunctionBody::Expression(expr_id) => {
+                                let r = builder.lower_expr(ast, *expr_id);
+                                builder.terminate(Terminator::Return(Some(r)));
+                            }
+                            _ => {}
+                        }
+                    }
+                    builder.finalizar(&mut module);
+                } else {
+                    let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Void);
+                    builder.declarar_parametros(f_idx, true);
+                    builder.enclosing_class = Some(cid);
+                    builder.lower_construtor(ast, cid, ctor, ast.member(member).span);
+                    builder.finalizar(&mut module);
+                }
+            }
+            FunctionRef::None => {
+                // Construtor padrão sintético (`class A { int x = 1; }`):
+                // inicializadores de campo e `super()` implícito.
+                if func_elem.kind != FunctionKind::SyntheticConstructor {
+                    continue;
+                }
+                let Some(cid) = func_elem.class else { continue };
+                let Some(decl) = ctx.program.classes[cid.0 as usize].decl else { continue };
+                let mut builder = fn_builder::FnBuilder::new(ctx, decl.unit, symbol, name.to_string(), Type::Void);
+                builder.declarar_parametros(f_idx, true);
+                builder.enclosing_class = Some(cid);
+                let ast = &ctx.program.unit(decl.unit).ast;
+                builder.lower_construtor_sintetico(ast, cid);
+                builder.finalizar(&mut module);
+            }
         }
+    }
+
+    // 3. Variáveis de topo e campos estáticos do usuário: um getter
+    // preguiçoso por global (N6).
+    for (v_idx, v) in ctx.program.variables.iter().enumerate() {
+        let vid = VariableId(v_idx as u32);
+        if ctx.program.library(v.library).is_sdk || !e_global(ctx, vid) {
+            continue;
+        }
+        let unit = match v.node {
+            VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } => unit,
+            _ => continue,
+        };
+        let ty = membros::tipo_da_variavel(ctx, vid);
+        let repr = ctx.to_hir_type(ty);
+        let repr = if repr == Type::Void { Type::Ref } else { repr };
+        module.globais.push((vid.0, repr));
+        let mut builder = fn_builder::FnBuilder::new(
+            ctx,
+            unit,
+            simbolo_global(vid),
+            ctx.symbol_name(v.name).to_string(),
+            repr,
+        );
+        builder.lower_getter_global(vid, repr);
+        builder.finalizar(&mut module);
+    }
+
+    // E3: o verificador roda sobre o módulo pronto; problema aqui é bug do
+    // compilador, e o módulo não é emitido.
+    if module.erros.is_empty() {
+        let problemas = verificador::verificar(&module);
+        module.erros.extend(problemas);
     }
 
     // Propaga to_string_symbol para subclasses que não o sobrescreveram
@@ -257,4 +362,3 @@ pub fn lower_program(ctx: &Context) -> Module {
 
     module
 }
-

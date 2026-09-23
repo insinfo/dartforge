@@ -71,8 +71,25 @@ pub fn executar(programa: &str, args: &[String], cwd: &Path, limite: Duration) -
 
 /// Como `executar`, prefixando `path_extra` ao `PATH` do filho (DLLs do LLVM para o `dartforge`).
 pub fn executar_com_path(programa: &str, args: &[String], cwd: &Path, limite: Duration, path_extra: &[std::path::PathBuf]) -> Saida {
+    executar_com_ambiente(programa, args, cwd, limite, path_extra, &[])
+}
+
+/// Como `executar_com_path`, com variáveis de ambiente a mais só para o filho
+/// (o `--gc-stress` do modo nativo). `set_var` no próprio harness seria
+/// `unsafe` e valeria para as outras threads também.
+pub fn executar_com_ambiente(
+    programa: &str,
+    args: &[String],
+    cwd: &Path,
+    limite: Duration,
+    path_extra: &[std::path::PathBuf],
+    ambiente: &[(&str, &str)],
+) -> Saida {
     let mut cmd = Command::new(programa);
     cmd.args(args).current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    for (k, v) in ambiente {
+        cmd.env(k, v);
+    }
     if !path_extra.is_empty() {
         let atual = std::env::var_os("PATH").unwrap_or_default();
         let mut novo: Vec<std::path::PathBuf> = path_extra.to_vec();

@@ -452,7 +452,19 @@ impl<'a> BodyInferrer<'a> {
                                 })
                             }
                             Element::Function(fid) => {
-                                self.outline.functions[fid.0 as usize].signature
+                                // Getter de topo (explícito ou o implícito de
+                                // uma variável) vale o valor, não a função.
+                                let f = self.program.function(fid);
+                                match (f.kind, f.variable) {
+                                    (dartforge_elements::model::FunctionKind::ImplicitAccessor, Some(vid)) => {
+                                        let vdata = &self.outline.variables[vid.0 as usize];
+                                        vdata.declared_type.or(vdata.inferred).unwrap_or(self.core.dynamic_)
+                                    }
+                                    (dartforge_elements::model::FunctionKind::Getter, _) => {
+                                        self.outline.functions[fid.0 as usize].return_type
+                                    }
+                                    _ => self.outline.functions[fid.0 as usize].signature,
+                                }
                             }
                             Element::Variable(vid) => {
                                 let vdata = &self.outline.variables[vid.0 as usize];
@@ -1564,6 +1576,7 @@ impl<'a> BodyInferrer<'a> {
                         )
                     };
                     self.local_declared_types.insert(local_id, effective_ty);
+                    self.body_types.units[unit.0 as usize].set_tipo_local(var_decl.name.span.start, effective_ty);
                     flow.declare(local_id, var_decl.initializer.is_some() || var_list.late);
                 }
             }
@@ -1647,6 +1660,7 @@ impl<'a> BodyInferrer<'a> {
                                     var_decl.name.span.start,
                                 );
                                 self.local_declared_types.insert(local_id, effective_ty);
+                                self.body_types.units[unit.0 as usize].set_tipo_local(var_decl.name.span.start, effective_ty);
                                 flow.declare(local_id, var_decl.initializer.is_some() || vlist.late);
                             }
                         }
@@ -1663,6 +1677,34 @@ impl<'a> BodyInferrer<'a> {
                     self.infer_expr(unit, up, None, scope, flow);
                 }
                 scope.pop_block();
+            }
+            StmtKind::ForIn { target, iterable, body, .. } => {
+                // Sem este braço o corpo de um `for-in` ficava sem tipos e
+                // sem resolução nenhuma: o backend nativo, que lê as tabelas
+                // laterais, não sabia nem que `p.x` era um campo.
+                let it_ty = self.infer_expr(unit, *iterable, None, scope, flow);
+                let elem_ty = self.tipo_elemento_iteravel(it_ty);
+                scope.push_block();
+                match target {
+                    ast::ForInTarget::Declared { final_, ty, name, .. } => {
+                        let decl_ty = ty
+                            .map(|t| self.resolve_ast_type_annotation(unit, t, current_library, &self.tp_scope(scope)))
+                            .unwrap_or(elem_ty);
+                        let local_id = scope.declare_local(name.sym, decl_ty, *final_, false, false, name.span.start);
+                        self.local_declared_types.insert(local_id, decl_ty);
+                        self.body_types.units[unit.0 as usize].set_tipo_local(name.span.start, decl_ty);
+                        flow.declare(local_id, true);
+                    }
+                    ast::ForInTarget::Expression(e) => {
+                        self.infer_expr(unit, *e, None, scope, flow);
+                    }
+                    ast::ForInTarget::Pattern { .. } => {}
+                }
+                self.infer_stmt(unit, *body, return_context, scope, flow);
+                scope.pop_block();
+            }
+            StmtKind::Labeled { body, .. } => {
+                self.infer_stmt(unit, *body, return_context, scope, flow);
             }
             StmtKind::Return(expr_opt) => {
                 if let Some(ret_expr) = expr_opt {
@@ -1707,6 +1749,27 @@ impl<'a> BodyInferrer<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// `E` de um `Iterable<E>` (ou de um subtipo dele); `dynamic` se não é.
+    fn tipo_elemento_iteravel(&mut self, ty: TypeId) -> TypeId {
+        let Some(iter_cls) = self.core.iterable_class else { return self.core.dynamic_ };
+        let (class, args) = match self.table.get(ty) {
+            Type::Interface { class, args, .. } => (*class, args.clone()),
+            _ => return self.core.dynamic_,
+        };
+        if class == iter_cls {
+            return args.first().copied().unwrap_or(self.core.dynamic_);
+        }
+        let Some(dados) = self.outline.hierarchy.get(class) else { return self.core.dynamic_ };
+        let Some(&super_ty) = dados.supertypes.get(&iter_cls) else { return self.core.dynamic_ };
+        let mapa: HashMap<TypeParamId, TypeId> =
+            dados.type_params.iter().copied().zip(args.iter().copied()).collect();
+        let inst = crate::ops::substitute(super_ty, &mapa, self.table);
+        match self.table.get(inst) {
+            Type::Interface { args, .. } => args.first().copied().unwrap_or(self.core.dynamic_),
+            _ => self.core.dynamic_,
         }
     }
 

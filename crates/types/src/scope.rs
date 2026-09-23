@@ -17,6 +17,55 @@ use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
 
+/// Supertipos de `class` na ordem de precedência da busca de membros, e
+/// determinística.
+///
+/// `ClassHierarchyData::supertypes` é um `HashMap`: percorrê-lo direto fazia
+/// a busca de um membro herdado depender da semente do hash — com mixins
+/// (dois supertipos definindo o mesmo membro) a resolução mudava de uma
+/// execução para outra, e o teste de determinismo do backend nativo pegou.
+/// Ordem: a cadeia de superclasses, com os mixins de cada aplicação logo
+/// depois dela (o último mixin primeiro — a linearização do Dart); depois o
+/// resto (interfaces), por `ClassId`.
+pub fn supertipos_ordenados(
+    program: &Program,
+    hierarchy: &ClassHierarchy,
+    class: ClassId,
+) -> Vec<(ClassId, TypeId)> {
+    let Some(data) = hierarchy.get(class) else {
+        return Vec::new();
+    };
+    let mut saida: Vec<(ClassId, TypeId)> = Vec::new();
+    let mut vistos: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
+    let mut empurrar = |c: ClassId, saida: &mut Vec<(ClassId, TypeId)>| {
+        if let Some(&t) = data.supertypes.get(&c)
+            && vistos.insert(c)
+        {
+            saida.push((c, t));
+        }
+    };
+    let mut atual = program.classes[class.0 as usize].supertype_class;
+    for &m in program.classes[class.0 as usize].mixin_classes.iter().rev() {
+        empurrar(m, &mut saida);
+    }
+    while let Some(c) = atual {
+        empurrar(c, &mut saida);
+        for &m in program.classes[c.0 as usize].mixin_classes.iter().rev() {
+            empurrar(m, &mut saida);
+        }
+        atual = program.classes[c.0 as usize].supertype_class;
+    }
+    let mut resto: Vec<(ClassId, TypeId)> = data
+        .supertypes
+        .iter()
+        .filter(|(c, _)| !saida.iter().any(|(s, _)| s == *c))
+        .map(|(c, t)| (*c, *t))
+        .collect();
+    resto.sort_by_key(|(c, _)| c.0);
+    saida.extend(resto);
+    saida
+}
+
 /// Metadados de uma variável local no escopo léxico.
 #[derive(Debug, Clone)]
 pub struct LocalVarInfo {
@@ -239,8 +288,8 @@ impl ScopeStack {
             }
 
             // Busca membros herdados na hierarquia
-            if let Some(data) = hierarchy.get(class_id) {
-                for &super_cls in data.supertypes.keys() {
+            {
+                for (super_cls, _) in supertipos_ordenados(program, hierarchy, class_id) {
                     let super_elem = &program.classes[super_cls.0 as usize];
                     if let Some(&func_id) = super_elem.instance_members.get(&name) {
                         return Some(Resolved::Member {
@@ -407,7 +456,7 @@ impl<'a> MemberResolver<'a> {
                 }
             } else if func_elem.kind != FunctionKind::Setter {
                 let member_ty = self.get_instantiated_function_type(func_id, class_id, args);
-                let ty = if func_elem.kind == FunctionKind::Getter {
+                let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                     if let Type::Function { ret, .. } = self.table.get(member_ty) {
                         *ret
                     } else {
@@ -448,8 +497,8 @@ impl<'a> MemberResolver<'a> {
         }
 
         // 2. Procura na hierarquia transitiva instanciada
-        if let Some(data) = self.hierarchy.get(class_id) {
-            for (&super_cls, &super_ty) in &data.supertypes {
+        {
+            for (super_cls, super_ty) in supertipos_ordenados(self.program, self.hierarchy, class_id) {
                 let super_elem = &self.program.classes[super_cls.0 as usize];
 
                 if let Some(&func_id) = super_elem.instance_members.get(&name) {
@@ -501,7 +550,7 @@ impl<'a> MemberResolver<'a> {
                             super_cls,
                             &final_super_args,
                         );
-                        let ty = if func_elem.kind == FunctionKind::Getter {
+                        let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                             if let Type::Function { ret, .. } = self.table.get(member_ty) {
                                 *ret
                             } else {
@@ -624,7 +673,7 @@ impl<'a> MemberResolver<'a> {
                 }
             } else if func_elem.kind != FunctionKind::Setter {
                 let member_ty = self.get_instantiated_function_type(func_id, decl, args);
-                let ty = if func_elem.kind == FunctionKind::Getter {
+                let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                     if let Type::Function { ret, .. } = self.table.get(member_ty) {
                         *ret
                     } else {
@@ -645,8 +694,8 @@ impl<'a> MemberResolver<'a> {
         }
 
         // Se implements outras interfaces, busca nelas
-        if let Some(data) = self.hierarchy.get(decl) {
-            for (&super_cls, &super_ty) in &data.supertypes {
+        {
+            for (super_cls, super_ty) in supertipos_ordenados(self.program, self.hierarchy, decl) {
                 let super_args = match self.table.get(super_ty) {
                     Type::Interface { args, .. } => args.clone(),
                     _ => Box::new([]),
@@ -729,7 +778,7 @@ impl<'a> MemberResolver<'a> {
                 } else {
                     sig
                 }
-            } else if func_elem.kind == FunctionKind::Getter {
+            } else if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                 if let Type::Function { ret, .. } = self.table.get(sig) {
                     *ret
                 } else {
@@ -767,7 +816,7 @@ impl<'a> MemberResolver<'a> {
             } else {
                 sig
             }
-        } else if func_elem.kind == FunctionKind::Getter {
+        } else if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
             if let Type::Function { ret, .. } = self.table.get(sig) {
                 *ret
             } else {

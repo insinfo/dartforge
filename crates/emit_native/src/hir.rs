@@ -27,6 +27,8 @@ pub enum Type {
     Ref,
     /// Retorno vazio.
     Void,
+    /// Endereço de um `alloca` (local em memória, R6). Nunca é valor Dart.
+    Ptr,
 }
 
 impl Type {
@@ -39,6 +41,7 @@ impl Type {
             Self::I1 => "i1",
             Self::Ref => "i64",
             Self::Void => "void",
+            Self::Ptr => "ptr",
         }
     }
 }
@@ -94,6 +97,8 @@ pub enum Instruction {
     SRem(Operand, Operand), // %
     Shl(Operand, Operand),
     AShr(Operand, Operand),
+    /// `>>>`: deslocamento lógico.
+    LShr(Operand, Operand),
     And(Operand, Operand),
     Or(Operand, Operand),
     Xor(Operand, Operand),
@@ -117,6 +122,14 @@ pub enum Instruction {
     DoubleToInt(Operand),
     ZExt { op: Operand, from: Type, to: Type },
     Trunc { op: Operand, from: Type, to: Type },
+    /// Reinterpreta os bits entre `i64` e `double` (valor lido do heap ou
+    /// gravado nele). Não é conversão numérica: essa é `IntToDouble`.
+    Bitcast { op: Operand, to: Type },
+    /// Escalar (`I64`/`F64`/`I1`) numa posição `Ref`: caixa no heap (R3).
+    Box { op: Operand, from: Type },
+    /// Caixa de volta ao escalar; null ou outro tipo lança `TypeError`
+    /// (exceção pendente — quem emite verifica, como numa chamada).
+    Unbox { op: Operand, to: Type },
 
     // Alocações de heap
     AllocObject {
@@ -225,6 +238,20 @@ pub enum Instruction {
         class_id: u32,
     },
 
+    // Globais do módulo (variáveis de topo e campos estáticos — N6)
+    LoadGlobal {
+        simbolo: String,
+        ty: Type,
+    },
+    /// `raiz`: id do global `Ref`, que o runtime mantém como raiz
+    /// permanente (N6/G6); `None` para a bandeira e para escalares.
+    StoreGlobal {
+        simbolo: String,
+        val: Operand,
+        ty: Type,
+        raiz: Option<u32>,
+    },
+
     // Phi node
     Phi {
         incoming: Vec<(BlockId, Operand)>,
@@ -296,6 +323,12 @@ pub struct Module {
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,
     pub entry_symbol: Option<String>,
+    /// Globais do usuário: (id da variável, representação). Cada um vira
+    /// `@dfg_<id>` (valor) e `@dfg_<id>_ok` (bandeira de inicialização).
+    pub globais: Vec<(u32, Type)>,
+    /// Construtos que o lowering não sabe baixar (N1). Não vazio = o
+    /// programa não compila; o emissor produz só a mensagem.
+    pub erros: Vec<String>,
 }
 
 impl Module {
