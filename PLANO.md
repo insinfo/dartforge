@@ -1632,6 +1632,10 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
   `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
   corpus, atrás de `--memoria tracing|arc`.
+* **SIMD no backend nativo** — `docs/SIMD-NATIVO.md`. `Float32x4`/`Int32x4`/
+  `Float64x2` como vetores LLVM, com o caminho vetorial completo (operadores,
+  máscaras e acesso às listas SIMD) sem encaixotar no laço. Depois de
+  `dart:typed_data` compilado da fonte pelo nativo.
 * **Acompanhar as versões novas da linguagem** — 3.6.2 é o **piso**, não o
   teto (ver "Dart 3.6.2 é o mínimo de compatibilidade" acima e o Incremento
   25). Próximo item concreto: Dart 3.13 (2026-08) — construtores primários,
