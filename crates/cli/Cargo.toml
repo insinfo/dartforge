@@ -15,6 +15,7 @@ dartforge-dev = { path = "../dev" }
 dartforge-build = { path = "../build" }
 dartforge-elements = { path = "../elements" }
 dartforge-intern = { path = "../intern" }
+dartforge-macros-host = { path = "../macros_host" }
 serde_json = "1"
 
 [features]

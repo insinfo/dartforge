@@ -115,6 +115,7 @@ dependencies = [
  "dartforge-emit-native",
  "dartforge-intern",
  "dartforge-jit",
+ "dartforge-macros-host",
  "serde_json",
 ]
 
@@ -172,6 +173,7 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
+ "dartforge-macros-host",
  "dartforge-types",
  "tempfile",
 ]
@@ -251,6 +253,18 @@ dependencies = [
  "dartforge-intern",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "dartforge-macros-host"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-elements",
+ "dartforge-frontend",
+ "dartforge-intern",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

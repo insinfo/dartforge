@@ -224,6 +224,7 @@ jobs:
           titulo: Macros e augmentations — VM e DDC (3.6.2 e 3.13.4) × dartforge dev e produção
           args: --corpus corpus/macros --producao --jobs 4
           sdk-313: 'true'
+          pub-get: corpus/macros
 
   nativo:
     name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
