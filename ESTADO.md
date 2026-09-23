@@ -167,6 +167,16 @@ Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
 
+**Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35866264097), JIT
+81/223 com zero divergências JIT × AOT; os 81 passam também sob
+`--gc-stress`.** Closures com captura em célula e a convenção uniforme de
+chamada de valor função; símbolos estáveis pelo caminho da declaração
+(`df.<biblioteca>.<dono>.<membro>`, teste T-ID); despacho por nome para
+receptor sem tipo e operadores sobre `num`/`dynamic`; `switch` (comando e
+expressão), padrões, enums, records com campo nomeado e `const` canônico;
+cascata, `super`, mixins pela linearização, extensões. Detalhes e decisões
+em `docs/NATIVO-PLANO.md` §7.4–§7.5. Antes disto:
+
 **Corpus nativo: 50/222 (CI, run 35823269758), antes 7/214; sob
 `--gc-stress`, os mesmos 50/222 (run 35823275126).** O backend passou a ter um
 **contrato de representação e raízes** (`docs/NATIVO-PLANO.md` §6 — R, E,
@@ -509,6 +519,15 @@ completion, rename, code actions — e a semântica (`crates/types`) por trás
 do `trait Analisador`, que hoje só tem a implementação sintática.
 
 ### 2.5 Backend nativo
+
+**Depois de P1–P4 (Pesado 35866264097): 142 dos 223 falham.** Quase todos
+por membro do SDK sem implementação no runtime (`where`, `map`, `fold`,
+`toStringAsFixed`, `sort`, `List.filled`/`List.generate`, `parse`,
+`hashCode`…, que o P5 resolve com o SDK da fonte), `await`/`yield` (P6/P7)
+e o `toString()` de objeto do programa dentro de uma coleção impressa (o
+runtime não chama código Dart). Da linguagem, faltam os genéricos em tempo
+de execução (RTI: `is List<int>` é diagnóstico) e `super` dentro de mixin.
+A tabela abaixo é a de antes da rodada 2.
 
 172 dos 222 programas do corpus (CI, run 35823269758), agrupados pelo
 relatório do harness (`--nativo`). A família de "handle" (71 de 214 no

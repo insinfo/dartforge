@@ -928,3 +928,46 @@ o módulo); agora passam por um bloco de pouso que registra, e as exceções
 dentro de um `catch` também passam pelo `finally` antes de subir. A exceção
 que sai do `finally` sobe para o tratador mais interno (antes ia ao
 `finally` de fora pulando o `catch` de fora).
+
+**Também em P3/P4.** `const` canônico (`lower/constantes.rs`): a chave de uma
+constante é o valor estrutural dela escrito como texto (`o:<construtor>(…)`,
+`l<tipo>:[…]`, `i:2`…, com o tipo estático nas coleções — `const <int>[]` e
+`const <String>[]` são objetos diferentes); cada chave é um global
+preguiçoso `dfc.<hash>` e as coleções constantes saem imutáveis. Contexto
+constante: inicializador `const` (de topo, estático ou local), valor padrão
+de parâmetro e argumentos de `const C(…)`. Literais de coleção com `...`,
+`...?`, `?e`, `if`, `for` e `for-in`, e o literal de conjunto (antes `{a, b}`
+virava um mapa vazio). Num padrão de casamento, um nome solto é padrão
+constante (`case base:`), e `const (e)` é a expressão. Records com campo
+nomeado (`lower/registros.rs`): cada forma do programa é uma "classe" com
+`toString` e `==` estrutural gerados. O `for-in` e o espalhamento leem lista
+ou conjunto (`dartforge_iteravel_get_*`). `break`/`continue` (com rótulo)
+que atravessam um `finally` passam por ele e continuam o salto; um salto para
+um laço dentro do próprio `try` não passa. O corpo do `finally` roda com a
+exceção guardada fora da pendência (antes a primeira chamada dele desviava).
+Um global cujo inicializador lança volta a não inicializado.
+
+**RTI ainda não.** `x is List<int>`, `case <int>[…]` e `List<int>()` num
+padrão são **diagnóstico** ("teste de tipo genérico (RTI)"): responder pela
+classe daria a resposta errada. É o item de P4 que falta, com o `super`
+dentro de um mixin.
+
+### 7.5 Placar da rodada 2 (α), medido no CI
+
+| passo | commit | Pesado (run) | nativo | JIT | JIT × AOT |
+| --- | --- | --- | ---: | ---: | --- |
+| P0 (base) | 87be22b | 35836380647 | 50/223 | 50/223 | 0 divergentes |
+| P1–P2 | b156dd2 | 35861971349 | 68/223 | 68/223 | — |
+| P1–P4 parcial | b60a219 | 35863053512 | 74/223 | 74/223 | 0 divergentes |
+| P3 (const, padrões) | 8c313a9 | 35866264097 | 81/223 | 81/223 | 0 divergentes |
+
+Os 81 passam também com `--gc-stress` (coleta antes de toda alocação),
+rodado localmente programa a programa sobre a lista do CI. O determinismo do
+IR é idêntico com 1, 4 e 8 trabalhadores (88 programas com IR). JS 223/223
+nos dois perfis.
+
+O que sobra, pelo relatório de construtos: quase tudo é membro do SDK sem
+implementação (`where`, `map`, `fold`, `toStringAsFixed`, `sort`,
+`List.filled`/`List.generate`, `parse`, `hashCode`…) — P5, o SDK da fonte —,
+`await`/`yield` (P6/P7) e o `toString()` de objeto do programa dentro de uma
+coleção impressa (o runtime não chama código Dart; também P5).

@@ -85,6 +85,8 @@ pub struct FnBuilder<'a, 'c> {
     /// O padrão corrente é de casamento (`case`, `if-case`): um nome solto
     /// nele é um padrão constante, não uma variável nova.
     pub padrao_refutavel: bool,
+    /// O teste de tipo corrente é o de um `as` (confere só a classe).
+    pub cast_so_pela_classe: bool,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -181,6 +183,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             em_contexto_const: false,
             chaves_de_const_locais: HashMap::new(),
             padrao_refutavel: false,
+            cast_so_pela_classe: false,
         }
     }
 
@@ -788,7 +791,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .is_some_and(|n| matches!(self.ctx.symbol_name(n.sym), "dynamic") || (self.ctx.symbol_name(n.sym) == "Object" && t.nullable)),
             _ => false,
         };
-        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) {
+        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) && !self.cast_so_pela_classe {
             return self.nao_suportado("teste de tipo genérico (RTI)", ast_ty.span);
         }
         let Some(ultimo) = name.last() else {
@@ -882,7 +885,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`.
     pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) {
+        // `as List<int>`: até a RTI, o cast confere só a classe — num
+        // programa correto ele nunca falha; o que se perde é o `TypeError`
+        // de um cast errado nos argumentos de tipo.
+        let salvo = std::mem::replace(&mut self.cast_so_pela_classe, true);
         let ok = self.testar_tipo(ast_ty, op);
+        self.cast_so_pela_classe = salvo;
         let ok = self.para_bool(ok);
         let fail_b = self.new_block();
         let pass_b = self.new_block();
