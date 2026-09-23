@@ -79,6 +79,25 @@ pub fn arquivos_dart(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// Os `.dart` de um diretório, recursivo, sem pular nada (saídas geradas).
+pub fn arquivos_dart_todos(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut pilha = vec![dir.to_path_buf()];
+    while let Some(d) = pilha.pop() {
+        let Ok(ents) = std::fs::read_dir(&d) else { continue };
+        for e in ents.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                pilha.push(p);
+            } else if p.extension().is_some_and(|x| x == "dart") {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Hash das fontes do grupo (caminho relativo + conteúdo, em ordem).
 pub fn hash_fontes(dir: &Path) -> String {
     let mut h = FNV_INICIO;

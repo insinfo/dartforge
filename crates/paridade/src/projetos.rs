@@ -84,6 +84,14 @@ pub fn copiar(p: &Projeto, destino: &Path) -> Result<PathBuf, String> {
         std::fs::create_dir_all(d.parent().expect("pai")).map_err(|e| e.to_string())?;
         std::fs::copy(&a, &d).map_err(|e| e.to_string())?;
     }
+    // Saídas do build_runner: o analyzer as enxerga (`.template.dart` do ngdart).
+    let gerados = p.caminho.join(".dart_tool/build/generated");
+    for a in crate::corpus::arquivos_dart_todos(&gerados) {
+        let r = a.strip_prefix(&p.caminho).map_err(|_| "prefixo")?;
+        let d = destino.join(r);
+        std::fs::create_dir_all(d.parent().expect("pai")).map_err(|e| e.to_string())?;
+        std::fs::copy(&a, &d).map_err(|e| e.to_string())?;
+    }
     for f in ["pubspec.yaml", "analysis_options.yaml"] {
         if p.caminho.join(f).is_file() {
             std::fs::copy(p.caminho.join(f), destino.join(f)).map_err(|e| e.to_string())?;

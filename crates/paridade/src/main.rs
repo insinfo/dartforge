@@ -32,14 +32,14 @@ fn teto() -> usize {
     std::env::var("DARTFORGE_PARIDADE_TETO_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048usize) << 20
 }
 
-/// Cada lote num processo filho deste executável, com 10 min no máximo.
+/// Cada lote num processo filho deste executável, com 90 s no máximo (um lote normal leva poucos segundos).
 fn execucao(trabalhadores: usize, tamanho_lote: usize) -> Execucao {
     Execucao {
         trabalhadores,
         tamanho_lote,
         progresso: true,
         isolar: std::env::current_exe().ok(),
-        tempo_max: std::time::Duration::from_secs(600),
+        tempo_max: std::time::Duration::from_secs(90),
     }
 }
 
