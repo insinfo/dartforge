@@ -21,6 +21,10 @@ pub struct HeapStats {
     /// Cabeçalhos vivos e capacidades dos payloads, sem metadados auxiliares/RSS.
     pub estimated_bytes: usize,
     pub peak_estimated_bytes: usize,
+    /// `int` em posição `Ref` que viraram `Smi` (R10) em vez de caixa: sem o
+    /// `Smi`, cada um seria uma alocação. `allocations + caixas_evitadas` é a
+    /// contagem de antes do R10, exata.
+    pub caixas_evitadas: u64,
 }
 
 /// Marca escalar precisa; bits coincidentes entre int e bool não são iguais.
@@ -357,6 +361,25 @@ impl Texto {
             (Texto::Um(a), Texto::Um(b)) => a.cmp(b),
             _ => self.unidades().cmp(outro.unidades()),
         }
+    }
+
+    /// `String.hashCode` da VM (`String_getHashCode`): o `StringHasher` de
+    /// `runtime/vm/object.h` — `CombineHashes` (Jenkins *one-at-a-time*) por
+    /// unidade de código e `FinalizeHash` com `String::kHashBits = 30`
+    /// (`runtime/vm/hash.h`); 0 vira 1. A ordem de um `HashMap`/`HashSet` do
+    /// `dart:collection` depende disto, então tem de ser o mesmo número.
+    pub fn hash_vm(&self) -> i64 {
+        let mut h: u32 = 0;
+        for u in self.unidades() {
+            h = h.wrapping_add(u32::from(u));
+            h = h.wrapping_add(h << 10);
+            h ^= h >> 6;
+        }
+        h = h.wrapping_add(h << 3);
+        h ^= h >> 11;
+        h = h.wrapping_add(h << 15);
+        h &= (1u32 << 30) - 1;
+        i64::from(if h == 0 { 1 } else { h })
     }
 
     /// Bytes do conteúdo (para os contadores do coletor).
@@ -769,7 +792,13 @@ impl Heap {
     }
     /// `int` numa posição `Ref` (R3/R10): `Smi` quando cabe, senão `_Mint`.
     pub fn caixa_int(&mut self, v: i64) -> i64 {
-        smi::de(v).unwrap_or_else(|| self.allocate(Value::BoxedInt(v)))
+        match smi::de(v) {
+            Some(r) => {
+                self.stats.caixas_evitadas += 1;
+                r
+            }
+            None => self.allocate(Value::BoxedInt(v)),
+        }
     }
     /// O `int` de um `Ref`: `Smi` ou `_Mint`; outro valor dá `None`.
     pub fn int_de_ref(&self, r: i64) -> Option<i64> {
@@ -1700,6 +1729,24 @@ mod texto_utf16 {
         assert!(Texto::de_str("abc").comparar(&Texto::de_str("abd")).is_lt());
         // Comparação por unidades: U+FFFF > U+1F600 (0xD83D...).
         assert!(Texto::de_str("\u{FFFF}").comparar(&emoji).is_gt());
+    }
+
+    /// Os valores são os da VM 3.6.2 (`print(s.hashCode)`, medidos).
+    #[test]
+    fn hash_code_e_o_da_vm() {
+        let casos: [(&[u16], i64); 8] = [
+            (&[], 1),
+            (&[97], 170824770),
+            (&[97, 98, 99], 756227931),
+            (&[97, 231, 227, 111], 927877670),
+            (&[0xD83D, 0xDE00], 472421242),
+            (&[97, 0xD83D, 0xDE00, 98], 661772406),
+            (&[0xD83D], 471726753),
+            (&[72, 101, 108, 108, 111, 44, 32, 87, 111, 114, 108, 100, 33], 847757641),
+        ];
+        for (unidades, esperado) in casos {
+            assert_eq!(Texto::de_fatia(unidades).hash_vm(), esperado, "{unidades:?}");
+        }
     }
 
     #[test]

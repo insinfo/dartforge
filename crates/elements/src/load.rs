@@ -252,7 +252,7 @@ pub fn load_lenient_gerados(
                     interner,
                     &mut program,
                     &mut diagnostics,
-                    None,
+                    ler_substituto(sdk, &sdk_lib.path),
                     unidades.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
@@ -273,7 +273,7 @@ pub fn load_lenient_gerados(
                         interner,
                         &mut program,
                         &mut diagnostics,
-                        None,
+                        ler_substituto(sdk, patch_path),
                         unidades.as_deref_mut(),
                     );
                     if let Some(uid) = patch_unit {
@@ -409,7 +409,7 @@ pub fn load_lenient_gerados(
                             interner,
                             &mut program,
                             &mut diagnostics,
-                            prefetch.tirar(&canonical_part),
+                            ler_substituto(sdk, &canonical_part).or_else(|| prefetch.tirar(&canonical_part)),
                             unidades.as_deref_mut(),
                         );
 
@@ -598,6 +598,18 @@ impl Prefetch {
             }
         }
     }
+}
+
+/// O texto de um arquivo do SDK que a sobreposição troca
+/// (`SdkLayout::load_com_sobreposicao`): lido do substituto, com o caminho
+/// lógico do original — é o que faz um `part` dele resolver ao lado do
+/// original. `None` quando não há troca (a leitura segue o caminho normal).
+fn ler_substituto(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
+    let novo = sdk.substituto(path)?;
+    Some(std::fs::read_to_string(novo).map(|s| {
+        let t = dartforge_frontend::lexer::lex(&s);
+        (s, t)
+    }))
 }
 
 /// Caminho do arquivo principal de uma biblioteca `package:` ou `file:`.
