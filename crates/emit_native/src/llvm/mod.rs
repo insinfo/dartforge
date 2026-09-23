@@ -7,6 +7,10 @@ pub struct LlvmEmitter<'a> {
     module: &'a Module,
     out: String,
     string_constants: Vec<(String, usize)>,
+    /// Tipo de cada valor da funcao sendo emitida, para coercao de operandos.
+    tipos: std::collections::HashMap<ValueId, Type>,
+    /// Contador dos temporarios de coercao (`%c0`, `%c1`, ...), por funcao.
+    prox_coercao: u32,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -15,6 +19,8 @@ impl<'a> LlvmEmitter<'a> {
             module,
             out: String::new(),
             string_constants: Vec::new(),
+            tipos: std::collections::HashMap::new(),
+            prox_coercao: 0,
         }
     }
 
@@ -200,7 +206,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i64 @dartforge_unsupported_error_new(i64)\n");
         self.out.push_str("declare i64 @dartforge_unimplemented_error_new(i64)\n");
         self.out.push_str("declare i64 @dartforge_assertion_error_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_concurrent_modification_error_new()\n");
+        self.out.push_str("declare i64 @dartforge_concurrent_modification_error_new(i64)\n");
         self.out.push_str("declare i64 @dartforge_type_error_new()\n");
         self.out.push_str("declare i64 @dartforge_no_such_method_error_new()\n");
         self.out.push_str("declare i64 @dartforge_error_get_message(i64)\n");
@@ -257,6 +263,20 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_function(&mut self, func: &Function) {
+        // Tabela de tipos da funcao: sem ela o emissor nao sabe se %v8 e um
+        // i1 (resultado de icmp) ou um i64, e imprime "ret i64 %v8" para um
+        // valor i1 — modulo inteiro recusado pelo Clang.
+        self.tipos.clear();
+        self.prox_coercao = 0;
+        for (vid, _, ty) in &func.params {
+            self.tipos.insert(*vid, *ty);
+        }
+        for block in &func.blocks {
+            for (vid, inst, ty) in &block.instructions {
+                self.tipos.insert(*vid, Self::tipo_do_resultado(inst, *ty));
+            }
+        }
+
         let ret_ty = func.return_ty.llvm_ir();
         let params: Vec<String> = func
             .params
@@ -296,85 +316,85 @@ impl<'a> LlvmEmitter<'a> {
                         ).unwrap();
                     }
                     Instruction::Add(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = add i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Sub(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = sub i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Mul(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = mul i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::SDiv(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = sdiv i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::SRem(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = srem i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Shl(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = shl i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::AShr(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = ashr i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::And(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = and i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Or(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = or i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Xor(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = xor i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Neg(a) => {
-                        let sa = self.operand_str(a);
+                        let sa = self.coagir(a, Type::I64);
                         writeln!(self.out, "  %v{v} = sub i64 0, {sa}").unwrap();
                     }
                     Instruction::Not(a) => {
-                        let sa = self.operand_str(a);
+                        let sa = self.coagir(a, Type::I64);
                         writeln!(self.out, "  %v{v} = xor i64 {sa}, -1").unwrap();
                     }
                     Instruction::FAdd(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::F64);
+                        let sb = self.coagir(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fadd double {sa}, {sb}").unwrap();
                     }
                     Instruction::FSub(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::F64);
+                        let sb = self.coagir(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fsub double {sa}, {sb}").unwrap();
                     }
                     Instruction::FMul(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::F64);
+                        let sb = self.coagir(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fmul double {sa}, {sb}").unwrap();
                     }
                     Instruction::FDiv(a, b) => {
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::F64);
+                        let sb = self.coagir(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fdiv double {sa}, {sb}").unwrap();
                     }
                     Instruction::FNeg(a) => {
-                        let sa = self.operand_str(a);
+                        let sa = self.coagir(a, Type::F64);
                         writeln!(self.out, "  %v{v} = fneg double {sa}").unwrap();
                     }
                     Instruction::ICmp(op, a, b) => {
@@ -386,8 +406,8 @@ impl<'a> LlvmEmitter<'a> {
                             ICmpOp::Sgt => "sgt",
                             ICmpOp::Sge => "sge",
                         };
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
                         writeln!(self.out, "  %v{v} = icmp {op_str} i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::FCmp(op, a, b) => {
@@ -399,30 +419,30 @@ impl<'a> LlvmEmitter<'a> {
                             FCmpOp::Gt => "ogt",
                             FCmpOp::Ge => "oge",
                         };
-                        let sa = self.operand_str(a);
-                        let sb = self.operand_str(b);
+                        let sa = self.coagir(a, Type::F64);
+                        let sb = self.coagir(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fcmp {op_str} double {sa}, {sb}").unwrap();
                     }
                     Instruction::LNot(a) => {
-                        let sa = self.operand_str(a);
+                        let sa = self.coagir(a, Type::I1);
                         writeln!(self.out, "  %v{v} = xor i1 {sa}, true").unwrap();
                     }
                     Instruction::IntToDouble(a) => {
-                        let sa = self.operand_str(a);
+                        let sa = self.coagir(a, Type::I64);
                         writeln!(self.out, "  %v{v} = sitofp i64 {sa} to double").unwrap();
                     }
                     Instruction::DoubleToInt(a) => {
-                        let sa = self.operand_str(a);
+                        let sa = self.coagir(a, Type::F64);
                         writeln!(self.out, "  %v{v} = fptosi double {sa} to i64").unwrap();
                     }
                     Instruction::ZExt { op, from, to } => {
-                        let sop = self.operand_str(op);
+                        let sop = self.coagir(op, *from);
                         let f = from.llvm_ir();
                         let t = to.llvm_ir();
                         writeln!(self.out, "  %v{v} = zext {f} {sop} to {t}").unwrap();
                     }
                     Instruction::Trunc { op, from, to } => {
-                        let sop = self.operand_str(op);
+                        let sop = self.coagir(op, *from);
                         let f = from.llvm_ir();
                         let t = to.llvm_ir();
                         writeln!(self.out, "  %v{v} = trunc {f} {sop} to {t}").unwrap();
@@ -434,7 +454,7 @@ impl<'a> LlvmEmitter<'a> {
                             "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
                         ).unwrap();
                         for (idx, field) in fields.iter().enumerate() {
-                            let sf = self.operand_str(field);
+                            let sf = self.coagir(field, Type::I64);
                             // tag de ref: 0 por enquanto
                             writeln!(
                                 self.out,
@@ -443,34 +463,31 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     Instruction::GetField { object, index } => {
-                        let so = self.operand_str(object);
+                        let so = self.coagir(object, Type::I64);
                         writeln!(
                             self.out,
                             "  %v{v} = call i64 @dartforge_object_get(i64 {so}, i64 {index})"
                         ).unwrap();
                     }
                     Instruction::SetField { object, index, value } => {
-                        let so = self.operand_str(object);
-                        let sv = self.operand_str(value);
+                        let so = self.coagir(object, Type::I64);
+                        let sv = self.coagir(value, Type::I64);
                         writeln!(
                             self.out,
                             "  call void @dartforge_object_set(i64 {so}, i64 {index}, i64 {sv}, i8 0)"
                         ).unwrap();
                     }
                     Instruction::CallStatic { symbol, args, ret_ty } => {
-                        let target_func = self.module.functions.iter().find(|f| f.symbol == *symbol);
-                        let args_str: Vec<String> = args
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, a)| {
-                                let s = self.operand_str(a);
-                                let t = target_func
-                                    .and_then(|f| f.params.get(idx))
-                                    .map(|p| p.2.llvm_ir())
-                                    .unwrap_or("i64");
-                                format!("{t} {s}")
-                            })
-                            .collect();
+                        let modulo = self.module;
+                        let target_func = modulo.functions.iter().find(|f| f.symbol == *symbol);
+                        let mut args_str: Vec<String> = Vec::with_capacity(args.len());
+                        for (idx, a) in args.iter().enumerate() {
+                            let alvo = target_func
+                                .and_then(|f| f.params.get(idx))
+                                .map_or(Type::I64, |p| p.2);
+                            let s = self.coagir(a, alvo);
+                            args_str.push(format!("{} {s}", alvo.llvm_ir()));
+                        }
                         let joined = args_str.join(", ");
                         let r = ret_ty.llvm_ir();
                         if *ret_ty == Type::Void {
@@ -482,7 +499,7 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         let mut args_formatted = Vec::new();
                         for (a, ty) in args {
-                            let s = self.operand_str(a);
+                            let s = self.coagir(a, *ty);
                             let t = ty.llvm_ir();
                             args_formatted.push(format!("{t} {s}"));
                         }
@@ -500,7 +517,7 @@ impl<'a> LlvmEmitter<'a> {
                         let alloca_id = format!("list_buf_{v}");
                         writeln!(self.out, "  %{alloca_id} = alloca [{} x i64]", count * 2).unwrap();
                         for (idx, (elem, tag)) in elements.iter().enumerate() {
-                            let se = self.operand_str(elem);
+                            let se = self.coagir(elem, Type::I64);
                             let off_bits = idx * 2;
                             let off_tag = idx * 2 + 1;
                             writeln!(self.out, "  %ptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{alloca_id}, i64 0, i64 {off_bits}", count * 2).unwrap();
@@ -520,8 +537,8 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %{k_buf} = alloca [{} x i64]", count * 2).unwrap();
                         writeln!(self.out, "  %{v_buf} = alloca [{} x i64]", count * 2).unwrap();
                         for (idx, ((k, k_tag), (val, v_tag))) in entries.iter().enumerate() {
-                            let sk = self.operand_str(k);
-                            let sv = self.operand_str(val);
+                            let sk = self.coagir(k, Type::I64);
+                            let sv = self.coagir(val, Type::I64);
                             let off_bits = idx * 2;
                             let off_tag = idx * 2 + 1;
                             writeln!(self.out, "  %kptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{k_buf}, i64 0, i64 {off_bits}", count * 2).unwrap();
@@ -545,7 +562,7 @@ impl<'a> LlvmEmitter<'a> {
                         let buf_name = format!("rec_buf_{v}");
                         writeln!(self.out, "  %{buf_name} = alloca [{total_i64} x i64]").unwrap();
                         for (i, (elem, tag)) in elements.iter().enumerate() {
-                            let sop = self.operand_str(elem);
+                            let sop = self.coagir(elem, Type::I64);
                             let ptr_bits = format!("ptr_rec_{v}_{i}_bits");
                             let ptr_tag = format!("ptr_rec_{v}_{i}_tag");
                             let off_bits = i * 2;
@@ -569,15 +586,21 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::Store { ptr, val } => {
                         let sp = self.operand_str(ptr);
-                        let sv = self.operand_str(val);
+                        let sv = self.coagir(val, Type::I64);
                         writeln!(self.out, "  store i64 {sv}, ptr {sp}").unwrap();
                     }
                     Instruction::Phi { incoming, ty } => {
                         let t = ty.llvm_ir();
+                        // A coercao de uma entrada de `phi` NAO pode ser emitida
+                        // aqui: `phi` tem de ser a primeira instrucao do bloco e a
+                        // conversao pertence ao bloco de origem. Entao so constantes
+                        // sao reescritas no tipo do `phi`; valores que chegam com
+                        // largura diferente sao corrigidos na origem, ao terminar
+                        // aquele bloco.
                         let in_strs: Vec<String> = incoming
                             .iter()
                             .map(|(b, op)| {
-                                let sop = self.operand_str(op);
+                                let sop = self.constante_no_tipo(op, *ty).unwrap_or_else(|| self.operand_str(op));
                                 format!("[ {sop}, %b{} ]", b.0)
                             })
                             .collect();
@@ -596,7 +619,7 @@ impl<'a> LlvmEmitter<'a> {
                     if func.return_ty == Type::Void {
                         writeln!(self.out, "  ret void").unwrap();
                     } else {
-                        let sop = self.operand_str(op);
+                        let sop = self.coagir(op, func.return_ty);
                         writeln!(self.out, "  ret {} {sop}", func.return_ty.llvm_ir()).unwrap();
                     }
                 }
@@ -611,11 +634,11 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  br label %b{}", target.0).unwrap();
                 }
                 Terminator::CondBranch { cond, then_block, else_block } => {
-                    let sc = self.operand_str(cond);
+                    let sc = self.coagir(cond, Type::I1);
                     writeln!(self.out, "  br i1 {sc}, label %b{}, label %b{}", then_block.0, else_block.0).unwrap();
                 }
                 Terminator::Switch { val, default, cases } => {
-                    let sv = self.operand_str(val);
+                    let sv = self.coagir(val, Type::I64);
                     write!(self.out, "  switch i64 {sv}, label %b{} [", default.0).unwrap();
                     for (c, b) in cases {
                         write!(self.out, " i64 {c}, label %b{}", b.0).unwrap();
@@ -623,7 +646,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, " ]").unwrap();
                 }
                 Terminator::Throw(op) => {
-                    let sop = self.operand_str(op);
+                    let sop = self.coagir(op, Type::I64);
                     writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 3)").unwrap();
                     writeln!(self.out, "  unreachable").unwrap();
                 }
@@ -700,6 +723,158 @@ impl<'a> LlvmEmitter<'a> {
         }
         writeln!(self.out, "  ret void").unwrap();
         writeln!(self.out, "}}\n").unwrap();
+    }
+
+    /// Tipo do valor que o emissor de fato imprime para uma instrucao.
+    ///
+    /// Nao basta acreditar no tipo registrado na HIR: varios arms imprimem um
+    /// tipo fixo (todo Add sai como i64, todo ICmp como i1) e um registro
+    /// divergente faria a coercao trabalhar com a informacao errada. O tipo
+    /// registrado so vale onde o emissor o usa (Load, Phi, Alloca e as
+    /// instrucoes ainda nao expandidas).
+    fn tipo_do_resultado(inst: &Instruction, registrado: Type) -> Type {
+        match inst {
+            Instruction::Const(Constant::Bool(_)) => Type::I1,
+            Instruction::Const(Constant::Double(_)) => Type::F64,
+            Instruction::Const(_) => Type::I64,
+            Instruction::Add(..)
+            | Instruction::Sub(..)
+            | Instruction::Mul(..)
+            | Instruction::SDiv(..)
+            | Instruction::SRem(..)
+            | Instruction::Shl(..)
+            | Instruction::AShr(..)
+            | Instruction::And(..)
+            | Instruction::Or(..)
+            | Instruction::Xor(..)
+            | Instruction::Neg(..)
+            | Instruction::Not(..)
+            | Instruction::DoubleToInt(..)
+            | Instruction::AllocObject { .. }
+            | Instruction::GetField { .. }
+            | Instruction::AllocList { .. }
+            | Instruction::AllocMap { .. }
+            | Instruction::AllocRecord { .. } => Type::I64,
+            Instruction::FAdd(..)
+            | Instruction::FSub(..)
+            | Instruction::FMul(..)
+            | Instruction::FDiv(..)
+            | Instruction::FNeg(..)
+            | Instruction::IntToDouble(..) => Type::F64,
+            Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(..) => Type::I1,
+            Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => *to,
+            Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } => *ret_ty,
+            Instruction::Load { ty, .. } => *ty,
+            Instruction::Phi { ty, .. } => *ty,
+            _ => registrado,
+        }
+    }
+
+    /// Tipo estatico de um operando dentro da funcao corrente.
+    fn tipo_de(&self, op: &Operand) -> Type {
+        match op {
+            Operand::Val(v) => self.tipos.get(v).copied().unwrap_or(Type::I64),
+            Operand::Constant(Constant::Int(_)) => Type::I64,
+            Operand::Constant(Constant::Double(_)) => Type::F64,
+            Operand::Constant(Constant::Bool(_)) => Type::I1,
+            Operand::Constant(Constant::Null) => Type::I64,
+            Operand::Constant(Constant::String(_)) => Type::Ref,
+        }
+    }
+
+    fn largura(t: Type) -> u32 {
+        match t {
+            Type::I1 => 1,
+            Type::I8 => 8,
+            _ => 64,
+        }
+    }
+
+    /// Literal double na forma hexadecimal do LLVM.
+    ///
+    /// format!("{d}") imprime 1 para 1.0 e o LLVM recusa "double 1"; a forma
+    /// 0x com os 16 digitos do padrao IEEE 754 sempre vale.
+    fn double_literal(d: f64) -> String {
+        format!("0x{:016X}", d.to_bits())
+    }
+
+    /// Reescreve uma constante diretamente no tipo pedido, sem instrucao.
+    /// Devolve None quando o operando nao e constante.
+    fn constante_no_tipo(&self, op: &Operand, alvo: Type) -> Option<String> {
+        let Operand::Constant(c) = op else { return None };
+        let s = match (c, alvo) {
+            (Constant::String(_), _) => panic!("string deve ser carregada via Instruction::Const"),
+            (Constant::Int(n), Type::I1) => if *n != 0 { "true".to_string() } else { "false".to_string() },
+            (Constant::Bool(b), Type::I1) => if *b { "true".to_string() } else { "false".to_string() },
+            (Constant::Null, Type::I1) => "false".to_string(),
+            (Constant::Double(d), Type::I1) => if d.to_bits() != 0 { "true".to_string() } else { "false".to_string() },
+            (Constant::Double(d), Type::F64) => Self::double_literal(*d),
+            (Constant::Int(n), Type::F64) => Self::double_literal(f64::from_bits(*n as u64)),
+            (Constant::Bool(b), Type::F64) => Self::double_literal(f64::from_bits(u64::from(*b))),
+            (Constant::Null, Type::F64) => Self::double_literal(0.0),
+            (Constant::Int(n), _) => n.to_string(),
+            (Constant::Bool(b), _) => if *b { "1".to_string() } else { "0".to_string() },
+            (Constant::Null, _) => "0".to_string(),
+            (Constant::Double(d), _) => (d.to_bits() as i64).to_string(),
+        };
+        Some(s)
+    }
+
+    /// Converte um operando para o tipo que a posicao exige.
+    ///
+    /// O emissor imprime o tipo LLVM em cada posicao ("ret i64", "add i64",
+    /// "br i1", o tipo declarado de cada argumento do runtime), mas a HIR
+    /// carrega bool ora como i1 (resultado de icmp), ora como i8 (a fronteira
+    /// com o Rust), e int/handle como i64. Sem esta conversao o Clang recusa o
+    /// modulo inteiro — era a causa de 172 das 214 falhas do corpus nativo.
+    ///
+    /// Entre i1/i8/i64 a conversao e zext/trunc. Entre double e i64 e bitcast,
+    /// nao sitofp/fptosi: a HIR tem nos proprios (IntToDouble/DoubleToInt) para
+    /// a conversao numerica, entao um double ocupando um slot i64 so pode ser o
+    /// padrao de bits — e assim que Const(Double) e emitido e como os doubles
+    /// atravessam o runtime.
+    fn coagir(&mut self, op: &Operand, alvo: Type) -> String {
+        if alvo == Type::Void {
+            return self.operand_str(op);
+        }
+        if let Some(s) = self.constante_no_tipo(op, alvo) {
+            return s;
+        }
+        let mut atual = self.tipo_de(op);
+        let mut texto = self.operand_str(op);
+        if atual.llvm_ir() == alvo.llvm_ir() && (atual == Type::F64) == (alvo == Type::F64) {
+            return texto;
+        }
+        // double vira i64 (e vice-versa) sempre pelos bits; larguras menores
+        // passam antes por i64 porque bitcast exige tamanho igual.
+        if atual == Type::F64 && alvo != Type::F64 {
+            texto = self.emitir_conversao("bitcast", Type::F64, &texto, Type::I64);
+            atual = Type::I64;
+        }
+        if alvo == Type::F64 {
+            if atual != Type::I64 && atual != Type::Ref {
+                texto = self.emitir_conversao("zext", atual, &texto, Type::I64);
+                atual = Type::I64;
+            }
+            if atual != Type::F64 {
+                texto = self.emitir_conversao("bitcast", Type::I64, &texto, Type::F64);
+            }
+            return texto;
+        }
+        if Self::largura(atual) < Self::largura(alvo) {
+            self.emitir_conversao("zext", atual, &texto, alvo)
+        } else if Self::largura(atual) > Self::largura(alvo) {
+            self.emitir_conversao("trunc", atual, &texto, alvo)
+        } else {
+            texto
+        }
+    }
+
+    fn emitir_conversao(&mut self, op: &str, de: Type, texto: &str, para: Type) -> String {
+        let c = self.prox_coercao;
+        self.prox_coercao += 1;
+        writeln!(self.out, "  %c{c} = {op} {} {texto} to {}", de.llvm_ir(), para.llvm_ir()).unwrap();
+        format!("%c{c}")
     }
 
     fn operand_str(&self, op: &Operand) -> String {

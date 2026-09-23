@@ -439,6 +439,52 @@ pub extern "C" fn dartforge_print_string(handle: i64) {
     });
 }
 
+/// `Error.safeToString` do `dart:core`.
+///
+/// Referência: `sdk/lib/core/errors.dart`. Ela existe justamente para NÃO
+/// chamar o `toString` do objeto — um `toString` que lança dentro da
+/// construção de uma mensagem de erro esconderia o erro original. Portanto:
+/// números, `bool` e `null` pelo `toString` deles; `String` entre aspas com
+/// escapes; qualquer outra coisa pela forma de identidade do objeto.
+///
+/// As formas de identidade abaixo são as que a VM 3.6.2 imprime para as
+/// coleções embutidas (`Instance(length:N) of '_GrowableList'`, `_Map len:N`,
+/// `_Set len:N`), verificadas no oráculo; o corpus compara byte a byte.
+fn safe_to_string(heap: &Heap, handle: i64, output: &mut String) {
+    if handle == 0 {
+        output.push_str("null");
+        return;
+    }
+    match heap.get(handle) {
+        Value::String(text) => {
+            output.push('"');
+            for c in text.chars() {
+                match c {
+                    '\n' => output.push_str("\\n"),
+                    '\r' => output.push_str("\\r"),
+                    '\t' => output.push_str("\\t"),
+                    '\"' => output.push_str("\\\""),
+                    '\\' => output.push_str("\\\\"),
+                    c => output.push(c),
+                }
+            }
+            output.push('"');
+        }
+        Value::List(items) => {
+            output.push_str(&format!("Instance(length:{}) of '_GrowableList'", items.len()))
+        }
+        Value::Map(pares) => output.push_str(&format!("_Map len:{}", pares.len())),
+        Value::Set(items) => output.push_str(&format!("_Set len:{}", items.len())),
+        Value::Object { class_id, .. } => {
+            let nome = CLASS_NAMES
+                .with(|map| map.borrow().get(class_id).cloned())
+                .unwrap_or_else(|| "Object".to_string());
+            output.push_str(&format!("Instance of '{nome}'"));
+        }
+        _ => output.push_str(&describe_handle(heap, handle)),
+    }
+}
+
 /// Descreve um handle para mensagens de erro e impressão de coleções.
 ///
 /// Profundidade limitada a 4 e 101 elementos, como a abreviação do SDK 3.6.2
@@ -703,7 +749,20 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
                             output.push_str("Assertion failed");
                         }
                     } else if name == "ConcurrentModificationError" {
-                        output.push_str("Concurrent modification during iteration.");
+                        // dart:core/errors.dart: sem `modifiedObject` o texto
+                        // termina no ponto; com ele entra
+                        // `Error.safeToString(modifiedObject)`, que NÃO chama o
+                        // `toString` do objeto — usa a forma de identidade da
+                        // VM. Por isso a VM imprime
+                        // `Instance(length:4) of '_GrowableList'` e não `[1,2,3,1]`.
+                        let alvo = fields.first().map_or(0, |(b, _)| *b);
+                        if alvo == 0 {
+                            output.push_str("Concurrent modification during iteration.");
+                        } else {
+                            let mut s = String::new();
+                            safe_to_string(heap, alvo, &mut s);
+                            output.push_str(&format!("Concurrent modification during iteration: {s}."));
+                        }
                     } else if name == "TypeError" {
                         output.push_str("TypeError");
                     } else if name == "NoSuchMethodError" {
@@ -2515,13 +2574,19 @@ pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i6
     })
 }
 
+/// `ConcurrentModificationError([this.modifiedObject])`.
+///
+/// O campo 0 é o `modifiedObject` (handle, 0 = null) e o campo 1 é o rastro.
+/// Guardar o objeto é o que permite ao `toString` produzir a forma longa da
+/// VM; os chamadores (`List.add` durante `for-in`, `Map`/`Set`) passam a
+/// coleção que estava sendo iterada, como o `dart:core` faz.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_concurrent_modification_error_new() -> i64 {
+pub extern "C" fn dartforge_concurrent_modification_error_new(modified: i64) -> i64 {
     HEAP.with(|h| {
         let st = dartforge_stack_trace_get();
         h.borrow_mut().allocate(Value::Object {
             class_id: 1010,
-            fields: vec![(0, false), (st, true)],
+            fields: vec![(modified, true), (st, true)],
         })
     })
 }
