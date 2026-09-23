@@ -145,6 +145,13 @@ impl<'a> BodyInferrer<'a> {
 
     /// `promote(x, T)`: promoção por teste de tipo (`is`, `as`, `!= null`).
     pub(crate) fn promover(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, t: TypeId) {
+        self.promover_testado(fluxo, id, declarado, t, t);
+    }
+
+    /// Promove para `t` registrando `testado` como tipo de interesse (o ramo
+    /// falso de `x is T` testa `T` e promove para `factor(S, T)`;
+    /// `_finishTypeTest` do analisador).
+    pub(crate) fn promover_testado(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, t: TypeId, testado: TypeId) {
         if !fluxo.alcancavel {
             return;
         }
@@ -155,9 +162,9 @@ impl<'a> BodyInferrer<'a> {
         let s = m.cadeia.last().copied().unwrap_or(declarado);
         if self.sub(s, t) {
             // Já é subtipo: não promove, mas registra o tipo de interesse.
-            if !m.testados.contains(&t) {
+            if !m.testados.contains(&testado) {
                 if let Some(Some(mm)) = fluxo.vars.get_mut(id.0 as usize) {
-                    mm.testados.push(t);
+                    mm.testados.push(testado);
                 }
             }
             return;
@@ -186,8 +193,8 @@ impl<'a> BodyInferrer<'a> {
             }
         };
         if let Some(Some(mm)) = fluxo.vars.get_mut(id.0 as usize) {
-            if !mm.testados.contains(&t) {
-                mm.testados.push(t);
+            if !mm.testados.contains(&testado) {
+                mm.testados.push(testado);
             }
             if let Some(t1) = t1 {
                 mm.cadeia.push(t1);

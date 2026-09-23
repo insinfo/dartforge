@@ -589,9 +589,34 @@ fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<Loc
     (ids(&nomes), ids(&em_closure))
 }
 
-/// Nomes escritos dentro de uma função (para a captura de escrita).
+/// Nomes escritos dentro de uma função (para a captura de escrita); os
+/// parâmetros dela sombreiam os de fora no corpo inteiro.
 pub(crate) fn nomes_escritos_em_funcao(inf: &BodyInferrer<'_>, unit: UnitId, f: &ast::Function) -> Vec<SymbolId> {
-    nomes_escritos_em_corpo(inf, unit, &f.body)
+    let mut v = nomes_escritos_em_corpo(inf, unit, &f.body);
+    let ps = parametros_de(f);
+    v.retain(|n| !ps.contains(n));
+    v
+}
+
+fn parametros_de(f: &ast::Function) -> Vec<SymbolId> {
+    f.parameters.iter().flat_map(|ps| ps.iter()).filter_map(|p| p.name.map(|n| n.sym)).collect()
+}
+
+/// Closure ou função local: o que ela escreve, menos os próprios
+/// parâmetros, conta como escrito em closure.
+fn varrer_funcao_aninhada(a: &ast::Ast, f: &ast::Function, em_closure: &mut Vec<SymbolId>) {
+    let (mut n, mut em) = (Vec::new(), Vec::new());
+    match &f.body {
+        ast::FunctionBody::Block(b) => varrer_stmt(a, *b, &mut n, &mut em, true),
+        ast::FunctionBody::Expression(x) => varrer_expr(a, *x, &mut n, &mut em, true),
+        _ => {}
+    }
+    let ps = parametros_de(f);
+    for x in n.into_iter().chain(em) {
+        if !ps.contains(&x) && !em_closure.contains(&x) {
+            em_closure.push(x);
+        }
+    }
 }
 
 /// Nomes escritos num corpo (inclusive dentro de closures dele).
@@ -680,14 +705,7 @@ fn varrer_expr(a: &ast::Ast, e: ExprId, nomes: &mut Vec<SymbolId>, em_closure: &
             varrer_padrao(a, *pattern, nomes, em_closure, dentro);
             rec(*value, nomes, em_closure);
         }
-        ExprKind::FunctionExpression(f) => {
-            let f = a.function(*f);
-            match &f.body {
-                ast::FunctionBody::Block(s) => varrer_stmt(a, *s, nomes, em_closure, true),
-                ast::FunctionBody::Expression(x) => varrer_expr(a, *x, nomes, em_closure, true),
-                _ => {}
-            }
-        }
+        ExprKind::FunctionExpression(f) => varrer_funcao_aninhada(a, a.function(*f), em_closure),
         ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => rec(*x, nomes, em_closure),
         ExprKind::Property { target, .. } => rec(*target, nomes, em_closure),
         ExprKind::Index { target, index, .. } => {
@@ -813,14 +831,7 @@ fn varrer_stmt(a: &ast::Ast, s: StmtId, nomes: &mut Vec<SymbolId>, em_closure: &
             }
         }
         StmtKind::PatternVariables { value, .. } => re(*value, nomes, em_closure),
-        StmtKind::Function(f) => {
-            let f = a.function(*f);
-            match &f.body {
-                ast::FunctionBody::Block(b) => varrer_stmt(a, *b, nomes, em_closure, true),
-                ast::FunctionBody::Expression(x) => varrer_expr(a, *x, nomes, em_closure, true),
-                _ => {}
-            }
-        }
+        StmtKind::Function(f) => varrer_funcao_aninhada(a, a.function(*f), em_closure),
         StmtKind::Expression(e) => re(*e, nomes, em_closure),
         StmtKind::If { condition, guard, then, else_, .. } => {
             re(*condition, nomes, em_closure);

@@ -132,7 +132,10 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
 pub(crate) enum RefTipo {
     Classe(ClassId, Option<Vec<ast::TypeId>>),
     /// Alias de tipo que nomeia uma classe (`typedef A = B<int>`).
-    Alias(ClassId, Vec<TypeId>),
+    /// Typedef para classe: argumentos da classe (`None`: o typedef só
+    /// renomeia os parâmetros, e os argumentos são os explícitos ou
+    /// inferidos como os da classe).
+    Alias(ClassId, Option<Vec<TypeId>>, dartforge_elements::model::TypedefId),
     Extensao(ExtensionId),
 }
 
@@ -155,7 +158,10 @@ pub(crate) fn referencia_a_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprI
             let targs = type_args.to_vec();
             return match referencia_a_tipo(inf, cx, *target)? {
                 RefTipo::Classe(c, None) => Some(RefTipo::Classe(c, Some(targs))),
-                RefTipo::Alias(c, _) => Some(RefTipo::Alias(c, Vec::new())),
+                RefTipo::Alias(_, _, td) => {
+                    let ex: Vec<TypeId> = targs.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect();
+                    alias_de(inf, td, Some(ex))
+                }
                 _ => None,
             };
         }
@@ -164,25 +170,39 @@ pub(crate) fn referencia_a_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprI
     match el {
         Element::Class(c) => Some(RefTipo::Classe(c, None)),
         Element::Extension(x) => Some(RefTipo::Extensao(x)),
-        Element::Typedef(td) => {
-            let alvo = inf.outline.typedefs[td.0 as usize].target_type;
-            let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
-            match inf.table.get(alvo).clone() {
-                Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
-                    let args = if params.is_empty() {
-                        args.to_vec()
-                    } else {
-                        let inst = inf.instanciar_para_limites(&params);
-                        let mapa = inf.mapa(&params, &inst);
-                        args.iter().map(|a| inf.subst(*a, &mapa)).collect()
-                    };
-                    Some(RefTipo::Alias(class, args))
-                }
-                _ => None,
-            }
-        }
+        Element::Typedef(td) => alias_de(inf, td, None),
         _ => None,
     }
+}
+
+/// Classe e argumentos de um typedef usado como classe, com os argumentos
+/// explícitos do typedef (ou sem eles).
+fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicitos: Option<Vec<TypeId>>) -> Option<RefTipo> {
+    let alvo = inf.outline.typedefs[td.0 as usize].target_type;
+    let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
+    let (class, args) = match inf.table.get(alvo).clone() {
+        Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, args),
+        _ => return None,
+    };
+    if params.is_empty() {
+        return Some(RefTipo::Alias(class, Some(args.to_vec()), td));
+    }
+    let inst = match explicitos {
+        Some(ex) if ex.len() == params.len() => ex,
+        _ => {
+            // Typedef que só renomeia (`typedef M<K, V> = _M<K, V>`): os
+            // argumentos se inferem como os da classe.
+            let renomeia = args.len() == params.len()
+                && args.iter().zip(params.iter()).all(|(&a, &p)| matches!(inf.table.get(a), Type::TypeParameter { param, nullable: false } if *param == p));
+            if renomeia {
+                return Some(RefTipo::Alias(class, None, td));
+            }
+            inf.instanciar_para_limites(&params)
+        }
+    };
+    let mapa = inf.mapa(&params, &inst);
+    let args = args.iter().map(|a| inf.subst(*a, &mapa)).collect();
+    Some(RefTipo::Alias(class, Some(args), td))
 }
 
 /// Registra os nós de uma referência a tipo (tipo `Type`, resolução do elemento).
@@ -807,12 +827,12 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
             let args = targs.map(|v| v.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect::<Vec<_>>());
             tearoff_de_construtor(inf, cx, e, c, args, name)
         }
-        RefTipo::Alias(c, args) => {
+        RefTipo::Alias(c, args, _) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
             }
-            tearoff_de_construtor(inf, cx, e, c, Some(args), name)
+            tearoff_de_construtor(inf, cx, e, c, args, name)
         }
     }
 }
@@ -822,13 +842,15 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
 fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name) -> TypeId {
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
-    let Some(&f) = inf.program.class(c).constructors.get(&chave) else {
+    let Some(f) = inf.construtor_de(c, chave) else {
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
     };
-    resolver(inf, cx, e, Resolved::Constructor(f));
-    let sig = inf.outline.functions[f.0 as usize].signature;
+    if inf.program.function(f).class == Some(c) {
+        resolver(inf, cx, e, Resolved::Constructor(f));
+    }
+    let sig = inf.assinatura_construtor(c, f);
     let params = inf.outline.classes[c.0 as usize].type_params.clone();
     match args {
         Some(args) if args.len() == params.len() => {
@@ -1399,7 +1421,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
         registrar_ref_tipo(inf, cx, target);
         let m = match rt {
-            RefTipo::Classe(c, _) | RefTipo::Alias(c, _) => inf.membro_estatico(c, name.sym, true),
+            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, true),
             RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, true),
         };
         return match m {
@@ -1632,9 +1654,7 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
         let decl = cx.local(id).tipo;
         inf.promover(&mut sim, id, decl, t);
         let fatorado = fator(inf, v, t);
-        if fatorado != v {
-            inf.promover(&mut nao, id, decl, fatorado);
-        }
+        inf.promover_testado(&mut nao, id, decl, fatorado, t);
     }
     if negado {
         (nao, sim)

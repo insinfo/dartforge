@@ -283,6 +283,39 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         if tp0.len() != tp1.len() {
             return false;
         }
+        // Funções genéricas: renomeia os parâmetros de T1 para os de T0
+        // (Z fresco da especificação, "Subtype Rules" 17) e exige limites
+        // mutuamente subtipos.
+        if !tp0.is_empty() && tp0 != tp1 {
+            let mut m = std::collections::HashMap::new();
+            for (&y, &x) in tp1.iter().zip(tp0.iter()) {
+                let tx = env.table.intern(Type::TypeParameter { param: x, nullable: false });
+                m.insert(y, tx);
+            }
+            for (&y, &x) in tp1.iter().zip(tp0.iter()) {
+                let b1 = env.table.param(y).bound;
+                let b1 = crate::ops::substitute(b1, &m, env.table);
+                let b0 = env.table.param(x).bound;
+                if !(is_subtype(b0, b1, env) && is_subtype(b1, b0, env)) {
+                    return false;
+                }
+            }
+            let (ret1, pos1, opt1, named1) = (*ret1, pos1.clone(), opt1.clone(), named1.clone());
+            let sub = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &m, env.table);
+            let ret = sub(ret1, env);
+            let positional: Box<[TypeId]> = pos1.iter().map(|&t| sub(t, env)).collect();
+            let optional: Box<[TypeId]> = opt1.iter().map(|&t| sub(t, env)).collect();
+            let named: Box<[_]> = named1.iter().map(|&(n, t, r)| (n, sub(t, env), r)).collect();
+            let t1r = env.table.intern(Type::Function {
+                type_params: tp0.clone(),
+                ret,
+                positional,
+                optional,
+                named,
+                nullable: false,
+            });
+            return is_subtype(t0_id, t1r, env);
+        }
 
         // Funções com parâmetros posicionais opcionais
         if !opt0.is_empty() || !opt1.is_empty() || (named0.is_empty() && named1.is_empty()) {

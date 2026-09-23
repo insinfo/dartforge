@@ -438,3 +438,51 @@ void f(S? s, double? h, double ph) {
     assert_eq!(tipos("1"), ["double"]);
     assert_eq!(tipos("buf")[..2], ["StringBuffer?", "StringBuffer?"]);
 }
+
+/// Casos dos corpos do SDK compilado da fonte: limite de parâmetro de
+/// extensão, typedef que renomeia classe genérica, parâmetros `super.x`
+/// (tipo substituído e argumentos implícitos), tipo testado no ramo falso de
+/// `is!`, parâmetro de função local que sombreia o de fora, subtipo entre
+/// funções genéricas, construtor encaminhado de aplicação de mixin e
+/// constantes referidas.
+#[test]
+fn corpos_do_sdk() {
+    let r = ou_pula!(inferir(
+        r#"
+abstract class E { String get _name; }
+extension X<T extends E> on Iterable<T> {
+  String a(T v) => v._name;
+}
+class _M<K, V> { _M(); }
+typedef DM<K, V> = _M<K, V>;
+_M<K, V> f<K, V>() => DM<K, V>();
+class IB<T> { final Iterable<T> _source; final int _start; IB._(this._source, this._start); }
+class EB<T> extends IB<T> { EB(super._source, super._start) : super._(); }
+EB<T> g<T>(Iterable<T> s) => EB<T>(s, 0);
+void h(Object x) {
+  if (x is! int) { x = 3; }
+  int k = x;
+}
+class N { N? next; }
+N? copia(N? node) {
+  if (node == null) return null;
+  void filhos(N node) { node = node.next!; }
+  filhos(node);
+  return node;
+}
+class C<S> {
+  final Set<R> Function<R>()? _vazio;
+  C(this._vazio);
+  C<R> cast<R>() => C<R>(_vazio);
+}
+class B<T> { B(T t); }
+mixin M<T> {}
+class A<T> = B<T> with M<T>;
+A<int> mk() => A<int>(1);
+const int base = 4;
+const int deslocado = base << 5;
+const lista = [base, deslocado, 'x$base'];
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}

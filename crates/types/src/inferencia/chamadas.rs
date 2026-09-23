@@ -12,7 +12,7 @@ use crate::constraints::{instanciar_funcao, GenericInferrer};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId, TypeParamId};
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Element, FunctionElementId};
+use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
 use std::collections::HashMap;
 
@@ -396,7 +396,7 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
         match rt {
             RefTipo::Classe(c, Some(ts)) => (*c, Some(ts.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect())),
             RefTipo::Classe(c, None) => (*c, None),
-            RefTipo::Alias(c, args) => (*c, if args.is_empty() { None } else { Some(args.clone()) }),
+            RefTipo::Alias(c, args, _) => (*c, args.clone()),
             RefTipo::Extensao(_) => unreachable!(),
         }
     };
@@ -405,7 +405,7 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
             return None;
         }
         let (c, args) = tipo_args(inf, cx, &rt);
-        let &f = inf.program.class(c).constructors.get(&vazio)?;
+        let f = inf.construtor_de(c, vazio)?;
         registrar_referencia(inf, cx, target);
         return Some((c, f, args));
     }
@@ -418,9 +418,11 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
         }
         let (c, args) = tipo_args(inf, cx, &rt);
         let chave = if Some(name.sym) == inf.sym.new_ { vazio } else { name.sym };
-        let &f = inf.program.class(c).constructors.get(&chave)?;
+        let f = inf.construtor_de(c, chave)?;
         registrar_referencia(inf, cx, recv);
-        resolver(inf, cx, target, Resolved::Constructor(f));
+        if inf.program.function(f).class == Some(c) {
+            resolver(inf, cx, target, Resolved::Constructor(f));
+        }
         return Some((c, f, args));
     }
     None
@@ -460,6 +462,48 @@ impl<'a> BodyInferrer<'a> {
     /// Parâmetros novos (por classe) para inferir os argumentos de tipo de
     /// construtores: os da classe podem estar em escopo no ponto da chamada
     /// (`C(x)` dentro de `C<T>`), e não podem ser confundidos.
+    /// Construtor `nome` de `c`. Aplicação de mixin (`class A = B with M;`)
+    /// tem os construtores generativos da superclasse encaminhados
+    /// (especificação, "Mixin Application").
+    pub(crate) fn construtor_de(&self, c: ClassId, nome: dartforge_intern::SymbolId) -> Option<FunctionElementId> {
+        let cl = self.program.class(c);
+        if let Some(&f) = cl.constructors.get(&nome) {
+            return Some(f);
+        }
+        if cl.kind != ClassKind::MixinApplication {
+            return None;
+        }
+        let f = self.construtor_de(cl.supertype_class?, nome)?;
+        (!self.program.function(f).factory).then_some(f)
+    }
+
+    /// Assinatura do construtor `f` vista de `c` (encaminhado quando `f` é
+    /// da superclasse de uma aplicação de mixin): tipos pelos argumentos do
+    /// supertipo e retorno `c<parâmetros>`.
+    pub(crate) fn assinatura_construtor(&mut self, c: ClassId, f: FunctionElementId) -> TypeId {
+        let sig = self.outline.functions[f.0 as usize].signature;
+        if self.program.function(f).class == Some(c) {
+            return sig;
+        }
+        let Some(sup) = self.outline.classes[c.0 as usize].supertype else { return sig };
+        let Type::Interface { class: sc, args, .. } = self.table.get(sup).clone() else { return sig };
+        let s = self.assinatura_construtor(sc, f);
+        let params = self.outline.classes[sc.0 as usize].type_params.clone();
+        let s = if params.len() == args.len() {
+            let mapa = self.mapa(&params, &args);
+            self.subst(s, &mapa)
+        } else {
+            s
+        };
+        let this = self.tipo_this_classe(c);
+        match self.table.get(s).clone() {
+            Type::Function { type_params, positional, optional, named, nullable, .. } => {
+                self.table.intern(Type::Function { type_params, ret: this, positional, optional, named, nullable })
+            }
+            _ => s,
+        }
+    }
+
     fn parametros_de_construtor(&mut self, c: ClassId) -> (Vec<TypeParamId>, Vec<TypeParamId>) {
         let originais = self.outline.classes[c.0 as usize].type_params.to_vec();
         let novos = self.parametros_novos(&originais);
@@ -480,10 +524,14 @@ pub(crate) fn construir(
     args: &ast::Arguments,
     ctx: TypeId,
 ) -> TypeId {
-    if let Some(e) = e {
+    // Construtor encaminhado de aplicação de mixin: sem resolução (o
+    // elemento é o da superclasse).
+    if let Some(e) = e
+        && inf.program.function(f).class == Some(c)
+    {
         resolver(inf, cx, e, Resolved::Constructor(f));
     }
-    let sig = inf.outline.functions[f.0 as usize].signature;
+    let sig = inf.assinatura_construtor(c, f);
     let (originais, novos) = inf.parametros_de_construtor(c);
     if originais.is_empty() {
         let (r, _) = invocar(inf, cx, sig, args, ctx, None);
@@ -566,7 +614,7 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         Some(n) if Some(n.sym) != inf.sym.new_ => Some(n.sym),
         _ => inf.sym.vazio,
     };
-    let Some(&f) = chave.and_then(|k| inf.program.class(c).constructors.get(&k)) else {
+    let Some(f) = chave.and_then(|k| inf.construtor_de(c, k)) else {
         for x in args.args.iter() {
             inferir_livre(inf, cx, x.value);
         }
