@@ -23,7 +23,7 @@ fn id_da_classe_stack_trace() -> i64 {
 /// Objeto `StackTrace` com o texto dado (duas alocações, a primeira
 /// enraizada durante a segunda).
 fn alocar_stack_trace(texto: &str) -> i64 {
-    let trace_str = HEAP.with(|h| h.borrow_mut().allocate(Value::String(texto.to_string())));
+    let trace_str = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(texto))));
     let cid = id_da_classe_stack_trace();
     com_raizes(&[trace_str], || {
         HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id: cid, fields: vec![(trace_str, true)] }))
@@ -43,7 +43,7 @@ fn alocar_erro_com_rastro(class_id: i64, mut campos: Vec<(i64, bool)>) -> i64 {
 
 /// Mensagem alocada, enraizada, e o erro com ela e o rastro.
 fn alocar_erro_com_mensagem(class_id: i64, mensagem: &str, antes: Vec<(i64, bool)>, depois: Vec<(i64, bool)>) -> i64 {
-    let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(mensagem.to_string())));
+    let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(mensagem))));
     com_raizes(&[msg], || {
         let mut campos = antes;
         campos.push((msg, true));
@@ -133,8 +133,8 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
         // SEM empréstimo do heap aberto (G6: a versão anterior chamava
         // `dartforge_stack_trace_get` com `borrow_mut` ativo — "RefCell
         // already borrowed").
-        let precisa = HEAP.with(|heap| match heap.borrow().get(value.bits) {
-            Value::Object { class_id, fields } if (1000..=1012).contains(class_id) && dartforge_is_subclass(*class_id, 1007) != 0 => {
+        let precisa = HEAP.with(|heap| match heap.borrow().try_get(value.bits) {
+            Some(Value::Object { class_id, fields }) if (1000..=1012).contains(class_id) && dartforge_is_subclass(*class_id, 1007) != 0 => {
                 let st_idx = match *class_id {
                     1003 => 5,
                     1004 => 7,
@@ -212,7 +212,7 @@ pub extern "C" fn dartforge_exception_clear() {
 }
 
 fn allocate_format_exception(message: &str) -> i64 {
-    let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(message.to_string())));
+    let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(message))));
     com_raizes(&[msg], || {
         HEAP.with(|h| {
             h.borrow_mut().allocate(Value::Object {
@@ -295,7 +295,7 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
     // (G6: a versão anterior chamava outra extern com `borrow_mut` aberto).
     let len = HEAP.with(|h| match h.borrow().try_get(indexable_or_len) {
         Some(Value::List(items)) => items.len() as i64,
-        Some(Value::String(s)) => s.encode_utf16().count() as i64,
+        Some(Value::String(s)) => s.len() as i64,
         _ => indexable_or_len,
     });
     alocar_erro_com_rastro(

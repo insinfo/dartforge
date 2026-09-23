@@ -69,7 +69,7 @@ pub fn finalizar_programa() -> i32 {
     0
 }
 
-use crate::heap::{Heap, TaggedValue, Value};
+use crate::heap::{Heap, TaggedValue, Texto, TextoMut, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -212,48 +212,71 @@ pub unsafe extern "C" fn dartforge_enum_get(class_id: i64, index: i64, ptr: *con
     HEAP.with(|heap| heap.borrow_mut().enum_value(class_id, index, name))
 }
 
+/// O valor escalar por trás de um `Ref` numérico ou booleano: `Smi`,
+/// `_Mint`, `_Double` ou caixa de `bool` (R3/R10); outro valor dá `None`.
+fn escalar_de_ref(heap: &Heap, r: i64) -> Option<TaggedValue> {
+    if crate::heap::smi::e_smi(r) {
+        return Some(TaggedValue::scalar(crate::heap::smi::valor(r)));
+    }
+    match heap.try_get(r) {
+        Some(Value::BoxedInt(i)) => Some(TaggedValue::scalar(*i)),
+        Some(Value::BoxedDouble(d)) => Some(TaggedValue::double(*d)),
+        Some(Value::BoxedBool(b)) => Some(TaggedValue::boolean(*b)),
+        _ => None,
+    }
+}
+
 /// Compara igualdade (== de Dart) entre dois handles de referência.
 ///
-/// Caixas comparam por valor, com a regra de `num`: `1 == 1.0` (R9).
+/// Números comparam por valor, com a regra de `num`: `1 == 1.0` (R9); um
+/// `Smi` e um `_Mint` nunca têm o mesmo valor (a forma é canônica, R10), mas
+/// a comparação é por valor de todo modo.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_equal(a: i64, b: i64) -> u8 {
     if a == b { return 1; }
     if a == 0 || b == 0 { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        match (heap.get(a), heap.get(b)) {
-            (Value::BoxedInt(x), Value::BoxedInt(y)) => u8::from(x == y),
-            (Value::BoxedDouble(x), Value::BoxedDouble(y)) => u8::from(x == y),
-            (Value::BoxedInt(x), Value::BoxedDouble(y)) | (Value::BoxedDouble(y), Value::BoxedInt(x)) => {
-                u8::from((*x as f64) == *y)
-            }
-            (Value::BoxedBool(x), Value::BoxedBool(y)) => u8::from(x == y),
-            _ => u8::from(heap.string_equal(a, b)),
+        use crate::heap::ValueTag::{Bool, Double, Int};
+        match (escalar_de_ref(&heap, a), escalar_de_ref(&heap, b)) {
+            (Some(x), Some(y)) => u8::from(match (x.tag, y.tag) {
+                (Int, Int) | (Bool, Bool) => x.bits == y.bits,
+                (Double, Double) => f64::from_bits(x.bits as u64) == f64::from_bits(y.bits as u64),
+                (Int, Double) => (x.bits as f64) == f64::from_bits(y.bits as u64),
+                (Double, Int) => f64::from_bits(x.bits as u64) == (y.bits as f64),
+                _ => false,
+            }),
+            (Some(_), None) | (None, Some(_)) => 0,
+            (None, None) => u8::from(heap.string_equal(a, b)),
         }
     })
 }
 
 /// `identical(a, b)` sobre referências, com a semântica da VM
 /// (`Instance::IsIdenticalTo`): mesmo handle, ou dois inteiros de mesmo
-/// valor, ou dois `double` bit a bit iguais (R9).
+/// valor, ou dois `double` bit a bit iguais (R9). Dois `Smi` de mesmo valor
+/// têm os mesmos bits, e caem no primeiro teste.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_identical(a: i64, b: i64) -> u8 {
     if a == b { return 1; }
     if a == 0 || b == 0 { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        match (heap.get(a), heap.get(b)) {
-            (Value::BoxedInt(x), Value::BoxedInt(y)) => u8::from(x == y),
-            (Value::BoxedDouble(x), Value::BoxedDouble(y)) => u8::from(x.to_bits() == y.to_bits()),
+        use crate::heap::ValueTag::{Double, Int};
+        match (escalar_de_ref(&heap, a), escalar_de_ref(&heap, b)) {
+            (Some(x), Some(y)) if (x.tag == Int && y.tag == Int) || (x.tag == Double && y.tag == Double) => {
+                u8::from(x.bits == y.bits)
+            }
             _ => 0,
         }
     })
 }
 
-/// `Box` (R3): `int` numa posição `Ref`.
+/// `Box` (R3/R10): `int` numa posição `Ref` — o `Smi` quando cabe em 63
+/// bits (não aloca), senão o `_Mint` no heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_box_int(v: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedInt(v)))
+    HEAP.with(|heap| heap.borrow_mut().caixa_int(v))
 }
 
 /// `Box`: `double` numa posição `Ref`.
@@ -275,13 +298,14 @@ fn lancar_type_error() {
     dartforge_exception_throw(err, 3);
 }
 
-/// `Unbox` (R3): `int` de uma referência; null ou outro tipo lança TypeError.
+/// `Unbox` (R3/R10): `int` de uma referência (`Smi` ou `_Mint`); null ou
+/// outro tipo lança TypeError.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unbox_int(h: i64) -> i64 {
-    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::BoxedInt(i)) => Some(*i),
-        _ => None,
-    });
+    if crate::heap::smi::e_smi(h) {
+        return crate::heap::smi::valor(h);
+    }
+    let v = HEAP.with(|heap| heap.borrow().int_de_ref(h));
     v.unwrap_or_else(|| {
         lancar_type_error();
         0
@@ -334,11 +358,15 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
     if handle == 0 {
         return -12;
     }
+    // Um `Smi` é um `int` (a mesma classe do `_Mint`, R10).
+    if crate::heap::smi::e_smi(handle) {
+        return -9;
+    }
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(handle) {
             Value::Object { class_id, .. } => *class_id,
-            Value::String(_) | Value::RawString(_) => -2,
+            Value::String(_) => -2,
             Value::StringBuffer(_) => -8,
             Value::List(_) => -3,
             Value::Map(_) => -4,
