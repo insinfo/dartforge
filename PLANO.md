@@ -1636,6 +1636,11 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   `Float64x2` como vetores LLVM, com o caminho vetorial completo (operadores,
   máscaras e acesso às listas SIMD) sem encaixotar no laço. Depois de
   `dart:typed_data` compilado da fonte pelo nativo.
+* **Inteiros e SIMD no JS** — `docs/NUMEROS-JS.md`. O padrão continua o do
+  DDC (`int` = `number`); inteiros exatos de 64 bits só como modo opcional
+  (`BigInt` ou duas metades, medidos), `Math.imul` para produto de 32 bits,
+  substituição escalar de `Float32x4` no perfil de produção preservando
+  `Math.fround`, e SIMD real só num eventual alvo Wasm.
 * **Acompanhar as versões novas da linguagem** — 3.6.2 é o **piso**, não o
   teto (ver "Dart 3.6.2 é o mínimo de compatibilidade" acima e o Incremento
   25). Próximo item concreto: Dart 3.13 (2026-08) — construtores primários,
