@@ -23,6 +23,15 @@ pub struct Ambiente {
     pub usar_cache: bool,
     /// Limite por processo.
     pub limite: Duration,
+    /// Limite so para EXECUTAR o binario nativo.
+    ///
+    /// Separado de `limite` porque os dois medem coisas diferentes: o oraculo
+    /// `dart run` pode levar segundos so para subir, enquanto um programa do
+    /// corpus rodando nativo termina em milissegundos — se demora, entrou em
+    /// laco. E laco infinito no nativo nao custa so tempo: enquanto gira, ele
+    /// aloca, e varios em paralelo tomam a memoria da maquina. Curto por
+    /// padrao; `--limite-exec` ajusta.
+    pub limite_nativo: Duration,
     /// Diretórios prefixados ao `PATH` do `dartforge` (a `LLVM-C.dll`; ver `scripts/env.ps1`).
     pub path_extra: Vec<PathBuf>,
 }
@@ -79,6 +88,7 @@ impl Ambiente {
             dartforge_bin,
             usar_cache: true,
             limite: Duration::from_secs(120),
+            limite_nativo: Duration::from_secs(5),
         }
     }
 
@@ -313,7 +323,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
         return Saida::erro("[compile-native] devolveu Ok mas não gerou executável");
     }
 
-    executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite, &amb.path_extra)
+    executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra)
 }
 
 #[cfg(test)]

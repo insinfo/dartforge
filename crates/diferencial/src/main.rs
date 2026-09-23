@@ -7,7 +7,7 @@ use std::time::Duration;
 use dartforge_diferencial::{Ambiente, Opcoes, contrato, executar_corpus, listar, relatorio};
 
 const USO: &str = "uso:
-  dartforge-diferencial [--nativo] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--silencioso]
+  dartforge-diferencial [--nativo] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
       roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
       (código 0 se todos batem; 1 se algum falha)
   dartforge-diferencial contrato [--corpus DIR] [-o ARQUIVO]
@@ -48,6 +48,11 @@ fn main() {
                 i += 1;
                 amb.limite = Duration::from_secs(args[i].parse().expect("--limite SEG"));
             }
+            "--limite-exec" => {
+                i += 1;
+                amb.limite_nativo =
+                    Duration::from_secs(args[i].parse().expect("--limite-exec SEG"));
+            }
             "--sem-forge" => op.com_forge = false,
             "--nativo" => op.nativo = true,
             "--sem-cache" => amb.usar_cache = false,
@@ -62,6 +67,13 @@ fn main() {
             }
         }
         i += 1;
+    }
+    // No modo nativo cada programa vira um processo que aloca no heap proprio;
+    // seis em paralelo ja tomaram a memoria da maquina inteira. Enquanto o
+    // backend nativo nao esta estavel, o padrao e dois — quem quiser mais passa
+    // `--jobs` explicitamente e assume o risco.
+    if op.nativo && op.threads == 0 {
+        op.threads = 2;
     }
     let programas = listar(&corpus, filtro.as_deref());
     if programas.is_empty() {

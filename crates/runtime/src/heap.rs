@@ -180,6 +180,18 @@ pub struct Heap {
     marks: Vec<bool>,
     pending: Vec<i64>,
     byte_threshold: usize,
+    /// Teto DURO do heap, em bytes.
+    ///
+    /// Nao confundir com `byte_threshold`, que e o gatilho de COLETA. Este e o
+    /// limite do processo: um programa em laco infinito que aloca strings come
+    /// a memoria da maquina inteira antes de qualquer tempo-limite do harness
+    /// disparar (foi o que travou a maquina rodando o corpus nativo em
+    /// paralelo). Ao estourar, o processo sai com mensagem legivel e codigo
+    /// 255, que e o que a VM usa para excecao nao capturada — vira uma falha
+    /// no placar em vez de um travamento.
+    ///
+    /// Padrao 256 MiB; `DARTFORGE_HEAP_MAX_MB` ajusta, e 0 desliga o teto.
+    limite_bytes: usize,
     enum_values: std::collections::HashMap<(i64, i64), i64>,
     /// Tear-offs canônicos de funções top-level, por ID de código.
     ///
@@ -203,10 +215,67 @@ impl Heap {
             marks: Vec::new(),
             pending: Vec::new(),
             byte_threshold: 1024 * 1024,
+            limite_bytes: Self::limite_do_ambiente(),
             enum_values: std::collections::HashMap::new(),
             tearoffs: std::collections::HashMap::new(),
         }
     }
+    /// Le o teto do heap do ambiente uma vez, na criacao.
+    fn limite_do_ambiente() -> usize {
+        const PADRAO: usize = 256 * 1024 * 1024;
+        match std::env::var("DARTFORGE_HEAP_MAX_MB") {
+            Ok(v) => match v.trim().parse::<usize>() {
+                Ok(0) => usize::MAX,
+                Ok(mb) => mb.saturating_mul(1024 * 1024),
+                Err(_) => PADRAO,
+            },
+            Err(_) => PADRAO,
+        }
+    }
+
+    /// Bytes que o heap ocupa, contando tambem a tabela de slots.
+    ///
+    /// `stats.estimated_bytes` so mede o conteudo dos valores; um programa que
+    /// aloca milhoes de objetos minusculos cresce pela tabela, nao pelo
+    /// conteudo, e passaria pelo teto sem ele.
+    fn bytes_totais(&self, adicional: usize) -> usize {
+        let tabela = self
+            .slots
+            .len()
+            .saturating_mul(std::mem::size_of::<Option<Value>>());
+        self.stats
+            .estimated_bytes
+            .saturating_add(tabela)
+            .saturating_add(adicional)
+    }
+
+    /// Para o processo quando o heap passa do teto.
+    fn verificar_teto(&self, adicional: usize) {
+        if self.limite_bytes == usize::MAX {
+            return;
+        }
+        let total = self.bytes_totais(adicional);
+        if total > self.limite_bytes {
+            Self::abortar_por_memoria(total, self.limite_bytes);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn abortar_por_memoria(total: usize, limite: usize) -> ! {
+        // Sem `panic!`: o runtime e chamado por `extern "C"` a partir do codigo
+        // gerado, e um panico atravessando essa fronteira aborta com um despejo
+        // de pilha ilegivel. Uma linha e o codigo 255 (o mesmo da VM para
+        // excecao nao capturada) sao o que o harness precisa.
+        let mib = 1024 * 1024;
+        eprintln!(
+            "Out of memory: heap do DartForge chegou a {} MiB, acima do teto de {} MiB (ajuste com DARTFORGE_HEAP_MAX_MB, 0 desliga).",
+            total / mib,
+            limite / mib
+        );
+        std::process::exit(255);
+    }
+
     /// Obtém o singleton de um valor enum, protegendo as alocações internas.
     pub fn enum_value(&mut self, class_id: i64, index: i64, name: &str) -> i64 {
         assert!(class_id >= 0 && index >= 0, "identidade enum inválida");
@@ -306,14 +375,19 @@ impl Heap {
     /// Aloca após coleta; o chamador deve proteger o resultado antes de outra alocação.
     pub fn allocate(&mut self, value: Value) -> i64 {
         let bytes = value.estimated_bytes();
+        let perto_do_teto = self.limite_bytes != usize::MAX
+            && self.bytes_totais(bytes) > self.limite_bytes / 2;
         if self.stress
             || (!self.frames.is_empty() && (
                 self.allocations >= self.threshold
                 || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+                || perto_do_teto
             ))
         {
             self.collect();
         }
+        // Depois da coleta: se ainda passa do teto, nao ha o que recuperar.
+        self.verificar_teto(bytes);
         self.stats.estimated_bytes = self
             .stats
             .estimated_bytes
@@ -503,6 +577,7 @@ impl Heap {
             .stats
             .peak_estimated_bytes
             .max(self.stats.estimated_bytes);
+        self.verificar_teto(0);
         if self.stress || self.stats.estimated_bytes > self.byte_threshold {
             let frame = self.push_frame_with_slots(1);
             self.set_root(frame, 0, handle);
@@ -638,6 +713,7 @@ impl Heap {
             .stats
             .peak_estimated_bytes
             .max(self.stats.estimated_bytes);
+        self.verificar_teto(0);
         true
     }
     /// Valida referência antes de modificar o grafo; null não exige objeto vivo.

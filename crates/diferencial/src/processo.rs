@@ -28,6 +28,42 @@ impl Saida {
 /// Código devolvido quando o processo estoura o tempo limite.
 pub const CODIGO_TEMPO_ESGOTADO: i32 = -2;
 
+/// Teto do que o harness guarda de stdout/stderr de UM processo.
+///
+/// Um programa em laço que imprime enche a memória do harness, não só a dele:
+/// `read_to_end` cresce sem limite. O que interessa ao relatório é a primeira
+/// divergência e a primeira linha do stderr, e as duas cabem de sobra aqui.
+/// O resto continua sendo lido e descartado, senão o cano enche e o filho
+/// trava antes do tempo-limite poder matá-lo.
+const TETO_CAPTURA: usize = 4 * 1024 * 1024;
+
+/// Lê tudo até o fim, guardando no máximo [`TETO_CAPTURA`] bytes.
+fn ler_limitado(mut r: impl Read) -> Vec<u8> {
+    let mut acumulado: Vec<u8> = Vec::new();
+    let mut pedaco = [0u8; 64 * 1024];
+    let mut descartados: usize = 0;
+    loop {
+        match r.read(&mut pedaco) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                if acumulado.len() < TETO_CAPTURA {
+                    let cabe = (TETO_CAPTURA - acumulado.len()).min(n);
+                    acumulado.extend_from_slice(&pedaco[..cabe]);
+                    descartados += n - cabe;
+                } else {
+                    descartados += n;
+                }
+            }
+        }
+    }
+    if descartados > 0 {
+        acumulado.extend_from_slice(
+            format!("\n[saída truncada pelo harness: mais {descartados} bytes]\n").as_bytes(),
+        );
+    }
+    acumulado
+}
+
 /// Executa `programa args…` em `cwd`, devolvendo a saída. Mata o processo após `limite`.
 pub fn executar(programa: &str, args: &[String], cwd: &Path, limite: Duration) -> Saida {
     executar_com_path(programa, args, cwd, limite, &[])
@@ -51,16 +87,8 @@ pub fn executar_com_path(programa: &str, args: &[String], cwd: &Path, limite: Du
     };
     let mut out = filho.stdout.take().expect("stdout piped");
     let mut err = filho.stderr.take().expect("stderr piped");
-    let leitor_out = std::thread::spawn(move || {
-        let mut v = Vec::new();
-        let _ = out.read_to_end(&mut v);
-        v
-    });
-    let leitor_err = std::thread::spawn(move || {
-        let mut v = Vec::new();
-        let _ = err.read_to_end(&mut v);
-        v
-    });
+    let leitor_out = std::thread::spawn(move || ler_limitado(&mut out));
+    let leitor_err = std::thread::spawn(move || ler_limitado(&mut err));
     let inicio = Instant::now();
     let mut estourou = false;
     let status = loop {
