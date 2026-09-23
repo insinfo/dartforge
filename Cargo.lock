@@ -354,6 +354,7 @@ name = "dartforge-diferencial"
 version = "0.1.0"
 dependencies = [
  "dartforge-emit-native",
+ "dartforge-frontend",
 ]
 
 [[package]]

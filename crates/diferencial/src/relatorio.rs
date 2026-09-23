@@ -203,6 +203,8 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     let com_producao = resultados.iter().any(|r| r.producao.is_some());
     let mut grupos: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut grupos_prod: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut pendentes_falham = 0usize;
+    let mut pendentes_passaram: Vec<String> = Vec::new();
     for r in resultados {
         let nome = &r.programa.nome;
         if r.dart.codigo != 0 {
@@ -223,6 +225,20 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
             }
         }
         let Some(forge) = &r.forge else { continue };
+        if r.programa.pendente {
+            // Recurso ainda não implementado (`PENDENTES`): falhar é o
+            // esperado e não entra nos grupos; passar reprova, para a lista
+            // ser atualizada.
+            if r.ok() {
+                ok += 1;
+                pendentes_passaram.push(nome.clone());
+                let _ = writeln!(out, "PASSOU {nome}  (está em PENDENTES: retire-o da lista)");
+            } else {
+                pendentes_falham += 1;
+                let _ = writeln!(out, "PEND   {nome}");
+            }
+            continue;
+        }
         match r.forge_vs_referencia() {
             None => {
                 ok += 1;
@@ -283,6 +299,15 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     }
     if com_producao {
         let _ = writeln!(out, "DartForge produção:        {ok_prod}/{total} ok");
+    }
+    if pendentes_falham + pendentes_passaram.len() > 0 {
+        let _ = writeln!(
+            out,
+            "Pendentes (PENDENTES): {} ainda falham, {} passaram{}",
+            pendentes_falham,
+            pendentes_passaram.len(),
+            if pendentes_passaram.is_empty() { String::new() } else { format!(" — retire da lista: {}", pendentes_passaram.join(", ")) }
+        );
     }
     if !nativo {
         let _ = writeln!(out, "DDC×VM: {}/{total} batem (sem contar {} com divergência declarada)", total - avisos_ddc - resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count(), resultados.iter().filter(|r| r.programa.diverge_ddc.is_some()).count());
@@ -397,7 +422,7 @@ mod testes {
 
     #[test]
     fn relatorio_agrupa() {
-        let p = |nome: &str| Programa { nome: nome.into(), entrada: "x.dart".into(), arquivos: vec![], diverge_ddc: None };
+        let p = Programa::teste;
         let r = vec![
             Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false, producao: None },
             Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },

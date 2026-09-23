@@ -1,6 +1,25 @@
 //! Enumeração dos programas do corpus e leitura do cabeçalho de cada um.
+//!
+//! Cabeçalhos reconhecidos nas primeiras linhas da entrada (comentários de
+//! linha, na ordem que for):
+//!
+//! * `// @dart=x.y` — o marcador **oficial** de versão de linguagem: vale
+//!   para a VM, para o DDC e para o DartForge, sem nada do harness no meio;
+//! * `// requer-dart: x.y` — a versão **corrente** que o programa exige: o
+//!   oráculo é o menor SDK configurado com versão ≥ x.y, e o DartForge recebe
+//!   `--versao-linguagem x.y`. Sem ele, 3.6 (o piso; `corpus/js`);
+//! * `// erro-de-compilacao` — programa negativo: VM, DDC e DartForge têm de
+//!   **recusá-lo**, e o relatório compara a linha do primeiro erro;
+//! * `// experimentos: a,b` — `--enable-experiment=a,b` nos três;
+//! * `// diverge-ddc: motivo` — a web imprime, por definição, outra coisa.
+//!
+//! Um arquivo `PENDENTES` no diretório do corpus lista (um por linha) os
+//! programas de recursos ainda não implementados: falham sem reprovar, e
+//! passar sem sair da lista reprova (a lista só encolhe).
 
 use std::path::{Path, PathBuf};
+
+use dartforge_frontend::LanguageVersion;
 
 /// Um programa do corpus: um `x.dart` solto ou um diretório com `main.dart`.
 #[derive(Debug, Clone)]
@@ -14,9 +33,79 @@ pub struct Programa {
     /// Motivo declarado no cabeçalho (`// diverge-ddc: …`) quando o programa,
     /// por definição, imprime coisas diferentes na VM e na web.
     pub diverge_ddc: Option<String>,
+    /// `// requer-dart: x.y`: a versão corrente em que o programa roda (3.6 sem o cabeçalho).
+    pub requer: LanguageVersion,
+    /// `// @dart=x.y` da entrada, quando há.
+    pub marcador: Option<LanguageVersion>,
+    /// `// erro-de-compilacao`: o programa tem de ser recusado.
+    pub erro_compilacao: bool,
+    /// `// experimentos: a,b`.
+    pub experimentos: Vec<String>,
+    /// Listado em `PENDENTES`: recurso ainda não implementado no DartForge.
+    pub pendente: bool,
+}
+
+/// O que o cabeçalho de um programa declara.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Cabecalho {
+    pub diverge_ddc: Option<String>,
+    pub requer: Option<LanguageVersion>,
+    pub erro_compilacao: bool,
+    pub experimentos: Vec<String>,
+}
+
+/// Lê os cabeçalhos do harness nas primeiras linhas do arquivo.
+pub fn ler_cabecalho(fonte: &str) -> Cabecalho {
+    let mut c = Cabecalho::default();
+    for l in fonte.lines().take(20) {
+        let Some(resto) = l.trim().strip_prefix("//") else { continue };
+        let resto = resto.trim_start();
+        if let Some(m) = resto.strip_prefix("diverge-ddc:") {
+            c.diverge_ddc.get_or_insert_with(|| m.trim().to_string());
+        } else if let Some(v) = resto.strip_prefix("requer-dart:") {
+            c.requer = c.requer.or(LanguageVersion::parse(v));
+        } else if resto.trim_end() == "erro-de-compilacao" {
+            c.erro_compilacao = true;
+        } else if let Some(e) = resto.strip_prefix("experimentos:") {
+            c.experimentos.extend(e.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_string));
+        }
+    }
+    c
 }
 
 impl Programa {
+    /// Um programa com os cabeçalhos lidos de `entrada`.
+    pub fn novo(nome: String, entrada: PathBuf, arquivos: Vec<PathBuf>) -> Programa {
+        let fonte = std::fs::read_to_string(&entrada).unwrap_or_default();
+        let c = ler_cabecalho(&fonte);
+        Programa {
+            nome,
+            entrada,
+            arquivos,
+            diverge_ddc: c.diverge_ddc,
+            requer: c.requer.unwrap_or(LanguageVersion::PISO),
+            marcador: dartforge_frontend::features::marcador_versao(&fonte).map(|m| m.0),
+            erro_compilacao: c.erro_compilacao,
+            experimentos: c.experimentos,
+            pendente: false,
+        }
+    }
+
+    /// Programa sintético, sem arquivo (testes do harness).
+    pub fn teste(nome: &str) -> Programa {
+        Programa {
+            nome: nome.to_string(),
+            entrada: PathBuf::from("x.dart"),
+            arquivos: vec![],
+            diverge_ddc: None,
+            requer: LanguageVersion::PISO,
+            marcador: None,
+            erro_compilacao: false,
+            experimentos: vec![],
+            pendente: false,
+        }
+    }
+
     /// Conteúdo concatenado de todos os arquivos (base do hash do cache).
     pub fn conteudo(&self) -> Vec<u8> {
         let mut v = Vec::new();
@@ -43,12 +132,17 @@ impl Programa {
 
 /// Lê o marcador `// diverge-ddc: motivo` nas primeiras linhas do arquivo.
 pub fn ler_diverge_ddc(fonte: &str) -> Option<String> {
-    fonte.lines().take(20).find_map(|l| {
-        let l = l.trim();
-        let resto = l.strip_prefix("//")?.trim_start();
-        let motivo = resto.strip_prefix("diverge-ddc:")?;
-        Some(motivo.trim().to_string())
-    })
+    ler_cabecalho(fonte).diverge_ddc
+}
+
+/// Os nomes listados em `<dir>/PENDENTES` (linhas vazias e comentários `#` ignorados).
+pub fn ler_pendentes(dir: &Path) -> Vec<String> {
+    std::fs::read_to_string(dir.join("PENDENTES"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
 }
 
 /// Lista os programas de `dir`: `*.dart` diretos e subdiretórios com `main.dart`,
@@ -61,13 +155,7 @@ pub fn listar(dir: &Path, filtro: Option<&str>) -> Vec<Programa> {
     for p in caminhos {
         if p.is_file() && p.extension().is_some_and(|e| e == "dart") {
             let nome = p.file_stem().unwrap().to_string_lossy().into_owned();
-            let fonte = std::fs::read_to_string(&p).unwrap_or_default();
-            programas.push(Programa {
-                nome,
-                entrada: p.clone(),
-                arquivos: vec![p],
-                diverge_ddc: ler_diverge_ddc(&fonte),
-            });
+            programas.push(Programa::novo(nome, p.clone(), vec![p]));
         } else if p.is_dir() {
             let entrada = p.join("main.dart");
             if !entrada.is_file() {
@@ -78,9 +166,12 @@ pub fn listar(dir: &Path, filtro: Option<&str>) -> Vec<Programa> {
             listar_dart_recursivo(&p, &mut arquivos);
             arquivos.sort();
             arquivos.dedup();
-            let fonte = std::fs::read_to_string(&entrada).unwrap_or_default();
-            programas.push(Programa { nome, entrada, arquivos, diverge_ddc: ler_diverge_ddc(&fonte) });
+            programas.push(Programa::novo(nome, entrada, arquivos));
         }
+    }
+    let pendentes = ler_pendentes(dir);
+    for p in &mut programas {
+        p.pendente = pendentes.iter().any(|n| *n == p.nome);
     }
     if let Some(f) = filtro {
         programas.retain(|p| p.nome.contains(f));
@@ -89,6 +180,7 @@ pub fn listar(dir: &Path, filtro: Option<&str>) -> Vec<Programa> {
     programas.sort_by(|a, b| numero(&a.nome).cmp(&numero(&b.nome)).then_with(|| a.nome.cmp(&b.nome)));
     programas
 }
+
 
 /// Lê `K/N` (fragmento K de N, contado a partir de 1) — o argumento de `--fragmento`.
 pub fn ler_fragmento(texto: &str) -> Result<(usize, usize), String> {
@@ -163,6 +255,16 @@ mod testes {
     }
 
     #[test]
+    fn cabecalhos_de_versao_negativo_e_experimentos() {
+        let c = ler_cabecalho("// @dart=3.6\n// requer-dart: 3.13\n// erro-de-compilacao\n// experimentos: macros, augmentations\nvoid main() {}");
+        assert_eq!(c.requer, Some(LanguageVersion::new(3, 13)));
+        assert!(c.erro_compilacao);
+        assert_eq!(c.experimentos, vec!["macros".to_string(), "augmentations".to_string()]);
+        assert_eq!(c.diverge_ddc, None);
+        assert_eq!(ler_cabecalho("void main() {}"), Cabecalho::default());
+    }
+
+    #[test]
     fn temas() {
         assert_eq!(tema("01_print"), "Literais e strings");
         assert_eq!(tema("113_imports"), "Extensions, typedef e bibliotecas");
@@ -171,7 +273,7 @@ mod testes {
 
     #[test]
     fn fragmentos_particionam_o_corpus() {
-        let p = |nome: String| Programa { nome, entrada: PathBuf::new(), arquivos: vec![], diverge_ddc: None };
+        let p = |nome: String| Programa::teste(&nome);
         let todos: Vec<Programa> = (0..23).map(|i| p(format!("{i:02}_x"))).collect();
         let n = 4;
         let mut vistos: Vec<String> = Vec::new();

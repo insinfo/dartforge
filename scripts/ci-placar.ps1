@@ -27,6 +27,7 @@ $grupos = [ordered]@{}
 $programas = 0
 $segundos = @()
 $dartQuebrado = @()
+$pendentes = $null
 $lidos = 0
 
 foreach ($arq in $Relatorio) {
@@ -41,6 +42,8 @@ foreach ($arq in $Relatorio) {
             if (!$placar.Contains($r)) { $placar[$r] = @(0, 0) }
             $placar[$r] = @(($placar[$r][0] + [int]$Matches[2]), ($placar[$r][1] + [int]$Matches[3]))
             $secao = $null
+        } elseif ($l -match '^Pendentes \(PENDENTES\): (\d+) ainda falham, (\d+) passaram') {
+            $pendentes = @([int]$Matches[1], [int]$Matches[2])
         } elseif ($l -match '^DDC×VM: (\d+)/(\d+) batem \(sem contar (\d+)') {
             if (!$ddc) { $ddc = @(0, 0, 0) }
             $ddc = @(($ddc[0] + [int]$Matches[1]), ($ddc[1] + [int]$Matches[2]), ($ddc[2] + [int]$Matches[3]))
@@ -89,6 +92,7 @@ if ($lidos -eq 0) {
     $out.Add('| executor | placar |')
     $out.Add('| --- | ---: |')
     foreach ($r in $placar.Keys) { $out.Add("| $r | **$($placar[$r][0])/$($placar[$r][1])** |") }
+    if ($pendentes) { $out.Add("| pendentes (PENDENTES) | $($pendentes[0]) ainda falham, $($pendentes[1]) passaram |") }
     if ($ddc) { $out.Add("| DDC×VM (oráculos) | $($ddc[0])/$($ddc[1] - $ddc[2]) (+$($ddc[2]) com divergência declarada) |") }
     $out.Add('')
     if ($segundos.Count -eq 1) {

@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 dartforge-emit-native = { path = "../emit_native" }
+dartforge-frontend = { path = "../frontend" }
 
 [lib]
 path = "src/lib.rs"

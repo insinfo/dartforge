@@ -190,7 +190,7 @@ mod testes {
     use std::time::Duration;
 
     fn programas(n: usize) -> Vec<Programa> {
-        (0..n).map(|i| Programa { nome: format!("p{i}"), entrada: "x.dart".into(), arquivos: vec![], diverge_ddc: None }).collect()
+        (0..n).map(|i| Programa::teste(&format!("p{i}"))).collect()
     }
 
     #[test]

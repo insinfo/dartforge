@@ -26,6 +26,8 @@ editors/vscode/package-lock.json
 # SDK compilado pelo DDC: gerado por scripts/gerar-dart-sdk.ps1
 runtime/ddc/dart_sdk.js
 runtime/ddc/dart_sdk.js.map
+# o dart_sdk.js do SDK de oráculo 3.13 (crates/diferencial), por versão
+runtime/ddc/*/
 
 # worktrees de subagentes
 .claude/worktrees/
