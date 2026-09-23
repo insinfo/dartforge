@@ -87,14 +87,22 @@ Nesta ordem, com o objetivo escrito ao lado:
    Objetivo: entender **o que** ele otimiza e **por que** cada otimização é
    segura, não copiar código.
 
-2. **`docs/DART2JS-REFERENCIA.md`** e `docs/OTIMIZACAO.md` no nosso repo —
+2. **`docs/PESQUISA-OTIMIZACAO.md`** — leitura obrigatória, e antes das
+   outras. Traz a bibliografia aplicada (RTA do Bacon, Safe ICF, HyFM,
+   ThinLTO, Liška sobre equivalência de funções, Build Systems à la Carte)
+   com o que tirar de cada uma, a ordem das otimizações, as quatro
+   deduplicações diferentes de pacotes vendorizados e a regra que não pode
+   ser quebrada: compartilhar representação interna é uma coisa, unificar
+   identidade de biblioteca é outra — e a segunda muda o programa.
+
+3. **`docs/DART2JS-REFERENCIA.md`** e `docs/OTIMIZACAO.md` no nosso repo —
    o que já foi levantado.
 
-3. **`references/oxc`** — infraestrutura JS em Rust (parser, minificador,
+4. **`references/oxc`** — infraestrutura JS em Rust (parser, minificador,
    mangler). Se formos minificar, não escreva um minificador do zero antes
    de ver o que ele resolve.
 
-4. **`crates/emit_js/src/module.rs`** — como a emissão atual agrupa
+5. **`crates/emit_js/src/module.rs`** — como a emissão atual agrupa
    bibliotecas em módulos e resolve nomes. O perfil de produção parte da
    mesma trilha semântica.
 
