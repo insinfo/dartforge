@@ -188,7 +188,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .and_then(|p| p.file_name())
             .map_or_else(|| unit.uri.clone(), |n| n.to_string_lossy().into_owned());
         self.erros.push(format!(
-            "não suportado no backend nativo: {oque} ({arquivo}:{linha}:{coluna})"
+            "{}{oque} ({arquivo}:{linha}:{coluna})",
+            crate::PREFIXO_NAO_SUPORTADO
         ));
         Operand::Constant(Constant::Null)
     }

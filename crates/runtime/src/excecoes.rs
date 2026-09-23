@@ -105,20 +105,6 @@ thread_local! {
     static EXCEPTION: RefCell<Option<TaggedValue>> = RefCell::new(None);
 }
 
-/// Programa que não compilou (construto não suportado): imprime os
-/// diagnósticos que o lowering produziu e sai com 254.
-///
-/// # Safety
-/// `ptr` aponta para `len` bytes UTF-8 de uma constante do módulo.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_erro_de_compilacao(ptr: *const u8, len: i64) {
-    let len = usize::try_from(len).expect("comprimento inválido");
-    // SAFETY: constante LLVM legível pelo comprimento informado.
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-    use std::io::Write;
-    let _ = std::io::stderr().lock().write_all(bytes);
-    std::process::exit(254);
-}
 /// A exceção pendente como referência (o valor da variável do `catch`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_peek_ref() -> i64 {

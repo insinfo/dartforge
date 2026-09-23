@@ -11,7 +11,9 @@ fn o_aot_compila_os_mesmos_arquivos() {
     let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut concatenado = String::new();
     for f in dartforge_runtime::simbolos::FRAGMENTOS {
-        concatenado.push_str(&std::fs::read_to_string(src.join(format!("{f}.rs"))).expect("ler fragmento"));
+        concatenado.push_str(
+            &std::fs::read_to_string(src.join(format!("{f}.rs"))).expect("ler fragmento"),
+        );
     }
     assert!(texto.ends_with(&concatenado));
 }
@@ -26,7 +28,11 @@ fn a_tabela_cobre_os_simbolos_do_runtime() {
     nomes.sort_unstable();
     nomes.dedup();
     assert_eq!(nomes.len(), tabela.len());
-    assert!(tabela.iter().all(|(n, a)| n.starts_with("dartforge_") && *a != 0));
+    assert!(
+        tabela
+            .iter()
+            .all(|(n, a)| n.starts_with("dartforge_") && *a != 0)
+    );
     assert!(!nomes.contains(&"main"));
     // Cada nome anunciado aparece no texto que o AOT compila.
     for nome in &nomes {
