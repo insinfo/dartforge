@@ -1,7 +1,7 @@
 // requer-dart: 3.13
 // Construtores primários (3.13): `var`/`final` declaram campo; parâmetro
-// simples não; parte `this : inits { corpo }`; nome `C.id`; `const`; enum e
-// extension type; nomeados, opcionais e defaults.
+// simples não; parte `this : inits { corpo }`; nome `C.id`; `const`; enum;
+// nomeados, opcionais e defaults. (Extension type: 347.)
 class Point(var int x, var int y);
 
 class Nome(String cru) {
@@ -36,14 +36,6 @@ enum E(final String rot) {
   String get dupla => rot * 2;
 }
 
-extension type Id(int v) {
-  int get dobro => v * 2;
-}
-
-extension type const Chave._(final String s) implements Object {
-  static Chave de(String s) => Chave._(s.toLowerCase());
-}
-
 void main() {
   var p = Point(1, 2);
   p.x = 5;
@@ -62,6 +54,4 @@ void main() {
   print(Filho(10, 5).soma);
   print(E.b.rot);
   print(E.a.dupla);
-  print(Id(21).dobro);
-  print(Chave.de('ABC').s);
 }

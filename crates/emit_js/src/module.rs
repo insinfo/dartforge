@@ -1801,6 +1801,40 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
     }
 }
 
+/// `ctor` é o construtor primário elaborado (Dart 3.13) da classe `c`?
+fn eh_construtor_primario(ctx: &Ctx, c: ClassId, ctor: &ast::Constructor) -> bool {
+    let Some(d) = ctx.program.class(c).decl else { return false };
+    let ast = &ctx.program.unit(d.unit).ast;
+    let primario = match &ast.decl(d.decl).kind {
+        ast::DeclKind::Class(k) => k.primary_constructor,
+        ast::DeclKind::Enum(k) => k.primary_constructor,
+        _ => None,
+    };
+    primario.is_some_and(|mid| matches!(&ast.member(mid).kind, ast::MemberKind::Constructor(k) if std::ptr::eq(k, ctor)))
+}
+
+/// Inicializadores de campo emitidos pelo emissor do próprio construtor
+/// (construtor primário): os parâmetros dele estão em escopo.
+fn emit_field_inits_no_construtor(e: &mut FnEmitter, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
+    for f in fields {
+        if skip.contains(&f.name) {
+            continue;
+        }
+        let target = match &f.storage {
+            Some(s) => format!("this[{s}]"),
+            None => format!("this{}", js::prop_access(&crate::body::js_member_name(&f.name))),
+        };
+        match f.init {
+            Some(i) if !f.late => {
+                let (js, _) = e.emit_expr(i, Some(&f.ty));
+                flush_stmts(e, body);
+                crate::linha!(body, "{target} = {};", js.code);
+            }
+            _ => crate::linha!(body, "{target} = null;"),
+        }
+    }
+}
+
 fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Writer) {
     let class = ctx.program.class(c);
     let sup = match ctx.superclass_of(c) {
@@ -1915,7 +1949,15 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
             }
         }
     }
-    emit_field_inits(ctx, m, c, fields, &skip, &mut body);
+    if eh_construtor_primario(ctx, c, ctor) {
+        // Construtor primário (3.13): os inicializadores de campo não-`late`
+        // estão no escopo dos parâmetros dele ("primary initializer scope").
+        // Emitidos pelo próprio emissor do construtor, que já os declarou —
+        // é o que o DDC faz (`this[up] = cru[$toUpperCase]()`).
+        emit_field_inits_no_construtor(&mut e, fields, &skip, &mut body);
+    } else {
+        emit_field_inits(ctx, m, c, fields, &skip, &mut body);
+    }
     // `this.x` params.
     for p in ctor.parameters.iter() {
         if p.this_ {
