@@ -172,7 +172,7 @@ fn recurso_desligado_pela_versao_e_diagnostico_do_parser() {
     assert_eq!(d.len(), 1, "{d:?}");
     assert!(
         d[0].message
-            .contains("'null-aware-elements' exige a versão de linguagem 3.8"),
+            .contains("This requires the 'null-aware-elements' language feature to be enabled."),
         "{}",
         d[0].message
     );
