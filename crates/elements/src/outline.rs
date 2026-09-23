@@ -1255,7 +1255,63 @@ fn merge_class_patch(
                 }
                 constructors.insert(ctor_sym, fn_id);
             }
-            _ => {}
+            MemberKind::Field(vars) => {
+                // Campos declarados numa `@patch class` (o `StringBuffer` e o
+                // `Error` da VM guardam estado em campos do patch): entram na
+                // classe como os da declaração original, com os acessores
+                // implícitos.
+                for (idx, var) in vars.variables.iter().enumerate() {
+                    let var_id = VariableId(pools.variables.len() as u32);
+                    let var_sym = var.name.sym;
+                    let acessor = |pools: &mut ElementPools| {
+                        let id = FunctionElementId(pools.functions.len() as u32);
+                        pools.functions.push(FunctionElement {
+                            name: var_sym,
+                            library: lib_id,
+                            class: Some(class_id),
+                            extension: None,
+                            kind: FunctionKind::ImplicitAccessor,
+                            static_: vars.static_,
+                            abstract_: vars.abstract_,
+                            external: vars.external,
+                            const_: vars.const_,
+                            factory: false,
+                            node: FunctionRef::None,
+                            variable: Some(var_id),
+                            patched_by: None,
+                        });
+                        id
+                    };
+                    let getter_id = acessor(pools);
+                    let setter_id = (!vars.final_ && !vars.const_).then(|| acessor(pools));
+                    pools.variables.push(VariableElement {
+                        name: var_sym,
+                        library: lib_id,
+                        class: Some(class_id),
+                        extension: None,
+                        static_: vars.static_,
+                        final_: vars.final_,
+                        const_: vars.const_,
+                        late: vars.late,
+                        external: vars.external,
+                        node: VariableRef::Field {
+                            unit: unit_id,
+                            member: mid,
+                            index: idx,
+                        },
+                        getter: Some(getter_id),
+                        setter: setter_id,
+                    });
+                    let setter_key = interner.intern(&format!("{}_=", interner.resolve(var_sym)));
+                    let classe = &mut pools.classes[class_id.0 as usize];
+                    classe.fields.push(var_id);
+                    let mapa = if vars.static_ { &mut classe.static_members } else { &mut classe.instance_members };
+                    mapa.insert(var_sym, getter_id);
+                    if let Some(sid) = setter_id {
+                        mapa.insert(setter_key, sid);
+                    }
+                }
+            }
         }
     }
 }
