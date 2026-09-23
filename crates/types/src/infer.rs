@@ -7,7 +7,7 @@
 use crate::codes::*;
 use crate::constraints::ConstraintSolver;
 use crate::flow::FlowState;
-use crate::ops::{non_nullable, substitute};
+use crate::ops::{non_nullable, nullable, substitute};
 use crate::resolved::{BodyTypes, LocalId, MemberRef, Resolved, UnitBodyTypes};
 use crate::scope::{MemberResolver, ScopeStack};
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -85,6 +85,24 @@ impl<'a> BodyInferrer<'a> {
         (self.body_types, self.diagnostics)
     }
 
+    /// Registra um erro de linguagem (`codes::ERRO_DE_LINGUAGEM`): aborta a
+    /// compilação, com o arquivo e o deslocamento na mensagem, como os
+    /// erros de carga.
+    pub(crate) fn erro_de_linguagem(&mut self, unit: UnitId, span: dartforge_diagnostics::Span, msg: String) {
+        let arquivo = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        self.diagnostics.push(Diagnostic::new(format!("{ERRO_DE_LINGUAGEM}{arquivo}:{}: {msg}", span.start), span));
+    }
+
+    /// O símbolo `_` se a biblioteca da unidade tem curingas (Dart 3.7).
+    fn curinga_de(&self, unit: UnitId) -> Option<SymbolId> {
+        let lib = self.program.unit(unit).library;
+        if self.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
+            self.interner.lookup("_")
+        } else {
+            None
+        }
+    }
+
     fn lub(&mut self, a: TypeId, b: TypeId) -> TypeId {
         let mut env = SubtypeEnv::new(self.table, &self.outline.hierarchy, self.core);
         crate::ops::lub(a, b, &mut env)
@@ -116,6 +134,7 @@ impl<'a> BodyInferrer<'a> {
                         if let Some(var_decl) = var_list.variables.get(index) {
                             if let Some(init_expr) = var_decl.initializer {
                                 let mut scope = ScopeStack::new(None, None, true);
+                                scope.curinga = self.curinga_de(unit);
                                 let mut flow = FlowState::new_reachable();
                                 let init_ty = self.infer_expr(
                                     unit,
@@ -153,6 +172,7 @@ impl<'a> BodyInferrer<'a> {
                         if let Some(var_decl) = var_list.variables.get(index) {
                             if let Some(init_expr) = var_decl.initializer {
                                 let mut scope = ScopeStack::new(var_elem.class, None, var_elem.static_);
+                                scope.curinga = self.curinga_de(unit);
                                 let mut flow = FlowState::new_reachable();
                                 let init_ty = self.infer_expr(
                                     unit,
@@ -216,6 +236,7 @@ impl<'a> BodyInferrer<'a> {
                         func_elem.extension,
                         func_elem.static_,
                     );
+                    scope.curinga = self.curinga_de(unit);
 
                     // Adicionar parâmetros de tipo da função genérica
                     for &pid in func_data.type_params.iter() {
@@ -283,6 +304,7 @@ impl<'a> BodyInferrer<'a> {
                     let mem_node = &self.program.unit(unit).ast.members[member.0 as usize];
                     if let ast::MemberKind::Constructor(ctor) = &mem_node.kind {
                         let mut scope = ScopeStack::new(func_elem.class, None, false);
+                        scope.curinga = self.curinga_de(unit);
                         let mut flow = FlowState::new_reachable();
 
                         for (idx, p_data) in func_data.parameters.iter().enumerate() {
@@ -499,6 +521,11 @@ impl<'a> BodyInferrer<'a> {
                         Resolved::Dynamic => self.core.dynamic_,
                         _ => self.core.dynamic_,
                     }
+                } else if scope.curinga == Some(name.sym) {
+                    // Só curingas declaram `_` aqui (3.7): ler é erro
+                    // (`Undefined name '_'` no CFE).
+                    self.erro_de_linguagem(unit, expr.span, WILDCARD_NAO_LIGA.template.to_string());
+                    self.core.dynamic_
                 } else {
                     self.diagnostics.push(Diagnostic::new(
                         format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, self.interner.resolve(name.sym)),
@@ -560,7 +587,9 @@ impl<'a> BodyInferrer<'a> {
                                 inferred_elems.push(self.infer_expr(unit, *e, elem_ctx, scope, flow));
                             }
                             ast::CollectionElement::NullAwareExpression(e) => {
-                                let t = self.infer_expr(unit, *e, elem_ctx, scope, flow);
+                                // Contexto `Ps?`, elemento `NonNull(U)` (spec 3.8).
+                                let ctx = elem_ctx.map(|c| nullable(c, self.table));
+                                let t = self.infer_expr(unit, *e, ctx, scope, flow);
                                 inferred_elems.push(non_nullable(t, self.table));
                             }
                             _ => {}
@@ -616,9 +645,14 @@ impl<'a> BodyInferrer<'a> {
                     let mut v_types = Vec::new();
 
                     for el in elements {
-                        if let ast::CollectionElement::MapEntry { key, value, .. } = el {
-                            k_types.push(self.infer_expr(unit, *key, k_ctx, scope, flow));
-                            v_types.push(self.infer_expr(unit, *value, v_ctx, scope, flow));
+                        if let ast::CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } = el {
+                            // Parte null-aware: contexto anulável, tipo sem `null` (spec 3.8).
+                            let kc = if *null_aware_key { k_ctx.map(|c| nullable(c, self.table)) } else { k_ctx };
+                            let vc = if *null_aware_value { v_ctx.map(|c| nullable(c, self.table)) } else { v_ctx };
+                            let kt = self.infer_expr(unit, *key, kc, scope, flow);
+                            let vt = self.infer_expr(unit, *value, vc, scope, flow);
+                            k_types.push(if *null_aware_key { non_nullable(kt, self.table) } else { kt });
+                            v_types.push(if *null_aware_value { non_nullable(vt, self.table) } else { vt });
                         }
                     }
 
@@ -659,8 +693,15 @@ impl<'a> BodyInferrer<'a> {
                     // Set
                     let mut elem_types = Vec::new();
                     for el in elements {
-                        if let ast::CollectionElement::Expression(e) = el {
-                            elem_types.push(self.infer_expr(unit, *e, None, scope, flow));
+                        match el {
+                            ast::CollectionElement::Expression(e) => {
+                                elem_types.push(self.infer_expr(unit, *e, None, scope, flow));
+                            }
+                            ast::CollectionElement::NullAwareExpression(e) => {
+                                let t = self.infer_expr(unit, *e, None, scope, flow);
+                                elem_types.push(non_nullable(t, self.table));
+                            }
+                            _ => {}
                         }
                     }
                     let elem_ty = if !elem_types.is_empty() {
@@ -1278,6 +1319,7 @@ impl<'a> BodyInferrer<'a> {
             ExprKind::FunctionExpression(func_id) => {
                 let ast_func = &self.program.unit(unit).ast.functions[func_id.0 as usize];
                 let mut closure_scope = ScopeStack::new(scope.enclosing_class, scope.enclosing_extension, false);
+                closure_scope.curinga = scope.curinga;
 
                 let mut param_types = Vec::new();
                 if let Some(params) = &ast_func.parameters {
