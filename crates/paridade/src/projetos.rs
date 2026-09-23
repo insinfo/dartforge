@@ -115,6 +115,28 @@ pub fn copiar(p: &Projeto, destino: &Path) -> Result<PathBuf, String> {
     Ok(d)
 }
 
+/// Agrupa `arquivos` pelo pacote dono (o diretório mais próximo, subindo até
+/// `raiz`, que tem `pubspec.yaml`), em ordem de caminho.
+pub fn por_pacote(raiz: &Path, arquivos: &[PathBuf]) -> Vec<(PathBuf, Vec<PathBuf>)> {
+    let mut grupos: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> = Default::default();
+    for a in arquivos {
+        let mut d = a.parent();
+        let mut dono = raiz.to_path_buf();
+        while let Some(x) = d {
+            if x.join("pubspec.yaml").is_file() {
+                dono = x.to_path_buf();
+                break;
+            }
+            if crate::analise::chave(x) == crate::analise::chave(raiz) {
+                break;
+            }
+            d = x.parent();
+        }
+        grupos.entry(dono).or_default().push(a.clone());
+    }
+    grupos.into_iter().collect()
+}
+
 /// Os sítios de um tipo de mutação num arquivo: `(início, fim, inserir)`.
 pub fn sitios(texto: &str, tipo: &str) -> Vec<(usize, usize, String)> {
     let mut interner = dartforge_intern::Interner::new();

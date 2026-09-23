@@ -90,6 +90,17 @@ fn gerado(uri: &str) -> bool {
         .any(|s| uri.ends_with(s))
 }
 
+/// O arquivo `alvo` (de um `lib/` de pacote) existe como saída do `build_runner`
+/// (`.dart_tool/build/generated/<pacote>/lib/<rel>`)? O analyzer os enxerga.
+fn gerado_pelo_build(c: &dartforge_elements::PackageConfig, alvo: &Path) -> bool {
+    c.package_dirs.iter().any(|(nome, dir)| {
+        alvo.strip_prefix(dir)
+            .ok()
+            .and_then(|rel| c.generated_path(nome, &rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")))
+            .is_some()
+    })
+}
+
 impl Motor {
     pub fn novo(sdk_lib: &Path) -> Result<Motor, String> {
         let sdk = SdkLayout::load(sdk_lib, "dartdevc")?;
@@ -305,7 +316,8 @@ impl Motor {
             // Outros esquemas (`dart-ext:`, `http:`): fora do escopo.
             return None;
         } else {
-            base.join(uri).is_file()
+            let alvo = chave(&base.join(uri));
+            alvo.is_file() || config.is_some_and(|c| gerado_pelo_build(c, &alvo))
         };
         if existe {
             return None;

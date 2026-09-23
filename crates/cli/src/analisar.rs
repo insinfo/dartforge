@@ -53,8 +53,16 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
     let diags = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let a = motor.analisar(&r2, &arquivos, packages.as_deref());
-            dartforge_paridade::diagnosticos_json(&a, &r2, &o2, !todos)
+            // Pacotes aninhados (`example/`): cada um com o seu package_config.
+            let mut v = Vec::new();
+            for (raiz_pkg, fs) in dartforge_paridade::projetos::por_pacote(&r2, &arquivos) {
+                let c = raiz_pkg.join(".dart_tool").join("package_config.json");
+                let c = if c.is_file() { Some(c) } else { packages.clone() };
+                let a = motor.analisar(&r2, &fs, c.as_deref());
+                v.extend(dartforge_paridade::diagnosticos_json(&a, &r2, &o2, !todos));
+            }
+            dartforge_paridade::json::ordenar(&mut v);
+            v
         })?
         .join()
         .map_err(|_| "a análise abortou")?;

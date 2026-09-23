@@ -467,7 +467,20 @@ fn cmd_projetos(a: &Args) -> ExitCode {
         let cfg = p.caminho.join(".dart_tool/package_config.json");
         let t = Instant::now();
         eprintln!("{}: nosso lado, {} arquivos…", p.nome, arquivos.len());
-        let r = rodar_nosso(&motor, &p.caminho, &arquivos, Some(&cfg), &opcoes, &execucao(trab, lote));
+        // Pacotes aninhados (`example/` com pubspec próprio) são contextos de
+        // análise à parte no analyzer: cada um com o seu package_config.
+        let mut r = dartforge_paridade::Rodada::default();
+        for (raiz_pkg, fs) in projetos::por_pacote(&p.caminho, &arquivos) {
+            let c = raiz_pkg.join(".dart_tool/package_config.json");
+            let c = if c.is_file() { c } else { cfg.clone() };
+            let parcial = rodar_nosso(&motor, &p.caminho, &fs, Some(&c), &opcoes, &execucao(trab, lote));
+            r.registros.extend(parcial.registros);
+            r.arquivos += parcial.arquivos;
+            r.lotes += parcial.lotes;
+            r.panicos.extend(parcial.panicos);
+            r.ambiguos += parcial.ambiguos;
+        }
+        r.registros.sort();
         let mut pl = Placar::default();
         pl.comparar(oraculo_regs, &r.registros);
         let tg = pl.total();
