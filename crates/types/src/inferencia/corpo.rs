@@ -84,6 +84,8 @@ pub(crate) struct Corpo {
     /// Campos promovíveis (Dart 3.2) já referidos: `(base, campo) -> local
     /// sintético` que carrega o modelo de fluxo do campo.
     pub campos: HashMap<(Base, VariableId), LocalId>,
+    /// Fluxos de antes de cada `?.` das cadeias em curso.
+    pub cadeias: Vec<super::fluxo::Fluxo>,
 }
 
 /// Base de uma referência a campo promovível.
@@ -132,6 +134,7 @@ impl Corpo {
             escritos_no_corpo: None,
             raiz: Raiz::Nada,
             campos: HashMap::new(),
+            cadeias: Vec::new(),
         };
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).

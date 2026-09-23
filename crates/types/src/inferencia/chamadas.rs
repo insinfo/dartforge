@@ -135,9 +135,15 @@ pub(crate) fn invocar(
     }
     verificar_aridade(inf, &positional, &optional, &named, args);
     let params = parametros_dos_argumentos(inf, &positional, &optional, &named, args);
+    let contexto_numerico = inf.contexto_numerico_pendente.take();
     if type_params.is_empty() {
         for (a, p) in args.args.iter().zip(params.iter()) {
-            let t = inferir(inf, cx, a.value, p.unwrap_or(u));
+            // `x.clamp(a, b)` / `x.remainder(a)`: o contexto refinado do analyzer.
+            let c = match (contexto_numerico, a.name) {
+                (Some(c), None) => c,
+                _ => p.unwrap_or(u),
+            };
+            let t = inferir(inf, cx, a.value, c);
             if let Some(p) = p {
                 let sp = inf.span_expr(cx.unit, a.value);
                 inf.verificar_atribuivel(t, *p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
@@ -302,6 +308,17 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     registrar(inf, cx, target, m.tipo);
                     // O nome do método guarda o tipo não instanciado (como o
                     // `methodName.staticType` do analyzer).
+                    if m.metodo {
+                        if let Some(sym) = [inf.sym.remainder, inf.sym.clamp].into_iter().flatten().find(|s| *s == name.sym) {
+                            let param = match inf.table.get(m.tipo) {
+                                Type::Function { positional, .. } => positional.first().copied(),
+                                _ => None,
+                            };
+                            if let Some(pt) = param {
+                                inf.contexto_numerico_pendente = Some(expr::contexto_numerico(inf, r_ty, &m, sym, ctx, pt));
+                            }
+                        }
+                    }
                     let (mut r, _) = if m.metodo {
                         let t = inf.nao_nulo(m.tipo);
                         invocar(inf, cx, t, args, ctx, explicitos)

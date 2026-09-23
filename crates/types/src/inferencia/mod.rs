@@ -113,6 +113,9 @@ pub struct BodyInferrer<'a> {
     pub(crate) params_construtor: HashMap<u32, Vec<crate::table::TypeParamId>>,
     /// Campos promovíveis já decididos.
     pub(crate) promoviveis: HashMap<u32, bool>,
+    /// Contexto refinado dos argumentos de `clamp`/`remainder` para a
+    /// próxima invocação.
+    pub(crate) contexto_numerico_pendente: Option<TypeId>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -151,6 +154,7 @@ impl<'a> BodyInferrer<'a> {
             params_colecao_cache: None,
             params_construtor: HashMap::new(),
             promoviveis: HashMap::new(),
+            contexto_numerico_pendente: None,
         }
     }
 

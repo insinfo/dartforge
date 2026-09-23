@@ -310,7 +310,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     }
     for e in cx.escritos_no_corpo.clone().unwrap_or_default().iter() {
         if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
-            fluxo_dentro.juncao_conservadora(&[id], &[]);
+            fluxo_dentro.juncao_conservadora(&[], &[id]);
         }
     }
     cx.escritos_em_closure.extend(escritos.iter().copied());

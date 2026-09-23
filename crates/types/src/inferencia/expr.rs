@@ -22,13 +22,27 @@ use dartforge_intern::SymbolId;
 
 /// Infere `e` no contexto `ctx` (o desconhecido `_` = sem contexto).
 pub(crate) fn inferir(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
+    let marca = cx.cadeias.len();
     let (t, curto) = inferir_no(inf, cx, e, ctx, false);
+    fechar_cadeia(inf, cx, marca);
     if curto {
         let t = inf.anulavel(t);
         registrar(inf, cx, e, t);
         t
     } else {
         t
+    }
+}
+
+/// Fim de uma cadeia com `?.`: a promoção do receptor valeu só dentro dela;
+/// depois, o fluxo é a junção do "era nulo" (o de antes do primeiro `?.`) com
+/// o de ter percorrido a cadeia.
+fn fechar_cadeia(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, marca: usize) {
+    if cx.cadeias.len() > marca {
+        let antes = cx.cadeias[marca].clone();
+        cx.cadeias.truncate(marca);
+        let depois = cx.fluxo.clone();
+        cx.fluxo = inf.juntar(&antes, &depois);
     }
 }
 
@@ -497,7 +511,9 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::This => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Super => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Parenthesized(i) => {
+            let marca = cx.cadeias.len();
             let (t, c) = inferir_no(inf, cx, *i, ctx, false);
+            fechar_cadeia(inf, cx, marca);
             let t = if c { inf.anulavel(t) } else { t };
             registrar(inf, cx, *i, t);
             t
@@ -682,8 +698,14 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, nu
             let sp = inf.span_expr(cx.unit, r);
             inf.aviso(INVALID_NULL_AWARE_OPERATOR.template.to_string(), sp);
         }
-        // A promoção do receptor de `?.` vale só dentro da cadeia; como ela
-        // não é modelada, não se promove (nada vaza para depois da cadeia).
+        // Promove o receptor dentro da cadeia; `fechar_cadeia` desfaz no fim.
+        cx.cadeias.push(cx.fluxo.clone());
+        if let Some(id) = alvo_de_promocao(inf, cx, r) {
+            let decl = cx.local(id).tipo;
+            let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
+            inf.promover_nao_nulo(&mut f, id, decl);
+            cx.fluxo = f;
+        }
         let nn = inf.nao_nulo(t);
         (nn, true)
     } else {

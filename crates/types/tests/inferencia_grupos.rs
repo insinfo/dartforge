@@ -413,3 +413,28 @@ int g(A a) {
     assert_eq!(tipos("a._x"), ["int?", "int"]);
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// `?.` promove o receptor só dentro da cadeia (argumentos inclusive);
+/// `clamp` com contexto `double`; variável escrita no corpo não se promove
+/// dentro de função local.
+#[test]
+fn cadeia_clamp_e_funcao_local() {
+    let r = ou_pula!(inferir(
+        r#"
+class S { int? d; S copia(int e) => this; }
+void f(S? s, double? h, double ph) {
+  var c = s?.copia(s.d ?? 0);
+  final double y = h != null ? h.clamp(1, ph) : 50.0;
+  StringBuffer? buf;
+  void fecha() {
+    if (buf != null) { buf.toString(); }
+  }
+  buf = StringBuffer();
+}
+"#
+    ));
+    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    assert_eq!(tipos("s"), ["S?", "S"]);
+    assert_eq!(tipos("1"), ["double"]);
+    assert_eq!(tipos("buf")[..2], ["StringBuffer?", "StringBuffer?"]);
+}
