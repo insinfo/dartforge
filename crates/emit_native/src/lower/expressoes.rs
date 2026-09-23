@@ -879,6 +879,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             {
                 self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span)
             }
+            // SDK da fonte: mapas e conjuntos são o `_Map`/`_Set` da fonte.
+            ExprKind::SetOrMap { elements, .. } if self.ctx.sdk_da_fonte => {
+                let tipo = if self.literal_e_conjunto(expr_id, elements) {
+                    super::literais::Colecao::Conjunto
+                } else {
+                    super::literais::Colecao::Mapa
+                };
+                self.lower_literal_de_colecao(ast, tipo, elements, expr.span)
+            }
             ExprKind::SetOrMap { elements, .. } if self.literal_e_conjunto(expr_id, elements) => {
                 self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span)
             }

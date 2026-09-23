@@ -47,6 +47,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Coleção vazia do tipo pedido.
     fn colecao_vazia(&mut self, tipo: Colecao) -> Operand {
+        if self.ctx.sdk_da_fonte && tipo != Colecao::Lista {
+            return self.colecao_vazia_fonte(tipo == Colecao::Mapa);
+        }
         match tipo {
             Colecao::Lista => self.emit(Instruction::AllocList { elements: Vec::new() }, Type::Ref),
             Colecao::Mapa => self.emit(Instruction::AllocMap { entries: Vec::new() }, Type::Ref),
@@ -68,6 +71,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Acrescenta um valor à lista ou ao conjunto.
     fn acrescentar(&mut self, alvo: Operand, tipo: Colecao, v: Operand) {
+        if self.ctx.sdk_da_fonte && tipo == Colecao::Conjunto {
+            self.chamar_por_nome(alvo, super::sdk_fonte::Tipo::Chamar, "add", &[(None, v)]);
+            return;
+        }
         let tag = self.operand_tag(&v);
         let (bits, _) = self.para_bits(v);
         let (nome, ret) = match tipo {
@@ -89,6 +96,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     fn acrescentar_entrada(&mut self, alvo: Operand, k: Operand, v: Operand) {
+        if self.ctx.sdk_da_fonte {
+            self.chamar_por_nome(alvo, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, k), (None, v)]);
+            return;
+        }
         let ktag = self.operand_tag(&k);
         let (kbits, _) = self.para_bits(k);
         let vtag = self.operand_tag(&v);
@@ -162,6 +173,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             CollectionElement::Spread { value, null_aware } => {
                 let fonte = self.lower_expr(ast, *value);
                 let fonte = self.coagir(fonte, Type::Ref);
+                if self.ctx.sdk_da_fonte {
+                    // SDK da fonte: `...e` é o `addAll` da coleção (§17.9.1).
+                    let espalhar = |s: &mut Self, f: Operand| {
+                        s.chamar_por_nome(alvo.clone(), super::sdk_fonte::Tipo::Chamar, "addAll", &[(None, f)]);
+                    };
+                    if *null_aware {
+                        self.se_nao_nulo(fonte, espalhar);
+                    } else {
+                        espalhar(self, fonte);
+                    }
+                    return;
+                }
                 if tipo == Colecao::Mapa {
                     self.nao_suportado("espalhamento num literal de mapa", span);
                     return;
@@ -296,6 +319,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } => {
                 let fonte = self.lower_expr(ast, *iterable);
                 let fonte = self.coagir(fonte, Type::Ref);
+                if self.ctx.sdk_da_fonte {
+                    let corpo: &CollectionElement = body;
+                    self.iterar_fonte(fonte, &mut |s: &mut Self, x: Operand| {
+                        s.abrir_escopo();
+                        s.ligar_alvo_de_for_in(ast, target, x, *iterable, span);
+                        s.elemento_de_colecao(ast, alvo.clone(), tipo, corpo, span);
+                        s.fechar_escopo();
+                    });
+                    return;
+                }
                 let n = self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_generic_len".to_string(),

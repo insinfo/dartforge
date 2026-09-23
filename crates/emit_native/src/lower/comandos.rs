@@ -329,6 +329,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 iterable,
                 body,
                 ..
+            } if self.ctx.sdk_da_fonte => {
+                // SDK da fonte: o protocolo do `Iterator` (§17.7.3).
+                self.lower_for_in_fonte(ast, target, *iterable, *body, stmt.span);
+            }
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
             } => {
                 let iterable_op = self.lower_expr(ast, *iterable);
                 self.emit(
