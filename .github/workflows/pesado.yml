@@ -32,11 +32,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-<<<<<<< HEAD
-        options: [todos, js, producao, nativo, jit, determinismo, moderno]
-=======
-        options: [todos, js, producao, nativo, jit, determinismo, custo-zero]
->>>>>>> main
+        options: [todos, js, producao, nativo, jit, determinismo, moderno, custo-zero]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
