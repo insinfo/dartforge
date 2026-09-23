@@ -25,6 +25,14 @@ divergir em resultado é defeito.
 > `src/reload.rs` continua, mas os testes dele esperam migração em
 > `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT
 > (passos 1–13).
+>
+> **O caminho de execução (`run_ir`, `dartforge-executar-ir` e o futuro
+> `dartforge run`/`reload` R0) não passa por `src/reload.rs`.** O módulo entra
+> por `add_ir_module`, sem trampolim nem célula: as chamadas são diretas, como
+> no AOT. Isso é contrato, não detalhe. O trampolim acrescenta um quadro por
+> chamada, e a profundidade de recursão divergiria do executável AOT
+> (`docs/PESQUISA-HOT-RELOAD.md` §4.3). A indireção de R1 será uma célula lida
+> no ponto de chamada, emitida só no perfil recarregável.
 
 
 ## O que executa
@@ -375,15 +383,17 @@ Limites adicionais, e explícitos:
 
 ### Correspondência com o hot reload da Dart VM
 
-Vale registrar o precedente, porque os limites acima não são atalho deste
-projeto — a implementação oficial tem os mesmos, pelos mesmos motivos.
+Vale registrar o precedente. **Correção:** a versão anterior deste texto dizia
+que os limites acima não eram atalho, porque a implementação oficial teria os
+mesmos. Não tem. A VM aceita bem mais do que esta versão aceita (ver
+`docs/PESQUISA-HOT-RELOAD.md`), e as recusas acima são degrau nosso.
 
 | Dart VM | Aqui |
 | --- | --- |
 | O front-end manda um **Dill delta**: só o que mudou | `hot_reload` recebe o IR do **programa inteiro**. É a diferença mais custosa, e a medição abaixo mostra onde ela aparece |
 | Localiza a classe no heap e **troca os ponteiros de método**; instâncias não mudam de endereço e os campos ficam intactos | Troca os ponteiros das **células** das entradas estáveis; os objetos do heap gerenciado não são tocados, mesmo handle, mesmos campos. A ideia é a mesma, um nível acima: lá por método de classe, aqui por função |
 | Código já promovido ao otimizador é **descartado**, não remendado; a função volta ao tier não otimizado | Não há dois níveis aqui. Se houver, esta é a política a seguir: descartar a geração otimizada e recompilar, nunca remendar código otimizado no lugar |
-| Recarga **falha** e exige reinício quando muda `main()`, `initState()`, o inicializador de uma global já inicializada, herança ou assinaturas | Recusas equivalentes na etapa `contract`, tabela acima. `main` é `@dartforge_entry`, uma entrada estável como as outras, e mudar o corpo dela é aceito — a restrição da VM é sobre o *estado* de `main`, não sobre o código |
+| **Corrigido** (esta linha dizia que a VM recusa mudança de herança ou de assinatura; o código mostra o contrário, `docs/PESQUISA-HOT-RELOAD.md` §1.6, §1.8 e §1.9). A VM **aceita** mudar assinatura, superclasse e campos. Chamadas pendentes são religadas por nome, e quem chama um membro que sumiu ou mudou de aridade recebe `NoSuchMethodError` **na chamada** (`object_reload.cc:806-841`; `isolate_reload_test.cc:1479-1531`, `:3205-3235`, `SuperClassChanged` `:760-789`). Campo de tipo novo vira `TypeError` na leitura, pela guarda de carga. A lista de recusas é curta: enum ↔ classe, número de parâmetros de tipo, classe `const` que perde campos ou deixa de ser `const`, e campos nativos (`object_reload.cc:351-607`). Mudar o corpo de `main()` ou de `initState()` também é aceito; só não é reexecutado | As recusas da etapa `contract` (assinatura, função removida, campos de classe) são **limitação desta versão, não semântica do Dart**. O alvo (pesquisa §4.4) é célula nova por `(DeclId, abi)` e a célula antiga reescrita para lançar `NoSuchMethodError`, sem recusa |
 | Inicializador de global já inicializada **preserva o valor antigo** | Divergimos, e o limite é concreto: `crates/llvm` guarda os estáticos de classe e as variáveis de topo numa área do heap cujo handle vive em `@df_statics = internal global i64 0`, e grava todos eles no começo de `dartforge_entry()`. `internal` significa uma cópia por geração, e a inicialização na carga significa que **executar a entrada de novo reinicializa os estáticos** — o que já vale sem hot reload nenhum. Consequências: o estado em estáticos **não** sobrevive a uma recarga, e depois de recarregar é preciso executar a entrada antes de chamar entradas estáveis que toquem estáticos, senão elas leem o handle zero da geração nova. O que persiste entre gerações é o **heap gerenciado** alcançado por handles que o chamador guarda, e é isso que o teste do contador vivo afirma |
 
 ### Medição do ciclo de recarga

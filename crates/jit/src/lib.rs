@@ -489,6 +489,11 @@ impl JitSession {
 /// É o caminho de `dartforge-executar-ir` (e, depois do merge do emissor, de
 /// `dartforge run`). A sessão nasce e morre na chamada.
 ///
+/// O módulo entra por [`JitSession::add_ir_module`], **nunca** pelo caminho
+/// recarregável: sem trampolim, as chamadas são diretas como no AOT, e a
+/// profundidade de recursão é a mesma nos dois perfis. Isso é contrato do
+/// diferencial JIT × AOT (`docs/PESQUISA-HOT-RELOAD.md` §4.3).
+///
 /// # Erros
 /// Propaga as falhas de [`JitSession::new`], [`JitSession::add_ir_module`] e
 /// [`JitSession::run_entry`].
