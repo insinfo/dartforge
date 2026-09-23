@@ -95,13 +95,16 @@ pub enum Type {
         args: Box<[TypeId]>,
         nullable: bool,
     },
+    /// Variável de tipo promovida `X & B` (`flow-analysis.md`, "promote"):
+    /// só existe como tipo estático de uma leitura promovida; nunca anulável.
+    Intersection { param: TypeParamId, bound: TypeId },
 }
 
 impl Type {
     /// Informa se o tipo foi explicitamente anotado como anulável com `?`.
     pub fn is_declared_nullable(&self) -> bool {
         match self {
-            Type::Dynamic | Type::Void | Type::Null | Type::Never => false,
+            Type::Dynamic | Type::Void | Type::Null | Type::Never | Type::Intersection { .. } => false,
             Type::Interface { nullable, .. }
             | Type::Function { nullable, .. }
             | Type::Record { nullable, .. }
@@ -246,6 +249,11 @@ impl TypeTable {
         id
     }
 
+    /// O `TypeId` de um tipo já internado, sem internar.
+    pub fn intern_lookup(&self, ty: Type) -> Option<TypeId> {
+        self.lookup.get(&ty).copied()
+    }
+
     /// Retorna representação textual legível de um tipo para mensagens de diagnóstico.
     pub fn format(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
         let t = self.get(ty);
@@ -331,6 +339,9 @@ impl TypeTable {
                 let q = if *nullable { "?" } else { "" };
                 let name = interner.resolve(self.param(*param).name);
                 format!("{name}{q}")
+            }
+            Type::Intersection { param, bound } => {
+                format!("{} & {}", interner.resolve(self.param(*param).name), self.format(*bound, interner, program))
             }
             Type::ExtensionType {
                 decl,

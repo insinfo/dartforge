@@ -74,16 +74,26 @@ fn main() {
             );
 
             let mut out = std::io::BufWriter::new(std::fs::File::create(saida.expect("-o")).unwrap());
+            // Ordem estável dos dois lados (o comparador faz merge em fluxo):
+            // unidades pelo caminho, linhas por (offset, comprimento), e
+            // offsets em unidades UTF-16, como os do analyzer.
+            let mut unidades: Vec<(String, usize)> = prog
+                .units
+                .iter()
+                .enumerate()
+                .filter(|(_, u)| !prog.library(u.library).is_sdk)
+                .filter_map(|(ui, u)| u.path.as_ref().map(|p| (p.to_string_lossy().replace('\\', "/"), ui)))
+                .collect();
+            unidades.sort();
+            unidades.dedup_by(|a, b| a.0 == b.0);
             let mut lista = Vec::new();
             let (mut total, mut nao_visitadas) = (0usize, 0usize);
-            for (ui, unit) in prog.units.iter().enumerate() {
-                if prog.library(unit.library).is_sdk {
-                    continue;
-                }
-                let Some(path) = &unit.path else { continue };
-                let caminho = path.to_string_lossy().replace('\\', "/");
+            for (caminho, ui) in unidades {
+                let unit = &prog.units[ui];
                 lista.push(caminho.clone());
                 let bt = &bodies.units[ui];
+                let utf16 = mapa_utf16(&unit.source);
+                let mut linhas: Vec<(usize, usize, String)> = Vec::with_capacity(unit.ast.exprs.len());
                 for (i, e) in unit.ast.exprs.iter().enumerate() {
                     let ty = bt.static_types.get(i).copied().unwrap_or(NAO_VISITADA);
                     let tipo = if ty == NAO_VISITADA {
@@ -94,14 +104,12 @@ fn main() {
                     };
                     total += 1;
                     let res = bt.resolved.get(i).and_then(|r| r.as_ref()).map(|r| resolucao(r, &prog, &interner)).unwrap_or_else(|| "-".into());
-                    writeln!(
-                        out,
-                        "{caminho}\t{}\t{}\t{}\t{tipo}\t{res}",
-                        e.span.start,
-                        e.span.end - e.span.start,
-                        nome_no(&e.kind)
-                    )
-                    .unwrap();
+                    let (ini, fim) = (utf16(e.span.start), utf16(e.span.end));
+                    linhas.push((ini, fim - ini, format!("{}	{tipo}	{res}", nome_no(&e.kind))));
+                }
+                linhas.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+                for (ini, comp, resto) in linhas {
+                    writeln!(out, "{caminho}	{ini}	{comp}	{resto}").unwrap();
                 }
             }
             eprintln!("despejo: {} unidades, {total} expressões, {nao_visitadas} não visitadas", lista.len());
@@ -121,6 +129,20 @@ fn main() {
 }
 
 const NAO_VISITADA: TypeId = TypeId(u32::MAX);
+
+/// Offset em bytes UTF-8 → offset em unidades UTF-16.
+fn mapa_utf16(fonte: &str) -> impl Fn(usize) -> usize + '_ {
+    let mut acumulado = Vec::with_capacity(fonte.len() + 1);
+    let mut u = 0usize;
+    for c in fonte.chars() {
+        for _ in 0..c.len_utf8() {
+            acumulado.push(u);
+        }
+        u += c.len_utf16();
+    }
+    acumulado.push(u);
+    move |b| acumulado.get(b).copied().unwrap_or(u)
+}
 
 fn nome_no(k: &ExprKind) -> &'static str {
     match k {
@@ -184,6 +206,7 @@ fn resolucao(r: &Resolved, prog: &Program, i: &Interner) -> String {
 fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
+        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), formatar(t, *bound, i, p)),
         Type::Dynamic => "dynamic".into(),
         Type::Void => "void".into(),
         Type::Never => "Never".into(),

@@ -392,7 +392,7 @@ pub fn build_outline(
                 let prefix_ns = prefixes.entry(prefix_sym).or_default();
                 for (sym, binding) in filtered {
                     let entry = prefix_ns.entry(sym).or_default();
-                    merge_binding(entry, binding);
+                    merge_binding_com(entry, binding, &|e| elemento_do_sdk(program, e));
                 }
                 // Registra o prefixo no escopo geral
                 scope.insert(
@@ -411,7 +411,7 @@ pub fn build_outline(
                         continue;
                     }
                     let entry = scope.entry(sym).or_default();
-                    merge_binding(entry, binding);
+                    merge_binding_com(entry, binding, &|e| elemento_do_sdk(program, e));
                 }
             }
         }
@@ -1281,18 +1281,36 @@ fn filter_namespace(ns: &Namespace, combinators: &[ast::Combinator]) -> Namespac
     out
 }
 
-fn merge_binding(entry: &mut Binding, incoming: Binding) {
-    if entry.getter.is_none() {
-        entry.getter = incoming.getter;
-    } else if entry.getter != incoming.getter && incoming.getter.is_some() {
-        entry.ambiguous = true;
-    }
+/// A biblioteca do SDK que declara o elemento (para a regra de conflito).
+fn elemento_do_sdk(program: &Program, el: Element) -> bool {
+    let lib = match el {
+        Element::Class(c) => program.classes[c.0 as usize].library,
+        Element::Extension(e) => program.extensions[e.0 as usize].library,
+        Element::Typedef(t) => program.typedefs[t.0 as usize].library,
+        Element::Function(f) => program.functions[f.0 as usize].library,
+        Element::Variable(v) => program.variables[v.0 as usize].library,
+        Element::Prefix(..) => return false,
+    };
+    program.libraries[lib.0 as usize].is_sdk
+}
 
-    if entry.setter.is_none() {
-        entry.setter = incoming.setter;
-    } else if entry.setter != incoming.setter && incoming.setter.is_some() {
-        entry.ambiguous = true;
-    }
+/// Junta dois imports do mesmo nome. Regra do Dart (especificação,
+/// "Imports"): se um vem de biblioteca do sistema (`dart:`) e o outro não,
+/// o do sistema fica oculto — não há ambiguidade.
+fn merge_binding_com(entry: &mut Binding, incoming: Binding, do_sdk: &dyn Fn(Element) -> bool) {
+    let juntar = |atual: &mut Option<Element>, novo: Option<Element>, amb: &mut bool| match (*atual, novo) {
+        (None, n) => *atual = n,
+        (Some(a), Some(n)) if a != n => match (do_sdk(a), do_sdk(n)) {
+            (true, false) => *atual = Some(n),
+            (false, true) => {}
+            _ => *amb = true,
+        },
+        _ => {}
+    };
+    let mut amb = entry.ambiguous;
+    juntar(&mut entry.getter, incoming.getter, &mut amb);
+    juntar(&mut entry.setter, incoming.setter, &mut amb);
+    entry.ambiguous = amb;
 
     if incoming.ambiguous {
         entry.ambiguous = true;

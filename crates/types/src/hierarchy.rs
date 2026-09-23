@@ -126,6 +126,7 @@ impl ClassHierarchy {
                     Some(substituted)
                 }
             }
+            Type::Intersection { bound, .. } => self.supertype_of(bound, target, table, core),
             Type::TypeParameter {
                 param,
                 nullable: is_null,

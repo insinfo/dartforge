@@ -508,11 +508,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         // Forma antiga de parâmetro-função: `int f<T>(T x)`, `this.f(int x)`.
         let mut function_type_params = Vec::new();
         let mut function_parameters = None;
+        let mut function_nullable = false;
         if !in_function_type && name.is_some() && (self.at_op(Op::LParen) || self.at_op(Op::Lt)) {
             function_type_params = self.parse_type_parameters_opt()?;
             function_parameters = Some(self.parse_formal_parameters()?);
-            // `int f(int x)?` — nulabilidade da forma antiga; sem lugar na árvore.
-            self.eat_op(Op::Question);
+            // `int f(int x)?` — nulabilidade da forma antiga.
+            function_nullable = self.eat_op(Op::Question);
         }
 
         let default_value =
@@ -538,6 +539,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             name,
             function_type_params: function_type_params.into_boxed_slice(),
             function_parameters: function_parameters.map(Vec::into_boxed_slice),
+            function_nullable,
             default_value,
         })
     }

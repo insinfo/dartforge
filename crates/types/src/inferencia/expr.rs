@@ -7,7 +7,7 @@
 
 use super::chamadas;
 use super::colecoes;
-use super::corpo::{Corpo, Local, Nome};
+use super::corpo::{Base, Corpo, Local, Nome};
 use super::fluxo::Fluxo;
 use super::funcoes;
 use super::membros::{Busca, Membro};
@@ -22,13 +22,27 @@ use dartforge_intern::SymbolId;
 
 /// Infere `e` no contexto `ctx` (o desconhecido `_` = sem contexto).
 pub(crate) fn inferir(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
+    let marca = cx.cadeias.len();
     let (t, curto) = inferir_no(inf, cx, e, ctx, false);
+    fechar_cadeia(inf, cx, marca);
     if curto {
         let t = inf.anulavel(t);
         registrar(inf, cx, e, t);
         t
     } else {
         t
+    }
+}
+
+/// Fim de uma cadeia com `?.`: a promoção do receptor valeu só dentro dela;
+/// depois, o fluxo é a junção do "era nulo" (o de antes do primeiro `?.`) com
+/// o de ter percorrido a cadeia.
+fn fechar_cadeia(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, marca: usize) {
+    if cx.cadeias.len() > marca {
+        let antes = cx.cadeias[marca].clone();
+        cx.cadeias.truncate(marca);
+        let depois = cx.fluxo.clone();
+        cx.fluxo = inf.juntar(&antes, &depois);
     }
 }
 
@@ -87,6 +101,11 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
         if let Some(c) = cx.classe {
             if let Some(&v) = inf.program.class(c).enum_constants.iter().find(|&&v| inf.program.variable(v).name == nome) {
                 return RefNome::ConstanteEnum(v);
+            }
+        }
+        if let Some(x) = cx.extensao {
+            if let Some(&v) = inf.program.extension(x).fields.iter().find(|&&v| inf.program.variable(v).name == nome) {
+                return RefNome::Elemento(Element::Variable(v));
             }
         }
     }
@@ -272,7 +291,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                 // substituição é a identidade).
                 if let Some(this) = cx.tipo_this {
                     if let Busca::Achado(m) = inf.buscar_membro(cx.lib, this, n.sym, false) {
-                        return m.tipo;
+                        return leitura_de_campo(inf, cx, e, Base::This, m.tipo);
                     }
                 }
             }
@@ -294,7 +313,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             match inf.buscar_membro(cx.lib, this, n.sym, false) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, e, m.resolved.clone());
-                    m.tipo
+                    leitura_de_campo(inf, cx, e, Base::This, m.tipo)
                 }
                 Busca::Dinamico => inf.core.dynamic_,
                 Busca::Nunca => inf.core.never,
@@ -319,15 +338,110 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
 }
 
 /// O alvo de promoção (variável local) que `e` denota, sem parênteses.
-pub(crate) fn alvo_de_promocao(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<LocalId> {
+pub(crate) fn alvo_de_promocao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) -> Option<LocalId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.expr(e).kind {
-        ExprKind::Parenthesized(i) => alvo_de_promocao(inf, cx, *i),
+        ExprKind::Parenthesized(i) => {
+            let i = *i;
+            alvo_de_promocao(inf, cx, i)
+        }
         ExprKind::Identifier(n) => match cx.buscar(n.sym) {
             Some(Nome::Local(id)) if !cx.local(id).funcao_local => Some(id),
-            _ => None,
+            Some(_) => None,
+            // `_x` implícito: `this._x`.
+            None => alvo_de_campo(inf, cx, e, Base::This),
         },
+        ExprKind::Property { target, null_aware: false, .. } => {
+            let t = *target;
+            let base = match &a.expr(t).kind {
+                ExprKind::This => Base::This,
+                ExprKind::Identifier(n) => match cx.buscar(n.sym) {
+                    Some(Nome::Local(id)) if !cx.local(id).funcao_local && !cx.local(id).late => Base::Local(id),
+                    _ => return None,
+                },
+                _ => return None,
+            };
+            alvo_de_campo(inf, cx, e, base)
+        }
         _ => None,
+    }
+}
+
+/// Local sintético do campo promovível que `e` (já inferida) lê.
+fn alvo_de_campo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, base: Base) -> Option<LocalId> {
+    let v = campo_promovivel(inf, cx, e)?;
+    if let Some(&id) = cx.campos.get(&(base, v)) {
+        return Some(id);
+    }
+    // Tipo declarado do campo visto pelo receptor: o tipo da leitura antes
+    // de qualquer promoção (a primeira leitura, que criou nada ainda).
+    let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.dynamic_);
+    let nome = inf.program.variable(v).name;
+    let id = cx.declarar_sintetico(Local { nome, tipo: t, final_: true, late: false, const_: false, offset: 0, funcao_local: false });
+    cx.campos.insert((base, v), id);
+    Some(id)
+}
+
+/// O campo que `e` lê, se é promovível (Dart 3.2): de instância, `final`,
+/// privado, não `external`, e nenhuma outra declaração da biblioteca com o
+/// mesmo nome o impede (getter concreto ou campo não final).
+fn campo_promovivel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<dartforge_elements::model::VariableId> {
+    let r = inf.body_types.units[cx.unit.0 as usize].get_resolved(e)?.clone();
+    let Resolved::Member { member: MemberRef::Function(f), .. } = r else { return None };
+    let fe = inf.program.function(f);
+    if fe.kind != FunctionKind::ImplicitAccessor {
+        return None;
+    }
+    let v = fe.variable?;
+    inf.campo_e_promovivel(v).then_some(v)
+}
+
+impl<'a> BodyInferrer<'a> {
+    /// Regra de promoção de campos (`inference-update-2`, Dart 3.2).
+    pub(crate) fn campo_e_promovivel(&mut self, v: dartforge_elements::model::VariableId) -> bool {
+        if let Some(&r) = self.promoviveis.get(&v.0) {
+            return r;
+        }
+        let ve = self.program.variable(v);
+        let nome = self.interner.resolve(ve.name);
+        let lib = ve.library;
+        let mut ok = ve.final_ && !ve.static_ && !ve.external && ve.class.is_some() && nome.starts_with('_');
+        if ok {
+            // Nenhuma outra declaração homônima na biblioteca que o impeça.
+            let sym = ve.name;
+            for (ci, c) in self.program.classes.iter().enumerate() {
+                if c.library != lib {
+                    continue;
+                }
+                if let Some(&g) = c.instance_members.get(&sym) {
+                    let ge = self.program.function(g);
+                    let impede = match (ge.kind, ge.variable) {
+                        (FunctionKind::ImplicitAccessor, Some(w)) => {
+                            let we = self.program.variable(w);
+                            !(we.final_ && !we.external)
+                        }
+                        (FunctionKind::Getter, _) => !ge.abstract_,
+                        _ => false,
+                    };
+                    if impede {
+                        ok = false;
+                        break;
+                    }
+                }
+                let _ = ci;
+            }
+        }
+        self.promoviveis.insert(v.0, ok);
+        ok
+    }
+}
+
+/// Tipo lido de um campo promovível (promovido pelo fluxo, se houver).
+fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Base, t: TypeId) -> TypeId {
+    let Some(v) = campo_promovivel(inf, cx, e) else { return t };
+    match cx.campos.get(&(base, v)) {
+        Some(&id) => cx.fluxo.tipo_atual(id, t),
+        None => t,
     }
 }
 
@@ -388,6 +502,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             inf.core.string
         }
         ExprKind::Symbol(_) => inf.core.symbol,
+        // `$this` numa interpolação chega como identificador.
+        ExprKind::Identifier(n) if Some(n.sym) == inf.sym.this_ => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Identifier(n) => {
             let t = identificador(inf, cx, e, *n);
             instanciar_em_contexto(inf, t, ctx)
@@ -395,7 +511,9 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::This => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Super => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Parenthesized(i) => {
+            let marca = cx.cadeias.len();
             let (t, c) = inferir_no(inf, cx, *i, ctx, false);
+            fechar_cadeia(inf, cx, marca);
             let t = if c { inf.anulavel(t) } else { t };
             registrar(inf, cx, *i, t);
             t
@@ -580,6 +698,8 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, nu
             let sp = inf.span_expr(cx.unit, r);
             inf.aviso(INVALID_NULL_AWARE_OPERATOR.template.to_string(), sp);
         }
+        // Promove o receptor dentro da cadeia; `fechar_cadeia` desfaz no fim.
+        cx.cadeias.push(cx.fluxo.clone());
         if let Some(id) = alvo_de_promocao(inf, cx, r) {
             let decl = cx.local(id).tipo;
             let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
@@ -625,10 +745,25 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         return (membro_super(inf, cx, e, name, false), false);
     }
     let (recv, curto) = receptor(inf, cx, target, null_aware);
+    let base = if null_aware {
+        None
+    } else {
+        match &a.expr(target).kind {
+            ExprKind::This => Some(Base::This),
+            ExprKind::Identifier(n) => match cx.buscar(n.sym) {
+                Some(Nome::Local(id)) if !cx.local(id).late => Some(Base::Local(id)),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
     let t = match inf.buscar_membro(cx.lib, recv, name.sym, false) {
         Busca::Achado(m) => {
             resolver(inf, cx, e, m.resolved.clone());
-            m.tipo
+            match base {
+                Some(b) => leitura_de_campo(inf, cx, e, b, m.tipo),
+                None => m.tipo,
+            }
         }
         Busca::Dinamico => {
             resolver(inf, cx, e, Resolved::Dynamic);
@@ -971,8 +1106,10 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             inf.nao_nulo_promocao(t)
         }
         UnaryOp::Neg | UnaryOp::BitNot => {
-            let u = inf.core.unknown;
-            let t = inferir(inf, cx, operand, u);
+            // `-1` com literal: o literal recebe o contexto (`double x = -1`).
+            let literal = op == UnaryOp::Neg && matches!(inf.program.unit(cx.unit).ast.expr(operand).kind, ExprKind::Int(_));
+            let c = if literal { _ctx } else { inf.core.unknown };
+            let t = inferir(inf, cx, operand, c);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };
             let Some(sym) = sym else { return inf.core.dynamic_ };
             match inf.buscar_membro(cx.lib, t, sym, false) {
@@ -1199,6 +1336,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                 inf.atribuir_fluxo(&mut f, id, decl, tv);
                 cx.fluxo = f;
+                cx.esquecer_campos_de(id);
             }
             if !inf.e_dynamic(escrita) {
                 let sp = inf.span_expr(cx.unit, valor);
@@ -1463,6 +1601,8 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
                 None
             };
             let _ = (tl, tr);
+            // O alvo (um campo) pode ter sido criado agora: o fluxo corrente o tem.
+            let depois = if alvo.is_some() { cx.fluxo.clone() } else { depois };
             let (mut igual, mut diferente) = (depois.clone(), depois.clone());
             if let Some(id) = alvo {
                 let decl = cx.local(id).tipo;
@@ -1485,9 +1625,10 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
     if t == inf.core.object && !inf.e_dynamic(v) && inf.sub(v, t) && !negado {
         inf.aviso(UNNECESSARY_TYPE_CHECK_TRUE.template.to_string(), span);
     }
+    let alvo = alvo_de_promocao(inf, cx, value);
     let depois = cx.fluxo.clone();
     let (mut sim, mut nao) = (depois.clone(), depois.clone());
-    if let Some(id) = alvo_de_promocao(inf, cx, value) {
+    if let Some(id) = alvo {
         let decl = cx.local(id).tipo;
         inf.promover(&mut sim, id, decl, t);
         let fatorado = fator(inf, v, t);

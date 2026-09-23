@@ -59,6 +59,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let af = inf.program.unit(unit).ast.function(function);
             let dados = inf.outline.functions[f.0 as usize].clone();
             let mut cx = Corpo::para_funcao(inf, f, unit);
+            cx.raiz = super::corpo::Raiz::Funcao(function);
             for &p in dados.type_params.iter() {
                 let nome = inf.table.param(p).name;
                 cx.declarar_tipo_param(nome, p);
@@ -78,6 +79,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else { return };
             let dados = inf.outline.functions[f.0 as usize].clone();
             let mut cx = Corpo::para_funcao(inf, f, unit);
+            cx.raiz = super::corpo::Raiz::Construtor(member);
             if !fe.factory {
                 cx.estatico = false;
                 if let Some(c) = fe.class {
@@ -220,9 +222,6 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
     }
     match inf.inicializador(vid) {
         Some((unit, init)) => {
-            if inf.program.library(v.library).is_sdk && inf.body_types.units[unit.0 as usize].static_types.is_empty() {
-                // Unidade do SDK: infere sem tabela lateral (os `set_*` ignoram).
-            }
             let mut cx = Corpo::para_variavel(inf, vid, unit);
             let u = inf.core.unknown;
             let t = inferir(inf, &mut cx, init, u);
@@ -293,10 +292,25 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     for &id in &capturados {
         fluxo_dentro.capturar(id);
     }
-    for (i, e) in cx.escritos_em_closure.clone().iter().enumerate() {
-        let _ = i;
+    for e in cx.escritos_em_closure.clone().iter() {
         if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
             fluxo_dentro.capturar(id);
+        }
+    }
+    if cx.escritos_no_corpo.is_none() {
+        let a = &inf.program.unit(cx.unit).ast;
+        cx.escritos_no_corpo = Some(match cx.raiz {
+            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_funcao(inf, cx.unit, a.function(f)),
+            super::corpo::Raiz::Construtor(m) => match &a.member(m).kind {
+                ast::MemberKind::Constructor(c) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &c.body),
+                _ => Vec::new(),
+            },
+            super::corpo::Raiz::Nada => Vec::new(),
+        });
+    }
+    for e in cx.escritos_no_corpo.clone().unwrap_or_default().iter() {
+        if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
+            fluxo_dentro.juncao_conservadora(&[], &[id]);
         }
     }
     cx.escritos_em_closure.extend(escritos.iter().copied());
@@ -567,6 +581,13 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
         for m in mb.metadata.iter() {
             // Classe dona desconhecida aqui: resolve no escopo da biblioteca.
             anotacao(inf, unit, None, None, m);
+        }
+        if let ast::MemberKind::Constructor(ctor) = &mb.kind {
+            for p in ctor.parameters.iter() {
+                for m in p.metadata.iter() {
+                    anotacao(inf, unit, None, None, m);
+                }
+            }
         }
     }
     for f in a.functions.iter() {

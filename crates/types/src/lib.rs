@@ -79,11 +79,10 @@ pub fn infer_program_bodies(
     inferrer.infer_all()
 }
 
-/// Como [`infer_program_bodies`], inferindo os corpos de funções **só** das
-/// bibliotecas dadas (sessão residente: as demais não serão reemitidas).
-///
-/// Inicializadores de variáveis são inferidos em todas as bibliotecas: o tipo
-/// de `var x = 1;` é lido por quem usa `x`, não só por quem a declara.
+/// Como [`infer_program_bodies`], inferindo os corpos **só** das bibliotecas
+/// dadas — inclusive as do SDK, quando pedidas (o backend nativo compila o
+/// SDK da fonte). As variáveis das outras bibliotecas são inferidas sob
+/// demanda, quando alguém lê o tipo, sem os avisos delas.
 pub fn infer_bodies_das_bibliotecas(
     program: &Program,
     interner: &Interner,
