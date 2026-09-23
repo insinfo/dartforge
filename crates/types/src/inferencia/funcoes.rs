@@ -324,7 +324,9 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     if cx.escritos_no_corpo.is_none() {
         let a = &inf.program.unit(cx.unit).ast;
         cx.escritos_no_corpo = Some(match cx.raiz {
-            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_funcao(inf, cx.unit, a.function(f)),
+            // O membro inteiro, inclusive escritas nos próprios parâmetros
+            // (R-FLU-07 regra 2; `base ??= const {}` e depois a closure).
+            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &a.function(f).body),
             super::corpo::Raiz::Construtor(m) => match &a.member(m).kind {
                 ast::MemberKind::Constructor(c) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &c.body),
                 _ => Vec::new(),
