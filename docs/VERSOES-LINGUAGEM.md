@@ -47,7 +47,7 @@ conjunto de bits. Medido em §7.
 | 3.9 | fluxo sólido (`sound-flow-analysis`) | fluxo | `types/flow.rs` | nada |
 | 3.9 | getter/setter com tipos diferentes deixa de ser erro (`getter-setter-error`) | diagnóstico | `types` | nada |
 | 3.10 | atalhos de ponto (`dot-shorthands`) | sintaxe + inferência | parser (`ExprKind::DotShorthand`), `types` (resolução), `emit_js`, `mundo`, `emit_native` | um caso por consumidor: "`.id` é `D.id`", `D` gravado em `Resolved` |
-| 3.10 | tipo de retorno de gerador sem `Null` espúrio | inferência | `types/infer.rs` | tipo reificado |
+| 3.10 | tipo de retorno de gerador sem `Null` espúrio | inferência | `types/src/inferencia` | tipo reificado |
 | 3.12 | parâmetros nomeados privados (`private-named-parameters`) | nomes | parser (`Parameter::public_name`), consumidores do nome externo | o nome externo do parâmetro |
 | 3.13 | construtores primários, `new`/`factory` sem o nome da classe, corpo `;` (`primary-constructors`) | sintaxe + elaboração + escopo | parser, que também elabora (`parser/declarations.rs`) | **membros comuns**: campos e um construtor (E) |
 | 3.13 | quebra: `var`/`final` só em parâmetro declarante; `factory() {}` vira construtor | gramática | parser, decidido pela versão | — |
