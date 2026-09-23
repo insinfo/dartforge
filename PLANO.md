@@ -1643,6 +1643,21 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   lado do 3.6.2 no harness e no CI, com os programas marcados pela versão que
   exigem. Notas em `references/NOTAS-ARTIGOS.md` §3.
 
+  **Feito (2026-09-23), P0–P5 do plano "Dart 3.7–3.13 e macros"**: contrato
+  em `docs/VERSOES-LINGUAGEM.md` (com as decisões D1–D9); versão por
+  biblioteca resolvida na carga (`LibraryFeatures`, corrente 3.13, `dart:*`
+  no piso); harness e CI com os SDKs 3.6.2 e 3.13.4 e o `corpus/moderno`;
+  curingas, null-aware, nomeados privados, atalhos de ponto e construtores
+  primários (elaborados no parser em construtor comum, como previsto) — os
+  números estão no ESTADO §1.1.1. Ao contrário do previsto acima, o `emit_js`
+  mudou em três pontos, cada um justificado no contrato: o nome JS de um
+  curinga, o contexto de um atalho de ponto (o emissor tem a sua própria
+  inferência) e os inicializadores de campo no escopo do construtor
+  primário. Ficou para depois: inferência e fluxo 3.7–3.13 (P6, com o dono
+  de `crates/types`), membros de extension type (lacuna da 3.3 no `emit_js`),
+  o adaptador dos testes de `tests/language` do SDK, e macros/augmentations
+  (P7+, contratos em `docs/MACROS-PROTOCOLO.md` e `docs/AUGMENTATIONS.md`).
+
 ## Regra governante — geração de código e macros: rápidas, e custo zero para quem não usa
 
 Registrada em 2026-09-23 por instrução do proprietário. Vale para o motor que
