@@ -790,6 +790,34 @@ pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
     }
 }
 
+/// Id de classe do heap do objeto `Type` (o `_Type` da VM): um objeto com o
+/// id do tipo no campo 0, canônico por tipo (`identical(A, A)`, chave de
+/// mapa). O compilador registra a classe com o `toString` dela.
+const CLASSE_TIPO: i64 = 0x3FFF_FF01;
+
+thread_local! {
+    static OBJETOS_TIPO: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::new());
+}
+
+/// O objeto `Type` canônico do tipo `t` (raiz permanente, como os valores
+/// de enum).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
+    if let Some(h) = OBJETOS_TIPO.with(|m| m.borrow().get(&t).copied()) {
+        return h;
+    }
+    let h = HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.allocate(Value::Object { class_id: CLASSE_TIPO, fields: vec![(t, false)] });
+        // Raiz permanente num id que os globais do programa (não negativos)
+        // e o laço de eventos (negativos pequenos) não usam.
+        heap.set_global_root(-(1_i64 << 40) - t, h);
+        h
+    });
+    OBJETOS_TIPO.with(|m| m.borrow_mut().insert(t, h));
+    h
+}
+
 /// O texto de um tipo (`Type.toString()`), como `String` do heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {

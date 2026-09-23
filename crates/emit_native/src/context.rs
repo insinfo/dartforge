@@ -320,9 +320,8 @@ impl<'a> Context<'a> {
     ///
     /// Só `int`, `double` e `bool` **não anuláveis** são escalares; qualquer
     /// tipo anulável (`int?` inclusive), `num`, `Object`, `dynamic` e
-    /// parâmetros de tipo são `Ref`. `Type` (não anulável) é o id de classe
-    /// que o runtime usa nos testes de tipo, um `I64` — provisório, até os
-    /// objetos `Type` existirem no heap.
+    /// parâmetros de tipo são `Ref` — `Type` inclusive: é o objeto canônico
+    /// do RTI (`lower/rti.rs`).
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
         if self.is_void(ty) {
             return crate::hir::Type::Void;
@@ -335,7 +334,7 @@ impl<'a> Context<'a> {
             return crate::hir::Type::Ref;
         }
         match self.symbol_name(classe.name) {
-            "int" | "Type" => crate::hir::Type::I64,
+            "int" => crate::hir::Type::I64,
             "double" => crate::hir::Type::F64,
             "bool" => crate::hir::Type::I1,
             _ => crate::hir::Type::Ref,

@@ -35,6 +35,19 @@ use dartforge_intern::SymbolId;
 use dartforge_types::table::{Type as T, TypeId, TypeParamId, TypeParamOwner};
 use std::collections::{BTreeSet, HashMap};
 
+/// Id de classe do heap do objeto `Type` (`tipos.rs`, `CLASSE_TIPO`).
+pub const CLASSE_TIPO: i64 = 0x3FFF_FF01;
+
+/// A classe `nome` do `dart:core`.
+fn classe_do_core(ctx: &Context, nome: &str) -> Option<ClassId> {
+    let core = ctx.program.core?;
+    let sym = ctx.interner.lookup(nome)?;
+    match ctx.program.lookup(core, sym)?.getter? {
+        Element::Class(c) => Some(c),
+        _ => None,
+    }
+}
+
 /// Hash estável (FNV-1a 64) de uma receita: o nome do global dela.
 fn hash_receita(r: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -867,20 +880,55 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// formas do runtime. Vazio quando o programa não usa receita nenhuma.
 pub fn registrar_universo(ctx: &Context, module: &mut Module) {
     let mut receitas: Vec<String> = Vec::new();
+    let mut usa_rti = false;
     for f in &module.functions {
-        if !f.symbol.starts_with("df.rti.") {
-            continue;
-        }
+        let e_receita = f.symbol.starts_with("df.rti.");
         for b in &f.blocks {
             for (_, inst, _) in &b.instructions {
-                if let Instruction::Const(Constant::String(s)) = inst {
-                    receitas.push(s.clone());
+                match inst {
+                    Instruction::Const(Constant::String(s)) if e_receita => receitas.push(s.clone()),
+                    Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_rti_") => usa_rti = true,
+                    _ => {}
                 }
             }
         }
     }
-    if receitas.is_empty() {
+    if receitas.is_empty() && !usa_rti {
         return;
+    }
+    // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e o `toString`.
+    {
+        let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
+            return;
+        };
+        let simbolo = "df.$tipo.toString".to_string();
+        let mut t = FnBuilder::new(ctx, u, simbolo.clone(), "toString".to_string(), Type::Ref);
+        let obj = Operand::Val(t.add_param("this".to_string(), Type::Ref));
+        let id = t.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_object_get".to_string(),
+                args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let s = t.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_rti_texto".to_string(),
+                args: vec![(id, Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        t.terminate(Terminator::Return(Some(s)));
+        t.finalizar(module);
+        module.classes.push(ClassDef {
+            id: CLASSE_TIPO as u32,
+            name: "_Type".to_string(),
+            field_count: 1,
+            vtable: Vec::new(),
+            to_string_symbol: Some(simbolo),
+        });
     }
     let mut citadas: BTreeSet<i64> = BTreeSet::new();
     for r in &receitas {
@@ -915,6 +963,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         (8, core.record_class),
         (9, core.future_class),
         (10, core.object_class),
+        (14, classe_do_core(ctx, "Type")),
     ];
     let mut classes: Vec<ClassId> = Vec::new();
     let mut vistas: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
@@ -1025,6 +1074,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         (1010, "ConcurrentModificationError"),
         (1011, "TypeError"),
         (1012, "NoSuchMethodError"),
+        (CLASSE_TIPO, "Type"),
     ] {
         let Some(core_lib) = ctx.program.core else { continue };
         let Some(sym) = ctx.interner.lookup(nome) else { continue };

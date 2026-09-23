@@ -526,6 +526,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "ConcurrentModificationError" => 1010,
             "TypeError" => 1011,
             "NoSuchMethodError" => 1012,
+            // O objeto `Type` do RTI (`rti.rs`, `CLASSE_TIPO`).
+            "Type" => super::rti::CLASSE_TIPO,
             _ => return None,
         })
     }
@@ -620,10 +622,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.nao_suportado("tear-off de função", span)
             }
-            Element::Class(cid) => match self.id_de_classe(cid) {
-                Some(id) => Operand::Constant(Constant::Int(id)),
-                None => self.nao_suportado("literal de classe do SDK", span),
-            },
+            // Literal de tipo (`Peixe`, `List`): o objeto `Type` canônico do
+            // tipo cru da classe (RTI).
+            Element::Class(cid) => {
+                let n = self.ctx.outline.classes.get(cid.0 as usize).map_or(0, |d| d.type_params.len());
+                let mut r = super::rti::Receita { texto: format!("C{}", self.ctx.id_rti(cid)), variaveis: false };
+                if n > 0 {
+                    r.texto.push('<');
+                    r.texto.push_str(&vec!["D"; n].join(","));
+                    r.texto.push('>');
+                }
+                let t = self.rti_da_receita(&r);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_objeto_tipo".to_string(),
+                        args: vec![(t, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )
+            }
             _ => self.nao_suportado("elemento de topo", span),
         }
     }

@@ -797,6 +797,10 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_rti_texto(i64)",
         efeitos: CONSERVADOR,
     },
+    Extern {
+        decl: "declare i64 @dartforge_rti_objeto_tipo(i64)",
+        efeitos: CONSERVADOR,
+    },
 ];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.
