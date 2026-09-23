@@ -258,7 +258,7 @@ pub fn gerar(referencias: &Path, destino: &Path, pub_cache: &Path) -> Result<Str
                 k += 1;
             }
             let g = if declara_3_7_ou_mais(&codigo) { "analyzer-3.13" } else { "analyzer" };
-            let d = destino.join(g).join(&stem).join(format!("{nome}.dart"));
+            let d = destino.join(g).join(&stem).join(format!("{}.dart", nome_curto(&nome)));
             std::fs::create_dir_all(d.parent().expect("pai")).map_err(|e| e.to_string())?;
             std::fs::write(&d, codigo).map_err(|e| e.to_string())?;
             *n_trechos.entry(g).or_default() += 1;
@@ -282,6 +282,49 @@ pub fn gerar(referencias: &Path, destino: &Path, pub_cache: &Path) -> Result<Str
         "analyzer: {n_arquivos} arquivos de teste, trechos {n_trechos:?}, {n_pulados} testes pulados (montam contexto)\n"
     ));
     Ok(rel)
+}
+
+/// Nome de arquivo curto o bastante para o limite de 260 caracteres do
+/// Windows (o checkout do CI e as worktrees têm prefixos longos): até 48
+/// caracteres; acima disso, 39 + `_` + 8 hexadecimais do hash do nome.
+pub fn nome_curto(stem: &str) -> String {
+    if stem.len() <= 48 {
+        return stem.to_string();
+    }
+    let mut corte = 39;
+    while !stem.is_char_boundary(corte) {
+        corte -= 1;
+    }
+    format!("{}_{:08x}", &stem[..corte], fnv(stem.as_bytes(), FNV_INICIO) as u32)
+}
+
+/// Renomeia os arquivos de nome longo de um grupo já gravado e reescreve o
+/// registro do oráculo (os offsets não mudam; só o caminho). Devolve quantos.
+pub fn encurtar(dir: &Path) -> Result<usize, String> {
+    let (mut regs, mut meta) = crate::oraculo::ler(dir)?;
+    let mut mapa = std::collections::BTreeMap::new();
+    // Os testes de linguagem se importam pelo nome: lá não se renomeia (só
+    // se regrava o registro com o hash das fontes).
+    let renomear = !dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with("linguagem"));
+    for a in arquivos_dart(dir).into_iter().filter(|_| renomear) {
+        let stem = a.file_stem().expect("nome").to_string_lossy().into_owned();
+        let novo = nome_curto(&stem);
+        if novo != stem {
+            let destino = a.with_file_name(format!("{novo}.dart"));
+            std::fs::rename(&a, &destino).map_err(|e| e.to_string())?;
+            let de = crate::oraculo::relativo(&a, dir).expect("relativo");
+            let para = crate::oraculo::relativo(&destino, dir).expect("relativo");
+            mapa.insert(de, para);
+        }
+    }
+    for r in regs.iter_mut() {
+        if let Some(n) = mapa.get(&r.arquivo) {
+            r.arquivo = n.clone();
+        }
+    }
+    meta.hash = hash_fontes(dir);
+    crate::oraculo::gravar(dir, regs, &meta).map_err(|e| e.to_string())?;
+    Ok(mapa.len())
 }
 
 /// Nome curto da classe de teste (`NonBoolConditionTest` → `NonBoolCondition`).

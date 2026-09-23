@@ -149,6 +149,15 @@ fn main() -> ExitCode {
             }
         },
         "projetos" => cmd_projetos(&a),
+        "encurtar" => {
+            for (nome, _) in grupos_escolhidos(&a) {
+                match corpus::encurtar(&a.corpus.join(&nome)) {
+                    Ok(n) => println!("{nome}: {n} arquivos renomeados"),
+                    Err(e) => eprintln!("{nome}: {e}"),
+                }
+            }
+            ExitCode::SUCCESS
+        }
         _ => uso(),
     }
 }
