@@ -254,33 +254,34 @@ fn token_normalizado(t: &str) -> String {
         return hex.to_string();
     }
     // `#ffffff` -> `#fff`, quando os três pares se repetem.
-    if let Some(d) = t.strip_prefix('#') {
-        if d.len() == 6 && d.chars().all(|c| c.is_ascii_hexdigit()) {
-            let b = d.as_bytes();
-            if b[0].eq_ignore_ascii_case(&b[1])
-                && b[2].eq_ignore_ascii_case(&b[3])
-                && b[4].eq_ignore_ascii_case(&b[5])
-            {
-                return format!(
-                    "#{}{}{}",
-                    d.as_bytes()[0] as char,
-                    d.as_bytes()[2] as char,
-                    d.as_bytes()[4] as char
-                )
-                .to_lowercase();
-            }
+    if let Some(d) = t.strip_prefix('#')
+        && d.len() == 6
+        && d.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        let b = d.as_bytes();
+        if b[0].eq_ignore_ascii_case(&b[1])
+            && b[2].eq_ignore_ascii_case(&b[3])
+            && b[4].eq_ignore_ascii_case(&b[5])
+        {
+            return format!(
+                "#{}{}{}",
+                d.as_bytes()[0] as char,
+                d.as_bytes()[2] as char,
+                d.as_bytes()[4] as char
+            )
+            .to_lowercase();
         }
     }
     // `0.5rem` -> `.5rem`, `-0.5rem` -> `-.5rem`.
-    if let Some(r) = t.strip_prefix("0.") {
-        if r.starts_with(|c: char| c.is_ascii_digit()) {
-            return format!(".{r}");
-        }
+    if let Some(r) = t.strip_prefix("0.")
+        && r.starts_with(|c: char| c.is_ascii_digit())
+    {
+        return format!(".{r}");
     }
-    if let Some(r) = t.strip_prefix("-0.") {
-        if r.starts_with(|c: char| c.is_ascii_digit()) {
-            return format!("-.{r}");
-        }
+    if let Some(r) = t.strip_prefix("-0.")
+        && r.starts_with(|c: char| c.is_ascii_digit())
+    {
+        return format!("-.{r}");
     }
     t.to_string()
 }
@@ -340,25 +341,24 @@ fn blocos(
         // Declaração ou variável soltas neste nível.
         let proximo_abre = resto.find('{');
         let proximo_ponto = resto.find(';');
-        if let Some(pv) = proximo_ponto {
-            if proximo_abre.is_none_or(|a| pv < a) {
-                let decl = resto[..pv].trim().to_string();
-                resto = resto[pv + 1..].trim_start();
-                if let Some((nome, valor)) = decl.strip_prefix('$').and_then(|d| d.split_once(':'))
-                {
-                    if valor.contains("!default") {
-                        return Err(Motivo::Estilos);
-                    }
-                    let valor = substituir(valor.trim(), variaveis)?;
-                    variaveis.insert(nome.trim().to_string(), valor);
-                    continue;
-                }
-                // Declaração fora de regra não existe em CSS.
-                if pai.is_empty() {
+        if let Some(pv) = proximo_ponto
+            && proximo_abre.is_none_or(|a| pv < a)
+        {
+            let decl = resto[..pv].trim().to_string();
+            resto = resto[pv + 1..].trim_start();
+            if let Some((nome, valor)) = decl.strip_prefix('$').and_then(|d| d.split_once(':')) {
+                if valor.contains("!default") {
                     return Err(Motivo::Estilos);
                 }
+                let valor = substituir(valor.trim(), variaveis)?;
+                variaveis.insert(nome.trim().to_string(), valor);
+                continue;
+            }
+            // Declaração fora de regra não existe em CSS.
+            if pai.is_empty() {
                 return Err(Motivo::Estilos);
             }
+            return Err(Motivo::Estilos);
         }
         let Some(abre) = proximo_abre else {
             if resto.trim().is_empty() {

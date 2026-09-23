@@ -106,7 +106,7 @@ const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
 /// é isso que diz qual forma vale a pena aprender em seguida.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Motivo {
     /// `@Directive` ou `@Pipe` no mesmo arquivo.
     DiretivaOuPipe,
@@ -169,6 +169,55 @@ pub enum Motivo {
     /// isso, recusa — argumento desconhecido de `@Component`, `@ViewChild`
     /// com opções.
     NaoEntendido,
+    /// Um elemento casa com o seletor de uma diretiva de `directives:` que o
+    /// emissor não instancia (`<form>` com `NgForm`, `<option>`,
+    /// `[routerLink]`…). Emitir o elemento puro compilaria e faria outra
+    /// coisa.
+    DiretivaPorSeletor,
+    /// `(evento)` no template fora do que o emissor sabe ligar.
+    Evento,
+    /// Expressão do template fora do que o conversor traduz. É a categoria
+    /// provisória do conversor: quem o chama troca pela do contexto
+    /// (interpolação, ligação, evento) com [`Recusa::em`].
+    Expressao,
+}
+
+/// Uma recusa: a categoria do placar e a sub-forma concreta que o emissor
+/// não sabe traduzir (`evento: handler com atribuição`, `interpolação: tipo
+/// de ternário`). O placar conta as duas; é a sub-forma que diz o que
+/// atacar em seguida.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Recusa {
+    pub motivo: Motivo,
+    pub forma: String,
+}
+
+impl Recusa {
+    pub fn new(motivo: Motivo, forma: impl Into<String>) -> Self {
+        Recusa {
+            motivo,
+            forma: forma.into(),
+        }
+    }
+
+    /// A mesma sub-forma no contexto de quem chamou o conversor de
+    /// expressões. Recusa que já tem categoria própria (pipe) fica como está.
+    pub fn em(self, motivo: Motivo) -> Self {
+        if self.motivo == Motivo::Expressao {
+            Recusa { motivo, ..self }
+        } else {
+            self
+        }
+    }
+
+    pub fn texto(&self) -> String {
+        format!("{}: {}", self.motivo.texto(), self.forma)
+    }
+}
+
+/// Atalho: `Err(recusa(Motivo::Evento, "handler com atribuição"))`.
+pub fn recusa(motivo: Motivo, forma: impl Into<String>) -> Recusa {
+    Recusa::new(motivo, forma)
 }
 
 impl Motivo {
@@ -201,39 +250,11 @@ impl Motivo {
             Motivo::HostBindingEmComponente => "@HostBinding em componente",
             Motivo::ContentChild => "@ContentChild",
             Motivo::NaoEntendido => "outra forma do componente não entendida",
+            Motivo::DiretivaPorSeletor => "diretiva casada por seletor",
+            Motivo::Evento => "evento",
+            Motivo::Expressao => "expressão",
         }
     }
-}
-
-/// Todos os motivos que impedem a geração deste componente, não só o
-/// primeiro. Sem isto o placar engana: um arquivo que trava em folha de
-/// estilo pode travar também em ligação e interpolação, e contar só o
-/// primeiro faz parecer que aprender uma forma destrava o arquivo.
-pub fn motivos(
-    c: &Componente,
-    local: &Local,
-    nos: &[No],
-    resolvedor: Option<&dyn Resolucao>,
-    filhos: &std::collections::HashMap<String, Filho>,
-) -> std::collections::BTreeSet<Motivo> {
-    let mut fora = std::collections::BTreeSet::new();
-    fora.extend(c.nao_entendidos.iter().map(|(m, _)| *m));
-    fora.extend(formas_contra_o_template(c, local, nos, resolvedor, filhos));
-    // O diagnóstico roda a mesma conta do gerador: marcar toda folha como
-    // pendente escondia o que já funciona.
-    if !c.styles.is_empty() || c.style_urls.len() > 1 {
-        fora.insert(Motivo::Estilos);
-    } else if let Some(url) = c.style_urls.first() {
-        if local.uri_do_estilo(url).is_none() || !crate::estilo_compila(local.caminho, url) {
-            fora.insert(Motivo::Estilos);
-        }
-    }
-    if let Some(m) = falta_para_construir(c, local, resolvedor) {
-        fora.insert(m);
-    }
-    let livres = referencias_livres(nos);
-    motivos_dos_nos(nos, filhos, &livres, false, &mut fora);
-    fora
 }
 
 /// Os `#ref` que o emissor aceita num elemento HTML: sem valor (`#f="ngForm"`
@@ -270,27 +291,39 @@ fn formas_contra_o_template(
     nos: &[No],
     resolvedor: Option<&dyn Resolucao>,
     filhos: &std::collections::HashMap<String, Filho>,
-) -> Vec<Motivo> {
+) -> Vec<Recusa> {
     let mut fora = Vec::new();
     // `pipes:` sem uso não muda a visão (caso b19); usado, cria o pipe e o
     // `pureProxy` no `build()` — ainda não.
     if c.pipes && usa_pipe(nos) {
-        fora.push(Motivo::PipesUsados);
+        fora.push(recusa(Motivo::PipesUsados, "pipe usado no template"));
     }
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
-        let motivo = match lugares.as_slice() {
+        let r = match lugares.as_slice() {
             // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
             // qualquer outro, um `ElementRef`. O primeiro caso é o estático,
             // que sai no `build()`.
             [Lugar::Raiz] if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) => continue,
-            [Lugar::Raiz] | [Lugar::Filho] => Motivo::ViewChildEmFilho,
+            [Lugar::Raiz] => recusa(
+                Motivo::ViewChildEmFilho,
+                "@ViewChild de elemento com tipo que não é Element",
+            ),
+            [Lugar::Filho] => recusa(
+                Motivo::ViewChildEmFilho,
+                "@ViewChild de #ref em componente filho",
+            ),
             // Dentro de `*` a consulta passa por `mapNestedViews`; sem
             // resultado, ou com dois, a regra é outra — nada disso ainda.
-            _ => Motivo::ViewChildDinamico,
+            [] => recusa(Motivo::ViewChildDinamico, "@ViewChild sem #ref no template"),
+            [_] => recusa(
+                Motivo::ViewChildDinamico,
+                "@ViewChild de #ref em visão embutida",
+            ),
+            _ => recusa(Motivo::ViewChildDinamico, "@ViewChild de #ref repetido"),
         };
-        fora.push(motivo);
+        fora.push(r);
     }
     fora
 }
@@ -377,64 +410,6 @@ fn usa_pipe(nos: &[No]) -> bool {
     })
 }
 
-/// `livres` são os `#ref` aceitos ([`referencias_livres`]); `embutida` diz
-/// se os nós estão dentro de um `*`, onde `#ref` ainda não é aceito.
-fn motivos_dos_nos(
-    nos: &[No],
-    filhos: &std::collections::HashMap<String, Filho>,
-    livres: &std::collections::HashSet<String>,
-    embutida: bool,
-    fora: &mut std::collections::BTreeSet<Motivo>,
-) {
-    for no in nos {
-        match no {
-            No::Comentario(_) | No::Texto(_) => {}
-            No::Interpolacao { .. } => {
-                fora.insert(Motivo::Interpolacao);
-            }
-            No::Conteudo { .. } => {
-                fora.insert(Motivo::Projecao);
-            }
-            No::Elemento(e) => {
-                let e_filho = filhos.contains_key(&e.nome);
-                if !dom::tag_html(&e.nome) && !e_filho {
-                    fora.insert(Motivo::ComponenteNoTemplate);
-                } else if e_filho {
-                    // Componente conhecido: falta o que não for `@Input`
-                    // declarado por ele.
-                    let f = &filhos[&e.nome];
-                    if !e.eventos.is_empty()
-                        || !e.bananas.is_empty()
-                        || !e.referencias.is_empty()
-                        || e.estrela.is_some()
-                        || !e.atributos.is_empty()
-                        || e.propriedades
-                            .iter()
-                            .any(|l| !f.entradas.contains_key(&l.nome))
-                    {
-                        fora.insert(Motivo::LigacaoEmFilho);
-                    }
-                } else if !e.bananas.is_empty()
-                    || e.referencias
-                        .iter()
-                        .any(|r| embutida || e.estrela.is_some() || !livres.contains(&r.nome))
-                    || e.estrela.as_ref().is_some_and(|x| x.nome != "ngIf")
-                {
-                    fora.insert(Motivo::Ligacao);
-                }
-                if e.atributos.iter().any(|a| a.valor.contains("{{")) {
-                    fora.insert(Motivo::Interpolacao);
-                }
-                if e.atributos.iter().any(|a| a.nome == "style") {
-                    fora.insert(Motivo::EstiloEmLinha);
-                }
-                let dentro = embutida || e.estrela.is_some();
-                motivos_dos_nos(&e.filhos, filhos, livres, dentro, fora);
-            }
-        }
-    }
-}
-
 /// Um componente que este template pode usar, vindo do índice do pacote.
 #[derive(Debug, Clone)]
 pub struct Filho {
@@ -446,12 +421,45 @@ pub struct Filho {
     pub uri_template: String,
     /// Tem `<ng-content>`: muda `create` para `createAndProject`.
     pub projeta: bool,
-    /// `@Input`s do filho: nome no template -> campo que recebe o valor.
-    pub entradas: std::collections::HashMap<String, String>,
+    /// `@Input`s do filho, na ordem em que o oficial os escreve.
+    pub entradas: Vec<crate::componente::Entrada>,
     /// O filho tem ciclo de vida, `AfterChanges` ou é `OnPush`: quem o usa
     /// chama os ganchos dele (`bindDirectiveDetectChangesLifecycleCallbacks`)
     /// e marca a checagem ao mudar uma entrada — nada disso ainda.
     pub muda_o_pai: bool,
+    /// O que no filho muda o código de quem o usa e o emissor ainda não
+    /// escreve: injeção no construtor, `@HostBinding`, consulta de conteúdo,
+    /// provedores, projeção com seletor. Qualquer uma recusa o uso.
+    pub pendencias: Vec<Recusa>,
+}
+
+impl Filho {
+    /// O `@Input` que recebe a ligação `nome`.
+    pub fn entrada(&self, nome: &str) -> Option<&crate::componente::Entrada> {
+        self.entradas.iter().find(|e| e.nome == nome)
+    }
+}
+
+/// Uma diretiva ou componente de `directives:`, já resolvida, com o
+/// seletor lido. A lista de um componente segue a ordem do oficial (a
+/// expansão das listas constantes em profundidade, sem repetição): é a
+/// ordem em que as diretivas de um nó são instanciadas.
+#[derive(Debug, Clone)]
+pub struct Usada {
+    pub classe: String,
+    /// URI da biblioteca que declara a classe.
+    pub uri: String,
+    pub seletores: Vec<crate::seletor::Seletor>,
+    /// `Some` quando é componente: o que o emissor sabe dele.
+    pub filho: Option<Filho>,
+}
+
+impl Usada {
+    /// É a diretiva estrutural do próprio ngdart que o emissor conhece
+    /// (`NgIf`, `NgFor`)?
+    fn e_estrutural(&self, e: &Estrutural) -> bool {
+        self.classe == e.classe && self.uri == e.uri
+    }
 }
 
 /// O que o emissor precisa saber de onde o componente mora.
@@ -536,6 +544,13 @@ struct Corpo<'a> {
     metodos: &'a std::collections::HashMap<String, String>,
     /// Componentes que este template pode usar, por seletor.
     filhos: &'a std::collections::HashMap<String, Filho>,
+    /// Todas as diretivas e componentes de `directives:`, para saber o que
+    /// casa com cada elemento.
+    usadas: &'a [Usada],
+    /// Modo de coleta (o diagnóstico do placar): cada recusa é anotada aqui
+    /// e a emissão segue, para achar as outras. `None`: a primeira recusa
+    /// interrompe, e o arquivo fica com o `build_runner`.
+    coleta: Option<Vec<Recusa>>,
     /// Campos das visões-filhas (`_compView_n` e a instância), que saem na
     /// classe depois das ligações de texto.
     campos_filho: Vec<String>,
@@ -564,9 +579,6 @@ struct Corpo<'a> {
     /// `view_builder.dart`): o primeiro `*` do topo é 1, o aninhado dentro
     /// dele é 2, e o irmão seguinte é 3.
     proxima_embutida: u32,
-    /// Tipo do contexto da visão (`import1.X`), para a embutida declarar
-    /// `EmbeddedView<X>`.
-    tipo_do_contexto: String,
     /// Para analisar as expressões do template, que são expressões Dart.
     nomes: &'a mut dartforge_intern::Interner,
     /// `bool firstCheck = this.firstCheck;` no `detectChangesInternal`, quando
@@ -597,21 +609,53 @@ impl Corpo<'_> {
         self.imp.alias(DOM_HELPERS)
     }
 
-    /// `[x]="e"`: valor novo, `checkBinding` contra o anterior e a ação sobre
-    /// o elemento. O nome da ligação e a URI do template vão na verificação
-    /// para a mensagem de "expressão mudou depois da checagem".
-    fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<Ligada, Motivo> {
-        let Some(url) = self.url_do_template.clone() else {
-            return Err(Motivo::Ligacao);
-        };
-        let convertida = crate::expr::converter_com_locais(
-            &l.valor,
+    /// Anota uma recusa. Fora do modo de coleta ela interrompe a emissão
+    /// (`Err`); na coleta, fica anotada e a emissão segue.
+    fn anotar(&mut self, r: Recusa) -> Result<(), Recusa> {
+        match &mut self.coleta {
+            Some(v) => {
+                v.push(r);
+                Ok(())
+            }
+            None => Err(r),
+        }
+    }
+
+    fn coletando(&self) -> bool {
+        self.coleta.is_some()
+    }
+
+    /// O arquivo do template, para o comentário `REF`. Com o template escrito
+    /// na anotação a referência é outra (URI do `.dart` e deslocamento), e
+    /// isso ainda não tem caso no corpus.
+    fn url(&self, motivo: Motivo) -> Result<String, Recusa> {
+        self.url_do_template
+            .clone()
+            .ok_or_else(|| recusa(motivo, "ligação em template escrito na anotação"))
+    }
+
+    fn converter(
+        &mut self,
+        texto: &str,
+        motivo: Motivo,
+    ) -> Result<crate::expr::Convertida, Recusa> {
+        crate::expr::converter_com_locais(
+            texto,
             self.membros,
             self.metodos,
             &self.locais,
             self.nomes,
             self.tipos,
-        )?;
+        )
+        .map_err(|r| r.em(motivo))
+    }
+
+    /// `[x]="e"`: valor novo, `checkBinding` contra o anterior e a ação sobre
+    /// o elemento. O nome da ligação e a URI do template vão na verificação
+    /// para a mensagem de "expressão mudou depois da checagem".
+    fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<Ligada, Recusa> {
+        let url = self.url(Motivo::Ligacao)?;
+        let convertida = self.converter(&l.valor, Motivo::Ligacao)?;
         let expr = l.valor.trim();
         let (ini, fim) = (l.inicio, l.fim);
         // Toda ligação consome um índice (`createUniqueBindIndex` em
@@ -620,18 +664,20 @@ impl Corpo<'_> {
         self.proxima_ligacao += 1;
         // Valor que não muda é escrito uma vez, na primeira checagem, sem
         // `checkBinding` e sem campo de valor anterior (`isImmutable`,
-        // `_bindLiteral`). Valor que pode ser nulo ganharia um
-        // `if (x != null)` em volta, e `null` não gera nada — os dois ainda
-        // não.
+        // `_bindLiteral`). O que pode ser nulo (`canBeNull`: tudo menos o
+        // literal) ganha um `if (x != null)` em volta; o literal `null` não
+        // gera nada, forma ainda sem caso no corpus.
         if convertida.imutavel {
-            let tipo_certo = convertida
-                .tipo
-                .as_deref()
-                .is_some_and(|t| !t.ends_with('?') && t != "dynamic" && t != "Object");
-            if !tipo_certo {
-                return Err(Motivo::Ligacao);
+            if convertida.texto == "null" {
+                return Err(recusa(Motivo::Ligacao, "ligação constante `null`"));
             }
             let acao = self.acao(l, alvo, &convertida.texto, &convertida)?;
+            if convertida.pode_ser_nulo {
+                let valor = &convertida.texto;
+                return Ok(Ligada::Constante(format!(
+                    "      if (({valor} != null)) {{\n        {acao} /* REF:{url}:{ini}:{fim} */;\n      }}"
+                )));
+            }
             return Ok(Ligada::Constante(format!(
                 "      {acao} /* REF:{url}:{ini}:{fim} */;"
             )));
@@ -693,7 +739,7 @@ impl Corpo<'_> {
         alvo: &str,
         valor: &str,
         c: &crate::expr::Convertida,
-    ) -> Result<String, Motivo> {
+    ) -> Result<String, Recusa> {
         // A ação vai para o `detectChangesInternal`: o import é alocado
         // quando a detecção é escrita, não agora.
         let dom = tardio(DOM_HELPERS);
@@ -701,18 +747,27 @@ impl Corpo<'_> {
             format!("this.updateChildClass({alvo}, {valor})")
         } else if let Some(classe) = l.nome.strip_prefix("class.") {
             if classe.contains('.') {
-                return Err(Motivo::Ligacao);
+                return Err(recusa(Motivo::Ligacao, "[class.x.y]"));
             }
             format!("{dom}.updateClassBinding({alvo}, '{classe}', {valor})")
         } else if let Some(attr) = l.nome.strip_prefix("attr.") {
-            if attr.contains('.') || attr.contains(':') || com_seguranca(attr) {
-                return Err(Motivo::Ligacao);
+            if attr.contains('.') || attr.contains(':') {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "[attr.x.if] ou atributo com namespace",
+                ));
+            }
+            if com_seguranca(attr) {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "[attr.x] com contexto de segurança",
+                ));
             }
             // `canBeNull` (`analyzed_class.dart`): só o literal não pode ser
             // nulo, e só ele vai por `setAttribute`. `a ?? b` tem regra
-            // própria; ainda não.
+            // própria, ainda sem caso no corpus.
             if l.valor.contains("??") {
-                return Err(Motivo::Ligacao);
+                return Err(recusa(Motivo::Ligacao, "[attr.x] com `??`"));
             }
             let literal =
                 c.texto.starts_with(['\'', '"']) || matches!(c.texto.as_str(), "true" | "false");
@@ -723,21 +778,31 @@ impl Corpo<'_> {
             };
             format!("{dom}.{f}({alvo}, '{attr}', {valor})")
         } else if let Some(estilo) = l.nome.strip_prefix("style.") {
-            if estilo.contains('.') || c.tipo.as_deref() != Some("String") {
-                return Err(Motivo::Ligacao);
+            if estilo.contains('.') {
+                return Err(recusa(Motivo::Ligacao, "[style.x.unidade]"));
+            }
+            if c.tipo.as_deref() != Some("String") {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "[style.x] com valor que não é String",
+                ));
             }
             format!("{alvo}.style.setProperty('{estilo}', {valor})")
         } else if l.nome.contains('.') {
-            return Err(Motivo::Ligacao);
+            return Err(recusa(Motivo::Ligacao, "ligação com prefixo desconhecido"));
         } else {
             let prop = &l.nome;
-            if com_seguranca(prop)
-                || matches!(
-                    prop.as_str(),
-                    "readonly" | "tabindex" | "tabIndex" | "innerHtml" | "style"
-                )
-            {
-                return Err(Motivo::Ligacao);
+            if com_seguranca(prop) || matches!(prop.as_str(), "innerHtml" | "style") {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "[propriedade] com contexto de segurança",
+                ));
+            }
+            if matches!(prop.as_str(), "readonly" | "tabindex" | "tabIndex") {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "[propriedade] renomeada pelo esquema",
+                ));
             }
             format!("{dom}.setProperty({alvo}, '{prop}', {valor})")
         })
@@ -746,23 +811,31 @@ impl Corpo<'_> {
     /// `(e)="metodo()"` ou `(e)="metodo($event)"`: o oficial passa o método
     /// por referência a `eventHandlerN`, onde N é quantos argumentos o
     /// template escreveu.
-    fn evento(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
+    fn evento(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Recusa> {
         // Evento fora da lista do DOM (`keyup.enter`, `document:click`,
         // evento próprio) vai pelo `eventManager` do ngdart, outra forma.
         if !evento_nativo(&l.nome) {
-            return Err(Motivo::Ligacao);
+            return Err(recusa(
+                Motivo::Evento,
+                if l.nome.contains('.') {
+                    "evento com modificador (`keyup.enter`)"
+                } else {
+                    "evento não nativo"
+                },
+            ));
         }
+        let complexo = || recusa(Motivo::Evento, "handler complexo");
         let texto = l.valor.trim();
         let Some((nome, resto)) = texto.split_once('(') else {
-            return Err(Motivo::Ligacao);
+            return Err(complexo());
         };
         let Some(args) = resto.strip_suffix(')') else {
-            return Err(Motivo::Ligacao);
+            return Err(complexo());
         };
         let aridade = match args.trim() {
             "" => 0,
             "$event" => 1,
-            _ => return Err(Motivo::Ligacao),
+            _ => return Err(complexo()),
         };
         // O alvo é um método do componente, passado por referência
         // (`_tearOffSimpleHandler`): `_ctx.metodo`. Pelo conversor de
@@ -770,12 +843,15 @@ impl Corpo<'_> {
         // saía. Local de visão com o mesmo nome sombrearia o método.
         let nome = nome.trim();
         if !self.metodos.contains_key(nome) || self.locais.contains_key(nome) {
-            return Err(Motivo::Ligacao);
+            return Err(recusa(
+                Motivo::Evento,
+                "handler que não é método do componente",
+            ));
         }
         // Na visão embutida o `build()` não declara `_ctx`; o que o oficial
         // escreve ali ainda não tem caso no corpus.
         if self.embutida {
-            return Err(Motivo::Ligacao);
+            return Err(recusa(Motivo::Evento, "evento em visão embutida"));
         }
         let metodo = format!("_ctx.{nome}");
         self.usa_ctx_no_build = true;
@@ -797,34 +873,44 @@ impl Corpo<'_> {
         e: &crate::html::Elemento,
         filho: &Filho,
         pai: &str,
-    ) -> Result<(), Motivo> {
-        if !e.eventos.is_empty()
-            || !e.bananas.is_empty()
-            || !e.referencias.is_empty()
-            || e.estrela.is_some()
-            || !e.atributos.is_empty()
-        {
-            // `@Output`, `[(x)]`, `#ref` e atributo estático em filho: ainda
-            // não.
-            return Err(Motivo::LigacaoEmFilho);
+    ) -> Result<(), Recusa> {
+        let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
+        // `@Output`, `[(x)]`, `#ref` e atributo estático em filho: ainda
+        // não.
+        if !e.eventos.is_empty() {
+            return Err(em_filho("@Output ou evento no filho"));
+        }
+        if !e.bananas.is_empty() {
+            return Err(em_filho("[(x)] no filho"));
+        }
+        if !e.referencias.is_empty() {
+            return Err(em_filho("#ref no filho"));
+        }
+        if e.estrela.is_some() {
+            return Err(em_filho("`*` no elemento do filho"));
+        }
+        if !e.atributos.is_empty() {
+            return Err(em_filho("atributo estático no filho"));
         }
         if filho.muda_o_pai {
-            return Err(Motivo::LigacaoEmFilho);
+            return Err(em_filho("filho com ciclo de vida, AfterChanges ou OnPush"));
+        }
+        if let Some(r) = filho.pendencias.first() {
+            return Err(r.clone());
         }
         let n = self.proximo;
         self.proximo += 1;
+        let fora_de_lib = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
         let cam_template = caminho_do_import(
             &self.asset,
-            &asset_de_uri(&filho.uri_template, "", Path::new(""))
-                .ok_or(Motivo::ComponenteNoTemplate)?,
+            &asset_de_uri(&filho.uri_template, "", Path::new("")).ok_or_else(fora_de_lib)?,
         )
-        .ok_or(Motivo::ComponenteNoTemplate)?;
+        .ok_or_else(fora_de_lib)?;
         let cam_dart = caminho_do_import(
             &self.asset,
-            &asset_de_uri(&filho.uri_dart, "", Path::new(""))
-                .ok_or(Motivo::ComponenteNoTemplate)?,
+            &asset_de_uri(&filho.uri_dart, "", Path::new("")).ok_or_else(fora_de_lib)?,
         )
-        .ok_or(Motivo::ComponenteNoTemplate)?;
+        .ok_or_else(fora_de_lib)?;
         let vt = self.imp.alias(&cam_template);
         let vd = self.imp.alias(&cam_dart);
         let classe = &filho.classe;
@@ -844,7 +930,17 @@ impl Corpo<'_> {
         self.linhas.push(format!("    {pai}.append(_el_{n});"));
         self.linhas
             .push(format!("    this.{campo_inst} = {vd}.{classe}();"));
-        for l in &e.propriedades {
+        // As entradas saem na ordem em que o filho as declara
+        // (`_SortInputsVisitor`), não na do template.
+        let mut props: Vec<&crate::html::Ligacao> = e.propriedades.iter().collect();
+        props.sort_by_key(|l| {
+            filho
+                .entradas
+                .iter()
+                .position(|x| x.nome == l.nome)
+                .unwrap_or(usize::MAX)
+        });
+        for l in props {
             self.entrada_do_filho(l, filho, &campo_inst)?;
         }
         if filho.projeta {
@@ -876,7 +972,10 @@ impl Corpo<'_> {
             });
         } else {
             if !e.filhos.is_empty() {
-                return Err(Motivo::Projecao);
+                return Err(recusa(
+                    Motivo::Projecao,
+                    "conteúdo em filho que não projeta",
+                ));
             }
             self.linhas
                 .push(format!("    this.{campo_vista}.create(this.{campo_inst});"));
@@ -892,27 +991,20 @@ impl Corpo<'_> {
         l: &crate::html::Ligacao,
         filho: &Filho,
         campo_inst: &str,
-    ) -> Result<(), Motivo> {
-        let Some(url) = self.url_do_template.clone() else {
-            return Err(Motivo::LigacaoEmFilho);
-        };
-        let Some(campo) = filho.entradas.get(&l.nome).cloned() else {
+    ) -> Result<(), Recusa> {
+        let url = self.url(Motivo::LigacaoEmFilho)?;
+        let Some(campo) = filho.entrada(&l.nome).map(|e| e.campo.clone()) else {
             // Nome que o filho não declara como `@Input`: pode ser diretiva.
-            return Err(Motivo::LigacaoEmFilho);
+            return Err(recusa(
+                Motivo::LigacaoEmFilho,
+                "[x] que não é @Input do filho",
+            ));
         };
-        let convertida = crate::expr::converter_com_locais(
-            &l.valor,
-            self.membros,
-            self.metodos,
-            &self.locais,
-            self.nomes,
-            self.tipos,
-        )
-        .map_err(|_| Motivo::LigacaoEmFilho)?;
+        let convertida = self.converter(&l.valor, Motivo::LigacaoEmFilho)?;
         // Entrada imutável vai para o `if (firstCheck)` (`_bindLiteral`),
         // outra forma; ainda não.
         if convertida.imutavel {
-            return Err(Motivo::LigacaoEmFilho);
+            return Err(recusa(Motivo::LigacaoEmFilho, "entrada constante no filho"));
         }
         let k = self.proxima_ligacao;
         self.proxima_ligacao += 1;
@@ -941,14 +1033,16 @@ impl Corpo<'_> {
         e: &crate::html::Elemento,
         estrela: &crate::html::Ligacao,
         pai: &str,
-    ) -> Result<(), Motivo> {
-        let Some(url) = self.url_do_template.clone() else {
-            return Err(Motivo::Ligacao);
-        };
+    ) -> Result<(), Recusa> {
+        let url = self.url(Motivo::Ligacao)?;
         let Some(dir) = Estrutural::conhecida(&estrela.nome) else {
-            return Err(Motivo::Ligacao);
+            return Err(recusa(
+                Motivo::Ligacao,
+                "`*` de diretiva que não é ngIf/ngFor",
+            ));
         };
         let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        self.guarda_do_template(&estrela.nome, &micro, Some(&dir))?;
         let n = self.proximo;
         self.proximo += 1;
         let dom = self.dom();
@@ -992,21 +1086,14 @@ impl Corpo<'_> {
         // As entradas da diretiva, na ordem em que a microssintaxe as declara.
         let mut tipo_da_colecao = None;
         for (prop, expr) in &micro.propriedades {
-            let c = crate::expr::converter_com_locais(
-                expr,
-                self.membros,
-                self.metodos,
-                &self.locais,
-                self.nomes,
-                self.tipos,
-            )?;
+            let c = self.converter(expr, Motivo::Ligacao)?;
             // Entrada imutável (`final List<X> itens`) vai para o
             // `if (firstCheck)`, outra forma; ainda não.
             if c.imutavel {
-                return Err(Motivo::Ligacao);
+                return Err(recusa(Motivo::Ligacao, "entrada constante em `*`"));
             }
             if prop.ends_with("Of") {
-                tipo_da_colecao = c.tipo.clone();
+                tipo_da_colecao = c.tipo.clone().map(|t| (t, c.escopo.clone()));
             }
             let valor = c.texto;
             let (ini, fim) = (estrela.inicio, estrela.fim);
@@ -1037,28 +1124,7 @@ impl Corpo<'_> {
         }
 
         // Os locais do laço, tipados pelo elemento da coleção.
-        let mut locais = self.locais.clone();
-        for (nome, chave) in &micro.locais {
-            let tipo = match chave.as_str() {
-                "$implicit" => {
-                    let Some(t) = tipo_da_colecao.as_deref().and_then(tipo_do_elemento) else {
-                        return Err(Motivo::Ligacao);
-                    };
-                    t
-                }
-                "index" | "count" => "int".to_string(),
-                "first" | "last" | "even" | "odd" => "bool".to_string(),
-                _ => return Err(Motivo::Ligacao),
-            };
-            locais.insert(
-                nome.clone(),
-                crate::expr::Local {
-                    dart: format!("local_{nome}"),
-                    tipo,
-                },
-            );
-        }
-
+        let locais = self.locais_da_micro(&micro, tipo_da_colecao.as_ref())?;
         let mut sem_estrela = e.clone();
         sem_estrela.estrela = None;
         self.embutidas.push(EspecEmbutida {
@@ -1072,6 +1138,122 @@ impl Corpo<'_> {
         Ok(())
     }
 
+    /// Os locais que o `*` põe no escopo da visão embutida, com o tipo:
+    /// `$implicit` do elemento da coleção, `index`/`count` inteiros e os
+    /// quatro booleanos do `NgFor`.
+    fn locais_da_micro(
+        &self,
+        micro: &crate::micro::Micro,
+        tipo_da_colecao: Option<&(String, Option<std::path::PathBuf>)>,
+    ) -> Result<std::collections::HashMap<String, crate::expr::Local>, Recusa> {
+        let mut locais = self.locais.clone();
+        for (nome, chave) in &micro.locais {
+            let (tipo, escopo) = match chave.as_str() {
+                "$implicit" => {
+                    let Some((t, escopo)) = tipo_da_colecao
+                        .and_then(|(t, e)| tipo_do_elemento(t).map(|x| (x, e.clone())))
+                    else {
+                        return Err(recusa(
+                            Motivo::Ligacao,
+                            "local de `*ngFor` sem o tipo do elemento",
+                        ));
+                    };
+                    (t, escopo)
+                }
+                "index" | "count" => ("int".to_string(), None),
+                "first" | "last" | "even" | "odd" => ("bool".to_string(), None),
+                _ => {
+                    return Err(recusa(
+                        Motivo::Ligacao,
+                        "local de `*` com chave desconhecida",
+                    ));
+                }
+            };
+            locais.insert(
+                nome.clone(),
+                crate::expr::Local {
+                    dart: format!("local_{nome}"),
+                    tipo,
+                    escopo,
+                },
+            );
+        }
+        Ok(locais)
+    }
+
+    /// Guarda das diretivas do `<template>` que o `*` cria: tem de casar
+    /// exatamente a diretiva estrutural que o emissor conhece, e nenhuma
+    /// outra (`_templateSelector`: `template`, os atributos e as
+    /// propriedades da microssintaxe).
+    fn guarda_do_template(
+        &self,
+        nome: &str,
+        micro: &crate::micro::Micro,
+        dir: Option<&Estrutural>,
+    ) -> Result<(), Recusa> {
+        let mut desc = crate::seletor::Elemento::novo("template");
+        if !micro.propriedades.iter().any(|(p, _)| p == nome) {
+            desc.atributo(nome, None);
+        }
+        for (p, v) in &micro.propriedades {
+            desc.atributo(p, Some(v));
+        }
+        let casadas: Vec<&Usada> = self
+            .usadas
+            .iter()
+            .filter(|u| crate::seletor::casa_algum(&u.seletores, &desc))
+            .collect();
+        match (dir, casadas.as_slice()) {
+            (Some(d), [u]) if u.e_estrutural(d) => Ok(()),
+            (_, []) => Err(recusa(
+                Motivo::DiretivaPorSeletor,
+                "`*` sem diretiva de directives: que case",
+            )),
+            _ => {
+                let outra = casadas
+                    .iter()
+                    .find(|u| dir.is_none_or(|d| !u.e_estrutural(d)))
+                    .map(|u| u.classe.clone())
+                    .unwrap_or_default();
+                Err(recusa(
+                    Motivo::DiretivaPorSeletor,
+                    format!("diretiva {outra} em <template>"),
+                ))
+            }
+        }
+    }
+
+    /// Guarda das diretivas de um elemento: nenhuma diretiva de
+    /// `directives:` pode casar com ele, a não ser o componente que o emissor
+    /// vai instanciar pela tag.
+    fn guarda_do_elemento(&self, e: &crate::html::Elemento) -> Result<(), Recusa> {
+        if self.usadas.is_empty() {
+            return Ok(());
+        }
+        let desc = crate::seletor::Elemento::do_template(e);
+        let filho = self.filhos.get(&e.nome);
+        for u in self.usadas {
+            if !crate::seletor::casa_algum(&u.seletores, &desc) {
+                continue;
+            }
+            let e_o_filho = match (&u.filho, filho) {
+                (Some(f), Some(g)) => f.classe == g.classe && f.uri_dart == g.uri_dart,
+                _ => false,
+            };
+            if !e_o_filho {
+                return Err(recusa(
+                    Motivo::DiretivaPorSeletor,
+                    if u.filho.is_some() {
+                        format!("componente {} por seletor composto", u.classe)
+                    } else {
+                        format!("diretiva {}", u.classe)
+                    },
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Emite a ligação de texto de `{{ … }}`: o campo `TextBinding`, o
     /// `append` no `build()` e a atualização no `detectChangesInternal`.
     fn interpolacao(
@@ -1080,24 +1262,36 @@ impl Corpo<'_> {
         inicio: usize,
         fim: usize,
         pai: &str,
-    ) -> Result<(), Motivo> {
-        let (Some(tb), Some(url)) = (self.tb.clone(), self.url_do_template.clone()) else {
-            return Err(Motivo::Interpolacao);
+    ) -> Result<(), Recusa> {
+        let url = self.url(Motivo::Interpolacao)?;
+        let Some(tb) = self.tb.clone() else {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "interpolação sem ligação de texto",
+            ));
         };
-        let convertida = crate::expr::converter_com_locais(
-            expr,
-            self.membros,
-            self.metodos,
-            &self.locais,
-            self.nomes,
-            self.tipos,
-        )
-        .map_err(|_| Motivo::Interpolacao)?;
+        let convertida = self.converter(expr, Motivo::Interpolacao)?;
+        // O literal vira texto fixo (`visitInterpolation` devolve o próprio
+        // valor), forma ainda sem caso no corpus; e o tipo de uma chamada,
+        // de um ternário, de um binário ou de `!x` segue regras próprias do
+        // `_TypeResolver`, ainda sem caso também.
+        if convertida.literal {
+            return Err(recusa(Motivo::Interpolacao, "interpolação de literal"));
+        }
+        if matches!(convertida.forma, "chamada" | "ternário" | "binário" | "`!`") {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                format!("interpolação de {}", convertida.forma),
+            ));
+        }
         // Sem o tipo estático não dá para escolher entre `interpolateString`,
         // `interpolate` e `updateTextWithPrimitive` — e escolher errado muda o
         // que o programa faz.
         let Some(tipo) = convertida.tipo.clone() else {
-            return Err(Motivo::Interpolacao);
+            return Err(recusa(
+                Motivo::Interpolacao,
+                format!("tipo desconhecido de {}", convertida.forma),
+            ));
         };
         let membro = crate::componente::Membro {
             tipo,
@@ -1153,173 +1347,252 @@ impl Corpo<'_> {
         Ok(())
     }
 
-    /// Emite os nós filhos de `pai`. Devolve `None` na primeira forma que o
-    /// emissor ainda não cobre — o arquivo inteiro volta para o build_runner.
-    fn nos(&mut self, nos: &[No], pai: &str) -> Result<(), Motivo> {
+    /// Emite os nós filhos de `pai`. Fora da coleta, a primeira forma que o
+    /// emissor não cobre devolve `Err` e o arquivo inteiro volta para o
+    /// `build_runner`; na coleta, cada recusa é anotada e a varredura segue.
+    fn nos(&mut self, nos: &[No], pai: &str) -> Result<(), Recusa> {
         for no in nos {
-            match no {
-                No::Comentario(_) => {}
-                No::Texto(t) => {
-                    if pai.is_empty() {
-                        return Err(Motivo::Projecao); // texto projetado solto
-                    }
-                    let n = self.proximo;
-                    self.proximo += 1;
-                    let dom = self.dom();
-                    let texto = literal(t);
-                    self.linhas.push(format!(
-                        "    final _text_{n} = {dom}.appendText({pai}, {texto});"
-                    ));
-                }
-                No::Elemento(e) => {
-                    if let Some(filho) = self.filhos.get(&e.nome).cloned() {
-                        self.componente_filho(e, &filho, pai)?;
-                        continue;
-                    }
-                    if !dom::tag_html(&e.nome) {
-                        return Err(Motivo::ComponenteNoTemplate);
-                    }
-                    // Nome de diretiva do ecossistema (`ngClass`, `ngModel`…)
-                    // numa ligação é coisa de diretiva, não propriedade do
-                    // DOM: emitir `setProperty` ali faria outra coisa.
-                    if e.propriedades
-                        .iter()
-                        .chain(e.eventos.iter())
-                        .any(|l| e_de_diretiva(&l.nome))
-                        || e.atributos.iter().any(|a| e_de_diretiva(&a.nome))
-                    {
-                        return Err(Motivo::Diretiva);
-                    }
-                    if let Some(estrela) = &e.estrela {
-                        self.estrutural(e, estrela, pai)?;
-                        continue;
-                    }
-                    if !e.bananas.is_empty() {
-                        // `[(x)]` ainda não.
-                        return Err(Motivo::Ligacao);
-                    }
-                    // `#ref` só na forma que não muda nada no nó; o valor
-                    // dele é registrado adiante, para o `@ViewChild`.
-                    if e.referencias
-                        .iter()
-                        .any(|r| !r.valor.is_empty() || !self.refs_livres.contains(&r.nome))
-                    {
-                        return Err(Motivo::Ligacao);
-                    }
-                    if e.atributos.iter().any(|a| a.valor.contains("{{")) {
-                        return Err(Motivo::Interpolacao);
-                    }
-                    let n = self.proximo;
-                    self.proximo += 1;
-                    if !self.tem_doc {
-                        self.tem_doc = true;
-                        let html = self.html.clone();
-                        self.linhas
-                            .push(format!("    final doc = {html}.document;"));
-                    }
-                    let dom = self.dom();
-                    let tag = e.nome.to_ascii_lowercase();
-                    // Nó projetado não tem pai: o oficial cria solto, com
-                    // `document.createElement`, e entrega ao filho
-                    // (`_createElementAndAppend`, com `parent == null`).
-                    let criacao = if pai.is_empty() {
-                        let util = self.imp.alias(UTILITIES);
-                        format!("{util}.unsafeCast(doc.createElement('{tag}'))")
-                    } else {
-                        match tag.as_str() {
-                            "div" => format!("{dom}.appendDiv(doc, {pai})"),
-                            "span" => format!("{dom}.appendSpan(doc, {pai})"),
-                            _ => {
-                                let tipo = dom::tipo_da_tag(&tag);
-                                let html = &self.html;
-                                format!("{dom}.appendElement<{html}.{tipo}>(doc, {pai}, '{tag}')")
-                            }
-                        }
-                    };
-                    // Elemento com ligação de propriedade vira campo da
-                    // visão: o `detectChangesInternal` precisa dele depois do
-                    // `build()`. Evento sozinho não exige campo.
-                    let tipo = dom::tipo_da_tag(&tag);
-                    let alvo = if e.propriedades.is_empty() {
-                        self.linhas.push(format!("    final _el_{n} = {criacao};"));
-                        format!("_el_{n}")
-                    } else {
-                        let html = self.html.clone();
-                        self.campos_el
-                            .push(format!("  late final {html}.{tipo} _el_{n};"));
-                        self.linhas.push(format!("    this._el_{n} = {criacao};"));
-                        format!("this._el_{n}")
-                    };
-                    // `renderNode.toReadExpr()`: o local ou o campo, como o
-                    // nó tiver sido declarado.
-                    for r in &e.referencias {
-                        self.refs.insert(r.nome.clone(), alvo.clone());
-                    }
-                    // Atributos saem em ordem alfabética (`_toSortedBindings`).
-                    let mut atributos = e.atributos.clone();
-                    atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
-                    for a in &atributos {
-                        let valor = literal(&a.valor);
-                        if a.nome == "class" {
-                            self.linhas
-                                .push(format!("    this.updateChildClass({alvo}, {valor});"));
-                        } else if a.nome == "style" {
-                            return Err(Motivo::EstiloEmLinha);
-                        } else {
-                            let dom = self.dom();
-                            let nome = &a.nome;
-                            self.linhas.push(format!(
-                                "    {dom}.setAttribute({alvo}, '{nome}', {valor});"
-                            ));
-                        }
-                    }
-                    // As ligações são numeradas em ordem de documento — a do
-                    // pai antes das dos filhos —, então são registradas antes
-                    // de descer. Os eventos também: o ouvinte do pai vem
-                    // antes do dos filhos, e todos saem juntos no fim do
-                    // `build()` (ver `ouvintes`).
-                    let mut ligadas = Vec::new();
-                    for l in &e.propriedades {
-                        ligadas.push(self.propriedade(l, &alvo)?);
-                    }
-                    self.escrever_ligacoes(ligadas);
-                    // Dois `(click)` no mesmo elemento viram um método só
-                    // (`mergeEvents`); ainda não.
-                    // Evento em nó projetado num filho ainda não tem caso no
-                    // corpus.
-                    if pai.is_empty() && !e.eventos.is_empty() {
-                        return Err(Motivo::Ligacao);
-                    }
-                    let mut vistos = std::collections::HashSet::new();
-                    for l in &e.eventos {
-                        if !vistos.insert(l.nome.as_str()) {
-                            return Err(Motivo::Ligacao);
-                        }
-                        self.evento(l, &alvo)?;
-                    }
-                    if self.com_estilo {
-                        // Isolamento de estilo por atributo: o elemento entra
-                        // no escopo do componente.
-                        self.linhas.push(format!("    this.addShimC({alvo});"));
-                    }
-                    self.nos(&e.filhos, &alvo)?;
-                }
-                No::Interpolacao { expr, inicio, fim } => {
-                    self.interpolacao(expr, *inicio, *fim, pai)?
-                }
-                No::Conteudo { seletor } => {
-                    // `<ng-content>` não consome índice de nó; o número é o
-                    // ordinal da projeção no template.
-                    if seletor.is_some() {
-                        return Err(Motivo::Projecao); // seletor ainda não
-                    }
-                    let i = self.proxima_projecao;
-                    self.proxima_projecao += 1;
-                    self.linhas.push(format!("    this.project({pai}, {i});"));
+            if let Err(r) = self.no(no, pai) {
+                self.anotar(r)?;
+                // Na coleta, o que está abaixo de um nó recusado também
+                // conta: desce com um pai qualquer (a saída é descartada).
+                if let No::Elemento(e) = no {
+                    self.coletar_abaixo(e);
                 }
             }
         }
         Ok(())
+    }
+
+    /// Coleta as recusas da subárvore de um elemento que não saiu. Os locais
+    /// de um `*` entram sem tipo, para as expressões que os citam serem
+    /// examinadas pelo que são.
+    fn coletar_abaixo(&mut self, e: &crate::html::Elemento) {
+        if !self.coletando() || e.filhos.is_empty() {
+            return;
+        }
+        let guardados = (self.locais.clone(), self.embutida, self.tb.clone());
+        // A ligação de texto é alocada por visão; aqui a saída é descartada.
+        self.tb.get_or_insert_with(|| "_coleta".into());
+        if let Some(estrela) = &e.estrela {
+            let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+            for (nome, _) in &micro.locais {
+                self.locais.insert(
+                    nome.clone(),
+                    crate::expr::Local {
+                        dart: format!("local_{nome}"),
+                        tipo: "dynamic".into(),
+                        escopo: None,
+                    },
+                );
+            }
+            self.embutida = true;
+        }
+        let _ = self.nos(&e.filhos, "_el_coleta");
+        (self.locais, self.embutida, self.tb) = guardados;
+    }
+
+    /// Um nó do template.
+    fn no(&mut self, no: &No, pai: &str) -> Result<(), Recusa> {
+        match no {
+            No::Comentario(_) => {}
+            No::Texto(t) => {
+                if pai.is_empty() {
+                    return Err(recusa(Motivo::Projecao, "texto projetado solto"));
+                }
+                let n = self.proximo;
+                self.proximo += 1;
+                let dom = self.dom();
+                let texto = literal(t);
+                self.linhas.push(format!(
+                    "    final _text_{n} = {dom}.appendText({pai}, {texto});"
+                ));
+            }
+            No::Elemento(e) => {
+                // `<template>` escrito à mão é uma visão embutida, não um
+                // elemento HTML (`EmbeddedTemplateAst`).
+                if e.nome.eq_ignore_ascii_case("template") {
+                    return Err(recusa(Motivo::Ligacao, "<template> escrito no template"));
+                }
+                if e.estrela.is_none() {
+                    self.guarda_do_elemento(e)?;
+                }
+                if let Some(filho) = self.filhos.get(&e.nome).cloned() {
+                    return self.componente_filho(e, &filho, pai);
+                }
+                if !dom::tag_html(&e.nome) {
+                    return Err(recusa(
+                        Motivo::ComponenteNoTemplate,
+                        "tag que não é HTML nem componente conhecido",
+                    ));
+                }
+                // Nome de diretiva do ecossistema (`ngClass`, `ngModel`…)
+                // numa ligação é coisa de diretiva, não propriedade do
+                // DOM: emitir `setProperty` ali faria outra coisa.
+                if let Some(l) = e
+                    .propriedades
+                    .iter()
+                    .chain(e.eventos.iter())
+                    .chain(e.atributos.iter())
+                    .find(|l| e_de_diretiva(&l.nome))
+                {
+                    return Err(recusa(
+                        Motivo::Diretiva,
+                        format!(
+                            "`{}` sem diretiva que o receba",
+                            l.nome.split('.').next().unwrap_or(&l.nome)
+                        ),
+                    ));
+                }
+                if let Some(estrela) = &e.estrela {
+                    return self.estrutural(e, estrela, pai);
+                }
+                self.elemento_html(e, pai)?;
+            }
+            No::Interpolacao { expr, inicio, fim } => {
+                self.interpolacao(expr, *inicio, *fim, pai)?
+            }
+            No::Conteudo { seletor } => {
+                // `<ng-content>` não consome índice de nó; o número é o
+                // ordinal da projeção no template.
+                if seletor.is_some() {
+                    return Err(recusa(Motivo::Projecao, "<ng-content select>"));
+                }
+                let i = self.proxima_projecao;
+                self.proxima_projecao += 1;
+                self.linhas.push(format!("    this.project({pai}, {i});"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Um elemento HTML: criação, atributos, ligações, eventos, estilo e os
+    /// filhos.
+    fn elemento_html(&mut self, e: &crate::html::Elemento, pai: &str) -> Result<(), Recusa> {
+        if !e.bananas.is_empty() {
+            self.anotar(recusa(Motivo::Ligacao, "[(x)] em elemento HTML"))?;
+        }
+        // `#ref` só na forma que não muda nada no nó; o valor dele é
+        // registrado adiante, para o `@ViewChild`.
+        if let Some(r) = e
+            .referencias
+            .iter()
+            .find(|r| !r.valor.is_empty() || !self.refs_livres.contains(&r.nome))
+        {
+            self.anotar(recusa(
+                Motivo::Ligacao,
+                if !r.valor.is_empty() {
+                    "#ref com valor (`#f=\"ngForm\"`)"
+                } else if self.embutida {
+                    "#ref em visão embutida"
+                } else {
+                    "#ref usado em expressão"
+                },
+            ))?;
+        }
+        if e.atributos.iter().any(|a| a.valor.contains("{{")) {
+            self.anotar(recusa(Motivo::Interpolacao, "atributo interpolado"))?;
+        }
+        let n = self.proximo;
+        self.proximo += 1;
+        if !self.tem_doc {
+            self.tem_doc = true;
+            let html = self.html.clone();
+            self.linhas
+                .push(format!("    final doc = {html}.document;"));
+        }
+        let dom = self.dom();
+        let tag = e.nome.to_ascii_lowercase();
+        // Nó projetado não tem pai: o oficial cria solto, com
+        // `document.createElement`, e entrega ao filho
+        // (`_createElementAndAppend`, com `parent == null`).
+        let criacao = if pai.is_empty() {
+            let util = self.imp.alias(UTILITIES);
+            format!("{util}.unsafeCast(doc.createElement('{tag}'))")
+        } else {
+            match tag.as_str() {
+                "div" => format!("{dom}.appendDiv(doc, {pai})"),
+                "span" => format!("{dom}.appendSpan(doc, {pai})"),
+                _ => {
+                    let tipo = dom::tipo_da_tag(&tag);
+                    let html = &self.html;
+                    format!("{dom}.appendElement<{html}.{tipo}>(doc, {pai}, '{tag}')")
+                }
+            }
+        };
+        // Elemento com ligação de propriedade vira campo da
+        // visão: o `detectChangesInternal` precisa dele depois do
+        // `build()`. Evento sozinho não exige campo.
+        let tipo = dom::tipo_da_tag(&tag);
+        let alvo = if e.propriedades.is_empty() {
+            self.linhas.push(format!("    final _el_{n} = {criacao};"));
+            format!("_el_{n}")
+        } else {
+            let html = self.html.clone();
+            self.campos_el
+                .push(format!("  late final {html}.{tipo} _el_{n};"));
+            self.linhas.push(format!("    this._el_{n} = {criacao};"));
+            format!("this._el_{n}")
+        };
+        // `renderNode.toReadExpr()`: o local ou o campo, como o
+        // nó tiver sido declarado.
+        for r in &e.referencias {
+            self.refs.insert(r.nome.clone(), alvo.clone());
+        }
+        // Atributos saem em ordem alfabética (`_toSortedBindings`).
+        let mut atributos = e.atributos.clone();
+        atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
+        for a in &atributos {
+            let valor = literal(&a.valor);
+            if a.nome == "class" {
+                self.linhas
+                    .push(format!("    this.updateChildClass({alvo}, {valor});"));
+            } else if a.nome == "style" {
+                self.anotar(recusa(Motivo::EstiloEmLinha, "style=\"...\" em linha"))?;
+            } else {
+                let dom = self.dom();
+                let nome = &a.nome;
+                self.linhas.push(format!(
+                    "    {dom}.setAttribute({alvo}, '{nome}', {valor});"
+                ));
+            }
+        }
+        // As ligações são numeradas em ordem de documento — a do
+        // pai antes das dos filhos —, então são registradas antes
+        // de descer. Os eventos também: o ouvinte do pai vem
+        // antes do dos filhos, e todos saem juntos no fim do
+        // `build()` (ver `ouvintes`).
+        let mut ligadas = Vec::new();
+        for l in &e.propriedades {
+            match self.propriedade(l, &alvo) {
+                Ok(x) => ligadas.push(x),
+                Err(r) => self.anotar(r)?,
+            }
+        }
+        self.escrever_ligacoes(ligadas);
+        // Dois `(click)` no mesmo elemento viram um método só
+        // (`mergeEvents`); ainda não.
+        // Evento em nó projetado num filho ainda não tem caso no
+        // corpus.
+        if pai.is_empty() && !e.eventos.is_empty() {
+            self.anotar(recusa(Motivo::Evento, "evento em nó projetado"))?;
+        }
+        let mut vistos = std::collections::HashSet::new();
+        for l in &e.eventos {
+            if !vistos.insert(l.nome.as_str()) {
+                self.anotar(recusa(Motivo::Evento, "dois handlers do mesmo evento"))?;
+                continue;
+            }
+            if let Err(r) = self.evento(l, &alvo) {
+                self.anotar(r)?;
+            }
+        }
+        if self.com_estilo {
+            // Isolamento de estilo por atributo: o elemento entra
+            // no escopo do componente.
+            self.linhas.push(format!("    this.addShimC({alvo});"));
+        }
+        self.nos(&e.filhos, &alvo)
     }
 }
 
@@ -1493,6 +1766,75 @@ struct EspecEmbutida {
     micro: crate::micro::Micro,
 }
 
+/// O que toda visão do arquivo compartilha: o componente, as diretivas que
+/// ele usa e onde o arquivo mora.
+struct Contexto<'a> {
+    membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
+    metodos: &'a std::collections::HashMap<String, String>,
+    filhos: &'a std::collections::HashMap<String, Filho>,
+    usadas: &'a [Usada],
+    asset: String,
+    tipos: Option<(&'a dyn Resolucao, &'a Path)>,
+    com_estilo: bool,
+    url_do_template: Option<String>,
+    classe_da_visao: String,
+    tipo_do_contexto: String,
+    html: String,
+}
+
+impl<'a> Contexto<'a> {
+    /// Um corpo vazio para uma visão deste arquivo.
+    fn corpo<'b>(
+        &'b self,
+        imp: &'b mut Importacoes,
+        nomes: &'b mut dartforge_intern::Interner,
+        coleta: Option<Vec<Recusa>>,
+        embutida: bool,
+    ) -> Corpo<'b>
+    where
+        'a: 'b,
+    {
+        Corpo {
+            linhas: Vec::new(),
+            ouvintes: Vec::new(),
+            refs_livres: Default::default(),
+            refs: Default::default(),
+            campos: Vec::new(),
+            campos_filho: Vec::new(),
+            vistas_filhas: Vec::new(),
+            campos_expr: Vec::new(),
+            campos_el: Vec::new(),
+            proxima_ligacao: 0,
+            deteccao: Vec::new(),
+            nomes,
+            usa_primeira_checagem: false,
+            entradas: Vec::new(),
+            tb: None,
+            url_do_template: self.url_do_template.clone(),
+            membros: self.membros,
+            metodos: self.metodos,
+            filhos: self.filhos,
+            usadas: self.usadas,
+            coleta,
+            asset: self.asset.clone(),
+            tipos: self.tipos,
+            com_estilo: self.com_estilo,
+            embutidas: Vec::new(),
+            classe_da_visao: self.classe_da_visao.clone(),
+            ancoras: Vec::new(),
+            embutida,
+            locais: Default::default(),
+            proxima_embutida: 1,
+            proximo: 0,
+            tem_doc: false,
+            usa_ctx_no_build: false,
+            proxima_projecao: 0,
+            imp,
+            html: self.html.clone(),
+        }
+    }
+}
+
 /// Emite a classe de uma visão embutida, a sua fábrica e — recursivamente —
 /// as visões embutidas dentro dela.
 ///
@@ -1500,63 +1842,40 @@ struct EspecEmbutida {
 /// essas classes; os imports que ela aloca (`embedded_view`, o
 /// `text_binding` dos campos, `render_view` do construtor, `dart:core` do
 /// argumento de tipo, `interpolate`) saem nessa ordem.
-#[allow(clippy::too_many_arguments)]
+///
+/// Na coleta (`coleta` com `Some`), cada recusa é anotada e a emissão segue.
 fn emitir_embutida(
     espec: EspecEmbutida,
+    ctx: &Contexto,
     imp: &mut Importacoes,
-    membros: &std::collections::HashMap<String, crate::componente::Membro>,
-    metodos: &std::collections::HashMap<String, String>,
-    filhos: &std::collections::HashMap<String, Filho>,
-    asset: &str,
-    tipos: Option<(&dyn Resolucao, &Path)>,
-    com_estilo: bool,
-    url_do_template: Option<String>,
-    classe_da_visao: &str,
-    tipo_do_contexto: &str,
-    html: &str,
     nomes: &mut dartforge_intern::Interner,
-) -> Result<String, Motivo> {
+    coleta: &mut Option<Vec<Recusa>>,
+) -> Result<String, Recusa> {
     let ev = imp.alias(EMBEDDED_VIEW);
     let classe = espec.classe.clone();
     let fabrica = espec.fabrica.clone();
-    let mut dentro = Corpo {
-        linhas: Vec::new(),
-        ouvintes: Vec::new(),
-        refs_livres: Default::default(),
-        refs: Default::default(),
-        campos: Vec::new(),
-        campos_filho: Vec::new(),
-        vistas_filhas: Vec::new(),
-        campos_expr: Vec::new(),
-        campos_el: Vec::new(),
-        proxima_ligacao: 0,
-        deteccao: Vec::new(),
-        nomes,
-        usa_primeira_checagem: false,
-        entradas: Vec::new(),
-        tb: None,
-        url_do_template: url_do_template.clone(),
-        membros,
-        metodos,
-        filhos,
-        asset: asset.to_string(),
-        tipos,
-        com_estilo,
-        embutidas: Vec::new(),
-        classe_da_visao: classe_da_visao.to_string(),
-        ancoras: Vec::new(),
-        embutida: true,
-        locais: espec.locais.clone(),
-        // A numeração continua de onde o pai parou.
-        proxima_embutida: espec.indice + 1,
-        tipo_do_contexto: tipo_do_contexto.to_string(),
-        proximo: 0,
-        tem_doc: false,
-        usa_ctx_no_build: false,
-        proxima_projecao: 0,
-        imp,
-        html: html.to_string(),
-    };
+    let mut dentro = ctx.corpo(imp, nomes, coleta.take(), true);
+    dentro.locais = espec.locais.clone();
+    // A numeração continua de onde o pai parou.
+    dentro.proxima_embutida = espec.indice + 1;
+    let r = corpo_da_embutida(&mut dentro, &espec, ctx, &ev, &classe, &fabrica);
+    *coleta = dentro.coleta.take();
+    let (mut texto, aninhadas) = r?;
+    for a in aninhadas {
+        texto.push_str(&emitir_embutida(a, ctx, imp, nomes, coleta)?);
+    }
+    Ok(texto)
+}
+
+/// O texto de uma visão embutida e as especificações das aninhadas nela.
+fn corpo_da_embutida(
+    dentro: &mut Corpo,
+    espec: &EspecEmbutida,
+    ctx: &Contexto,
+    ev: &str,
+    classe: &str,
+    fabrica: &str,
+) -> Result<(String, Vec<EspecEmbutida>), Recusa> {
     // O campo de ligação de texto é declarado antes do construtor, então o
     // import dele entra aqui.
     if tem_interpolacao(&espec.nos) {
@@ -1569,10 +1888,15 @@ fn emitir_embutida(
     for nome in espec.locais.keys() {
         let meu = espec.micro.locais.iter().any(|(n, _)| n == nome);
         if !meu && local_citado(&espec.nos, nome) {
-            return Err(Motivo::Ligacao);
+            dentro.anotar(recusa(
+                Motivo::Ligacao,
+                "local de `*` ancestral lido na visão aninhada",
+            ))?;
         }
     }
-    alocar_imports_dos_campos(dentro.imp, &espec.nos, filhos, asset)?;
+    if let Err(r) = alocar_imports_dos_campos(dentro.imp, &espec.nos, ctx.filhos, &ctx.asset) {
+        dentro.anotar(r)?;
+    }
     // O construtor vem depois dos campos e antes do `build()`, e é ele que
     // nomeia a `RenderView`.
     let rv = dentro.imp.alias(RENDER_VIEW);
@@ -1588,7 +1912,8 @@ fn emitir_embutida(
         .collect();
     // O argumento de tipo do `unsafeCast` precisa estar importado e
     // qualificado: do `dart:core` sai sem prefixo, de outra biblioteca sai
-    // com o prefixo dela.
+    // com o prefixo dela — a biblioteca que declara o tipo, procurada no
+    // escopo em que o texto do tipo foi escrito.
     let mut tipos_locais: std::collections::HashMap<String, String> = Default::default();
     for (nome, _) in &usados {
         let Some(l) = espec.locais.get(nome.as_str()) else {
@@ -1602,20 +1927,30 @@ fn emitir_embutida(
             tipos_locais.insert(nome.to_string(), l.tipo.clone());
             continue;
         }
-        let Some((r, arquivo)) = tipos else {
-            return Err(Motivo::Ligacao);
+        let sem_import = || recusa(Motivo::Ligacao, "tipo do local de `*ngFor` sem import");
+        let Some((r, arquivo)) = ctx.tipos else {
+            dentro.anotar(sem_import())?;
+            continue;
         };
-        let Some(uri) = r.uri_do_tipo(arquivo, &l.tipo) else {
-            return Err(Motivo::Ligacao);
+        let escopo = l.escopo.as_deref().unwrap_or(arquivo);
+        let caminho = r
+            .uri_do_tipo(escopo, &l.tipo)
+            .and_then(|uri| asset_de_uri(&uri, "", Path::new("")))
+            .and_then(|alvo| caminho_do_import(&ctx.asset, &alvo));
+        let Some(caminho) = caminho else {
+            dentro.anotar(sem_import())?;
+            continue;
         };
-        let alvo = asset_de_uri(&uri, "", Path::new("")).ok_or(Motivo::Ligacao)?;
-        let caminho = caminho_do_import(asset, &alvo).ok_or(Motivo::Ligacao)?;
         let q = dentro.imp.q(&caminho);
-        tipos_locais.insert(nome.to_string(), format!("{q}{}", l.tipo));
+        let simples = l.tipo.rsplit('.').next().unwrap_or(&l.tipo);
+        tipos_locais.insert(nome.to_string(), format!("{q}{simples}"));
     }
+    let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
     dentro.nos(&espec.nos, "")?;
-    if dentro.proximo == 0 {
-        return Err(Motivo::Ligacao);
+    // Na coleta, um nó recusado não consome índice: a visão parece vazia
+    // sem estar.
+    if dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
+        dentro.anotar(recusa(Motivo::Ligacao, "visão embutida sem nó"))?;
     }
     // O local só é declarado se for usado, como no oficial.
     let mut declaracoes = Vec::new();
@@ -1650,19 +1985,15 @@ fn emitir_embutida(
     let campos = if todos.is_empty() {
         String::new()
     } else {
-        format!(
-            "{}
-",
-            todos.join(
-                "
-"
-            )
-        )
+        format!("{}\n", todos.join("\n"))
     };
     // Ligação escrita só na primeira checagem precisaria de `firstCheck`
     // declarado aqui também; sem caso no corpus, fica de fora.
     if dentro.usa_primeira_checagem {
-        return Err(Motivo::Ligacao);
+        dentro.anotar(recusa(
+            Motivo::Ligacao,
+            "ligação constante em visão embutida",
+        ))?;
     }
     let mut linhas_det = Vec::new();
     // `_ctx` só é declarado se o corpo o usar de fato: numa visão de `*ngFor`
@@ -1684,16 +2015,8 @@ fn emitir_embutida(
         String::new()
     } else {
         format!(
-            "
-  @override
-  void detectChangesInternal() {{
-{}
-  }}
-",
-            linhas_det.join(
-                "
-"
-            )
+            "\n  @override\n  void detectChangesInternal() {{\n{}\n  }}\n",
+            linhas_det.join("\n")
         )
     };
     let deteccao = resolver_tardios(dentro.imp, &deteccao);
@@ -1713,44 +2036,16 @@ fn emitir_embutida(
                 .map(|v| format!("    this.{v}.destroyInternalState();")),
         );
         format!(
-            "
-  @override
-  void destroyInternal() {{
-{}
-  }}
-",
-            linhas.join(
-                "
-"
-            )
+            "\n  @override\n  void destroyInternal() {{\n{}\n  }}\n",
+            linhas.join("\n")
         )
     };
     let aninhadas = std::mem::take(&mut dentro.embutidas);
-    // Tira os dois emprestados de dentro da estrutura: a recursão precisa
-    // deles, e `dentro` não vive além daqui.
-    let imp = dentro.imp;
-    let nomes = dentro.nomes;
-    let mut texto = format!(
+    let tipo_do_contexto = &ctx.tipo_do_contexto;
+    let texto = format!(
         "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}{destruicao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
     );
-    for a in aninhadas {
-        texto.push_str(&emitir_embutida(
-            a,
-            imp,
-            membros,
-            metodos,
-            filhos,
-            asset,
-            tipos,
-            com_estilo,
-            url_do_template.clone(),
-            classe_da_visao,
-            tipo_do_contexto,
-            html,
-            nomes,
-        )?);
-    }
-    Ok(texto)
+    Ok((texto, aninhadas))
 }
 
 /// Aloca os imports que os **campos** da classe usam, na ordem em que eles
@@ -1765,15 +2060,14 @@ fn alocar_imports_dos_campos(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
     asset: &str,
-) -> Result<(), Motivo> {
+) -> Result<(), Recusa> {
+    let sem_caminho = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
     for campo in campos_em_ordem(nos, filhos) {
         match campo {
             CampoDaVisao::Filho(f) => {
                 for uri in [&f.uri_template, &f.uri_dart] {
-                    let alvo =
-                        asset_de_uri(uri, "", Path::new("")).ok_or(Motivo::ComponenteNoTemplate)?;
-                    let caminho =
-                        caminho_do_import(asset, &alvo).ok_or(Motivo::ComponenteNoTemplate)?;
+                    let alvo = asset_de_uri(uri, "", Path::new("")).ok_or_else(sem_caminho)?;
+                    let caminho = caminho_do_import(asset, &alvo).ok_or_else(sem_caminho)?;
                     imp.alias(&caminho);
                 }
             }
@@ -2127,11 +2421,10 @@ pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
     s
 }
 
-/// Gera o `.template.dart` de um arquivo com um componente só, cujo template
-/// tem apenas elementos HTML e texto — sem ligação, diretiva, projeção,
-/// folha de estilo nem injeção no construtor.
+/// Gera o `.template.dart` de um arquivo com um componente só.
 ///
-/// O que não couber volta `None` e continua vindo do `build_runner`.
+/// O que não couber volta `Err` com a primeira recusa, e o arquivo continua
+/// vindo do `build_runner`.
 pub fn template_de_componente(
     c: &Componente,
     local: &Local,
@@ -2139,21 +2432,99 @@ pub fn template_de_componente(
     resolvedor: Option<&dyn Resolucao>,
     nomes: &mut dartforge_intern::Interner,
     filhos: &std::collections::HashMap<String, Filho>,
-) -> Result<String, Motivo> {
-    if let Some((m, _)) = c.nao_entendidos.first() {
-        return Err(*m);
+    usadas: &[Usada],
+) -> Result<String, Recusa> {
+    let mut coleta = None;
+    gerar_componente(
+        c,
+        local,
+        nos,
+        resolvedor,
+        nomes,
+        filhos,
+        usadas,
+        &mut coleta,
+    )
+}
+
+/// Todas as recusas deste componente, não só a primeira: roda a mesma
+/// emissão em modo de coleta. Sem isto o placar engana — um arquivo que
+/// trava em folha de estilo pode travar também em evento e interpolação, e
+/// contar só o primeiro faz parecer que aprender uma forma destrava o
+/// arquivo.
+pub fn coletar(
+    c: &Componente,
+    local: &Local,
+    nos: &[No],
+    resolvedor: Option<&dyn Resolucao>,
+    nomes: &mut dartforge_intern::Interner,
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+) -> std::collections::BTreeSet<Recusa> {
+    let mut coleta = Some(Vec::new());
+    let r = gerar_componente(
+        c,
+        local,
+        nos,
+        resolvedor,
+        nomes,
+        filhos,
+        usadas,
+        &mut coleta,
+    );
+    let mut fora: std::collections::BTreeSet<Recusa> =
+        coleta.unwrap_or_default().into_iter().collect();
+    if let Err(r) = r {
+        fora.insert(r);
     }
-    if let Some(m) = formas_contra_o_template(c, local, nos, resolvedor, filhos).first() {
-        return Err(*m);
+    // A folha de estilo é compilada por quem chama (`gerar_arquivo`); o
+    // diagnóstico roda a mesma conta aqui.
+    if c.style_urls.len() == 1 {
+        let url = &c.style_urls[0];
+        if local.uri_do_estilo(url).is_none() {
+            fora.insert(recusa(Motivo::Estilos, "folha fora de lib/"));
+        } else if !crate::estilo_compila(local.caminho, url) {
+            fora.insert(recusa(Motivo::Estilos, "Sass ou CSS fora do subconjunto"));
+        }
+    }
+    fora
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gerar_componente(
+    c: &Componente,
+    local: &Local,
+    nos: &[No],
+    resolvedor: Option<&dyn Resolucao>,
+    nomes: &mut dartforge_intern::Interner,
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+    coleta: &mut Option<Vec<Recusa>>,
+) -> Result<String, Recusa> {
+    // Anota na coleta ou interrompe.
+    fn anotar(coleta: &mut Option<Vec<Recusa>>, r: Recusa) -> Result<(), Recusa> {
+        match coleta {
+            Some(v) => {
+                v.push(r);
+                Ok(())
+            }
+            None => Err(r),
+        }
+    }
+    for r in &c.nao_entendidos {
+        anotar(coleta, r.clone())?;
+    }
+    for r in formas_contra_o_template(c, local, nos, resolvedor, filhos) {
+        anotar(coleta, r)?;
     }
     if !c.styles.is_empty() {
         // `styles: ['…']` escrito na anotação ainda não.
-        return Err(Motivo::Estilos);
+        anotar(coleta, recusa(Motivo::Estilos, "styles: [..] na anotação"))?;
     }
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
-    if let Some(m) = falta_para_construir(c, local, resolvedor) {
-        return Err(m);
+    if let Some(r) = falta_para_construir(c, local, resolvedor) {
+        anotar(coleta, r)?;
     }
 
     let mut imp = Importacoes::default();
@@ -2164,24 +2535,33 @@ pub fn template_de_componente(
             // A folha entra pela URI `package:` mesmo estando ao lado: é
             // assim que o oficial escreve (o resolvedor de `styleUrls` é
             // outro, e não passa pelo caminho relativo).
-            let uri = local
-                .uri_do_estilo(&c.style_urls[0])
-                .ok_or(Motivo::Estilos)?;
-            Some(imp.alias(&uri))
+            match local.uri_do_estilo(&c.style_urls[0]) {
+                Some(uri) => Some(imp.alias(&uri)),
+                None => {
+                    anotar(coleta, recusa(Motivo::Estilos, "folha fora de lib/"))?;
+                    None
+                }
+            }
         }
         // Mais de uma folha muda a lista de `styles$X`; uma de cada vez.
-        _ => return Err(Motivo::Estilos),
+        _ => {
+            anotar(
+                coleta,
+                recusa(Motivo::Estilos, "mais de uma folha em styleUrls"),
+            )?;
+            None
+        }
     };
     let vista = imp.alias(COMPONENT_VIEW);
     let proprio = imp.alias(local.arquivo);
-    // Os campos da visão saem antes de tudo na classe, então os seus imports
-    // são alocados antes: é o que faz a numeração bater com a do oficial.
     // Os campos da visão saem antes de tudo na classe — ligações de texto,
     // visões-filhas, valores anteriores, elementos —, e os imports são
     // alocados nessa mesma ordem. É isso que faz a numeração bater com a do
     // oficial; fora de ordem, a comparação byte a byte não vale nada.
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
-    alocar_imports_dos_campos(&mut imp, nos, filhos, &local.asset())?;
+    if let Err(r) = alocar_imports_dos_campos(&mut imp, nos, filhos, &local.asset()) {
+        anotar(coleta, r)?;
+    }
     let estilos = imp.alias(STYLE_ENCAPSULATION);
     let view = imp.alias(VIEW);
     let cd = imp.alias(CHANGE_DETECTION);
@@ -2190,44 +2570,27 @@ pub fn template_de_componente(
     // sempre entra antes do corpo do `build()`.
     let html = imp.alias("dart:html");
 
-    let mut corpo = Corpo {
-        linhas: Vec::new(),
-        ouvintes: Vec::new(),
-        refs_livres: referencias_livres(nos),
-        refs: Default::default(),
-        campos: Vec::new(),
-        campos_filho: Vec::new(),
-        vistas_filhas: Vec::new(),
+    let ctx = Contexto {
+        membros: &c.membros,
+        metodos: &c.metodos,
         filhos,
+        usadas,
         asset: local.asset(),
         tipos: resolvedor.map(|r| (r, local.caminho)),
         com_estilo: !c.style_urls.is_empty(),
-        embutidas: Vec::new(),
-        classe_da_visao: format!("View{}", c.classe),
-        ancoras: Vec::new(),
-        embutida: false,
-        locais: Default::default(),
-        proxima_embutida: 1,
-        tipo_do_contexto: format!("{proprio}.{}", c.classe),
-        campos_expr: Vec::new(),
-        campos_el: Vec::new(),
-        proxima_ligacao: 0,
-        deteccao: Vec::new(),
-        nomes,
-        usa_primeira_checagem: false,
-        entradas: Vec::new(),
-        tb,
         url_do_template: local.url_do_template.clone(),
-        membros: &c.membros,
-        metodos: &c.metodos,
-        proximo: 0,
-        tem_doc: false,
-        usa_ctx_no_build: false,
-        proxima_projecao: 0,
-        imp: &mut imp,
+        classe_da_visao: format!("View{}", c.classe),
+        tipo_do_contexto: format!("{proprio}.{}", c.classe),
         html: html.clone(),
     };
-    corpo.nos(nos, "parentRenderNode")?;
+    let mut corpo = ctx.corpo(&mut imp, nomes, coleta.take(), false);
+    corpo.refs_livres = referencias_livres(nos);
+    corpo.tb = tb;
+    let r = corpo.nos(nos, "parentRenderNode");
+    if let Err(r) = r {
+        *coleta = corpo.coleta.take();
+        return Err(r);
+    }
     // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
     // dos ouvintes, na ordem de declaração das consultas
     // (`updateQueryAtStartup`, `createImmediateUpdates` em
@@ -2235,10 +2598,17 @@ pub fn template_de_componente(
     // `#ref` está uma vez só, num elemento HTML da própria visão.
     let mut consultas = Vec::new();
     for q in &c.consultas {
-        let Some(alvo) = corpo.refs.get(&q.referencia) else {
-            return Err(Motivo::ViewChildDinamico);
-        };
-        consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade));
+        match corpo.refs.get(&q.referencia) {
+            Some(alvo) => consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade)),
+            // Na coleta a recusa já veio de `formas_contra_o_template`.
+            None if corpo.coletando() => {}
+            None => {
+                return Err(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChild sem #ref no template",
+                ));
+            }
+        }
         corpo.usa_ctx_no_build = true;
     }
     // Os `@HostListener` do componente fecham o `build()`, ligados ao nó
@@ -2253,8 +2623,7 @@ pub fn template_de_componente(
         ));
     }
     let ctx_no_build = if corpo.usa_ctx_no_build {
-        "
-    final _ctx = this.ctx;"
+        "\n    final _ctx = this.ctx;"
     } else {
         ""
     };
@@ -2285,14 +2654,7 @@ pub fn template_de_componente(
     let campos = if todos.is_empty() {
         String::new()
     } else {
-        format!(
-            "{}
-",
-            todos.join(
-                "
-"
-            )
-        )
+        format!("{}\n", todos.join("\n"))
     };
     // A detecção na ordem de `writeChangeDetectionStatements`: entradas de
     // diretivas e filhos, visões aninhadas, ligações de propriedade e texto,
@@ -2309,29 +2671,19 @@ pub fn template_de_componente(
     let deteccao = if linhas_deteccao.is_empty() {
         String::new()
     } else {
-        let ctx = if cita_ctx(&linhas_deteccao) {
-            "    final _ctx = this.ctx;
-"
+        let ctx_det = if cita_ctx(&linhas_deteccao) {
+            "    final _ctx = this.ctx;\n"
         } else {
             ""
         };
         let primeira = if corpo.usa_primeira_checagem {
-            "    bool firstCheck = this.firstCheck;
-"
+            "    bool firstCheck = this.firstCheck;\n"
         } else {
             ""
         };
         format!(
-            "
-  @override
-  void detectChangesInternal() {{
-{ctx}{primeira}{}
-  }}
-",
-            linhas_deteccao.join(
-                "
-"
-            )
+            "\n  @override\n  void detectChangesInternal() {{\n{ctx_det}{primeira}{}\n  }}\n",
+            linhas_deteccao.join("\n")
         )
     };
     // Os imports da detecção entram agora, depois dos do `build()`.
@@ -2352,20 +2704,13 @@ pub fn template_de_componente(
                 .map(|v| format!("    this.{v}.destroyInternalState();")),
         );
         format!(
-            "
-  @override
-  void destroyInternal() {{
-{}
-  }}
-",
-            linhas.join(
-                "
-"
-            )
+            "\n  @override\n  void destroyInternal() {{\n{}\n  }}\n",
+            linhas.join("\n")
         )
     };
     // `corpo` empresta o interner e a tabela de imports; a emissão das
     // visões embutidas precisa dos dois.
+    *coleta = corpo.coleta.take();
     drop(corpo);
 
     imp.sem_alias(ANGULAR);
@@ -2373,25 +2718,23 @@ pub fn template_de_componente(
     // isso que os imports delas vêm depois do `angular.dart`.
     let mut embutidas = String::new();
     for espec in especs {
-        embutidas.push_str(&emitir_embutida(
-            espec,
-            &mut imp,
-            &c.membros,
-            &c.metodos,
-            filhos,
-            &local.asset(),
-            resolvedor.map(|r| (r, local.caminho)),
-            !c.style_urls.is_empty(),
-            local.url_do_template.clone(),
-            &format!("View{}", c.classe),
-            &format!("{proprio}.{}", c.classe),
-            &html,
-            nomes,
-        )?);
+        embutidas.push_str(&emitir_embutida(espec, &ctx, &mut imp, nomes, coleta)?);
     }
     let hosp = imp.alias(HOST_VIEW);
-    let construcao = construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
-        .ok_or(Motivo::InjecaoNaoResolvida)?;
+    let construcao = match construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
+    {
+        Some(x) => x,
+        None => {
+            // Na coleta a recusa já veio de `falta_para_construir`.
+            if coleta.is_none() {
+                return Err(recusa(
+                    Motivo::InjecaoNaoResolvida,
+                    "construção do componente",
+                ));
+            }
+            String::new()
+        }
+    };
     // Os ganchos de ciclo de vida saem na visão-hospedeira, depois do
     // `build()`, e o `check_binding.dart` entra aí.
     let ciclo = if c.ganchos.algum() {
@@ -2555,25 +2898,40 @@ fn falta_para_construir(
     c: &Componente,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
-) -> Option<Motivo> {
+) -> Option<Recusa> {
     for p in &c.parametros {
         if e_elemento(p.tipo.as_deref()) {
             continue;
         }
         if p.anotado {
-            return Some(Motivo::InjecaoAnotada);
+            return Some(recusa(
+                Motivo::InjecaoAnotada,
+                "@Optional/@Inject/@Attribute no construtor",
+            ));
         }
         if p.nomeado {
-            return Some(Motivo::InjecaoNomeada);
+            return Some(recusa(
+                Motivo::InjecaoNomeada,
+                "parâmetro nomeado no construtor",
+            ));
         }
         let Some(tipo) = p.tipo.as_deref() else {
-            return Some(Motivo::InjecaoSemTipo);
+            return Some(recusa(
+                Motivo::InjecaoSemTipo,
+                "parâmetro sem tipo no construtor",
+            ));
         };
         if tipo.contains('<') {
-            return Some(Motivo::InjecaoGenerica);
+            return Some(recusa(
+                Motivo::InjecaoGenerica,
+                "token genérico no construtor",
+            ));
         }
         if !resolvedor.is_some_and(|r| r.uri_do_tipo(local.caminho, tipo).is_some()) {
-            return Some(Motivo::InjecaoNaoResolvida);
+            return Some(recusa(
+                Motivo::InjecaoNaoResolvida,
+                "tipo injetado sem resolução",
+            ));
         }
     }
     None
@@ -2634,6 +2992,7 @@ mod testes {
             None,
             &mut Interner::new(),
             &Default::default(),
+            &[],
         )
         .expect("gera");
         let esperado = include_str!("../testes/form_feedback_component.template.dart");
@@ -2667,6 +3026,7 @@ mod testes {
             None,
             &mut Interner::new(),
             &Default::default(),
+            &[],
         )
         .expect("gera");
         let esperado = include_str!("../testes/callback_component.template.dart");
@@ -2688,8 +3048,10 @@ mod testes {
                 &nos,
                 None,
                 &mut Interner::new(),
-                &Default::default()
-            ),
+                &Default::default(),
+                &[],
+            )
+            .map_err(|r| r.motivo),
             Err(Motivo::Ligacao)
         );
     }
@@ -2709,8 +3071,10 @@ mod testes {
                 &nos,
                 None,
                 &mut Interner::new(),
-                &Default::default()
-            ),
+                &Default::default(),
+                &[],
+            )
+            .map_err(|r| r.motivo),
             Err(Motivo::ComponenteNoTemplate)
         );
     }
@@ -2731,8 +3095,10 @@ mod testes {
                 &[],
                 None,
                 &mut Interner::new(),
-                &Default::default()
-            ),
+                &Default::default(),
+                &[],
+            )
+            .map_err(|r| r.motivo),
             Err(Motivo::InjecaoNaoResolvida)
         );
     }
@@ -2771,16 +3137,10 @@ mod testes {
             Some(&tabela),
             &mut Interner::new(),
             &Default::default(),
+            &[],
         )
         .expect("gera");
         let esperado = include_str!("../testes/callback_com_injecao.template.dart");
-        assert_eq!(
-            saida,
-            esperado.replace(
-                "
-", "
-"
-            )
-        );
+        assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
 }

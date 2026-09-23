@@ -95,6 +95,23 @@ pub fn tem_projecao(nos: &[No]) -> bool {
     })
 }
 
+/// Os `<ng-content>` do template, em ordem de documento, com o `select` de
+/// cada um — os `ngContentSelectors` do componente.
+pub fn projecoes(nos: &[No]) -> Vec<Option<String>> {
+    let mut saida = Vec::new();
+    fn andar(nos: &[No], saida: &mut Vec<Option<String>>) {
+        for n in nos {
+            match n {
+                No::Conteudo { seletor } => saida.push(seletor.clone()),
+                No::Elemento(e) => andar(&e.filhos, saida),
+                _ => {}
+            }
+        }
+    }
+    andar(nos, &mut saida);
+    saida
+}
+
 /// Analisa um template. Erros de forma não interrompem: o parser recupera e
 /// segue, como o do ngast, para que um template quebrado não derrube a
 /// geração inteira.

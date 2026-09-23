@@ -5,15 +5,32 @@
 //! literais escritos na própria anotação (`selector: 'x'`, `templateUrl:
 //! 'x.html'`), e os que não são — a lista de `directives`, os `providers` —
 //! ficam guardados como texto da fonte, para as etapas que souberem usá-los.
-use crate::visao::Motivo;
+use crate::visao::{Motivo, Recusa, recusa};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 
-/// `@Component(...)` de uma classe, como está escrito.
+/// `@Component(...)` ou `@Directive(...)` de uma classe, como está escrito —
+/// o `CompileDirectiveMetadata` do oficial, na parte que o gerador usa.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Componente {
     pub classe: String,
     pub seletor: String,
+    /// `@Component` (e não `@Directive`).
+    pub e_componente: bool,
+    /// `exportAs:` — o nome pelo qual `#ref="nome"` chega à diretiva.
+    pub export_as: Option<String>,
+    /// `@Output`s: nome no template -> membro (um getter de `Stream`), na
+    /// ordem em que o oficial os coleta.
+    pub saidas: Vec<(String, String)>,
+    /// Algum `@HostBinding`: quem usa a diretiva chama o `detectHostChanges`
+    /// dela.
+    pub liga_hospedeiro: bool,
+    /// `@ContentChild`/`@ContentChildren`: a consulta é atualizada pela visão
+    /// de quem projeta o conteúdo.
+    pub consulta_conteudo: bool,
+    /// `providers:`/`viewProviders:` com provedores: entram no nó de quem usa
+    /// e mudam a numeração dos provedores dele.
+    pub com_provedores: bool,
     /// `template: '...'` quando o template está na própria anotação.
     pub template: Option<String>,
     /// `templateUrl: 'x.html'`.
@@ -23,11 +40,13 @@ pub struct Componente {
     pub styles: Vec<String>,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
-    /// Nomes escritos em `directives:`, na ordem. Listas embutidas
-    /// (`coreDirectives`) entram como o próprio nome e não resolvem para
-    /// classe nenhuma — o que basta para o gerador recusar o que depende
-    /// delas.
+    /// Nomes escritos em `directives:`, na ordem, como escritos (`A`,
+    /// `li.B`). Listas constantes (`coreDirectives`) entram pelo nome e são
+    /// expandidas pelo banco semântico.
     pub diretivas: Vec<String>,
+    /// Algum item de `directives:` não é um nome (espalhamento, `if`,
+    /// expressão): a lista não é conhecida.
+    pub diretivas_ilegiveis: bool,
     /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
     /// para instanciar o componente.
     pub parametros: Vec<Parametro>,
@@ -39,7 +58,7 @@ pub struct Componente {
     /// mostra. Todas, não só a primeira: é assim que o placar sabe quantos
     /// arquivos uma forma nova destrava. Enquanto houver uma, o arquivo não é
     /// nosso: gerar ignorando isso dá saída **errada**, não incompleta.
-    pub nao_entendidos: Vec<(Motivo, String)>,
+    pub nao_entendidos: Vec<Recusa>,
     /// `pipes:` declarado. A lista em si não muda a visão; o que muda é usar
     /// um pipe no template, e isso só se sabe olhando o template.
     pub pipes: bool,
@@ -49,18 +68,37 @@ pub struct Componente {
     pub consultas: Vec<Consulta>,
     /// `@HostListener` da classe, na forma simples, na ordem de declaração.
     pub ouvintes: Vec<Ouvinte>,
-    /// Cada campo e getter da classe. O emissor precisa disto para escolher
-    /// entre `interpolateString`, `interpolate` e `updateTextWithPrimitive`,
-    /// que o oficial decide pelo tipo estático da expressão do template e por
-    /// ela ser mutável ou não.
+    /// Cada campo e getter de instância da classe. O emissor precisa disto
+    /// para escolher entre `interpolateString`, `interpolate` e
+    /// `updateTextWithPrimitive`, que o oficial decide pelo tipo estático da
+    /// expressão do template e por ela ser mutável ou não. Membro estático
+    /// fica de fora: o oficial o lê pela classe (`import1.X.nome`), forma que
+    /// o conversor não escreve.
     pub membros: std::collections::HashMap<String, Membro>,
-    /// `@Input`s: nome da ligação no template -> campo que recebe o valor.
-    pub entradas: std::collections::HashMap<String, String>,
+    /// `@Input`s, na ordem do mapa `inputs` do oficial — é a ordem em que as
+    /// entradas de um nó são escritas (`_SortInputsVisitor`).
+    pub entradas: Vec<Entrada>,
     /// Métodos da classe, separados dos campos: um método só pode aparecer
     /// como alvo de chamada (`titulo()`), e o seu tipo é o do retorno. Se
     /// entrassem no mesmo mapa, `{{ titulo }}` (tearoff) seria interpolado
     /// como se fosse o valor de retorno.
     pub metodos: std::collections::HashMap<String, String>,
+}
+
+/// Um `@Input`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entrada {
+    /// Nome da ligação no template (o apelido, se houver).
+    pub nome: String,
+    /// Membro que recebe o valor.
+    pub campo: String,
+}
+
+impl Componente {
+    /// O membro que recebe a entrada `nome` do template.
+    pub fn entrada(&self, nome: &str) -> Option<&Entrada> {
+        self.entradas.iter().find(|e| e.nome == nome)
+    }
 }
 
 /// Ganchos de ciclo de vida do ngdart implementados pelo componente. Cada um
@@ -176,28 +214,33 @@ fn lista_de_textos(arvore: &ast::Ast, id: ast::ExprId) -> Vec<String> {
         .collect()
 }
 
-/// Identificadores escritos numa lista literal (`directives: [A, B]`).
-fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> Vec<String> {
+/// Nomes escritos numa lista literal (`directives: [A, li.B]`), e se algum
+/// item não é um nome.
+fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (Vec<String>, bool) {
     let ast::ExprKind::List { elements, .. } = &arvore.expr(id).kind else {
-        return Vec::new();
+        return (Vec::new(), true);
     };
-    elements
-        .iter()
-        .filter_map(|e| match e {
-            ast::CollectionElement::Expression(x) => match &arvore.expr(*x).kind {
-                ast::ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect()
+    let mut nomes = Vec::new();
+    let mut ilegivel = false;
+    for e in elements.iter() {
+        match e {
+            ast::CollectionElement::Expression(x) => {
+                match crate::resolucao::nome_qualificado(arvore, interner, *x) {
+                    Some(n) => nomes.push(n),
+                    None => ilegivel = true,
+                }
+            }
+            _ => ilegivel = true,
+        }
+    }
+    (nomes, ilegivel)
 }
 
 /// `ChangeDetectionStrategy.OnPush` — o que muda o estado inicial da visão.
 fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
     let span = arvore.expr(id).span;
     fonte
-        .get(span.start as usize..span.end as usize)
+        .get(span.start..span.end)
         .is_some_and(|t| t.contains("OnPush"))
 }
 
@@ -209,10 +252,35 @@ pub fn ler_componente(
     classe: &ast::ClassDecl,
     anotacao: &ast::Annotation,
 ) -> Componente {
+    ler(arvore, fonte, interner, classe, anotacao, true)
+}
+
+/// Extrai a `@Directive` de uma classe anotada: o que quem a usa precisa
+/// saber dela (seletor, entradas, saídas, construtor, ciclo de vida).
+pub fn ler_diretiva(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    anotacao: &ast::Annotation,
+) -> Componente {
+    ler(arvore, fonte, interner, classe, anotacao, false)
+}
+
+fn ler(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    anotacao: &ast::Annotation,
+    e_componente: bool,
+) -> Componente {
     let mut c = Componente {
         classe: interner.resolve(classe.name.sym).to_string(),
+        e_componente,
         ..Default::default()
     };
+    let mut exportados = Vec::new();
     if let Some(args) = &anotacao.arguments {
         for a in args.args.iter() {
             let Some(nome) = a.name.as_ref().map(|n| interner.resolve(n.sym)) else {
@@ -220,13 +288,18 @@ pub fn ler_componente(
             };
             match nome {
                 "selector" => c.seletor = texto_do_argumento(arvore, a.value).unwrap_or_default(),
+                "exportAs" => c.export_as = texto_do_argumento(arvore, a.value),
                 "template" => c.template = texto_do_argumento(arvore, a.value),
                 "templateUrl" => c.template_url = texto_do_argumento(arvore, a.value),
                 "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
                 "styles" => c.styles = lista_de_textos(arvore, a.value),
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
-                "directives" => c.diretivas = nomes_da_lista(arvore, interner, a.value),
+                "directives" => {
+                    (c.diretivas, c.diretivas_ilegiveis) = nomes_da_lista(arvore, interner, a.value)
+                }
                 "pipes" => c.pipes = true,
+                "exports" => exportados = nomes_da_lista(arvore, interner, a.value).0,
+                "providers" | "viewProviders" => c.com_provedores |= !lista_vazia(arvore, a.value),
                 _ => {}
             }
         }
@@ -234,17 +307,50 @@ pub fn ler_componente(
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
     c.metodos = tipos_dos_metodos(arvore, fonte, interner, classe);
+    // `exports:` põe nomes estáticos no escopo das expressões, e eles vencem
+    // o membro de mesmo nome (`_matchExport` antes do receptor implícito).
+    // Um membro sombreado assim sai do mapa, e usá-lo é recusado.
+    for n in &exportados {
+        let simples = n.split('.').next().unwrap_or(n);
+        c.membros.remove(simples);
+        c.metodos.remove(simples);
+    }
     c.entradas = entradas_da_classe(arvore, interner, classe);
+    c.saidas = saidas_da_classe(arvore, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
-    c.nao_entendidos = o_que_nao_entendemos(arvore, interner, classe, anotacao);
+    c.nao_entendidos = o_que_nao_entendemos(arvore, interner, classe, anotacao, e_componente);
+    c.liga_hospedeiro = tem_anotacao(arvore, interner, classe, &["HostBinding"]);
+    c.consulta_conteudo = tem_anotacao(
+        arvore,
+        interner,
+        classe,
+        &["ContentChild", "ContentChildren"],
+    );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
     c
 }
 
+/// Algum membro da classe tem uma destas anotações?
+fn tem_anotacao(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    nomes: &[&str],
+) -> bool {
+    classe.members.iter().any(|&m| {
+        arvore
+            .member(m)
+            .metadata
+            .iter()
+            .any(|a| nomes.contains(&crate::nome_da_anotacao(a, interner).as_str()))
+    })
+}
+
 /// Argumentos de `@Component` cujo efeito o gerador conhece. `pipes:` entra
 /// aqui porque a lista não muda a visão; usar um pipe no template, sim, e
-/// isso é conferido contra o template.
+/// isso é conferido contra o template. `exports:` só põe nomes no escopo
+/// das expressões (ver [`ler`]).
 const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "selector",
     "template",
@@ -257,6 +363,9 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "pipes",
 ];
 
+/// Argumentos de `@Directive` cujo efeito o gerador conhece.
+const ARGUMENTOS_DE_DIRETIVA: &[&str] = &["selector", "exportAs"];
+
 /// Interfaces de ciclo de vida implementadas, pelas cláusulas `implements` e
 /// `with`. (As do ngrouter — `OnActivate`, `CanDeactivate` — não mexem na
 /// visão; `AfterChanges` tampouco aparece no arquivo do próprio componente.)
@@ -264,7 +373,7 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
     let mut g = Ganchos::default();
     for t in classe.implements.iter().chain(classe.with.iter()) {
         let s = arvore.ty(*t).span;
-        let texto = fonte.get(s.start as usize..s.end as usize).unwrap_or("");
+        let texto = fonte.get(s.start..s.end).unwrap_or("");
         match texto.split(['<', '.']).next_back().unwrap_or(texto).trim() {
             "OnInit" => g.on_init = true,
             "OnDestroy" => g.on_destroy = true,
@@ -280,8 +389,8 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
     g
 }
 
-/// Tudo o que neste componente o gerador ainda não sabe traduzir, sem parar
-/// no primeiro. Recusar é obrigatório: gerar sem isso produz um arquivo
+/// Tudo o que nesta classe o gerador ainda não sabe traduzir, sem parar no
+/// primeiro. Recusar é obrigatório: gerar sem isso produz um arquivo
 /// **errado**.
 ///
 /// `@ViewChild` e `@HostListener` não entram aqui: cada um tem a sua
@@ -292,14 +401,20 @@ fn o_que_nao_entendemos(
     interner: &Interner,
     classe: &ast::ClassDecl,
     anotacao: &ast::Annotation,
-) -> Vec<(Motivo, String)> {
+    e_componente: bool,
+) -> Vec<Recusa> {
     let mut fora = Vec::new();
+    let anot = if e_componente {
+        "@Component"
+    } else {
+        "@Directive"
+    };
     if let Some(args) = &anotacao.arguments {
         for a in args.args.iter() {
             let Some(nome) = a.name.as_ref().map(|n| interner.resolve(n.sym)) else {
-                fora.push((
+                fora.push(recusa(
                     Motivo::NaoEntendido,
-                    "argumento posicional em @Component".into(),
+                    format!("argumento posicional em {anot}"),
                 ));
                 continue;
             };
@@ -307,15 +422,17 @@ fn o_que_nao_entendemos(
                 // A lista vazia não muda a visão (caso b18 do corpus) — e é
                 // 57 dos 70 `providers:` do new_sali.
                 "providers" if lista_vazia(arvore, a.value) => {}
-                "providers" => {
-                    fora.push((Motivo::Providers, "@Component(.., providers: [..])".into()))
-                }
-                "encapsulation" => fora.push((
-                    Motivo::Encapsulamento,
-                    "@Component(.., encapsulation: ..)".into(),
+                "providers" => fora.push(recusa(
+                    Motivo::Providers,
+                    format!("{anot}(.., providers: [..])"),
                 )),
-                n if ARGUMENTOS_CONHECIDOS.contains(&n) => {}
-                n => fora.push((Motivo::NaoEntendido, format!("@Component(.., {n}: ..)"))),
+                "encapsulation" => fora.push(recusa(
+                    Motivo::Encapsulamento,
+                    "@Component(.., encapsulation: ..)",
+                )),
+                n if e_componente && ARGUMENTOS_CONHECIDOS.contains(&n) => {}
+                n if !e_componente && ARGUMENTOS_DE_DIRETIVA.contains(&n) => {}
+                n => fora.push(recusa(Motivo::NaoEntendido, format!("{anot}(.., {n}: ..)"))),
             }
         }
     }
@@ -331,7 +448,7 @@ fn o_que_nao_entendemos(
                 "ViewChildren" => Motivo::ViewChildDinamico,
                 _ => continue,
             };
-            fora.push((motivo, format!("@{nome}")));
+            fora.push(recusa(motivo, format!("@{nome}")));
         }
     }
     fora
@@ -350,7 +467,7 @@ fn consultas_da_classe(
     fonte: &str,
     interner: &Interner,
     classe: &ast::ClassDecl,
-    fora: &mut Vec<(Motivo, String)>,
+    fora: &mut Vec<Recusa>,
 ) -> Vec<Consulta> {
     let mut saida = Vec::new();
     for &id in &classe.members {
@@ -361,7 +478,7 @@ fn consultas_da_classe(
             }
             match consulta_simples(arvore, fonte, interner, membro, a) {
                 Ok(c) => saida.push(c),
-                Err(m) => fora.push((m, "@ViewChild(..)".into())),
+                Err(r) => fora.push(r),
             }
         }
     }
@@ -379,7 +496,7 @@ fn ouvintes_da_classe(
     arvore: &ast::Ast,
     interner: &Interner,
     classe: &ast::ClassDecl,
-    fora: &mut Vec<(Motivo, String)>,
+    fora: &mut Vec<Recusa>,
 ) -> Vec<Ouvinte> {
     let mut saida: Vec<Ouvinte> = Vec::new();
     for &id in &classe.members {
@@ -392,7 +509,14 @@ fn ouvintes_da_classe(
                 Some(o) if !saida.iter().any(|x| x.evento == o.evento) => saida.push(o),
                 // Dois ouvintes do mesmo evento: o mapa do oficial fica com o
                 // último, no lugar do primeiro. Ainda não.
-                _ => fora.push((Motivo::HostListenerEmComponente, "@HostListener(..)".into())),
+                Some(_) => fora.push(recusa(
+                    Motivo::HostListenerEmComponente,
+                    "dois @HostListener do mesmo evento",
+                )),
+                None => fora.push(recusa(
+                    Motivo::HostListenerEmComponente,
+                    "@HostListener fora da forma `m()`/`m($event)` de evento nativo",
+                )),
             }
         }
     }
@@ -461,8 +585,11 @@ fn consulta_simples(
     interner: &Interner,
     membro: &ast::Member,
     anotacao: &ast::Annotation,
-) -> Result<Consulta, Motivo> {
-    let args = anotacao.arguments.as_ref().ok_or(Motivo::NaoEntendido)?;
+) -> Result<Consulta, Recusa> {
+    let args = anotacao
+        .arguments
+        .as_ref()
+        .ok_or_else(|| recusa(Motivo::NaoEntendido, "@ViewChild sem argumento"))?;
     let [unico] = &args.args[..] else {
         // `read:` troca o valor por um provedor do nó; `first:`,
         // `descendants:` não fazem sentido aqui. Todos ainda não.
@@ -471,33 +598,39 @@ fn consulta_simples(
             .iter()
             .any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "read"));
         return Err(if tem_read {
-            Motivo::ViewChildEmFilho
+            recusa(Motivo::ViewChildEmFilho, "@ViewChild(.., read: T)")
         } else {
-            Motivo::NaoEntendido
+            recusa(Motivo::NaoEntendido, "@ViewChild com opções")
         });
     };
     if unico.name.is_some() {
-        return Err(Motivo::NaoEntendido);
+        return Err(recusa(
+            Motivo::NaoEntendido,
+            "@ViewChild só com argumento nomeado",
+        ));
     }
     // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
     // diretiva, não um elemento.
     let Some(referencia) = texto_do_argumento(arvore, unico.value) else {
-        return Err(Motivo::ViewChildEmFilho);
+        return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(Tipo)"));
     };
     // `'a,b'` são dois seletores numa consulta só.
     if referencia.contains(',') || referencia.trim() != referencia || referencia.is_empty() {
-        return Err(Motivo::NaoEntendido);
+        return Err(recusa(Motivo::NaoEntendido, "@ViewChild('a,b')"));
     }
     // Só campo de instância com tipo escrito; setter tem outra regra de tipo
     // (o do parâmetro) e não aparece nos projetos.
     let ast::MemberKind::Field(lista) = &membro.kind else {
-        return Err(Motivo::NaoEntendido);
+        return Err(recusa(Motivo::NaoEntendido, "@ViewChild em setter"));
     };
     if lista.static_ || lista.final_ || lista.const_ || lista.late || lista.variables.len() != 1 {
-        return Err(Motivo::NaoEntendido);
+        return Err(recusa(
+            Motivo::NaoEntendido,
+            "@ViewChild em campo final/late/estático",
+        ));
     }
     let Some(t) = lista.ty else {
-        return Err(Motivo::NaoEntendido);
+        return Err(recusa(Motivo::NaoEntendido, "@ViewChild em campo sem tipo"));
     };
     Ok(Consulta {
         propriedade: interner.resolve(lista.variables[0].name.sym).to_string(),
@@ -554,14 +687,16 @@ fn parametros_do_construtor(
 /// Texto-fonte de um tipo, como escrito.
 fn texto_do_tipo(arvore: &ast::Ast, fonte: &str, t: ast::TypeId) -> String {
     let s = arvore.ty(t).span;
-    fonte
-        .get(s.start as usize..s.end as usize)
-        .unwrap_or("")
-        .to_string()
+    fonte.get(s.start..s.end).unwrap_or("").to_string()
 }
 
-/// Tipo de cada campo e getter da classe, para o emissor saber o tipo
-/// estático de `{{ nome }}`.
+/// Tipo de cada campo e getter de instância da classe, para o emissor saber
+/// o tipo estático de `{{ nome }}`.
+///
+/// A imutabilidade é a do `isImmutable` do oficial: o valor vem de
+/// `lookUpGetter(n).variable`, e só um campo de verdade (`!isSynthetic`)
+/// `final`/`const` é imutável. Num getter escrito à mão a `variable` é
+/// sintética: **mutável**.
 fn tipos_dos_membros(
     arvore: &ast::Ast,
     fonte: &str,
@@ -572,6 +707,9 @@ fn tipos_dos_membros(
     for &id in &classe.members {
         match &arvore.member(id).kind {
             ast::MemberKind::Field(lista) => {
+                if lista.static_ {
+                    continue;
+                }
                 let Some(t) = lista.ty else { continue };
                 let tipo = texto_do_tipo(arvore, fonte, t);
                 let imutavel = lista.final_ || lista.const_;
@@ -587,7 +725,7 @@ fn tipos_dos_membros(
             }
             ast::MemberKind::Method(f) => {
                 let funcao = arvore.function(*f);
-                if !matches!(funcao.kind, ast::FunctionKind::Getter) {
+                if !matches!(funcao.kind, ast::FunctionKind::Getter) || funcao.static_ {
                     continue;
                 }
                 let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else {
@@ -597,7 +735,7 @@ fn tipos_dos_membros(
                     interner.resolve(nome.sym).to_string(),
                     Membro {
                         tipo: texto_do_tipo(arvore, fonte, t),
-                        imutavel: true,
+                        imutavel: false,
                     },
                 );
             }
@@ -607,14 +745,30 @@ fn tipos_dos_membros(
     saida
 }
 
-/// `@Input()` de cada campo ou setter: o nome no template (o apelido, se
-/// houver) para o nome do membro.
+/// O nome de ligação de `@Input('apelido')`/`@Output('apelido')`, ou o do
+/// membro.
+fn apelido(arvore: &ast::Ast, a: &ast::Annotation) -> Option<String> {
+    a.arguments.as_ref().and_then(|args| {
+        args.args
+            .first()
+            .and_then(|arg| match &arvore.expr(arg.value).kind {
+                ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+                _ => None,
+            })
+    })
+}
+
+/// `@Input()` de cada campo ou setter, na ordem do mapa `inputs` do oficial
+/// (`_collectInheritableMetadataOn`, em `find_components.dart`): os campos
+/// primeiro, em ordem de declaração, depois os setters. Herdados não entram
+/// — ligação a eles é recusada por não achar a entrada.
 fn entradas_da_classe(
     arvore: &ast::Ast,
     interner: &Interner,
     classe: &ast::ClassDecl,
-) -> std::collections::HashMap<String, String> {
-    let mut saida = std::collections::HashMap::new();
+) -> Vec<Entrada> {
+    let mut campos = Vec::new();
+    let mut setters = Vec::new();
     for &id in &classe.members {
         let membro = arvore.member(id);
         let Some(a) = membro
@@ -624,39 +778,80 @@ fn entradas_da_classe(
         else {
             continue;
         };
-        let apelido = a.arguments.as_ref().and_then(|args| {
-            args.args
-                .first()
-                .and_then(|arg| match &arvore.expr(arg.value).kind {
-                    ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
-                    _ => None,
-                })
-        });
-        let nomes: Vec<String> = match &membro.kind {
-            ast::MemberKind::Field(lista) => lista
-                .variables
-                .iter()
-                .map(|v| interner.resolve(v.name.sym).to_string())
-                .collect(),
-            ast::MemberKind::Method(f) => {
-                let funcao = arvore.function(*f);
-                match (funcao.kind, funcao.name) {
-                    (ast::FunctionKind::Setter, Some(n)) => {
-                        vec![interner.resolve(n.sym).to_string()]
-                    }
-                    _ => Vec::new(),
+        let apelido = apelido(arvore, a);
+        match &membro.kind {
+            ast::MemberKind::Field(lista) if !lista.static_ => {
+                for v in lista.variables.iter() {
+                    let nome = interner.resolve(v.name.sym).to_string();
+                    campos.push(Entrada {
+                        nome: apelido.clone().unwrap_or_else(|| nome.clone()),
+                        campo: nome,
+                    });
                 }
             }
-            _ => Vec::new(),
-        };
-        for nome in nomes {
-            saida.insert(apelido.clone().unwrap_or_else(|| nome.clone()), nome);
+            ast::MemberKind::Method(f) => {
+                let funcao = arvore.function(*f);
+                if let (ast::FunctionKind::Setter, Some(n), false) =
+                    (funcao.kind, funcao.name, funcao.static_)
+                {
+                    let nome = interner.resolve(n.sym).to_string();
+                    setters.push(Entrada {
+                        nome: apelido.clone().unwrap_or_else(|| nome.clone()),
+                        campo: nome,
+                    });
+                }
+            }
+            _ => {}
         }
     }
-    saida
+    campos.extend(setters);
+    campos
 }
 
-/// Retorno de cada método da classe.
+/// `@Output()` de cada campo ou getter: nome no template -> membro.
+fn saidas_da_classe(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> Vec<(String, String)> {
+    let mut campos = Vec::new();
+    let mut getters = Vec::new();
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        let Some(a) = membro
+            .metadata
+            .iter()
+            .find(|a| crate::nome_da_anotacao(a, interner) == "Output")
+        else {
+            continue;
+        };
+        let apelido = apelido(arvore, a);
+        match &membro.kind {
+            ast::MemberKind::Field(lista) if !lista.static_ => {
+                for v in lista.variables.iter() {
+                    let nome = interner.resolve(v.name.sym).to_string();
+                    campos.push((apelido.clone().unwrap_or_else(|| nome.clone()), nome));
+                }
+            }
+            ast::MemberKind::Method(f) => {
+                let funcao = arvore.function(*f);
+                if let (ast::FunctionKind::Getter, Some(n), false) =
+                    (funcao.kind, funcao.name, funcao.static_)
+                {
+                    let nome = interner.resolve(n.sym).to_string();
+                    getters.push((apelido.clone().unwrap_or_else(|| nome.clone()), nome));
+                }
+            }
+            _ => {}
+        }
+    }
+    // A ordem do mapa `outputs`: getters (os acessores são visitados antes
+    // dos campos pelo `visitChildren` da classe), depois campos.
+    getters.extend(campos);
+    getters
+}
+
+/// Retorno de cada método de instância da classe.
 fn tipos_dos_metodos(
     arvore: &ast::Ast,
     fonte: &str,
@@ -669,7 +864,7 @@ fn tipos_dos_metodos(
             continue;
         };
         let funcao = arvore.function(*f);
-        if !matches!(funcao.kind, ast::FunctionKind::Function) {
+        if !matches!(funcao.kind, ast::FunctionKind::Function) || funcao.static_ {
             continue;
         }
         let Some(nome) = funcao.name else { continue };
