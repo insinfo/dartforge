@@ -141,9 +141,34 @@ pub enum Motivo {
     /// Atributo ou ligação que pertence a uma diretiva do ecossistema
     /// (`ngClass`, `ngModel`…), não ao DOM.
     Diretiva,
-    /// Forma do componente que o gerador não sabe traduzir e, por isso,
-    /// recusa — `@HostListener`, `@ViewChild`, ciclo de vida, argumento
-    /// desconhecido de `@Component`.
+    /// `providers: []` — a lista vazia.
+    ProvidersVazio,
+    /// `providers:` com provedores: a injeção do elemento hospedeiro.
+    Providers,
+    /// `@ViewChild('ref')` com `#ref` num elemento HTML da própria visão:
+    /// atribuição imediata no `build()`.
+    ViewChildEstatico,
+    /// `@ViewChild` cujo alvo está numa visão embutida (`*ngIf`, `*ngFor`),
+    /// `@ViewChildren`, ou referência que o template não tem.
+    ViewChildDinamico,
+    /// `@ViewChild` que consulta um componente ou diretiva (seletor de tipo,
+    /// `read:`, `#ref` em componente filho, campo que não é `Element`).
+    ViewChildEmFilho,
+    /// `pipes:` declarado e nenhum pipe usado no template.
+    PipesSemUso,
+    /// Pipe usado no template (`x | nome`, `$pipe.nome(x)`).
+    PipesUsados,
+    /// `encapsulation:` — muda o shim de estilo.
+    Encapsulamento,
+    /// `@HostListener` num componente.
+    HostListenerEmComponente,
+    /// `@HostBinding` num componente: o `detectHostChanges` da visão.
+    HostBindingEmComponente,
+    /// `@ContentChild`/`@ContentChildren`.
+    ContentChild,
+    /// Outra forma do componente que o gerador não sabe traduzir e, por
+    /// isso, recusa — argumento desconhecido de `@Component`, `@ViewChild`
+    /// com opções.
     NaoEntendido,
 }
 
@@ -167,7 +192,18 @@ impl Motivo {
             Motivo::TemplateAusente => "template não encontrado",
             Motivo::LigacaoEmFilho => "ligação em componente filho",
             Motivo::Diretiva => "ligação de diretiva",
-            Motivo::NaoEntendido => "forma do componente não entendida",
+            Motivo::ProvidersVazio => "providers: []",
+            Motivo::Providers => "providers: [..]",
+            Motivo::ViewChildEstatico => "@ViewChild estático",
+            Motivo::ViewChildDinamico => "@ViewChild em visão embutida / @ViewChildren",
+            Motivo::ViewChildEmFilho => "@ViewChild de componente ou diretiva",
+            Motivo::PipesSemUso => "pipes: sem uso",
+            Motivo::PipesUsados => "pipe usado no template",
+            Motivo::Encapsulamento => "encapsulation:",
+            Motivo::HostListenerEmComponente => "@HostListener em componente",
+            Motivo::HostBindingEmComponente => "@HostBinding em componente",
+            Motivo::ContentChild => "@ContentChild",
+            Motivo::NaoEntendido => "outra forma do componente não entendida",
         }
     }
 }
@@ -184,9 +220,8 @@ pub fn motivos(
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> std::collections::BTreeSet<Motivo> {
     let mut fora = std::collections::BTreeSet::new();
-    if c.nao_entendido.is_some() {
-        fora.insert(Motivo::NaoEntendido);
-    }
+    fora.extend(c.nao_entendidos.iter().map(|(m, _)| *m));
+    fora.extend(formas_contra_o_template(c, local, nos, resolvedor, filhos));
     // O diagnóstico roda a mesma conta do gerador: marcar toda folha como
     // pendente escondia o que já funciona.
     if !c.styles.is_empty() || c.style_urls.len() > 1 {
@@ -201,6 +236,118 @@ pub fn motivos(
     }
     motivos_dos_nos(nos, filhos, &mut fora);
     fora
+}
+
+/// As formas do componente que só se decidem olhando o template: se o
+/// `pipes:` é usado e onde está o `#ref` de cada `@ViewChild`. Devolve o que
+/// ainda impede a geração, na ordem em que aparece.
+fn formas_contra_o_template(
+    c: &Componente,
+    local: &Local,
+    nos: &[No],
+    resolvedor: Option<&dyn Resolucao>,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> Vec<Motivo> {
+    let mut fora = Vec::new();
+    if c.pipes {
+        fora.push(if usa_pipe(nos) { Motivo::PipesUsados } else { Motivo::PipesSemUso });
+    }
+    for consulta in &c.consultas {
+        let mut lugares = Vec::new();
+        onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
+        let motivo = match lugares.as_slice() {
+            // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
+            // qualquer outro, um `ElementRef`.
+            [Lugar::Raiz] if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) => {
+                Motivo::ViewChildEstatico
+            }
+            [Lugar::Raiz] | [Lugar::Filho] => Motivo::ViewChildEmFilho,
+            // Dentro de `*` a consulta passa por `mapNestedViews`; sem
+            // resultado, ou com dois, a regra é outra — nada disso ainda.
+            _ => Motivo::ViewChildDinamico,
+        };
+        fora.push(motivo);
+    }
+    fora
+}
+
+/// Onde um `#ref` aparece no template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lugar {
+    /// Num elemento HTML da própria visão.
+    Raiz,
+    /// Dentro de uma visão embutida (`*ngIf`, `*ngFor`).
+    Embutida,
+    /// Num componente filho ou no conteúdo projetado nele.
+    Filho,
+}
+
+fn onde_esta(
+    nos: &[No],
+    nome: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+    em_filho: bool,
+    saida: &mut Vec<Lugar>,
+) {
+    for no in nos {
+        let No::Elemento(e) = no else { continue };
+        let lugar = if e.estrela.is_some() {
+            Lugar::Embutida
+        } else if em_filho || filhos.contains_key(&e.nome) || !dom::tag_html(&e.nome) {
+            Lugar::Filho
+        } else {
+            Lugar::Raiz
+        };
+        if e.referencias.iter().any(|r| r.nome == nome) {
+            saida.push(lugar);
+        }
+        let mut dentro = Vec::new();
+        onde_esta(&e.filhos, nome, filhos, lugar == Lugar::Filho, &mut dentro);
+        // Tudo abaixo de um `*` é da visão embutida.
+        if lugar == Lugar::Embutida {
+            dentro.iter_mut().for_each(|l| *l = Lugar::Embutida);
+        }
+        saida.extend(dentro);
+    }
+}
+
+/// O tipo do campo é `Element` do `dart:html` ou um subtipo dele? Todo
+/// `…Element` do `dart:html` desce de `Element`, menos `NoncedElement`
+/// (conferido no `html_dart2js.dart` do SDK 3.6.2).
+fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resolucao>) -> bool {
+    let tipo = tipo.trim().trim_end_matches('?');
+    let simples = tipo.rsplit('.').next().unwrap_or(tipo);
+    simples.ends_with("Element")
+        && simples != "NoncedElement"
+        && resolvedor.and_then(|r| r.uri_do_tipo(local.caminho, tipo)).as_deref() == Some("dart:html")
+}
+
+/// Algum pipe no template? `|` sozinho (o `||` é OU lógico) ou `$pipe`, em
+/// qualquer expressão: interpolação, ligação, evento, `*`.
+fn usa_pipe(nos: &[No]) -> bool {
+    let tem = |t: &str| {
+        let b = t.as_bytes();
+        t.contains("$pipe")
+            || (0..b.len()).any(|i| {
+                b[i] == b'|'
+                    && b.get(i + 1) != Some(&b'|')
+                    && (i == 0 || b[i - 1] != b'|')
+            })
+    };
+    nos.iter().any(|n| match n {
+        No::Interpolacao { expr, .. } => tem(expr),
+        No::Elemento(e) => {
+            e.propriedades
+                .iter()
+                .chain(&e.eventos)
+                .chain(&e.bananas)
+                .chain(e.estrela.iter())
+                .any(|l| tem(&l.valor))
+                || e.atributos.iter().any(|a| a.valor.contains("{{") && tem(&a.valor))
+                || usa_pipe(&e.filhos)
+        }
+        _ => false,
+    })
 }
 
 fn motivos_dos_nos(
@@ -306,6 +453,11 @@ impl Local<'_> {
 /// Corpo do `build()` de uma visão, montado enquanto se anda pelo template.
 struct Corpo<'a> {
     linhas: Vec<String>,
+    /// `addEventListener` de cada evento. O oficial cria todos os nós
+    /// primeiro e liga depois (`_buildView` e só então `bindView`, em
+    /// `view_compiler.dart`), então os ouvintes saem juntos, depois do último
+    /// nó, em ordem de documento.
+    ouvintes: Vec<String>,
     /// Campos `TextBinding`, que saem primeiro na classe.
     campos: Vec<String>,
     /// Campos `Object? _expr_k` das ligações, na ordem em que aparecem.
@@ -447,6 +599,11 @@ impl Corpo<'_> {
     /// por referência a `eventHandlerN`, onde N é quantos argumentos o
     /// template escreveu.
     fn evento(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Motivo> {
+        // Evento fora da lista do DOM (`keyup.enter`, `document:click`,
+        // evento próprio) vai pelo `eventManager` do ngdart, outra forma.
+        if !evento_nativo(&l.nome) {
+            return Err(Motivo::Ligacao);
+        }
         let texto = l.valor.trim();
         let Some((nome, resto)) = texto.split_once('(') else { return Err(Motivo::Ligacao) };
         let Some(args) = resto.strip_suffix(')') else { return Err(Motivo::Ligacao) };
@@ -459,7 +616,7 @@ impl Corpo<'_> {
             .texto;
         self.usa_ctx_no_build = true;
         let evento = &l.nome;
-        self.linhas.push(format!(
+        self.ouvintes.push(format!(
             "    {alvo}.addEventListener('{evento}', this.eventHandler{aridade}({metodo}));"
         ));
         Ok(())
@@ -868,10 +1025,20 @@ impl Corpo<'_> {
                     }
                     // As ligações são numeradas em ordem de documento — a do
                     // pai antes das dos filhos —, então são registradas antes
-                    // de descer. Os eventos saem no `build()` depois dos
-                    // filhos, que é onde o oficial os escreve.
+                    // de descer. Os eventos também: o ouvinte do pai vem
+                    // antes do dos filhos, e todos saem juntos no fim do
+                    // `build()` (ver `ouvintes`).
                     for l in &e.propriedades {
                         self.propriedade(l, &alvo)?;
+                    }
+                    // Dois `(click)` no mesmo elemento viram um método só
+                    // (`mergeEvents`); ainda não.
+                    let mut vistos = std::collections::HashSet::new();
+                    for l in &e.eventos {
+                        if !vistos.insert(l.nome.as_str()) {
+                            return Err(Motivo::Ligacao);
+                        }
+                        self.evento(l, &alvo)?;
                     }
                     if self.com_estilo {
                         // Isolamento de estilo por atributo: o elemento entra
@@ -879,9 +1046,6 @@ impl Corpo<'_> {
                         self.linhas.push(format!("    this.addShimC({alvo});"));
                     }
                     self.nos(&e.filhos, &alvo)?;
-                    for l in &e.eventos {
-                        self.evento(l, &alvo)?;
-                    }
                 }
                 No::Interpolacao { expr, inicio, fim } => {
                     self.interpolacao(expr, *inicio, *fim, pai)?
@@ -1074,6 +1238,7 @@ fn emitir_embutida(
     let fabrica = espec.fabrica.clone();
     let mut dentro = Corpo {
         linhas: Vec::new(),
+        ouvintes: Vec::new(),
         campos: Vec::new(),
         campos_filho: Vec::new(),
         vistas_filhas: Vec::new(),
@@ -1169,7 +1334,9 @@ fn emitir_embutida(
         let chave = literal(chave);
         declaracoes.push(format!("    final {d} = {util}.unsafeCast<{t}>(this.locals[{chave}]);"));
     }
-    let corpo = dentro.linhas.join("\n");
+    // Os nós, depois os ouvintes — e só então o `initRootNode`, que é a
+    // declaração de fechamento (`_generateInitStatement`).
+    let corpo = dentro.linhas.iter().chain(&dentro.ouvintes).cloned().collect::<Vec<_>>().join("\n");
     // Mesma ordem da visão de topo: ligações de texto, visões-filhas e
     // âncoras, valores anteriores, elementos.
     let mut todos = dentro.campos.clone();
@@ -1377,6 +1544,31 @@ fn tipo_do_elemento(tipo: &str) -> Option<String> {
     Some(dentro.trim().to_string())
 }
 
+/// `isNativeHtmlEvent` do ngcompiler (`html_events.dart`): só estes vão
+/// direto para `addEventListener`.
+fn evento_nativo(nome: &str) -> bool {
+    const NATIVOS: &[&str] = &[
+        "abort", "afterprint", "animationend", "animationiteration", "animationstart",
+        "appinstalled", "audioend", "audiostart", "beforeprint", "beforeunload", "blur",
+        "canplay", "canplaythrough", "change", "click", "compositionend", "compositionstart",
+        "compositionupdate", "contextmenu", "copy", "cut", "dblclick", "drag", "dragend",
+        "dragenter", "dragleave", "dragover", "dragstart", "drop", "durationchange", "ended",
+        "error", "focus", "focusin", "focusout", "fullscreenchange", "fullscreenerror",
+        "gotpointercapture", "hashchange", "input", "invalid", "keydown", "keypress", "keyup",
+        "languagechange", "load", "loadeddata", "loadedmetadata", "loadstart",
+        "lostpointercapture", "message", "mousedown", "mouseenter", "mouseleave", "mousemove",
+        "mouseout", "mouseover", "mouseup", "notificationclick", "offline", "online", "open",
+        "orientationchange", "pagehide", "pageshow", "paste", "pause", "play", "playing",
+        "progress", "pointercancel", "pointerdown", "pointerenter", "pointerleave",
+        "pointerlockchange", "pointerlockerror", "pointermove", "pointerout", "pointerover",
+        "pointerup", "ratechange", "reset", "resize", "scroll", "search", "seeked", "seeking",
+        "select", "show", "stalled", "storage", "submit", "suspend", "timeupdate", "toggle",
+        "touchcancel", "touchend", "touchmove", "touchstart", "transitionend", "unload",
+        "volumechange", "waiting", "wheel",
+    ];
+    NATIVOS.contains(&nome)
+}
+
 /// Nome que pertence a uma diretiva do ecossistema, não ao DOM.
 fn e_de_diretiva(nome: &str) -> bool {
     let base = nome.split('.').next().unwrap_or(nome);
@@ -1426,6 +1618,12 @@ pub fn template_de_componente(
     nomes: &mut dartforge_intern::Interner,
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> Result<String, Motivo> {
+    if let Some((m, _)) = c.nao_entendidos.first() {
+        return Err(*m);
+    }
+    if let Some(m) = formas_contra_o_template(c, local, nos, resolvedor, filhos).first() {
+        return Err(*m);
+    }
     if !c.styles.is_empty() {
         // `styles: ['…']` escrito na anotação ainda não.
         return Err(Motivo::Estilos);
@@ -1470,6 +1668,7 @@ pub fn template_de_componente(
 
     let mut corpo = Corpo {
         linhas: Vec::new(),
+        ouvintes: Vec::new(),
         campos: Vec::new(),
         campos_filho: Vec::new(),
         vistas_filhas: Vec::new(),
@@ -1506,7 +1705,10 @@ pub fn template_de_componente(
     let ctx_no_build =
         if corpo.usa_ctx_no_build { "
     final _ctx = this.ctx;" } else { "" };
-    let linhas = corpo.linhas.join("\n");
+    // Ordem do `build()` oficial (`_generateBuildMethod`): os nós (a fase
+    // `_buildView`), os ouvintes (`bindView`) e, por fim, o que o `afterNodes`
+    // acrescenta.
+    let linhas = corpo.linhas.iter().chain(&corpo.ouvintes).cloned().collect::<Vec<_>>().join("\n");
     let corpo_build =
         if linhas.is_empty() { String::new() } else { format!("\n{linhas}") };
     // Ordem dos campos na classe, como o oficial escreve: ligações de texto,

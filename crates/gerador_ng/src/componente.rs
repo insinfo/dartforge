@@ -5,6 +5,7 @@
 //! literais escritos na própria anotação (`selector: 'x'`, `templateUrl:
 //! 'x.html'`), e os que não são — a lista de `directives`, os `providers` —
 //! ficam guardados como texto da fonte, para as etapas que souberem usá-los.
+use crate::visao::Motivo;
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 
@@ -32,11 +33,20 @@ pub struct Componente {
     pub parametros: Vec<Parametro>,
     /// Ganchos de ciclo de vida que a classe implementa.
     pub ganchos: Ganchos,
-    /// Anotação de membro que muda a visão e o gerador ainda não trata
-    /// (`@HostListener`, `@ViewChild`…), ou argumento de `@Component` fora do
-    /// que ele entende. Enquanto houver uma, o arquivo não é nosso: gerar
-    /// ignorando isso dá saída **errada**, não incompleta.
-    pub nao_entendido: Option<String>,
+    /// Toda forma do componente que o gerador ainda não traduz — anotação de
+    /// membro (`@HostBinding`, `@ContentChild`…) ou argumento de
+    /// `@Component` fora do que ele entende —, com o texto que o placar
+    /// mostra. Todas, não só a primeira: é assim que o placar sabe quantos
+    /// arquivos uma forma nova destrava. Enquanto houver uma, o arquivo não é
+    /// nosso: gerar ignorando isso dá saída **errada**, não incompleta.
+    pub nao_entendidos: Vec<(Motivo, String)>,
+    /// `pipes:` declarado. A lista em si não muda a visão; o que muda é usar
+    /// um pipe no template, e isso só se sabe olhando o template.
+    pub pipes: bool,
+    /// `@ViewChild('ref')` em campo, na ordem de declaração — que é a ordem
+    /// em que o oficial escreve as atribuições (`queryIndex`). Se a consulta
+    /// sai estática ou não depende de onde `#ref` está no template.
+    pub consultas: Vec<Consulta>,
     /// Cada campo e getter da classe. O emissor precisa disto para escolher
     /// entre `interpolateString`, `interpolate` e `updateTextWithPrimitive`,
     /// que o oficial decide pelo tipo estático da expressão do template e por
@@ -101,6 +111,19 @@ pub struct Membro {
     /// `final` (ou getter): conta como imutável na regra `isImmutable` do
     /// ngcompiler, que decide se o valor primitivo vai pelo caminho rápido.
     pub imutavel: bool,
+}
+
+/// Um `@ViewChild('ref') T? campo;`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Consulta {
+    /// Campo que recebe o resultado.
+    pub propriedade: String,
+    /// A referência procurada no template (`#ref`).
+    pub referencia: String,
+    /// Tipo do campo, como escrito (`html.DivElement?`). Decide o valor: um
+    /// `Element` recebe o próprio nó, qualquer outro tipo um `ElementRef`
+    /// (`isElementType` em `find_components.dart`).
+    pub tipo: String,
 }
 
 /// Um parâmetro do construtor do componente.
@@ -182,6 +205,7 @@ pub fn ler_componente(
                 "styles" => c.styles = lista_de_textos(arvore, a.value),
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
                 "directives" => c.diretivas = nomes_da_lista(arvore, interner, a.value),
+                "pipes" => c.pipes = true,
                 _ => {}
             }
         }
@@ -191,11 +215,14 @@ pub fn ler_componente(
     c.metodos = tipos_dos_metodos(arvore, fonte, interner, classe);
     c.entradas = entradas_da_classe(arvore, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
-    c.nao_entendido = o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao);
+    c.nao_entendidos = o_que_nao_entendemos(arvore, interner, classe, anotacao);
+    c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c
 }
 
-/// Argumentos de `@Component` cujo efeito o gerador conhece.
+/// Argumentos de `@Component` cujo efeito o gerador conhece. `pipes:` entra
+/// aqui porque a lista não muda a visão; usar um pipe no template, sim, e
+/// isso é conferido contra o template.
 const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "selector",
     "template",
@@ -205,16 +232,7 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "changeDetection",
     "directives",
     "exports",
-];
-
-/// Anotações de membro que mudam a visão gerada.
-const ANOTACOES_DE_MEMBRO: &[&str] = &[
-    "HostListener",
-    "HostBinding",
-    "ViewChild",
-    "ViewChildren",
-    "ContentChild",
-    "ContentChildren",
+    "pipes",
 ];
 
 /// Interfaces de ciclo de vida implementadas, pelas cláusulas `implements` e
@@ -239,23 +257,38 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
     g
 }
 
-/// O que neste componente o gerador ainda não sabe traduzir. Recusar é
-/// obrigatório: gerar sem isso produz um arquivo **errado**.
+/// Tudo o que neste componente o gerador ainda não sabe traduzir, sem parar
+/// no primeiro. Recusar é obrigatório: gerar sem isso produz um arquivo
+/// **errado**.
+///
+/// `@ViewChild` não entra aqui: se a consulta é traduzível depende do
+/// template, e quem decide é [`consultas_da_classe`] com a visão.
 fn o_que_nao_entendemos(
     arvore: &ast::Ast,
-    fonte: &str,
     interner: &Interner,
     classe: &ast::ClassDecl,
     anotacao: &ast::Annotation,
-) -> Option<String> {
+) -> Vec<(Motivo, String)> {
+    let mut fora = Vec::new();
     if let Some(args) = &anotacao.arguments {
         for a in args.args.iter() {
-            let nome = match a.name.as_ref() {
-                Some(n) => interner.resolve(n.sym),
-                None => return Some("argumento posicional em @Component".into()),
+            let Some(nome) = a.name.as_ref().map(|n| interner.resolve(n.sym)) else {
+                fora.push((Motivo::NaoEntendido, "argumento posicional em @Component".into()));
+                continue;
             };
-            if !ARGUMENTOS_CONHECIDOS.contains(&nome) {
-                return Some(format!("@Component(.., {nome}: ..)"));
+            match nome {
+                // A lista vazia é 57 dos 70 `providers:` do new_sali.
+                "providers" if lista_vazia(arvore, a.value) => {
+                    fora.push((Motivo::ProvidersVazio, "@Component(.., providers: [])".into()))
+                }
+                "providers" => {
+                    fora.push((Motivo::Providers, "@Component(.., providers: [..])".into()))
+                }
+                "encapsulation" => {
+                    fora.push((Motivo::Encapsulamento, "@Component(.., encapsulation: ..)".into()))
+                }
+                n if ARGUMENTOS_CONHECIDOS.contains(&n) => {}
+                n => fora.push((Motivo::NaoEntendido, format!("@Component(.., {n}: ..)"))),
             }
         }
     }
@@ -263,12 +296,92 @@ fn o_que_nao_entendemos(
         let membro = arvore.member(id);
         for a in membro.metadata.iter() {
             let nome = crate::nome_da_anotacao(a, interner);
-            if ANOTACOES_DE_MEMBRO.contains(&nome.as_str()) {
-                return Some(format!("@{nome}"));
+            let motivo = match nome.as_str() {
+                "HostListener" => Motivo::HostListenerEmComponente,
+                "HostBinding" => Motivo::HostBindingEmComponente,
+                "ContentChild" | "ContentChildren" => Motivo::ContentChild,
+                // Lista de resultados: a atribuição é outra, e com `*ngIf`
+                // no caminho vira `mapNestedViews`.
+                "ViewChildren" => Motivo::ViewChildDinamico,
+                _ => continue,
+            };
+            fora.push((motivo, format!("@{nome}")));
+        }
+    }
+    fora
+}
+
+/// `[]` literal, sem elemento nenhum (comentário dentro não conta).
+fn lista_vazia(arvore: &ast::Ast, id: ast::ExprId) -> bool {
+    matches!(&arvore.expr(id).kind, ast::ExprKind::List { elements, .. } if elements.is_empty())
+}
+
+/// Os `@ViewChild` da classe. Só entra como consulta a forma
+/// `@ViewChild('ref') T? campo;` — seletor de texto, sem `read:`, num campo
+/// com tipo escrito. O resto é recusado aqui mesmo, com o motivo.
+fn consultas_da_classe(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    fora: &mut Vec<(Motivo, String)>,
+) -> Vec<Consulta> {
+    let mut saida = Vec::new();
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        for a in membro.metadata.iter() {
+            if crate::nome_da_anotacao(a, interner) != "ViewChild" {
+                continue;
+            }
+            match consulta_simples(arvore, fonte, interner, membro, a) {
+                Ok(c) => saida.push(c),
+                Err(m) => fora.push((m, "@ViewChild(..)".into())),
             }
         }
     }
-    None
+    saida
+}
+
+/// Lê um `@ViewChild` na forma que o gerador conhece, ou diz por que não.
+fn consulta_simples(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    membro: &ast::Member,
+    anotacao: &ast::Annotation,
+) -> Result<Consulta, Motivo> {
+    let args = anotacao.arguments.as_ref().ok_or(Motivo::NaoEntendido)?;
+    let [unico] = &args.args[..] else {
+        // `read:` troca o valor por um provedor do nó; `first:`,
+        // `descendants:` não fazem sentido aqui. Todos ainda não.
+        let tem_read =
+            args.args.iter().any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "read"));
+        return Err(if tem_read { Motivo::ViewChildEmFilho } else { Motivo::NaoEntendido });
+    };
+    if unico.name.is_some() {
+        return Err(Motivo::NaoEntendido);
+    }
+    // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
+    // diretiva, não um elemento.
+    let Some(referencia) = texto_do_argumento(arvore, unico.value) else {
+        return Err(Motivo::ViewChildEmFilho);
+    };
+    // `'a,b'` são dois seletores numa consulta só.
+    if referencia.contains(',') || referencia.trim() != referencia || referencia.is_empty() {
+        return Err(Motivo::NaoEntendido);
+    }
+    // Só campo de instância com tipo escrito; setter tem outra regra de tipo
+    // (o do parâmetro) e não aparece nos projetos.
+    let ast::MemberKind::Field(lista) = &membro.kind else { return Err(Motivo::NaoEntendido) };
+    if lista.static_ || lista.final_ || lista.const_ || lista.late || lista.variables.len() != 1 {
+        return Err(Motivo::NaoEntendido);
+    }
+    let Some(t) = lista.ty else { return Err(Motivo::NaoEntendido) };
+    Ok(Consulta {
+        propriedade: interner.resolve(lista.variables[0].name.sym).to_string(),
+        referencia,
+        tipo: texto_do_tipo(arvore, fonte, t),
+    })
 }
 
 /// Parâmetros do construtor gerador (o sem nome). Sem construtor declarado, a

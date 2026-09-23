@@ -207,7 +207,14 @@ impl Conversor<'_> {
                     tipo: None,
                 })
             }
-            ast::ExprKind::Unary { operand, .. } => {
+            ast::ExprKind::Unary { op, operand } => {
+                // Só `!`. O parser de expressões do ngcompiler lê `-x` como
+                // `0 - x` e sai `(0 - _ctx.x)`; `x!` sai sem parênteses; `~`
+                // nem existe lá. Traduzir qualquer um deles daria um arquivo
+                // diferente do oficial.
+                if *op != ast::UnaryOp::Not {
+                    return Err(Motivo::Ligacao);
+                }
                 let v = self.expr(*operand, raiz)?;
                 let op = self.operador_unario(id);
                 Ok(Convertida {
@@ -215,6 +222,13 @@ impl Conversor<'_> {
                     imutavel: v.imutavel,
                     tipo: None,
                 })
+            }
+            ast::ExprKind::Binary { op, .. } if !operador_do_template(*op) => {
+                // `a | b` no template é pipe, não OU bit a bit: traduzir
+                // como Dart daria `(_ctx.a | _ctx.b)`, que compila e faz
+                // outra coisa. Os demais (`&`, `^`, `<<`, `~/`…) não existem
+                // na linguagem de expressões do ngdart.
+                Err(if *op == ast::BinaryOp::BitOr { Motivo::PipesUsados } else { Motivo::Ligacao })
             }
             ast::ExprKind::Binary { left, right, .. } => {
                 let a = self.expr(*left, raiz)?;
@@ -270,6 +284,30 @@ impl Conversor<'_> {
     }
 }
 
+/// Operadores binários da linguagem de expressões do ngdart
+/// (`expression_parser/parser.dart`): aritméticos, comparação, lógicos e
+/// `??`. O que o Dart tem a mais não passa.
+fn operador_do_template(op: ast::BinaryOp) -> bool {
+    use ast::BinaryOp as B;
+    matches!(
+        op,
+        B::Add
+            | B::Sub
+            | B::Mul
+            | B::Div
+            | B::Rem
+            | B::Eq
+            | B::NotEq
+            | B::Lt
+            | B::Gt
+            | B::LtEq
+            | B::GtEq
+            | B::And
+            | B::Or
+            | B::IfNull
+    )
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -308,6 +346,28 @@ mod testes {
     fn binario_e_condicional_com_parenteses() {
         assert_eq!(conv("nome == 'x'").texto, "(_ctx.nome == 'x')");
         assert_eq!(conv("fixo > 1 ? nome : 'y'").texto, "((_ctx.fixo > 1) ? _ctx.nome : 'y')");
+    }
+
+    /// `|` no template é pipe: recusado em qualquer profundidade, e o `||`
+    /// continua sendo OU lógico.
+    #[test]
+    fn pipe_e_recusado_e_ou_logico_passa() {
+        let m = &membros();
+        let mut i = Interner::new();
+        assert_eq!(converter("nome | fixo", m, &mut i), Err(Motivo::PipesUsados));
+        assert_eq!(converter("(nome | fixo) == 'x'", m, &mut i), Err(Motivo::PipesUsados));
+        assert_eq!(conv("fixo > 1 || fixo < 0").texto, "((_ctx.fixo > 1) || (_ctx.fixo < 0))");
+    }
+
+    /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é
+    /// `0 - x` lá, `x!` sai sem parênteses, `&` não existe.
+    #[test]
+    fn operadores_fora_do_template_sao_recusados() {
+        let m = &membros();
+        let mut i = Interner::new();
+        assert!(converter("-fixo", m, &mut i).is_err());
+        assert!(converter("nome!", m, &mut i).is_err());
+        assert!(converter("fixo & 1", m, &mut i).is_err());
     }
 
     /// Nome que não é do componente não vira `_ctx.nome` por engano.

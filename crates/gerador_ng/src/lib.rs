@@ -142,8 +142,8 @@ pub struct Placar {
     /// Conjunto completo de motivos de cada pendente. É por ele que se sabe
     /// quantos arquivos uma forma nova destrava de verdade.
     pub conjuntos: Vec<std::collections::BTreeSet<Motivo>>,
-    /// Quantas vezes cada forma não entendida aparece (`@HostListener`,
-    /// `@ViewChild`, ciclo de vida…).
+    /// Quantas vezes cada forma não entendida aparece (`@HostBinding`,
+    /// `providers: [..]`…), contando todas as de cada componente pendente.
     pub nao_entendidos: std::collections::BTreeMap<String, usize>,
 }
 
@@ -231,8 +231,9 @@ pub fn gerar_em(
                     // Forma que o gerador ainda não cobre: fica com o
                     // build_runner, e a aplicação compila do mesmo jeito.
                     *placar.motivos.entry(motivo).or_default() += 1;
+                    // Toda forma presente conta, não só a que recusou.
                     for c in &achados.componentes {
-                        if let Some(forma) = &c.nao_entendido {
+                        for (_, forma) in &c.nao_entendidos {
                             *placar.nao_entendidos.entry(forma.clone()).or_default() += 1;
                         }
                     }
@@ -420,8 +421,8 @@ fn gerar_arquivo(
         return Err(Motivo::VariosComponentes);
     }
     let comp = &achados.componentes[0];
-    if comp.nao_entendido.is_some() {
-        return Err(Motivo::NaoEntendido);
+    if let Some((m, _)) = comp.nao_entendidos.first() {
+        return Err(*m);
     }
     let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
         (Some(t), _) => (t.clone(), None),
