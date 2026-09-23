@@ -153,38 +153,50 @@ impl<'a> BodyInferrer<'a> {
 
     /// Ponto de entrada: infere inicializadores de variáveis e corpos.
     pub fn infer_all(mut self) -> (BodyTypes, Vec<Diagnostic>) {
+        // Bibliotecas do SDK pedidas explicitamente (o nativo compila o SDK
+        // da fonte) ganham tabelas laterais como as do usuário.
+        if let Some(pedidas) = self.apenas_bibliotecas.clone() {
+            for (ui, u) in self.program.units.iter().enumerate() {
+                if self.program.library(u.library).is_sdk && pedidas.contains(&u.library.0) {
+                    self.body_types.units[ui] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
+                }
+            }
+        }
         for v in 0..self.program.variables.len() {
             let vid = VariableId(v as u32);
             // Sessão residente: variáveis de bibliotecas que não serão
             // reemitidas só são inferidas sob demanda (quem as lê pede o tipo).
             let lib = self.program.variable(vid).library;
-            if self.apenas_bibliotecas.as_ref().is_some_and(|s| !s.contains(&lib.0)) {
+            if !self.inferir_corpos_de(lib) {
                 continue;
             }
             self.tipo_variavel(vid);
             self.visitar_inicializador(vid);
         }
         for f in 0..self.program.functions.len() {
-            let fe = &self.program.functions[f];
-            if self.program.library(fe.library).is_sdk {
-                continue;
-            }
-            if self.apenas_bibliotecas.as_ref().is_some_and(|s| !s.contains(&fe.library.0)) {
+            let lib = self.program.functions[f].library;
+            if !self.inferir_corpos_de(lib) {
                 continue;
             }
             funcoes::inferir_funcao_declarada(&mut self, FunctionElementId(f as u32));
         }
         for ui in 0..self.program.units.len() {
-            let u = &self.program.units[ui];
-            if self.program.library(u.library).is_sdk {
-                continue;
-            }
-            if self.apenas_bibliotecas.as_ref().is_some_and(|s| !s.contains(&u.library.0)) {
+            let lib = self.program.units[ui].library;
+            if !self.inferir_corpos_de(lib) {
                 continue;
             }
             funcoes::inferir_metadados_da_unidade(&mut self, UnitId(ui as u32));
         }
         (self.body_types, self.diagnostics)
+    }
+
+    /// Os corpos de `lib` são inferidos: os pedidos, quando há pedido
+    /// (inclusive do SDK); senão todos menos os do SDK.
+    pub(crate) fn inferir_corpos_de(&self, lib: LibraryId) -> bool {
+        match &self.apenas_bibliotecas {
+            Some(s) => s.contains(&lib.0),
+            None => !self.program.library(lib).is_sdk,
+        }
     }
 
     /// Tipo de uma variável de topo ou campo, inferindo o inicializador sob
@@ -205,7 +217,14 @@ impl<'a> BodyInferrer<'a> {
         }
         self.estado_vars[vid.0 as usize] = EstadoVar::EmCurso;
         self.profundidade_topo += 1;
+        let diags_antes = self.diagnostics.len();
         let t = funcoes::inferir_tipo_de_variavel_sem_tipo(self, vid);
+        // Inferência sob demanda de uma variável cujos corpos não foram
+        // pedidos (SDK, biblioteca não reemitida): os avisos não são deste
+        // pedido.
+        if !self.inferir_corpos_de(self.program.variable(vid).library) {
+            self.diagnostics.truncate(diags_antes);
+        }
         self.profundidade_topo -= 1;
         self.outline.variables[vid.0 as usize].inferred = Some(t);
         self.estado_vars[vid.0 as usize] = EstadoVar::Pronta;
@@ -255,7 +274,7 @@ impl<'a> BodyInferrer<'a> {
         }
         self.inicializador_visitado[vid.0 as usize] = true;
         let v = self.program.variable(vid);
-        if self.program.library(v.library).is_sdk {
+        if !self.inferir_corpos_de(v.library) {
             return;
         }
         let Some(declarado) = self.outline.variables[vid.0 as usize].declared_type else { return };

@@ -222,9 +222,6 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
     }
     match inf.inicializador(vid) {
         Some((unit, init)) => {
-            if inf.program.library(v.library).is_sdk && inf.body_types.units[unit.0 as usize].static_types.is_empty() {
-                // Unidade do SDK: infere sem tabela lateral (os `set_*` ignoram).
-            }
             let mut cx = Corpo::para_variavel(inf, vid, unit);
             let u = inf.core.unknown;
             let t = inferir(inf, &mut cx, init, u);
