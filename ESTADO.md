@@ -249,7 +249,6 @@ idênticos** a partir do mesmo IR. O JIT até executar leva 43 ms por programa, 
 o Clang + ligação 165 ms (medianas, Pesado 35827208951, placar 50/222 nos dois; `docs/JIT.md`). A
 biblioteca `crates/jit` já serve de executor persistente: `compile_module`
 para o cache, `add_compiled_module`, e várias execuções com estado limpo.
-O `crates/cranelift-jit` continua na trilha velha, fora do CI.
 
 ### 1.5.2 Runtime Dart — `crates/runtime`
 
@@ -304,21 +303,14 @@ antes de toda alocação.
     `dartforge-elements`, já para com 3 erros). Voltam num commit **só de
     formatação/lint**, depois que as branches em andamento entrarem;
     fazê-lo antes conflita com todas elas.
-  * **a trilha velha e o JIT desligado** (§4): 16 testes não ignorados
-    falham em `dartforge-compiler`, `-lexer`, `-llvm` e `-cranelift-jit`.
-    Nenhum crate da trilha nova depende deles.
   * **Ubuntu**: a trilha nova falha no Linux em `dartforge-dev` (`hashes`,
     `plato`), `dartforge-emit-js` (`basico`) e `dartforge-elements`
     (`sdk_cache`), e passa no Windows.
-  * **falha real, registrada**: `dartforge-native`,
-    `real_executable_prints_ints_and_bools` (`#[ignore]`) — o driver antigo
-    `build_executable` compila o runtime como binário, e o runtime agora
-    define `extern "C" fn main() -> i32` (rustc E0277). O backend nativo
-    novo liga pelo `emit_native` e não passa por ali.
-  * **exemplos**: quatro crates (`lsp`, `frontend`, `types`, `emit_js`) têm
-    um exemplo `memoria`, e o `cargo test` liga os quatro no mesmo
-    `target/debug/examples/memoria.exe` (LNK1104 quando se cruzam). O CI
-    testa `--lib --bins --tests` e `--doc`; renomear os exemplos resolve.
+  * Sem exclusões de crate: a trilha velha, o `cranelift-jit` e o driver
+    `native` saíram do workspace (§4), e com eles os 16 testes que falhavam
+    e a falha registrada de `real_executable_prints_ints_and_bools`. Os
+    quatro exemplos de memória têm nomes distintos (`memoria_<crate>`), e o
+    CI roda `cargo test --workspace` com todos os alvos e os doctests.
 
 ### 1.7 `dartforge serve` e o gerador do ngdart
 
@@ -576,27 +568,21 @@ existe). O `dart` oficial fica só como oráculo de comparação.
 
 ### 2.7 JIT
 
-Hoje **não funciona**: `dartforge run` e `dartforge reload` devolvem erro,
-desativados durante o trabalho no AOT.
+O R0 funciona (§1.5.1): `run` e `reload` sobre o mesmo IR do `emit_native`.
+Falta:
 
-O problema é de arquitetura, não de conserto pontual: `crates/jit`
-(ORCv2 sobre a API C do LLVM) e `crates/cranelift-jit` consomem
-`dartforge_hir::Module`, da trilha velha, que o compilador atual não usa
-mais. Rebaseá-los na HIR do `emit_native` é o trabalho — e é o que faria
-desenvolvimento e produção compartilharem uma representação só.
-
-Duas coisas a preservar ao fazer isso:
-
-* o contrato de `crates/jit/tests/execucao.rs` — o mesmo programa compila
-  uma vez e executa pelos dois caminhos (ORCv2 e AOT) exigindo saída
+* **recarga com estado (R1)** — `docs/PESQUISA-HOT-RELOAD.md`. Os cenários
+  estão em `crates/jit/testes-pendentes/hot_reload.rs`, escritos contra a
+  trilha velha (não compilam; ficam fora de `tests/` como a lista do que
+  migrar para o IR do `emit_native`);
+* preservar o contrato de `crates/jit/tests/execucao.rs` — o mesmo programa
+  compila uma vez e executa pelos dois caminhos (ORCv2 e AOT) exigindo saída
   idêntica. Divergir em tempo de compilação é esperado; em resultado, é
   defeito;
-* a recomendação de `docs/CRANELIFT.md`, que é **não adotar** Cranelift:
-  o experimento foi feito e medido. Quem for mexer em JIT lê isso antes de
-  repetir o experimento.
-
-O JIT só passa a valer a pena depois que o AOT rodar o corpus: um JIT que
-executa 7 de 214 programas não acelera ciclo de desenvolvimento nenhum.
+* a recomendação de `docs/historico/CRANELIFT.md` continua: **não adotar**
+  Cranelift. O experimento foi feito e medido (o crate saiu do workspace e
+  está na branch `exploracao-inicial`); quem for mexer em JIT lê isso antes
+  de repetir.
 
 ---
 
@@ -609,8 +595,8 @@ roda mais corpus nenhum: o repositório é público, os minutos de Actions são
 gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
 
 * **`ci.yml`** — todo push no `main` e em `ci/**`, todo PR; ~2,5 min.
-  `cargo test` da trilha nova (`--lib --bins --tests` e `--doc`), os
-  `#[ignore]` da trilha nova que o runner satisfaz (SDK Dart 3.6.2, Clang
+  `cargo test --workspace` (todos os alvos e os doctests), os
+  `#[ignore]` que o runner satisfaz (SDK Dart 3.6.2, Clang
   22.1.8, rustc) e `cargo doc -D warnings`. O que fica de fora e por quê
   está no cabeçalho dele e em §1.6.
 * **`pesado.yml`** — push em `ci/**`, `workflow_dispatch` (suíte e número de
@@ -718,6 +704,19 @@ diretório; sem ele, `$CARGO_TARGET_DIR/native_cache`. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
 
+**Regra dos temporários: no D:, nunca no C:.** O C: tem pouco espaço e o
+`%TEMP%` chegou a 10,5 GB de sobras. Temporários grandes vão para
+`target/tmp-*` ou `target/scratch-*` do repositório (os scripts de
+navegador, `medir-lsp.ps1`, `verificar-poda-js.ps1` e `ci.ps1 -Placar`
+gravam lá); agentes e sessões longas definem antes
+`$env:TEMP='<repo>\target\tmp-<frente>'; $env:TMP=$env:TEMP` e apagam a
+pasta no fim. Todo teste ou comando que cria um temporário o apaga também
+no caminho de erro, pânico ou tempo esgotado (`tempfile::tempdir`, ou um
+guarda com `Drop` como `OutputDir` em `crates/jit/tests/execucao.rs` e
+`DiretorioGeracoes` no `dartforge reload`). `limpar.ps1 -Limpar` apaga
+`target/tmp-*`, `target/scratch-*` e as sobras antigas no `%TEMP%`
+(`dartforge-*`, `dfserve*`, `df-recarga`, `lsp-stdout-*`).
+
 ### 3.2 Verificação rápida do backend nativo — medido
 
 O corpus nativo foi registrado aqui como **10 programas em 9 minutos**
@@ -797,20 +796,29 @@ aquecimento nenhum, deu 7/214 sem nenhuma dessas falhas.
 
 ## 4. Organização do repositório
 
-* **Trilha nova (em uso)**: `frontend` → `elements` → `types` →
-  `emit_js` | `emit_native`, mais `dev`, `lsp`, `intern`, `diagnostics`,
-  `instrument`, `diferencial`, `cli`.
-* **Trilha velha (só o que o `crates/jit` ainda usa)**: `lexer`, `syntax`,
+* **Crates (todos em uso)**: `frontend` → `elements` → `types` →
+  `emit_js` | `emit_native`, mais `emit_js_producao` e `mundo` (produção
+  JS), `gerador_ng` (ngdart), `runtime` e `jit` (nativo), `abi`
+  (`abi-info`), `dev`, `lsp`, `intern`, `diagnostics`, `instrument`,
+  `diferencial` e `cli`. O workspace é `crates/*`, sem exclusões.
+* **A trilha velha foi removida** em 2026-09-23: `lexer`, `syntax`,
   `parser`, `semantic`, `hir`, `codegen`, `linker`, `optimizer`,
-  `packages`, `compiler`, `macros`. Sai quando o backend nativo novo
-  substituir o caminho antigo. O restante (`web`, `ngdart`, `asmjit-jit`)
-  já foi removido do `main`.
-* **Branch `experimento-inicial`**: preserva a árvore inteira antes da
-  limpeza, incluindo tudo o que foi removido.
+  `packages`, `compiler`, `macros`, `llvm`, o driver `native` e o
+  `cranelift-jit` (~65 mil linhas), com `tests/` da raiz (fixtures de
+  conformidade, já convertidos em `corpus/js/*_antigo_*`) e os scripts
+  `conformance*.ps1`/`benchmark-process.ps1`. Antes disso já tinham saído
+  `web`, `ngdart` e `asmjit-jit`.
+* **Branch `exploracao-inicial`** (`origin`, db75b90): preserva a árvore
+  inteira antes da remoção, incluindo tudo o que foi removido.
+* **Documentação**: `docs/` tem só o vigente; o que descreve a exploração
+  inicial (incrementos 01–25, contratos do subconjunto antigo, CRANELIFT,
+  ASMJIT, relatórios JSON e briefs de agentes já cumpridos) está em
+  `docs/historico/`, com um README.
 * Decisões e contratos: `PLANO.md` (governante), `docs/EMISSAO-DDC.md`,
-  `docs/FRONTEND-ARQUITETURA.md`, `docs/NATIVO.md`, `docs/LSP.md`,
+  `docs/FRONTEND-ARQUITETURA.md`, `docs/NATIVO.md`, `docs/NATIVO-PLANO.md`,
+  `docs/JIT.md`, `docs/JS-PRODUCAO.md`, `docs/LSP.md`,
   `docs/FRONTEND-NEW-SALI.md`, `docs/LIMITLESS-UI.md`,
-  `docs/CONTRATO-DDC.md`.
+  `docs/CONTRATO-DDC.md`, `docs/BUILD-RUST.md`, `docs/GERADOR-NG.md`.
 
 **Armadilha registrada**: não rodar `compile-js` enquanto o `build_runner`
 está rodando — o `--delete-conflicting-outputs` apaga a árvore de gerados

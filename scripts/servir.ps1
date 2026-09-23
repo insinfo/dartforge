@@ -72,7 +72,8 @@ try {
   if ($Headless) {
     $edge = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
     if (-not (Test-Path $edge)) { $edge = "C:/Program Files/Microsoft/Edge/Application/msedge.exe" }
-    $perfil = Join-Path ([IO.Path]::GetTempPath()) "dartforge-edge"
+    # Perfil do Edge no D: (target/tmp-edge), nunca no %TEMP% do C:; apagado no finally.
+    $perfil = Join-Path (Split-Path $PSScriptRoot -Parent) "target/tmp-edge"
     # `& msedge` perde o stdout no PowerShell; usa-se o Process diretamente.
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $edge
@@ -91,4 +92,5 @@ try {
   }
 } finally {
   if (-not $servidor.HasExited) { Stop-Process -Id $servidor.Id -Force }
+  if ($perfil -and (Test-Path $perfil)) { Remove-Item -Recurse -Force $perfil -ErrorAction SilentlyContinue }
 }

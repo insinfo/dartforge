@@ -1,5 +1,11 @@
 # Desempenho de compilação — metodologia, linha de base e plano
 
+> A **metodologia** (medição por fase, contador de trabalho, prova de que o
+> reuso não muda o resultado; mediana e p95) continua valendo e é a que o
+> `docs/JIT.md` segue. Os **números e comandos** abaixo são do compilador da
+> trilha velha (`dartforge-compiler`, `dartforge-linker`), removido em
+> 2026-09-23 e preservado na branch `exploracao-inicial`.
+
 Este documento existe porque nenhuma afirmação de desempenho vale sem três coisas:
 a medição por fase, o contador de trabalho realizado e um teste que prove que o
 reuso não mudou o resultado. Tudo aqui é reprodutível com
@@ -8,7 +14,7 @@ reuso não mudou o resultado. Tudo aqui é reprodutível com
 Nada neste documento compara DartForge com DDC ou dart2js. Essa comparação exige
 programas semanticamente equivalentes, com a mesma semântica de inteiros, casts,
 genéricos reificados e null safety, e está registrada separadamente em
-[BENCHMARKS.md](BENCHMARKS.md). Aqui o DartForge é comparado **consigo mesmo**.
+[historico/BENCHMARKS.md](historico/BENCHMARKS.md). Aqui o DartForge é comparado **consigo mesmo**.
 
 ## Os quatro cenários que orientam a arquitetura
 
