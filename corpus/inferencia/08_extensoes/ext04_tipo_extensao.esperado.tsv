@@ -1,0 +1,24 @@
+# 08_extensoes/ext04_tipo_extensao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	19	158	9	InstanceCreationExpression	Id	CONSTRUCTOR:Id.	0	Id(v + 1)
+4	22	161	5	BinaryExpression	int	METHOD:num.+	0	v + 1
+4	22	161	1	SimpleIdentifier	int	GETTER:Id.v	0	v
+4	26	165	1	IntegerLiteral	int	-	0	1
+9	10	233	105	FunctionExpression	void Function()	-	0	() { var i = /*@*/Id(1); print([/*@*/i.proximo(), /*@*/i
+10	16	253	5	InstanceCreationExpression	Id	CONSTRUCTOR:Id.	1	Id(1)
+10	19	256	1	IntegerLiteral	int	-	0	1
+11	3	262	73	MethodInvocation	void	FUNCTION:print	0	print([/*@*/i.proximo(), /*@*/i.v, /*@*/Nome('a').length, /*
+11	3	262	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	268	66	ListLiteral	List<Object?>	-	0	[/*@*/i.proximo(), /*@*/i.v, /*@*/Nome('a').length, /*@*/i a
+11	15	274	11	MethodInvocation	Id	METHOD:Id.proximo	1	i.proximo()
+11	15	274	1	SimpleIdentifier	Id	LOCAL_VARIABLE:main.i	1	i
+11	17	276	7	SimpleIdentifier	Id Function()	METHOD:Id.proximo	0	proximo
+11	33	292	3	PrefixedIdentifier	int	GETTER:Id.v	1	i.v
+11	33	292	1	SimpleIdentifier	Id	LOCAL_VARIABLE:main.i	1	i
+11	35	294	1	SimpleIdentifier	int	GETTER:Id.v	0	v
+11	43	302	16	PropertyAccess	int	GETTER:String.length	1	Nome('a').length
+11	43	302	9	InstanceCreationExpression	Nome	CONSTRUCTOR:Nome.	1	Nome('a')
+11	48	307	3	SimpleStringLiteral	String	-	0	'a'
+11	53	312	6	SimpleIdentifier	int	GETTER:String.length	0	length
+11	66	325	8	AsExpression	int	-	1	i as int
+11	66	325	1	SimpleIdentifier	Id	LOCAL_VARIABLE:main.i	1	i

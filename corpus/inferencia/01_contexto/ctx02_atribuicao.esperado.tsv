@@ -1,0 +1,29 @@
+# 01_contexto/ctx02_atribuicao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	163	180	FunctionExpression	void Function()	-	0	() { List<num> a = []; a = /*@*/[1]; double d = 0; d
+4	17	184	2	ListLiteral	List<num>	-	0	[]
+5	3	190	12	AssignmentExpression	List<num>	LOCAL_VARIABLE:main.a	0	a = /*@*/[1]
+5	3	190	1	SimpleIdentifier	-	LOCAL_VARIABLE:main.a	0	a
+5	12	199	3	ListLiteral	List<num>	-	1	[1]
+5	13	200	1	IntegerLiteral	int	-	0	1
+6	14	217	1	IntegerLiteral	double	-	0	0
+7	3	222	10	AssignmentExpression	double	LOCAL_VARIABLE:main.d	0	d = /*@*/1
+7	3	222	1	SimpleIdentifier	-	LOCAL_VARIABLE:main.d	0	d
+7	12	231	1	IntegerLiteral	double	-	1	1
+8	8	241	11	AssignmentExpression	double	LOCAL_VARIABLE:main.d	1	d += /*@*/1
+8	8	241	1	SimpleIdentifier	-	LOCAL_VARIABLE:main.d	1	d
+8	18	251	1	IntegerLiteral	int	-	1	1
+10	8	271	12	AssignmentExpression	num	LOCAL_VARIABLE:main.n	1	n ??= /*@*/1
+10	8	271	1	SimpleIdentifier	-	LOCAL_VARIABLE:main.n	1	n
+10	19	282	1	IntegerLiteral	int	-	1	1
+12	3	303	14	AssignmentExpression	List<num>	LOCAL_VARIABLE:main.l	0	l ??= /*@*/[1]
+12	3	303	1	SimpleIdentifier	-	LOCAL_VARIABLE:main.l	0	l
+12	14	314	3	ListLiteral	List<num>	-	1	[1]
+12	15	315	1	IntegerLiteral	int	-	0	1
+13	3	321	19	MethodInvocation	void	FUNCTION:print	0	print([a, d, n, l])
+13	3	321	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	9	327	12	ListLiteral	List<Object>	-	0	[a, d, n, l]
+13	10	328	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.a	0	a
+13	13	331	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.d	0	d
+13	16	334	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.n	0	n
+13	19	337	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.l	0	l

@@ -1,0 +1,26 @@
+# 01_contexto/ctx04_argumento.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	141	34	FunctionExpression	void Function(List<num>, {Set<Object>? y})	-	0	(List<num> x, {Set<Object>? y}) {}
+4	5	180	14	FunctionExpression	T Function<T>(T)	-	0	<T>(T x) => x;
+4	17	192	1	SimpleIdentifier	T	PARAMETER:id.x	0	x
+5	10	204	116	FunctionExpression	void Function()	-	0	() { f(/*@*/[1], y: /*@*/{1}); double d = /*@*/id(/*@*/1
+6	3	211	24	MethodInvocation	void	FUNCTION:f	0	f(/*@*/[1], y: /*@*/{1})
+6	3	211	1	SimpleIdentifier	void Function(List<num>, {Set<Object>? y})	FUNCTION:f	0	f
+6	10	218	3	ListLiteral	List<num>	-	1	[1]
+6	11	219	1	IntegerLiteral	int	-	0	1
+6	15	223	11	NamedExpression	Set<Object>	-	0	y: /*@*/{1}
+6	15	223	1	SimpleIdentifier	-	PARAMETER:f.y	0	y
+6	23	231	3	SetOrMapLiteral	Set<Object>	-	1	{1}
+6	24	232	1	IntegerLiteral	int	-	0	1
+7	19	255	10	MethodInvocation	double	FUNCTION:id	1	id(/*@*/1)
+7	19	255	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+7	27	263	1	IntegerLiteral	double	-	1	1
+8	22	288	12	MethodInvocation	List<num>	FUNCTION:id	1	id(/*@*/[1])
+8	22	288	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+8	30	296	3	ListLiteral	List<num>	-	1	[1]
+8	31	297	1	IntegerLiteral	int	-	0	1
+9	3	304	13	MethodInvocation	void	FUNCTION:print	0	print([d, l])
+9	3	304	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	9	310	6	ListLiteral	List<Object>	-	0	[d, l]
+9	10	311	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.d	0	d
+9	13	314	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.l	0	l

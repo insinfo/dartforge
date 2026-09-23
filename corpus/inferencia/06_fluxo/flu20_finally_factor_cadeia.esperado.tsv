@@ -1,0 +1,37 @@
+# 06_fluxo/flu20_finally_factor_cadeia.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+5	7	159	274	FunctionExpression	void Function(Object, int?, FutureOr<int>, int?)	-	0	(Object o, int? x, FutureOr<int> fo, int? y) { try { p
+7	5	218	8	MethodInvocation	void	FUNCTION:print	0	print(0)
+7	5	218	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+7	11	224	1	IntegerLiteral	int	-	0	0
+9	5	246	8	AsExpression	int	-	0	o as int
+9	5	246	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+11	3	262	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+11	3	262	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	14	273	1	SimpleIdentifier	int	PARAMETER:f.o	1	o
+12	7	283	8	IsExpression	bool	-	0	x is int
+12	7	283	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+13	5	299	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+13	5	299	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	16	310	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+15	5	329	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+15	5	329	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+15	16	340	1	SimpleIdentifier	Never?	PARAMETER:f.x	1	x
+17	7	354	9	IsExpression	bool	-	0	fo is int
+17	7	354	2	SimpleIdentifier	FutureOr<int>	PARAMETER:f.fo	0	fo
+19	5	382	14	MethodInvocation	void	FUNCTION:print	0	print(/*@*/fo)
+19	5	382	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+19	16	393	2	SimpleIdentifier	Future<int>	PARAMETER:f.fo	1	fo
+21	3	404	9	PropertyAccess	bool?	GETTER:int.isEven	0	y?.isEven
+21	3	404	1	SimpleIdentifier	int?	PARAMETER:f.y	0	y
+21	6	407	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+22	3	417	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+22	3	417	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+22	14	428	1	SimpleIdentifier	int?	PARAMETER:f.y	1	y
+25	10	444	20	FunctionExpression	void Function()	-	0	() => f(1, 2, 3, 4);
+25	16	450	13	MethodInvocation	void	FUNCTION:f	0	f(1, 2, 3, 4)
+25	16	450	1	SimpleIdentifier	void Function(Object, int?, FutureOr<int>, int?)	FUNCTION:f	0	f
+25	18	452	1	IntegerLiteral	int	-	0	1
+25	21	455	1	IntegerLiteral	int	-	0	2
+25	24	458	1	IntegerLiteral	int	-	0	3
+25	27	461	1	IntegerLiteral	int	-	0	4

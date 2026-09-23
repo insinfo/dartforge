@@ -1,0 +1,38 @@
+# 06_fluxo/flu07_captura.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	138	247	FunctionExpression	void Function(int?, int?, int?)	-	0	(int? x, int? y, int? z) { if (x != null) { () {
+4	7	171	9	BinaryExpression	bool	METHOD:num.==	0	x != null
+4	7	171	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+4	12	176	4	NullLiteral	Null	-	0	null
+5	5	188	31	FunctionExpression	Null Function()	-	0	() { print(/*@*/x); }
+6	7	199	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+6	7	199	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	18	210	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+9	23	247	22	FunctionExpression	void Function()	-	0	() { y = null; }
+10	5	256	8	AssignmentExpression	Null	PARAMETER:f.y	0	y = null
+10	5	256	1	SimpleIdentifier	-	PARAMETER:f.y	0	y
+10	9	260	4	NullLiteral	Null	-	0	null
+12	7	277	9	BinaryExpression	bool	METHOD:num.==	0	y != null
+12	7	277	1	SimpleIdentifier	int?	PARAMETER:f.y	0	y
+12	12	282	4	NullLiteral	Null	-	0	null
+12	18	288	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+12	18	288	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	29	299	1	SimpleIdentifier	int?	PARAMETER:f.y	1	y
+13	7	309	9	BinaryExpression	bool	METHOD:num.==	0	z != null
+13	7	309	1	SimpleIdentifier	int?	PARAMETER:f.z	0	z
+13	12	314	4	NullLiteral	Null	-	0	null
+14	5	326	31	FunctionExpression	Null Function()	-	0	() { print(/*@*/z); }
+15	7	337	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/z)
+15	7	337	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+15	18	348	1	SimpleIdentifier	int?	PARAMETER:f.z	1	z
+17	5	363	8	AssignmentExpression	Null	PARAMETER:f.z	0	z = null
+17	5	363	1	SimpleIdentifier	-	PARAMETER:f.z	0	z
+17	9	367	4	NullLiteral	Null	-	0	null
+19	3	379	3	FunctionExpressionInvocation	void	-	0	g()
+19	3	379	1	SimpleIdentifier	void Function()	LOCAL_VARIABLE:f.g	0	g
+22	10	396	17	FunctionExpression	void Function()	-	0	() => f(1, 2, 3);
+22	16	402	10	MethodInvocation	void	FUNCTION:f	0	f(1, 2, 3)
+22	16	402	1	SimpleIdentifier	void Function(int?, int?, int?)	FUNCTION:f	0	f
+22	18	404	1	IntegerLiteral	int	-	0	1
+22	21	407	1	IntegerLiteral	int	-	0	2
+22	24	410	1	IntegerLiteral	int	-	0	3

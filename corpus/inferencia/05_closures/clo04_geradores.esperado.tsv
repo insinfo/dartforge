@@ -1,0 +1,26 @@
+# 05_closures/clo04_geradores.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	130	319	FunctionExpression	void Function()	-	0	() { var a = /*@*/() sync* { yield 1; }; var b = /
+4	16	150	27	FunctionExpression	Iterable<int> Function()	-	1	() sync* { yield 1; }
+5	11	171	1	IntegerLiteral	int	-	0	1
+7	16	194	28	FunctionExpression	Stream<int> Function()	-	1	() async* { yield 1; }
+8	11	216	1	IntegerLiteral	int	-	0	1
+10	16	239	11	FunctionExpression	Iterable<dynamic> Function()	-	1	() sync* {}
+11	16	267	39	FunctionExpression	Iterable<int?> Function()	-	1	() sync* { yield 1; return; }
+12	11	288	1	IntegerLiteral	int	-	0	1
+15	16	323	32	FunctionExpression	Iterable<double> Function()	-	1	() sync* { yield* [1.5]; }
+16	12	345	5	ListLiteral	List<double>	-	0	[1.5]
+16	13	346	3	DoubleLiteral	double	-	0	1.5
+18	16	372	45	FunctionExpression	Stream<String> Function()	-	1	() async* { yield* Stream.value('a'); }
+19	12	395	17	InstanceCreationExpression	Stream<String>	CONSTRUCTOR:Stream.value	0	Stream.value('a')
+19	19	402	5	SimpleIdentifier	-	CONSTRUCTOR:Stream.value	0	value
+19	25	408	3	SimpleStringLiteral	String	-	0	'a'
+21	3	421	25	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d, e, f])
+21	3	421	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+21	9	427	18	ListLiteral	List<Object Function()>	-	0	[a, b, c, d, e, f]
+21	10	428	1	SimpleIdentifier	Iterable<int> Function()	LOCAL_VARIABLE:main.a	0	a
+21	13	431	1	SimpleIdentifier	Stream<int> Function()	LOCAL_VARIABLE:main.b	0	b
+21	16	434	1	SimpleIdentifier	Iterable<dynamic> Function()	LOCAL_VARIABLE:main.c	0	c
+21	19	437	1	SimpleIdentifier	Iterable<int?> Function()	LOCAL_VARIABLE:main.d	0	d
+21	22	440	1	SimpleIdentifier	Iterable<double> Function()	LOCAL_VARIABLE:main.e	0	e
+21	25	443	1	SimpleIdentifier	Stream<String> Function()	LOCAL_VARIABLE:main.f	0	f

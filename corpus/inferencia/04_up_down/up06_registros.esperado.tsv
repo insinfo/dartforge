@@ -1,0 +1,57 @@
+# 04_up_down/up06_registros.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	10	83	263	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var p = /*@*
+3	11	115	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+3	11	115	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+3	16	120	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+4	16	144	25	ConditionalExpression	(num, String)	-	1	b ? (1, 'a') : (2.5, 'b')
+4	16	144	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+4	20	148	8	RecordLiteral	(int, String)	-	0	(1, 'a')
+4	21	149	1	IntegerLiteral	int	-	0	1
+4	24	152	3	SimpleStringLiteral	String	-	0	'a'
+4	31	159	10	RecordLiteral	(double, String)	-	0	(2.5, 'b')
+4	32	160	3	DoubleLiteral	double	-	0	2.5
+4	37	165	3	SimpleStringLiteral	String	-	0	'b'
+5	16	186	26	ConditionalExpression	Record	-	1	b ? (1, 'a') : (1, 'a', 2)
+5	16	186	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+5	20	190	8	RecordLiteral	(int, String)	-	0	(1, 'a')
+5	21	191	1	IntegerLiteral	int	-	0	1
+5	24	194	3	SimpleStringLiteral	String	-	0	'a'
+5	31	201	11	RecordLiteral	(int, String, int)	-	0	(1, 'a', 2)
+5	32	202	1	IntegerLiteral	int	-	0	1
+5	35	205	3	SimpleStringLiteral	String	-	0	'a'
+5	40	210	1	IntegerLiteral	int	-	0	2
+6	16	229	21	ConditionalExpression	({Object x})	-	1	b ? (x: 1) : (x: 'a')
+6	16	229	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+6	20	233	6	RecordLiteral	({int x})	-	0	(x: 1)
+6	21	234	4	NamedExpression	int	-	0	x: 1
+6	21	234	1	SimpleIdentifier	-	-	0	x
+6	24	237	1	IntegerLiteral	int	-	0	1
+6	29	242	8	RecordLiteral	({String x})	-	0	(x: 'a')
+6	30	243	6	NamedExpression	String	-	0	x: 'a'
+6	30	243	1	SimpleIdentifier	-	-	0	x
+6	33	246	3	SimpleStringLiteral	String	-	0	'a'
+7	16	267	19	ConditionalExpression	Record	-	1	b ? (x: 1) : (y: 1)
+7	16	267	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+7	20	271	6	RecordLiteral	({int x})	-	0	(x: 1)
+7	21	272	4	NamedExpression	int	-	0	x: 1
+7	21	272	1	SimpleIdentifier	-	-	0	x
+7	24	275	1	IntegerLiteral	int	-	0	1
+7	29	280	6	RecordLiteral	({int y})	-	0	(y: 1)
+7	30	281	4	NamedExpression	int	-	0	y: 1
+7	30	281	1	SimpleIdentifier	-	-	0	y
+7	33	284	1	IntegerLiteral	int	-	0	1
+8	16	303	14	ConditionalExpression	Object	-	1	b ? (1, 2) : 3
+8	16	303	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+8	20	307	6	RecordLiteral	(int, int)	-	0	(1, 2)
+8	21	308	1	IntegerLiteral	int	-	0	1
+8	24	311	1	IntegerLiteral	int	-	0	2
+8	29	316	1	IntegerLiteral	int	-	0	3
+9	3	321	22	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s, t])
+9	3	321	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	9	327	15	ListLiteral	List<Object>	-	0	[p, q, r, s, t]
+9	10	328	1	SimpleIdentifier	(num, String)	LOCAL_VARIABLE:main.p	0	p
+9	13	331	1	SimpleIdentifier	Record	LOCAL_VARIABLE:main.q	0	q
+9	16	334	1	SimpleIdentifier	({Object x})	LOCAL_VARIABLE:main.r	0	r
+9	19	337	1	SimpleIdentifier	Record	LOCAL_VARIABLE:main.s	0	s
+9	22	340	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.t	0	t

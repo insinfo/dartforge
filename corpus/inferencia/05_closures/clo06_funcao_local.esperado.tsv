@@ -1,0 +1,38 @@
+# 05_closures/clo06_funcao_local.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	115	205	FunctionExpression	void Function()	-	0	() { f() => 1; g(int x) { return x * 2.5; } int
+4	4	123	8	FunctionExpression	int Function()	-	0	() => 1;
+4	10	129	1	IntegerLiteral	int	-	0	1
+5	4	135	33	FunctionExpression	double Function(int)	-	0	(int x) { return x * 2.5; }
+6	12	156	7	BinaryExpression	double	METHOD:num.*	0	x * 2.5
+6	12	156	1	SimpleIdentifier	int	PARAMETER:g.x	0	x
+6	16	160	3	DoubleLiteral	double	-	0	2.5
+9	10	179	39	FunctionExpression	int Function(int)	-	0	(int n) => n <= 1 ? 1 : n * fat(n - 1);
+9	21	190	27	ConditionalExpression	int	-	0	n <= 1 ? 1 : n * fat(n - 1)
+9	21	190	6	BinaryExpression	bool	METHOD:num.<=	0	n <= 1
+9	21	190	1	SimpleIdentifier	int	PARAMETER:fat.n	0	n
+9	26	195	1	IntegerLiteral	int	-	0	1
+9	30	199	1	IntegerLiteral	int	-	0	1
+9	34	203	14	BinaryExpression	int	METHOD:num.*	0	n * fat(n - 1)
+9	34	203	1	SimpleIdentifier	int	PARAMETER:fat.n	0	n
+9	38	207	10	MethodInvocation	int	FUNCTION:main.fat	0	fat(n - 1)
+9	38	207	3	SimpleIdentifier	int Function(int)	FUNCTION:main.fat	0	fat
+9	42	211	5	BinaryExpression	int	METHOD:num.-	0	n - 1
+9	42	211	1	SimpleIdentifier	int	PARAMETER:fat.n	0	n
+9	46	215	1	IntegerLiteral	int	-	0	1
+10	16	234	3	MethodInvocation	int	FUNCTION:main.f	1	f()
+10	16	234	1	SimpleIdentifier	int Function()	FUNCTION:main.f	1	f
+11	16	254	4	MethodInvocation	double	FUNCTION:main.g	1	g(1)
+11	16	254	1	SimpleIdentifier	double Function(int)	FUNCTION:main.g	1	g
+11	18	256	1	IntegerLiteral	int	-	0	1
+12	16	275	6	MethodInvocation	int	FUNCTION:main.fat	1	fat(3)
+12	16	275	3	SimpleIdentifier	int Function(int)	FUNCTION:main.fat	1	fat
+12	20	279	1	IntegerLiteral	int	-	0	3
+13	3	285	32	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, /*@*/f, /*@*/g])
+13	3	285	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	9	291	25	ListLiteral	List<Object>	-	0	[a, b, c, /*@*/f, /*@*/g]
+13	10	292	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.a	0	a
+13	13	295	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.b	0	b
+13	16	298	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.c	0	c
+13	24	306	1	SimpleIdentifier	int Function()	FUNCTION:main.f	1	f
+13	32	314	1	SimpleIdentifier	double Function(int)	FUNCTION:main.g	1	g

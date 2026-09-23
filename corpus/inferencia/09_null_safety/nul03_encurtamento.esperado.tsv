@@ -1,0 +1,54 @@
+# 09_null_safety/nul03_encurtamento.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	9	114	3	InstanceCreationExpression	B	CONSTRUCTOR:B.	0	B()
+9	11	151	1	IntegerLiteral	int	-	0	0
+10	14	167	1	IntegerLiteral	int	-	0	1
+13	7	179	165	FunctionExpression	void Function(A?, List<int>?)	-	0	(A? a, List<int>? l) { print([/*@*/a?.b.c, /*@*/a?.b.m(),
+14	3	204	81	MethodInvocation	void	FUNCTION:print	0	print([/*@*/a?.b.c, /*@*/a?.b.m(), /*@*/a?.b, /*@*/a?.bn?.c,
+14	3	204	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+14	9	210	74	ListLiteral	List<Object?>	-	0	[/*@*/a?.b.c, /*@*/a?.b.m(), /*@*/a?.b, /*@*/a?.bn?.c, /*@*/
+14	15	216	6	PropertyAccess	int?	GETTER:B.c	1	a?.b.c
+14	15	216	4	PropertyAccess	B	GETTER:A.b	1	a?.b
+14	15	216	1	SimpleIdentifier	A?	PARAMETER:f.a	1	a
+14	18	219	1	SimpleIdentifier	B	GETTER:A.b	0	b
+14	20	221	1	SimpleIdentifier	int	GETTER:B.c	0	c
+14	28	229	8	MethodInvocation	int?	METHOD:B.m	1	a?.b.m()
+14	28	229	4	PropertyAccess	B	GETTER:A.b	1	a?.b
+14	28	229	1	SimpleIdentifier	A?	PARAMETER:f.a	1	a
+14	31	232	1	SimpleIdentifier	B	GETTER:A.b	0	b
+14	33	234	1	SimpleIdentifier	int Function()	METHOD:B.m	0	m
+14	43	244	4	PropertyAccess	B?	GETTER:A.b	1	a?.b
+14	43	244	1	SimpleIdentifier	A?	PARAMETER:f.a	1	a
+14	46	247	1	SimpleIdentifier	B	GETTER:A.b	0	b
+14	54	255	8	PropertyAccess	int?	GETTER:B.c	1	a?.bn?.c
+14	54	255	5	PropertyAccess	B?	GETTER:A.bn	1	a?.bn
+14	54	255	1	SimpleIdentifier	A?	PARAMETER:f.a	1	a
+14	57	258	2	SimpleIdentifier	B?	GETTER:A.bn	0	bn
+14	61	262	1	SimpleIdentifier	int	GETTER:B.c	0	c
+14	69	270	13	PropertyAccess	bool?	GETTER:int.isEven	1	a?.b.c.isEven
+14	69	270	6	PropertyAccess	int	GETTER:B.c	1	a?.b.c
+14	69	270	4	PropertyAccess	B	GETTER:A.b	1	a?.b
+14	69	270	1	SimpleIdentifier	A?	PARAMETER:f.a	1	a
+14	72	273	1	SimpleIdentifier	B	GETTER:A.b	0	b
+14	74	275	1	SimpleIdentifier	int	GETTER:B.c	0	c
+14	76	277	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+15	3	289	52	MethodInvocation	void	FUNCTION:print	0	print([/*@*/l?..add(1), /*@*/l?[0], /*@*/l?.length])
+15	3	289	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+15	9	295	45	ListLiteral	List<Object?>	-	0	[/*@*/l?..add(1), /*@*/l?[0], /*@*/l?.length]
+15	15	301	10	CascadeExpression	List<int>?	-	1	l?..add(1)
+15	15	301	1	SimpleIdentifier	List<int>?	PARAMETER:f.l	1	l
+15	16	302	9	MethodInvocation	void	METHOD:List.add	0	?..add(1)
+15	19	305	3	SimpleIdentifier	void Function(int)	METHOD:List.add	0	add
+15	23	309	1	IntegerLiteral	int	-	0	1
+15	32	318	5	IndexExpression	int?	METHOD:List.[]	1	l?[0]
+15	32	318	1	SimpleIdentifier	List<int>?	PARAMETER:f.l	1	l
+15	35	321	1	IntegerLiteral	int	-	0	0
+15	44	330	9	PropertyAccess	int?	GETTER:List.length	1	l?.length
+15	44	330	1	SimpleIdentifier	List<int>?	PARAMETER:f.l	1	l
+15	47	333	6	SimpleIdentifier	int	GETTER:List.length	0	length
+18	10	355	18	FunctionExpression	void Function()	-	0	() => f(A(), [1]);
+18	16	361	11	MethodInvocation	void	FUNCTION:f	0	f(A(), [1])
+18	16	361	1	SimpleIdentifier	void Function(A?, List<int>?)	FUNCTION:f	0	f
+18	18	363	3	InstanceCreationExpression	A	CONSTRUCTOR:A.	0	A()
+18	23	368	3	ListLiteral	List<int>	-	0	[1]
+18	24	369	1	IntegerLiteral	int	-	0	1

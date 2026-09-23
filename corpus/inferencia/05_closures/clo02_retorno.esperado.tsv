@@ -1,0 +1,33 @@
+# 05_closures/clo02_retorno.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	145	338	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var a = /*@*
+4	11	177	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+4	11	177	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+4	16	182	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+5	16	206	7	FunctionExpression	int Function()	-	1	() => 1
+5	22	212	1	IntegerLiteral	int	-	0	1
+6	16	230	45	FunctionExpression	num Function()	-	1	() { if (b) return 1; return 2.5; }
+7	9	243	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	0	b
+7	19	253	1	IntegerLiteral	int	-	0	1
+8	12	267	3	DoubleLiteral	double	-	0	2.5
+10	16	292	5	FunctionExpression	Null Function()	-	1	() {}
+11	16	314	29	FunctionExpression	int? Function()	-	1	() { if (b) return 1; }
+12	9	327	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	0	b
+12	19	337	1	IntegerLiteral	int	-	0	1
+14	16	360	13	FunctionExpression	Never Function()	-	1	() => throw 0
+14	22	366	7	ThrowExpression	Never	-	0	throw 0
+14	28	372	1	IntegerLiteral	int	-	0	0
+15	16	390	21	FunctionExpression	Never Function()	-	1	() { throw 0; }
+16	5	399	7	ThrowExpression	Never	-	0	throw 0
+16	11	405	1	IntegerLiteral	int	-	0	0
+18	16	428	20	FunctionExpression	Null Function()	-	1	() { return; }
+21	3	452	28	MethodInvocation	void	FUNCTION:print	0	print([a, c, d, e, f, g, h])
+21	3	452	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+21	9	458	21	ListLiteral	List<num? Function()>	-	0	[a, c, d, e, f, g, h]
+21	10	459	1	SimpleIdentifier	int Function()	LOCAL_VARIABLE:main.a	0	a
+21	13	462	1	SimpleIdentifier	num Function()	LOCAL_VARIABLE:main.c	0	c
+21	16	465	1	SimpleIdentifier	Null Function()	LOCAL_VARIABLE:main.d	0	d
+21	19	468	1	SimpleIdentifier	int? Function()	LOCAL_VARIABLE:main.e	0	e
+21	22	471	1	SimpleIdentifier	Never Function()	LOCAL_VARIABLE:main.f	0	f
+21	25	474	1	SimpleIdentifier	Never Function()	LOCAL_VARIABLE:main.g	0	g
+21	28	477	1	SimpleIdentifier	Null Function()	LOCAL_VARIABLE:main.h	0	h

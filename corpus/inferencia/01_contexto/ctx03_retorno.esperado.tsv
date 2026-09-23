@@ -1,0 +1,35 @@
+# 01_contexto/ctx03_retorno.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	12	207	15	FunctionExpression	List<num> Function()	-	0	() => /*@*/[1];
+4	23	218	3	ListLiteral	List<num>	-	1	[1]
+4	24	219	1	IntegerLiteral	int	-	0	1
+5	20	242	21	FunctionExpression	Future<List<num>> Function()	-	0	() async => /*@*/[1];
+5	37	259	3	ListLiteral	List<num>	-	1	[1]
+5	38	260	1	IntegerLiteral	int	-	0	1
+6	20	283	31	FunctionExpression	Future<List<num>> Function()	-	0	() async { return /*@*/[1]; }
+7	15	308	3	ListLiteral	List<num>	-	1	[1]
+7	16	309	1	IntegerLiteral	int	-	0	1
+10	22	337	30	FunctionExpression	Iterable<List<num>> Function()	-	0	() sync* { yield /*@*/[1]; }
+11	14	361	3	ListLiteral	List<num>	-	1	[1]
+11	15	362	1	IntegerLiteral	int	-	0	1
+14	20	388	31	FunctionExpression	Stream<List<num>> Function()	-	0	() async* { yield /*@*/[1]; }
+15	14	413	3	ListLiteral	List<num>	-	1	[1]
+15	15	414	1	IntegerLiteral	int	-	0	1
+18	17	437	19	FunctionExpression	Future<double> Function()	-	0	() async => /*@*/1;
+18	34	454	1	IntegerLiteral	double	-	1	1
+19	10	466	47	FunctionExpression	void Function()	-	0	() { print([f(), g(), h(), s(), t(), u()]); }
+20	3	473	37	MethodInvocation	void	FUNCTION:print	0	print([f(), g(), h(), s(), t(), u()])
+20	3	473	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+20	9	479	30	ListLiteral	List<Object>	-	0	[f(), g(), h(), s(), t(), u()]
+20	10	480	3	MethodInvocation	List<num>	FUNCTION:f	0	f()
+20	10	480	1	SimpleIdentifier	List<num> Function()	FUNCTION:f	0	f
+20	15	485	3	MethodInvocation	Future<List<num>>	FUNCTION:g	0	g()
+20	15	485	1	SimpleIdentifier	Future<List<num>> Function()	FUNCTION:g	0	g
+20	20	490	3	MethodInvocation	Future<List<num>>	FUNCTION:h	0	h()
+20	20	490	1	SimpleIdentifier	Future<List<num>> Function()	FUNCTION:h	0	h
+20	25	495	3	MethodInvocation	Iterable<List<num>>	FUNCTION:s	0	s()
+20	25	495	1	SimpleIdentifier	Iterable<List<num>> Function()	FUNCTION:s	0	s
+20	30	500	3	MethodInvocation	Stream<List<num>>	FUNCTION:t	0	t()
+20	30	500	1	SimpleIdentifier	Stream<List<num>> Function()	FUNCTION:t	0	t
+20	35	505	3	MethodInvocation	Future<double>	FUNCTION:u	0	u()
+20	35	505	1	SimpleIdentifier	Future<double> Function()	FUNCTION:u	0	u

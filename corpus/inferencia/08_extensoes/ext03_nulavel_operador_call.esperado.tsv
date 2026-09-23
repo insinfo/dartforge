@@ -1,0 +1,25 @@
+# 08_extensoes/ext03_nulavel_operador_call.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	21	111	12	BinaryExpression	bool	METHOD:num.==	0	this == null
+3	21	111	4	ThisExpression	int?	-	0	this
+3	29	119	4	NullLiteral	Null	-	0	null
+7	31	180	12	MethodInvocation	String	METHOD:String.substring	0	substring(n)
+7	31	180	9	SimpleIdentifier	String Function(int, [int?])	METHOD:String.substring	0	substring
+7	41	190	1	SimpleIdentifier	int	PARAMETER:-.n	0	n
+8	17	210	6	SimpleIdentifier	int	GETTER:String.length	0	length
+11	7	227	67	FunctionExpression	void Function(int?)	-	0	(int? x) { print([/*@*/x.vazio, /*@*/'abc' - 1, /*@*/'abc'
+12	3	240	51	MethodInvocation	void	FUNCTION:print	0	print([/*@*/x.vazio, /*@*/'abc' - 1, /*@*/'abc'()])
+12	3	240	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	9	246	44	ListLiteral	List<Object>	-	0	[/*@*/x.vazio, /*@*/'abc' - 1, /*@*/'abc'()]
+12	15	252	7	PrefixedIdentifier	bool	GETTER:null.vazio	1	x.vazio
+12	15	252	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+12	17	254	5	SimpleIdentifier	bool	GETTER:null.vazio	0	vazio
+12	29	266	9	BinaryExpression	String	METHOD:null.-	1	'abc' - 1
+12	29	266	5	SimpleStringLiteral	String	-	1	'abc'
+12	37	274	1	IntegerLiteral	int	-	0	1
+12	45	282	7	FunctionExpressionInvocation	int	-	1	'abc'()
+12	45	282	5	SimpleStringLiteral	String	-	1	'abc'
+15	10	305	11	FunctionExpression	void Function()	-	0	() => f(1);
+15	16	311	4	MethodInvocation	void	FUNCTION:f	0	f(1)
+15	16	311	1	SimpleIdentifier	void Function(int?)	FUNCTION:f	0	f
+15	18	313	1	IntegerLiteral	int	-	0	1

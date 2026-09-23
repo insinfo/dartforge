@@ -1,0 +1,25 @@
+# 01_contexto/ctx11_override.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+6	21	282	1	IntegerLiteral	int	-	0	1
+7	15	299	5	ListLiteral	List<double>	-	0	[1.5]
+7	16	300	3	DoubleLiteral	double	-	0	1.5
+11	4	332	8	SimpleIdentifier	-	GETTER:override	0	override
+13	5	364	23	MethodInvocation	void	FUNCTION:print	0	print([/*@*/b, /*@*/t])
+13	5	364	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	11	370	16	ListLiteral	List<Object?>	-	0	[/*@*/b, /*@*/t]
+13	17	376	1	SimpleIdentifier	int	PARAMETER:m.b	1	b
+13	25	384	1	SimpleIdentifier	String?	PARAMETER:m.t	1	t
+16	4	397	8	SimpleIdentifier	-	GETTER:override	0	override
+17	21	426	1	IntegerLiteral	int	-	1	2
+18	4	432	8	SimpleIdentifier	-	GETTER:override	0	override
+19	21	461	2	ListLiteral	List<double>	-	1	[]
+22	10	477	49	FunctionExpression	void Function()	-	0	() { print([/*@*/B().campo, /*@*/B().lista]); }
+23	3	484	39	MethodInvocation	void	FUNCTION:print	0	print([/*@*/B().campo, /*@*/B().lista])
+23	3	484	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+23	9	490	32	ListLiteral	List<Object>	-	0	[/*@*/B().campo, /*@*/B().lista]
+23	15	496	9	PropertyAccess	num	GETTER:B.campo	1	B().campo
+23	15	496	3	InstanceCreationExpression	B	CONSTRUCTOR:B.	1	B()
+23	19	500	5	SimpleIdentifier	num	GETTER:B.campo	0	campo
+23	31	512	9	PropertyAccess	List<double>	GETTER:B.lista	1	B().lista
+23	31	512	3	InstanceCreationExpression	B	CONSTRUCTOR:B.	1	B()
+23	35	516	5	SimpleIdentifier	List<double>	GETTER:B.lista	0	lista
