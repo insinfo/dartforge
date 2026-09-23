@@ -387,21 +387,18 @@ pub extern "C" fn dartforge_map_remove(handle: i64, key_bits: i64, key_tag: u8) 
     }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let target_key = TaggedValue {
-            bits: key_bits,
-            is_ref: key_tag == 3,
-            tag: match key_tag {
-                1 => crate::heap::ValueTag::Int,
-                2 => crate::heap::ValueTag::Bool,
-                3 => crate::heap::ValueTag::Ref,
-                _ => crate::heap::ValueTag::Int,
-            },
+        // A chave com a tag real e normalizada (R8/R10: um `Smi` ou uma
+        // caixa é a mesma chave que o escalar), comparada pelo `==` das
+        // chaves — antes só os bits, e `1` encaixotado não achava `1`.
+        let alvo = heap.normalizar(tagged(key_bits, key_tag));
+        let pos = match heap.get(handle) {
+            Value::Map(entries) => entries.iter().position(|(k, _)| heap.key_equal(k, &alvo)),
+            _ => return 0,
         };
         let Value::Map(entries) = heap.get_mut(handle) else { return 0; };
-        if let Some(pos) = entries.iter().position(|(k, _)| k.bits == target_key.bits) {
-            entries.remove(pos).1.bits
-        } else {
-            0
+        match pos {
+            Some(pos) => entries.remove(pos).1.bits,
+            None => 0,
         }
     })
 }

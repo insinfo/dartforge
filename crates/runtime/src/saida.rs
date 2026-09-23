@@ -94,6 +94,10 @@ fn safe_to_string(heap: &Heap, handle: i64, output: &mut TextoMut) {
         output.push_str("null");
         return;
     }
+    if crate::heap::smi::e_smi(handle) {
+        output.push_str(&crate::heap::smi::valor(handle).to_string());
+        return;
+    }
     match heap.get(handle) {
         Value::String(text) => {
             output.push('"');
@@ -148,6 +152,11 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
         if value.is_ref {
             if value.bits == 0 {
                 output.push_str("null");
+                return;
+            }
+            // `Smi` (R10): o `int` que ele carrega.
+            if crate::heap::smi::e_smi(value.bits) {
+                output.push_str(&crate::heap::smi::valor(value.bits).to_string());
                 return;
             }
             match heap.get(value.bits) {
@@ -243,8 +252,8 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                             output.push_str("Exception");
                         }
                     } else if name == "FormatException" {
-                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
-                        let s_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None });
+                        let s_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None });
                         let off_opt = fields.get(2).and_then(|(b, _)| if *b >= 0 { Some(*b) } else { None });
                         if let Some(s) = s_opt {
                             let m = m_opt.unwrap_or_default();
@@ -273,7 +282,7 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     } else if name == "StateError" {
                         if let Some((b, _)) = fields.first() {
                             if *b != 0 {
-                                let m = match heap.get(*b) { Value::String(s) => s.clone(), _ => Texto::vazio() };
+                                let m = match heap.try_get(*b) { Some(Value::String(s)) => s.clone(), _ => Texto::vazio() };
                                 output.push_str(&format!("Bad state: {m}"));
                             } else {
                                 output.push_str("Bad state");
@@ -282,8 +291,8 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                             output.push_str("Bad state");
                         }
                     } else if name == "ArgumentError" {
-                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
-                        let n_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None });
+                        let n_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None });
                         let has_val = fields.get(3).map_or(false, |(b, _)| *b != 0);
                         if has_val {
                             let val_str = if let Some(&(v_bits, is_ref)) = fields.get(2) {
@@ -291,8 +300,8 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                                     if v_bits == 0 {
                                         "null".to_string()
                                     } else {
-                                        match heap.get(v_bits) {
-                                            Value::String(s) => format!("\"{s}\""),
+                                        match heap.try_get(v_bits) {
+                                            Some(Value::String(s)) => format!("\"{s}\""),
                                             _ => {
                                                 let mut tmp = TextoMut::new();
                                                 render(heap, TaggedValue::reference(v_bits), depth - 1, &mut tmp);
@@ -321,8 +330,8 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                             }
                         }
                     } else if name == "RangeError" {
-                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
-                        let n_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None });
+                        let m_opt = fields.first().and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None });
+                        let n_opt = fields.get(1).and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None });
                         let inv_val = fields.get(2).map_or(0, |(b, _)| *b);
                         let start_val = fields.get(3).map_or(0, |(b, _)| *b);
                         let end_val = fields.get(4).map_or(0, |(b, _)| *b);
@@ -366,7 +375,7 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     } else if name == "UnsupportedError" {
                         if let Some((b, _)) = fields.first() {
                             if *b != 0 {
-                                let m = match heap.get(*b) { Value::String(s) => s.clone(), _ => Texto::vazio() };
+                                let m = match heap.try_get(*b) { Some(Value::String(s)) => s.clone(), _ => Texto::vazio() };
                                 output.push_str(&format!("Unsupported operation: {m}"));
                             } else {
                                 output.push_str("Unsupported operation");
@@ -377,7 +386,7 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     } else if name == "UnimplementedError" {
                         if let Some((b, _)) = fields.first() {
                             if *b != 0 {
-                                let m = match heap.get(*b) { Value::String(s) => s.clone(), _ => Texto::vazio() };
+                                let m = match heap.try_get(*b) { Some(Value::String(s)) => s.clone(), _ => Texto::vazio() };
                                 if m.is_empty() {
                                     output.push_str("UnimplementedError");
                                 } else {
@@ -393,8 +402,8 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                         if let Some(&(b, is_ref)) = fields.first() {
                             if b != 0 {
                                 if is_ref {
-                                    match heap.get(b) {
-                                        Value::String(s) => output.push_str(&format!("Assertion failed: \"{s}\"")),
+                                    match heap.try_get(b) {
+                                        Some(Value::String(s)) => output.push_str(&format!("Assertion failed: \"{s}\"")),
                                         _ => {
                                             let mut s = TextoMut::new();
                                             render(heap, TaggedValue::reference(b), depth - 1, &mut s);
@@ -436,8 +445,8 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                         let nome_membro = fields
                             .first()
                             .and_then(|(b, _)| if *b != 0 {
-                                match heap.get(*b) {
-                                    Value::String(s) => Some(s.clone()),
+                                match heap.try_get(*b) {
+                                    Some(Value::String(s)) => Some(s.clone()),
                                     _ => None,
                                 }
                             } else {
@@ -448,7 +457,7 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                             None => output.push_str("NoSuchMethodError"),
                         }
                     } else if name == "StackTrace" || name == "_StackTrace" {
-                        if let Some(m) = fields.first().and_then(|(b, _)| if *b != 0 { match heap.get(*b) { Value::String(s) => Some(s.clone()), _ => None } } else { None }) {
+                        if let Some(m) = fields.first().and_then(|(b, _)| if *b != 0 { match heap.try_get(*b) { Some(Value::String(s)) => Some(s.clone()), _ => None } } else { None }) {
                             output.push_texto(&m);
                         } else {
                             output.push_str("#0      main (dart:native)\n");

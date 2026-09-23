@@ -498,8 +498,8 @@ pub extern "C" fn dartforge_string_buffer_write(buf_handle: i64, str_handle: i64
         let parte: Texto = if str_handle == 0 {
             Texto::de_str("null")
         } else {
-            match heap_ref.get(str_handle) {
-                Value::String(t) => t.clone(),
+            match heap_ref.try_get(str_handle) {
+                Some(Value::String(t)) => t.clone(),
                 _ => describe_texto(&heap_ref, str_handle),
             }
         };

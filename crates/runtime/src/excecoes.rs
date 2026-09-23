@@ -133,8 +133,8 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
         // SEM empréstimo do heap aberto (G6: a versão anterior chamava
         // `dartforge_stack_trace_get` com `borrow_mut` ativo — "RefCell
         // already borrowed").
-        let precisa = HEAP.with(|heap| match heap.borrow().get(value.bits) {
-            Value::Object { class_id, fields } if (1000..=1012).contains(class_id) && dartforge_is_subclass(*class_id, 1007) != 0 => {
+        let precisa = HEAP.with(|heap| match heap.borrow().try_get(value.bits) {
+            Some(Value::Object { class_id, fields }) if (1000..=1012).contains(class_id) && dartforge_is_subclass(*class_id, 1007) != 0 => {
                 let st_idx = match *class_id {
                     1003 => 5,
                     1004 => 7,
