@@ -824,3 +824,78 @@ comentário de cabeçalho): `llvm/externs.rs`, `FRAGMENTOS` em
 `crates/runtime/build.rs`, o `struct FnBuilder`. `llvm/mod.rs`: α (closures) e
 ζ (globais) mexem em funções diferentes; β põe o despacho em `llvm/despacho.rs`.
 **Ordem de merge:** P0 → (P1, P2, P3, P5a–c) → P4 → P5d → (P6, P8) → P7 → P9.
+
+### 7.4 δ: strings, `Smi` e P5a/P5b (medido)
+
+**Decisão 5 — strings UTF-16 (a702ff0).** `Texto` (`runtime/src/heap.rs`):
+`_OneByteString`/`_TwoByteString` canônicos; `length`, índices, busca,
+`split`/`replaceAll`/`splitMapJoin` (os algoritmos do `_StringBase`) por
+unidade; `print` troca o surrogate solto por U+FFFD, como o `Utf8::Encode` da
+VM (medido: `EF BF BD`). Pesado 35849542217: nativo **50/223** (o programa 04
+de surrogates passa), JIT 50/223 com 0 divergências, IR determinístico, JS
+223/223; `--gc-stress` 50/223 (35849593802).
+
+**R10 — `Smi` (4f0b236).** Pesado 35852784596: nativo 50/223, JIT 50/223 com 0
+divergências; `--gc-stress` 50/223 (35852795093). Alocações, contadas exatas
+pelo contador novo `smi_caixas_evitadas` do `DARTFORGE_GC_STATS` (antes =
+`allocations` + evitadas), numa amostra de 12 aprovados: 45 833 → 45 800
+(−0,1%; o código do usuário do corpus é tipado, quase não encaixota); num laço
+de 100 000 `Object o = i`, 100 000 alocações a menos. O ganho grande é com o
+SDK da fonte, genérico (`E`, `Object?`).
+
+**P5a — sobreposição.** `sdk_nativo/libraries.json` (alvo
+`dartforge_nativo`, base `vm`) troca por **conteúdo** quatro arquivos:
+`async_patch.dart` (o modelo do dart2js sem `_SuspendState`),
+`schedule_microtask_patch.dart` e `timer_patch.dart` (natives
+`DartForge_scheduleImmediate`/`DartForge_Timer_*`) e `finalizer_patch.dart`
+(validação da VM, callback nunca rodado — a especificação permite). O caminho
+lógico continua o do SDK, então os `part` resolvem ao lado do original
+(`SdkLayout::load_com_sobreposicao`, `elements/src/load.rs` lê o substituto;
+o cache do SDK inclui as trocas na chave). O programa carrega sem diagnóstico.
+
+**Medição de 5a** (`sdk_modulo::medir_inferencia_do_sdk`, com o pedido a
+`crates/types` aplicado só localmente — NATIVO-PEDIDOS): **4 447
+diagnósticos** de inferência nos corpos das sete bibliotecas da fonte —
+`_internal` 635, `core` 2 294, `_compact_hash` 111, `collection` 420, `math` 71,
+`convert` 391, `async` 525. Os mais comuns: "Nome indefinido" (1 381), argumento
+não atribuível (763), retorno não atribuível (616), método/getter não definido
+para o tipo. O aceite de 5a (zero) é trabalho da inferência, não do nativo; a
+lista por código está no teste ignorado `medir_inferencia_das_bibliotecas_da_fonte`.
+
+**Achado do inventário (P5b).** `nativos::inventario` percorre os `external`
+sem patch das sete bibliotecas: **137 natives distintos**, 57 intrínsecos
+(`vm:recognized`) e **43 `external` cujo patch não foi ligado** pelo
+carregador (`patched_by` vazio): membros de classe com `@patch` —
+`Object.==`/`hashCode`/`toString`, `Timer._createTimer` (que a sobreposição
+patcheia), `_AsyncRun._scheduleImmediate`, `String.fromCharCodes`,
+`double.parse`, `identical`… O `patched_by` só é preenchido para uma parte dos
+patches; o lowering de P5d precisa dele para todos (é do dono de
+`crates/elements`).
+
+**P5b — natives.** `emit_native/src/nativos.rs`: os 137 natives em ordem, com
+estado (`Runtime`/`Pendente`) e efeitos G8 conservadores; o teste recusa native
+da fonte sem entrada e entrada que deixou de ser native. 45 já no runtime
+(fragmentos `nativos_numeros` e `nativos_strings`, `dartforge_nativo_<Nome>`):
+os `Integer_*FromInteger` (operandos trocados como na VM; deslocamento com a
+regra do `ShiftOperationHelper`), `Smi`/`Mint_bitLength`/`bitNegate`, a
+aritmética e as comparações de `Double`, `Double_toString` (o `ToShortest` da
+VM: `1e+21`, `1e-7`, `100000000000000000000.0` — conferido contra a VM) e os de
+`String` sobre o `Texto` (`String_getHashCode` é o `StringHasher` da VM,
+conferido). Os de lista, mapa, `Object`, `RegExp` e tipos ficam `Pendente`:
+dependem do layout de `_List`/`_GrowableList` (R11) e da RTI (P4).
+
+**Portão de custo (§2.3 do plano).** Nada do caminho do programa mudou ainda:
+o nativo carrega a seção `vm` sem a sobreposição até P5d, e nenhum objeto do
+SDK é compilado. Linha de base para o portão (Pesado 35852784596, job JIT ×
+AOT, 54 programas que terminam): AOT Clang + ligação **p50 142,4 ms** (p95
+156,8), JIT até executar p50 42,2 ms, AOT total p50 167,0 ms. O custo a frio
+do SDK fica para quando P5c compilar a primeira biblioteca.
+
+**Não feito nesta rodada, e por quê.** P5c (objeto por biblioteca em cache
+por blake3) e P5d (a troca, apagando `lower/sdk_por_nome.rs`) precisam que o
+lowering compile os corpos do SDK — closures (P1), despacho (P2), `switch`
+(P3), `super`/mixins/RTI (P4) —, que estão com α/β/γ; P5d é, pelo mapa, depois
+do merge de P1–P4. O `RegExp` com `regress` exige tirar o runtime do `rustc`
+avulso para uma `staticlib` do cargo (decisão 3), o que muda a distribuição do
+runtime do AOT; fica com P9, como o plano já previa, e o casador atual está
+isolado em `regexp_casa_em`/`regexp_proxima` (`runtime/src/strings.rs`).
