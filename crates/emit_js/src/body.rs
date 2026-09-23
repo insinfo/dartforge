@@ -98,6 +98,15 @@ pub struct FnEmitter<'m, 'a> {
     /// nome na fonte: o construtor ainda os usa para inicializar o campo e
     /// encaminhar ao super.
     pub parametros_curinga: HashMap<usize, String>,
+    /// A biblioteca tem atalhos de ponto (Dart 3.10).
+    pub atalhos: bool,
+    /// Contexto (*shorthand context*) de cada atalho de ponto na raiz de uma
+    /// cadeia de seletores em emissão: registrado pelo nó mais externo da
+    /// cadeia, e desfeito quando ele termina.
+    pub contextos_atalho: HashMap<ExprId, Option<Ty>>,
+    /// Profundidade de emissão especulativa (`type_of`): erros de linguagem
+    /// só contam fora dela.
+    pub especulando: u32,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -146,6 +155,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 .then(|| ctx.sym("_"))
                 .flatten(),
             parametros_curinga: HashMap::new(),
+            atalhos: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
+            contextos_atalho: HashMap::new(),
+            especulando: 0,
         }
     }
 
@@ -950,7 +962,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             FunctionBody::Expression(e) => {
                 let expected = self.ret_ty.clone();
-                let (js, ty) = self.emit_expr(*e, Some(&expected));
+                // Atalho de ponto (3.10) num `=> e` de função `async`: o
+                // contexto do valor é `FutureOr<T>`, que denota o que `T`
+                // denota (o `return` já desembrulha o `Future`).
+                let futuro = match (&self.async_kind, &expected) {
+                    (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => {
+                        Some(Ty::FutureOr { arg: Box::new(args[0].clone()), nullable: false })
+                    }
+                    (AsyncKind::Async, Ty::FutureOr { .. }) => Some(expected.clone()),
+                    _ => None,
+                };
+                let (js, ty) = match futuro {
+                    Some(ctx) => self.com_contexto_de_atalho(*e, &ctx, |s| s.emit_expr(*e, Some(&expected))),
+                    None => self.emit_expr(*e, Some(&expected)),
+                };
                 self.returns.push(ty);
                 if matches!(self.async_kind, AsyncKind::None | AsyncKind::Async) {
                     if self.ret_ty == Ty::Void && !self.is_closure_body {

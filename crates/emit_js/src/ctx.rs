@@ -134,6 +134,10 @@ pub struct Ctx<'a> {
     /// Filtro de alcance do perfil de produção (`crate::filtro`). `None` é o
     /// perfil de desenvolvimento: tudo emitido, exatamente como antes.
     pub filtro: Option<&'a dyn crate::filtro::Vivos>,
+    /// Erros de linguagem achados na emissão (atalho de ponto sem contexto
+    /// ou sem membro, docs/VERSOES-LINGUAGEM.md §3): a emissão falha com
+    /// eles. O emissor é quem tem a inferência completa do contexto.
+    pub erros: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
 }
 
 /// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
@@ -228,6 +232,7 @@ impl<'a> Ctx<'a> {
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
+            erros: RefCell::new(Vec::new()),
             filtro: None,
         };
         // A interop vem antes da hierarquia: os tipos de extensão de interop

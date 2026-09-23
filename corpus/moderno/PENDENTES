@@ -1,7 +1,6 @@
 # Programas de recursos ainda não implementados no DartForge
 # (docs/VERSOES-LINGUAGEM.md §5): podem falhar sem reprovar o job `moderno`;
 # um programa daqui que passa reprova, para a lista só encolher.
-330_atalhos_ponto
 340_construtores_primarios
 341_primarios_escopo
 342_new_factory

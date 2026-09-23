@@ -231,6 +231,10 @@ pub fn emitir_com_cache(
         }
     }
     let _ = main_async;
+    let erros = std::mem::take(&mut *ctx.erros.borrow_mut());
+    if !erros.is_empty() {
+        return Err(erros);
+    }
     // O `dart_sdk.js` do DDC é o do navegador: `self` é o global (Node só tem `globalThis`).
     modulos.push(("preambulo.js".to_string(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".to_string()));
     let entrada = format!(
