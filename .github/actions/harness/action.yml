@@ -37,6 +37,9 @@ inputs:
   exige:
     description: Regex que o relatório tem de conter para contar como relatório válido
     default: '^DartForge '
+  sdk-313:
+    description: Instalar também o SDK de oráculo 3.13.4 (corpus/moderno)
+    default: 'false'
 
 runs:
   using: composite
@@ -45,6 +48,8 @@ runs:
       with:
         node-version: '24'
     - uses: ./.github/actions/dart
+      with:
+        sdk-313: ${{ inputs.sdk-313 }}
     - name: Rust fixado (runtime nativo compilado pelo rustc)
       if: inputs.nativo == 'true'
       shell: pwsh

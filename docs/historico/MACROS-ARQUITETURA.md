@@ -1,5 +1,12 @@
 # Metaprogramação: fases, dependências e desempenho
 
+> **Substituído em 2026-09-23 (decisão D8)** por
+> [`MACROS-PROTOCOLO.md`](../MACROS-PROTOCOLO.md): macros de usuário **entram**
+> no contrato (a Q4 abaixo caiu), com a API da 1ª geração reescrita por nós,
+> executor **nativo** auto-hospedado e o protocolo `dfmacro/1` — a decisão
+> "herdar as fases, descartar o transporte" também caiu. Este texto fica como
+> histórico da trilha velha.
+
 Metaprogramação é prioridade do DartForge. A primeira aplicação concreta é
 JsonCodable incorporada em Rust; a evolução deve permitir macros de usuário sem
 comprometer a edição incremental, a correção dos diagnósticos ou a previsibilidade.

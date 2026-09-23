@@ -38,7 +38,11 @@ pub struct FunctionTypeData {
 /// Metadados de um parâmetro formal de função.
 #[derive(Debug, Clone)]
 pub struct ParameterTypeData {
+    /// Nome local (o do escopo do corpo e, em `this.x`, o do campo).
     pub name: Option<SymbolId>,
+    /// Nome externo: o da assinatura e da chamada. Difere de `name` só num
+    /// nomeado privado da 3.12 (`{this._x}` é passado como `x:`).
+    pub externo: Option<SymbolId>,
     pub ty: TypeId,
     pub required: bool,
     pub kind: ParameterKind,
@@ -544,6 +548,7 @@ impl<'a> OutlineResolver<'a> {
 
                         param_types.push(ParameterTypeData {
                             name: p_name,
+                            externo: p.nome_externo().map(|n| n.sym),
                             ty: p_ty,
                             required: p.required,
                             kind: p.kind,
@@ -553,8 +558,8 @@ impl<'a> OutlineResolver<'a> {
                             ParameterKind::Required => positional.push(p_ty),
                             ParameterKind::Optional => optional.push(p_ty),
                             ParameterKind::Named => {
-                                if let Some(sym) = p_name {
-                                    named.push((sym, p_ty, p.required));
+                                if let Some(n) = p.nome_externo() {
+                                    named.push((n.sym, p_ty, p.required));
                                 }
                             }
                         }
@@ -616,6 +621,7 @@ impl<'a> OutlineResolver<'a> {
 
                     param_types.push(ParameterTypeData {
                         name: p_name,
+                        externo: p.nome_externo().map(|n| n.sym),
                         ty: p_ty,
                         required: p.required,
                         kind: p.kind,
@@ -625,8 +631,8 @@ impl<'a> OutlineResolver<'a> {
                         ParameterKind::Required => positional.push(p_ty),
                         ParameterKind::Optional => optional.push(p_ty),
                         ParameterKind::Named => {
-                            if let Some(sym) = p_name {
-                                named.push((sym, p_ty, p.required));
+                            if let Some(n) = p.nome_externo() {
+                                named.push((n.sym, p_ty, p.required));
                             }
                         }
                     }
@@ -671,6 +677,7 @@ impl<'a> OutlineResolver<'a> {
                         // Setter
                         let param = ParameterTypeData {
                             name: None,
+                            externo: None,
                             ty: var_ty,
                             required: true,
                             kind: ParameterKind::Required,
@@ -1317,7 +1324,7 @@ impl<'a> OutlineResolver<'a> {
         let MemberKind::Constructor(sctor) = &mem.kind else { return None };
         let pname = p.name?.sym;
         let sp = if p.kind == ParameterKind::Named {
-            sctor.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.name.map(|n| n.sym) == Some(pname))?
+            sctor.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.nome_externo().map(|n| n.sym) == Some(pname))?
         } else {
             // Posicional: o índice entre os posicionais de `super.` casa com os
             // posicionais restantes do super construtor após os passados em `super(...)`.

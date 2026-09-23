@@ -41,7 +41,7 @@ fn filtro_nenhum_e_tudo_vivo_emitem_o_mesmo_texto() {
     for p in programas() {
         let pacotes = p.parent().map(|d| d.join(".dart_tool/package_config.json")).filter(|x| x.is_file());
         let a = dartforge_emit_js::compilar(&p, None, pacotes.as_deref()).expect("compilar");
-        let ((b, c), _) = dartforge_emit_js::compilar_com(&p, None, pacotes.as_deref(), |an| {
+        let ((b, c), _) = dartforge_emit_js::compilar_com(&p, None, pacotes.as_deref(), &Default::default(), |an| {
             let b = an.emitir(None)?;
             let c = an.emitir(Some(&dartforge_emit_js::filtro::TudoVivo))?;
             Ok((b, c))

@@ -66,6 +66,14 @@ pub struct HashesBiblioteca {
 pub fn hashes_da_biblioteca(program: &Program, lib: LibraryId) -> HashesBiblioteca {
     let mut conteudo = Fnv::default();
     let mut api = Fnv::default();
+    // A versão de linguagem muda o significado do texto (curingas, atalhos de
+    // ponto, construtores primários) e pode mudar sem tocar na fonte, pelo
+    // `languageVersion` do `package_config`: entra nos dois hashes.
+    let versao = program.library(lib).features.versao();
+    for h in [&mut conteudo, &mut api] {
+        h.num(u64::from(versao.major) << 16 | u64::from(versao.minor));
+        h.sep();
+    }
     for &uid in &program.library(lib).units {
         let u = program.unit(uid);
         conteudo.bytes(u.source.as_bytes());

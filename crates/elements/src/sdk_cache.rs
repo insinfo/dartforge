@@ -120,6 +120,7 @@ impl SdkCache {
         }
         mix(include_str!("../../frontend/src/ast.rs").as_bytes());
         mix(include_str!("../../frontend/src/text.rs").as_bytes());
+        mix(include_str!("../../frontend/src/features.rs").as_bytes());
         format!("{h:016x}")
     }
 
@@ -344,7 +345,8 @@ fn analisar(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &
     let Ok(source) = std::fs::read_to_string(sdk.substituto(path).unwrap_or(path)) else {
         return Ok(None);
     };
-    let parsed = dartforge_frontend::parser::parse(&source, interner);
+    // `dart:*` é sempre analisado no piso (docs/VERSOES-LINGUAGEM.md, D1).
+    let parsed = dartforge_frontend::parser::parse_com(&source, interner, dartforge_frontend::LibraryFeatures::piso());
     if let Some(d) = parsed.diagnostics.first() {
         return Err(format!("{}:{}: {}", path.display(), d.span.start, d.message));
     }

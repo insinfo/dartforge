@@ -94,7 +94,8 @@ pub fn separar_partes_do_core(program: &mut Program) -> Option<LibraryId> {
         scope: origem.scope.clone(),
         prefixes: origem.prefixes.clone(),
         is_sdk: false,
-        language_version: origem.language_version,
+        // A versão de linguagem e os recursos por biblioteca (Dart moderno, P2).
+        features: origem.features,
     };
     let id = LibraryId(program.libraries.len() as u32);
     program.libraries.push(nova);

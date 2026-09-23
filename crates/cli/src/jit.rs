@@ -46,6 +46,7 @@ fn emitir(
                 packages: packages.as_deref(),
                 timings: false,
                 optimize: false,
+                versao_linguagem: None,
             };
             dartforge_emit_native::emitir_ir(&entrada, &opcoes)
         })

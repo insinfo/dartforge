@@ -5,6 +5,7 @@
 //! emissão segue o modelo do DDC (docs/FRONTEND-ARQUITETURA.md §5); a seção
 //! `dart2js` tem as mesmas bibliotecas de origem com patches diferentes, e
 //! trocar de modelo é trocar a seção.
+use dartforge_frontend::{Feature, LanguageVersion};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -28,9 +29,79 @@ pub struct SdkLayout {
     /// Diretório `lib/` do SDK.
     pub root: PathBuf,
     pub libraries: HashMap<String, SdkLibrary>,
+    /// A versão de linguagem **corrente** da ferramenta: a de uma biblioteca
+    /// sem marcador e fora de pacote, e o teto dos marcadores
+    /// (`docs/VERSOES-LINGUAGEM.md`, D2). Padrão 3.13; a CLI a troca com
+    /// `--versao-linguagem`. As bibliotecas `dart:*` ficam sempre no piso
+    /// ([`LanguageVersion::PISO`]), porque são as do SDK 3.6.2 (D1).
+    pub versao_corrente: LanguageVersion,
+    /// `--enable-experiment=…`: valem só para bibliotecas sem marcador cuja
+    /// versão padrão é a corrente.
+    pub experimentos: Vec<Feature>,
     /// Sobreposição (`load_com_sobreposicao`): arquivo do SDK, pelo caminho
     /// normalizado → arquivo que o substitui. Vazio sem sobreposição.
     pub substituicoes: HashMap<PathBuf, PathBuf>,
+}
+
+/// Opções de linguagem da linha de comando: `--versao-linguagem x.y` (a
+/// versão corrente, D2) e `--enable-experiment=a,b`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Linguagem {
+    pub versao_corrente: Option<LanguageVersion>,
+    pub experimentos: Vec<Feature>,
+}
+
+impl Linguagem {
+    /// Consome `arg` (e o valor seguinte, em `resto`) se for uma opção de
+    /// linguagem. `Ok(false)` quando `arg` não é dela.
+    ///
+    /// # Erros
+    /// Versão fora do formato `x.y`, acima da corrente ou abaixo de 2.12, e
+    /// experimento desconhecido.
+    pub fn ler_opcao<'a>(&mut self, arg: &str, resto: &mut impl Iterator<Item = &'a str>) -> Result<bool, String> {
+        if arg == "--versao-linguagem" || arg.starts_with("--versao-linguagem=") {
+            let valor = match arg.split_once('=') {
+                Some((_, v)) => v.to_string(),
+                None => resto.next().ok_or("--versao-linguagem exige x.y")?.to_string(),
+            };
+            let v = LanguageVersion::parse(&valor).ok_or_else(|| format!("--versao-linguagem: '{valor}' não é x.y"))?;
+            if v > LanguageVersion::ATUAL || v < LanguageVersion::MINIMA {
+                return Err(format!(
+                    "--versao-linguagem {v}: fora do intervalo suportado ({} a {})",
+                    LanguageVersion::MINIMA,
+                    LanguageVersion::ATUAL
+                ));
+            }
+            self.versao_corrente = Some(v);
+            return Ok(true);
+        }
+        if arg == "--enable-experiment" || arg.starts_with("--enable-experiment=") {
+            let valor = match arg.split_once('=') {
+                Some((_, v)) => v.to_string(),
+                None => resto.next().ok_or("--enable-experiment exige nomes")?.to_string(),
+            };
+            for nome in valor.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                let f = Feature::do_nome(nome).ok_or_else(|| format!("--enable-experiment: experimento desconhecido '{nome}'"))?;
+                if !self.experimentos.contains(&f) {
+                    self.experimentos.push(f);
+                }
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Aplica ao layout (o que não foi pedido fica como está).
+    pub fn aplicar(&self, sdk: &mut SdkLayout) {
+        if let Some(v) = self.versao_corrente {
+            sdk.versao_corrente = v;
+        }
+        for f in &self.experimentos {
+            if !sdk.experimentos.contains(f) {
+                sdk.experimentos.push(*f);
+            }
+        }
+    }
 }
 
 impl SdkLayout {
@@ -54,6 +125,8 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
+            versao_corrente: LanguageVersion::ATUAL,
+            experimentos: Vec::new(),
             substituicoes: HashMap::new(),
         })
     }

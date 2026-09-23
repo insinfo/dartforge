@@ -203,6 +203,7 @@ fn main() {
                     ExprKind::Switch { cases, .. } => {
                         ("Switch", cases.len() * size_of::<SwitchExprCase>())
                     }
+                    ExprKind::DotShorthand { .. } => ("DotShorthand", 0),
                 };
                 let entrada = hist.entry(nome).or_default();
                 entrada.0 += 1;

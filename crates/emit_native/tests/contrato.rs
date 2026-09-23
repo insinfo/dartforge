@@ -24,6 +24,7 @@ fn main_de(fonte: &str) -> Option<String> {
                 packages: None,
                 timings: false,
                 optimize: false,
+                versao_linguagem: None,
             };
             emitir_ir(&entrada, &options)
                 .unwrap_or_else(|e| panic!("não compilou:\n{e}"))

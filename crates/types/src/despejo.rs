@@ -163,6 +163,7 @@ pub fn nome_no(k: &ExprKind) -> &'static str {
         ExprKind::Throw(_) => "Throw",
         ExprKind::Rethrow => "Rethrow",
         ExprKind::Switch { .. } => "Switch",
+        ExprKind::DotShorthand { .. } => "DotShorthand",
     }
 }
 

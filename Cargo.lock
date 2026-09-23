@@ -146,6 +146,7 @@ name = "dartforge-diferencial"
 version = "0.1.0"
 dependencies = [
  "dartforge-emit-native",
+ "dartforge-frontend",
 ]
 
 [[package]]
@@ -244,6 +245,7 @@ name = "dartforge-lsp"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
+ "dartforge-elements",
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",

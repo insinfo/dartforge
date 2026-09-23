@@ -23,6 +23,44 @@ Alvos reais usados como critério:
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
 | Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 15 avisos e 31 de 634.368 expressões divergentes, `frontend` 28 avisos (17 deles em templates gerados, que o analyzer também acusa) e 56 de 1.259.011; SDK da fonte (nativo) 18 diagnósticos, os mesmos do analyzer; corpus de conformidade 83/95 programas iguais ao oráculo (ver §2.1) |
+| Versão de linguagem por biblioteca e recursos 3.7–3.13 | **3.7–3.13 de sintaxe completos**; inferência e fluxo 3.7–3.13 (P6) pendentes | ver §1.1.1 |
+
+### 1.1.1 Dart 3.7–3.13 — `docs/VERSOES-LINGUAGEM.md`
+
+3.6.2 é o **piso**, não o teto. Cada biblioteca tem a sua versão de
+linguagem (marcador `// @dart = x.y` > `languageVersion` do pacote > a
+corrente, **3.13**), resolvida uma vez no carregamento e consultada como bits
+(`LibraryFeatures`); `dart:*` fica no piso (D1). O harness tem **dois SDKs de
+oráculo** (3.6.2 e 3.13.4, cada um com o seu `dartdevc` e o seu
+`dart_sdk.js`); os programas dizem a versão que exigem (`// requer-dart:`).
+
+| recurso | versão | `corpus/moderno` (VM e DDC 3.13.4; dev e produção) |
+| --- | --- | --- |
+| curingas `_` | 3.7 | 300–303 passam (1 negativo; `// @dart=3.6` volta a ligar `_`) |
+| elementos null-aware | 3.8 | 310–311 passam (1 negativo); chave nula não avalia o valor |
+| nomeados privados `{this._x}` | 3.12 | 320–323 passam (3 negativos) |
+| atalhos de ponto | 3.10 | 330–332 passam (2 negativos) |
+| construtores primários, `new`/`factory`, corpo `;`, `var`/`final` | 3.13 | 340–346, 348–349 passam (4 negativos); 347 pendente (membros de extension type, lacuna da 3.3) |
+| inferência por bounds, fluxo sólido, gerador | 3.7–3.10 | 350–352 **pendentes** (P6, com o dono de `types`) |
+
+Placar no CI (Pesado 35904470774 e CI 35904470762, `ci/moderno` em 5a68e2d, os dois verdes): **22/26** em desenvolvimento
+e em produção, **26/26** DDC×VM, 12 negativos recusados na mesma linha que o
+CFE; os 4 que faltam estão em `corpus/moderno/PENDENTES`. Na mesma rodada:
+`corpus/js` 223/223 em desenvolvimento e produção, determinismo idêntico
+(produção e IR do nativo), nativo e JIT 82/223 (os do `main`) e o portão
+**custo zero verde** — nada regrediu. O `corpus/js` compilado na 3.6 dá **JS idêntico
+byte a byte** ao da base (222/222), e o parser continua aceitando 426/426 do
+SDK e 1.969/1.969 do pub (cada pacote na versão do seu pubspec). Nenhum
+recurso precisou de runtime novo. O nativo não roda o `corpus/moderno`:
+curinga liga nome, entrada de mapa null-aware é recusada e atalho de ponto só sai quando é
+construção. Macros e augmentations: contratos em `docs/MACROS-PROTOCOLO.md`
+e `docs/AUGMENTATIONS.md` (executor nativo auto-hospedado), sem código.
+
+Custo para projeto 3.6 (regra governante): o portão `custo zero (tempo)` do
+Pesado passou (corpus JS 9.318 → 9.208 ms, edição de corpo 32 → 32 ms); no A/B
+local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
+`corpus/js`, 11.783 ms × 11.806 ms (+0,2%). Números e método em
+`docs/VERSOES-LINGUAGEM.md` §7.
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
@@ -755,6 +793,7 @@ gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
 | nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
 | determinismo (produção) | `determinismo --producao --trabalhadores 1,4,8` | idêntico | 7,5 min (7 min) |
 | determinismo (nativo, IR) | `determinismo --nativo --trabalhadores 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
+| moderno (3.7–3.13) | `--corpus corpus/moderno --producao --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
 | **rodada inteira** | | | **9,8 min** |
 
 **Critério de cada job.** JS desenvolvimento e produção: código de saída do

@@ -35,6 +35,7 @@ pub mod statements;
 pub mod types;
 
 use crate::ast::{Ast, CompilationUnit, ExprId, ForInTarget, ForInit, Name};
+use crate::features::{Feature, LibraryFeatures};
 use crate::lexer;
 use crate::token::{Keyword, Kind, Op, Token};
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -99,7 +100,8 @@ pub struct Parsed {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Analisa uma unidade de compilação inteira.
+/// Analisa uma unidade de compilação inteira na versão de linguagem corrente
+/// ([`LibraryFeatures::atual`]); ver [`parse_com`].
 ///
 /// Diagnósticos léxicos interrompem a análise; diagnósticos sintáticos ficam
 /// em [`Parsed::diagnostics`], e a unidade devolvida contém o que foi lido
@@ -113,7 +115,16 @@ pub struct Parsed {
 /// assert_eq!(saida.unit.declarations.len(), 1);
 /// ```
 pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
-    parse_lexed(source, lexer::lex(source), interner)
+    parse_com(source, interner, LibraryFeatures::atual())
+}
+
+/// Como [`parse`], com os recursos da biblioteca a que a unidade pertence
+/// (`docs/VERSOES-LINGUAGEM.md`). A gramática aceita é sempre o
+/// superconjunto; um recurso desligado vira diagnóstico, e onde a gramática
+/// **diverge** entre versões (`factory() {}`, `var`/`final` em parâmetro) a
+/// versão decide.
+pub fn parse_com(source: &str, interner: &mut Interner, features: LibraryFeatures) -> Parsed {
+    parse_lexed_com(source, lexer::lex(source), interner, features)
 }
 
 /// Como [`parse`], com a fonte já lexada. O lexer é puro (não interna nomes),
@@ -123,6 +134,16 @@ pub fn parse_lexed(
     source: &str,
     tokens: Result<Vec<Token>, Diagnostic>,
     interner: &mut Interner,
+) -> Parsed {
+    parse_lexed_com(source, tokens, interner, LibraryFeatures::atual())
+}
+
+/// [`parse_lexed`] com os recursos da biblioteca; ver [`parse_com`].
+pub fn parse_lexed_com(
+    source: &str,
+    tokens: Result<Vec<Token>, Diagnostic>,
+    interner: &mut Interner,
+    features: LibraryFeatures,
 ) -> Parsed {
     let tokens = match tokens {
         Ok(tokens) => tokens,
@@ -135,6 +156,7 @@ pub fn parse_lexed(
         }
     };
     let mut parser = Parser::new(source, tokens, interner);
+    parser.features = features;
     let unit = parser.parse_compilation_unit();
     let mut ast = parser.ast;
     // A árvore devolvida vive muito (um editor a retém por arquivo aberto) e
@@ -173,6 +195,11 @@ pub struct Parser<'s, 'i> {
     /// Rascunho de trechos de string literal; ver
     /// [`Parser::parse_string_literal`].
     pub(crate) scratch_parts: Vec<crate::ast::StringPart>,
+    /// Recursos da biblioteca (versão de linguagem e experimentos).
+    pub(crate) features: LibraryFeatures,
+    /// Lendo a lista de parâmetros de um construtor primário (Dart 3.13):
+    /// `var`/`final` declaram campo e nomeado privado declarante é permitido.
+    pub(crate) em_construtor_primario: bool,
 }
 
 /// Limite de aninhamento antes de um diagnóstico de profundidade.
@@ -193,6 +220,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             in_type_args: 0,
             scratch_args: Vec::new(),
             scratch_parts: Vec::new(),
+            features: LibraryFeatures::atual(),
+            em_construtor_primario: false,
         }
     }
 
@@ -409,6 +438,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.diagnostics.push(Diagnostic::new(message, span));
         ParseError
+    }
+
+    /// Registra que `span` usa o recurso `f`: diagnóstico se a versão da
+    /// biblioteca não o liga. A análise continua (o superconjunto é aceito).
+    pub(crate) fn exigir(&mut self, f: Feature, span: Span) {
+        if !self.features.tem(f) {
+            let msg = self.features.mensagem_desligado(f);
+            self.diagnostics.push(Diagnostic::new(msg, span));
+        }
     }
 
     /// Entra num nível de aninhamento; falha além de [`MAX_DEPTH`].

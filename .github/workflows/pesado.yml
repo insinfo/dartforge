@@ -13,9 +13,9 @@
 #     mantém os caches no escopo do main, que toda branch ci/** pode ler.
 #
 # Jobs de uma rodada `todos` com N fragmentos: compilar; depois, EM PARALELO,
-# js, producao, determinismo (produção), determinismo (nativo), N nativos e o
-# nativo sob --gc-stress; depois nativo-placar (Linux, segundos), que também
-# compara os dois placares nativos. Pico de simultaneidade = 5 + N.
+# js, producao, moderno, determinismo (produção), determinismo (nativo), N
+# nativos e o nativo sob --gc-stress; depois nativo-placar (Linux, segundos),
+# que também compara os dois placares nativos. Pico de simultaneidade = 6 + N.
 # O plano gratuito permite 20 jobs simultâneos na conta inteira (Linux e
 # Windows juntos); o excedente espera na fila, não falha.
 #
@@ -33,7 +33,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, jit, determinismo, custo-zero]
+        options: [todos, js, producao, nativo, jit, determinismo, moderno, custo-zero]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -183,6 +183,26 @@ jobs:
           nome: producao
           titulo: JS produção — VM × desenvolvimento × produção (dartforge-jsprod)
           args: --producao --jobs 4
+
+  # Recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §5): o corpus/moderno contra
+  # o SDK de oráculo 3.13.4 (dart run e dartdevc+node, cada um com o seu
+  # dart_sdk.js), no perfil de desenvolvimento e no de produção. Código 0 =
+  # todos passam; o que está em corpus/moderno/PENDENTES pode falhar, mas
+  # passar sem sair da lista reprova.
+  moderno:
+    name: moderno (3.7–3.13)
+    needs: compilar
+    if: contains(fromJSON('["todos","moderno"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: moderno
+          titulo: Moderno (3.7–3.13) — VM e DDC 3.13.4 × dartforge dev e produção
+          args: --corpus corpus/moderno --producao --jobs 4
+          sdk-313: 'true'
 
   nativo:
     name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
