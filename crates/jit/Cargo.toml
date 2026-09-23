@@ -12,7 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
-# O runtime: `abi` (o mesmo `runtime_main.rs` que o AOT liga) e a tabela de
+# O runtime: `abi` (os mesmos fragmentos de `crates/runtime/src` que o AOT liga) e a tabela de
 # símbolos gerada dele (`simbolos`). Fonte única, ver crates/runtime/src/lib.rs.
 dartforge-runtime = { path = "../runtime" }
 # `no-llvm-linking`: as assinaturas e os invólucros de inicialização vêm daqui,

@@ -22,9 +22,9 @@ stdout e código de saída são os do programa, como no executável AOT;
 ## Contrato
 
 * **Entrada:** LLVM IR textual do `emit_native`, com `@dartforge_entry`.
-* **Runtime:** a fonte do harness AOT, `crates/runtime/src/runtime_main.rs`,
+* **Runtime:** a fonte do harness AOT, os fragmentos de `crates/runtime/src` (lista em `crates/runtime/build.rs`),
   compilada como `dartforge_runtime::abi` (fonte única). A tabela de símbolos
-  é `dartforge_runtime::simbolos`, gerada do mesmo arquivo. Nenhuma função do
+  é `dartforge_runtime::simbolos`, gerada dos mesmos arquivos. Nenhuma função do
   runtime é reescrita aqui.
 * **Símbolos:** o runtime entra como símbolos absolutos. Todo nome que o IR
   declara precisa estar na tabela do runtime, na lista de CRT

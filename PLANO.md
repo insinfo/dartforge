@@ -1125,13 +1125,17 @@ não em podar mais o runtime.
 
 ### Runtime Dart
 
-Existe: heap com GC por tracing preciso, `String` em UTF-16, `int` de 64
-bits com estouro modular, e teto duro de heap (256 MiB por padrão) que
-falha legível em vez de tomar a máquina.
+Existe: heap com GC por tracing preciso, `String` em UTF-8 (a
+representação UTF-16 da VM entra antes do SDK da fonte, decisão 5 de
+docs/NATIVO-PLANO.md §7.1), `int` de 64 bits com estouro modular, e teto
+duro de heap (256 MiB por padrão) que falha legível em vez de tomar a
+máquina.
 
 Falta o que o alvo governante exige: laço de eventos com `Future`,
 `Completer` e `Zone`; `dart:io`; isolates com heap por isolate, sem
-memória compartilhada, como a VM.
+memória compartilhada — a especificação (§6.3: "It has its own memory")
+e não a VM, que compartilha o heap no grupo como otimização; decisão 4 de
+docs/NATIVO-PLANO.md §7.1.
 
 ### A regra que atravessa as cinco
 
