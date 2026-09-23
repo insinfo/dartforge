@@ -326,6 +326,43 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
     executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra)
 }
 
+/// Só a emissão do backend nativo: o LLVM IR do programa, sem Clang, ligação
+/// nem execução. É o que o modo determinismo compara — o executável é função
+/// do IR, da versão do Clang e da `.lib` do runtime, e o que pode variar com a
+/// ordem dos trabalhadores é o nosso código, que aparece inteiro no IR.
+///
+/// Mesma pilha de 1 GiB de [`dartforge_nativo`]. Um pânico na emissão vira
+/// `Err` com a mensagem dele (sem o id da thread, que mudaria de execução para
+/// execução), para ser comparado como qualquer outro resultado.
+pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
+    let entrada = programa.entrada.clone();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = dartforge_emit_native::CompileOptions {
+                sdk: None,
+                packages: None,
+                timings: false,
+                optimize: false,
+            };
+            dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
+        })
+        .map_err(|e| format!("[emitir-ir] falha ao criar thread de emissão: {e}"))?
+        .join()
+        .map_err(|p| format!("[emitir-ir] a thread abortou: {}", mensagem_de_panico(p.as_ref())))?
+        .map_err(|e| format!("[emitir-ir] {e}"))
+}
+
+fn mensagem_de_panico(carga: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = carga.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = carga.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "(pânico sem mensagem)".to_string()
+    }
+}
+
 // ---------------------------------------------------------------- produção
 
 /// O **perfil de produção**: `dartforge-jsprod arquivo -o dir/saida.js` e depois
