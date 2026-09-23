@@ -185,6 +185,8 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | `FutureOr` cru (`FutureOr<dynamic>`) | 65 | 96 | 125 | 175 |
 | tipos de extensão: construtor primário, campo de representação, UP (R-EXT-04, R-UP-w) | 60 | 91 | 120 | 170 |
 | escrita no membro inteiro demove dentro de closure (R-FLU-07) | 49 | 82 | 109 | 162 |
+| `if-case`/`switch` promovem o escrutínio (R-FLU-14) | 29 | 62 | 56 | 109 |
+| promoção de campo só com versão de linguagem ≥ 3.2 (R-FLU-12) — `crates/elements` preenche a versão | 29 | 59 | 52 | 101 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
 com as sete bibliotecas, sobreposição `vm`): **4.447 → 275 → 18**
@@ -199,20 +201,21 @@ _compact_hash collection math convert async`.
 
 Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
 sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
-**0/95 → 80/95** (antes do `FutureOr` cru todo programa tinha um aviso);
-46 expressões divergentes e 5 avisos, listados em
+**0/95 → 81/95** (antes do `FutureOr` cru todo programa tinha um aviso);
+39 expressões divergentes e 5 avisos, listados em
 `corpus/inferencia/divergencias.txt`.
 
-Avisos restantes no new_sali por causa (frontend 82 / core 49):
+Avisos restantes no new_sali por causa (frontend 59 / core 29):
 
 | causa | avisos | regra / lacuna |
 |---|---:|---|
-| escrutínio de `switch`/`if-case` não promovido (`XmlEvent` no `annotator`, `Object?` no `builder`, `Widget` no `multi_page`) | ~22 / ~20 | R-FLU-14, L13 |
-| `!` "desnecessário" em templates gerados (local de template tipado não anulável) | 18 / 12 | a investigar |
-| local anulável não promovido (`dart_excel`, `idSolicitado`) | ~13 / – | a investigar |
+| `?.`/`!` sobre receptor não anulável em template gerado (`.dart_tool/build/generated`, fora do `dart analyze`): o analyzer também acusa | 17 / – | legítimo no código gerado |
+| local anulável não promovido (`dart_excel`, `idSolicitado`, `processo_url_state_service`) | ~13 / – | a investigar |
 | argumento função genérica contra `dynamic Function(dynamic)` (`collection/algorithms.dart`) | 8 / 8 | a investigar |
 | override explícito de extensão `E(x).m` | 3 / 3 | L19 |
-| demais (um ou dois cada) | ~18 / ~6 | — |
+| `Widget` no `multi_page`, nomes `s`/`suffix` no `page_label` | 6 / 6 | a investigar |
+| código morto depois de `fail()`/`throw` (`test_api`, `archive`) | 1 / 5 | a conferir com o analyzer |
+| demais (um ou dois cada) | ~11 / ~7 | — |
 
 Grupos restantes no new_sali (causas; frontend / core):
 
