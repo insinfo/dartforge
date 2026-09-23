@@ -92,6 +92,23 @@ jobs:
       #                     runtime como binário, e o runtime agora define
       #                     `extern "C" fn main() -> i32` (rustc E0277). O backend
       #                     nativo novo liga pelo emit_native e não passa por ali.
+      # Os corpora do motor de build (corpus/builders, oráculo do build_runner
+      # oficial) e do ngdart precisam do package_config.json de cada caso:
+      # `pub get` com o lock commitado (versões fixadas). Os testes
+      # #[ignore] do crates/build (plano, placar, determinismo, incremental,
+      # transparência do ngdart) rodam no passo seguinte.
+      - name: pub get dos corpora do motor de build
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          $casos = @(Get-ChildItem corpus/builders -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart)
+          foreach ($c in $casos) {
+            Push-Location $c.FullName
+            dart pub get --enforce-lockfile | Out-Null
+            if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pub get falhou em $($c.Name)" }
+            Pop-Location
+          }
+          Write-Host "$($casos.Count) casos com package_config.json"
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-
