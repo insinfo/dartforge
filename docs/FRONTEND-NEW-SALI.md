@@ -189,6 +189,7 @@ no core; compilado com `dart compile exe`, com os resumos num cache em disco
 | promoção de campo só com versão de linguagem ≥ 3.2 (R-FLU-12) — `crates/elements` preenche a versão | 29 | 59 | 52 | 101 |
 | variáveis de condição (§7.10: `final bool v = d != null; if (v) d`) | 26 | 41 | 34 | 61 |
 | chamada genérica recursiva com parâmetros frescos (R-GEN-04) | 18 | 31 | 34 | 59 |
+| sobreposição explícita de extensão `E(x).m` (R-EXT-02) | 15 | 28 | 31 | 56 |
 
 SDK compilado da fonte pelo backend nativo (`infer_bodies_das_bibliotecas`
 com as sete bibliotecas, sobreposição `vm`): **4.447 → 275 → 18**
@@ -203,23 +204,19 @@ _compact_hash collection math convert async`.
 
 Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
 sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
-**0/95 → 82/95** (antes do `FutureOr` cru todo programa tinha um aviso);
-38 expressões divergentes e 5 avisos, listados em
+**0/95 → 83/95** (antes do `FutureOr` cru todo programa tinha um aviso);
+35 expressões divergentes e 3 avisos, listados em
 `corpus/inferencia/divergencias.txt`.
 
-Avisos restantes no new_sali por causa (frontend 31 / core 18; a tabela
-abaixo é de antes das variáveis de condição e da chamada recursiva, que
-levaram os grupos dos locais anuláveis e do `collection/algorithms.dart`):
+Avisos restantes no new_sali por causa (frontend 28 / core 15):
 
 | causa | avisos | regra / lacuna |
 |---|---:|---|
 | `?.`/`!` sobre receptor não anulável em template gerado (`.dart_tool/build/generated`, fora do `dart analyze`): o analyzer também acusa | 17 / – | legítimo no código gerado |
-| local anulável não promovido (`dart_excel`, `idSolicitado`, `processo_url_state_service`) | ~13 / – | a investigar |
-| argumento função genérica contra `dynamic Function(dynamic)` (`collection/algorithms.dart`) | 8 / 8 | a investigar |
-| override explícito de extensão `E(x).m` | 3 / 3 | L19 |
-| `Widget` no `multi_page`, nomes `s`/`suffix` no `page_label` | 6 / 6 | a investigar |
-| código morto depois de `fail()`/`throw` (`test_api`, `archive`) | 1 / 5 | a conferir com o analyzer |
-| demais (um ou dois cada) | ~11 / ~7 | — |
+| nomes `s`/`suffix` no `page_label` (`pdf_plus`) | 3 / 3 | a investigar |
+| código morto depois de `fail()`/`return` (`test_api`, `test_core`, `archive`) | 1 / 5 | a conferir com o analyzer |
+| `callAsConstructor` em `JSFunction`, `call` em `Function`, `dynamic` como tipo em `injector.dart` | 4 / 1 | a investigar |
+| `const` com `PdfImageOrientation.values`, `int?` em `dict.dart`, cast em `only_number_directive` | 3 / 2 | a investigar |
 
 Grupos restantes no new_sali (causas; frontend / core):
 
