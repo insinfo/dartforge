@@ -160,6 +160,56 @@ parser novo, `DocumentStore` como dono por documento. Extensão VS Code
 mensagens: **DartForge pico 21,3 MiB / platô 19,0 MiB; `dart
 language-server` pico 640,5 MiB / platô 633,7 MiB**.
 
+**Diagnósticos com paridade (plano A1/A2) — `crates/diagnostics`,
+`crates/paridade`, `dartforge analyze`.** O `Diagnostic` tem código,
+severidade e argumentos; a mensagem de um diagnóstico com código é o molde
+oficial em inglês renderizado como o `formatList` do analyzer. A tabela
+(`diagnostics/src/codigos_g.rs`) é gerada do `analyzer-6.11.0` da cache do
+pub: 1.030 códigos — 542 `CompileTimeErrorCode`, 7 `StaticWarningCode`,
+144 `WarningCode`, 8 `HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12
+`ScannerErrorCode`, 4 `TodoCode`. `dartforge analyze [--format=json]` emite o
+mesmo JSON v1 do `dart analyze` (offset UTF-16, ordem do dartdev, códigos de
+saída 3/2/0) e publica pela regra do plano §2.3: sintaxe sempre, semântica só
+os códigos de `crates/paridade/verificados.txt` — **vazia hoje**.
+
+* **Aceite de A2**: dados código, argumentos e intervalo, a sonda de 7 erros
+  sai **byte a byte** igual ao JSON gravado do SDK 3.6.2
+  (`crates/paridade/tests/sonda.rs`). Pela análise de hoje, 3 dos 7 batem
+  (posição e mensagem): `non_bool_condition`,
+  `not_assigned_potentially_non_nullable_local_variable`,
+  `argument_type_not_assignable`. Os outros quatro dependem do pedido T1 a
+  `types`: `undefined_function` sai `undefined_identifier`;
+  `return_of_invalid_type` sai no comando inteiro, não na expressão, e sem o
+  nome da função; `unchecked_use_of_nullable_value` não existe; e
+  `unused_local_variable` é do A3. Há ainda um falso positivo, `String? s`
+  lida como não atribuída.
+* **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
+  9.441 arquivos em 5 grupos — `tests/language` (1.180), trechos de
+  `pkg/analyzer/test/src/diagnostics` (8.253), os de `@dart` 3.7+ com o
+  oráculo 3.13.4 (7) e a sonda — e 26.133 diagnósticos do oráculo.
+  **1.268 na posição exata (4,9%), 1.097 com mensagem igual**; posição errada
+  1.921; FP 4.660; FN 22.944. Um código com 100%, `illegal_character`
+  (sintaxe), de 593 com casos. Os FN maiores: `unused_local_variable` 2.315
+  (A3), `expected_token` 1.724 (401 FN e 1.271 em posição errada: a
+  recuperação do parser difere da do fasta), `duplicate_definition` 1.317,
+  `expected_executable` 1.240 e `type_argument_not_matching_bounds` 1.175.
+  Os FP maiores: `undefined_identifier` 623, `dead_code` 477,
+  `argument_type_not_assignable` 462, `undefined_class` 359 e
+  `non_bool_condition` 357. Tempo: 255 s com 2 trabalhadores. Há 1 pânico
+  isolado (`part/self_test.dart`, que esgotava a memória) e 290 atribuições
+  ambíguas, porque `types` ainda não diz a unidade do diagnóstico.
+* **Projetos reais**: o oráculo 3.6.2 dá **0** no `new_sali/core` (36 s), no
+  `new_sali/frontend` (24 s) e no `limitless_ui` (233 s). O nosso lado tem,
+  internamente, 3.746, 3.029 e 2.045 diagnósticos, todos falsos positivos. Os
+  maiores são `undefined_identifier` 2.928, `argument_type_not_assignable`
+  2.542, `return_of_invalid_type` 1.333 e `invalid_assignment` 1.033.
+  **Publicados pela regra: 0.** Nenhum chega ao editor.
+* **Mutações** dos três projetos (45; `nome`, `import`, `tipo`, `!`,
+  `await`; o oráculo foi regravado sobre cada mutante): oráculo 190, acertos
+  58, posição errada 21, FP 528, FN 111.
+* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
+  não roda `dart analyze`), com o relatório idêntico em 1, 4 e 8
+  trabalhadores (`determinismo`).
 ### 1.5 Backend nativo — `crates/emit_native` (feature `nativo`)
 
 Trilha nova → HIR própria → LLVM IR → Clang → executável, com o runtime
@@ -507,6 +557,23 @@ otimização a mais.
 Falta tudo além de diagnósticos: hover, ir para definição, referências,
 completion, rename, code actions — e a semântica (`crates/types`) por trás
 do `trait Analisador`, que hoje só tem a implementação sintática.
+
+Diagnósticos semânticos (plano A1/A2 feitos; ver §1.4): a lista de
+verificados está vazia. Nenhum código semântico tem 100% no corpus com 0 FP
+nos projetos, então o editor só recebe sintaxe. O caminho até lá:
+
+1. **T1 em `types`**: emitir `code`/`args` (hoje a `paridade/src/ponte.rs`
+   reconhece os moldes em português) e dizer a unidade de cada diagnóstico
+   (hoje uma passada de inferência por biblioteca e casamento de intervalo:
+   290 atribuições ambíguas no corpus), e acertar posição e argumentos
+   (`undefined_function`, `return_of_invalid_type_from_*`).
+2. **Parser com `ParserErrorCode`** (métrica separada, não bloqueia):
+   `expected_token` 52/1.724 exatos, `missing_identifier` 529/915.
+3. **A3** (warnings: `unused_local_variable` 2.315 FN, `unused_import`,
+   `unused_element`, `dead_code`) e o `ErrorVerifier` (`duplicate_definition`,
+   `type_argument_not_matching_bounds`...).
+4. Os FP dos projetos reais: 8.820 internos, todos da inferência (o agente
+   de `types` é o dono).
 
 ### 2.5 Backend nativo
 
