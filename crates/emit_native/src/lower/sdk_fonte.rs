@@ -1,0 +1,724 @@
+//! O SDK compilado da fonte no lowering (P5c/P5d, δ; docs/NATIVO-PLANO.md §7).
+//!
+//! Com `Context::sdk_da_fonte`, as sete bibliotecas de
+//! `sdk_modulo::BIBLIOTECAS_DA_FONTE` são código Dart compilado como o do
+//! programa, cada uma no seu módulo (objeto em cache), e o programa as chama
+//! pelos símbolos estáveis. Três coisas mudam em relação ao mundo fechado:
+//!
+//! 1. **Chamada por seletor.** Um membro público de instância de uma classe
+//!    do SDK pode ser sobrescrito por uma classe do programa, que o SDK não
+//!    conhece quando é compilado. A chamada vai pelo seletor (`c:m`, `g:x`,
+//!    `s:x`; o nome privado leva `@<biblioteca>`), que a tabela de métodos da
+//!    classe dinâmica resolve (`llvm/seletores.rs`, `runtime/seletores.rs`).
+//!    Continua direta (ou pelo `switch` do mundo fechado de `membros.rs`) a
+//!    chamada que só a biblioteca da classe pode sobrescrever: membro
+//!    privado, ou classe privada cujos subtipos na biblioteca são todos
+//!    privados.
+//! 2. **Adaptadores.** Cada membro de instância ganha as entradas uniformes
+//!    que a tabela de métodos aponta: `<símbolo>$c` (chamar), `$g` (ler: o
+//!    getter, o campo, ou o tear-off de um método) e `$s` (gravar), com a
+//!    convenção das closures (`i64 (i64 receptor, ptr args, ptr desc)`).
+//! 3. **`external`.** O membro de patch (`patched_by`) é o corpo; um native
+//!    (`vm:external-name`) é a função do runtime da tabela `nativos.rs`; o
+//!    que não tem implementação (native pendente, intrínseco da VM) é
+//!    diagnóstico — o membro que o chama é **recusado** no módulo do SDK
+//!    (`sdk_modulo`), com o motivo, e nunca emitido errado.
+
+use super::fn_builder::FnBuilder;
+use super::membros::{Avaliado, linearizacao, subclasse_de};
+use crate::context::Context;
+use crate::hir::*;
+use dartforge_diagnostics::Span;
+use dartforge_elements::model::{ClassId, FunctionKind, LibraryId, VariableId};
+use dartforge_frontend::ast::ParameterKind;
+
+/// O que o seletor faz com o membro.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tipo {
+    /// `o.m(…)`.
+    Chamar,
+    /// `o.x`.
+    Ler,
+    /// `o.x = v`.
+    Gravar,
+}
+
+/// O texto do seletor: `c:m`, `g:x`, `s:x`; um nome privado leva
+/// `@<biblioteca>` (dois `_m` de bibliotecas diferentes são membros
+/// diferentes). O `=` do nome de um setter sai.
+pub fn texto_seletor(ctx: &Context, tipo: Tipo, nome: &str, lib: LibraryId) -> String {
+    let p = match tipo {
+        Tipo::Chamar => "c",
+        Tipo::Ler => "g",
+        Tipo::Gravar => "s",
+    };
+    let nome = nome.strip_suffix("_=").or_else(|| nome.strip_suffix('=')).unwrap_or(nome);
+    if nome.starts_with('_') {
+        format!("{p}:{nome}@{}", ctx.nome_da_biblioteca(lib))
+    } else {
+        format!("{p}:{nome}")
+    }
+}
+
+/// Nenhuma classe fora da biblioteca de `cid` pode ser subtipo dela: ela e
+/// todos os seus subtipos na biblioteca são privados.
+pub fn classe_fechada(ctx: &Context, cid: ClassId) -> bool {
+    let classe = &ctx.program.classes[cid.0 as usize];
+    if !ctx.symbol_name(classe.name).starts_with('_') {
+        return false;
+    }
+    ctx.program.classes.iter().enumerate().all(|(k, c)| {
+        c.library != classe.library
+            || !subclasse_de(ctx, ClassId(k as u32), cid)
+            || ctx.symbol_name(c.name).starts_with('_')
+    })
+}
+
+/// O membro `nome` de `cid` só pode ser sobrescrito dentro da biblioteca
+/// dela (o mundo fechado de `membros.rs` vale para ele).
+pub fn membro_fechado(ctx: &Context, cid: ClassId, nome: &str) -> bool {
+    let classe = &ctx.program.classes[cid.0 as usize];
+    if !ctx.program.library(classe.library).is_sdk {
+        // Classe do programa: o programa conhece todos os subtipos dela.
+        return true;
+    }
+    nome.starts_with('_') || classe_fechada(ctx, cid)
+}
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// `recv.<seletor>(avaliados)` pela convenção uniforme; o resultado é
+    /// `Ref`.
+    pub fn chamar_por_seletor(&mut self, recv: Operand, seletor: String, avaliados: &[Avaliado]) -> Operand {
+        let recv = self.coagir(recv, Type::Ref);
+        let mut args = Vec::with_capacity(avaliados.len());
+        for (n, v) in avaliados {
+            if n.is_none() {
+                let v = self.coagir(v.clone(), Type::Ref);
+                args.push(v);
+            }
+        }
+        let mut nomeados: Vec<(String, Operand)> = avaliados
+            .iter()
+            .filter_map(|(n, v)| n.map(|n| (self.ctx.symbol_name(n).to_string(), v.clone())))
+            .collect();
+        nomeados.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut nomes = Vec::with_capacity(nomeados.len());
+        for (n, v) in nomeados {
+            let v = self.coagir(v, Type::Ref);
+            args.push(v);
+            nomes.push(n);
+        }
+        self.emit_call_with_check(Instruction::CallSeletor { seletor, recv, args, nomes }, Type::Ref)
+    }
+
+    /// `recv.nome(avaliados)` pelo seletor, com o nome privado da biblioteca
+    /// da unidade corrente.
+    pub fn chamar_por_nome(&mut self, recv: Operand, tipo: Tipo, nome: &str, avaliados: &[Avaliado]) -> Operand {
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let s = texto_seletor(self.ctx, tipo, nome, lib);
+        self.chamar_por_seletor(recv, s, avaliados)
+    }
+
+    /// Hook de `chamar_membro` (SDK da fonte): o membro público de instância
+    /// de uma classe do SDK que o programa pode sobrescrever vai pelo
+    /// seletor. `None`: o caminho do mundo fechado vale.
+    pub fn chamar_membro_fonte(&mut self, recv: Operand, decl_fid: usize, avaliados: &[Avaliado]) -> Option<Operand> {
+        if !self.ctx.sdk_da_fonte || self.em_adaptador {
+            return None;
+        }
+        let f = &self.ctx.program.functions[decl_fid];
+        let cid = f.class?;
+        if f.static_ {
+            return None;
+        }
+        let nome = self.ctx.symbol_name(f.name).to_string();
+        if membro_fechado(self.ctx, cid, &nome) {
+            return None;
+        }
+        let tipo = match f.kind {
+            FunctionKind::Getter => Tipo::Ler,
+            FunctionKind::Setter => Tipo::Gravar,
+            FunctionKind::ImplicitAccessor if avaliados.len() == 1 => Tipo::Gravar,
+            FunctionKind::ImplicitAccessor => Tipo::Ler,
+            _ => Tipo::Chamar,
+        };
+        let s = texto_seletor(self.ctx, tipo, &nome, f.library);
+        let r = self.chamar_por_seletor(recv, s, avaliados);
+        let ret = self.repr_retorno(decl_fid);
+        Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) })
+    }
+
+    /// Hook da leitura de campo (SDK da fonte): o campo público de uma
+    /// classe do SDK aberta pode ser sobrescrito por um getter do programa.
+    pub fn ler_campo_fonte(&mut self, obj: Operand, vid: VariableId) -> Option<Operand> {
+        if !self.ctx.sdk_da_fonte || self.em_adaptador {
+            return None;
+        }
+        let v = &self.ctx.program.variables[vid.0 as usize];
+        let cid = v.class?;
+        let nome = self.ctx.symbol_name(v.name).to_string();
+        if membro_fechado(self.ctx, cid, &nome) {
+            return None;
+        }
+        let s = texto_seletor(self.ctx, Tipo::Ler, &nome, v.library);
+        let r = self.chamar_por_seletor(obj, s, &[]);
+        let repr = self.repr_do_campo(vid);
+        Some(self.coagir(r, repr))
+    }
+
+    /// `a == b` com o SDK da fonte (§17.26 "Equality"): com um lado null,
+    /// `identical(a, b)`; senão `a.==(b)` pela classe dinâmica de `a`.
+    pub fn igualdade_fonte(&mut self, a: Operand, b: Operand) -> Operand {
+        let zero = Operand::Constant(Constant::Int(0));
+        let na = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()), Type::I1);
+        let nb = self.emit(Instruction::ICmp(ICmpOp::Eq, b.clone(), zero), Type::I1);
+        let algum = self.emit(Instruction::Or(na, nb), Type::I1);
+        let algum = self.emit(Instruction::ICmp(ICmpOp::Ne, algum, Operand::Constant(Constant::Int(0))), Type::I1);
+        let b_id = self.new_block();
+        let b_din = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: algum, then_block: b_id, else_block: b_din });
+        self.set_block(b_id);
+        let r1 = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), b.clone()), Type::I1);
+        let fim1 = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(b_din);
+        let r = self.chamar_por_seletor(a, "c:==".to_string(), &[(None, b)]);
+        let r2 = self.coagir(r, Type::I1);
+        let fim2 = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        self.emit(Instruction::Phi { incoming: vec![(fim1, r1), (fim2, r2)], ty: Type::I1 }, Type::I1)
+    }
+
+    /// `toString()` de um valor pelo seletor (interpolação com o SDK da
+    /// fonte): o texto de null é `"null"` (o `toString` de `Null`).
+    pub fn texto_por_seletor(&mut self, op: Operand) -> Operand {
+        let r = self.chamar_por_seletor(op, "c:toString".to_string(), &[]);
+        r
+    }
+
+    /// Hook de `chamar_direto`: a chamada a um `external` do SDK da fonte.
+    /// `None` quando a função tem corpo (a chamada direta de sempre).
+    pub fn chamar_externo(&mut self, fid: usize, this: Option<Operand>, args: &[Operand]) -> Option<Operand> {
+        if !self.ctx.sdk_da_fonte {
+            return None;
+        }
+        let f = &self.ctx.program.functions[fid];
+        if !f.external || f.variable.is_some() {
+            return None;
+        }
+        if let Some(p) = f.patched_by
+            && p.0 as usize != fid
+        {
+            return Some(self.chamar_direto(p.0 as usize, this, args.to_vec()));
+        }
+        let (native, reconhecido) = crate::nativos::pragmas(self.ctx.program, self.ctx.interner, f);
+        let span = Span { start: 0, end: 0 };
+        let dono = f
+            .class
+            .map(|c| format!("{}.", self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name)))
+            .unwrap_or_default();
+        let membro = format!("{dono}{}", self.ctx.symbol_name(f.name));
+        let nome = match native {
+            Some(n) => {
+                match crate::nativos::nativo(&n).map(|x| x.estado) {
+                    Some(crate::nativos::Estado::Runtime) => {}
+                    Some(crate::nativos::Estado::Embutido) => return Some(self.nativo_embutido(&n, fid, args)),
+                    Some(crate::nativos::Estado::Pendente) => {
+                        return Some(self.nao_suportado(&format!("native pendente `{n}` ({membro})"), span));
+                    }
+                    None => return Some(self.nao_suportado(&format!("native desconhecido `{n}` ({membro})"), span)),
+                }
+                n
+            }
+            None if reconhecido => match crate::nativos::intrinseco(&membro) {
+                Some(n) => n.to_string(),
+                None => return Some(self.nao_suportado(&format!("intrínseco da VM `{membro}`"), span)),
+            },
+            None => return Some(self.nao_suportado(&format!("external sem implementação `{membro}`"), span)),
+        };
+        // A assinatura do native é a representação dos tipos declarados;
+        // `bool` cruza a fronteira como `i8` (nativos.rs).
+        let mut a = Vec::with_capacity(args.len() + 1);
+        if let Some(t) = this {
+            let t = self.coagir(t, Type::Ref);
+            a.push((t, Type::Ref));
+        }
+        for v in args {
+            let t = self.operand_type(v);
+            if t == Type::I1 {
+                let b = self.emit(Instruction::ZExt { op: v.clone(), from: Type::I1, to: Type::I8 }, Type::I8);
+                a.push((b, Type::I8));
+            } else {
+                a.push((v.clone(), if t == Type::Void { Type::Ref } else { t }));
+            }
+        }
+        let ret = self.repr_retorno(fid);
+        let ret_nativo = if ret == Type::I1 { Type::I8 } else { ret };
+        let r = self.emit_call_with_check(
+            Instruction::CallRuntime { name: crate::nativos::simbolo(&nome), args: a, ret_ty: ret_nativo },
+            ret_nativo,
+        );
+        Some(match ret {
+            Type::Void => Operand::Constant(Constant::Null),
+            Type::I1 => self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1),
+            _ => r,
+        })
+    }
+}
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// Um native que o lowering gera no lugar da chamada
+    /// (`nativos::Estado::Embutido`).
+    fn nativo_embutido(&mut self, nome: &str, fid: usize, args: &[Operand]) -> Operand {
+        let ret = self.repr_retorno(fid);
+        match nome {
+            // `unsafeCast<T>(v)`: o próprio valor, sem checagem.
+            "Internal_unsafeCast" => {
+                let v = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
+                if ret == Type::Void { v } else { self.coagir(v, ret) }
+            }
+            _ => self.nao_suportado(&format!("native embutido `{nome}`"), Span { start: 0, end: 0 }),
+        }
+    }
+}
+
+/// O que uma entrada da tabela de métodos faz.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Adaptador {
+    /// Chama o método; lê e chama o valor de um getter.
+    Chamar,
+    /// Lê o getter; tira o tear-off de um método.
+    Ler,
+    /// Chama o setter.
+    Gravar,
+}
+
+impl Adaptador {
+    fn sufixo(self) -> &'static str {
+        match self {
+            Adaptador::Chamar => "$c",
+            Adaptador::Ler => "$g",
+            Adaptador::Gravar => "$s",
+        }
+    }
+}
+
+/// O símbolo base de um campo de instância: `df.<lib>.<Classe>.<campo>`.
+fn simbolo_do_campo(ctx: &Context, vid: VariableId) -> String {
+    let v = &ctx.program.variables[vid.0 as usize];
+    let dono = v.class.map(|c| ctx.symbol_name(ctx.program.classes[c.0 as usize].name).to_string()).unwrap_or_default();
+    format!(
+        "df.{}.{}.{}",
+        crate::context::escapar(&ctx.nome_da_biblioteca(v.library)),
+        crate::context::escapar(&dono),
+        crate::context::escapar(ctx.symbol_name(v.name))
+    )
+}
+
+/// O membro de instância implementado (tem corpo, é campo, ou é `external`
+/// com patch ou native).
+fn implementado(ctx: &Context, fid: usize) -> bool {
+    let f = &ctx.program.functions[fid];
+    if f.variable.is_some() {
+        return !f.abstract_;
+    }
+    if f.external {
+        return true;
+    }
+    super::membros::tem_corpo(ctx, fid)
+}
+
+/// A tabela de métodos de uma classe concreta: para cada seletor que ela
+/// responde (os membros dela e os herdados, pela linearização, o primeiro
+/// que implementa), a entrada uniforme.
+pub fn tabela_de_metodos(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
+    let mut vistos = std::collections::HashSet::new();
+    let mut saida = Vec::new();
+    for c in linearizacao(ctx, cid) {
+        let classe = &ctx.program.classes[c.0 as usize];
+        let mut membros: Vec<(&str, usize)> = classe
+            .instance_members
+            .iter()
+            .map(|(k, f)| (ctx.symbol_name(*k), f.0 as usize))
+            .collect();
+        membros.sort();
+        for (chave, fid) in membros {
+            if !implementado(ctx, fid) {
+                continue;
+            }
+            let f = &ctx.program.functions[fid];
+            let e_setter = chave.ends_with("_=");
+            let nome = chave.strip_suffix("_=").unwrap_or(chave);
+            let mut por = |tipo: Tipo, a: Adaptador, base: &str| {
+                let s = texto_seletor(ctx, tipo, nome, f.library);
+                if vistos.insert(s.clone()) {
+                    saida.push((s, format!("{base}{}", a.sufixo())));
+                }
+            };
+            if let Some(v) = f.variable {
+                let base = simbolo_do_campo(ctx, v);
+                if e_setter {
+                    por(Tipo::Gravar, Adaptador::Gravar, &base);
+                } else {
+                    por(Tipo::Ler, Adaptador::Ler, &base);
+                    por(Tipo::Chamar, Adaptador::Chamar, &base);
+                }
+                continue;
+            }
+            let base = super::simbolo_de(ctx, fid);
+            match f.kind {
+                FunctionKind::Setter => por(Tipo::Gravar, Adaptador::Gravar, &base),
+                FunctionKind::Getter => {
+                    por(Tipo::Ler, Adaptador::Ler, &base);
+                    por(Tipo::Chamar, Adaptador::Chamar, &base);
+                }
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {}
+                _ => {
+                    por(Tipo::Chamar, Adaptador::Chamar, &base);
+                    por(Tipo::Ler, Adaptador::Ler, &base);
+                }
+            }
+        }
+    }
+    saida
+}
+
+/// As entradas uniformes de um membro de instância (ou campo) do módulo.
+pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usize) {
+    let f = &ctx.program.functions[fid];
+    if f.static_ || f.class.is_none() || !implementado(ctx, fid) {
+        return;
+    }
+    if matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) || f.factory {
+        return;
+    }
+    if f.variable.is_some() {
+        return;
+    }
+    let base = super::simbolo_de(ctx, fid);
+    let adaptadores: &[Adaptador] = match f.kind {
+        FunctionKind::Setter => &[Adaptador::Gravar],
+        FunctionKind::Getter => &[Adaptador::Ler, Adaptador::Chamar],
+        _ => &[Adaptador::Chamar, Adaptador::Ler],
+    };
+    for &a in adaptadores {
+        let simbolo = format!("{base}{}", a.sufixo());
+        let unit = unidade_de(ctx, f.class.expect("membro de classe"));
+        let Some(unit) = unit else { continue };
+        let mut b = FnBuilder::new(ctx, unit, simbolo, ctx.symbol_name(f.name).to_string(), Type::Ref);
+        b.em_adaptador = true;
+        let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
+        let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
+        let span = Span { start: 0, end: 0 };
+        let r = match (a, f.kind) {
+            (Adaptador::Ler, FunctionKind::Getter) => {
+                if b.desempacotar(&[], args, desc).is_none() {
+                    b.finalizar(module);
+                    continue;
+                }
+                b.chamar_direto(fid, Some(recv), Vec::new())
+            }
+            (Adaptador::Chamar, FunctionKind::Getter) => {
+                let v = b.chamar_direto(fid, Some(recv), Vec::new());
+                let v = b.coagir(v, Type::Ref);
+                b.emit_call_with_check(Instruction::CallClosureRepasse { closure: v, args, desc }, Type::Ref)
+            }
+            (Adaptador::Ler, _) => {
+                if b.desempacotar(&[], args, desc).is_none() {
+                    b.finalizar(module);
+                    continue;
+                }
+                b.tearoff_de_metodo(recv, fid, span)
+            }
+            _ => {
+                let infos = b.params_da_funcao(fid);
+                let Some(vals) = b.desempacotar(&infos, args, desc) else {
+                    b.finalizar(module);
+                    continue;
+                };
+                let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
+                let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coagir(v, r)).collect();
+                b.chamar_direto(fid, Some(recv), vals)
+            }
+        };
+        let r = if matches!(b.operand_type(&r), Type::Void) { Operand::Constant(Constant::Null) } else { b.coagir(r, Type::Ref) };
+        b.terminate(Terminator::Return(Some(r)));
+        b.finalizar(module);
+    }
+}
+
+/// As entradas uniformes de um campo de instância: `$g`, `$c` e, se ele tem
+/// setter, `$s`.
+pub fn lower_adaptadores_do_campo(ctx: &Context, module: &mut Module, vid: VariableId) {
+    let v = &ctx.program.variables[vid.0 as usize];
+    let Some(cid) = v.class else { return };
+    if v.static_ {
+        return;
+    }
+    let Some(unit) = unidade_de(ctx, cid) else { return };
+    let base = simbolo_do_campo(ctx, vid);
+    let span = Span { start: 0, end: 0 };
+    let mut tipos = vec![Adaptador::Ler, Adaptador::Chamar];
+    if v.setter.is_some() {
+        tipos.push(Adaptador::Gravar);
+    }
+    for a in tipos {
+        let mut b = FnBuilder::new(ctx, unit, format!("{base}{}", a.sufixo()), ctx.symbol_name(v.name).to_string(), Type::Ref);
+        b.em_adaptador = true;
+        let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
+        let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
+        let r = match a {
+            Adaptador::Ler => {
+                if b.desempacotar(&[], args, desc).is_none() {
+                    b.finalizar(module);
+                    continue;
+                }
+                b.ler_campo_com_late(recv, vid, span)
+            }
+            Adaptador::Chamar => {
+                let x = b.ler_campo_com_late(recv, vid, span);
+                let x = b.coagir(x, Type::Ref);
+                b.emit_call_with_check(Instruction::CallClosureRepasse { closure: x, args, desc }, Type::Ref)
+            }
+            Adaptador::Gravar => {
+                let um = [super::closures::ParamEntrada {
+                    nome: None,
+                    kind: ParameterKind::Required,
+                    required: true,
+                    padrao: super::closures::Padrao::Nenhum,
+                }];
+                let Some(vals) = b.desempacotar(&um, args, desc) else {
+                    b.finalizar(module);
+                    continue;
+                };
+                b.gravar_campo(recv, vid, vals[0].clone(), span);
+                Operand::Constant(Constant::Null)
+            }
+        };
+        let r = b.coagir(r, Type::Ref);
+        b.terminate(Terminator::Return(Some(r)));
+        b.finalizar(module);
+    }
+}
+
+/// A unidade que declara a classe (onde os adaptadores dela são baixados).
+fn unidade_de(ctx: &Context, cid: ClassId) -> Option<dartforge_elements::model::UnitId> {
+    let c = &ctx.program.classes[cid.0 as usize];
+    c.decl.map(|d| d.unit).or_else(|| ctx.program.library(c.library).units.first().copied())
+}
+
+/// A função no lugar de um membro do SDK recusado: a mesma assinatura, e o
+/// corpo avisa em tempo de execução qual membro e por quê
+/// (`dartforge_membro_recusado`) — nunca uma saída errada.
+pub fn funcao_recusada(ctx: &Context, fid: usize, motivo: &str) -> Function {
+    let f = &ctx.program.functions[fid];
+    let unit = match f.node {
+        dartforge_elements::model::FunctionRef::Function { unit, .. }
+        | dartforge_elements::model::FunctionRef::Constructor { unit, .. } => Some(unit),
+        dartforge_elements::model::FunctionRef::None => f.class.and_then(|c| unidade_de(ctx, c)),
+    }
+    .or_else(|| ctx.program.library(f.library).units.first().copied())
+    .expect("biblioteca com unidade");
+    let generativo = super::construtor_generativo(ctx, fid);
+    let ret = if generativo {
+        Type::Void
+    } else {
+        ctx.outline.functions.get(fid).map_or(Type::Ref, |d| ctx.to_hir_type(d.return_type))
+    };
+    let simbolo = super::simbolo_de(ctx, fid);
+    let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), ctx.symbol_name(f.name).to_string(), ret);
+    let com_this = (f.class.is_some() && !f.static_ && !f.factory) || generativo;
+    if com_this {
+        b.add_param("this".to_string(), Type::Ref);
+    }
+    if let Some(d) = ctx.outline.functions.get(fid) {
+        for p in &d.parameters {
+            let t = b.repr(p.ty);
+            b.add_param("p".to_string(), t);
+        }
+    }
+    let texto = format!("{simbolo} ({motivo})");
+    let t = b.emit(Instruction::Const(Constant::String(texto)), Type::Ref);
+    b.emit(
+        Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Type::Void,
+    );
+    b.terminate(Terminator::Unreachable);
+    b.func
+}
+
+/// Baixa uma função do SDK da fonte num módulo à parte; se ela não baixa
+/// (diagnóstico de construto, native pendente, intrínseco, pânico do
+/// lowering, problema do verificador), o módulo recebe no lugar dela a
+/// função recusada (`funcao_recusada`), e o motivo vai para
+/// `Module::recusados`.
+pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut m = Module::new();
+        m.modo_sdk = true;
+        super::lower_funcao(ctx, &mut m, fid);
+        if m.erros.is_empty() {
+            let problemas = super::verificador::verificar(&m);
+            m.erros.extend(problemas);
+        }
+        m
+    }));
+    let motivo = match &r {
+        Ok(m) if m.erros.is_empty() => None,
+        Ok(m) => Some(
+            m.erros[0]
+                .strip_prefix(crate::PREFIXO_NAO_SUPORTADO)
+                .unwrap_or(&m.erros[0])
+                .to_string(),
+        ),
+        Err(p) => Some(format!(
+            "pânico do lowering: {}",
+            p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default()
+        )),
+    };
+    match (r, motivo) {
+        (Ok(m), None) => {
+            module.functions.extend(m.functions);
+            module.globais.extend(m.globais);
+        }
+        (_, Some(motivo)) => {
+            if !super::membros::tem_corpo(ctx, fid) {
+                return;
+            }
+            let motivo = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
+            let simbolo = super::simbolo_de(ctx, fid);
+            module.functions.push(funcao_recusada(ctx, fid, &motivo));
+            module.recusados.push((simbolo, motivo));
+        }
+        (Err(_), None) => unreachable!(),
+    }
+}
+
+/// Os adaptadores dos membros de instância das classes do módulo e as
+/// tabelas de métodos das classes concretas dele (SDK da fonte).
+pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
+    for (fid, f) in ctx.program.functions.iter().enumerate() {
+        let nome = ctx.symbol_name(f.name);
+        if f.class.is_none() && nome.starts_with("_dartforge") && ctx.biblioteca_no_modulo(f.library) {
+            module.ajudantes.push((nome.to_string(), super::simbolo_de(ctx, fid)));
+        }
+    }
+    for (k, classe) in ctx.program.classes.iter().enumerate() {
+        let cid = ClassId(k as u32);
+        if !ctx.biblioteca_no_modulo(classe.library) {
+            continue;
+        }
+        let mut fids: Vec<usize> = classe.instance_members.values().map(|f| f.0 as usize).collect();
+        fids.sort_unstable();
+        fids.dedup();
+        for fid in fids {
+            if ctx.program.functions[fid].class != Some(cid) {
+                continue;
+            }
+            adaptadores_ou_recusa(ctx, module, |m| lower_adaptadores_da_funcao(ctx, m, fid));
+        }
+        for &vid in &classe.fields {
+            if ctx.program.variables[vid.0 as usize].static_ {
+                continue;
+            }
+            adaptadores_ou_recusa(ctx, module, |m| lower_adaptadores_do_campo(ctx, m, vid));
+        }
+        let concreta = !classe.modifiers.abstract_ && !super::membros::e_mixin(ctx, cid);
+        if concreta && let Some(id) = ctx.id_de_classe(cid) {
+            module.tabelas_de_metodos.push((id, tabela_de_metodos(ctx, cid)));
+        }
+    }
+}
+
+/// Os adaptadores gerados por `gerar`; os que não baixam viram entradas que
+/// avisam em tempo de execução.
+fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mut Module)) {
+    let mut m = Module::new();
+    m.modo_sdk = true;
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| gerar(&mut m)));
+    if r.is_ok() && m.erros.is_empty() {
+        module.functions.extend(m.functions);
+        module.globais.extend(m.globais);
+        return;
+    }
+    let motivo = m
+        .erros
+        .first()
+        .map(|e| e.strip_prefix(crate::PREFIXO_NAO_SUPORTADO).unwrap_or(e).to_string())
+        .unwrap_or_else(|| "pânico do lowering".to_string());
+    let motivo = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
+    for f in &m.functions {
+        if !(f.symbol.ends_with("$c") || f.symbol.ends_with("$g") || f.symbol.ends_with("$s")) {
+            continue;
+        }
+        let unit = ctx.program.units.iter().position(|_| true).map(|u| dartforge_elements::model::UnitId(u as u32));
+        let Some(unit) = unit else { continue };
+        let mut b = FnBuilder::new(ctx, unit, f.symbol.clone(), f.name.clone(), Type::Ref);
+        b.add_param("this".to_string(), Type::Ref);
+        b.add_param("args".to_string(), Type::Ptr);
+        b.add_param("desc".to_string(), Type::Ptr);
+        let t = b.emit(Instruction::Const(Constant::String(format!("{} ({motivo})", f.symbol))), Type::Ref);
+        b.emit(
+            Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+            Type::Void,
+        );
+        b.terminate(Terminator::Unreachable);
+        module.recusados.push((f.symbol.clone(), motivo.clone()));
+        module.functions.push(b.func);
+    }
+}
+/// O getter preguiçoso de um global do SDK da fonte (ou a recusa dele) e o
+/// setter `<getter>$set`, que outro módulo chama para gravar o global.
+pub fn lower_global_ou_recusa(
+    ctx: &Context,
+    module: &mut Module,
+    vid: VariableId,
+    unit: dartforge_elements::model::UnitId,
+    repr: Type,
+) {
+    let nome = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
+    let getter = super::simbolo_global(ctx, vid);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut m = Module::new();
+        m.modo_sdk = true;
+        let mut b = FnBuilder::new(ctx, unit, getter.clone(), nome.clone(), repr);
+        b.lower_getter_global(vid, repr);
+        b.finalizar(&mut m);
+        if m.erros.is_empty() {
+            let problemas = super::verificador::verificar(&m);
+            m.erros.extend(problemas);
+        }
+        m
+    }));
+    match r {
+        Ok(m) if m.erros.is_empty() => {
+            module.functions.extend(m.functions);
+            module.globais.extend(m.globais);
+        }
+        r => {
+            let motivo = match r {
+                Ok(m) => m.erros[0].strip_prefix(crate::PREFIXO_NAO_SUPORTADO).unwrap_or(&m.erros[0]).to_string(),
+                Err(_) => "pânico do lowering".to_string(),
+            };
+            let motivo = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
+            let mut b = FnBuilder::new(ctx, unit, getter.clone(), nome.clone(), repr);
+            let t = b.emit(Instruction::Const(Constant::String(format!("{getter} ({motivo})"))), Type::Ref);
+            b.emit(
+                Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+                Type::Void,
+            );
+            b.terminate(Terminator::Unreachable);
+            module.functions.push(b.func);
+            module.recusados.push((getter.clone(), motivo));
+        }
+    }
+    let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), nome, Type::Void);
+    let v = s.add_param("v".to_string(), repr);
+    s.gravar_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
+    s.terminate(Terminator::Return(None));
+    s.finalizar(module);
+}

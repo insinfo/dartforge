@@ -10,17 +10,31 @@
 // Só no executável AOT. Quando este arquivo é compilado como módulo do crate
 // `dartforge-runtime` (cfg `dartforge_runtime_embutido`, posta pelo build.rs),
 // quem chama a entrada é o JIT, e um `main` C colidiria com o do binário Rust.
-#[cfg(not(dartforge_runtime_embutido))]
+#[cfg(not(any(dartforge_runtime_embutido, dartforge_runtime_dll)))]
 unsafe extern "C" {
     fn dartforge_entry();
 }
 
 /// Invoca uma vez o programa ligado ao runtime Rust.
-#[cfg(not(dartforge_runtime_embutido))]
+#[cfg(not(any(dartforge_runtime_embutido, dartforge_runtime_dll)))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     // SAFETY: o objeto foi emitido para esta ABI e ligado pelo mesmo driver nativo.
     unsafe { dartforge_entry() };
+    let codigo = finalizar_programa();
+    if codigo != 0 {
+        std::process::exit(codigo);
+    }
+    0
+}
+
+/// A entrada do programa com o SDK da fonte (P5c): o runtime e o SDK moram
+/// numa DLL (cfg `dartforge_runtime_dll`, sem o `main` C), e o `main` do
+/// executável — que o emissor escreve — chama esta função com a
+/// `dartforge_entry` dele.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn()) -> i32 {
+    entrada();
     let codigo = finalizar_programa();
     if codigo != 0 {
         std::process::exit(codigo);
@@ -353,6 +367,11 @@ fn valor_como_ref(v: TaggedValue) -> i64 {
 /// são lançáveis pelo subconjunto e devolvem -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
+    // Com o SDK da fonte (P5c), os valores do runtime têm a classe do SDK
+    // que representam (`_Smi`, `_OneByteString`, `_GrowableList`…).
+    if let Some(cid) = cid_do_runtime(handle) {
+        return cid;
+    }
     // null tem classe própria (`Null`): os testes de tipo sobre `Ref`
     // perguntam a classe sem precisar desviar antes (R, testar_tipo).
     if handle == 0 {

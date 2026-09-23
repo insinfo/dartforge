@@ -9,7 +9,8 @@
       "_internal/vm/lib/async_patch.dart": "async/async_patch.dart",
       "_internal/vm/lib/schedule_microtask_patch.dart": "async/schedule_microtask_patch.dart",
       "_internal/vm/lib/timer_patch.dart": "async/timer_patch.dart",
-      "_internal/vm/lib/finalizer_patch.dart": "core/finalizer_patch.dart"
+      "_internal/vm/lib/finalizer_patch.dart": "core/finalizer_patch.dart",
+      "_internal/vm/lib/print_patch.dart": "internal/print_patch.dart"
     }
   }
 }

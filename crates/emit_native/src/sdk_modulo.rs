@@ -98,6 +98,329 @@ pub fn medir_inferencia_do_sdk(lib_dir: &Path) -> Result<Vec<InferenciaDaBibliot
     Ok(saida)
 }
 
+/// O SDK da fonte está ligado neste processo? (`DARTFORGE_SDK_DA_FONTE=1`;
+/// até a troca de P5d, o caminho padrão é o runtime por nome.)
+pub fn sdk_da_fonte_pedido() -> bool {
+    std::env::var("DARTFORGE_SDK_DA_FONTE").is_ok_and(|v| v.trim() == "1")
+}
+
+/// A função que registra no runtime as classes de uma biblioteca do SDK da
+/// fonte (nomes, subtipos, tabelas de métodos); a entrada do programa a
+/// chama.
+pub fn simbolo_de_registro(uri: &str) -> String {
+    format!("df.registrar.{}", crate::context::escapar(uri))
+}
+
+/// As funções de registro das [`BIBLIOTECAS_DA_FONTE`], na ordem.
+pub fn registros_do_sdk() -> Vec<String> {
+    BIBLIOTECAS_DA_FONTE.iter().map(|b| simbolo_de_registro(&format!("dart:{b}"))).collect()
+}
+
+/// Os ids de classe (do SDK da fonte) dos valores que o runtime representa,
+/// na ordem de `runtime/src/seletores.rs` (`CID_*`).
+pub fn cids_do_runtime(ctx: &crate::context::Context) -> Vec<i64> {
+    const CLASSES: &[(&str, &str)] = &[
+        ("core", "Null"),
+        ("core", "_Smi"),
+        ("core", "_Mint"),
+        ("core", "_Double"),
+        ("core", "bool"),
+        ("core", "_OneByteString"),
+        ("core", "_TwoByteString"),
+        ("core", "_GrowableList"),
+        ("core", "_List"),
+        ("core", "_ImmutableList"),
+        ("core", "_Closure"),
+        ("core", "_Record"),
+    ];
+    CLASSES
+        .iter()
+        .map(|(l, c)| ctx.classe_do_sdk(l, c).and_then(|k| ctx.id_de_classe(k)).map_or(-1, i64::from))
+        .collect()
+}
+
+/// Um programa mínimo que importa as bibliotecas da fonte, carregado com a
+/// sobreposição.
+fn carregar_bibliotecas_da_fonte(
+    lib_dir: &Path,
+) -> Result<(dartforge_elements::Program, dartforge_intern::Interner), String> {
+    let sdk = carregar_sdk_nativo(lib_dir)?;
+    let tmp = std::env::temp_dir().join(format!(
+        "dartforge-sdk-fonte-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let entrada = tmp.join("main.dart");
+    let mut fonte = String::new();
+    for b in BIBLIOTECAS_DA_FONTE {
+        fonte.push_str(&format!("import 'dart:{b}';\n"));
+    }
+    fonte.push_str("void main() {}\n");
+    std::fs::write(&entrada, fonte).map_err(|e| format!("{}: {e}", entrada.display()))?;
+    let mut interner = dartforge_intern::Interner::new();
+    let (program, diags_carga) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+    let _ = std::fs::remove_dir_all(&tmp);
+    if let Some(d) = diags_carga.first() {
+        return Err(format!("carga do SDK com a sobreposição: {}", d.message));
+    }
+    Ok((program, interner))
+}
+
+/// Uma biblioteca do SDK da fonte baixada e emitida.
+#[derive(Debug, Clone)]
+pub struct BibliotecaDoSdk {
+    /// `dart:core`…
+    pub uri: String,
+    /// O LLVM IR do módulo dela.
+    pub ir: String,
+    /// Os membros recusados: (símbolo, motivo).
+    pub recusados: Vec<(String, String)>,
+}
+
+/// Baixa e emite cada uma das [`BIBLIOTECAS_DA_FONTE`] no seu módulo (P5c):
+/// mundo aberto, símbolos estáveis, os membros que não baixam recusados um a
+/// um. É função só das fontes do SDK, da sobreposição e do compilador.
+pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path) -> Result<Vec<BibliotecaDoSdk>, String> {
+    use dartforge_types::table::{CoreTypes, TypeTable};
+    let (program, interner) = carregar_bibliotecas_da_fonte(lib_dir)?;
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &program, &interner);
+    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let libs: Vec<_> = BIBLIOTECAS_DA_FONTE
+        .iter()
+        .filter_map(|b| {
+            let uri = format!("dart:{b}");
+            program
+                .libraries
+                .iter()
+                .position(|l| l.uri == uri)
+                .map(|i| dartforge_elements::model::LibraryId(i as u32))
+        })
+        .collect();
+    if libs.len() != BIBLIOTECAS_DA_FONTE.len() {
+        return Err("biblioteca do SDK da fonte fora do programa".to_string());
+    }
+    let (corpos, _) =
+        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &libs);
+    let base = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos);
+    let base = base.com_sdk_da_fonte();
+    let mut saida = Vec::new();
+    for lib in libs {
+        let uri = program.library(lib).uri.clone();
+        let ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos)
+            .com_sdk_da_fonte()
+            .so_a_biblioteca(lib);
+        debug_assert_eq!(ctx.ids_de_classe, base.ids_de_classe);
+        let mut module = crate::lower::lower_program(&ctx);
+        module.biblioteca_sdk = true;
+        module.registro = Some(simbolo_de_registro(&uri));
+        if let Some(e) = module.erros.first() {
+            return Err(format!("{uri}: o módulo do SDK tem diagnóstico fora de membro: {e}"));
+        }
+        let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados) });
+    }
+    Ok(saida)
+}
+
+/// O SDK da fonte compilado: uma DLL com o runtime e as bibliotecas da
+/// fonte, e a biblioteca de importação que o executável liga.
+///
+/// **Por que DLL.** Ligar os objetos do SDK (~12 MB) em cada executável
+/// custava ~450 ms de ligação por programa (medido; a ligação de antes leva
+/// ~60 ms), e as tabelas de métodos, registradas na partida, alcançam todo o
+/// código — o `/OPT:REF` não tem o que tirar. É o "grupo = código
+/// compartilhado" de docs/NATIVO-PLANO §4.4: o runtime e o SDK são ligados
+/// **uma vez por conteúdo**, e o executável liga só o objeto do programa e a
+/// biblioteca de importação. A DLL vai ao lado do executável (ligação
+/// física, sem cópia).
+#[derive(Debug, Clone)]
+pub struct SdkCompilado {
+    pub objetos: Vec<PathBuf>,
+    pub dll: PathBuf,
+    pub importacao: PathBuf,
+    /// Quanto levou para compilar (o custo a frio); `None` quando veio do
+    /// cache.
+    pub frio: Option<std::time::Duration>,
+}
+
+/// Os símbolos que um IR define com ligação externa (o que a DLL exporta).
+fn simbolos_definidos(ir: &str, saida: &mut Vec<String>) {
+    for l in ir.lines() {
+        let Some(r) = l.strip_prefix("define ") else { continue };
+        if r.starts_with("internal ") || r.starts_with("private ") || r.starts_with("linkonce_odr ") {
+            continue;
+        }
+        let Some(i) = r.find('@') else { continue };
+        let Some(f) = r[i..].find('(') else { continue };
+        saida.push(r[i + 1..i + f].to_string());
+    }
+}
+
+/// A chave do SDK compilado: blake3 das fontes do SDK que entram (as
+/// bibliotecas da fonte, os patches `vm`, `libraries.json`), da
+/// sobreposição, do compilador (`DARTFORGE_EMISSOR_HASH`, `build.rs`), da
+/// identidade do Clang e das bandeiras.
+fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
+    fn juntar(dir: &Path, saida: &mut Vec<PathBuf>) {
+        let Ok(entradas) = std::fs::read_dir(dir) else { return };
+        for e in entradas.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                juntar(&p, saida);
+            } else if p.extension().is_some_and(|x| x == "dart" || x == "json") {
+                saida.push(p);
+            }
+        }
+    }
+    let mut arquivos = Vec::new();
+    for d in ["core", "async", "collection", "convert", "math", "internal", "typed_data", "_internal/vm/lib", "_internal/vm_shared/lib"] {
+        juntar(&lib_dir.join(d), &mut arquivos);
+    }
+    arquivos.push(lib_dir.join("libraries.json"));
+    let sobreposicao = dir_sobreposicao();
+    juntar(&sobreposicao, &mut arquivos);
+    arquivos.sort();
+    let mut h = blake3::Hasher::new();
+    h.update(b"dartforge-sdk-fonte\0");
+    h.update(env!("CARGO_PKG_VERSION").as_bytes());
+    h.update(b"\0");
+    h.update(env!("DARTFORGE_EMISSOR_HASH").as_bytes());
+    h.update(b"\0");
+    h.update(clang_id.as_bytes());
+    for a in args {
+        h.update(a.as_bytes());
+        h.update(b"\0");
+    }
+    for a in &arquivos {
+        let rel = a
+            .strip_prefix(lib_dir)
+            .or_else(|_| a.strip_prefix(&sobreposicao))
+            .unwrap_or(a)
+            .to_string_lossy()
+            .replace('\\', "/");
+        h.update(rel.as_bytes());
+        h.update(b"\0");
+        h.update(&std::fs::read(a).unwrap_or_default());
+        h.update(b"\0");
+    }
+    h.finalize().to_hex()[..32].to_string()
+}
+
+/// As bandeiras do Clang para os objetos do SDK: as do programa, e cada
+/// função na sua seção (o ligador leva só o que o executável usa).
+pub const ARGS_CLANG_DO_SDK: &[&str] =
+    &["-x", "ir", "-c", "-O0", "-mno-incremental-linker-compatible", "-ffunction-sections", "-fdata-sections"];
+
+/// Os objetos do SDK da fonte: do cache (`<cache nativo>/sdk/<chave>/`), ou
+/// compilados agora — uma vez por conteúdo, as bibliotecas em paralelo.
+pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, String> {
+    static TRAVA: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _g = TRAVA.lock().unwrap_or_else(|e| e.into_inner());
+    let clang_id = crate::cache_objeto::identidade_clang(clang)?;
+    let chave = chave_do_sdk(lib_dir, &clang_id, ARGS_CLANG_DO_SDK);
+    let raiz = crate::cache::dir_cache_nativo().join("sdk");
+    let dir = raiz.join(&chave);
+    let nome_dll = format!("dfsdk_{}", &chave[..16]);
+    let pronto = |d: &Path, frio| SdkCompilado {
+        objetos: BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.obj"))).collect(),
+        dll: d.join(format!("{nome_dll}.dll")),
+        importacao: d.join(format!("{nome_dll}.lib")),
+        frio,
+    };
+    if dir.join("pronto").is_file() {
+        return Ok(pronto(&dir, None));
+    }
+    let runtime_dll = crate::cache::RuntimeCache::para_dll()?;
+    let t0 = std::time::Instant::now();
+    let tmp = raiz.join(format!("{chave}.tmp.{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let libs = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn({
+            let lib_dir = lib_dir.to_path_buf();
+            move || emitir_bibliotecas_do_sdk(&lib_dir)
+        })
+        .map_err(|e| e.to_string())?
+        .join()
+        .map_err(|_| "pânico ao emitir o SDK da fonte".to_string())??;
+    let mut exportados = Vec::new();
+    for lib in &libs {
+        simbolos_definidos(&lib.ir, &mut exportados);
+    }
+    exportados.extend(
+        dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()),
+    );
+    let mut def = format!("LIBRARY {nome_dll}.dll\nEXPORTS\n");
+    for s in &exportados {
+        def.push_str(&format!("  {s}\n"));
+    }
+    std::fs::write(tmp.join("exportados.def"), def).map_err(|e| e.to_string())?;
+    let mut resumo = String::new();
+    for (b, lib) in BIBLIOTECAS_DA_FONTE.iter().zip(&libs) {
+        std::fs::write(tmp.join(format!("{b}.ll")), &lib.ir).map_err(|e| e.to_string())?;
+        for (s, m) in &lib.recusados {
+            resumo.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
+        }
+    }
+    std::fs::write(tmp.join("recusados.tsv"), resumo).map_err(|e| e.to_string())?;
+    // O Clang de cada biblioteca num processo, no máximo 4 ao mesmo tempo.
+    let fila = std::sync::Mutex::new(BIBLIOTECAS_DA_FONTE.to_vec());
+    let erros = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| loop {
+                let Some(b) = fila.lock().unwrap().pop() else { break };
+                let st = std::process::Command::new(clang)
+                    .current_dir(&tmp)
+                    .args(ARGS_CLANG_DO_SDK)
+                    .arg(format!("{b}.ll"))
+                    .arg("-o")
+                    .arg(format!("{b}.obj"))
+                    .status();
+                match st {
+                    Ok(s) if s.success() => {}
+                    Ok(s) => erros.lock().unwrap().push(format!("Clang recusou o IR de dart:{b} ({s})")),
+                    Err(e) => erros.lock().unwrap().push(format!("Clang: {e}")),
+                }
+            });
+        }
+    });
+    if let Some(e) = erros.into_inner().unwrap().into_iter().next() {
+        return Err(e);
+    }
+    // A DLL: os objetos do SDK e o runtime (variante sem `main`).
+    let st = std::process::Command::new(clang)
+        .current_dir(&tmp)
+        .arg("-shared")
+        .args(BIBLIOTECAS_DA_FONTE.iter().map(|b| format!("{b}.obj")))
+        .arg(&runtime_dll.lib_path)
+        .arg("-Wl,/DEF:exportados.def")
+        .args(["-lws2_32", "-luserenv", "-lntdll", "-o"])
+        .arg(format!("{nome_dll}.dll"))
+        .status()
+        .map_err(|e| format!("Clang: {e}"))?;
+    if !st.success() {
+        return Err(format!("a ligação da DLL do SDK da fonte falhou ({st})"));
+    }
+    if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
+        for b in BIBLIOTECAS_DA_FONTE {
+            let _ = std::fs::remove_file(tmp.join(format!("{b}.ll")));
+        }
+    }
+    std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
+    if std::fs::rename(&tmp, &dir).is_err() {
+        // Outro processo terminou antes: fica o dele.
+        let _ = std::fs::remove_dir_all(&tmp);
+        if !dir.join("pronto").is_file() {
+            return Err(format!("não foi possível instalar o SDK compilado em {}", dir.display()));
+        }
+    }
+    Ok(pronto(&dir, Some(t0.elapsed())))
+}
+
 /// O resultado do lowering de um membro do SDK da fonte.
 #[derive(Debug, Clone)]
 pub struct MembroDoSdk {
@@ -188,7 +511,7 @@ mod testes {
             return;
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK)).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 4);
+        assert_eq!(sdk.substituicoes.len(), 5);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
@@ -227,6 +550,81 @@ mod testes {
             }
         }
         println!("total de diagnósticos: {total}");
+    }
+
+    /// P5c: emite os módulos do SDK da fonte e mostra, por biblioteca, o
+    /// tamanho do IR e os membros recusados (por motivo). Com
+    /// `DARTFORGE_SDK_COMPILAR=1`, compila e instala os objetos no cache.
+    /// `cargo test -p dartforge-emit-native emitir_o_sdk -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "medição; roda à parte"]
+    fn emitir_o_sdk() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            return;
+        }
+        let t = std::time::Instant::now();
+        let libs = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| emitir_bibliotecas_do_sdk(Path::new(SDK)).unwrap())
+            .unwrap()
+            .join()
+            .unwrap();
+        println!("emissão: {:?}", t.elapsed());
+        let mut motivos: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut total = 0;
+        for l in &libs {
+            println!("{:<18} IR {:>9} bytes  recusados {:>5}", l.uri, l.ir.len(), l.recusados.len());
+            total += l.recusados.len();
+            for (_, m) in &l.recusados {
+                *motivos.entry(m.chars().take(100).collect()).or_default() += 1;
+            }
+        }
+        println!("recusados: {total}");
+        let mut v: Vec<_> = motivos.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1));
+        for (m, n) in v.iter().take(60) {
+            println!("{n:>5}  {m}");
+        }
+        if let Ok(dir) = std::env::var("DARTFORGE_SDK_IR_DIR") {
+            for (b, l) in BIBLIOTECAS_DA_FONTE.iter().zip(&libs) {
+                std::fs::write(Path::new(&dir).join(format!("{b}.ll")), &l.ir).unwrap();
+                let r: String = l.recusados.iter().map(|(s, m)| format!("{s}\t{m}\n")).collect();
+                std::fs::write(Path::new(&dir).join(format!("{b}.recusados.tsv")), r).unwrap();
+            }
+        }
+        if std::env::var("DARTFORGE_SDK_COMPILAR").is_ok_and(|v| v == "1") {
+            let clang = std::env::var_os("DARTFORGE_CLANG")
+                .map_or_else(|| PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe"), PathBuf::from);
+            let s = sdk_compilado(Path::new(SDK), &clang).unwrap();
+            println!("dll: {:?} (frio: {:?})", s.dll, s.frio);
+        }
+    }
+
+    /// Compila e executa `DARTFORGE_PROGRAMA` com o SDK da fonte (P5c):
+    /// `cargo test -p dartforge-emit-native compilar_com_o_sdk -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "manual; roda à parte"]
+    fn compilar_com_o_sdk_da_fonte() {
+        let Ok(p) = std::env::var("DARTFORGE_PROGRAMA") else { return };
+        let entrada = PathBuf::from(p);
+        let saida = entrada.with_extension("exe");
+        let r = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(move || {
+                // SAFETY do teste: o processo do teste é de uma thread só aqui.
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: true, optimize: false };
+                crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        match r {
+            Ok(exe) => {
+                let o = std::process::Command::new(&exe).output().unwrap();
+                println!("--- código {:?}\n--- stdout\n{}--- stderr\n{}", o.status.code(), String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+            }
+            Err(e) => println!("ERRO: {e}"),
+        }
     }
 
     /// A medição de P5c: quantos membros do SDK da fonte o lowering baixa.

@@ -16,6 +16,10 @@ dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
 dartforge-runtime = { path = "../runtime" }
 dartforge-instrument = { path = "../instrument" }
+blake3 = "1"
+
+[build-dependencies]
+blake3 = "1"
 
 [dev-dependencies]
 tempfile = "3"

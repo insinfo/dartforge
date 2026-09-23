@@ -730,6 +730,31 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_record_get_ref(i64, i64)",
         efeitos: CONSERVADOR,
     },
+    // --- P5c (δ): SDK da fonte — seletores, tabelas de métodos, recusas ---
+    Extern {
+        decl: "declare ptr @dartforge_seletor(ptr, i64, i64, ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_metodos(i64, ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_membro_recusado(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_cids(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_ajudante(ptr, i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i32 @dartforge_iniciar(ptr)",
+        efeitos: CONSERVADOR,
+    },
 ];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.

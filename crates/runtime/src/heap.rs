@@ -209,6 +209,10 @@ impl Texto {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// É um `_OneByteString` (Latin-1)?
+    pub fn e_um_byte(&self) -> bool {
+        matches!(self, Texto::Um(_))
+    }
 
     /// A unidade no índice (`codeUnitAt`); o índice é verificado por quem chama.
     pub fn unidade(&self, i: usize) -> u16 {
@@ -732,6 +736,8 @@ pub struct Heap {
     /// um slot reutilizado herdaria a marca "imutável" ou "em iteração" de
     /// outro objeto.
     pub imutaveis: std::collections::HashSet<i64>,
+    /// Listas de tamanho fixo (`_List` do SDK da fonte, P5c).
+    pub fixas: std::collections::HashSet<i64>,
     pub iteracoes_ativas: std::collections::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -760,6 +766,7 @@ impl Heap {
             caixas_bool: [0, 0],
             raizes_do_runtime: [0, 0],
             imutaveis: std::collections::HashSet::new(),
+            fixas: std::collections::HashSet::new(),
             iteracoes_ativas: std::collections::HashSet::new(),
             origens: std::collections::HashMap::new(),
         }
@@ -1457,6 +1464,7 @@ impl Heap {
             smi::e_handle(*h) && *h > 0 && marks.get(Self::indice_de(*h)).copied().unwrap_or(false)
         };
         self.imutaveis.retain(|h| vivo(h));
+        self.fixas.retain(|h| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
         for (index, slot) in self.slots.iter_mut().enumerate() {

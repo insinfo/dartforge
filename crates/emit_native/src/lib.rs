@@ -112,8 +112,15 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
         None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
 
-    let sdk = SdkLayout::load(&sdk_dir, "vm")
-        .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
+    // SDK da fonte (P5c, `DARTFORGE_SDK_DA_FONTE=1`): a seção `vm` com a
+    // sobreposição `sdk_nativo/`, e as bibliotecas da fonte ligadas como
+    // objetos em cache (`sdk_modulo::sdk_compilado`).
+    let da_fonte = sdk_modulo::sdk_da_fonte_pedido();
+    let sdk = if da_fonte {
+        sdk_modulo::carregar_sdk_nativo(&sdk_dir)?
+    } else {
+        SdkLayout::load(&sdk_dir, "vm").map_err(|e| format!("falha ao carregar SDK VM: {e}"))?
+    };
 
     let mut interner = Interner::new();
     let (program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
@@ -132,11 +139,16 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
 
     let ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    let ctx = if da_fonte { ctx.com_sdk_da_fonte() } else { ctx };
     let front_duration = t_front.elapsed();
 
     // 2. Lowering para HIR
     let t_hir = Instant::now();
-    let hir_module = lower::lower_program(&ctx);
+    let mut hir_module = lower::lower_program(&ctx);
+    if da_fonte {
+        hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
+        hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
+    }
     let hir_duration = t_hir.elapsed();
     if !hir_module.erros.is_empty() {
         return Err(erro_de_compilacao(&hir_module.erros));

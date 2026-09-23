@@ -189,6 +189,7 @@ dependencies = [
 name = "dartforge-emit-native"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",

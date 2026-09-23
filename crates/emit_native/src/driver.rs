@@ -50,6 +50,27 @@ pub fn compile_and_link(
     options: &NativeDriverOptions,
 ) -> Result<TemposLigacao, String> {
     let runtime = RuntimeCache::get_or_compile()?;
+    // Programa com o SDK da fonte (P5c): a entrada chama o registro das
+    // bibliotecas do SDK, que moram nos objetos em cache.
+    let sdk = if llvm_ir.contains("declare void @df.registrar.") {
+        let dir = dartforge_elements::sdk::SdkLayout::discover()
+            .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+        let sdk = crate::sdk_modulo::sdk_compilado(&dir, &options.clang)?;
+        if let Some(t) = sdk.frio
+            && options.timings
+        {
+            eprintln!("  SDK frio:  {t:?} (compilado uma vez por conteúdo)");
+        }
+        Some(sdk)
+    } else {
+        None
+    };
+    // Com o SDK da fonte, o runtime mora na DLL do SDK: o executável liga o
+    // objeto do programa e a biblioteca de importação dela.
+    let (ligar_com, sdk_objetos): (PathBuf, Vec<PathBuf>) = match &sdk {
+        Some(s) => (s.importacao.clone(), Vec::new()),
+        None => (runtime.lib_path.clone(), Vec::new()),
+    };
 
     // Diretório temporário seguro no target. Com o cache de objeto ele só é
     // usado com DARTFORGE_KEEP_IR ou se a ligação recusar o objeto do cache,
@@ -98,7 +119,7 @@ pub fn compile_and_link(
 
     // Fase 2: Link do objeto com o runtime estático
     let t_link = Instant::now();
-    let mut ligou = ligar(&options.clang, &obj_file, &runtime.lib_path, output);
+    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     if ligou.is_err()
         && let Some((c, chave, true)) = do_cache
     {
@@ -109,9 +130,17 @@ pub fn compile_and_link(
         obj_file = staging.join(format!("{stem}.obj"));
         compilar_objeto(&options.clang, &args, llvm_ir, &obj_file)?;
         do_cache = None;
-        ligou = ligar(&options.clang, &obj_file, &runtime.lib_path, output);
+        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     }
     ligou?;
+    if let Some(s) = &sdk {
+        // A DLL ao lado do executável (o Windows procura primeiro ali):
+        // ligação física, sem cópia; cópia só se o volume for outro.
+        let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
+        if !destino.is_file() && std::fs::hard_link(&s.dll, &destino).is_err() {
+            std::fs::copy(&s.dll, &destino).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", destino.display()))?;
+        }
+    }
     let link_duration = t_link.elapsed();
 
     // Limpeza de arquivos temporários (mantém se DARTFORGE_KEEP_IR estiver
@@ -149,13 +178,17 @@ fn compilar_objeto(clang: &Path, args: &[&str], llvm_ir: &str, obj: &Path) -> Re
     Ok(())
 }
 
-fn ligar(clang: &Path, obj: &Path, runtime_lib: &Path, output: &Path) -> Result<(), String> {
-    let status = Command::new(clang)
-        .arg(obj)
-        .arg(runtime_lib)
-        .arg("-lws2_32")
-        .arg("-luserenv")
-        .arg("-lntdll")
+fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], runtime_lib: &Path, output: &Path) -> Result<(), String> {
+    let mut cmd = Command::new(clang);
+    cmd.arg(obj).args(sdk).arg(runtime_lib);
+    if runtime_lib.file_name().is_some_and(|n| n.to_string_lossy().starts_with("dfsdk_")) {
+        // Executável do SDK da fonte: o runtime está na DLL, que usa a CRT
+        // dinâmica (a do `rustc`); o executável usa a mesma.
+        cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
+    } else {
+        cmd.args(["-lws2_32", "-luserenv", "-lntdll"]);
+    }
+    let status = cmd
         .arg("-o")
         .arg(output)
         .status()

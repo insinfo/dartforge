@@ -281,6 +281,29 @@ pub enum Instruction {
     /// Endereço (`Ptr`) de um vetor constante de `i64`, global do módulo
     /// (a assinatura de uma entrada uniforme para a checagem de aridade).
     ConstArray(Vec<i64>),
+
+    // --- P5c (SDK da fonte, δ) ------------------------------------------
+    /// Chamada de membro de instância pelo **seletor** (`c:m`, `g:x`,
+    /// `s:x`, `lower/sdk_fonte.rs`), no mundo aberto: a implementação sai da
+    /// tabela de métodos da classe dinâmica do receptor (registrada no
+    /// runtime por classe), com um cache por ponto de chamada. A convenção é
+    /// a uniforme das closures: todos os argumentos `Ref`, posicionais e
+    /// depois nomeados na ordem de `nomes`; o resultado é `Ref`. Receptor sem
+    /// o membro: `NoSuchMethodError` pendente.
+    CallSeletor {
+        seletor: String,
+        recv: Operand,
+        args: Vec<Operand>,
+        nomes: Vec<String>,
+    },
+    /// Chama o valor função `closure` repassando o vetor de argumentos e o
+    /// descritor já montados (os parâmetros de uma entrada uniforme): o
+    /// adaptador `c:x` de um getter ou campo chama o valor lido.
+    CallClosureRepasse {
+        closure: Operand,
+        args: Operand,
+        desc: Operand,
+    },
 }
 
 /// Terminador de controle de fluxo de um bloco básico.
@@ -355,6 +378,36 @@ pub struct Module {
     /// Construtos que o lowering não sabe baixar (N1). Não vazio = o
     /// programa não compila; o emissor produz só a mensagem.
     pub erros: Vec<String>,
+    // --- P5c (SDK da fonte, δ) ---
+    /// O módulo é parte de um programa com o SDK compilado da fonte: o
+    /// código compartilhado entre módulos (entradas de tear-off, constantes
+    /// canônicas) sai em `comdat`, e símbolos de outros módulos são
+    /// declarados.
+    pub modo_sdk: bool,
+    /// O módulo é uma biblioteca do SDK (sem `dartforge_entry` nem o
+    /// despacho de `toString`, que são do programa).
+    pub biblioteca_sdk: bool,
+    /// Tabelas de métodos das classes deste módulo, registradas no runtime
+    /// na partida (P5c): (id da classe, [(seletor, símbolo do adaptador)]).
+    pub tabelas_de_metodos: Vec<(u32, Vec<(String, String)>)>,
+    /// Biblioteca do SDK: o nome da função que registra as classes dela
+    /// (nomes, subtipos, tabelas de métodos) no runtime.
+    pub registro: Option<String>,
+    /// Programa com o SDK da fonte: as funções de registro das bibliotecas
+    /// do SDK, chamadas por `dartforge_entry` antes das do programa.
+    pub registros_do_sdk: Vec<String>,
+    /// Programa com o SDK da fonte: os ids de classe dos valores que o
+    /// runtime representa (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
+    /// `_OneByteString`, `_TwoByteString`, `_GrowableList`, `_List`,
+    /// `_ImmutableList`, `_Closure`, `_Record`), na ordem de
+    /// `runtime/src/seletores.rs`.
+    pub cids_do_runtime: Vec<i64>,
+    /// Membros do SDK da fonte recusados neste módulo: (símbolo, motivo).
+    /// Cada um virou uma função que avisa em tempo de execução.
+    pub recusados: Vec<(String, String)>,
+    /// Funções Dart que o runtime chama pelo nome (`_dartforge*` da
+    /// sobreposição): (nome, símbolo), registradas pelo registro do módulo.
+    pub ajudantes: Vec<(String, String)>,
 }
 
 impl Module {
