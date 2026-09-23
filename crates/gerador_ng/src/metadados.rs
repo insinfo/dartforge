@@ -252,6 +252,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
             self.membros(&dc, &mut d, &mut entradas);
         }
         d.entradas = entradas.into_iter().map(|(_, e)| e).collect();
+        // Diretiva genérica com `@HostBinding`: o `XNgCd<T>` leva argumentos
+        // de tipo (`lookupTypeArgumentsOf`) — ainda sem caso.
+        if !d.ligacoes_do_hospedeiro.is_empty() && !decl.parametros_de_tipo.is_empty() {
+            d.fora.push("diretiva genérica com @HostBinding".into());
+        }
         d.ganchos = self.ganchos(&ordem);
         self.dependencias(&decl, &mut d);
         Some(d)

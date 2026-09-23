@@ -543,7 +543,22 @@ impl Indice {
                 caminho,
                 programa.map(|r| r as &dyn resolucao::Resolucao),
             );
-            chaves.push((uri.to_string(), comp.classe.clone()));
+            let k = (uri.to_string(), comp.classe.clone());
+            // Os metadados do componente: com eles, os `providers:` dele
+            // (`ExistingProvider`, como os das diretivas) entram no nó de
+            // quem o usa, e o "filho com providers" deixa de ser recusa.
+            if let Some(r) = programa
+                && let Some(m) = r
+                    .classe_por_uri(uri, &comp.classe)
+                    .and_then(|id| crate::metadados::ler(r, id))
+                && let Some(f) = self.por_classe.get_mut(&k)
+            {
+                if m.fora.is_empty() {
+                    f.pendencias.retain(|p| p.forma != "filho com providers");
+                }
+                f.metadados = Some(std::sync::Arc::new(m));
+            }
+            chaves.push(k);
         }
         for d in &achados.diretivas {
             let k = (uri.to_string(), d.classe.clone());
@@ -925,6 +940,7 @@ fn indexar(
             parametros,
             consultas,
             pendencias,
+            metadados: None,
         },
     );
 }

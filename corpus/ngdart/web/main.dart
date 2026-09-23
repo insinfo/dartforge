@@ -90,6 +90,9 @@ import 'package:corpus_ngdart/src/g01_form_ng_model.template.dart' as g01;
 import 'package:corpus_ngdart/src/g02_select_ng_model.template.dart' as g02;
 import 'package:corpus_ngdart/src/h01_cabecalho.template.dart' as h01;
 import 'package:corpus_ngdart/src/h01_usa_cabecalho.template.dart' as h01;
+import 'package:corpus_ngdart/src/h02_campo.template.dart' as h02;
+import 'package:corpus_ngdart/src/h02_usa_campo.template.dart' as h02;
+import 'package:corpus_ngdart/src/h03_opcoes.template.dart' as h03;
 
 void main() {
   print([
@@ -182,5 +185,8 @@ void main() {
     g02.G02SelectNgModelNgFactory,
     h01.H01CabecalhoNgFactory,
     h01.H01UsaCabecalhoNgFactory,
+    h02.H02CampoNgFactory,
+    h02.H02UsaCampoNgFactory,
+    h03.H03OpcoesNgFactory,
   ].length);
 }
