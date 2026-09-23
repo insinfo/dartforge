@@ -192,6 +192,16 @@ comparação de produção usa dart2js com flags documentadas e checks equivalen
 Aceite: relatório reproduzível demonstra o desempenho em programas semanticamente equivalentes.
 “Mais rápido que DDC/dart2js” continua objetivo até isso existir.
 
+> **Nota (2026-09-23):** do "Primeiro incremento" até o "Incremento 26", as
+> seções abaixo registram a **trilha velha** (`lexer` → `parser` →
+> `semantic` → `hir` → `codegen`/`llvm`, com `compiler`, `linker`,
+> `packages`, `macros`, `optimizer` e o driver `native`). Esses crates
+> saíram do workspace e estão preservados na branch `exploracao-inicial`;
+> os documentos citados estão em `docs/historico/`. O que governa hoje é a
+> "Meta governante" e as seções seguintes, e o estado real está no
+> `ESTADO.md`. Caminhos como `crates/compiler/tests/...` citados em seções
+> posteriores também só existem naquela branch.
+
 ## Primeiro incremento implementado
 
 - [x] Variáveis locais, literais inteiros, expressões e precedência no subconjunto.
@@ -564,7 +574,9 @@ preferência:
   backend nativo já emite. Exige a distribuição completa do LLVM 22.1.8
   (`LLVM_SYS_221_PREFIX`), com `llvm-config`, cabeçalhos e libs estáticas.
 - `crates/cranelift-jit` — Cranelift, Rust puro, sem dependência externa,
-  partindo da **HIR**, nunca de LLVM IR.
+  partindo da **HIR**, nunca de LLVM IR. (Medido e descartado —
+  `docs/historico/CRANELIFT.md`; o crate saiu do workspace em 2026-09-23 e
+  está na branch `exploracao-inicial`.)
 
 Quatro eixos de comparação: tempo de geração de código em memória, tempo de
 execução do código gerado, custo de construção do próprio compilador (inclusive
@@ -1068,7 +1080,7 @@ madura com frente parada. Números medidos, não estimados; detalhe em
 | **JS de produção** | **214/214**; 3–5× mais rápido que o dart2js, 30–45× maior | mundo fechado sobre a nossa trilha, despacho direto, minificação, code splitting |
 | **Gerador do ngdart** | 134/300 arquivos do new_sali, 125 iguais byte a byte, 0 diferentes | `providers:`, `@ViewChild`, `pipes:`, `@Output`, `#ref`, local de visão ancestral |
 | **AOT nativo** | **7/214**; exceções com lowering próprio; determinismo verificado | `async`, genéricos reificados, `dart:core` da seção `vm`, `dart:io`, isolates |
-| **JIT** | **desligado**; os crates ainda consomem a trilha velha | rebasear na HIR do `emit_native` |
+| **JIT** | R0 (`run`/`reload`) sobre o IR do `emit_native` desde 2026-09-23 (`ESTADO.md` §1.5.1) | recarga com estado (R1) |
 
 ### AOT nativo — o que o placar diz
 
@@ -1091,6 +1103,11 @@ no nosso runtime — 438 arquivos, 227.252 linhas, com `dart:io`,
 pronto.
 
 ### JIT — por que está parado, e quando volta
+
+**Atualização 2026-09-23:** o `crates/jit` foi rebaseado no IR do
+`emit_native` e `run`/`reload` (R0) funcionam (`ESTADO.md` §1.5.1); o
+`cranelift-jit` e a trilha velha saíram do workspace (preservados na branch
+`exploracao-inicial`). O texto abaixo é o diagnóstico de 2026-09-22.
 
 `dartforge run` e `dartforge reload` devolvem erro. Os crates `jit`
 (ORCv2) e `cranelift-jit` consomem `dartforge_hir`, da trilha velha, que o
@@ -1565,7 +1582,7 @@ de compilação são critério permanente, e o compromisso é ser melhor que
 dart2js, DDC e o LSP do Dart **neste projeto**, medido.
 
 Primeira medição do front-end novo sobre o `new_sali` inteiro
-(`cargo run --release -p dartforge-frontend --example memoria --
+(`cargo run --release -p dartforge-frontend --example memoria_frontend --
 C:/MyDartProjects/new_sali`, alocador contador, **todas as árvores retidas**
 como num editor com o projeto aberto): 1.258/1.258 arquivos aceitos, 254 ms
 (33,6 MiB/s), **132 MiB vivos** com tudo retido — 15,5× a fonte —, pico
