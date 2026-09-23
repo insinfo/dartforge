@@ -43,11 +43,12 @@ oráculo** (3.6.2 e 3.13.4, cada um com o seu `dartdevc` e o seu
 | construtores primários, `new`/`factory`, corpo `;`, `var`/`final` | 3.13 | 340–346, 348–349 passam (4 negativos); 347 pendente (membros de extension type, lacuna da 3.3) |
 | inferência por bounds, fluxo sólido, gerador | 3.7–3.10 | 350–352 **pendentes** (P6, com o dono de `types`) |
 
-Placar no CI (rodada 35846394128, `ci/moderno`): **22/26** em desenvolvimento
+Placar no CI (Pesado 35898618924 e CI 35898619080, `ci/moderno` em ce1dc5e, os dois verdes): **22/26** em desenvolvimento
 e em produção, **26/26** DDC×VM, 12 negativos recusados na mesma linha que o
 CFE; os 4 que faltam estão em `corpus/moderno/PENDENTES`. Na mesma rodada:
-`corpus/js` 222/222 em desenvolvimento e produção, determinismo idêntico
-(produção e IR do nativo) e nativo 50/222 — nada regrediu. O `corpus/js` compilado na 3.6 dá **JS idêntico
+`corpus/js` 223/223 em desenvolvimento e produção, determinismo idêntico
+(produção e IR do nativo), nativo e JIT 81/223 (os do `main`) e o portão
+**custo zero verde** — nada regrediu. O `corpus/js` compilado na 3.6 dá **JS idêntico
 byte a byte** ao da base (222/222), e o parser continua aceitando 426/426 do
 SDK e 1.969/1.969 do pub (cada pacote na versão do seu pubspec). Nenhum
 recurso precisou de runtime novo. O nativo não roda o `corpus/moderno`:
@@ -55,12 +56,11 @@ curinga liga nome, entrada de mapa null-aware é recusada e atalho de ponto só 
 construção. Macros e augmentations: contratos em `docs/MACROS-PROTOCOLO.md`
 e `docs/AUGMENTATIONS.md` (executor nativo auto-hospedado), sem código.
 
-Custo para projeto 3.6 (regra governante): A/B intercalado base × nova, com a
-máquina carregada por outras cinco compilações — new_sali/core carregar
-678 → 748 ms e parse 262 → 268 ms na mediana (as três últimas rodadas da
-nova ficaram abaixo da base), edição de corpo 128 → 171 ms na mediana e
-56 → 48 ms no mínimo. Nenhuma diferença sistemática acima do ruído; números
-e método em `docs/VERSOES-LINGUAGEM.md` §7.
+Custo para projeto 3.6 (regra governante): o portão `custo zero (tempo)` do
+Pesado passou (corpus JS e edição de corpo dentro de 3% do `main`); no A/B
+local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
+`corpus/js`, 11.783 ms × 11.806 ms (+0,2%). Números e método em
+`docs/VERSOES-LINGUAGEM.md` §7.
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 

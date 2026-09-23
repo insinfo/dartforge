@@ -332,8 +332,8 @@ corrigido lá e vale este.
 
 ## 7. Placar e medições
 
-Medido em 2026-09-23 (CI da branch `ci/moderno`, run 35846394128, e de novo
-depois do merge da faxina).
+Medido em 2026-09-23 no CI da branch `ci/moderno` em ce1dc5e (depois do merge
+do `main` 6583c2b): Pesado 35898618924 e CI 35898619080, os dois verdes.
 
 | Recurso | Programas | Passam (dev e produção) | DDC×VM 3.13.4 |
 |---|---|---|---|
@@ -345,25 +345,24 @@ depois do merge da faxina).
 | Inferência e fluxo (P6) | 350–352 (1 negativo) | pendentes (dono de `types`) | 3/3 |
 | **Total `corpus/moderno`** | **26** | **22/26 + 4 pendentes** | **26/26** |
 
-Sem regressão: `corpus/js` 222/222 em desenvolvimento e produção, com o JS
-**byte a byte igual** ao da base (e7cb898) nos 222 com `--versao-linguagem
-3.6`; determinismo idêntico (produção e IR nativo); nativo 50/222 (o mesmo
-de antes); SDK 426/426 e pub 1969/1969 aceitos pelo parser.
+Sem regressão: `corpus/js` 223/223 em desenvolvimento e produção (o JS dos
+222 de antes sai **byte a byte igual** ao da base e7cb898 com
+`--versao-linguagem 3.6`); determinismo idêntico (produção e IR nativo);
+nativo e JIT 81/223, os mesmos do `main`; SDK 426/426 e pub 1969/1969
+aceitos pelo parser.
 
-**Custo para projeto 3.6 (regra governante, e7cb898).** A/B intercalado,
-binário da base × binário novo, na mesma máquina — que estava com cinco
-outras compilações rodando, então o ruído é maior que qualquer efeito:
-
-| Medida | Base | Nova |
-|---|---|---|
-| `corpus/js` sequencial, 223 programas (3 rodadas) | 300,7 / 58,7 / 14,8 s | 410,6 / 21,8 / 19,6 s |
-| new_sali/core, mediana de 5: carregar / parse | 678 / 262 ms | 748 / 268 ms |
-| new_sali/core, as três últimas rodadas: carregar | 670, 678, 656 ms | 748, 541, 562 ms |
-| dev, edição de corpo (mediana de 10 / mínimo) | 128 / 56 ms | 171 / 48 ms |
-
-Nenhuma diferença sistemática aparece acima do ruído; o custo estrutural é
-o que §2 descreve — ler o primeiro comentário de cada unidade (`marcador_versao`,
+**Custo para projeto 3.6 (regra governante).** O custo estrutural é o que §2
+descreve: ler o primeiro comentário de cada unidade (`marcador_versao`, que
 para no primeiro token que não é comentário), um `LibraryFeatures` de 8
-bytes `Copy` por unidade e um teste de bit por construto novo no parser. A
-medida limpa (as mesmas três, base × nova intercaladas) fica para uma máquina
-ociosa.
+bytes `Copy` por unidade e um teste de bit por construto novo no parser e
+nos consumidores. Medido:
+
+| Medida | `main` | esta frente |
+|---|---|---|
+| portão `custo zero (tempo)` do Pesado (5 rodadas alternadas, tolerância 3%) | — | **passou** |
+| `corpus/js`, 223 programas, mínimo de 3 por programa, alternado (local) | 11.783 ms | 11.806 ms (+0,2%) |
+
+Uma rodada anterior do portão reprovou por 15% (Pesado 35874860350): a
+branch ainda não tinha o merge do `main` com a decodificação paralela do
+cache do SDK (5ebe1d2), que o binário de base já tinha. Depois do merge a
+diferença sumiu — era do `main`, não do gating.
