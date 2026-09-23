@@ -303,3 +303,35 @@ void main() {
     assert_eq!(r.tipo("g"), "void Function([int Function(String, String)?])");
     assert_eq!(r.tipo("l.sort"), "void Function([int Function(String, String)?])");
 }
+
+/// Inferência de sobreposição pela posição (o nome do parâmetro pode
+/// mudar), extensão genérica usada de dentro dela mesma, `-1` com contexto
+/// `double`, e closure que não herda promoção de variável escrita no corpo.
+#[test]
+fn sobreposicao_extensao_e_closure() {
+    let r = ou_pula!(inferir(
+        r#"
+typedef F<T> = void Function(T v);
+abstract class Base<T> { void registrar(F<T> f); }
+class Impl implements Base<String> {
+  @override
+  void registrar(callback) { callback('x'); }
+}
+extension Divide<T> on Iterable<T> {
+  Iterable<List<T>> partes() => [toList()];
+  Iterable<List<T>> duas() => partes();
+}
+void main() {
+  double d = -1;
+  int? w;
+  w ??= 3;
+  var f = () => w;
+}
+"#
+    ));
+    assert_eq!(r.tipo("callback"), "void Function(String)");
+    assert_eq!(r.tipo("partes()"), "Iterable<List<T>>");
+    assert_eq!(r.tipo("-1"), "double");
+    assert_eq!(r.tipo("() => w"), "int? Function()");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}

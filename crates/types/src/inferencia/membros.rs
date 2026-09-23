@@ -237,9 +237,16 @@ impl<'a> BodyInferrer<'a> {
         if dados.type_params.is_empty() {
             return if self.sub(recv, dados.on) { Some(Vec::new()) } else { None };
         }
-        let mut inf = GenericInferrer::new(&dados.type_params);
+        // Parâmetros novos: dentro da própria extensão o receptor menciona
+        // os parâmetros dela (`this` é `Iterable<T>`), e `Iterable<T> <#
+        // Iterable<T>` com `T` em `L` não restringiria nada.
+        let novos = self.parametros_novos(&dados.type_params);
+        let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let m0 = self.mapa(&dados.type_params, &tipos);
+        let on_novo = self.subst(dados.on, &m0);
+        let mut inf = GenericInferrer::new(&novos);
         let mut env = self.env();
-        inf.constrain_argument(recv, dados.on, &mut env);
+        inf.constrain_argument(recv, on_novo, &mut env);
         let args = inf.choose_final(&mut env);
         drop(env);
         let mapa = self.mapa(&dados.type_params, &args);

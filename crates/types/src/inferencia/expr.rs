@@ -974,8 +974,10 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             inf.nao_nulo_promocao(t)
         }
         UnaryOp::Neg | UnaryOp::BitNot => {
-            let u = inf.core.unknown;
-            let t = inferir(inf, cx, operand, u);
+            // `-1` com literal: o literal recebe o contexto (`double x = -1`).
+            let literal = op == UnaryOp::Neg && matches!(inf.program.unit(cx.unit).ast.expr(operand).kind, ExprKind::Int(_));
+            let c = if literal { _ctx } else { inf.core.unknown };
+            let t = inferir(inf, cx, operand, c);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };
             let Some(sym) = sym else { return inf.core.dynamic_ };
             match inf.buscar_membro(cx.lib, t, sym, false) {

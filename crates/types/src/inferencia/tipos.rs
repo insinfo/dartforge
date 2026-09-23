@@ -262,6 +262,33 @@ impl<'a> BodyInferrer<'a> {
         args
     }
 
+    /// Cópias frescas (reusadas por lista) de parâmetros de tipo, com os
+    /// limites reescritos nelas.
+    pub(crate) fn parametros_novos(&mut self, originais: &[TypeParamId]) -> Vec<TypeParamId> {
+        if originais.is_empty() {
+            return Vec::new();
+        }
+        if let Some(n) = self.params_construtor.get(&originais[0].0) {
+            return n.clone();
+        }
+        let novos: Vec<TypeParamId> = originais
+            .iter()
+            .map(|&p| {
+                let d = self.table.param(p).clone();
+                self.table.alloc_type_param(d.name, TypeParamOwner::GenericFunctionType, d.bound, d.variance)
+            })
+            .collect();
+        let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let mapa = self.mapa(originais, &tipos);
+        for &p in &novos {
+            let b = self.table.param(p).bound;
+            let b = self.subst(b, &mapa);
+            self.table.set_type_param_bound(p, b);
+        }
+        self.params_construtor.insert(originais[0].0, novos.clone());
+        novos
+    }
+
     /// Mapa de substituição `params → args`.
     pub(crate) fn mapa(&self, params: &[TypeParamId], args: &[TypeId]) -> HashMap<TypeParamId, TypeId> {
         params.iter().copied().zip(args.iter().copied()).collect()

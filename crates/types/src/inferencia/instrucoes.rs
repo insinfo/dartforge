@@ -589,10 +589,15 @@ fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<Loc
 
 /// Nomes escritos dentro de uma função (para a captura de escrita).
 pub(crate) fn nomes_escritos_em_funcao(inf: &BodyInferrer<'_>, unit: UnitId, f: &ast::Function) -> Vec<SymbolId> {
+    nomes_escritos_em_corpo(inf, unit, &f.body)
+}
+
+/// Nomes escritos num corpo (inclusive dentro de closures dele).
+pub(crate) fn nomes_escritos_em_corpo(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> Vec<SymbolId> {
     let a = &inf.program.unit(unit).ast;
     let mut nomes = Vec::new();
     let mut em_closure = Vec::new();
-    match &f.body {
+    match body {
         ast::FunctionBody::Block(s) => varrer_stmt(a, *s, &mut nomes, &mut em_closure, true),
         ast::FunctionBody::Expression(e) => varrer_expr(a, *e, &mut nomes, &mut em_closure, true),
         _ => {}

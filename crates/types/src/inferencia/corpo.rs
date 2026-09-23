@@ -74,6 +74,10 @@ pub(crate) struct Corpo {
     pub escritos_em_closure: Vec<SymbolId>,
     /// Rótulos da instrução rotulada cujo corpo é o próximo laço/`switch`.
     pub rotulos_pendentes: Vec<SymbolId>,
+    /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
+    /// closure eles não ficam promovidos (`functionExpression_begin` faz a
+    /// junção conservadora com `assignedVariables.anywhere`).
+    pub escritos_no_corpo: Vec<SymbolId>,
 }
 
 /// Destino de saltos.
@@ -104,6 +108,7 @@ impl Corpo {
             tipo_this: None,
             escritos_em_closure: Vec::new(),
             rotulos_pendentes: Vec::new(),
+            escritos_no_corpo: Vec::new(),
         };
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).

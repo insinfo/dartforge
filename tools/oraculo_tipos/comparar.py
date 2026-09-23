@@ -11,6 +11,7 @@ Os spans do nosso despejo são bytes UTF-8; os do analyzer, unidades UTF-16.
 A conversão é feita aqui, lendo o arquivo-fonte.
 """
 import sys
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import re
 from collections import defaultdict
 

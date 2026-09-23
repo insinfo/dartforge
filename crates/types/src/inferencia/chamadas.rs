@@ -440,32 +440,12 @@ fn registrar_referencia(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
 }
 
 impl<'a> BodyInferrer<'a> {
-    /// Parâmetros novos (por classe, reusados) para inferir os argumentos
-    /// de tipo de construtores: os da classe podem estar em escopo no ponto
-    /// da chamada (`C(x)` dentro de `C<T>`), e não podem ser confundidos.
+    /// Parâmetros novos (por classe) para inferir os argumentos de tipo de
+    /// construtores: os da classe podem estar em escopo no ponto da chamada
+    /// (`C(x)` dentro de `C<T>`), e não podem ser confundidos.
     fn parametros_de_construtor(&mut self, c: ClassId) -> (Vec<TypeParamId>, Vec<TypeParamId>) {
         let originais = self.outline.classes[c.0 as usize].type_params.to_vec();
-        if originais.is_empty() {
-            return (originais, Vec::new());
-        }
-        if let Some(n) = self.params_construtor.get(&c.0) {
-            return (originais, n.clone());
-        }
-        let novos: Vec<TypeParamId> = originais
-            .iter()
-            .map(|&p| {
-                let d = self.table.param(p).clone();
-                self.table.alloc_type_param(d.name, crate::table::TypeParamOwner::GenericFunctionType, d.bound, d.variance)
-            })
-            .collect();
-        let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let mapa = self.mapa(&originais, &tipos);
-        for &p in &novos {
-            let b = self.table.param(p).bound;
-            let b = self.subst(b, &mapa);
-            self.table.set_type_param_bound(p, b);
-        }
-        self.params_construtor.insert(c.0, novos.clone());
+        let novos = self.parametros_novos(&originais);
         (originais, novos)
     }
 }
