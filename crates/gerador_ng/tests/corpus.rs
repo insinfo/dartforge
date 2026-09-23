@@ -22,7 +22,7 @@ fn raiz_do_corpus() -> PathBuf {
 /// Casos do corpus que o gerador tem de recusar, com a sub-forma da recusa.
 const RECUSADOS: &[(&str, &str)] = &[(
     "g02_select_ng_model.dart",
-    "diretiva SelectControlValueAccessor",
+    "diretiva NgSelectOption (OnDestroy)",
 )];
 
 #[test]
