@@ -1642,3 +1642,45 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   não mudam. Pré-condição: um segundo SDK de oráculo (o da versão nova) ao
   lado do 3.6.2 no harness e no CI, com os programas marcados pela versão que
   exigem. Notas em `references/NOTAS-ARTIGOS.md` §3.
+
+## Regra governante — geração de código e macros: rápidas, e custo zero para quem não usa
+
+Registrada em 2026-09-23 por instrução do proprietário. Vale para o motor que
+substitui o `build_runner` (`docs/BUILD-RUST.md`) e para o executor de macros
+(auto-hospedado no nosso backend nativo — nada de Node nem motor de
+terceiros).
+
+1. **Custo zero para quem não usa.** Um projeto sem aplicação de macro e sem
+   builder configurado compila **exatamente** como hoje: nenhum processo
+   executor iniciado, nenhum grafo de build instanciado, nenhuma passada
+   extra. A detecção reaproveita o que já foi feito: anotações já estão no
+   AST, e só uma anotação que resolve para uma classe declarada com `macro`
+   liga o hospedeiro; só `build.yaml`/dependência de builder liga o motor de
+   build. **Portão no CI:** o tempo de compilação do corpus e a latência de
+   edição do `dartforge dev` (hoje 227 ms de corpo no `new_sali/core`) não
+   podem mudar com os recursos compilados dentro — medido, não suposto.
+2. **Uma infraestrutura só para executar Dart em tempo de compilação**:
+   macros e builders do ecossistema (Fase 4 do `BUILD-RUST.md`) usam o mesmo
+   executor nativo, o mesmo protocolo e os mesmos caches.
+3. **O executor é persistente e quente**: um processo por sessão, iniciado na
+   primeira necessidade e reaproveitado; a macro/builder é compilada **uma
+   vez**, com o resultado em cache por
+   `blake3(fontes + versões + versão do DartForge + ABI)` — nunca recompilada
+   por ciclo.
+4. **Só reexecuta o que mudou**: cada execução registra o que consultou
+   (introspecção, arquivos lidos); o resultado é reusado enquanto o resumo
+   dessas entradas não mudar. Editar o corpo de um método que nenhuma macro
+   consultou não executa macro nenhuma.
+5. **Paralelo onde a especificação permite**: aplicações independentes na
+   mesma fase de macro (a especificação garante que a ordem não é visível
+   dentro da fase) e ações de build independentes rodam em paralelo, com
+   saída determinística.
+6. **Nada de contabilidade em disco**: fontes geradas vivem na memória
+   (`crates/elements/src/gerado.rs`, já verificado byte a byte); o disco só
+   recebe o que o usuário pedir. Os ~7.980 artefatos de bookkeeping do
+   `build_runner` não têm equivalente aqui.
+7. **Orçamentos medidos, com metas iniciais a confirmar**: partida a frio do
+   executor uma vez por sessão; edição que reexecuta uma macro com executor
+   quente na casa das dezenas de ms além da edição comum; build sem mudança
+   na casa das dezenas de ms. Cada número entra no ESTADO medido, e
+   regressão reprova no CI.
