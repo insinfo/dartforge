@@ -1407,6 +1407,7 @@ fn resolve_type_to_class(
                         } else {
                             match b.getter {
                                 Some(Element::Class(cid)) => Some(cid),
+                                Some(Element::Typedef(tid)) => classe_do_typedef(program, tid, 0),
                                 _ => None,
                             }
                         }
@@ -1415,6 +1416,32 @@ fn resolve_type_to_class(
                 None
             }
         }
+        _ => None,
+    }
+}
+
+/// A classe que um `typedef X = C<…>;` nomeia, para o alias usado como
+/// supertipo, mixin ou interface (`with MapMixin<K, V>`, com `typedef
+/// MapMixin<K, V> = MapBase<K, V>` no `dart:collection`). Segue alias de
+/// alias até uma profundidade pequena; um alias de tipo que não é classe dá
+/// `None`.
+fn classe_do_typedef(program: &Program, tid: TypedefId, profundidade: u32) -> Option<ClassId> {
+    if profundidade > 8 {
+        return None;
+    }
+    let t = program.typedef(tid);
+    let ast = &program.unit(t.decl.unit).ast;
+    let ast::DeclKind::Typedef(d) = &ast.decl(t.decl.decl).kind else { return None };
+    let ast::TypedefKind::Alias(ty) = d.kind else { return None };
+    let ast::TypeKind::Named { name, .. } = &ast.ty(ty).kind else { return None };
+    let b = match &name[..] {
+        [n] => program.lookup(t.library, n.sym),
+        [p, n] => program.lookup_prefixed(t.library, p.sym, n.sym),
+        _ => None,
+    }?;
+    match b.getter {
+        Some(Element::Class(cid)) => Some(cid),
+        Some(Element::Typedef(outro)) => classe_do_typedef(program, outro, profundidade + 1),
         _ => None,
     }
 }
@@ -1429,6 +1456,9 @@ fn resolve_name_to_class(
         if !b.ambiguous {
             if let Some(Element::Class(cid)) = b.getter {
                 return Some(cid);
+            }
+            if let Some(Element::Typedef(tid)) = b.getter {
+                return classe_do_typedef(program, tid, 0);
             }
         }
     }
