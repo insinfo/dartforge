@@ -60,8 +60,9 @@ impl IrEmitido {
 /// compara só isto (`dartforge-diferencial determinismo --nativo`), e
 /// `compile-native --emit-ir` grava isto. Diagnósticos de carga vão na
 /// mensagem de erro, e não no stderr, para não se entrelaçarem quando várias
-/// emissões rodam no mesmo processo; a primeira linha continua sendo a
-/// contagem, que é o que o relatório do harness agrupa.
+/// emissões rodam no mesmo processo. A primeira linha é o primeiro
+/// diagnóstico, porque é ela que o relatório do harness mostra e agrupa — uma
+/// contagem ("1 erro(s)") juntava num grupo só causas diferentes.
 pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
@@ -75,9 +76,9 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
 
     let mut interner = Interner::new();
     let (program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
-    if !elements_diags.is_empty() {
-        let mut msg = format!("{} erro(s) ao carregar o programa", elements_diags.len());
-        for d in &elements_diags {
+    if let Some((primeiro, resto)) = elements_diags.split_first() {
+        let mut msg = format!("erro ao carregar o programa: {primeiro}");
+        for d in resto {
             msg.push_str(&format!("\nerro: {d}"));
         }
         return Err(msg);
