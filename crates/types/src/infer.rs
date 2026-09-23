@@ -493,10 +493,9 @@ impl<'a> BodyInferrer<'a> {
             expr.kind,
             ExprKind::Property { .. } | ExprKind::Call { .. } | ExprKind::Index { .. } | ExprKind::TypeArguments { .. } | ExprKind::Unary { .. }
         ) && self.program.library(current_library).features.tem(dartforge_frontend::Feature::DotShorthands)
+            && let Some(raiz) = self.program.unit(unit).ast.raiz_de_atalho(expr_id)
         {
-            if let Some(raiz) = self.program.unit(unit).ast.raiz_de_atalho(expr_id) {
-                self.contexto_atalho.entry((unit.0, raiz.0)).or_insert(context_type);
-            }
+            self.contexto_atalho.entry((unit.0, raiz.0)).or_insert(context_type);
         }
 
         let ty = match &expr.kind {
@@ -1133,10 +1132,10 @@ impl<'a> BodyInferrer<'a> {
             ExprKind::Binary { op, left, right } => {
                 let left_ty = self.infer_expr(unit, *left, None, scope, flow);
                 // `e == .x`: o atalho à direita usa o tipo da esquerda (3.10).
-                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
-                    if let Some(r) = self.program.unit(unit).ast.raiz_de_atalho(*right) {
-                        self.contexto_atalho.insert((unit.0, r.0), Some(left_ty));
-                    }
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                    && let Some(r) = self.program.unit(unit).ast.raiz_de_atalho(*right)
+                {
+                    self.contexto_atalho.insert((unit.0, r.0), Some(left_ty));
                 }
                 let right_ty = self.infer_expr(unit, *right, None, scope, flow);
 

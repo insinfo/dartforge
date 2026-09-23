@@ -777,10 +777,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None),
         };
-        if const_ && matches!(body, FunctionBody::Block(_)) {
-            if let Some(span) = span_parte {
-                self.diagnostics.push(Diagnostic::new("construtor primário constante não pode ter corpo na parte 'this'", span));
-            }
+        if let (true, FunctionBody::Block(_), Some(span)) = (const_, &body, span_parte) {
+            self.diagnostics.push(Diagnostic::new("construtor primário constante não pode ter corpo na parte 'this'", span));
         }
         let k2 = Member {
             span: span_parte.unwrap_or(cab.span),

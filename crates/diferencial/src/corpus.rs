@@ -171,7 +171,7 @@ pub fn listar(dir: &Path, filtro: Option<&str>) -> Vec<Programa> {
     }
     let pendentes = ler_pendentes(dir);
     for p in &mut programas {
-        p.pendente = pendentes.iter().any(|n| *n == p.nome);
+        p.pendente = pendentes.contains(&p.nome);
     }
     if let Some(f) = filtro {
         programas.retain(|p| p.nome.contains(f));
