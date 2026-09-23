@@ -528,7 +528,7 @@ impl Conversor<'_> {
                 // campo `final`/`const` (o getter já chega aqui mutável).
                 Ok(Convertida {
                     imutavel: m.imutavel,
-                    tipo: Some(m.tipo.clone()),
+                    tipo: (!m.tipo.is_empty()).then(|| m.tipo.clone()),
                     ..Convertida::nova(format!("_ctx.{nome}"), "membro")
                 })
             }

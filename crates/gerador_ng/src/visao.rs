@@ -307,6 +307,19 @@ fn formas_contra_o_template(
                 Motivo::ViewChildEmFilho,
                 "@ViewChild de elemento com tipo que não é Element",
             ),
+            // A instância do filho: o campo tem de ser do tipo dele (não um
+            // `Element`) e o filho não pode ser `onPush`, que registra o
+            // `ChangeDetectorRef` da consulta (`queryChangeDetectorRefs`).
+            [Lugar::NoFilho] => {
+                if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+                    recusa(
+                        Motivo::ViewChildEmFilho,
+                        "@ViewChild de tipo Element em #ref de filho",
+                    )
+                } else {
+                    continue;
+                }
+            }
             [Lugar::Filho] => recusa(
                 Motivo::ViewChildEmFilho,
                 "@ViewChild de #ref em componente filho",
@@ -332,8 +345,11 @@ enum Lugar {
     Raiz,
     /// Dentro de uma visão embutida (`*ngIf`, `*ngFor`).
     Embutida,
-    /// Num componente filho ou no conteúdo projetado nele.
+    /// No conteúdo projetado num componente filho.
     Filho,
+    /// No próprio elemento de um componente filho da visão: vale a
+    /// instância.
+    NoFilho,
 }
 
 fn onde_esta(
@@ -347,7 +363,9 @@ fn onde_esta(
         let No::Elemento(e) = no else { continue };
         let lugar = if e.estrela.is_some() {
             Lugar::Embutida
-        } else if em_filho || filhos.contains_key(&e.nome) || !dom::tag_html(&e.nome) {
+        } else if !em_filho && filhos.contains_key(&e.nome) {
+            Lugar::NoFilho
+        } else if em_filho || !dom::tag_html(&e.nome) {
             Lugar::Filho
         } else {
             Lugar::Raiz
@@ -356,7 +374,8 @@ fn onde_esta(
             saida.push(lugar);
         }
         let mut dentro = Vec::new();
-        onde_esta(&e.filhos, nome, filhos, lugar == Lugar::Filho, &mut dentro);
+        let abaixo_de_filho = matches!(lugar, Lugar::Filho | Lugar::NoFilho);
+        onde_esta(&e.filhos, nome, filhos, abaixo_de_filho, &mut dentro);
         // Tudo abaixo de um `*` é da visão embutida.
         if lugar == Lugar::Embutida {
             dentro.iter_mut().for_each(|l| *l = Lugar::Embutida);
@@ -774,21 +793,67 @@ pub struct Filho {
     pub uri_dart: String,
     /// URI `package:` do `.template.dart` dele.
     pub uri_template: String,
-    /// Tem `<ng-content>`: muda `create` para `createAndProject`.
-    pub projeta: bool,
+    /// `ngContentSelectors` do template do filho: o `select` de cada
+    /// `<ng-content>`, em ordem, `*` sem ele. Com algum, quem usa o filho
+    /// chama `createAndProject` com uma lista de nós por projeção.
+    pub projecoes: Vec<String>,
     /// `@Input`s do filho, na ordem em que o oficial os escreve.
     pub entradas: Vec<crate::componente::Entrada>,
-    /// O filho tem ciclo de vida, `AfterChanges` ou é `OnPush`: quem o usa
-    /// chama os ganchos dele (`bindDirectiveDetectChangesLifecycleCallbacks`)
-    /// e marca a checagem ao mudar uma entrada — nada disso ainda.
-    pub muda_o_pai: bool,
+    /// Ganchos de ciclo de vida do filho: quem o usa os chama
+    /// (`bindDirectiveDetectChangesLifecycleCallbacks`,
+    /// `bindDirectiveAfterChildrenCallbacks`).
+    pub ganchos: crate::componente::Ganchos,
+    /// `onPush`: quem muda uma entrada marca a checagem do filho.
+    pub on_push: bool,
+    /// `@Output`s (nome no template, membro), na ordem do mapa `outputs`.
+    pub saidas: Vec<(String, String)>,
+    /// O que o construtor do filho recebe, na ordem.
+    pub parametros: Vec<Injetado>,
+    /// `@ContentChild`/`@ContentChildren` do filho, com o alvo resolvido:
+    /// (campo, lista, alvo). Quem projeta conteúdo nele atualiza a consulta.
+    pub consultas: Vec<(String, bool, AlvoDeConsulta)>,
     /// O que no filho muda o código de quem o usa e o emissor ainda não
     /// escreve: injeção no construtor, `@HostBinding`, consulta de conteúdo,
     /// provedores, projeção com seletor. Qualquer uma recusa o uso.
     pub pendencias: Vec<Recusa>,
 }
 
+/// Um parâmetro do construtor de um filho, como o oficial o resolve no nó
+/// dele (`provider_resolver.dart`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Injetado {
+    /// `Element`/`HtmlElement`: o próprio nó.
+    Elemento,
+    /// `ChangeDetectorRef`: a visão do filho.
+    Detector,
+    /// Serviço de fora da visão: `injectorGet` pela visão de cima
+    /// (`injectFromViewParentInjector`), `injectorGetOptional` com
+    /// `@Optional()`.
+    Servico {
+        uri: String,
+        classe: String,
+        opcional: bool,
+    },
+}
+
+/// O que uma consulta de conteúdo de um filho procura.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlvoDeConsulta {
+    /// Uma classe (URI, nome).
+    Classe(String, String),
+    /// Um `#ref` do conteúdo.
+    Referencia(String),
+}
+
 impl Filho {
+    /// O membro que o `@Output` `nome` expõe.
+    pub fn saida(&self, nome: &str) -> Option<&str> {
+        self.saidas
+            .iter()
+            .find(|(n, _)| n == nome)
+            .map(|(_, m)| m.as_str())
+    }
+
     /// O `@Input` que recebe a ligação `nome`.
     pub fn entrada(&self, nome: &str) -> Option<&crate::componente::Entrada> {
         self.entradas.iter().find(|e| e.nome == nome)
@@ -984,6 +1049,35 @@ struct Corpo<'a> {
     profundidade: u32,
     /// Quantas chamadas de pipe desta visão já foram convertidas.
     cursor_pipe: usize,
+    /// `changed` é lido ou escrito: `bool changed = false;` no topo da
+    /// detecção.
+    usa_changed: bool,
+    /// Ganchos `ngAfterContent*` e `ngAfterView*` dos filhos, na ordem do
+    /// oficial (de baixo para cima), já no nível do método: saem dentro do
+    /// `if ((!debugThrowIfChanged))`.
+    apos_conteudo: Vec<String>,
+    apos_visao: Vec<String>,
+    /// `ngOnDestroy` dos filhos, no fim do `destroyInternal`.
+    destruir: Vec<String>,
+    /// Quantas `subscription_N` (`@Output` de filho) esta visão tem.
+    subscricoes: usize,
+    /// Os filhos em cujo conteúdo projetado estamos (URI, classe): um deles
+    /// injetado seria resolvido aqui mesmo, não pelo injetor de cima.
+    filhos_acima: Vec<(String, String)>,
+    /// `#ref` de filho `onPush`, com a visão dele: o `@ViewChild` registra
+    /// o `ChangeDetectorRef` (`queryChangeDetectorRefs`).
+    detectores: std::collections::HashMap<String, String>,
+    /// Os nós criados sem pai (raiz da visão embutida, conteúdo projetado),
+    /// como são lidos depois: `_el_3`, `this._el_3`, `this._appEl_4`.
+    raizes: Vec<String>,
+    /// O índice do filho cujo conteúdo projetado está sendo criado: é o pai
+    /// de uma âncora solta ali (`parent.nodeIndex`).
+    pai_projetado: Option<u32>,
+    /// A profundidade da visão onde está o nó mais alto da cadeia de
+    /// injetores de um nó desta visão (`ProviderResolver._getDependency`
+    /// sobe até o filho da raiz da visão do componente; a raiz de uma visão
+    /// embutida tem por pai o pai da âncora dela).
+    nivel_do_topo: u32,
 }
 
 impl Corpo<'_> {
@@ -1385,28 +1479,52 @@ impl Corpo<'_> {
         pai: &str,
     ) -> Result<(), Recusa> {
         let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
-        // `@Output`, `[(x)]`, `#ref` e atributo estático em filho: ainda
-        // não.
-        if !e.eventos.is_empty() {
-            return Err(em_filho("@Output ou evento no filho"));
-        }
         if !e.bananas.is_empty() {
             return Err(em_filho("[(x)] no filho"));
         }
-        if !e.referencias.is_empty() {
-            return Err(em_filho("#ref no filho"));
-        }
-        if e.estrela.is_some() {
-            return Err(em_filho("`*` no elemento do filho"));
-        }
-        if !e.atributos.is_empty() {
-            return Err(em_filho("atributo estático no filho"));
-        }
-        if filho.muda_o_pai {
-            return Err(em_filho("filho com ciclo de vida, AfterChanges ou OnPush"));
-        }
         if let Some(r) = filho.pendencias.first() {
             return Err(r.clone());
+        }
+        // `#ref` no filho vale a instância; só na forma que não muda nada
+        // no nó e que nenhuma expressão lê (o `@ViewChild` a recebe).
+        for r in &e.referencias {
+            if !r.valor.is_empty() {
+                return Err(em_filho("#ref com valor no filho"));
+            }
+            if !self.refs_livres.contains(&r.nome) {
+                return Err(em_filho(if self.embutida {
+                    "#ref no filho em visão embutida"
+                } else {
+                    "#ref no filho usado em expressão"
+                }));
+            }
+        }
+        for a in &e.atributos {
+            if a.valor.contains("{{") {
+                return Err(em_filho("atributo interpolado no filho"));
+            }
+            if a.nome == "style" {
+                return Err(recusa(Motivo::EstiloEmLinha, "style=\"...\" em linha"));
+            }
+            // Sem valor (`<x disabled>`) o oficial liga um `EmptyExpr`, e
+            // `x=""` não se distingue daqui: nenhum dos dois ainda.
+            if filho.entrada(&a.nome).is_some() && a.valor.is_empty() {
+                return Err(em_filho("atributo sem valor em @Input do filho"));
+            }
+        }
+        // O que chega a um `@Input`: atributo estático (literal) e `[x]`. Um
+        // nome ligado duas vezes some no oficial (`_removeExisting`).
+        let mut ligadas: Vec<(&crate::html::Ligacao, bool)> = e
+            .atributos
+            .iter()
+            .filter(|a| filho.entrada(&a.nome).is_some())
+            .map(|a| (a, true))
+            .collect();
+        ligadas.extend(e.propriedades.iter().map(|l| (l, false)));
+        for (i, (l, _)) in ligadas.iter().enumerate() {
+            if ligadas[..i].iter().any(|(x, _)| x.nome == l.nome) {
+                return Err(em_filho("@Input do filho ligado duas vezes"));
+            }
         }
         let n = self.proximo;
         self.proximo += 1;
@@ -1437,97 +1555,449 @@ impl Corpo<'_> {
         self.linhas.push(format!(
             "    final _el_{n} = this.{campo_vista}.rootElement;"
         ));
-        self.linhas.push(format!("    {pai}.append(_el_{n});"));
-        self.linhas
-            .push(format!("    this.{campo_inst} = {vd}.{classe}();"));
-        // As entradas saem na ordem em que o filho as declara
-        // (`_SortInputsVisitor`), não na do template.
-        let mut props: Vec<&crate::html::Ligacao> = e.propriedades.iter().collect();
-        props.sort_by_key(|l| {
-            filho
-                .entradas
-                .iter()
-                .position(|x| x.nome == l.nome)
-                .unwrap_or(usize::MAX)
-        });
-        for l in props {
-            self.entrada_do_filho(l, filho, &campo_inst)?;
-        }
-        if filho.projeta {
-            // Conteúdo projetado: os nós são criados soltos e entregues ao
-            // filho, que decide onde encaixá-los.
-            let marca = self.linhas.len();
-            self.nos(&e.filhos, "")?;
-            let criados: Vec<String> = self.linhas[marca..]
-                .iter()
-                .filter_map(|l| l.split_once("final ").map(|(_, r)| r))
-                .filter_map(|r| r.split_once(' ').map(|(nome, _)| nome.to_string()))
-                .collect();
-            let raiz: Vec<String> = criados
-                .iter()
-                .filter(|n| n.starts_with("_el_"))
-                .cloned()
-                .collect();
-            // Sem conteúdo projetado a lista sai constante e numa linha
-            // só, como o oficial escreve.
-            self.linhas.push(if raiz.is_empty() {
-                format!(
-                    "    this.{campo_vista}.createAndProject(this.{campo_inst}, [const <Object>[]]);"
-                )
-            } else {
-                format!(
-                    "    this.{campo_vista}.createAndProject(this.{campo_inst}, [\n      <Object>[{}]\n    ]);",
-                    raiz.join(", ")
-                )
-            });
+        // Na raiz da visão embutida, ou projetado, o nó não tem pai aqui.
+        if pai.is_empty() {
+            self.raizes.push(format!("_el_{n}"));
         } else {
+            self.linhas.push(format!("    {pai}.append(_el_{n});"));
+        }
+        // Os atributos escritos, em ordem alfabética (`_toSortedBindings`),
+        // todos — também os que alimentam um `@Input` —, e o `class` pelo
+        // `updateChildClassNonHtml`: o elemento do filho não é HTML
+        // (`writeLiteralAttributeValues`).
+        let mut atributos = e.atributos.clone();
+        atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
+        for a in &atributos {
+            let valor = literal(&a.valor);
+            if a.nome == "class" {
+                self.linhas.push(format!(
+                    "    this.updateChildClassNonHtml(_el_{n}, {valor});"
+                ));
+            } else {
+                let dom = self.dom();
+                self.linhas.push(format!(
+                    "    {dom}.setAttribute(_el_{n}, '{}', {valor});",
+                    a.nome
+                ));
+            }
+        }
+        if self.com_estilo {
+            self.linhas.push(format!("    this.addShimC(_el_{n});"));
+        }
+        let construcao = self.construcao_do_filho(filho, n, &vd, &campo_vista)?;
+        self.linhas
+            .push(format!("    this.{campo_inst} = {construcao};"));
+        for r in &e.referencias {
+            self.refs
+                .insert(r.nome.clone(), format!("this.{campo_inst}"));
+            if filho.on_push {
+                self.detectores.insert(r.nome.clone(), campo_vista.clone());
+            }
+        }
+        self.entradas_do_filho(&ligadas, filho, &campo_inst, &campo_vista)?;
+        self.saidas_do_filho(e, filho, n, &campo_inst)?;
+        if filho.projecoes.is_empty() {
             if !e.filhos.is_empty() {
                 return Err(recusa(
                     Motivo::Projecao,
                     "conteúdo em filho que não projeta",
                 ));
             }
+            self.consultas_do_filho(e, filho, &campo_inst)?;
+            self.depois_dos_filhos(filho, &campo_inst);
             self.linhas
                 .push(format!("    this.{campo_vista}.create(this.{campo_inst});"));
+            return Ok(());
+        }
+        // Conteúdo projetado: os nós são criados soltos e cada um vai para a
+        // projeção cujo seletor casa com ele (`findNgContentIndex`: o menor
+        // índice que casa, senão o `*`).
+        let seletores: Vec<Option<Vec<crate::seletor::Seletor>>> = filho
+            .projecoes
+            .iter()
+            .map(|s| (s != "*").then(|| crate::seletor::Seletor::analisar(s)))
+            .collect();
+        let curinga = filho.projecoes.iter().position(|s| s == "*");
+        let mut listas: Vec<Vec<String>> = vec![Vec::new(); filho.projecoes.len()];
+        self.filhos_acima
+            .push((filho.uri_dart.clone(), filho.classe.clone()));
+        let pai_antes = self.pai_projetado.replace(n);
+        let mut r = Ok(());
+        for no in &e.filhos {
+            let indice = match no {
+                No::Comentario(_) => continue,
+                No::Elemento(x) => {
+                    let mut sem_estrela = x.clone();
+                    sem_estrela.estrela = None;
+                    let el = crate::seletor::Elemento::do_template(&sem_estrela);
+                    seletores
+                        .iter()
+                        .position(|s| {
+                            s.as_ref()
+                                .is_some_and(|s| crate::seletor::casa_algum(s, &el))
+                        })
+                        .or(curinga)
+                }
+                _ => curinga,
+            };
+            let Some(indice) = indice else {
+                r = Err(recusa(
+                    Motivo::Projecao,
+                    "conteúdo que nenhuma projeção recebe",
+                ));
+                break;
+            };
+            let antes = self.raizes.len();
+            if let Err(x) = self.nos(std::slice::from_ref(no), "") {
+                r = Err(x);
+                break;
+            }
+            listas[indice].extend(self.raizes.drain(antes..));
+        }
+        self.pai_projetado = pai_antes;
+        self.filhos_acima.pop();
+        r?;
+        self.consultas_do_filho(e, filho, &campo_inst)?;
+        self.depois_dos_filhos(filho, &campo_inst);
+        // Todas vazias: uma linha só, constantes. Senão, uma lista por
+        // linha (o `dart format` quebra a lista que tem outra não vazia).
+        let texto = if listas.iter().all(Vec::is_empty) {
+            let vazias = vec!["const <Object>[]"; listas.len()];
+            format!(
+                "    this.{campo_vista}.createAndProject(this.{campo_inst}, [{}]);",
+                vazias.join(", ")
+            )
+        } else {
+            let linhas: Vec<String> = listas
+                .iter()
+                .map(|l| {
+                    if l.is_empty() {
+                        "      const <Object>[]".to_string()
+                    } else {
+                        format!("      <Object>[{}]", l.join(", "))
+                    }
+                })
+                .collect();
+            format!(
+                "    this.{campo_vista}.createAndProject(this.{campo_inst}, [\n{}\n    ]);",
+                linhas.join(",\n")
+            )
+        };
+        self.linhas.push(texto);
+        Ok(())
+    }
+
+    /// A construção da instância do filho, texto depois de `this._X_n_5 = `
+    /// (sem o `;`): o nó, a visão do filho e os serviços pela visão de cima.
+    /// Com serviço, o oficial embrulha em `debugInjectorWrap` sob
+    /// `isDevMode`, como na hospedeira.
+    fn construcao_do_filho(
+        &mut self,
+        filho: &Filho,
+        n: u32,
+        vd: &str,
+        campo_vista: &str,
+    ) -> Result<String, Recusa> {
+        let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
+        let classe = &filho.classe;
+        let injeta = filho
+            .parametros
+            .iter()
+            .any(|p| matches!(p, Injetado::Servico { .. }));
+        // A ordem dos imports é a da escrita: `isDevMode`, `errors.dart`, a
+        // classe e os tipos injetados.
+        let prefixo = if injeta {
+            let util = self.imp.alias(UTILITIES);
+            let erros = self.imp.alias(DI_ERRORS);
+            Some((util, erros))
+        } else {
+            None
+        };
+        // `injectFromViewParentInjector` escrito na visão do nó e levado
+        // (`getPropertyInView`) à visão do nó mais alto da cadeia de
+        // injetores: `parentView.injectorGet(T, parentIndex)` visto de lá.
+        let saltos = self.profundidade - self.nivel_do_topo;
+        let visao_do_componente = if saltos == 0 {
+            "this".to_string()
+        } else {
+            let mut v = "(this.parentView!)".to_string();
+            for _ in 1..saltos {
+                v = format!("({v}.parentView!)");
+            }
+            v
+        };
+        let mut args = Vec::new();
+        for p in &filho.parametros {
+            match p {
+                Injetado::Elemento => args.push(format!("_el_{n}")),
+                Injetado::Detector => args.push(format!("this.{campo_vista}")),
+                Injetado::Servico {
+                    uri,
+                    classe: tipo,
+                    opcional,
+                } => {
+                    if self.filhos_acima.iter().any(|(u, c)| u == uri && c == tipo) {
+                        return Err(em_filho("filho que injeta um componente acima dele"));
+                    }
+                    let caminho = asset_de_uri(uri, "", Path::new(""))
+                        .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
+                        .ok_or_else(|| em_filho("tipo injetado no filho sem caminho de import"))?;
+                    let q = self.imp.q(&caminho);
+                    let metodo = if *opcional {
+                        "injectorGetOptional"
+                    } else {
+                        "injectorGet"
+                    };
+                    let v = &visao_do_componente;
+                    args.push(format!(
+                        "({v}.parentView!).{metodo}({q}{tipo}, {v}.parentIndex)"
+                    ));
+                }
+            }
+        }
+        let chamada = format!("{vd}.{classe}({})", args.join(", "));
+        Ok(match prefixo {
+            None => chamada,
+            Some((util, erros)) => format!(
+                "({util}.isDevMode\n        ? {erros}.debugInjectorWrap({vd}.{classe}, () {{\n            return {chamada};\n          }})\n        : {chamada})"
+            ),
+        })
+    }
+
+    /// As consultas de conteúdo do filho, no `afterChildren` do nó
+    /// (`updateQueryAtStartup`): sem resultado, a lista recebe `[]` e a
+    /// única nada. Com resultado no conteúdo — um filho da classe procurada,
+    /// o `#ref` procurado —, a forma é outra, ainda recusada.
+    fn consultas_do_filho(
+        &mut self,
+        e: &crate::html::Elemento,
+        filho: &Filho,
+        campo_inst: &str,
+    ) -> Result<(), Recusa> {
+        fn acha(
+            nos: &[No],
+            alvo: &AlvoDeConsulta,
+            filhos: &std::collections::HashMap<String, Filho>,
+        ) -> bool {
+            nos.iter().any(|n| {
+                let No::Elemento(x) = n else { return false };
+                let aqui = match alvo {
+                    AlvoDeConsulta::Referencia(r) => x.referencias.iter().any(|y| &y.nome == r),
+                    AlvoDeConsulta::Classe(uri, classe) => filhos
+                        .get(&x.nome)
+                        .is_some_and(|f| &f.uri_dart == uri && &f.classe == classe),
+                };
+                aqui || acha(&x.filhos, alvo, filhos)
+            })
+        }
+        for (campo, lista, alvo) in &filho.consultas {
+            if acha(&e.filhos, alvo, self.filhos) {
+                return Err(recusa(
+                    Motivo::LigacaoEmFilho,
+                    "@ContentChild do filho com resultado no conteúdo",
+                ));
+            }
+            if *lista {
+                self.linhas
+                    .push(format!("    this.{campo_inst}.{campo} = [];"));
+            }
         }
         Ok(())
     }
 
-    /// `[titulo]="valor"` num componente filho: o valor entra no campo que o
-    /// `@Input` aponta, e o devtools registra a entrada em modo de
-    /// desenvolvimento.
-    fn entrada_do_filho(
+    /// Os ganchos que o oficial liga depois de visitar o conteúdo do filho
+    /// (`bindDirectiveAfterChildrenCallbacks`): `ngAfterContent*`,
+    /// `ngAfterView*` e `ngOnDestroy`.
+    fn depois_dos_filhos(&mut self, filho: &Filho, campo_inst: &str) {
+        let g = &filho.ganchos;
+        if g.after_content_init {
+            self.usa_primeira_checagem = true;
+            na_primeira_checagem(
+                &mut self.apos_conteudo,
+                &[format!("      this.{campo_inst}.ngAfterContentInit();")],
+            );
+        }
+        if g.after_content_checked {
+            self.apos_conteudo
+                .push(format!("    this.{campo_inst}.ngAfterContentChecked();"));
+        }
+        if g.after_view_init {
+            self.usa_primeira_checagem = true;
+            na_primeira_checagem(
+                &mut self.apos_visao,
+                &[format!("      this.{campo_inst}.ngAfterViewInit();")],
+            );
+        }
+        if g.after_view_checked {
+            self.apos_visao
+                .push(format!("    this.{campo_inst}.ngAfterViewChecked();"));
+        }
+        if g.on_destroy {
+            self.destruir
+                .push(format!("    this.{campo_inst}.ngOnDestroy();"));
+        }
+    }
+
+    /// As entradas de um filho (`bindDirectiveInputs`) e os ganchos da
+    /// detecção dele (`bindDirectiveDetectChangesLifecycleCallbacks`), no
+    /// `detectChangesInInputsMethod`.
+    ///
+    /// As ligações saem na ordem em que o filho declara os `@Input`
+    /// (`_SortInputsVisitor`); as constantes (atributo estático, expressão
+    /// imutável) juntas num `if (firstCheck)` antes das outras
+    /// (`bindAndWriteToRenderer`), cada uma consumindo o seu índice. Filho
+    /// `onPush` (ou com `AfterChanges` e alguma entrada ligada) calcula
+    /// `changed`.
+    fn entradas_do_filho(
         &mut self,
-        l: &crate::html::Ligacao,
+        ligadas: &[(&crate::html::Ligacao, bool)],
         filho: &Filho,
         campo_inst: &str,
+        campo_vista: &str,
     ) -> Result<(), Recusa> {
-        let url = self.url(Motivo::LigacaoEmFilho)?;
-        let Some(campo) = filho.entrada(&l.nome).map(|e| e.campo.clone()) else {
-            // Nome que o filho não declara como `@Input`: pode ser diretiva.
-            return Err(recusa(
-                Motivo::LigacaoEmFilho,
-                "[x] que não é @Input do filho",
-            ));
-        };
-        let convertida = self.converter(&l.valor, Motivo::LigacaoEmFilho)?;
-        // Entrada imutável vai para o `if (firstCheck)` (`_bindLiteral`),
-        // outra forma; ainda não.
-        if convertida.imutavel {
-            return Err(recusa(Motivo::LigacaoEmFilho, "entrada constante no filho"));
+        let dbg = tardio(CHECK_BINDING);
+        // `optimizeLifecycles`: sem entrada ligada, o `ngAfterChanges` some.
+        let after_changes = filho.ganchos.after_changes && !ligadas.is_empty();
+        // `if (!directive.hasInputs) return;`: sem `@Input` declarado, nada
+        // de entradas nem de `changed`.
+        if !filho.entradas.is_empty() {
+            let url = if ligadas.is_empty() {
+                String::new()
+            } else {
+                self.url(Motivo::LigacaoEmFilho)?
+            };
+            let calcula = filho.on_push || after_changes;
+            if calcula {
+                self.usa_changed = true;
+                self.entradas.push("    changed = false;".to_string());
+            }
+            let mut ordem: Vec<&(&crate::html::Ligacao, bool)> = ligadas.iter().collect();
+            ordem.sort_by_key(|(l, _)| {
+                filho
+                    .entradas
+                    .iter()
+                    .position(|x| x.nome == l.nome)
+                    .unwrap_or(usize::MAX)
+            });
+            let dev = tardio(DEVTOOLS);
+            let mut constantes = Vec::new();
+            let mut dinamicas = Vec::new();
+            for (l, estatico) in ordem {
+                let Some(campo) = filho.entrada(&l.nome).map(|e| e.campo.clone()) else {
+                    // Nome que o filho não declara como `@Input`: pode ser
+                    // diretiva.
+                    return Err(recusa(
+                        Motivo::LigacaoEmFilho,
+                        "[x] que não é @Input do filho",
+                    ));
+                };
+                let nome = &l.nome;
+                let (ini, fim) = (l.inicio, l.fim);
+                let k = self.proxima_ligacao;
+                self.proxima_ligacao += 1;
+                let mudou = if calcula { "\nchanged = true;" } else { "" };
+                // Atributo estático: `LiteralPrimitive` do texto. Expressão
+                // imutável: a mesma forma (`_bindLiteral`).
+                let (valor, nulo) = if *estatico {
+                    (literal(&l.valor), false)
+                } else {
+                    let c = self.converter(&l.valor, Motivo::LigacaoEmFilho)?;
+                    if !c.imutavel {
+                        let expr = literal(&l.valor);
+                        let chk = tardio(CHECK_BINDING);
+                        let valor = c.texto;
+                        let mudou = if calcula {
+                            "\n      changed = true;"
+                        } else {
+                            ""
+                        };
+                        self.campos_expr.push(format!("  Object? _expr_{k};"));
+                        dinamicas.push(format!(
+                            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, {expr}, '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', currVal_{k});\n      }}\n      this.{campo_inst}.{campo} = currVal_{k} /* REF:{url}:{ini}:{fim} */;{mudou}\n      this._expr_{k} = currVal_{k};\n    }}"
+                        ));
+                        continue;
+                    }
+                    (c.texto, c.pode_ser_nulo)
+                };
+                if valor == "null" {
+                    continue;
+                }
+                let mut bloco = format!(
+                    "if ({dev}.isDevToolsEnabled) {{\n  {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', {valor});\n}}\nthis.{campo_inst}.{campo} = {valor} /* REF:{url}:{ini}:{fim} */;{mudou}"
+                );
+                if nulo {
+                    bloco = format!("if (({valor} != null)) {{\n{}\n}}", indentar(&bloco, 2));
+                }
+                constantes.push(indentar(&bloco, 6));
+            }
+            if !constantes.is_empty() {
+                self.usa_primeira_checagem = true;
+                na_primeira_checagem(&mut self.entradas, &constantes);
+            }
+            self.entradas.extend(dinamicas);
+            if filho.on_push {
+                self.entradas.push(format!(
+                    "    if (changed) {{\n      this.{campo_vista}.markAsCheckOnce();\n    }}"
+                ));
+            }
         }
-        let k = self.proxima_ligacao;
-        self.proxima_ligacao += 1;
-        self.campos_expr.push(format!("  Object? _expr_{k};"));
-        let chk = tardio(CHECK_BINDING);
-        let dev = tardio(DEVTOOLS);
-        let expr = literal(&l.valor);
-        let (ini, fim) = (l.inicio, l.fim);
-        let valor = convertida.texto;
-        let nome = &l.nome;
-        self.entradas.push(format!(
-            "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, {expr}, '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', currVal_{k});\n      }}\n      this.{campo_inst}.{campo} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
-        ));
+        let g = &filho.ganchos;
+        if after_changes {
+            self.usa_changed = true;
+            self.entradas.push(format!(
+                "    if (changed) {{\n      this.{campo_inst}.ngAfterChanges();\n    }}"
+            ));
+        }
+        if g.on_init {
+            self.usa_primeira_checagem = true;
+            self.entradas.push(format!(
+                "    if (((!{dbg}.debugThrowIfChanged) && firstCheck)) {{\n      this.{campo_inst}.ngOnInit();\n    }}"
+            ));
+        }
+        if g.do_check {
+            self.entradas.push(format!(
+                "    if ((!{dbg}.debugThrowIfChanged)) {{\n      this.{campo_inst}.ngDoCheck();\n    }}"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Os eventos escritos no elemento do filho: os que casam um `@Output`
+    /// viram `subscription_N` (`bindDirectiveOutputs`, depois dos do
+    /// elemento); os outros são eventos do elemento (`bindRenderOutputs`).
+    fn saidas_do_filho(
+        &mut self,
+        e: &crate::html::Elemento,
+        filho: &Filho,
+        n: u32,
+        campo_inst: &str,
+    ) -> Result<(), Recusa> {
+        let mut do_elemento = e.clone();
+        do_elemento
+            .eventos
+            .retain(|l| filho.saida(&l.nome).is_none());
+        self.eventos(&do_elemento, &format!("_el_{n}"))?;
+        let mut vistos: Vec<&str> = Vec::new();
+        for l in e.eventos.iter().filter(|l| filho.saida(&l.nome).is_some()) {
+            if vistos.contains(&l.nome.as_str()) {
+                return Err(recusa(
+                    Motivo::Evento,
+                    "dois handlers do mesmo evento no template",
+                ));
+            }
+            vistos.push(&l.nome);
+            let membro = filho.saida(&l.nome).unwrap_or_default().to_string();
+            match self.handler(&[&l.valor]) {
+                Ok(h) => {
+                    let k = self.subscricoes;
+                    self.subscricoes += 1;
+                    self.ouvintes.push(format!(
+                        "    final subscription_{k} = this.{campo_inst}.{membro}.listen({h});"
+                    ));
+                }
+                Err(r) => self.anotar(r)?,
+            }
+        }
         Ok(())
     }
 
@@ -1573,13 +2043,22 @@ impl Corpo<'_> {
         self.campos_filho
             .push(format!("  late final {qd}{classe_dir} {campo};"));
         self.ancoras.push(format!("_appEl_{n}"));
-        self.linhas.push(format!(
-            "    final _anchor_{n} = {dom}.appendAnchor({pai});"
-        ));
         // O segundo argumento é o índice do elemento pai, e `null` quando a
         // âncora está na raiz da visão (`isRootElement ? null :
-        // parent.nodeIndex`, em `compile_element.dart`).
-        let pai_indice = indice_do_elemento(pai);
+        // parent.nodeIndex`, em `compile_element.dart`); solta no conteúdo
+        // projetado, o pai é o filho que a recebe.
+        let pai_indice = if pai.is_empty() {
+            self.raizes.push(format!("this._appEl_{n}"));
+            self.linhas
+                .push(format!("    final _anchor_{n} = {dom}.createAnchor();"));
+            self.pai_projetado
+                .map_or_else(|| "null".to_string(), |k| k.to_string())
+        } else {
+            self.linhas.push(format!(
+                "    final _anchor_{n} = {dom}.appendAnchor({pai});"
+            ));
+            indice_do_elemento(pai)
+        };
         self.linhas.push(format!(
             "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _anchor_{n});"
         ));
@@ -1689,9 +2168,18 @@ impl Corpo<'_> {
                 },
             );
         }
+        // A âncora na raiz desta visão tem por pai o mesmo nó que a raiz
+        // desta visão; aninhada, um nó desta visão.
+        let no_topo = pai == "parentRenderNode" || (pai.is_empty() && self.pai_projetado.is_none());
+        let nivel_do_topo = if !no_topo || self.nivel_do_topo < self.profundidade {
+            self.nivel_do_topo
+        } else {
+            self.profundidade + 1
+        };
         self.embutidas.push(EspecEmbutida {
             indice,
             profundidade: self.profundidade + 1,
+            nivel_do_topo,
             classe: format!("_{}{indice}", self.classe_da_visao),
             fabrica: nome_fabrica,
             nos: vec![No::Elemento(sem_estrela)],
@@ -2141,6 +2629,11 @@ impl Corpo<'_> {
                 if e.estrela.is_none() {
                     self.guarda_do_elemento(e)?;
                 }
+                // `*` num filho: o filho vai para a visão embutida, como
+                // qualquer elemento.
+                if let (Some(estrela), true) = (&e.estrela, self.filhos.contains_key(&e.nome)) {
+                    return self.estrutural(e, estrela, pai);
+                }
                 if let Some(filho) = self.filhos.get(&e.nome).cloned() {
                     return self.componente_filho(e, &filho, pai);
                 }
@@ -2178,10 +2671,9 @@ impl Corpo<'_> {
             }
             No::Conteudo { seletor } => {
                 // `<ng-content>` não consome índice de nó; o número é o
-                // ordinal da projeção no template.
-                if seletor.is_some() {
-                    return Err(recusa(Motivo::Projecao, "<ng-content select>"));
-                }
+                // ordinal da projeção no template (`ngContentSelectors`),
+                // com ou sem `select`.
+                let _ = seletor;
                 let i = self.proxima_projecao;
                 self.proxima_projecao += 1;
                 self.linhas.push(format!("    this.project({pai}, {i});"));
@@ -2255,6 +2747,9 @@ impl Corpo<'_> {
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
         };
+        if pai.is_empty() {
+            self.raizes.push(alvo.clone());
+        }
         // `renderNode.toReadExpr()`: o local ou o campo, como o
         // nó tiver sido declarado.
         for r in &e.referencias {
@@ -2488,6 +2983,8 @@ struct EspecEmbutida {
     indice: u32,
     /// Quantas `parentView` até a visão do componente.
     profundidade: u32,
+    /// Ver [`Corpo::nivel_do_topo`].
+    nivel_do_topo: u32,
     classe: String,
     fabrica: String,
     nos: Vec<No>,
@@ -2585,6 +3082,16 @@ impl<'a> Contexto<'a> {
             vista: 0,
             profundidade: 0,
             cursor_pipe: 0,
+            usa_changed: false,
+            apos_conteudo: Vec::new(),
+            apos_visao: Vec::new(),
+            destruir: Vec::new(),
+            subscricoes: 0,
+            filhos_acima: Vec::new(),
+            detectores: Default::default(),
+            raizes: Vec::new(),
+            pai_projetado: None,
+            nivel_do_topo: 0,
         }
     }
 }
@@ -2612,6 +3119,7 @@ fn emitir_embutida(
     dentro.locais = espec.locais.clone();
     dentro.vista = espec.indice;
     dentro.profundidade = espec.profundidade;
+    dentro.nivel_do_topo = espec.nivel_do_topo;
     // A numeração continua de onde o pai parou.
     dentro.proxima_embutida = espec.indice + 1;
     let r = corpo_da_embutida(&mut dentro, &espec, ctx, &ev, &classe, &fabrica);
@@ -2749,6 +3257,9 @@ fn corpo_da_embutida(
     if cita_ctx(&dentro.entradas) || cita_ctx(&dentro.deteccao) {
         linhas_det.push("    final _ctx = this.ctx;".to_string());
     }
+    if dentro.usa_changed {
+        linhas_det.push("    bool changed = false;".to_string());
+    }
     if dentro.usa_primeira_checagem {
         linhas_det.push("    bool firstCheck = this.firstCheck;".to_string());
     }
@@ -2758,10 +3269,12 @@ fn corpo_da_embutida(
     for a in &dentro.ancoras {
         linhas_det.push(format!("    this.{a}.detectChangesInNestedViews();"));
     }
+    linhas_det.extend(sem_lancar(&dentro.apos_conteudo));
     linhas_det.extend(dentro.deteccao.clone());
     for v in &dentro.vistas_filhas {
         linhas_det.push(format!("    this.{v}.detectChanges();"));
     }
+    linhas_det.extend(sem_lancar(&dentro.apos_visao));
     let deteccao = if linhas_det.is_empty() {
         String::new()
     } else {
@@ -2772,7 +3285,10 @@ fn corpo_da_embutida(
     };
     let deteccao = resolver_tardios(dentro.imp, &deteccao);
     // Visão embutida também destrói o que pendurou nela.
-    let destruicao = if dentro.ancoras.is_empty() && dentro.vistas_filhas.is_empty() {
+    let destruicao = if dentro.ancoras.is_empty()
+        && dentro.vistas_filhas.is_empty()
+        && dentro.destruir.is_empty()
+    {
         String::new()
     } else {
         let mut linhas: Vec<String> = dentro
@@ -2786,6 +3302,7 @@ fn corpo_da_embutida(
                 .iter()
                 .map(|v| format!("    this.{v}.destroyInternalState();")),
         );
+        linhas.extend(dentro.destruir.iter().cloned());
         format!(
             "\n  @override\n  void destroyInternal() {{\n{}\n  }}\n",
             linhas.join("\n")
@@ -2805,9 +3322,21 @@ fn corpo_da_embutida(
     } else {
         "_el_0"
     };
+    // `_generateInitStatement`: com `subscription_N`, a raiz vai numa lista.
+    let inicio = if dentro.subscricoes == 0 {
+        format!("this.initRootNode({raiz});")
+    } else {
+        let subs: Vec<String> = (0..dentro.subscricoes)
+            .map(|k| format!("subscription_{k}"))
+            .collect();
+        format!(
+            "this.initRootNodesAndSubscriptions({util}.unsafeCast(<Object>[{raiz}]), [{}]);",
+            subs.join(", ")
+        )
+    };
     let tipo_do_contexto = &ctx.tipo_do_contexto;
     let texto = format!(
-        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}\n    this.initRootNode({raiz});\n  }}\n{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}\n    {inicio}\n  }}\n{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
     );
     Ok((texto, aninhadas))
 }
@@ -2857,6 +3386,20 @@ fn declaracao_de_local(
     };
     Ok(format!(
         "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
+    ))
+}
+
+/// `if ((!debugThrowIfChanged)) { .. }` em volta dos ganchos de conteúdo ou
+/// de visão (`notThrowOnChanges` em `writeChangeDetectionStatements`);
+/// nada se não há ganchos.
+fn sem_lancar(linhas: &[String]) -> Option<String> {
+    if linhas.is_empty() {
+        return None;
+    }
+    let dbg = tardio(CHECK_BINDING);
+    Some(format!(
+        "    if ((!{dbg}.debugThrowIfChanged)) {{\n{}\n    }}",
+        indentar(&linhas.join("\n"), 2)
     ))
 }
 
@@ -3533,8 +4076,18 @@ fn gerar_componente(
     // `#ref` está uma vez só, num elemento HTML da própria visão.
     let mut consultas = Vec::new();
     for q in &c.consultas {
-        match corpo.refs.get(&q.referencia) {
-            Some(alvo) => consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade)),
+        match corpo.refs.get(&q.referencia).cloned() {
+            Some(alvo) => {
+                // Filho `onPush`: o `ChangeDetectorRef` dele fica registrado
+                // (`_createAddQueryChangeDetectorRefs`).
+                if let Some(cv) = corpo.detectores.get(&q.referencia).cloned() {
+                    let v = corpo.imp.alias(VIEW);
+                    consultas.push(format!(
+                        "    {v}.View.queryChangeDetectorRefs[{alvo}] = this.{cv};"
+                    ));
+                }
+                consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade));
+            }
             // Na coleta a recusa já veio de `formas_contra_o_template`.
             None if corpo.coletando() => {}
             None => {
@@ -3598,6 +4151,12 @@ fn gerar_componente(
         .chain(&consultas)
         .chain(&hospedeiro)
         .cloned()
+        .chain((corpo.subscricoes > 0).then(|| {
+            let subs: Vec<String> = (0..corpo.subscricoes)
+                .map(|k| format!("subscription_{k}"))
+                .collect();
+            format!("    this.initSubscriptions([{}]);", subs.join(", "))
+        }))
         .collect::<Vec<_>>()
         .join("\n");
     let corpo_build = if linhas.is_empty() {
@@ -3626,10 +4185,12 @@ fn gerar_componente(
     for a in &corpo.ancoras {
         linhas_deteccao.push(format!("    this.{a}.detectChangesInNestedViews();"));
     }
+    linhas_deteccao.extend(sem_lancar(&corpo.apos_conteudo));
     linhas_deteccao.extend(corpo.deteccao.iter().cloned());
     for v in &corpo.vistas_filhas {
         linhas_deteccao.push(format!("    this.{v}.detectChanges();"));
     }
+    linhas_deteccao.extend(sem_lancar(&corpo.apos_visao));
     let deteccao = if linhas_deteccao.is_empty() {
         String::new()
     } else {
@@ -3643,15 +4204,23 @@ fn gerar_componente(
         } else {
             ""
         };
+        let mudou = if corpo.usa_changed {
+            "    bool changed = false;\n"
+        } else {
+            ""
+        };
         format!(
-            "\n  @override\n  void detectChangesInternal() {{\n{ctx_det}{primeira}{}\n  }}\n",
+            "\n  @override\n  void detectChangesInternal() {{\n{ctx_det}{mudou}{primeira}{}\n  }}\n",
             linhas_deteccao.join("\n")
         )
     };
     // Os imports da detecção entram agora, depois dos do `build()`.
     let deteccao = resolver_tardios(corpo.imp, &deteccao);
     // Visão-filha precisa ser destruída com a visão que a criou.
-    let destruicao = if corpo.vistas_filhas.is_empty() && corpo.ancoras.is_empty() {
+    let destruicao = if corpo.vistas_filhas.is_empty()
+        && corpo.ancoras.is_empty()
+        && corpo.destruir.is_empty()
+    {
         String::new()
     } else {
         let mut linhas: Vec<String> = corpo
@@ -3665,6 +4234,7 @@ fn gerar_componente(
                 .iter()
                 .map(|v| format!("    this.{v}.destroyInternalState();")),
         );
+        linhas.extend(corpo.destruir.iter().cloned());
         format!(
             "\n  @override\n  void destroyInternal() {{\n{}\n  }}\n",
             linhas.join("\n")
@@ -3822,7 +4392,10 @@ fn construcao_do_componente(
     util: &str,
 ) -> Option<String> {
     let x = &c.classe;
-    let injeta = c.parametros.iter().any(|p| !e_elemento(p.tipo.as_deref()));
+    let injeta = c
+        .parametros
+        .iter()
+        .any(|p| !e_elemento(p.tipo.as_deref()) && !e_detector(p, local, resolvedor));
     // O `errors.dart` entra antes dos tipos injetados, como no oficial.
     let erros = injeta.then(|| imp.alias(DI_ERRORS));
     let mut args = Vec::new();
@@ -3831,10 +4404,16 @@ fn construcao_do_componente(
             args.push("_el_0".to_string());
             continue;
         }
-        if p.anotado || p.nomeado {
-            return None; // `@Optional`, `@Inject(...)`, nomeado: ainda não
+        // `ChangeDetectorRef`: a visão do componente.
+        if e_detector(p, local, resolvedor) {
+            args.push("this.componentView".to_string());
+            continue;
         }
-        let tipo = p.tipo.as_deref()?;
+        if (p.anotado && !p.opcional) || p.nomeado {
+            return None; // `@Inject(...)`, `@Self`, nomeado: ainda não
+        }
+        // O token é o tipo sem o `?` (`@Optional() X? x`).
+        let tipo = p.tipo.as_deref()?.trim_end_matches('?');
         if tipo.contains('<') {
             return None; // token genérico ainda não
         }
@@ -3843,8 +4422,14 @@ fn construcao_do_componente(
         let asset = asset_de_uri(&uri, local.pacote, local.raiz)?;
         let caminho = caminho_do_import(&local.asset(), &asset)?;
         let alias = imp.alias(&caminho);
+        // `@Optional()`: `injectorGetOptional` (`injectFromViewParentInjector`).
+        let metodo = if p.opcional {
+            "injectorGetOptional"
+        } else {
+            "injectorGet"
+        };
         args.push(format!(
-            "this.injectorGet({alias}.{simples}, this.parentIndex)"
+            "this.{metodo}({alias}.{simples}, this.parentIndex)"
         ));
     }
     let chamada = format!("{proprio}.{x}({})", args.join(", "));
@@ -3861,6 +4446,22 @@ fn construcao_do_componente(
 }
 
 /// O parâmetro é o elemento raiz do componente?
+/// O parâmetro é o `ChangeDetectorRef` do ngdart (sem anotação)?
+fn e_detector(
+    p: &crate::componente::Parametro,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> bool {
+    let Some(tipo) = p.tipo.as_deref() else {
+        return false;
+    };
+    !p.anotado
+        && tipo.rsplit('.').next() == Some("ChangeDetectorRef")
+        && resolvedor
+            .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
+            .is_some_and(|u| u.starts_with("package:ngdart/"))
+}
+
 fn e_elemento(tipo: Option<&str>) -> bool {
     matches!(
         tipo.map(|t| t.rsplit('.').next().unwrap_or(t)),
@@ -3879,7 +4480,7 @@ fn falta_para_construir(
         if e_elemento(p.tipo.as_deref()) {
             continue;
         }
-        if p.anotado {
+        if p.anotado && !p.opcional {
             return Some(recusa(
                 Motivo::InjecaoAnotada,
                 "@Optional/@Inject/@Attribute no construtor",
@@ -3903,6 +4504,7 @@ fn falta_para_construir(
                 "token genérico no construtor",
             ));
         }
+        let tipo = tipo.trim_end_matches('?');
         if !resolvedor.is_some_and(|r| r.uri_do_tipo(local.caminho, tipo).is_some()) {
             return Some(recusa(
                 Motivo::InjecaoNaoResolvida,
@@ -3949,6 +4551,7 @@ mod testes {
             nome: "p".into(),
             nomeado: false,
             anotado: false,
+            opcional: false,
         }
     }
 

@@ -75,6 +75,10 @@ pub struct Componente {
     pub consultas: Vec<Consulta>,
     /// `@HostListener` da classe, na forma simples, na ordem de declaração.
     pub ouvintes: Vec<Ouvinte>,
+    /// `@ContentChild`/`@ContentChildren`, na ordem do `directive.queries`
+    /// (setters antes dos campos, como o visitante do oficial os visita).
+    /// `None`: alguma fora da forma conhecida.
+    pub consultas_de_conteudo: Option<Vec<ConsultaDeConteudo>>,
     /// Cada campo e getter de instância da classe. O emissor precisa disto
     /// para escolher entre `interpolateString`, `interpolate` e
     /// `updateTextWithPrimitive`, que o oficial decide pelo tipo estático da
@@ -160,7 +164,8 @@ impl Ganchos {
 /// Um campo ou getter da classe do componente.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Membro {
-    /// Tipo como escrito.
+    /// Tipo como escrito, ou inferido do inicializador; vazio quando não se
+    /// sabe (`final x = A.b;`).
     pub tipo: String,
     /// `final` (ou getter): conta como imutável na regra `isImmutable` do
     /// ngcompiler, que decide se o valor primitivo vai pelo caminho rápido.
@@ -178,6 +183,21 @@ pub struct Consulta {
     /// `Element` recebe o próprio nó, qualquer outro tipo um `ElementRef`
     /// (`isElementType` em `find_components.dart`).
     pub tipo: String,
+}
+
+/// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
+/// dele: sem resultado no conteúdo, a lista recebe `[]` e o único não recebe
+/// nada (`_createUpdates`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsultaDeConteudo {
+    /// Campo ou setter que recebe o resultado.
+    pub campo: String,
+    /// `@ContentChildren`.
+    pub lista: bool,
+    /// O tipo procurado, como escrito (`LiTabComponent`, `li.X`), ou a
+    /// referência (`'nome'`, com `nome` aqui e `referencia` ligado).
+    pub alvo: String,
+    pub referencia: bool,
 }
 
 /// Um `@HostListener` do componente: o evento e o texto do handler que o
@@ -199,6 +219,8 @@ pub struct Parametro {
     pub nomeado: bool,
     /// `@Optional`, `@Inject(...)`, `@Self`… mudam a injeção.
     pub anotado: bool,
+    /// A única anotação é `@Optional()`: `injectorGetOptional`.
+    pub opcional: bool,
 }
 
 /// Valor de um argumento nomeado, quando é uma string literal sem
@@ -442,7 +464,68 @@ fn ler(
     );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
+    c.consultas_de_conteudo = consultas_de_conteudo(arvore, interner, classe);
     c
+}
+
+/// Os `@ContentChild`/`@ContentChildren` da classe: setters, depois campos,
+/// cada grupo em ordem de declaração. `None` se algum sai da forma
+/// `@ContentChild(Tipo)`/`@ContentChild('ref')` num campo ou setter.
+fn consultas_de_conteudo(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> Option<Vec<ConsultaDeConteudo>> {
+    let mut setters = Vec::new();
+    let mut campos = Vec::new();
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        for a in membro.metadata.iter() {
+            let lista = match crate::nome_da_anotacao(a, interner).as_str() {
+                "ContentChild" => false,
+                "ContentChildren" => true,
+                _ => continue,
+            };
+            let primeiro = a
+                .arguments
+                .as_ref()
+                .and_then(|args| args.args.iter().find(|x| x.name.is_none()))?;
+            let (alvo, referencia) = match texto_do_argumento(arvore, primeiro.value) {
+                Some(t) => (t, true),
+                None => (
+                    crate::resolucao::nome_qualificado(arvore, interner, primeiro.value)?,
+                    false,
+                ),
+            };
+            match &membro.kind {
+                ast::MemberKind::Field(l) if !l.static_ && l.variables.len() == 1 => {
+                    campos.push(ConsultaDeConteudo {
+                        campo: interner.resolve(l.variables[0].name.sym).to_string(),
+                        lista,
+                        alvo,
+                        referencia,
+                    });
+                }
+                ast::MemberKind::Method(f) => {
+                    let funcao = arvore.function(*f);
+                    match (funcao.kind, funcao.name, funcao.static_) {
+                        (ast::FunctionKind::Setter, Some(n), false) => {
+                            setters.push(ConsultaDeConteudo {
+                                campo: interner.resolve(n.sym).to_string(),
+                                lista,
+                                alvo,
+                                referencia,
+                            })
+                        }
+                        _ => return None,
+                    }
+                }
+                _ => return None,
+            }
+        }
+    }
+    setters.extend(campos);
+    Some(setters)
 }
 
 /// Algum membro da classe tem uma destas anotações?
@@ -784,6 +867,8 @@ fn parametros_do_construtor(
                     nome,
                     nomeado: matches!(p.kind, ast::ParameterKind::Named),
                     anotado: !p.metadata.is_empty(),
+                    opcional: p.metadata.len() == 1
+                        && crate::nome_da_anotacao(&p.metadata[0], interner) == "Optional",
                 }
             })
             .collect();
@@ -817,16 +902,23 @@ fn tipos_dos_membros(
                 if lista.static_ {
                     continue;
                 }
-                let Some(t) = lista.ty else { continue };
-                let tipo = texto_do_tipo(arvore, fonte, t);
                 let imutavel = lista.final_ || lista.const_;
                 for v in lista.variables.iter() {
+                    // Sem tipo escrito (`var x = Foo()`), o tipo é o que o
+                    // analyzer infere do inicializador — só nas formas em que
+                    // ele é certo.
+                    let tipo = match lista.ty {
+                        Some(t) => texto_do_tipo(arvore, fonte, t),
+                        // Fora dessas formas o membro existe, mas sem tipo
+                        // (texto vazio): quem precisa do tipo recusa.
+                        None => v
+                            .initializer
+                            .and_then(|e| tipo_inferido(arvore, fonte, interner, e))
+                            .unwrap_or_default(),
+                    };
                     saida.insert(
                         interner.resolve(v.name.sym).to_string(),
-                        Membro {
-                            tipo: tipo.clone(),
-                            imutavel,
-                        },
+                        Membro { tipo, imutavel },
                     );
                 }
             }
@@ -1009,6 +1101,48 @@ fn tipos_dos_metodos(
         saida.insert(interner.resolve(nome.sym).to_string(), tipo);
     }
     saida
+}
+
+/// O tipo que o analyzer infere para um inicializador, nas formas em que ele
+/// não depende de nada fora da expressão: literal primitivo sem
+/// interpolação, `Classe(..)`, `prefixo.Classe(..)` e `new`/`const T(..)`
+/// (com `T` como escrito). `Classe.nome(..)` pode ser método estático, e
+/// fica de fora.
+fn tipo_inferido(
+    arvore: &ast::Ast,
+    fonte: &str,
+    interner: &Interner,
+    e: ast::ExprId,
+) -> Option<String> {
+    let maiuscula = |n: &ast::Name| interner.resolve(n.sym).starts_with(char::is_uppercase);
+    match &arvore.expr(e).kind {
+        ast::ExprKind::String(lit) => lit.constant_value().map(|_| "String".to_string()),
+        ast::ExprKind::Int(_) => Some("int".to_string()),
+        ast::ExprKind::Double(_) => Some("double".to_string()),
+        ast::ExprKind::Bool(_) => Some("bool".to_string()),
+        ast::ExprKind::InstanceCreation { ty, .. } => Some(texto_do_tipo(arvore, fonte, *ty)),
+        ast::ExprKind::Call { target, arguments } if arguments.type_args.is_empty() => {
+            match &arvore.expr(*target).kind {
+                ast::ExprKind::Identifier(n) if maiuscula(n) => {
+                    Some(interner.resolve(n.sym).to_string())
+                }
+                ast::ExprKind::Property {
+                    target: p,
+                    name,
+                    null_aware: false,
+                } if maiuscula(name) => match &arvore.expr(*p).kind {
+                    ast::ExprKind::Identifier(prefixo) if !maiuscula(prefixo) => Some(format!(
+                        "{}.{}",
+                        interner.resolve(prefixo.sym),
+                        interner.resolve(name.sym)
+                    )),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// Tipo de cada campo da classe, para resolver os parâmetros `this.x`.

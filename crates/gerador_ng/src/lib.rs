@@ -420,7 +420,7 @@ impl Indice {
             for (uri, arvore, unidade, fonte, caminho) in r.bibliotecas() {
                 let achados = achar(arvore, unidade, fonte, interner);
                 for comp in &achados.componentes {
-                    indexar(&mut por_classe, uri, comp, caminho);
+                    indexar(&mut por_classe, uri, comp, caminho, Some(r));
                 }
                 for d in achados.diretivas {
                     diretivas.insert((uri.to_string(), d.classe.clone()), d);
@@ -438,7 +438,13 @@ impl Indice {
                 if comp.seletor.is_empty() {
                     continue;
                 }
-                indexar(&mut por_classe, &uri, comp, Some(caminho));
+                indexar(
+                    &mut por_classe,
+                    &uri,
+                    comp,
+                    Some(caminho),
+                    programa.map(|r| r as &dyn resolucao::Resolucao),
+                );
             }
             for d in &achados.diretivas {
                 diretivas
@@ -645,12 +651,61 @@ fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, 
     saida
 }
 
+/// Como o oficial resolve um parâmetro do construtor de um filho no nó dele:
+/// o nó, a visão do filho ou um serviço de fora da visão. O resto (outro
+/// token do ngdart, `@Inject`, `@Self`, genérico, nomeado) ainda não.
+fn injetado(
+    p: &componente::Parametro,
+    caminho: Option<&Path>,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
+) -> Result<visao::Injetado, &'static str> {
+    let tipo = p
+        .tipo
+        .as_deref()
+        .ok_or("parâmetro sem tipo no construtor do filho")?;
+    if p.nomeado {
+        return Err("parâmetro nomeado no construtor do filho");
+    }
+    if p.anotado && !p.opcional {
+        return Err("@Inject/@Self/@Attribute no construtor do filho");
+    }
+    if tipo.contains('<') {
+        return Err("token genérico no construtor do filho");
+    }
+    let tipo = tipo.trim_end_matches('?');
+    let uri = match (caminho, resolvedor) {
+        (Some(c), Some(r)) => r.uri_do_tipo(c, tipo),
+        _ => None,
+    }
+    .ok_or("tipo injetado no filho sem resolução")?;
+    let simples = tipo.rsplit('.').next().unwrap_or(tipo).to_string();
+    if uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement") {
+        return Ok(visao::Injetado::Elemento);
+    }
+    if uri.starts_with("package:ngdart/") {
+        return if simples == "ChangeDetectorRef" && !p.opcional {
+            Ok(visao::Injetado::Detector)
+        } else {
+            Err("token do ngdart no construtor do filho")
+        };
+    }
+    if uri.starts_with("dart:") {
+        return Err("tipo do SDK no construtor do filho");
+    }
+    Ok(visao::Injetado::Servico {
+        uri,
+        classe: simples,
+        opcional: p.opcional,
+    })
+}
+
 /// Põe um componente no índice, com o que o emissor precisa dele.
 fn indexar(
     por_classe: &mut std::collections::HashMap<(String, String), visao::Filho>,
     uri: &str,
     comp: &componente::Componente,
     caminho: Option<&Path>,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
 ) {
     if comp.seletor.is_empty() {
         return;
@@ -664,31 +719,74 @@ fn indexar(
             .map(|t| html::analisar(&t)),
         (None, None) => None,
     };
-    let projecoes = nos.as_deref().map(html::projecoes).unwrap_or_default();
-    let projeta = !projecoes.is_empty();
+    // `ngContentSelectors`: o `select` de cada `<ng-content>`, `*` sem ele.
+    let projecoes: Vec<String> = nos
+        .as_deref()
+        .map(html::projecoes)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.unwrap_or_else(|| "*".to_string()))
+        .collect();
     // O que no filho muda o código de quem o usa e ainda não é escrito.
     let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
     let mut pendencias = Vec::new();
-    if !comp.parametros.is_empty() {
-        pendencias.push(em_filho("filho com injeção no construtor"));
+    let mut parametros = Vec::new();
+    for p in &comp.parametros {
+        match injetado(p, caminho, resolvedor) {
+            Ok(x) => parametros.push(x),
+            Err(f) => {
+                pendencias.push(em_filho(f));
+                break;
+            }
+        }
     }
     if comp.liga_hospedeiro {
         pendencias.push(em_filho("filho com @HostBinding"));
     }
-    if comp.consulta_conteudo {
-        pendencias.push(em_filho("filho com @ContentChild"));
+    // As consultas de conteúdo, com o alvo resolvido no arquivo do filho.
+    // Tipo do ngdart (`TemplateRef`, diretivas do núcleo) casaria com o que
+    // o emissor põe no conteúdo (`*ngIf`): ainda não.
+    let mut consultas = Vec::new();
+    match &comp.consultas_de_conteudo {
+        None => pendencias.push(em_filho("filho com @ContentChild fora da forma")),
+        Some(lidas) => {
+            for q in lidas {
+                if q.referencia {
+                    consultas.push((
+                        q.campo.clone(),
+                        q.lista,
+                        visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
+                    ));
+                    continue;
+                }
+                let uri = match (caminho, resolvedor) {
+                    (Some(c), Some(r)) => r.uri_do_tipo(c, &q.alvo),
+                    _ => None,
+                };
+                match uri {
+                    Some(u) if !u.starts_with("package:ngdart/") && !u.starts_with("dart:") => {
+                        let simples = q.alvo.rsplit('.').next().unwrap_or(&q.alvo);
+                        consultas.push((
+                            q.campo.clone(),
+                            q.lista,
+                            visao::AlvoDeConsulta::Classe(u, simples.to_string()),
+                        ));
+                    }
+                    _ => {
+                        pendencias.push(em_filho("filho com @ContentChild de tipo não resolvido"));
+                        break;
+                    }
+                }
+            }
+        }
     }
     if comp.com_provedores {
         pendencias.push(em_filho("filho com providers"));
     }
-    // Uma projeção sem seletor é a forma conhecida (um índice de
-    // `ngContentSelectors`); com seletor, ou mais de uma, a lista de nós
-    // projetados muda.
-    if projecoes.len() > 1 || projecoes.iter().any(Option::is_some) {
-        pendencias.push(recusa(
-            Motivo::Projecao,
-            "filho com <ng-content select> ou várias projeções",
-        ));
+    // Ganchos, `@Input` e `@Output` herdados não se veem daqui (o oficial
+    // os coleta pelos supertipos).
+    if comp.herda {
+        pendencias.push(em_filho("filho que herda (extends/with)"));
     }
     if comp.template.is_none() && comp.template_url.is_some() && nos.is_none() {
         pendencias.push(em_filho("template do filho não encontrado"));
@@ -700,9 +798,13 @@ fn indexar(
             seletor: comp.seletor.clone(),
             uri_dart: uri.to_string(),
             uri_template: uri.replace(".dart", ".template.dart"),
-            projeta,
+            projecoes,
             entradas: comp.entradas.clone(),
-            muda_o_pai: comp.ganchos.algum() || comp.ganchos.after_changes || comp.on_push,
+            ganchos: comp.ganchos,
+            on_push: comp.on_push,
+            saidas: comp.saidas.clone(),
+            parametros,
+            consultas,
             pendencias,
         },
     );

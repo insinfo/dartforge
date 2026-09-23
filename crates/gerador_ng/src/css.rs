@@ -272,6 +272,19 @@ fn sem_escopo(css: &str) -> Result<String, Motivo> {
     Ok(saida)
 }
 
+/// Separa um `!important` do fim do valor (com espaços entre `!` e a
+/// palavra, em qualquer caixa, como o parser do `csslib` aceita).
+fn sem_important(valor: &str) -> (&str, bool) {
+    let v = valor.trim_end();
+    if let Some(i) = v.rfind('!')
+        && v[i + 1..].trim().eq_ignore_ascii_case("important")
+        && !v[..i].contains(['"', '\''])
+    {
+        return (v[..i].trim_end(), true);
+    }
+    (valor, false)
+}
+
 /// Declarações `prop:valor`, sem ponto e vírgula final.
 fn declaracoes(corpo: &str) -> Result<String, Motivo> {
     let mut partes = Vec::new();
@@ -283,10 +296,14 @@ fn declaracoes(corpo: &str) -> Result<String, Motivo> {
         let Some((prop, valor)) = d.split_once(':') else {
             return Err(Motivo::Estilos);
         };
+        // `!important` é marca da declaração, não do valor: o `csslib`
+        // compacto a escreve colada (`emit('$_sp!important')`, `_sp` vazio).
+        let (valor, importante) = sem_important(valor);
         partes.push(format!(
-            "{}:{}",
+            "{}:{}{}",
             prop.trim(),
-            cores(&urls(&virgulas(&comprimir_valor(valor))?)?)
+            cores(&urls(&virgulas(&comprimir_valor(valor))?)?),
+            if importante { "!important" } else { "" }
         ));
     }
     Ok(partes.join(";"))
