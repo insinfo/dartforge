@@ -568,6 +568,13 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
             // Classe dona desconhecida aqui: resolve no escopo da biblioteca.
             anotacao(inf, unit, None, None, m);
         }
+        if let ast::MemberKind::Constructor(ctor) = &mb.kind {
+            for p in ctor.parameters.iter() {
+                for m in p.metadata.iter() {
+                    anotacao(inf, unit, None, None, m);
+                }
+            }
+        }
     }
     for f in a.functions.iter() {
         if let Some(ps) = &f.parameters {

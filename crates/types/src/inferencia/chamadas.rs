@@ -276,20 +276,14 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if let ExprKind::Identifier(p) = &a.expr(recv).kind {
                 if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
                     let t = inferir(inf, cx, target, u);
-                    let (r, inst) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
-                    if inst != t {
-                        registrar(inf, cx, target, inst);
-                    }
+                    let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
                     return (r, false);
                 }
             }
             // `C.m(args)` estático / `E.m(args)`.
             if referencia_a_tipo(inf, cx, recv).is_some() {
                 let t = inferir(inf, cx, target, u);
-                let (r, inst) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
-                if inst != t {
-                    registrar(inf, cx, target, inst);
-                }
+                let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
                 return (r, false);
             }
             // `super.m(args)`.
@@ -298,8 +292,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 registrar(inf, cx, recv, this);
                 let t = expr::membro_super(inf, cx, target, name, false);
                 registrar(inf, cx, target, t);
-                let (r, inst) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
-                registrar(inf, cx, target, inst);
+                let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
@@ -307,14 +300,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 Busca::Achado(m) => {
                     resolver(inf, cx, target, m.resolved.clone());
                     registrar(inf, cx, target, m.tipo);
-                    let (mut r, inst) = if m.metodo {
+                    // O nome do método guarda o tipo não instanciado (como o
+                    // `methodName.staticType` do analyzer).
+                    let (mut r, _) = if m.metodo {
                         let t = inf.nao_nulo(m.tipo);
                         invocar(inf, cx, t, args, ctx, explicitos)
                     } else {
                         invocar_valor(inf, cx, m.tipo, args, ctx, explicitos, span)
                     };
                     if m.metodo {
-                        registrar(inf, cx, target, inst);
                         // Refinamento numérico de `remainder`/`clamp`.
                         if let Some(sym) = [inf.sym.remainder, inf.sym.clamp].into_iter().flatten().find(|s| *s == name.sym) {
                             let tipos: Vec<TypeId> = args
@@ -372,10 +366,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         }
         _ => {
             let t = inferir(inf, cx, target, u);
-            let (r, inst) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
-            if inst != t && matches!(inf.table.get(t), Type::Function { .. }) {
-                registrar(inf, cx, target, inst);
-            }
+            let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
             (r, false)
         }
     }
@@ -541,6 +532,14 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         inf.program.lookup_prefixed(cx.lib, name[0].sym, name[1].sym)
     } else {
         inf.program.lookup(cx.lib, name[0].sym)
+    };
+    // `new C.nome()` chega como tipo de duas partes quando `C` não é prefixo.
+    let (binding, constructor) = match (binding, name.len()) {
+        (None, 2) => match inf.program.lookup(cx.lib, name[0].sym) {
+            Some(b) if matches!(b.getter, Some(Element::Class(_))) && constructor.is_none() => (Some(b), Some(name[1])),
+            _ => (binding, constructor),
+        },
+        _ => (binding, constructor),
     };
     let (c, explicitos) = match binding.and_then(|b| b.getter) {
         Some(Element::Class(c)) => {

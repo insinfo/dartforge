@@ -100,7 +100,24 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
             }
             format!("({}){}", partes.join(", "), q(*nullable))
         }
-        Type::Function { ret, positional, optional, named, nullable, .. } => {
+        Type::Function { type_params, ret, positional, optional, named, nullable } => {
+            let tps = if type_params.is_empty() {
+                String::new()
+            } else {
+                let v: Vec<String> = type_params
+                    .iter()
+                    .map(|&tp| {
+                        let d = t.param(tp);
+                        let nome = i.resolve(d.name).to_string();
+                        match t.get(d.bound) {
+                            Type::Interface { nullable: true, class, .. } if i.resolve(p.class(*class).name) == "Object" => nome,
+                            Type::Dynamic => nome,
+                            _ => format!("{nome} extends {}", formatar(t, d.bound, i, p)),
+                        }
+                    })
+                    .collect();
+                format!("<{}>", v.join(", "))
+            };
             let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
             if !optional.is_empty() {
                 partes.push(format!("[{}]", optional.iter().map(|&x| formatar(t, x, i, p)).collect::<Vec<_>>().join(", ")));
@@ -113,7 +130,7 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
                 n.sort();
                 partes.push(format!("{{{}}}", n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")));
             }
-            format!("{} Function({}){}", formatar(t, *ret, i, p), partes.join(", "), q(*nullable))
+            format!("{} Function{tps}({}){}", formatar(t, *ret, i, p), partes.join(", "), q(*nullable))
         }
     }
 }
@@ -187,6 +204,45 @@ void main() {
     ));
     assert_eq!(r.tipo("dados"), "Map<dynamic, dynamic>");
     assert_eq!(r.tipo("c.v"), "num?");
+}
+
+/// Construtores nomeados, `$this`, campos de extensão, `null.hashCode`,
+/// tear-off genérico como alvo de chamada (tipo não instanciado).
+#[test]
+fn construtores_nomeados_e_referencias() {
+    let r = ou_pula!(inferir(
+        r#"
+typedef Cb = dynamic Function(List<String>, {String rawValue});
+class E {
+  final int v;
+  const E.vazio() : v = 0;
+  factory E.deJson(Map m) => E.vazio();
+  Cb? callback;
+}
+T id<T>(T x) => x;
+extension X on num {
+  static const nomes = 'abc';
+  String f() => '$this ${nomes.length}';
+}
+void main() {
+  var a = const E.vazio();
+  var b = new E.vazio();
+  var c = E.deJson({});
+  var h = null.hashCode;
+  var i = id(3);
+  var cb = E.vazio().callback;
+}
+"#
+    ));
+    assert_eq!(r.tipo("const E.vazio()"), "E");
+    assert_eq!(r.tipo("new E.vazio()"), "E");
+    assert_eq!(r.tipo("E.deJson({})"), "E");
+    assert_eq!(r.tipo("null.hashCode"), "int");
+    assert_eq!(r.tipo("id"), "T Function<T>(T)");
+    assert_eq!(r.tipo("id(3)"), "int");
+    assert_eq!(r.tipo("nomes.length"), "int");
+    assert_eq!(r.tipo("E.vazio().callback"), "dynamic Function(List<String>, {String rawValue})?");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
 /// `late final x;` sem inicializador tem setter (atribuição única): a

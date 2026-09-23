@@ -89,6 +89,11 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
                 return RefNome::ConstanteEnum(v);
             }
         }
+        if let Some(x) = cx.extensao {
+            if let Some(&v) = inf.program.extension(x).fields.iter().find(|&&v| inf.program.variable(v).name == nome) {
+                return RefNome::Elemento(Element::Variable(v));
+            }
+        }
     }
     if let Some(b) = inf.program.lookup(cx.lib, nome) {
         let el = if setter { b.setter.or(b.getter) } else { b.getter.or(b.setter) };
@@ -388,6 +393,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             inf.core.string
         }
         ExprKind::Symbol(_) => inf.core.symbol,
+        // `$this` numa interpolação chega como identificador.
+        ExprKind::Identifier(n) if Some(n.sym) == inf.sym.this_ => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Identifier(n) => {
             let t = identificador(inf, cx, e, *n);
             instanciar_em_contexto(inf, t, ctx)
@@ -580,12 +587,8 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, nu
             let sp = inf.span_expr(cx.unit, r);
             inf.aviso(INVALID_NULL_AWARE_OPERATOR.template.to_string(), sp);
         }
-        if let Some(id) = alvo_de_promocao(inf, cx, r) {
-            let decl = cx.local(id).tipo;
-            let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-            inf.promover_nao_nulo(&mut f, id, decl);
-            cx.fluxo = f;
-        }
+        // A promoção do receptor de `?.` vale só dentro da cadeia; como ela
+        // não é modelada, não se promove (nada vaza para depois da cadeia).
         let nn = inf.nao_nulo(t);
         (nn, true)
     } else {

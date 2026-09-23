@@ -64,6 +64,7 @@ pub(crate) struct Simbolos {
     pub til: Option<SymbolId>,
     pub remainder: Option<SymbolId>,
     pub clamp: Option<SymbolId>,
+    pub this_: Option<SymbolId>,
 }
 
 impl Simbolos {
@@ -79,6 +80,7 @@ impl Simbolos {
             til: i.lookup("~"),
             remainder: i.lookup("remainder"),
             clamp: i.lookup("clamp"),
+            this_: i.lookup("this"),
         }
     }
 }
