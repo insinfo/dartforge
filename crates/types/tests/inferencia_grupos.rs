@@ -381,3 +381,35 @@ T f<T>(T? a, T b, Map<String, T> m) {
     assert_eq!(r.tipo("m['k']!"), "T & Object");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// Promoção de campo privado final (Dart 3.2), por `this`, implícito e por
+/// local; um homônimo não final na biblioteca a impede.
+#[test]
+fn promocao_de_campo_privado() {
+    let r = ou_pula!(inferir(
+        r#"
+class A {
+  final int? _x;
+  final Object _o;
+  int? _y;
+  A(this._x, this._o, this._y);
+  int f() {
+    if (_x != null) { var a = _x; }
+    if (this._o is String) { var b = this._o; }
+    if (_y != null) { var c = _y; }
+    return 0;
+  }
+}
+int g(A a) {
+  if (a._x == null) return 0;
+  return a._x;
+}
+"#
+    ));
+    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    assert_eq!(tipos("_x"), ["int?", "int"]);
+    assert_eq!(tipos("this._o"), ["Object", "String"]);
+    assert_eq!(tipos("_y"), ["int?", "int?"]);
+    assert_eq!(tipos("a._x"), ["int?", "int"]);
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}

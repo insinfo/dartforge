@@ -81,6 +81,16 @@ pub(crate) struct Corpo {
     pub escritos_no_corpo: Option<Vec<SymbolId>>,
     /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
     pub raiz: Raiz,
+    /// Campos promovíveis (Dart 3.2) já referidos: `(base, campo) -> local
+    /// sintético` que carrega o modelo de fluxo do campo.
+    pub campos: HashMap<(Base, VariableId), LocalId>,
+}
+
+/// Base de uma referência a campo promovível.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Base {
+    This,
+    Local(LocalId),
 }
 
 /// Corpo de topo em inferência.
@@ -121,6 +131,7 @@ impl Corpo {
             rotulos_pendentes: Vec::new(),
             escritos_no_corpo: None,
             raiz: Raiz::Nada,
+            campos: HashMap::new(),
         };
         // Parâmetros de tipo da classe/extensão estão sempre em escopo
         // (mesmo em membros estáticos, onde usá-los é erro).
@@ -199,6 +210,20 @@ impl Corpo {
         if let Some(e) = self.escopos.last_mut() {
             e.push((nome, Nome::Adiante));
         }
+    }
+
+    /// Local sintético (sem nome no escopo): alvo de promoção de um campo.
+    pub fn declarar_sintetico(&mut self, local: Local) -> LocalId {
+        let id = LocalId(self.locais.len() as u32);
+        self.locais.push(local);
+        self.fluxo.declarar(id);
+        self.fluxo.inicializar(id);
+        id
+    }
+
+    /// Esquece os campos promovidos de uma local reatribuída.
+    pub fn esquecer_campos_de(&mut self, base: LocalId) {
+        self.campos.retain(|(b, _), _| *b != Base::Local(base));
     }
 
     pub fn declarar_tipo_param(&mut self, nome: SymbolId, p: TypeParamId) {

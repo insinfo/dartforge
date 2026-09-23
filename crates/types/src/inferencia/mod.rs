@@ -111,6 +111,8 @@ pub struct BodyInferrer<'a> {
     pub(crate) params_colecao_cache: Option<[crate::table::TypeParamId; 3]>,
     /// Parâmetros novos, por classe, da inferência de construtores.
     pub(crate) params_construtor: HashMap<u32, Vec<crate::table::TypeParamId>>,
+    /// Campos promovíveis já decididos.
+    pub(crate) promoviveis: HashMap<u32, bool>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -148,6 +150,7 @@ impl<'a> BodyInferrer<'a> {
             profundidade_topo: 0,
             params_colecao_cache: None,
             params_construtor: HashMap::new(),
+            promoviveis: HashMap::new(),
         }
     }
 
