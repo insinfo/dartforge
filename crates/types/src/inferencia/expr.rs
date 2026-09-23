@@ -1683,3 +1683,90 @@ pub(crate) fn declarar_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, local: 
     inf.body_types.units[cx.unit.0 as usize].set_tipo_local(offset, tipo);
     id
 }
+
+impl<'a> BodyInferrer<'a> {
+    /// Expressão constante (especificação, "Constants"), sobre a resolução
+    /// já feita: literais, constantes referidas, construtores e coleções
+    /// `const`, operadores sobre constantes, `?:`, interpolação, tipos.
+    pub(crate) fn e_constante(&self, cx: &Corpo, e: ExprId) -> bool {
+        let a = &self.program.unit(cx.unit).ast;
+        let bt = &self.body_types.units[cx.unit.0 as usize];
+        let var_const = |v: dartforge_elements::model::VariableId| self.program.variable(v).const_;
+        let fun_const = |f: dartforge_elements::model::FunctionElementId| {
+            let fe = self.program.function(f);
+            match (fe.kind, fe.variable) {
+                (FunctionKind::ImplicitAccessor, Some(v)) => var_const(v),
+                (FunctionKind::Getter | FunctionKind::Setter, _) => false,
+                // Tear-off de função de topo ou estática é constante.
+                _ => fe.static_ || fe.class.is_none(),
+            }
+        };
+        let ref_const = |r: Option<&Resolved>| match r {
+            Some(Resolved::Local(id)) => cx.locais.get(id.0 as usize).is_some_and(|l| l.const_),
+            Some(Resolved::Element(Element::Variable(v))) => var_const(*v),
+            Some(Resolved::Element(Element::Function(f))) => fun_const(*f),
+            Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))) => true,
+            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => var_const(*v),
+            Some(Resolved::Member { member: MemberRef::Function(f), .. }) => fun_const(*f),
+            Some(Resolved::Constructor(_)) => true,
+            _ => false,
+        };
+        match &a.expr(e).kind {
+            ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Symbol(_) => true,
+            ExprKind::String(lit) => lit.parts.iter().all(|p| match p {
+                ast::StringPart::Interpolation(x) => self.e_constante(cx, *x),
+                _ => true,
+            }),
+            ExprKind::Parenthesized(x) => self.e_constante(cx, *x),
+            ExprKind::Identifier(_) => ref_const(bt.get_resolved(e)),
+            ExprKind::Property { target, name, .. } => {
+                if ref_const(bt.get_resolved(e)) {
+                    return true;
+                }
+                // `s.length` de string constante.
+                self.interner.resolve(name.sym) == "length" && self.e_constante(cx, *target)
+            }
+            ExprKind::TypeArguments { .. } => true,
+            ExprKind::List { const_, elements, .. } | ExprKind::SetOrMap { const_, elements, .. } => {
+                *const_ || elements.iter().all(|el| match el {
+                    ast::CollectionElement::Expression(x) => self.e_constante(cx, *x),
+                    ast::CollectionElement::MapEntry { key, value, .. } => self.e_constante(cx, *key) && self.e_constante(cx, *value),
+                    _ => false,
+                })
+            }
+            ExprKind::Record { positional, named, .. } => {
+                positional.iter().all(|x| self.e_constante(cx, *x)) && named.iter().all(|(_, x)| self.e_constante(cx, *x))
+            }
+            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+                matches!(keyword, Some(ast::CreationKeyword::Const)) || arguments.args.iter().all(|x| self.e_constante(cx, x.value)) && self.construtor_const(bt.get_resolved(e))
+            }
+            ExprKind::Call { target, arguments } => {
+                // Construtor `const` sem `new` em contexto constante, ou `identical`.
+                let ok_args = arguments.args.iter().all(|x| self.e_constante(cx, x.value));
+                if !ok_args {
+                    return false;
+                }
+                if self.construtor_const(bt.get_resolved(e)) {
+                    return true;
+                }
+                matches!(&a.expr(*target).kind, ExprKind::Identifier(n) if self.interner.resolve(n.sym) == "identical")
+            }
+            ExprKind::Unary { op, operand } => {
+                matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot) && self.e_constante(cx, *operand)
+            }
+            ExprKind::Binary { left, right, .. } => self.e_constante(cx, *left) && self.e_constante(cx, *right),
+            ExprKind::Conditional { condition, then, else_ } => {
+                self.e_constante(cx, *condition) && self.e_constante(cx, *then) && self.e_constante(cx, *else_)
+            }
+            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.e_constante(cx, *value),
+            _ => false,
+        }
+    }
+
+    fn construtor_const(&self, r: Option<&Resolved>) -> bool {
+        match r {
+            Some(Resolved::Constructor(f)) => self.program.function(*f).const_,
+            _ => false,
+        }
+    }
+}

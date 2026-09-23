@@ -116,6 +116,11 @@ pub struct BodyInferrer<'a> {
     /// Contexto refinado dos argumentos de `clamp`/`remainder` para a
     /// próxima invocação.
     pub(crate) contexto_numerico_pendente: Option<TypeId>,
+    /// Unidade de cada diagnóstico (paralelo a `diagnostics`), para quem
+    /// precisa do arquivo (ferramentas; o LSP).
+    pub unidades_dos_avisos: Vec<Option<UnitId>>,
+    /// Unidade do corpo em inferência.
+    pub(crate) unidade_corrente: Option<UnitId>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -155,11 +160,19 @@ impl<'a> BodyInferrer<'a> {
             params_construtor: HashMap::new(),
             promoviveis: HashMap::new(),
             contexto_numerico_pendente: None,
+            unidades_dos_avisos: Vec::new(),
+            unidade_corrente: None,
         }
     }
 
     /// Ponto de entrada: infere inicializadores de variáveis e corpos.
-    pub fn infer_all(mut self) -> (BodyTypes, Vec<Diagnostic>) {
+    pub fn infer_all(self) -> (BodyTypes, Vec<Diagnostic>) {
+        let (b, d, _) = self.infer_all_com_unidades();
+        (b, d)
+    }
+
+    /// Como [`BodyInferrer::infer_all`], com a unidade de cada diagnóstico.
+    pub fn infer_all_com_unidades(mut self) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<UnitId>>) {
         // Bibliotecas do SDK pedidas explicitamente (o nativo compila o SDK
         // da fonte) ganham tabelas laterais como as do usuário.
         if let Some(pedidas) = self.apenas_bibliotecas.clone() {
@@ -192,9 +205,10 @@ impl<'a> BodyInferrer<'a> {
             if !self.inferir_corpos_de(lib) {
                 continue;
             }
+            self.unidade_corrente = Some(UnitId(ui as u32));
             funcoes::inferir_metadados_da_unidade(&mut self, UnitId(ui as u32));
         }
-        (self.body_types, self.diagnostics)
+        (self.body_types, self.diagnostics, self.unidades_dos_avisos)
     }
 
     /// Os corpos de `lib` são inferidos: os pedidos, quando há pedido
@@ -225,12 +239,15 @@ impl<'a> BodyInferrer<'a> {
         self.estado_vars[vid.0 as usize] = EstadoVar::EmCurso;
         self.profundidade_topo += 1;
         let diags_antes = self.diagnostics.len();
+        let unidade_salva = self.unidade_corrente;
         let t = funcoes::inferir_tipo_de_variavel_sem_tipo(self, vid);
+        self.unidade_corrente = unidade_salva;
         // Inferência sob demanda de uma variável cujos corpos não foram
         // pedidos (SDK, biblioteca não reemitida): os avisos não são deste
         // pedido.
         if !self.inferir_corpos_de(self.program.variable(vid).library) {
             self.diagnostics.truncate(diags_antes);
+            self.unidades_dos_avisos.truncate(diags_antes);
         }
         self.profundidade_topo -= 1;
         self.outline.variables[vid.0 as usize].inferred = Some(t);
@@ -355,7 +372,9 @@ impl<'a> BodyInferrer<'a> {
 
     pub(crate) fn aviso(&mut self, msg: String, span: Span) {
         self.diagnostics.push(Diagnostic::new(msg, span));
+        self.unidades_dos_avisos.push(self.unidade_corrente);
     }
+
 
     pub(crate) fn span_expr(&self, unit: UnitId, e: ast::ExprId) -> Span {
         self.program.unit(unit).ast.expr(e).span

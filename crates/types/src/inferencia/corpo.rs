@@ -116,6 +116,7 @@ pub(crate) struct AlvoSalto {
 impl Corpo {
     pub fn novo(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, extensao: Option<ExtensionId>, estatico: bool) -> Self {
         let lib = inf.program.unit(unit).library;
+        inf.unidade_corrente = Some(unit);
         let mut cx = Corpo {
             unit,
             lib,

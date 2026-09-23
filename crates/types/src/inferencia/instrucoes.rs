@@ -407,7 +407,7 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
                 tipo = Some(if matches!(inf.table.get(t), Type::Null) { inf.core.dynamic_ } else { t });
             }
             if vl.const_ {
-                colecoes_const(inf, cx.unit, init);
+                colecoes_const(inf, cx, init);
             }
         }
         let tipo = tipo.unwrap_or(inf.core.dynamic_);
@@ -430,8 +430,9 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
     }
 }
 
-fn colecoes_const(inf: &mut BodyInferrer<'_>, unit: UnitId, init: ExprId) {
-    super::colecoes::validar_colecao_const(inf, unit, init);
+fn colecoes_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, init: ExprId) {
+    let unit = cx.unit;
+    super::colecoes::validar_colecao_const(inf, cx, init);
     let mut av = crate::constant::ConstantEvaluator::new(inf.program, inf.interner, inf.table, inf.core);
     let r = av.evaluate_expr(unit, init);
     let erro = av.error_thrown.clone();
@@ -440,7 +441,8 @@ fn colecoes_const(inf: &mut BodyInferrer<'_>, unit: UnitId, init: ExprId) {
         let sp = inf.span_expr(unit, init);
         match erro {
             Some(e) => inf.aviso(format!("{}: {}", CONST_EVAL_THROWS_EXCEPTION.template, e), sp),
-            None => inf.aviso(CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), sp),
+            None if !inf.e_constante(cx, init) => inf.aviso(CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), sp),
+            None => {}
         }
     }
 }
