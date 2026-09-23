@@ -18,6 +18,7 @@
 //! o placar diz exatamente onde estamos.
 pub mod componente;
 pub mod css;
+pub mod diretivas;
 pub mod dom;
 pub mod expr;
 pub mod html;
