@@ -103,9 +103,26 @@ language-server` pico 640,5 MiB / platô 633,7 MiB**.
 
 Trilha nova → HIR própria → LLVM IR → Clang → executável, com o runtime
 Rust (GC por tracing). `dartforge compile-native` (compile com
-`cargo build -p dartforge-cli --features nativo`). Estado do corpus
-nativo no fim da sessão: ~6/202 (strings, classes, interpolação, coleções
-básicas, `StringBuffer`, `for-in`, runas). Ver `docs/NATIVO.md`.
+`cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
+apelido de produção do mesmo caminho.
+
+**Corpus nativo: 7/214, e agora é um comando.** O harness diferencial roda
+o corpus pelo backend nativo comparando com a VM byte a byte:
+
+```powershell
+cargo build --release -p dartforge-diferencial
+target\release\dartforge-diferencial.exe --nativo
+```
+
+Limites ligados por padrão, porque sem eles o corpus nativo em paralelo
+tomou a memória da máquina: heap do runtime com teto de 256 MiB
+(`DARTFORGE_HEAP_MAX_MB`), `--jobs 2` no modo nativo, `--limite-exec` de
+5 s para executar o binário, e 4 MiB de saída capturada por processo.
+
+O número saiu de 3/214 nesta sessão; o que mudou de fato foi a natureza do
+gargalo — as falhas de "o Clang recusa o módulo" caíram de 172 para 13, e
+o que sobra é programa que roda e imprime outra coisa. Ver
+`docs/NATIVO.md` e `docs/NATIVO-PLANO.md`.
 
 ### 1.6 Infraestrutura
 
@@ -254,10 +271,24 @@ do `trait Analisador`, que hoje só tem a implementação sintática.
 
 ### 2.5 Backend nativo
 
-~196 dos 202 programas do corpus. Falta a maior parte: exceções, `async` e
-event loop, genéricos reificados, `dart:io`, isolates, o `dart:core` da
-seção `vm` a partir da fonte, e o cache de objetos (o Clang/link domina o
-tempo).
+207 dos 214 programas do corpus, agrupados pelo relatório do harness
+(`--nativo`), do que bloqueia mais para o que bloqueia menos:
+
+| falhas | causa |
+| --- | --- |
+| 29 | roda, mas imprime diferente da VM |
+| 28 | nem carrega: falta `dart:math`, `dart:convert`, `dart:typed_data`, `dart:collection` e parte de `dart:async` |
+| 13 | o Clang ainda recusa o IR |
+| ~20 | `NoSuchMethodError: <membro>` — o erro agora carrega o nome, então o placar já lista o que falta: `values` (enums), `$1` (records), `bitLength`, `entries`, `nan`, `done`, `hashCode`… |
+| 6 | estouram o teto de 256 MiB do heap |
+| ~8 | `panic` no runtime (handle não vivo, e semelhantes) |
+
+O lowering de exceções existe (`throw`/`try`/`catch`/`finally`/`rethrow`,
+com o `finally` como sub-rotina e discriminador de razão); falta acertar os
+textos de `toString` dos erros do `dart:core`, que o corpus compara byte a
+byte. Continuam faltando `async` e event loop, genéricos reificados,
+`dart:io`, isolates, o `dart:core` da seção `vm` a partir da fonte, e o
+cache de objetos por módulo (o Clang/link domina o tempo).
 
 ### 2.6 ngdart e geração de código
 
