@@ -646,6 +646,19 @@ Duas leituras, e as duas importam:
   minificação) mexem na parte pequena da conta; o que mexe na grande é
   compilar o SDK pela nossa trilha.
 
+### Num projeto real
+
+`new_sali/core`, `test/arvore_processo_item_test.dart` (`package:test`,
+351 módulos), pelo perfil de produção: **a suíte passa, com a mesma saída
+do `dart run`**, num arquivo só de 32.003 KB, em 15 s. O runtime foi de
+6.922 KB para 2.121 KB.
+
+Esse número mostra onde o trabalho está, e inverte a leitura do corpus: no
+corpus o runtime é 100% do arquivo; aqui ele é 6,6%, e os outros 30 MB são
+**código do usuário e dos pacotes, emitido inteiro**. É exatamente a
+etapa 5 — o mundo fechado sobre a nossa trilha — e é ela que vale para os
+projetos do proprietário, não a poda do runtime.
+
 ## 6.1 O que já está implementado
 
 Etapas 1 a 4 do quadro acima, em `crates/emit_js_producao`

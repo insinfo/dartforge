@@ -107,6 +107,15 @@ de ~1,5 MB qualquer que seja o programa: é o que resta do `dart_sdk.js` do
 DDC depois da poda. Ver §2.3 — fechar esse buraco é compilar o SDK pela
 nossa trilha, não otimizar mais.
 
+**Projeto real**: `new_sali/core`,
+`test/arvore_processo_item_test.dart` (`package:test`, 351 módulos) roda
+pelo perfil de produção com a **mesma saída do `dart run`**, num arquivo só
+de 32.003 KB, em 15 s; o runtime foi de 6.922 KB para 2.121 KB. O número
+inverte a leitura do corpus: aqui o runtime é 6,6% do arquivo e os outros
+30 MB são código do usuário e dos pacotes, emitido inteiro — é a etapa 5
+do `docs/JS-PRODUCAO.md` (mundo fechado sobre a nossa trilha) que vale para
+os projetos do proprietário, não a poda do runtime.
+
 ### 1.3 Latência e memória — `crates/dev`
 
 `dartforge dev` mantém a sessão viva e recompila o mínimo.
