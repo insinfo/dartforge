@@ -1125,13 +1125,17 @@ não em podar mais o runtime.
 
 ### Runtime Dart
 
-Existe: heap com GC por tracing preciso, `String` em UTF-16, `int` de 64
-bits com estouro modular, e teto duro de heap (256 MiB por padrão) que
-falha legível em vez de tomar a máquina.
+Existe: heap com GC por tracing preciso, `String` em UTF-8 (a
+representação UTF-16 da VM entra antes do SDK da fonte, decisão 5 de
+docs/NATIVO-PLANO.md §7.1), `int` de 64 bits com estouro modular, e teto
+duro de heap (256 MiB por padrão) que falha legível em vez de tomar a
+máquina.
 
 Falta o que o alvo governante exige: laço de eventos com `Future`,
 `Completer` e `Zone`; `dart:io`; isolates com heap por isolate, sem
-memória compartilhada, como a VM.
+memória compartilhada — a especificação (§6.3: "It has its own memory")
+e não a VM, que compartilha o heap no grupo como otimização; decisão 4 de
+docs/NATIVO-PLANO.md §7.1.
 
 ### A regra que atravessa as cinco
 
@@ -1632,6 +1636,15 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
   `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
   corpus, atrás de `--memoria tracing|arc`.
+* **SIMD no backend nativo** — `docs/SIMD-NATIVO.md`. `Float32x4`/`Int32x4`/
+  `Float64x2` como vetores LLVM, com o caminho vetorial completo (operadores,
+  máscaras e acesso às listas SIMD) sem encaixotar no laço. Depois de
+  `dart:typed_data` compilado da fonte pelo nativo.
+* **Inteiros e SIMD no JS** — `docs/NUMEROS-JS.md`. O padrão continua o do
+  DDC (`int` = `number`); inteiros exatos de 64 bits só como modo opcional
+  (`BigInt` ou duas metades, medidos), `Math.imul` para produto de 32 bits,
+  substituição escalar de `Float32x4` no perfil de produção preservando
+  `Math.fround`, e SIMD real só num eventual alvo Wasm.
 * **Acompanhar as versões novas da linguagem** — 3.6.2 é o **piso**, não o
   teto (ver "Dart 3.6.2 é o mínimo de compatibilidade" acima e o Incremento
   25). Próximo item concreto: Dart 3.13 (2026-08) — construtores primários,

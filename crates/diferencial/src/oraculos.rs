@@ -443,3 +443,129 @@ mod testes {
         assert_eq!(url_arquivo(Path::new("/tmp/dart_sdk.js")), "file:///tmp/dart_sdk.js");
     }
 }
+
+// ---------------------------------------------------------------- JIT
+
+/// Tempo a mais que o processo do JIT recebe, além de `limite_nativo`, por
+/// carregar o LLVM e gerar o código dentro do mesmo processo.
+const FOLGA_GERACAO_JIT: Duration = Duration::from_secs(10);
+
+/// O executor isolado do JIT (`crates/jit`, binário `dartforge-executar-ir`).
+///
+/// `DARTFORGE_EXECUTAR_IR` sobrepõe; senão, o executável ao lado deste
+/// harness, que é onde `cargo build -p dartforge-jit` o deixa no mesmo
+/// `target/`. O harness não liga o LLVM: o JIT é um processo por programa,
+/// porque o runtime encerra o processo nos mesmos casos em que o executável
+/// AOT termina (`docs/JIT.md`, «Execução e término»).
+pub fn executor_jit() -> PathBuf {
+    if let Some(p) = std::env::var_os("DARTFORGE_EXECUTAR_IR") {
+        return PathBuf::from(p);
+    }
+    let nome = if cfg!(windows) { "dartforge-executar-ir.exe" } else { "dartforge-executar-ir" };
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join(nome)))
+        .unwrap_or_else(|| PathBuf::from(nome))
+}
+
+/// O perfil de **desenvolvimento** do backend nativo: o LLVM IR do programa
+/// executado pelo JIT ORCv2, num processo do executor.
+///
+/// Com `com_aot`, o **mesmo texto** de IR também passa pelo driver AOT (Clang +
+/// ligação), e o executável é executado. É o contrato de `crates/jit`:
+/// os dois perfis têm de dar o mesmo stdout e o mesmo código, programa a
+/// programa. Os tempos de cada lado ficam no resultado.
+///
+/// O erro de emissão sai com o mesmo prefixo `[compile-native]` do modo
+/// `--nativo`: é o mesmo emissor, e os placares dos dois modos têm de agrupar
+/// as falhas pelas mesmas chaves.
+pub fn dartforge_jit(amb: &Ambiente, programa: &Programa, dir: &Path, com_aot: bool) -> (Saida, crate::relatorio::ExecucaoJit) {
+    use crate::relatorio::{AotDoMesmoIr, ExecucaoJit};
+    let _ = std::fs::create_dir_all(dir);
+    let ir = match dartforge_nativo_ir(programa) {
+        Ok(ir) => ir,
+        Err(e) => {
+            let e = e.strip_prefix("[emitir-ir] ").unwrap_or(&e).to_string();
+            let primeira = e.lines().next().unwrap_or("").to_string();
+            let saida = Saida { stdout: String::new(), stderr: format!("[compile-native] {primeira}\n{e}"), codigo: 1 };
+            let aot = com_aot.then(|| AotDoMesmoIr { saida: saida.clone(), ligacao: Duration::ZERO, execucao: Duration::ZERO, objeto_do_cache: false });
+            return (saida, ExecucaoJit { com_ir: false, tempo: Duration::ZERO, execucao: None, aot });
+        }
+    };
+    let ll = dir.join(format!("{}.ll", programa.nome));
+    if let Err(e) = std::fs::write(&ll, &ir) {
+        return (Saida::erro(format!("[jit] não foi possível gravar {}: {e}", ll.display())), ExecucaoJit { com_ir: true, tempo: Duration::ZERO, execucao: None, aot: None });
+    }
+    let executor = executor_jit();
+    // O limite do AOT vale só para executar o .exe, depois do Clang e da
+    // ligação. O processo do JIT também carrega a LLVM-C.dll (72 MB) e gera o
+    // código antes de executar: frio e com a máquina disputada, isso já passou
+    // de 3 s num programa que executa em 5 ms. Sem a folga, o mesmo programa
+    // estouraria o tempo só no JIT, e o placar acusaria JIT≠AOT à toa.
+    let limite = amb.limite_nativo + FOLGA_GERACAO_JIT;
+    let inicio = std::time::Instant::now();
+    // `--gc-stress` vale para os dois perfis, como no `--nativo`.
+    let ambiente: &[(&str, &str)] = if amb.gc_stress { &[("DARTFORGE_GC_STRESS", "1")] } else { &[] };
+    let mut jit = executar_com_ambiente(
+        &executor.to_string_lossy(),
+        &[ll.to_string_lossy().into_owned(), "--timings".to_string()],
+        dir,
+        limite,
+        &amb.path_extra,
+        ambiente,
+    );
+    let tempo = inicio.elapsed();
+    let execucao_jit = separar_tempos_do_executor(&mut jit);
+    // Código 70 é o executor recusando o IR (verificador, externo
+    // desconhecido, alvo): o equivalente ao Clang recusar o módulo no AOT, e
+    // sai com a mesma forma que o `--nativo` dá a esse caso.
+    if jit.codigo == CODIGO_FALHA_DO_JIT && jit.stdout.is_empty() {
+        let primeira = jit.primeira_linha_stderr().to_string();
+        jit = Saida { stdout: String::new(), stderr: format!("[compile-native] {primeira}
+{}", jit.stderr), codigo: 1 };
+    }
+
+    let aot = com_aot.then(|| {
+        let exe = dir.join(if cfg!(windows) { format!("{}.exe", programa.nome) } else { programa.nome.clone() });
+        let inicio = std::time::Instant::now();
+        let ligado = dartforge_emit_native::driver::compile_and_link(&ir, &exe, &dartforge_emit_native::driver::NativeDriverOptions::default());
+        let ligacao = inicio.elapsed();
+        match ligado {
+            Err(e) => {
+                let primeira = e.lines().next().unwrap_or("").to_string();
+                let saida = Saida { stdout: String::new(), stderr: format!("[compile-native] {primeira}\n{e}"), codigo: 1 };
+                AotDoMesmoIr { saida, ligacao, execucao: Duration::ZERO, objeto_do_cache: false }
+            }
+            Ok(t) => {
+                let inicio = std::time::Instant::now();
+                let saida = executar_com_ambiente(&exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra, ambiente);
+                let execucao = inicio.elapsed();
+                if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
+                    let _ = std::fs::remove_file(&exe);
+                }
+                AotDoMesmoIr { saida, ligacao, execucao, objeto_do_cache: t.objeto_do_cache }
+            }
+        }
+    });
+    if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
+        let _ = std::fs::remove_file(&ll);
+    }
+    (jit, ExecucaoJit { com_ir: true, tempo, execucao: execucao_jit, aot })
+}
+
+/// Código com que `dartforge-executar-ir` sai quando o próprio JIT falha
+/// (`crates/jit/src/bin/executar_ir.rs`).
+const CODIGO_FALHA_DO_JIT: i32 = 70;
+
+/// Tira do stderr a linha JSON de `--timings` do executor e devolve o tempo de
+/// execução do programa que ela traz (`execute_ns`).
+///
+/// A linha sai do stderr para não virar a chave de falha nem entrar em
+/// nenhuma comparação: ela só existe no perfil JIT.
+fn separar_tempos_do_executor(saida: &mut Saida) -> Option<Duration> {
+    let linha = saida.stderr.lines().rev().find(|l| l.starts_with("{\"llvm\""))?.to_string();
+    saida.stderr = saida.stderr.replacen(&format!("{linha}\n"), "", 1).replacen(&linha, "", 1);
+    let valor = linha.split("\"execute_ns\":").nth(1)?;
+    let digitos: String = valor.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digitos.parse::<u64>().ok().map(Duration::from_nanos)
+}

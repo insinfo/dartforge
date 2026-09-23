@@ -335,6 +335,7 @@ dependencies = [
  "dartforge-emit-js",
  "dartforge-emit-native",
  "dartforge-intern",
+ "dartforge-jit",
  "dartforge-native",
  "serde_json",
 ]
