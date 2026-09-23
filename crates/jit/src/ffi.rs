@@ -375,8 +375,8 @@ impl ParsedModule {
     /// Layout nominal das classes construídas pelo módulo: `(class_id, campos)`.
     ///
     /// Sai das chamadas a `@dartforge_object_new(i64 class_id, i64 field_count)`
-    /// com os dois argumentos constantes, que é a forma que `crates/llvm` emite
-    /// em `@df_new_*`. Duas gerações que discordem no número de campos de uma
+    /// com os dois argumentos constantes, que é a forma que o emissor nativo emite
+    /// nos construtores. Duas gerações que discordem no número de campos de uma
     /// mesma classe têm layouts incompatíveis: os objetos já vivos no heap
     /// gerenciado continuariam com o layout antigo, e o código novo leria campos
     /// que não existem. Por isso essa divergência recusa a recarga em vez de

@@ -70,7 +70,9 @@ Dart 3.6.2.
 ## Pendente
 
 `testes-pendentes/hot_reload.rs` são os testes do hot reload escritos contra a
-trilha velha, que não compilam mais. Eles usam `dartforge_compiler` e a captura
-de saída em processo. Voltam quando forem migrados para o IR do `emit_native`
+trilha velha, que não compilam mais: usam `dartforge_compiler`,
+`dartforge_native` e os crates do front-end antigo (removidos do workspace e
+preservados na branch `exploracao-inicial`) e a captura de saída em processo.
+Ficam aqui, fora de `tests/`, como a lista de cenários a migrar. Voltam quando forem migrados para o IR do `emit_native`
 (plano do JIT, passo 11). O mecanismo em `src/reload.rs` continua coberto pelos
 testes unitários do módulo.
