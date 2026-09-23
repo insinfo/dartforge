@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 fn programas() -> Vec<PathBuf> {
     let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut v: Vec<PathBuf> = ["p1_basico", "p2_funcoes", "p3_classes", "p3_genericas", "p4_colecoes", "p5_excecoes", "p6_async", "p7_dinamico", "p7_padroes", "p7_bibliotecas/main"]
+    let mut v: Vec<PathBuf> = ["p1_basico", "p2_funcoes", "p3_classes", "p3_genericas", "p4_colecoes", "p5_excecoes", "p6_async", "p7_dinamico", "p7_padroes", "p7_bibliotecas/main", "p8_nosuchmethod_ordem"]
         .iter()
         .map(|n| raiz.join(format!("crates/emit_js/tests/programas/{n}.dart")))
         .collect();
@@ -47,23 +47,7 @@ fn filtro_nenhum_e_tudo_vivo_emitem_o_mesmo_texto() {
             Ok((b, c))
         })
         .expect("compilar_com");
-        let (mut ma, mut mb, mut mc) = (modulos(&a), modulos(&b), modulos(&c));
-        // Não determinismo **anterior** a este trabalho, e fora dele: a ordem
-        // dos encaminhadores de `noSuchMethod` sai de `Ctx::unimplemented_abstract`
-        // (iteração de `HashMap`) e muda de uma execução para outra do mesmo
-        // binário. Para esses programas compara-se o multiconjunto de linhas.
-        if p.to_string_lossy().contains("nosuchmethod") {
-            for m in [&mut ma, &mut mb, &mut mc] {
-                for (_, t) in m.iter_mut() {
-                    let ordenado = {
-                        let mut l: Vec<&str> = t.lines().collect();
-                        l.sort();
-                        l.join("\n")
-                    };
-                    *t = ordenado;
-                }
-            }
-        }
+        let (ma, mb, mc) = (modulos(&a), modulos(&b), modulos(&c));
         assert_eq!(ma, mb, "{}: `compilar` e `emitir(None)` divergem", p.display());
         assert_eq!(mb, mc, "{}: `emitir(None)` e `emitir(TudoVivo)` divergem", p.display());
         assert_eq!(a.entrada, c.entrada);

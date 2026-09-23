@@ -263,6 +263,41 @@ ordem de conclusão) de **emissões simultâneas** (`DARTFORGE_IR_PARALELO_MAX`,
 por memória) — o teste precisa da primeira coisa, não da segunda. Medido
 em `ESTADO.md` §3.2: 214 programas em 0,2–0,5 s por passada.
 
+**Iteração de `HashMap` (auditoria de 2026-09-23).** Trocar o número de
+trabalhadores não pega tudo: cada `HashMap`/`HashSet` da `std` sorteia as
+suas chaves (`RandomState`), então iterar um deles muda de uma **execução**
+para outra do mesmo binário, com um trabalhador só. Achado medido: os
+encaminhadores de `noSuchMethod` saíam da iteração de `instance_members` em
+`Ctx::unimplemented_abstract` (`emit_js/src/ctx.rs`), e o bundle mudava a
+cada compilação. Agora saem na ordem do CFE, que é a do DDC
+(`ClassMembersNodeBuilder.build`: declarados, superclasse, mixins,
+interfaces; getter antes do setter) — `emit_js/tests/determinismo.rs` emite o
+mesmo programa 6 vezes em sequência e 4 em threads e exige texto idêntico
+byte a byte. Auditados 19 pontos de iteração em `emit_js`,
+`emit_js_producao`, `mundo` e `dev`: 4 corrigidos (o de cima; o
+`seletores()` público do `Mundo`, agora ordenado; e dois relatórios de
+depuração em stderr — `DARTFORGE_AVISOS_RESUMO` e `DARTFORGE_JSPROD_DEBUG` —
+que ordenavam só pela contagem, sem desempate), os outros 15 provados
+indiferentes à ordem (resultado ordenado depois, só pertinência, ou
+reinserção noutro mapa sem ordem). Em `emit_native/src/{lower,llvm}` e
+`crates/llvm` nenhuma iteração de mapa com hash chega à saída (só consultas;
+os mapas percorridos já são `BTreeMap`). Regra para código novo: iterar mapa
+com hash só para produzir outro conjunto sem ordem ou antes de ordenar; o
+que vira texto percorre `Vec`, `BTreeMap` ou ordena por uma chave estável
+(ordem de declaração = id do elemento). Os `constructors` de uma classe são
+`BTreeMap` por `SymbolId`: determinístico numa compilação, mas a ordem é a de
+internação, que numa sessão do `serve` pode diferir da de uma compilação
+fresca.
+
+**Temporização no corpus.** Um programa do corpus não pode depender de um
+timer mais curto, registrado **depois**, vencer um mais longo: o prazo é
+`registro + duração`, e sob carga (8 trabalhadores) a pausa entre dois
+registros consome a margem. `88_future_wait_then_catcherror` falhou assim
+no CI; ele e `82_future_delayed_ordem` foram reescritos com `Completer`
+concluídos na ordem do programa, ou com timers registrados em ordem
+crescente de duração (prazos crescentes qualquer que seja a pausa). Timers
+de mesma duração saem na ordem de registro, e isso continua sendo testado.
+
 ## 12. Equivalência é no grafo, não no arquivo
 
 Comparação que inclui os identificadores dos símbolos chamados rejeita

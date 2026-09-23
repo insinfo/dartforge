@@ -407,7 +407,8 @@ pub fn compilar_com<R>(
                 *contagem.entry(d.message.clone()).or_default() += 1;
             }
             let mut v: Vec<(String, usize)> = contagem.into_iter().collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1));
+            // Empate na contagem desempata pela mensagem (o `HashMap` não tem ordem).
+            v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             for (m, n) in v.iter().take(30) {
                 eprintln!("{n:6}  {m}");
             }
