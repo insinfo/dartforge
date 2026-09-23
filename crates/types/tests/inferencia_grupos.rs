@@ -1,0 +1,171 @@
+//! Casos mínimos dos grupos de lacunas de inferência medidos contra o
+//! oráculo (`tools/oraculo_tipos`): cada caso fixa o tipo estático que o
+//! `package:analyzer` dá a uma expressão. Usam o SDK 3.6.2 real
+//! (`SdkLayout::discover` / `DARTFORGE_SDK_LIB`); sem ele, os testes pulam.
+
+use dartforge_elements::load::load_lenient;
+use dartforge_elements::sdk::SdkLayout;
+use dartforge_intern::Interner;
+use dartforge_types::table::{CoreTypes, Type, TypeId, TypeTable};
+use dartforge_types::{infer_program_bodies, resolve_outline};
+use std::path::PathBuf;
+
+fn sdk() -> Option<SdkLayout> {
+    let dir = SdkLayout::discover().or_else(|| {
+        let p = PathBuf::from("C:/tools/dartsdk-3.6.2/lib");
+        p.join("libraries.json").exists().then_some(p)
+    })?;
+    SdkLayout::load(&dir, "dartdevc").ok()
+}
+
+/// Tipos (no formato do analyzer) das expressões cujo texto é exatamente
+/// `trecho`, na ordem do código-fonte; e os avisos.
+struct Resultado {
+    tipos: Vec<(String, String)>,
+    avisos: Vec<String>,
+}
+
+impl Resultado {
+    fn tipo(&self, trecho: &str) -> &str {
+        self.tipos
+            .iter()
+            .find(|(t, _)| t == trecho)
+            .map(|(_, ty)| ty.as_str())
+            .unwrap_or_else(|| panic!("expressão `{trecho}` não encontrada"))
+    }
+}
+
+fn inferir(codigo: &str) -> Option<Resultado> {
+    let sdk = sdk()?;
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.dart");
+    std::fs::write(&main, codigo).unwrap();
+    let r = std::thread::Builder::new()
+        .stack_size(1 << 28)
+        .spawn(move || {
+            let mut interner = Interner::new();
+            let (prog, _) = load_lenient(&main, &sdk, None, &mut interner);
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &prog, &interner);
+            let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+            let (bodies, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+            let entrada = prog.library(prog.entry.unwrap()).units[0];
+            let unit = prog.unit(entrada);
+            let bt = &bodies.units[entrada.0 as usize];
+            let mut tipos = Vec::new();
+            for (i, e) in unit.ast.exprs.iter().enumerate() {
+                let texto = unit.source[e.span.start..e.span.end].to_string();
+                let t = bt.static_types[i];
+                tipos.push((e.span.start, texto, formatar(&table, t, &interner, &prog)));
+            }
+            tipos.sort_by_key(|(s, _, _)| *s);
+            Resultado {
+                tipos: tipos.into_iter().map(|(_, a, b)| (a, b)).collect(),
+                avisos: diags.iter().map(|d| d.message.clone()).collect(),
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    Some(r)
+}
+
+/// Como `DartType.getDisplayString()`.
+fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::model::Program) -> String {
+    let q = |n: bool| if n { "?" } else { "" };
+    match t.get(ty) {
+        Type::Dynamic => "dynamic".into(),
+        Type::Void => "void".into(),
+        Type::Never => "Never".into(),
+        Type::Null => "Null".into(),
+        Type::Interface { class, args, nullable } | Type::ExtensionType { decl: class, args, nullable } => {
+            let nome = i.resolve(p.class(*class).name);
+            if args.is_empty() {
+                format!("{nome}{}", q(*nullable))
+            } else {
+                let a: Vec<String> = args.iter().map(|&x| formatar(t, x, i, p)).collect();
+                format!("{nome}<{}>{}", a.join(", "), q(*nullable))
+            }
+        }
+        Type::FutureOr { arg, nullable } => format!("FutureOr<{}>{}", formatar(t, *arg, i, p), q(*nullable)),
+        Type::TypeParameter { param, nullable } => format!("{}{}", i.resolve(t.param(*param).name), q(*nullable)),
+        Type::Record { positional, named, nullable } => {
+            let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
+            let mut n: Vec<(String, String)> = named.iter().map(|(s, x)| (i.resolve(*s).to_string(), formatar(t, *x, i, p))).collect();
+            n.sort();
+            if !n.is_empty() {
+                partes.push(format!("{{{}}}", n.iter().map(|(s, x)| format!("{x} {s}")).collect::<Vec<_>>().join(", ")));
+            } else if positional.len() == 1 {
+                return format!("({},){}", partes[0], q(*nullable));
+            }
+            format!("({}){}", partes.join(", "), q(*nullable))
+        }
+        Type::Function { ret, positional, optional, named, nullable, .. } => {
+            let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
+            if !optional.is_empty() {
+                partes.push(format!("[{}]", optional.iter().map(|&x| formatar(t, x, i, p)).collect::<Vec<_>>().join(", ")));
+            }
+            if !named.is_empty() {
+                let mut n: Vec<(String, String)> = named
+                    .iter()
+                    .map(|(s, x, r)| (i.resolve(*s).to_string(), format!("{}{} {}", if *r { "required " } else { "" }, formatar(t, *x, i, p), i.resolve(*s))))
+                    .collect();
+                n.sort();
+                partes.push(format!("{{{}}}", n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")));
+            }
+            format!("{} Function({}){}", formatar(t, *ret, i, p), partes.join(", "), q(*nullable))
+        }
+    }
+}
+
+macro_rules! ou_pula {
+    ($e:expr) => {
+        match $e {
+            Some(r) => r,
+            None => {
+                eprintln!("SDK 3.6.2 indisponível: pulando");
+                return;
+            }
+        }
+    };
+}
+
+/// Grupo base: literais, closures (corpo inferido), genéricos de coleção,
+/// índices, operadores numéricos, `super`, construtores genéricos.
+#[test]
+fn base_do_motor_novo() {
+    let r = ou_pula!(inferir(
+        r#"
+class A { int f() => 1; }
+class B extends A { void g() { var s = super.f(); } }
+void main() {
+  var d = 1.5;
+  var q = 10 / 3;
+  var lista = [1, 2, 3];
+  var m = <String, dynamic>{};
+  var v = m['x'];
+  var dobro = lista.map((x) => x * 2).toList();
+  var soma = lista.fold(0, (a, b) => a + b);
+  var n = 3 + 1.0;
+  var s = {'a': 1, 'b': 2.0};
+  var vazio = {};
+  List<double> ld = [1, 2];
+  var e = lista.isEmpty ? null : lista.first;
+}
+"#
+    ));
+    assert_eq!(r.tipo("1.5"), "double");
+    assert_eq!(r.tipo("10 / 3"), "double");
+    assert_eq!(r.tipo("[1, 2, 3]"), "List<int>");
+    assert_eq!(r.tipo("m['x']"), "dynamic");
+    assert_eq!(r.tipo("lista.map((x) => x * 2).toList()"), "List<int>");
+    assert_eq!(r.tipo("(x) => x * 2"), "int Function(int)");
+    assert_eq!(r.tipo("lista.fold(0, (a, b) => a + b)"), "int");
+    assert_eq!(r.tipo("3 + 1.0"), "double");
+    assert_eq!(r.tipo("{'a': 1, 'b': 2.0}"), "Map<String, num>");
+    assert_eq!(r.tipo("{}"), "Map<dynamic, dynamic>");
+    assert_eq!(r.tipo("[1, 2]"), "List<double>");
+    assert_eq!(r.tipo("lista.isEmpty ? null : lista.first"), "int?");
+    assert_eq!(r.tipo("super.f()"), "int");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
