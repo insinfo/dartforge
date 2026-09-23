@@ -20,6 +20,10 @@ runs:
     - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
       with:
         sdk: '3.6.2'
+        # O problem matcher do setup-dart é procurado relativo ao diretório
+        # da ação que o chama — dentro de uma ação composta, este diretório,
+        # onde o JSON não existe, e o passo falha. Não usamos `dart analyze`.
+        problem-matcher: false
 
     - name: Exportar o caminho do SDK
       shell: pwsh
