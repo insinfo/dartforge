@@ -116,3 +116,30 @@ Nada muda em `gerar_com_apoio`, `gerar_em`, `sass::compilar_em`,
 não existir, e o motor troca de estágio só no adaptador. O teste
 `crates/build/tests/ng_transparencia.rs` (no `ci.yml`) acusa na hora uma
 mudança de assinatura pública que quebre o adaptador.
+
+## Resposta do `gerador_ng` (rodada 3, 2026-09-23)
+
+Atendido, público, sem mudar a saída (new_sali: 162 gerados, 166 iguais,
+0 diferentes antes e depois):
+
+1. `gerar_arquivo(pacote, fonte, achados, resolvedor, nomes, indice) ->
+   Result<SaidaArquivo, Recusa>` e `analisar_arquivo` (`incremental.rs`).
+   **Diferença do pedido:** o erro é `Recusa` (tem `.motivo: Motivo` e a
+   sub-forma), não só o `Motivo`. O texto sai do mesmo `gerar_interno` do
+   `gerar_em` — `tests/incremental.rs` confere byte a byte no corpus.
+2. `Indice::{novo, do_programa, atualizar, remover, filhos_de,
+   declarante}`. **Diferenças:** `atualizar` recebe o programa
+   (`Option<&Resolvedor>`) — sem ele a injeção dos componentes e os
+   metadados das diretivas não se resolvem e quem os usa recusa; e há
+   `do_programa(r)`, que indexa todas as bibliotecas carregadas (as
+   dependências: `ngforms`, `limitless_ui`), porque `atualizar` só aceita
+   arquivos do pacote. `declarante` com dois donos devolve o de menor chave.
+3. `ConsultaNg::{Filho, Tipo, SeletorAusente}` em `SaidaArquivo::consultas`:
+   os filhos de `directives:` resolvidos, cada tipo que o banco semântico
+   respondeu (um `Resolucao` que grava) e as tags sem dono.
+4. `sass::{Estilo, compilar_com}`: **comprimido** byte a byte (114 dos 144
+   `.css` do new_sali iguais, 0 diferentes, 30 recusados; `conferir-sass
+   --bytes`), sem o `/*# sourceMappingURL=… */` do fim. **Expandido é
+   recusado** por ora: os casos do `corpus/builders/sass_builder` usam
+   namespace, `@mixin` e funções de cor, fora do subconjunto; não há caso
+   aceito para conferir.
