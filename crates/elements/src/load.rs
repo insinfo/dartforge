@@ -541,13 +541,13 @@ pub fn load_lenient_gerados(
 /// (`package:` pelo nome; arquivo pela raiz de pacote mais longa que o
 /// contém). O SDK fica em `None` (a versão corrente).
 fn preencher_versoes_de_linguagem(program: &mut Program, cfg: &PackageConfig) {
+    // Sem `canonicalize` (custo de sistema a cada carga da sessão residente):
+    // os caminhos das unidades já são resolvidos lexicalmente a partir da
+    // entrada canônica, como as raízes do package_config.json.
     let raizes: Vec<(PathBuf, Option<(u8, u8)>)> = cfg
         .packages
         .values()
-        .filter_map(|p| {
-            let r = p.root_uri.to_file_path().ok()?;
-            Some((crate::config::sem_verbatim(std::fs::canonicalize(&r).unwrap_or(r)), p.language_version))
-        })
+        .filter_map(|p| Some((p.root_uri.to_file_path().ok()?, p.language_version)))
         .collect();
     for i in 0..program.libraries.len() {
         let lib = &program.libraries[i];
