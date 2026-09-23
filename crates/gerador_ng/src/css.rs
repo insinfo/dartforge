@@ -61,7 +61,11 @@ fn regras(css: &str, saida: &mut String, topo: bool) -> Result<(), Motivo> {
                 return Err(Motivo::Estilos);
             };
             let nome = sem_arroba.split_whitespace().next().unwrap_or("");
-            let nome = nome.trim_start_matches('-').split('-').next_back().unwrap_or(nome);
+            let nome = nome
+                .trim_start_matches('-')
+                .split('-')
+                .next_back()
+                .unwrap_or(nome);
             // `@keyframes` sai como está: `from`, `to` e as porcentagens não
             // são seletores e não podem ganhar o atributo do escopo.
             if nome == "keyframes" {
@@ -91,7 +95,9 @@ fn regras(css: &str, saida: &mut String, topo: bool) -> Result<(), Motivo> {
             resto = sem_arroba[fim + 1..].trim_start();
             continue;
         }
-        let Some(abre) = resto.find('{') else { return Err(Motivo::Estilos) };
+        let Some(abre) = resto.find('{') else {
+            return Err(Motivo::Estilos);
+        };
         let seletor = &resto[..abre];
         let fim = fim_do_bloco(resto, abre + 1).ok_or(Motivo::Estilos)?;
         let corpo = &resto[abre + 1..fim];
@@ -153,7 +159,11 @@ fn um_seletor(s: &str) -> Result<String, Motivo> {
     for fundo in ["::ng-deep", ">>>", "/deep/"] {
         if let Some((antes, depois)) = s.split_once(fundo) {
             let antes = antes.trim();
-            let escopado = if antes.is_empty() { String::new() } else { um_seletor(antes)? };
+            let escopado = if antes.is_empty() {
+                String::new()
+            } else {
+                um_seletor(antes)?
+            };
             return Ok(format!("{escopado} {}", depois.trim()));
         }
     }
@@ -161,7 +171,13 @@ fn um_seletor(s: &str) -> Result<String, Motivo> {
         // O hospedeiro pode ser o próprio elemento ou um ancestral dele.
         let (dentro, depois) = ate_fechar(resto).ok_or(Motivo::Estilos)?;
         let cauda = compostos(depois.trim())?;
-        let junta = |a: String| if cauda.is_empty() { a } else { format!("{a} {cauda}") };
+        let junta = |a: String| {
+            if cauda.is_empty() {
+                a
+            } else {
+                format!("{a} {cauda}")
+            }
+        };
         return Ok(format!(
             "{},{}",
             junta(format!("{HOSPEDEIRO}{dentro}")),
@@ -172,7 +188,11 @@ fn um_seletor(s: &str) -> Result<String, Motivo> {
         let (dentro, depois) = ate_fechar(resto).ok_or(Motivo::Estilos)?;
         let cauda = compostos(depois.trim())?;
         let cabeca = format!("{HOSPEDEIRO}{dentro}");
-        return Ok(if cauda.is_empty() { cabeca } else { format!("{cabeca} {cauda}") });
+        return Ok(if cauda.is_empty() {
+            cabeca
+        } else {
+            format!("{cabeca} {cauda}")
+        });
     }
     compostos(s)
 }
@@ -239,7 +259,9 @@ fn sem_escopo(css: &str) -> Result<String, Motivo> {
     let mut saida = String::new();
     let mut resto = css.trim();
     while !resto.is_empty() {
-        let Some(abre) = resto.find('{') else { return Err(Motivo::Estilos) };
+        let Some(abre) = resto.find('{') else {
+            return Err(Motivo::Estilos);
+        };
         let fim = fim_do_bloco(resto, abre + 1).ok_or(Motivo::Estilos)?;
         saida.push_str(&comprimir(&resto[..abre]));
         saida.push('{');
@@ -258,8 +280,14 @@ fn declaracoes(corpo: &str) -> Result<String, Motivo> {
         if d.is_empty() {
             continue;
         }
-        let Some((prop, valor)) = d.split_once(':') else { return Err(Motivo::Estilos) };
-        partes.push(format!("{}:{}", prop.trim(), comprimir_valor(valor)));
+        let Some((prop, valor)) = d.split_once(':') else {
+            return Err(Motivo::Estilos);
+        };
+        partes.push(format!(
+            "{}:{}",
+            prop.trim(),
+            virgulas(&comprimir_valor(valor))?
+        ));
     }
     Ok(partes.join(";"))
 }
@@ -282,6 +310,88 @@ fn comprimir_valor(v: &str) -> String {
         saida.push(c);
     }
     saida
+}
+
+/// As vírgulas do valor como o `CssPrinter` do `csslib` (compacto) as
+/// escreve depois de reler a folha: numa lista ou nos argumentos de uma
+/// função comum, `,` sem espaço (`OperatorComma` e o `_sp` vazio de
+/// `visitExpressions`); no valor padrão de `var(--x, y)`, `, ` (é assim que
+/// `visitVarUsage` escreve); dentro de `calc`/`min`/`max`/`clamp`, de
+/// `url(...)` e de texto entre aspas, o texto como veio (`processCalc`
+/// guarda a expressão crua). O Sass comprimido já tira quase todo espaço;
+/// o que sobra é função especial, como `rgba(var(--x), 0.14)`.
+fn virgulas(v: &str) -> Result<String, Motivo> {
+    const CRUAS: &[&str] = &[
+        "calc",
+        "-webkit-calc",
+        "-moz-calc",
+        "min",
+        "max",
+        "clamp",
+        "url",
+    ];
+    let mut saida = String::with_capacity(v.len());
+    // Pilha das funções abertas e, para cada `var(`, se a vírgula dele já
+    // apareceu.
+    let mut pilha: Vec<(String, bool)> = Vec::new();
+    let mut aspas: Option<char> = None;
+    let mut chars = v.chars().peekable();
+    while let Some(c) = chars.next() {
+        if let Some(q) = aspas {
+            saida.push(c);
+            if c == q {
+                aspas = None;
+            }
+            continue;
+        }
+        let crua = pilha.iter().any(|(f, _)| CRUAS.contains(&f.as_str()));
+        match c {
+            '"' | '\'' => {
+                aspas = Some(c);
+                saida.push(c);
+            }
+            '(' => {
+                let nome: String = saida
+                    .chars()
+                    .rev()
+                    .take_while(|x| x.is_ascii_alphanumeric() || *x == '-' || *x == '_')
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                pilha.push((nome.to_ascii_lowercase(), false));
+                saida.push(c);
+            }
+            ')' => {
+                pilha.pop();
+                saida.push(c);
+            }
+            ',' if crua => saida.push(c),
+            ',' => {
+                // Espaço antes da vírgula some em qualquer caso.
+                while saida.ends_with(' ') {
+                    saida.pop();
+                }
+                saida.push(',');
+                while chars.peek() == Some(&' ') {
+                    chars.next();
+                }
+                if let Some((f, vista)) = pilha.last_mut()
+                    && f == "var"
+                {
+                    // Uma vírgula só: o valor padrão. Com mais de uma, a
+                    // lista de padrões do `VarUsage` tem regra própria.
+                    if *vista {
+                        return Err(Motivo::Estilos);
+                    }
+                    *vista = true;
+                    saida.push(' ');
+                }
+            }
+            c => saida.push(c),
+        }
+    }
+    Ok(saida)
 }
 
 /// Prelúdio de regra-arroba: espaço depois de `:` some (`max-width:600px`).
@@ -362,6 +472,28 @@ input[type=\"text\"] {
 ";
         let esperado = ".a._ngcontent-%ID%::before{content:\"x\"}._nghost-%ID%.tema-escuro .b._ngcontent-%ID%{color:white}._nghost-%ID%.pai .c._ngcontent-%ID%,.pai ._nghost-%ID% .c._ngcontent-%ID%{color:red} .d{color:blue}.e._ngcontent-%ID% > .f._ngcontent-%ID%{margin:0}input[type=\"text\"]._ngcontent-%ID%{border:0}@keyframes girar{from{opacity:0}to{opacity:1}}.g._ngcontent-%ID%{animation:girar 1s}";
         assert_eq!(shim(css).unwrap(), esperado);
+    }
+
+    /// `assinatura_engine_selector_component` do new_sali: o Sass devolve
+    /// `rgba(var(--success-rgb), 0.14)` e o oficial escreve sem o espaço; o
+    /// `var` com valor padrão guarda o espaço, e `calc`/`min` ficam crus.
+    #[test]
+    fn virgulas_como_o_csslib() {
+        assert_eq!(
+            virgulas("rgba(var(--success-rgb), 0.14)").unwrap(),
+            "rgba(var(--success-rgb),0.14)"
+        );
+        assert_eq!(virgulas("var(--a,#fff)").unwrap(), "var(--a, #fff)");
+        assert_eq!(
+            virgulas("var(--card-bg, var(--body-bg))").unwrap(),
+            "var(--card-bg, var(--body-bg))"
+        );
+        assert_eq!(
+            virgulas("min(100vw - 1rem,52rem)").unwrap(),
+            "min(100vw - 1rem,52rem)"
+        );
+        assert_eq!(virgulas("\"a, b\", c").unwrap(), "\"a, b\",c");
+        assert!(virgulas("var(--f, a, b)").is_err());
     }
 
     #[test]
