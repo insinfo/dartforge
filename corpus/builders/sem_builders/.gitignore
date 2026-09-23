@@ -1,2 +1,4 @@
 .dart_tool/
 build/
+# O oráculo guarda as saídas source fora das pastas de fonte: não ignorar.
+!/oraculo/**

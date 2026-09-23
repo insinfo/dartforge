@@ -4,3 +4,5 @@ apoio/.dart_tool/
 # saídas build_to: source (só em oraculo/source/)
 lib/espelho/
 lib/indice.g.txt
+# O oráculo guarda as saídas source fora das pastas de fonte: não ignorar.
+!/oraculo/**
