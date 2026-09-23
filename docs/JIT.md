@@ -18,9 +18,11 @@ divergir em resultado é defeito.
 > depender da trilha velha e passou a consumir o IR do `crates/emit_native`:
 > runtime publicado a partir da fonte do harness AOT, pré-verificação de
 > externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
-> `dartforge-executar-ir`. **Ainda não** ligados: `dartforge run`/`reload` na
-> CLI (esperam a separação `emitir_ir` do `emit_native`) e a fonte única do
-> runtime (espera o merge do trabalho em `crates/runtime`). As seções «O que
+> `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
+> `dartforge reload` R0 (reinício a quente, estado NÃO preservado; cada geração
+> num processo `dartforge run --ir`). No harness: `--jit` e `--jit-aot`.
+> **Ainda não**: a fonte única do runtime (espera o merge do trabalho em
+> `crates/runtime`). As seções «O que
 > executa» e «Hot reload» abaixo descrevem a trilha velha; o mecanismo de
 > `src/reload.rs` continua, mas os testes dele esperam migração em
 > `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT

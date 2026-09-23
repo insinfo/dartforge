@@ -20,6 +20,33 @@ pub struct Resultado {
     pub nativo: bool,
     /// O perfil de produção do JS (`dartforge-jsprod`, arquivo único e podado).
     pub producao: Option<Saida>,
+    /// Com `--jit`/`--jit-aot`: o `forge` veio do JIT ORCv2, e aqui ficam o
+    /// tempo dele e, com `--jit-aot`, o AOT do mesmo IR.
+    pub jit: Option<ExecucaoJit>,
+}
+
+/// O que o modo JIT registra de um programa, além da saída.
+#[derive(Debug, Clone)]
+pub struct ExecucaoJit {
+    /// O emissor produziu IR (senão nenhum perfil executou nada).
+    pub com_ir: bool,
+    /// Tempo de parede do processo do executor: carregar a `LLVM-C.dll`, abrir
+    /// a sessão, gerar o código e executar o programa.
+    pub tempo: std::time::Duration,
+    /// Com `--jit-aot`: o mesmo texto de IR pelo driver AOT.
+    pub aot: Option<AotDoMesmoIr>,
+}
+
+/// O executável AOT ligado a partir do mesmo IR que o JIT executou.
+#[derive(Debug, Clone)]
+pub struct AotDoMesmoIr {
+    pub saida: Saida,
+    /// Clang + ligação (`driver::compile_and_link`), medido em volta da chamada.
+    pub ligacao: std::time::Duration,
+    /// Execução do executável.
+    pub execucao: std::time::Duration,
+    /// O objeto veio do cache de objetos (aí o Clang não rodou).
+    pub objeto_do_cache: bool,
 }
 
 /// Onde duas saídas divergem.
@@ -278,7 +305,14 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     let total = resultados.len();
     let _ = writeln!(out);
     if com_forge {
-        let label = if nativo { "DartForge Nativo:          " } else { "DartForge desenvolvimento: " };
+        let jit = resultados.iter().any(|r| r.jit.is_some());
+        let label = if jit {
+            "DartForge JIT:             "
+        } else if nativo {
+            "DartForge Nativo:          "
+        } else {
+            "DartForge desenvolvimento: "
+        };
         let _ = writeln!(out, "{label}{ok}/{total} ok");
     }
     if com_producao {
@@ -290,7 +324,13 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     // Dois agrupamentos, porque as causas são diferentes: falha do executor
     // principal é construto que falta no emissor; falha da produção é poda ou
     // montagem do arquivo único.
-    let titulo_forge = if nativo { "do DartForge Nativo" } else { "do DartForge" };
+    let titulo_forge = if resultados.iter().any(|r| r.jit.is_some()) {
+        "do DartForge JIT"
+    } else if nativo {
+        "do DartForge Nativo"
+    } else {
+        "do DartForge"
+    };
     for (titulo, grupos) in [(titulo_forge, grupos), ("do perfil de produção", grupos_prod)] {
         if grupos.is_empty() {
             continue;
@@ -302,6 +342,94 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
             let _ = writeln!(out, "  {:>4}  {chave}", nomes.len());
             let _ = writeln!(out, "        {}", nomes.join(", "));
         }
+    }
+    out.push_str(&secao_jit_aot(resultados));
+    out
+}
+
+/// Seção do `--jit-aot`: acordo JIT × AOT programa a programa, e os tempos.
+///
+/// O contrato de `crates/jit` é que o mesmo IR dê o mesmo stdout e o mesmo
+/// código de saída nos dois perfis, **inclusive quando os dois falham**. Por
+/// isso a comparação é entre os dois, e não de cada um com a VM (isso é o
+/// placar). A linha `JIT × AOT: … N divergentes` é o que o CI exige com zero.
+///
+/// Os tempos são de parede e contêm a carga do runner; a mediana e o p95 vêm
+/// com a contagem de programas, e o `objeto do cache` é contado à parte, porque
+/// nesses o Clang não rodou.
+fn secao_jit_aot(resultados: &[Resultado]) -> String {
+    let pares: Vec<(&Resultado, &ExecucaoJit, &AotDoMesmoIr)> = resultados
+        .iter()
+        .filter_map(|r| {
+            let jit = r.jit.as_ref()?;
+            Some((r, jit, jit.aot.as_ref()?))
+        })
+        .collect();
+    if pares.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut divergentes = Vec::new();
+    for (r, _, aot) in &pares {
+        let Some(jit) = &r.forge else { continue };
+        if jit.stdout != aot.saida.stdout || jit.codigo != aot.saida.codigo {
+            divergentes.push((r, jit, &aot.saida));
+        }
+    }
+    let sem_ir = pares.iter().filter(|(_, j, _)| !j.com_ir).count();
+    let _ = writeln!(
+        out,
+        "\nJIT × AOT: {}/{} idênticos, {} divergentes ({} sem IR, iguais por construção)",
+        pares.len() - divergentes.len(),
+        pares.len(),
+        divergentes.len(),
+        sem_ir
+    );
+    for (r, jit, aot) in &divergentes {
+        let _ = writeln!(out, "JIT≠AOT {}  (códigos: jit={} aot={})", r.programa.nome, jit.codigo, aot.codigo);
+        let primeira = primeira_linha_diferente(&jit.stdout, &aot.stdout);
+        let _ = write!(out, "{}", lado_a_lado(&[("jit", &jit.stdout), ("aot", &aot.stdout)], primeira));
+    }
+
+    let com_ir: Vec<_> = pares.iter().filter(|(_, j, _)| j.com_ir).collect();
+    if com_ir.is_empty() {
+        return out;
+    }
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+    let resumo = |mut v: Vec<f64>| -> String {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let soma: f64 = v.iter().sum();
+        let p = |q: f64| v[((v.len() as f64 - 1.0) * q).round() as usize];
+        format!("mediana {:>8.1} ms  p95 {:>8.1} ms  soma {:>8.1} s", p(0.5), p(0.95), soma / 1000.0)
+    };
+    let jit: Vec<f64> = com_ir.iter().map(|(_, j, _)| ms(j.tempo)).collect();
+    let ligacao: Vec<f64> = com_ir.iter().map(|(_, _, a)| ms(a.ligacao)).collect();
+    let execucao: Vec<f64> = com_ir.iter().map(|(_, _, a)| ms(a.execucao)).collect();
+    let aot_total: Vec<f64> = com_ir.iter().map(|(_, _, a)| ms(a.ligacao + a.execucao)).collect();
+    let do_cache = com_ir.iter().filter(|(_, _, a)| a.objeto_do_cache).count();
+    let soma = |v: &[f64]| v.iter().sum::<f64>();
+    let _ = writeln!(
+        out,
+        "\nTempos pós-IR, {} programas com IR ({} com objeto do cache de objetos):",
+        com_ir.len(),
+        do_cache
+    );
+    let _ = writeln!(out, "  JIT (executor: DLL + sessão + geração + execução)  {}", resumo(jit.clone()));
+    let _ = writeln!(out, "  AOT Clang + ligação                                {}", resumo(ligacao));
+    let _ = writeln!(out, "  AOT execução do .exe                               {}", resumo(execucao));
+    let _ = writeln!(out, "  AOT total                                          {}", resumo(aot_total.clone()));
+    let _ = writeln!(out, "  razão AOT total / JIT (somas): {:.1}x", soma(&aot_total) / soma(&jit).max(f64::EPSILON));
+    let _ = writeln!(out, "\nTempos por programa (ms): jit  aot-ligação  aot-execução  nome");
+    for (r, j, a) in &com_ir {
+        let cache = if a.objeto_do_cache { "  (objeto do cache)" } else { "" };
+        let _ = writeln!(
+            out,
+            "  {:>8.1} {:>12.1} {:>13.1}  {}{cache}",
+            ms(j.tempo),
+            ms(a.ligacao),
+            ms(a.execucao),
+            r.programa.nome
+        );
     }
     out
 }
@@ -399,9 +527,9 @@ mod testes {
     fn relatorio_agrupa() {
         let p = |nome: &str| Programa { nome: nome.into(), entrada: "x.dart".into(), arquivos: vec![], diverge_ddc: None };
         let r = vec![
-            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false, producao: None },
-            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },
-            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None },
+            Resultado { programa: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), nativo: false, producao: None, jit: None },
+            Resultado { programa: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Saida { stdout: "1\n".into(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None, jit: None },
+            Resultado { programa: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Saida { stdout: String::new(), stderr: "erro: X\n".into(), codigo: 1 }), nativo: false, producao: None, jit: None },
         ];
         let t = relatorio(&r);
         assert!(t.contains("ok     a"), "{t}");

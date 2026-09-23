@@ -10,9 +10,9 @@ pub mod processo;
 pub mod relatorio;
 
 pub use corpus::{Programa, listar};
-pub use oraculos::{Ambiente, dartforge, dartforge_nativo, dartforge_nativo_ir, dartforge_producao, oraculo_dart, oraculo_ddc};
+pub use oraculos::{Ambiente, dartforge, dartforge_jit, dartforge_nativo, dartforge_nativo_ir, dartforge_producao, oraculo_dart, oraculo_ddc};
 pub use processo::Saida;
-pub use relatorio::{Divergencia, IrPrograma, Resultado, comparar, diferencas_ir, relatorio, relatorio_ir};
+pub use relatorio::{AotDoMesmoIr, Divergencia, ExecucaoJit, IrPrograma, Resultado, comparar, diferencas_ir, relatorio, relatorio_ir};
 
 use dartforge_emit_native::resumo::ResumoIr;
 use std::sync::{Condvar, Mutex};
@@ -31,11 +31,17 @@ pub struct Opcoes {
     /// fechado. Ver `docs/JS-PRODUCAO.md`. Independente de `nativo`: os dois
     /// executores são backends diferentes do mesmo programa.
     pub com_producao: bool,
+    /// Executar o backend nativo pelo **JIT** (`dartforge-executar-ir`) em vez
+    /// do AOT. Implica `nativo`: a referência continua sendo a VM.
+    pub jit: bool,
+    /// Com `jit`: ligar e executar também o AOT do **mesmo** IR, exigir os dois
+    /// iguais programa a programa e medir os tempos (`--jit-aot`).
+    pub jit_aot: bool,
 }
 
 impl Default for Opcoes {
     fn default() -> Self {
-        Opcoes { com_forge: true, threads: 0, nativo: false, com_producao: false }
+        Opcoes { com_forge: true, threads: 0, nativo: false, com_producao: false, jit: false, jit_aot: false }
     }
 }
 
@@ -49,12 +55,21 @@ pub fn executar_programa(amb: &Ambiente, programa: &Programa, op: Opcoes) -> Res
         // No modo nativo não há contrato do DDC para comparar; a referência é
         // sempre a VM (ver `Resultado::referencia`).
         let ddc = Saida { stdout: String::new(), stderr: String::new(), codigo: 0 };
+        if op.jit {
+            let (forge, jit) = if op.com_forge {
+                let (s, j) = dartforge_jit(amb, programa, &amb.dir_saida("jit", programa), op.jit_aot);
+                (Some(s), Some(j))
+            } else {
+                (None, None)
+            };
+            return Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true, producao, jit };
+        }
         let forge = op.com_forge.then(|| dartforge_nativo(amb, programa, &amb.dir_saida("nativo", programa)));
-        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true, producao }
+        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true, producao, jit: None }
     } else {
         let ddc = oraculo_ddc(amb, programa, &amb.dir_saida("ddc", programa));
         let forge = op.com_forge.then(|| dartforge(amb, programa, &amb.dir_saida("forge", programa)));
-        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: false, producao }
+        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: false, producao, jit: None }
     }
 }
 

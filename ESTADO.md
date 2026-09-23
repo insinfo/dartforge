@@ -209,13 +209,26 @@ executar e comparar o relatório; o IR só com `DARTFORGE_KEEP_IR=1`). Ver §3.2
 byte a byte. `compile-native --emit-ir` grava só o IR, `--resumo` imprime o
 resumo.
 
-### 1.5.1 JIT — **desligado**
+### 1.5.1 JIT — `dartforge run` e `dartforge reload` (R0)
 
-`dartforge run` e `dartforge reload` existem como comandos mas devolvem
-erro: foram desativados durante o trabalho no AOT. Os crates
-`crates/jit` (ORCv2) e `crates/cranelift-jit` consomem `dartforge_hir`, da
-**trilha velha**, que não é mais dependência do compilador. Ou seja: o
-JIT hoje não é produto, é experimento parado. Ver §2.7.
+O `crates/jit` (ORCv2) executa o **mesmo LLVM IR** que o AOT entrega ao
+Clang (`emitir_ir`). Compile com `cargo build -p dartforge-cli --features jit`;
+o executável passa a exigir a `LLVM-C.dll` da distribuição completa no
+`PATH` (`docs/JIT.md`).
+
+* `dartforge run <entrada.dart> [--timings]` emite o IR e o executa neste
+  processo, sem trampolim: chamadas diretas, como no AOT.
+* `dartforge reload <entrada.dart>` é **reinício a quente (R0)**: a cada
+  edição recompila tudo e recomeça do `main` num processo novo. **O estado
+  NÃO é preservado**, e a saída diz isso. Edição que não compila mantém a
+  geração em execução. Recarga com estado é o R1 (`docs/PESQUISA-HOT-RELOAD.md`).
+* `dartforge-diferencial --jit` compara o JIT com a VM (mesmo placar do
+  `--nativo`); `--jit-aot` passa o MESMO IR também pelo AOT, lista todo
+  `JIT≠AOT` (é defeito) e mede os tempos. No CI é o job `jit` do `pesado.yml`.
+
+A fonte única do runtime ainda espera o merge do nativo: até lá o
+`crates/jit` compila uma cópia gerada de `runtime_main.rs` (`build.rs`).
+O `crates/cranelift-jit` continua na trilha velha, fora do CI.
 
 ### 1.5.2 Runtime Dart — `crates/runtime`
 
