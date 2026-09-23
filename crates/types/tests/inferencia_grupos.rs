@@ -36,11 +36,17 @@ impl Resultado {
 }
 
 fn inferir(codigo: &str) -> Option<Resultado> {
-    let sdk = sdk()?;
+    sdk()?;
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main.dart");
     std::fs::write(&main, codigo).unwrap();
-    let r = std::thread::Builder::new()
+    Some(inferir_arquivo(&main))
+}
+
+fn inferir_arquivo(main: &std::path::Path) -> Resultado {
+    let sdk = sdk().unwrap();
+    let main = main.to_path_buf();
+    std::thread::Builder::new()
         .stack_size(1 << 28)
         .spawn(move || {
             let mut interner = Interner::new();
@@ -66,14 +72,14 @@ fn inferir(codigo: &str) -> Option<Resultado> {
         })
         .unwrap()
         .join()
-        .unwrap();
-    Some(r)
+        .unwrap()
 }
 
 /// Como `DartType.getDisplayString()`.
 fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::model::Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
+        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), formatar(t, *bound, i, p)),
         Type::Dynamic => "dynamic".into(),
         Type::Void => "void".into(),
         Type::Never => "Never".into(),
@@ -100,7 +106,24 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
             }
             format!("({}){}", partes.join(", "), q(*nullable))
         }
-        Type::Function { ret, positional, optional, named, nullable, .. } => {
+        Type::Function { type_params, ret, positional, optional, named, nullable } => {
+            let tps = if type_params.is_empty() {
+                String::new()
+            } else {
+                let v: Vec<String> = type_params
+                    .iter()
+                    .map(|&tp| {
+                        let d = t.param(tp);
+                        let nome = i.resolve(d.name).to_string();
+                        match t.get(d.bound) {
+                            Type::Interface { nullable: true, class, .. } if i.resolve(p.class(*class).name) == "Object" => nome,
+                            Type::Dynamic => nome,
+                            _ => format!("{nome} extends {}", formatar(t, d.bound, i, p)),
+                        }
+                    })
+                    .collect();
+                format!("<{}>", v.join(", "))
+            };
             let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
             if !optional.is_empty() {
                 partes.push(format!("[{}]", optional.iter().map(|&x| formatar(t, x, i, p)).collect::<Vec<_>>().join(", ")));
@@ -113,7 +136,7 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
                 n.sort();
                 partes.push(format!("{{{}}}", n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")));
             }
-            format!("{} Function({}){}", formatar(t, *ret, i, p), partes.join(", "), q(*nullable))
+            format!("{} Function{tps}({}){}", formatar(t, *ret, i, p), partes.join(", "), q(*nullable))
         }
     }
 }
@@ -189,6 +212,45 @@ void main() {
     assert_eq!(r.tipo("c.v"), "num?");
 }
 
+/// Construtores nomeados, `$this`, campos de extensão, `null.hashCode`,
+/// tear-off genérico como alvo de chamada (tipo não instanciado).
+#[test]
+fn construtores_nomeados_e_referencias() {
+    let r = ou_pula!(inferir(
+        r#"
+typedef Cb = dynamic Function(List<String>, {String rawValue});
+class E {
+  final int v;
+  const E.vazio() : v = 0;
+  factory E.deJson(Map m) => E.vazio();
+  Cb? callback;
+}
+T id<T>(T x) => x;
+extension X on num {
+  static const nomes = 'abc';
+  String f() => '$this ${nomes.length}';
+}
+void main() {
+  var a = const E.vazio();
+  var b = new E.vazio();
+  var c = E.deJson({});
+  var h = null.hashCode;
+  var i = id(3);
+  var cb = E.vazio().callback;
+}
+"#
+    ));
+    assert_eq!(r.tipo("const E.vazio()"), "E");
+    assert_eq!(r.tipo("new E.vazio()"), "E");
+    assert_eq!(r.tipo("E.deJson({})"), "E");
+    assert_eq!(r.tipo("null.hashCode"), "int");
+    assert_eq!(r.tipo("id"), "T Function<T>(T)");
+    assert_eq!(r.tipo("id(3)"), "int");
+    assert_eq!(r.tipo("nomes.length"), "int");
+    assert_eq!(r.tipo("E.vazio().callback"), "dynamic Function(List<String>, {String rawValue})?");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
 /// `late final x;` sem inicializador tem setter (atribuição única): a
 /// atribuição tipa o valor pelo campo, sem aviso de setter indefinido.
 #[test]
@@ -208,4 +270,171 @@ class V {
     assert_eq!(r.tipo("nome = cast(o)"), "String");
     assert_eq!(r.tipo("this.nome = cast(o)"), "String");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Classe do SDK cujo patch vem numa *parte* de um arquivo de patch
+/// (`core_patch.dart` → `part 'bigint_patch.dart'`): uma classe só, com os
+/// membros da declaração original (`BigInt.operator <<`).
+#[test]
+fn patch_em_parte_de_patch() {
+    let r = ou_pula!(inferir(
+        r#"
+void main() {
+  var n = BigInt.parse('1');
+  var s = n << 8;
+  var b = n.bitLength;
+}
+"#
+    ));
+    assert_eq!(r.tipo("BigInt.parse('1')"), "BigInt");
+    assert_eq!(r.tipo("n << 8"), "BigInt");
+    assert_eq!(r.tipo("n.bitLength"), "int");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Parâmetro-função da forma antiga com `?` (`int f(int x)?`): o tipo do
+/// parâmetro é anulável (`jsonEncode`, `List.sort`, `Stream.listen`).
+#[test]
+fn parametro_funcao_antigo_anulavel() {
+    let r = ou_pula!(inferir(
+        r#"
+void g([int comparar(String a, String b)?]) {}
+void main() {
+  var x = g;
+  var l = <String>[];
+  var s = l.sort;
+}
+"#
+    ));
+    assert_eq!(r.tipo("g"), "void Function([int Function(String, String)?])");
+    assert_eq!(r.tipo("l.sort"), "void Function([int Function(String, String)?])");
+}
+
+/// Inferência de sobreposição pela posição (o nome do parâmetro pode
+/// mudar), extensão genérica usada de dentro dela mesma, `-1` com contexto
+/// `double`, e closure que não herda promoção de variável escrita no corpo.
+#[test]
+fn sobreposicao_extensao_e_closure() {
+    let r = ou_pula!(inferir(
+        r#"
+typedef F<T> = void Function(T v);
+abstract class Base<T> { void registrar(F<T> f); }
+class Impl implements Base<String> {
+  @override
+  void registrar(callback) { callback('x'); }
+}
+extension Divide<T> on Iterable<T> {
+  Iterable<List<T>> partes() => [toList()];
+  Iterable<List<T>> duas() => partes();
+}
+void main() {
+  double d = -1;
+  int? w;
+  w ??= 3;
+  var f = () => w;
+}
+"#
+    ));
+    assert_eq!(r.tipo("callback"), "void Function(String)");
+    assert_eq!(r.tipo("partes()"), "Iterable<List<T>>");
+    assert_eq!(r.tipo("-1"), "double");
+    assert_eq!(r.tipo("() => w"), "int? Function()");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Conflito de import entre `dart:` e um pacote: o do sistema fica oculto
+/// (`dart:html` também exporta `NotificationEvent`).
+#[test]
+fn import_do_sistema_perde_o_conflito() {
+    let Some(sdk) = sdk() else { return };
+    let _ = sdk;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.dart"), "class Duration { final int n; Duration(this.n); }").unwrap();
+    let main = dir.path().join("main.dart");
+    std::fs::write(&main, "import 'dart:core';
+import 'lib.dart';
+void main() { var d = Duration(3); var n = d.n; }").unwrap();
+    let r = inferir_arquivo(&main);
+    assert_eq!(r.tipo("d.n"), "int");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Promoção de variável de tipo: interseção `X & B` (`T?` testado contra
+/// `null` vira `T & Object`; `is int` vira `T & int`).
+#[test]
+fn promocao_de_variavel_de_tipo() {
+    let r = ou_pula!(inferir(
+        r#"
+T f<T>(T? a, T b, Map<String, T> m) {
+  if (a != null) { var x = a; }
+  if (b is int) { var y = b; }
+  var z = m['k']!;
+  return b;
+}
+"#
+    ));
+    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "a").map(|(_, ty)| ty.as_str()).collect();
+    assert_eq!(tipos, ["T?", "T & Object"]);
+    let tb: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "b").map(|(_, ty)| ty.as_str()).collect();
+    assert_eq!(tb, ["T", "T & int", "T"]);
+    assert_eq!(r.tipo("m['k']"), "T?");
+    assert_eq!(r.tipo("m['k']!"), "T & Object");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Promoção de campo privado final (Dart 3.2), por `this`, implícito e por
+/// local; um homônimo não final na biblioteca a impede.
+#[test]
+fn promocao_de_campo_privado() {
+    let r = ou_pula!(inferir(
+        r#"
+class A {
+  final int? _x;
+  final Object _o;
+  int? _y;
+  A(this._x, this._o, this._y);
+  int f() {
+    if (_x != null) { var a = _x; }
+    if (this._o is String) { var b = this._o; }
+    if (_y != null) { var c = _y; }
+    return 0;
+  }
+}
+int g(A a) {
+  if (a._x == null) return 0;
+  return a._x;
+}
+"#
+    ));
+    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    assert_eq!(tipos("_x"), ["int?", "int"]);
+    assert_eq!(tipos("this._o"), ["Object", "String"]);
+    assert_eq!(tipos("_y"), ["int?", "int?"]);
+    assert_eq!(tipos("a._x"), ["int?", "int"]);
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// `?.` promove o receptor só dentro da cadeia (argumentos inclusive);
+/// `clamp` com contexto `double`; variável escrita no corpo não se promove
+/// dentro de função local.
+#[test]
+fn cadeia_clamp_e_funcao_local() {
+    let r = ou_pula!(inferir(
+        r#"
+class S { int? d; S copia(int e) => this; }
+void f(S? s, double? h, double ph) {
+  var c = s?.copia(s.d ?? 0);
+  final double y = h != null ? h.clamp(1, ph) : 50.0;
+  StringBuffer? buf;
+  void fecha() {
+    if (buf != null) { buf.toString(); }
+  }
+  buf = StringBuffer();
+}
+"#
+    ));
+    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    assert_eq!(tipos("s"), ["S?", "S"]);
+    assert_eq!(tipos("1"), ["double"]);
+    assert_eq!(tipos("buf")[..2], ["StringBuffer?", "StringBuffer?"]);
 }

@@ -16,6 +16,7 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     let t = table.get(ty).clone();
     match t {
         Type::Dynamic | Type::Void | Type::Null => ty,
+        Type::Intersection { param, .. } => table.intern(Type::TypeParameter { param, nullable: true }),
         Type::Never => {
             // Never? === Null
             table.intern(Type::Null)
@@ -163,6 +164,18 @@ pub fn substitute(
     let t = table.get(ty).clone();
     match t {
         Type::Dynamic | Type::Void | Type::Never | Type::Null => ty,
+        Type::Intersection { param, bound } => {
+            if let Some(&replacement) = mapping.get(&param) {
+                replacement
+            } else {
+                let b = substitute(bound, mapping, table);
+                if b == bound {
+                    ty
+                } else {
+                    table.intern(Type::Intersection { param, bound: b })
+                }
+            }
+        }
         Type::TypeParameter {
             param,
             nullable: is_null,

@@ -79,16 +79,26 @@ function Sintetico {
     return $p
 }
 
-$medidas = [ordered]@{}
-if (-not $Entrada) {
-    $medidas['corpus JS (ms)'] = @{ base = @(); atual = @() }
-    $sint = Sintetico
-    $medidas['edição de corpo, 300 bibliotecas (ms)'] = @{ base = @(); atual = @() }
+function Novas-Medidas {
+    $m = [ordered]@{}
+    if (-not $Entrada) {
+        $m['corpus JS (ms)'] = @{ base = @(); atual = @() }
+        $m['edição de corpo, 300 bibliotecas (ms)'] = @{ base = @(); atual = @() }
+    }
+    else {
+        $m["edição de corpo, $(Split-Path $Entrada -Leaf) (ms)"] = @{ base = @(); atual = @() }
+    }
+    return $m
 }
-else {
-    $medidas["edição de corpo, $(Split-Path $Entrada -Leaf) (ms)"] = @{ base = @(); atual = @() }
-}
+if (-not $Entrada) { $sint = Sintetico }
 
+# Uma passada: $Rodadas rodadas, cada uma medindo base e atual em sequência
+# (ordem alternada). O critério é a MEDIANA DAS RAZÕES PAREADAS atual/base de
+# cada rodada: medidas feitas lado a lado dividem a mesma deriva do runner, que
+# a comparação de medianas separadas não cancelava (medido: até 14% de ruído
+# entre rodadas; o portão reprovava commits que não tocavam o compilador).
+function Passada {
+$medidas = Novas-Medidas
 for ($r = 1; $r -le $Rodadas; $r++) {
     # Alterna a ordem: o que roda primeiro paga o disco frio.
     $ordem = if ($r % 2) { @('base', 'atual') } else { @('atual', 'base') }
@@ -106,19 +116,37 @@ for ($r = 1; $r -le $Rodadas; $r++) {
     }
     Write-Host "rodada $r de $Rodadas"
 }
-
-$falhou = $false
-$md = @('### Custo zero — o atual contra a base, rodadas alternadas', '', "Rodadas: $Rodadas; tolerância: $([math]::Round($Tolerancia * 100, 1))%.", '', '| medida | base (mediana) | atual (mediana) | razão | rodadas base | rodadas atual |', '|---|---|---|---|---|---|')
-foreach ($k in $medidas.Keys) {
-    $b = Mediana $medidas[$k].base
-    $a = Mediana $medidas[$k].atual
-    $razao = if ($b -gt 0) { $a / $b } else { 1 }
-    $ok = $razao -le (1 + $Tolerancia)
-    if (-not $ok) { $falhou = $true }
-    $md += "| $k | $([math]::Round($b, 1)) | $([math]::Round($a, 1)) | $([math]::Round($razao, 3))$(if (-not $ok) { ' **piorou**' }) | $(($medidas[$k].base | ForEach-Object { [math]::Round($_, 0) }) -join ', ') | $(($medidas[$k].atual | ForEach-Object { [math]::Round($_, 0) }) -join ', ') |"
+return $medidas
 }
-$texto = $md -join "`n"
+
+# Avalia uma passada: devolve (falhou, linhas da tabela).
+function Avaliar($medidas, [string]$titulo) {
+    $falhou = $false
+    $md = @("### $titulo", '', "Rodadas: $Rodadas; tolerância: $([math]::Round($Tolerancia * 100, 1))% sobre a mediana das razões pareadas.", '', '| medida | base (mediana) | atual (mediana) | razão pareada (mediana) | razões por rodada |', '|---|---|---|---|---|')
+    foreach ($k in $medidas.Keys) {
+        $bs = $medidas[$k].base; $as = $medidas[$k].atual
+        $razoes = @(for ($i = 0; $i -lt $bs.Count; $i++) { if ($bs[$i] -gt 0) { $as[$i] / $bs[$i] } else { 1.0 } })
+        $razao = Mediana $razoes
+        $ok = $razao -le (1 + $Tolerancia)
+        if (-not $ok) { $falhou = $true }
+        $md += "| $k | $([math]::Round((Mediana $bs), 1)) | $([math]::Round((Mediana $as), 1)) | $([math]::Round($razao, 3))$(if (-not $ok) { ' **piorou**' }) | $(($razoes | ForEach-Object { [math]::Round($_, 3) }) -join ', ') |"
+    }
+    return @{ falhou = $falhou; md = $md }
+}
+
+$primeira = Avaliar (Passada) 'Custo zero — o atual contra a base, razões pareadas'
+$saida = $primeira.md
+$falhou = $primeira.falhou
+if ($falhou) {
+    # Confirmação: uma regressão real persiste numa segunda passada; o azar do
+    # runner, não. Só reprova se as duas passadas reprovarem.
+    Write-Host 'primeira passada acima da tolerância; confirmando com uma segunda passada'
+    $segunda = Avaliar (Passada) 'Confirmação (segunda passada)'
+    $saida += @('') + $segunda.md
+    $falhou = $segunda.falhou
+}
+$texto = $saida -join "`n"
 Write-Host $texto
 if ($env:GITHUB_STEP_SUMMARY) { Add-Content $env:GITHUB_STEP_SUMMARY $texto -Encoding utf8 }
-if ($falhou) { Write-Host '::error::custo zero: o atual ficou mais lento que a base além da tolerância'; exit 1 }
+if ($falhou) { Write-Host '::error::custo zero: o atual ficou mais lento que a base além da tolerância, em duas passadas'; exit 1 }
 exit 0

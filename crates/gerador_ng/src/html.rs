@@ -508,25 +508,29 @@ fn reduzir_espacos(nos: Vec<No>) -> Vec<No> {
     saida
 }
 
-/// Colapsa espaços de um texto: todo bloco de dois ou mais vira um espaço, e
-/// as pontas são aparadas conforme os vizinhos.
+/// Colapsa espaços de um texto: todo bloco de dois ou mais vira um espaço
+/// (`RegExp(r'\s\s+')` — um caractere sozinho, `\n` inclusive, fica como
+/// está), e as pontas são aparadas conforme os vizinhos.
 fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
     let mut v = String::with_capacity(texto.len());
-    let mut espacos = 0usize;
+    let mut bloco = String::new();
+    let fechar = |bloco: &mut String, v: &mut String| {
+        if bloco.chars().count() == 1 {
+            v.push_str(bloco);
+        } else if !bloco.is_empty() {
+            v.push(' ');
+        }
+        bloco.clear();
+    };
     for c in texto.chars() {
         if c.is_whitespace() && c != NBSP {
-            espacos += 1;
+            bloco.push(c);
             continue;
         }
-        if espacos > 0 {
-            v.push(' ');
-            espacos = 0;
-        }
+        fechar(&mut bloco, &mut v);
         v.push(c);
     }
-    if espacos > 0 {
-        v.push(' ');
-    }
+    fechar(&mut bloco, &mut v);
     let mut v = v.replace(NGSP, " ");
     if apara_esq {
         v = v.trim_start().to_string();

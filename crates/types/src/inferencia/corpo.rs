@@ -80,6 +80,33 @@ pub(crate) struct Corpo {
     /// Atalhos de ponto (3.10): o contexto da cadeia de seletores, pela
     /// expressão `DotShorthand` da raiz (ver `atalhos`).
     pub contexto_atalho: HashMap<u32, TypeId>,
+    /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
+    /// closure eles não ficam promovidos (`functionExpression_begin` faz a
+    /// junção conservadora com `assignedVariables.anywhere`).
+    /// Calculado na primeira closure (a maioria dos corpos não tem nenhuma).
+    pub escritos_no_corpo: Option<Vec<SymbolId>>,
+    /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
+    pub raiz: Raiz,
+    /// Campos promovíveis (Dart 3.2) já referidos: `(base, campo) -> local
+    /// sintético` que carrega o modelo de fluxo do campo.
+    pub campos: HashMap<(Base, VariableId), LocalId>,
+    /// Fluxos de antes de cada `?.` das cadeias em curso.
+    pub cadeias: Vec<super::fluxo::Fluxo>,
+}
+
+/// Base de uma referência a campo promovível.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Base {
+    This,
+    Local(LocalId),
+}
+
+/// Corpo de topo em inferência.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Raiz {
+    Nada,
+    Funcao(ast::FunctionId),
+    Construtor(ast::MemberId),
 }
 
 /// Destino de saltos.
@@ -112,6 +139,10 @@ impl Corpo {
             rotulos_pendentes: Vec::new(),
             curinga: None,
             contexto_atalho: HashMap::new(),
+            escritos_no_corpo: None,
+            raiz: Raiz::Nada,
+            campos: HashMap::new(),
+            cadeias: Vec::new(),
         };
         if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
             cx.curinga = inf.interner.lookup("_");
@@ -200,6 +231,20 @@ impl Corpo {
         if let Some(e) = self.escopos.last_mut() {
             e.push((nome, Nome::Adiante));
         }
+    }
+
+    /// Local sintético (sem nome no escopo): alvo de promoção de um campo.
+    pub fn declarar_sintetico(&mut self, local: Local) -> LocalId {
+        let id = LocalId(self.locais.len() as u32);
+        self.locais.push(local);
+        self.fluxo.declarar(id);
+        self.fluxo.inicializar(id);
+        id
+    }
+
+    /// Esquece os campos promovidos de uma local reatribuída.
+    pub fn esquecer_campos_de(&mut self, base: LocalId) {
+        self.campos.retain(|(b, _), _| *b != Base::Local(base));
     }
 
     pub fn declarar_tipo_param(&mut self, nome: SymbolId, p: TypeParamId) {

@@ -1,0 +1,4 @@
+<select [(ngModel)]="escolha">
+    <option *ngFor="let o of opcoes" [ngValue]="o">{{o}}</option>
+</select>
+<input [(ngModel)]="escolha" [maxlength]="5" style="width: 10px;" tabindex="2">

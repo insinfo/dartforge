@@ -166,16 +166,11 @@ impl Diretiva {
         if self.e_componente {
             return Some("componente como diretiva".into());
         }
-        if !self.ligacoes_do_hospedeiro.is_empty() {
-            return Some("@HostBinding".into());
-        }
+
         if self.consultas {
             return Some("consulta de conteúdo ou de visão".into());
         }
         let g = &self.ganchos;
-        if g.on_destroy {
-            return Some("OnDestroy".into());
-        }
         if g.do_check
             || g.after_content_init
             || g.after_content_checked
@@ -191,8 +186,8 @@ impl Diretiva {
         {
             return Some("@HostListener de evento não nativo".into());
         }
-        if self.dependencias.iter().any(|d| d.hospedeiro || d.pular) {
-            return Some("dependência @Host/@SkipSelf".into());
+        if self.dependencias.iter().any(|d| d.pular) {
+            return Some("dependência @SkipSelf".into());
         }
         for d in &self.dependencias {
             if let Token::Multi { tipo, .. } = &d.token
@@ -225,6 +220,28 @@ pub enum Argumento {
     Nulo,
     /// O campo de outro provedor do nó.
     Campo(String),
+    /// Um provedor de um elemento acima (`_getDependency` sobe pelos
+    /// pais): a expressão que o lê desta visão.
+    Acima(String),
+}
+
+/// Um provedor injetável de um elemento acima do nó, na visão dele ou numa
+/// visão ancestral (a cadeia de `parentView` até ela).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvedorAcima {
+    pub token: Token,
+    /// A expressão que o lê da visão em que o nó está.
+    pub leitura: String,
+}
+
+/// O que há acima do nó para as dependências que ele não satisfaz.
+#[derive(Debug, Clone, Copy)]
+pub struct Acima<'a> {
+    /// Do mais próximo para o mais longe.
+    pub provedores: &'a [ProvedorAcima],
+    /// Algum elemento acima tem provedor que o emissor não modela (um
+    /// componente): não achar não prova que não há.
+    pub incerto: bool,
 }
 
 /// Como um campo de provedor é criado no `build()`.
@@ -248,6 +265,17 @@ pub struct Instancia {
     /// Os tokens pelos quais ele é injetável abaixo (`injectorGetInternal`):
     /// o próprio, se visível, e os apelidos.
     pub injetavel_por: Vec<Token>,
+    /// Os `ExistingProvider` do nó que apontam para esta instância, visíveis
+    /// ou não: também por eles uma consulta a acha.
+    pub apelidos: Vec<Token>,
+    /// Nenhum provedor ansioso (diretiva, componente) depende dele: o
+    /// oficial o cria no `afterElement` com `eager: false`, como campo
+    /// `late` com inicializador (`late List<T> _X_n_m = [..];`), e não no
+    /// `build()`.
+    pub preguicosa: bool,
+    /// Como a instância é lida: o campo, ou `campo.instance` quando a
+    /// diretiva tem `@HostBinding` e o campo guarda o `XNgCd` dela.
+    pub leitura: String,
 }
 
 /// Os provedores de diretivas de um nó, resolvidos.
@@ -256,7 +284,8 @@ pub struct NoResolvido {
     /// Os campos, na ordem de criação.
     pub instancias: Vec<Instancia>,
     /// As diretivas, na ordem em que o oficial as liga
-    /// (`transformedDirectiveAsts`: a dos provedores), com o campo de cada.
+    /// (`transformedDirectiveAsts`: a dos provedores), com a leitura da
+    /// instância de cada (o campo, ou `campo.instance` com `XNgCd`).
     pub diretivas: Vec<(Arc<Diretiva>, String)>,
 }
 
@@ -279,7 +308,11 @@ struct Resolvido {
 /// `directives:`) no nó `n`. Uma dependência que o próprio nó não satisfaz
 /// e não é `@Optional() @Self()` é recusada: ela viria de outro nó ou do
 /// injetor, formas ainda sem caso.
-pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'static str> {
+pub fn resolver(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+) -> Result<NoResolvido, &'static str> {
     // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
     // `providers:` de cada uma; o mesmo token multi acumula.
     let mut todos: Vec<Resolvido> = Vec::new();
@@ -341,11 +374,11 @@ pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'stat
                     for dep in &d.dependencias {
                         match &dep.token {
                             Token::Elemento | Token::Detector => {}
-                            t => match todos.iter().position(|r| r.token == *t) {
-                                Some(j) => criar(todos, j, ordem, vistos)?,
-                                None if dep.opcional && dep.proprio => {}
-                                None => return Err("dependência de diretiva de fora do nó"),
-                            },
+                            t => {
+                                if let Some(j) = todos.iter().position(|r| r.token == *t) {
+                                    criar(todos, j, ordem, vistos)?;
+                                }
+                            }
                         }
                     }
                 }
@@ -361,6 +394,7 @@ pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'stat
             criar(&todos, i, &mut ordem, &mut vistos)?;
         }
     }
+    let ansiosos = ordem.len();
     // `afterElement`: o que sobrou (os apelidos, em geral).
     for i in 0..todos.len() {
         criar(&todos, i, &mut ordem, &mut vistos)?;
@@ -372,8 +406,9 @@ pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'stat
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
     let mut saida = NoResolvido::default();
-    for &i in &ordem {
+    for (posicao, &i) in ordem.iter().enumerate() {
         let r = &todos[i];
+        let preguicosa = posicao >= ansiosos;
         if let (false, [Fonte::Existente(alvo)]) = (r.multi, r.fontes.as_slice())
             && let Some(real) = campos
                 .iter()
@@ -391,6 +426,14 @@ pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'stat
             continue;
         }
         let campo = format!("_{}_{n}_{tamanho}", r.token.nome());
+        // Diretiva com `@HostBinding`: o campo é o `XNgCd` que a embrulha
+        // (`createProvider`, `providerHasChangeDetector`).
+        let leitura = match r.fontes.as_slice() {
+            [Fonte::Diretiva(d)] if !d.ligacoes_do_hospedeiro.is_empty() => {
+                format!("{campo}.instance")
+            }
+            _ => campo.clone(),
+        };
         let campo_de = |t: &Token| -> Option<String> {
             let t = apelidos
                 .iter()
@@ -408,11 +451,11 @@ pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'stat
                         Token::Detector => Argumento::Detector,
                         t => match campo_de(t) {
                             Some(c) => Argumento::Campo(c),
-                            None => Argumento::Nulo,
+                            None => fora_do_no(dep, acima)?,
                         },
                     });
                 }
-                saida.diretivas.push((d.clone(), campo.clone()));
+                saida.diretivas.push((d.clone(), leitura.clone()));
                 Criacao::Diretiva {
                     diretiva: d.clone(),
                     args,
@@ -439,16 +482,44 @@ pub fn resolver(casadas: &[Arc<Diretiva>], n: u32) -> Result<NoResolvido, &'stat
             } else {
                 Vec::new()
             },
+            apelidos: Vec::new(),
+            preguicosa,
+            leitura: leitura.clone(),
         });
-        campos.push((r.token.clone(), campo));
+        campos.push((r.token.clone(), leitura));
         tamanho += 1;
     }
     for (apelido, real) in apelidos {
         if let Some(inst) = saida.instancias.iter_mut().find(|x| x.token == real) {
+            inst.apelidos.push(apelido.clone());
             inst.injetavel_por.push(apelido);
         }
     }
     Ok(saida)
+}
+
+/// Uma dependência que o próprio nó não satisfaz (`_getDependency`):
+/// `@Self` para no nó; senão sobe pelos elementos acima (`@Host` até o
+/// hospedeiro, que aqui é a raiz da visão do componente). Sem resultado e
+/// `@Optional`, `null` — a não ser que haja acima algo que o emissor não
+/// modela. Sem `@Host`, depois dos elementos viria o injetor de fora: ainda
+/// não.
+fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'static str> {
+    // Sem contexto (só a ordem dos imports interessa): o valor não importa.
+    let Some(acima) = acima else {
+        return Ok(Argumento::Nulo);
+    };
+    if !dep.proprio
+        && let Some(p) = acima.provedores.iter().find(|p| p.token == dep.token)
+    {
+        return Ok(Argumento::Acima(p.leitura.clone()));
+    }
+    match (dep.opcional, dep.proprio, dep.hospedeiro) {
+        (true, true, _) => Ok(Argumento::Nulo),
+        (true, false, true) if !acima.incerto => Ok(Argumento::Nulo),
+        (_, false, true) => Err("dependência @Host de diretiva sem provedor acima"),
+        _ => Err("dependência de diretiva de fora do nó"),
+    }
 }
 
 #[cfg(test)]
@@ -547,7 +618,7 @@ mod testes {
     fn input_com_ng_model_e_required() {
         let modelo = ng_model();
         let casadas = [modelo.clone(), acessor(), obrigatorio()];
-        let r = resolver(&casadas, 33).unwrap();
+        let r = resolver(&casadas, 33, None).unwrap();
         let campos: Vec<&str> = r.instancias.iter().map(|i| i.campo.as_str()).collect();
         assert_eq!(
             campos,
@@ -592,7 +663,7 @@ mod testes {
             ],
             ..Default::default()
         });
-        let r = resolver(std::slice::from_ref(&form), 19).unwrap();
+        let r = resolver(std::slice::from_ref(&form), 19, None).unwrap();
         assert_eq!(r.instancias.len(), 1);
         assert_eq!(r.instancias[0].campo, "_NgForm_19_5");
         assert_eq!(

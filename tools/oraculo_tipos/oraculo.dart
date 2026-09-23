@@ -14,11 +14,18 @@
 //   caminho \t offset \t comprimento \t nó \t tipo \t elemento
 import 'dart:io';
 
-import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/analysis/analysis_context_collection.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/analysis/byte_store.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/analysis/driver_based_analysis_context.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/analysis/file_byte_store.dart';
 import 'package:path/path.dart' as p;
 
 Future<void> main(List<String> args) async {
@@ -33,7 +40,17 @@ Future<void> main(List<String> args) async {
       .where((l) => l.isNotEmpty)
       .toList();
   final saida = File(args[2]).openWrite();
-  final colecao = AnalysisContextCollection(includedPaths: [raiz]);
+  // Resumos em disco (cache do analyzer ao lado da saída), com só 32 MB em
+  // memória: o pico fica no que uma biblioteca precisa, não no projeto.
+  final cache = p.join(p.dirname(_abs(args[2])), 'cache-analyzer');
+  Directory(cache).createSync(recursive: true);
+  final colecao = AnalysisContextCollectionImpl(
+    includedPaths: [raiz],
+    // Compilado com `dart compile exe`, o executável não sabe onde está o
+    // SDK: DART_SDK, ou o 3.6.2 da máquina.
+    sdkPath: _abs(Platform.environment['DART_SDK'] ?? 'C:/tools/dartsdk-3.6.2'),
+    byteStore: MemoryCachingByteStore(EvictingFileByteStore(cache, 1 << 30), 32 << 20),
+  );
   final ctx = colecao.contextFor(raiz);
   var ok = 0, falhas = 0;
   for (final arquivo in arquivos) {
@@ -49,8 +66,21 @@ Future<void> main(List<String> args) async {
       continue;
     }
     // Chave pelo caminho que o nosso despejo usou (o gerado, se for o caso).
-    r.unit.accept(_Visitante(_norm(arquivo), saida));
+    // As linhas saem ordenadas por (offset, comprimento), na ordem da lista
+    // (a do nosso despejo): o comparador faz merge em fluxo.
+    final v = _Visitante(_norm(arquivo));
+    r.unit.accept(v);
+    v.linhas.sort((a, b) => a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2));
+    for (final l in v.linhas) {
+      saida.writeln(l.$3);
+    }
     ok++;
+    // Memória: o analyzer guarda o modelo de elementos de tudo o que já
+    // resolveu; limpar de tempos em tempos mantém o pico baixo (o que já foi
+    // ligado volta dos resumos em cache).
+    if (ok % 150 == 0) {
+      (ctx as DriverBasedAnalysisContext).driver.clearLibraryContext();
+    }
   }
   await saida.close();
   stderr.writeln('oráculo: $ok unidades resolvidas, $falhas falhas');
@@ -75,8 +105,8 @@ String _abs(String x) => p.normalize(p.absolute(x));
 
 class _Visitante extends GeneralizingAstVisitor<void> {
   final String arquivo;
-  final IOSink saida;
-  _Visitante(this.arquivo, this.saida);
+  final linhas = <(int, int, String)>[];
+  _Visitante(this.arquivo);
 
   // URIs de diretivas não são expressões para nós.
   @override
@@ -86,8 +116,8 @@ class _Visitante extends GeneralizingAstVisitor<void> {
   void visitExpression(Expression node) {
     final tipo = node.staticType?.getDisplayString() ?? '-';
     final el = _elemento(node);
-    saida.writeln(
-        '$arquivo\t${node.offset}\t${node.length}\t${node.runtimeType.toString().replaceAll('Impl', '')}\t$tipo\t$el');
+    linhas.add((node.offset, node.length,
+        '$arquivo\t${node.offset}\t${node.length}\t${node.runtimeType.toString().replaceAll('Impl', '')}\t$tipo\t$el'));
     super.visitExpression(node);
   }
 

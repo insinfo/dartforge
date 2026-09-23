@@ -85,6 +85,8 @@ impl<'a> BodyInferrer<'a> {
 
     /// Membro de instância pela interface do receptor (sem extensões).
     pub(crate) fn membro_de_interface(&mut self, recv: TypeId, nome: SymbolId, setter: bool) -> Option<Membro> {
+        // `Null` só tem os membros de `Object` (`null.hashCode`).
+        let recv = if matches!(self.table.get(recv), Type::Null) { self.core.object } else { recv };
         let recv = self.nao_nulo(recv);
         let recv = self.completar_args(recv);
         if setter {
@@ -125,6 +127,7 @@ impl<'a> BodyInferrer<'a> {
                     de_extensao: false,
                 })
             }
+            Type::Intersection { bound, .. } => self.membro_de_interface(bound, nome, setter),
             Type::TypeParameter { param, .. } => {
                 if param == self.core.unknown_param {
                     return None;
@@ -235,9 +238,16 @@ impl<'a> BodyInferrer<'a> {
         if dados.type_params.is_empty() {
             return if self.sub(recv, dados.on) { Some(Vec::new()) } else { None };
         }
-        let mut inf = GenericInferrer::new(&dados.type_params);
+        // Parâmetros novos: dentro da própria extensão o receptor menciona
+        // os parâmetros dela (`this` é `Iterable<T>`), e `Iterable<T> <#
+        // Iterable<T>` com `T` em `L` não restringiria nada.
+        let novos = self.parametros_novos(&dados.type_params);
+        let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let m0 = self.mapa(&dados.type_params, &tipos);
+        let on_novo = self.subst(dados.on, &m0);
+        let mut inf = GenericInferrer::new(&novos);
         let mut env = self.env();
-        inf.constrain_argument(recv, dados.on, &mut env);
+        inf.constrain_argument(recv, on_novo, &mut env);
         let args = inf.choose_final(&mut env);
         drop(env);
         let mapa = self.mapa(&dados.type_params, &args);
@@ -336,6 +346,17 @@ impl<'a> BodyInferrer<'a> {
 
     /// Membro estático de uma extensão (`Ext.m`).
     pub(crate) fn membro_estatico_de_extensao(&mut self, e: ExtensionId, nome: SymbolId, setter: bool) -> Option<Membro> {
+        // Campos de extensão (sempre estáticos) não têm acessores no modelo.
+        if let Some(&v) = self.program.extension(e).fields.iter().find(|&&v| self.program.variable(v).name == nome) {
+            let t = self.tipo_variavel(v);
+            return Some(Membro {
+                resolved: Resolved::Element(dartforge_elements::model::Element::Variable(v)),
+                tipo: t,
+                metodo: false,
+                funcao: None,
+                de_extensao: true,
+            });
+        }
         let chave = if setter { self.chave_setter(nome)? } else { nome };
         let &f = self.program.extension(e).static_members.get(&chave)?;
         let (t, metodo) = self.tipo_do_membro_declarado(f, setter);

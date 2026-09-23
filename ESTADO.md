@@ -22,7 +22,7 @@ Alvos reais usados como critério:
 | Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
-| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 1.079 avisos e 1.625 de 634.368 expressões divergentes, `frontend` 1.322 avisos e 2.454 de 1.259.011 (ver §2.1) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 712 avisos e 136 de 634.368 expressões divergentes, `frontend` 767 avisos e 183 de 1.259.011; SDK da fonte (nativo) 275 diagnósticos (ver §2.1) |
 | Versão de linguagem por biblioteca e recursos 3.7–3.13 | **3.7–3.13 de sintaxe completos**; inferência e fluxo 3.7–3.13 (P6) pendentes | ver §1.1.1 |
 
 ### 1.1.1 Dart 3.7–3.13 — `docs/VERSOES-LINGUAGEM.md`
@@ -392,11 +392,11 @@ antes de toda alocação.
   gerou no `new_sali/frontend`
   (`cargo run -p dartforge-gerador-ng --example oraculo -- <projeto>`).
 
-  **new_sali/frontend: 162 arquivos gerados por nós (166 iguais byte a
-  byte contando os `.css.shim.dart`), 0 diferentes, 138 pendentes. Corpus:
-  94 de 100 oráculos conferidos, os 6 restantes recusados de propósito.**
-  (Medido em 2026-09-23, rodada do plano 2; antes dela: 145 gerados, corpus
-  58/66.)
+  **new_sali/frontend: 186 arquivos gerados por nós (212 iguais byte a
+  byte contando os `.css.shim.dart`), 0 diferentes, 114 pendentes. Corpus:
+  99 de 106 oráculos conferidos, os 7 restantes recusados de propósito.**
+  (Medido em 2026-09-23, rodada 3; antes dela: 162 gerados, corpus 94/100;
+  antes da rodada 2: 145, corpus 58/66.)
 
   Cobre hoje:
   - biblioteca sem Angular, `@Directive` e `@Pipe` (o arquivo trivial);
@@ -424,9 +424,19 @@ antes de toda alocação.
     serviços pela cadeia de injetores), `#ref` no filho com `@ViewChild`
     (`queryChangeDetectorRefs`), filho com `*`, projeção por seletor e
     consulta de conteúdo sem resultado;
-  - `ngforms` no nó: `NgForm`, `NgModel`, `DefaultValueAccessor`,
-    `RequiredValidator` (`diretivas.rs`), com os provedores na ordem das
-    dependências e o `injectorGetInternal`;
+  - diretivas de atributo por **metadados lidos do programa**
+    (`metadados.rs`, o `_ComponentVisitor` do ngcompiler sobre o banco
+    semântico: seletor, `providers` avaliados como constante, `@Input`/
+    `@Output`/`@HostListener` herdados, ganchos, dependências com
+    `@Inject`/`@Optional`/`@Self`/`@Host`) — sem catálogo escrito à mão:
+    `ngforms` (`NgForm`, `NgModel`, acessores de valor, `select`/`option`,
+    validadores) e as diretivas do próprio projeto, com os provedores na
+    ordem das dependências, dependência de elemento acima (`@Host`, também
+    de visão ancestral), `ngOnDestroy`, ouvintes do mesmo evento agrupados e
+    o `injectorGetInternal`;
+  - componente de seletor composto, diretiva em tag que não é HTML
+    (`addShimE`), conteúdo que nenhuma projeção recebe e `@ContentChildren`
+    do filho preenchido (o page header do new_sali);
   - injeção no construtor, ciclo de vida (os sete ganchos), `onPush`;
   - folhas de estilo: **Sass** (o subconjunto que os projetos usam) e o
     shim `_ngcontent-%ID%` na forma do `csslib` compacto, gerando também o
@@ -526,52 +536,50 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
 ### 2.0 O compilador de visões do ngdart
 
 Sem ele, `dartforge serve` ainda depende de o `build_runner` ter rodado
-uma vez no projeto (os 138 arquivos pendentes vêm do disco). Medido no
-new_sali/frontend em 2026-09-23 (`oraculo --listar`), com o conjunto
-completo de recusas de cada arquivo e cada uma contada pela sub-forma:
+uma vez no projeto (os 114 arquivos pendentes vêm do disco). Medido no
+new_sali/frontend em 2026-09-23 (`oraculo --listar`, fim da rodada 3),
+com o conjunto completo de recusas de cada arquivo e cada uma contada pela
+sub-forma:
 
 | motivo | aparece em | destrava sozinho |
 |---|---|---|
-| diretiva casada por seletor (diretiva que não emitimos) | 100 | 19 |
-| ligação no template | 48 | 2 |
+| ligação no template | 65 | 3 |
+| diretiva casada por seletor | 40 | 4 |
 | interpolação | 37 | 1 |
-| `style` em linha | 34 | 1 |
-| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 1 |
-| ligação em componente filho | 33 | 1 |
-| ligação de diretiva (`ngValue`, `ngControl`, `ngClass` sem diretiva) | 32 | 0 |
-| `@ViewChild` de componente ou diretiva | 31 | 3 |
-| folha de estilo | 27 | 2 |
-| evento | 15 | 0 |
-| componente no template | 11 | 0 |
-| `providers: [..]` | 11 | 0 |
+| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 3 |
+| ligação em componente filho | 31 | 3 |
+| `@ViewChild` de componente ou diretiva | 31 | 4 |
+| folha de estilo | 27 | 5 |
+| evento | 21 | 0 |
+| `providers: [..]` | 11 | 2 |
 
 As sub-formas mais frequentes:
 
 | sub-forma | aparece em | destrava sozinha |
 |---|---|---|
-| diretiva `PageHeaderBreadcrumbItemDirective` | 47 | 0 |
-| componente `PageHeaderComponent` por seletor composto | 43 | 0 |
-| `style="..."` em linha | 34 | 1 |
 | interpolação: tipo desconhecido de propriedade | 31 | 0 |
-| diretiva `CustomSelectControlValueAccessor` (do projeto) | 28 | 0 |
-| `NgModel` em componente (acessor de valor por `providers:` do filho) | 28 | 1 |
-| `[ngValue]` sem diretiva (option) | 27 | 0 |
-| `@ViewChild` de `#ref` no conteúdo projetado de filho | 27 | 3 |
-| Sass ou CSS fora do subconjunto | 25 | 2 |
-| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 1 / 0 |
-| diretiva `CustomNgSelectOption` (do projeto) | 20 | 0 |
-| `MaxLengthValidator` (`@HostBinding`, `XNgCd`) | 17 | 1 |
-| `NumberValueAccessor` | 17 | 0 |
+| `@ViewChild` de `#ref` em componente filho | 27 | 4 |
+| Sass ou CSS fora do subconjunto | 25 | 5 |
+| local de `*ngFor` sem o tipo do elemento | 23 | 1 |
+| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 3 / 0 |
+| nome fora do componente (ligação / evento) | 17 / 17 | 0 / 0 |
+| `#ref` usado em expressão / em visão embutida | 15 / 14 | 0 / 0 |
+| dependência de diretiva de fora do nó (injetor) | 13 | 2 |
+| `<template>` escrito no template | 11 | 0 |
+| `providers:` no próprio componente | 11 | 2 |
+| `#ref` com valor (`#f="ngForm"`) | 10 | 0 |
 
-O que a rodada do plano 2 destravou, acumulado sobre os 145 de antes
-(estimativa do plano entre parênteses): imutabilidade e guarda +0 (+1),
-eventos +1 (+2), interpolação tipada +4 (+6), pipes +6 (+9), componente
-filho +15 (+21), ngforms +17 (+38). O plano contava a interpolação "simples" em embutida como
-resolvida e não via as diretivas do projeto (`CustomSelectControlValueAccessor`,
-`CustomNgSelectOption`, `PageHeader*`), que agora dominam a lista: o
-próximo passo é o page-header (passo 6) e um catálogo de diretivas lido
-do programa, não escrito à mão.
-
+O que a rodada 3 destravou, sobre os 162 de antes: metadados lidos do
+programa no lugar do catálogo +0 (a mesma saída, 0 diferentes); page
+header (seletor composto, diretiva em tag não HTML, `@ContentChildren`
+preenchido) +8; `select`/`option` e diretivas do projeto (`@Host`,
+`OnDestroy`, ouvintes agrupados) +4; `NgModel` em componente, provedor
+preguiçoso, `XNgCd` de validador usado, `style`/`tabindex` escritos +12.
+As sub-formas "diretiva X" que dominavam (page header 47/43,
+`CustomSelectControlValueAccessor` 28, `CustomNgSelectOption` 20,
+`NgModel` em componente 28, `MaxLengthValidator` 17, `style` 34) saíram
+da lista. O que domina agora é tipagem de expressão (membro de tipo
+desconhecido, local de `*ngFor`) e `#ref`/`@ViewChild` fora da visão raiz.
 Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
 arquivo oficial correspondente serve de teste byte a byte.
 
@@ -580,9 +588,9 @@ arquivo oficial correspondente serve de teste byte a byte.
 1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0
    diagnósticos nos projetos: todo aviso nosso é falso positivo). Medido
    em 2026-09-23 com o oráculo (`tools/oraculo_tipos`, método em
-   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **1.079** avisos,
-   `frontend` 57.883 → **1.322**; divergências de tipo estático por
-   expressão 137.428 → 1.625 (core) e 316.756 → 2.454 (frontend). Os
+   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **712** avisos,
+   `frontend` 57.883 → **767**; divergências de tipo estático por
+   expressão 137.428 → 136 (core) e 316.756 → 183 (frontend). Os
    grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
 2. **Escrita em disco** no `limitless_ui`: 233 s para 484 arquivos, contra
    10,5 s de compilação. É I/O do Windows com antivírus, não compilador —

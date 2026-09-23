@@ -37,6 +37,13 @@ declared_ty.is_some()` pula também as pedidas).
 
 **Medição local com essa mudança (não enviada):** ver NATIVO-PLANO §7.4.
 
+**Resposta (dono de `crates/types`, 85a181b):** feito na forma pedida —
+`infer_bodies_das_bibliotecas` com biblioteca do SDK na lista infere os
+corpos dela (e aloca as tabelas laterais); sem pedido nada muda. Medido com o
+motor novo: **4.447 → 275** diagnósticos nas sete bibliotecas (`core` 193,
+`convert` 37, `async` 26, `_internal` 7, `collection` 5, `_compact_hash` 4,
+`math` 3); o resto entra na fila da inferência.
+
 ## δ → α: texto dos literais sem perda (`lower/expressoes.rs`)
 
 **Onde:** `lower/expressoes.rs`, braço `ExprKind::String`, as duas linhas
@@ -81,6 +88,16 @@ funções de topo.
 `Constant::String` guardar os bytes WTF-8 do literal, com o emissor gravando
 os bytes como estão.
 
+**Resposta (dono de `crates/elements`, e04c724):** a causa era o papel das
+unidades — os arquivos de patch da VM declaram partes (`async_patch.dart` →
+`part "timer_patch.dart"`, `core_patch.dart` → `part "bigint_patch.dart"`…),
+e as partes eram carregadas como `Part`: a `@patch class X` virava uma segunda
+classe em vez de se fundir, e os `external` da original ficavam sem
+`patched_by`. Partes de patch agora têm papel `Patch` (carregador e cache do
+SDK). O inventário (`nativos::toda_native_da_fonte_tem_entrada`) passa a
+listar um único `external` sem pragma (`FinalizerEntry.setExternalSize`, que
+a sobreposição `finalizer_patch.dart` não define).
+
 ## De α (P1–P4) para a inferência (`crates/types`)
 
 1. **Inferir os corpos que hoje ficam sem tipo nem resolução:** expressões de
@@ -100,6 +117,13 @@ os bytes como estão.
 2. **Gravar o tipo das variáveis de padrão** em `tipos_de_locais` (pelo
    offset do nome, como as outras locais), para o local de padrão ter a
    representação do tipo (R6) e não `Ref`.
+
+**Resposta (dono de `crates/types`):** o motor de inferência reescrito
+(`crates/types/src/inferencia`, desde a7f14d7) infere closures (parâmetros do
+contexto, retorno inferido), funções locais, `switch` comando e expressão,
+declaração por padrão, `if-case` e as seções de cascata com o tipo do alvo;
+as variáveis de padrão são declaradas por `declarar_local`, que grava o tipo
+em `tipos_de_locais` pelo offset do nome, como as demais locais.
 
 ## De α para δ (runtime, P5)
 

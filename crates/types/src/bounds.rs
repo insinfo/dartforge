@@ -37,6 +37,7 @@ pub fn is_object(t: TypeId, env: &SubtypeEnv) -> bool {
 pub fn is_bottom(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Never => true,
+        Type::Intersection { bound, .. } => is_bottom(*bound, env),
         Type::TypeParameter { param, nullable: false } if *param != env.core.unknown_param => {
             let b = env.table.param(*param).bound;
             b != t && matches!(env.table.get(b), Type::Never)
@@ -308,6 +309,29 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     }
     if bot2 {
         return t1;
+    }
+    // X1 & B1: tratado antes da nulabilidade (changelog de 2023.10.27).
+    if let Type::Intersection { param, bound } = env.table.get(t1).clone() {
+        let x1 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        if sub_up(x1, t2, env) {
+            return t2;
+        }
+        if sub_up(t2, x1, env) {
+            return x1;
+        }
+        let b = greatest_closure(bound, &[param], env);
+        return up_depth(b, t2, env, depth + 1);
+    }
+    if let Type::Intersection { param, bound } = env.table.get(t2).clone() {
+        let x2 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        if sub_up(t1, x2, env) {
+            return x2;
+        }
+        if sub_up(x2, t1, env) {
+            return t1;
+        }
+        let b = greatest_closure(bound, &[param], env);
+        return up_depth(t1, b, env, depth + 1);
     }
     let (null1, null2) = (is_null(t1, env), is_null(t2, env));
     if null1 && null2 {

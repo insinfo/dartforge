@@ -963,6 +963,16 @@ impl<'a> Ctx<'a> {
                 Ty::Param { id: param.0, name, nullable: *nullable }
             }
             Type::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(self.ty_of(*arg)), nullable: *nullable },
+            // `X & B` (promoção de variável de tipo, só na inferência): em
+            // tempo de execução é a própria variável `X`.
+            Type::Intersection { param, .. } => {
+                let p = *param;
+                let t = self.table.intern_lookup(Type::TypeParameter { param: p, nullable: false });
+                match t {
+                    Some(t) => self.ty_of(t),
+                    None => Ty::Dynamic,
+                }
+            }
             Type::ExtensionType { decl, args, nullable } => {
                 // Interop (`@JS`): mantém o tipo, para os membros `external`
                 // virarem propriedades do objeto JS; os demais são apagados

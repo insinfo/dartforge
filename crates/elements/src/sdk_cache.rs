@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Versão do formato; mudar invalida todos os caches.
-const FORMATO: u32 = 2;
+const FORMATO: u32 = 3; // 3: partes de patch com papel `Patch` (o main já tinha ido a 2)
 
 /// Uma unidade do SDK já analisada.
 #[derive(Serialize, Deserialize)]
@@ -368,7 +368,9 @@ fn partes_de(sdk: &SdkLayout, unidade: &UnitCache, interner: &mut Interner) -> R
         let part_uri = url::Url::from_file_path(&canonico)
             .map(|u| u.to_string())
             .unwrap_or_else(|_| canonico.to_string_lossy().to_string());
-        if let Some(p) = analisar(sdk, &canonico, &part_uri, UnitRole::Part, interner)? {
+        // Parte de patch é patch (ver `load.rs`).
+        let papel = if unidade.role == UnitRole::Patch { UnitRole::Patch } else { UnitRole::Part };
+        if let Some(p) = analisar(sdk, &canonico, &part_uri, papel, interner)? {
             saida.push(p);
         }
     }

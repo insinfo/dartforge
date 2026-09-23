@@ -152,6 +152,7 @@ impl<'a> BodyInferrer<'a> {
         match self.table.get(t).clone() {
             Type::Interface { class: c, args, .. } if c == class => return Some(args.to_vec()),
             Type::Interface { .. } | Type::ExtensionType { .. } => {}
+            Type::Intersection { bound, .. } => return self.como_instancia_de(bound, Some(class)),
             Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
                 let b = self.table.param(param).bound;
                 if b == t {
@@ -172,6 +173,10 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn flatten(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Dynamic | Type::Void => t,
+            Type::Intersection { bound, .. } => match self.como_instancia_de(bound, self.core.future_class) {
+                Some(a) => a[0],
+                None => t,
+            },
             Type::FutureOr { arg, nullable: n } => {
                 if n {
                     self.anulavel(arg)
@@ -260,6 +265,33 @@ impl<'a> BodyInferrer<'a> {
             *a = substitute(*a, &mapa, self.table);
         }
         args
+    }
+
+    /// Cópias frescas (reusadas por lista) de parâmetros de tipo, com os
+    /// limites reescritos nelas.
+    pub(crate) fn parametros_novos(&mut self, originais: &[TypeParamId]) -> Vec<TypeParamId> {
+        if originais.is_empty() {
+            return Vec::new();
+        }
+        if let Some(n) = self.params_construtor.get(&originais[0].0) {
+            return n.clone();
+        }
+        let novos: Vec<TypeParamId> = originais
+            .iter()
+            .map(|&p| {
+                let d = self.table.param(p).clone();
+                self.table.alloc_type_param(d.name, TypeParamOwner::GenericFunctionType, d.bound, d.variance)
+            })
+            .collect();
+        let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let mapa = self.mapa(originais, &tipos);
+        for &p in &novos {
+            let b = self.table.param(p).bound;
+            let b = self.subst(b, &mapa);
+            self.table.set_type_param_bound(p, b);
+        }
+        self.params_construtor.insert(originais[0].0, novos.clone());
+        novos
     }
 
     /// Mapa de substituição `params → args`.
@@ -456,9 +488,8 @@ impl<'a> BodyInferrer<'a> {
                 positional: pos.into_boxed_slice(),
                 optional: opt.into_boxed_slice(),
                 named: named.into_boxed_slice(),
-                nullable: false,
+                nullable: p.function_nullable,
             });
-            // `int f(int x)?` não existe; o `?` do parâmetro-função fica no nó.
             return Some(f);
         }
         p.ty.map(|t| self.resolver_anotacao(unit, lib, t, escopo))

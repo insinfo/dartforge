@@ -33,10 +33,297 @@ pub fn compilar(fonte: &str) -> Result<String, Motivo> {
 pub fn compilar_em(fonte: &str, dir: Option<&Path>) -> Result<String, Motivo> {
     let mut variaveis = HashMap::new();
     let mut vistos = Vec::new();
-    compilar_com(fonte, dir, &mut variaveis, &mut vistos)
+    compilar_modulo(fonte, dir, &mut variaveis, &mut vistos)
 }
 
-fn compilar_com(
+/// O estilo de saída do `sass_builder` (`outputStyle`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Estilo {
+    Expandido,
+    Comprimido,
+}
+
+/// Compila como o `sass_builder` 2.2.1 (o dart-sass do lock): o CSS **byte a
+/// byte** do oficial no estilo pedido — sem o comentário
+/// `/*# sourceMappingURL=… */` do fim, que depende do nome do arquivo e de
+/// haver mapa; quem escreve o `.css` o acrescenta —, e os módulos que
+/// `@use`/`@import` abriram, que também são entradas da compilação.
+///
+/// Verificado contra os 144 `.css` que o `sass_builder` gerou no
+/// new_sali/frontend (`--example conferir-sass -- <projeto> --bytes`), que é
+/// `compressed`: 114 iguais byte a byte, 0 diferentes, 30 recusados
+/// (2026-09-23). O estilo expandido ainda não tem caso que o nosso
+/// subconjunto aceite (os do `corpus/builders/sass_builder` usam namespace,
+/// `@mixin` e funções de cor): recusado.
+pub fn compilar_com(
+    fonte: &str,
+    dir: Option<&Path>,
+    estilo: Estilo,
+) -> Result<(String, Vec<PathBuf>), Motivo> {
+    if estilo == Estilo::Expandido {
+        return Err(Motivo::Estilos);
+    }
+    let mut variaveis = HashMap::new();
+    let mut vistos = Vec::new();
+    // Propriedade customizada guarda o texto como veio: `$x` ali não é
+    // variável para o Sass, mas o nosso `substituir` a trocaria.
+    if customizada_com_sass(fonte) {
+        return Err(Motivo::Estilos);
+    }
+    let compacto = compilar_modulo(fonte, dir, &mut variaveis, &mut vistos)?;
+    for m in &vistos {
+        let texto = std::fs::read_to_string(m).map_err(|_| Motivo::Estilos)?;
+        if customizada_com_sass(&texto) {
+            return Err(Motivo::Estilos);
+        }
+    }
+    // O `compressed` tira os comentários `/* */`; o `/*! */` fica, e ainda
+    // não tem caso.
+    if compacto.contains("/*!") {
+        return Err(Motivo::Estilos);
+    }
+    let compacto = sem_comentarios_de_bloco(&compacto)?;
+    let mut css = String::with_capacity(compacto.len());
+    comprimir_regras(&compacto, &mut css)?;
+    // Folha vazia também termina em `\n` (o arquivo é `\n\n/*# … */\n`).
+    css.push('\n');
+    Ok((css, vistos))
+}
+
+/// Reescreve o CSS intermediário (regras já achatadas) na forma do
+/// `compressed` do dart-sass: seletor sem espaço em volta de `,` `>` `+`
+/// `~`, declarações `prop:valor` separadas por `;` sem o último, `@media`
+/// colado ao `(`, regra vazia omitida.
+fn comprimir_regras(texto: &str, saida: &mut String) -> Result<(), Motivo> {
+    let mut resto = texto.trim();
+    while !resto.is_empty() {
+        let abre = resto.find('{').ok_or(Motivo::Estilos)?;
+        let cabeca = resto[..abre].trim();
+        let fim = fim_do_bloco(resto, abre + 1).ok_or(Motivo::Estilos)?;
+        let corpo = &resto[abre + 1..fim];
+        resto = resto[fim + 1..].trim_start();
+        if let Some(consulta) = cabeca.strip_prefix("@media") {
+            let consulta = espacos_colapsados(consulta);
+            let mut dentro = String::new();
+            comprimir_regras(corpo, &mut dentro)?;
+            if dentro.is_empty() {
+                continue;
+            }
+            saida.push_str("@media");
+            if !consulta.starts_with('(') {
+                saida.push(' ');
+            }
+            saida.push_str(&consulta);
+            saida.push('{');
+            saida.push_str(&dentro);
+            saida.push('}');
+            continue;
+        }
+        if cabeca.starts_with('@') {
+            return Err(Motivo::Estilos);
+        }
+        let decls = declaracoes_comprimidas(corpo)?;
+        if decls.is_empty() {
+            continue;
+        }
+        saida.push_str(&seletor_comprimido(cabeca));
+        saida.push('{');
+        saida.push_str(&decls);
+        saida.push('}');
+    }
+    Ok(())
+}
+
+/// Alguma `--prop: …` com `$` ou `#{` no valor?
+fn customizada_com_sass(texto: &str) -> bool {
+    texto.match_indices("--").any(|(i, _)| {
+        let resto = &texto[i + 2..];
+        let nome = resto
+            .find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(resto.len());
+        let depois = resto[nome..].trim_start();
+        let Some(valor) = depois.strip_prefix(':') else {
+            return false;
+        };
+        let fim = valor.find([';', '}']).unwrap_or(valor.len());
+        valor[..fim].contains('$') || valor[..fim].contains("#{")
+    })
+}
+
+/// Tira os `/* … */`, fora de aspas.
+fn sem_comentarios_de_bloco(s: &str) -> Result<String, Motivo> {
+    let mut saida = String::with_capacity(s.len());
+    let mut aspas: Option<char> = None;
+    let mut resto = s;
+    while let Some(c) = resto.chars().next() {
+        if let Some(q) = aspas {
+            saida.push(c);
+            if c == q {
+                aspas = None;
+            }
+            resto = &resto[c.len_utf8()..];
+            continue;
+        }
+        if resto.starts_with("/*") {
+            let fim = resto[2..].find("*/").ok_or(Motivo::Estilos)?;
+            resto = &resto[2 + fim + 2..];
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            aspas = Some(c);
+        }
+        saida.push(c);
+        resto = &resto[c.len_utf8()..];
+    }
+    Ok(saida)
+}
+
+/// Espaços em sequência viram um, fora de aspas; as pontas saem.
+fn espacos_colapsados(s: &str) -> String {
+    let mut saida = String::with_capacity(s.len());
+    let mut aspas: Option<char> = None;
+    let mut espaco = false;
+    for c in s.trim().chars() {
+        if let Some(q) = aspas {
+            saida.push(c);
+            if c == q {
+                aspas = None;
+            }
+            continue;
+        }
+        if c.is_whitespace() {
+            espaco = true;
+            continue;
+        }
+        if espaco {
+            saida.push(' ');
+            espaco = false;
+        }
+        if c == '"' || c == '\'' {
+            aspas = Some(c);
+        }
+        saida.push(c);
+    }
+    saida
+}
+
+/// O seletor como o `compressed` o escreve.
+fn seletor_comprimido(s: &str) -> String {
+    let colapsado = espacos_colapsados(s);
+    let mut saida = String::with_capacity(colapsado.len());
+    let mut colchetes = 0usize;
+    let mut aspas: Option<char> = None;
+    let cs: Vec<char> = colapsado.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
+        if let Some(q) = aspas {
+            saida.push(c);
+            if c == q {
+                aspas = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => aspas = Some(c),
+            '[' => colchetes += 1,
+            ']' => colchetes = colchetes.saturating_sub(1),
+            _ => {}
+        }
+        let combinador = |x: char| matches!(x, ',' | '>' | '+' | '~');
+        if c == ' ' && colchetes == 0 {
+            let antes = saida.chars().last();
+            let depois = cs.get(i + 1).copied();
+            if antes.is_some_and(combinador) || depois.is_some_and(combinador) {
+                continue;
+            }
+        }
+        saida.push(c);
+    }
+    saida
+}
+
+/// A vírgula de lista no nível de cima sai sem espaço (`"Inter",system-ui`).
+fn lista_comprimida(v: &str) -> String {
+    let mut saida = String::with_capacity(v.len());
+    let mut nivel = 0usize;
+    let mut aspas: Option<char> = None;
+    for c in v.chars() {
+        if let Some(q) = aspas {
+            saida.push(c);
+            if c == q {
+                aspas = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => aspas = Some(c),
+            '(' => nivel += 1,
+            ')' => nivel = nivel.saturating_sub(1),
+            _ => {}
+        }
+        if nivel == 0 {
+            if c == ' ' && saida.ends_with(',') {
+                continue;
+            }
+            if c == ',' && saida.ends_with(' ') {
+                saida.pop();
+            }
+        }
+        saida.push(c);
+    }
+    saida
+}
+
+/// `prop: valor; …` como `prop:valor;…`, sem o `;` final.
+fn declaracoes_comprimidas(corpo: &str) -> Result<String, Motivo> {
+    let mut partes = Vec::new();
+    let mut atual = String::new();
+    let mut nivel = 0usize;
+    let mut aspas: Option<char> = None;
+    for c in corpo.chars() {
+        if let Some(q) = aspas {
+            atual.push(c);
+            if c == q {
+                aspas = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => aspas = Some(c),
+            '(' => nivel += 1,
+            ')' => nivel = nivel.saturating_sub(1),
+            '{' | '}' => return Err(Motivo::Estilos),
+            ';' if nivel == 0 => {
+                partes.push(std::mem::take(&mut atual));
+                continue;
+            }
+            _ => {}
+        }
+        atual.push(c);
+    }
+    partes.push(atual);
+    let mut saida = Vec::new();
+    for p in partes {
+        if p.trim().is_empty() {
+            continue;
+        }
+        let (prop, valor) = p.split_once(':').ok_or(Motivo::Estilos)?;
+        let prop = prop.trim();
+        // Propriedade customizada: o valor como veio, espaço do começo
+        // inclusive (`--x: 1rem`).
+        if prop.starts_with("--") {
+            let valor = valor.trim_end();
+            if valor.contains(['\n', '\r']) {
+                return Err(Motivo::Estilos);
+            }
+            saida.push(format!("{prop}:{valor}"));
+            continue;
+        }
+        saida.push(format!("{prop}:{}", lista_comprimida(&espacos_colapsados(valor))));
+    }
+    Ok(saida.join(";"))
+}
+
+fn compilar_modulo(
     fonte: &str,
     dir: Option<&Path>,
     variaveis: &mut HashMap<String, String>,
@@ -53,7 +340,7 @@ fn compilar_com(
         }
         vistos.push(caminho.clone());
         let texto = std::fs::read_to_string(&caminho).map_err(|_| Motivo::Estilos)?;
-        let css = compilar_com(&texto, caminho.parent(), variaveis, vistos)?;
+        let css = compilar_modulo(&texto, caminho.parent(), variaveis, vistos)?;
         saida.push_str(&css);
     }
     blocos(&corpo, "", variaveis, &mut saida)?;
@@ -692,6 +979,24 @@ fn fim_do_bloco(texto: &str, ini: usize) -> Option<usize> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    /// As regras do `compressed` que os 114 `.css` do new_sali confirmam:
+    /// combinador sem espaço, lista sem espaço depois da vírgula, `!important`
+    /// com espaço, propriedade customizada como veio, `@media(`, comentário
+    /// de bloco fora, e o `\n` final.
+    #[test]
+    fn comprimido_como_o_sass_builder() {
+        let fonte = ".a > .b, .c {\n  /* x */\n  color: red !important;\n  --y: 1rem;\n  font-family: \"Inter\", system-ui;\n}\n@media (max-width: 767.98px) {\n  .d { margin: 0; }\n}\n";
+        let (css, modulos) = compilar_com(fonte, None, Estilo::Comprimido).unwrap();
+        assert_eq!(
+            css,
+            ".a>.b,.c{color:red !important;--y: 1rem;font-family:\"Inter\",system-ui}@media(max-width: 767.98px){.d{margin:0}}\n"
+        );
+        assert!(modulos.is_empty());
+        assert_eq!(compilar_com("", None, Estilo::Comprimido).unwrap().0, "\n");
+        assert!(compilar_com(":host{--x: $y}", None, Estilo::Comprimido).is_err());
+        assert!(compilar_com(".a{color:red}", None, Estilo::Expandido).is_err());
+    }
 
     /// O espaço do CSS intermediário não importa — quem normaliza é o shim.
     /// O que este teste garante é que `//` some e que `://` de URL fica.
