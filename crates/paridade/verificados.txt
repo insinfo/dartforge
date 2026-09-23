@@ -1,0 +1,5 @@
+# Códigos semânticos publicados pelo `dartforge analyze` e pelo LSP (plano §2.3).
+# Um código entra aqui quando tem 100% de acerto (posição e mensagem) nos casos
+# dele no corpus/diagnosticos e 0 falso positivo nos três projetos reais
+# (`dartforge-paridade placar` e `dartforge-paridade projetos`). O placar
+# reprova um código listado que divergir no corpus. Sintaxe é publicada sempre.

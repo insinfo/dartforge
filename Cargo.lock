@@ -274,6 +274,7 @@ dependencies = [
  "dartforge-emit-native",
  "dartforge-jit",
  "dartforge-native",
+ "dartforge-paridade",
  "serde_json",
 ]
 
@@ -348,6 +349,7 @@ name = "dartforge-diagnostics"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -563,6 +565,19 @@ dependencies = [
  "rayon",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "dartforge-paridade"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-elements",
+ "dartforge-frontend",
+ "dartforge-intern",
+ "dartforge-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

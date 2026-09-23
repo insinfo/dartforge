@@ -14,7 +14,7 @@
 # cancela a anterior. As branches ci/** são descartáveis — o push é forçado.
 param(
     [string]$Frente,
-    [ValidateSet('todos', 'js', 'producao', 'nativo', 'determinismo')][string]$Suite,
+    [ValidateSet('todos', 'js', 'producao', 'nativo', 'determinismo', 'analise')][string]$Suite,
     [string]$Ref,
     [int]$Fragmentos = 0,
     [switch]$Acompanhar,

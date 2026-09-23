@@ -1,0 +1,25 @@
+[package]
+name = "dartforge-paridade"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-intern = { path = "../intern" }
+dartforge-frontend = { path = "../frontend" }
+dartforge-elements = { path = "../elements" }
+dartforge-types = { path = "../types" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "dartforge-paridade"
+path = "src/main.rs"

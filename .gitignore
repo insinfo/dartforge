@@ -35,3 +35,6 @@ runtime/ddc/dart_sdk.js.map
 # scripts/corpus-ngdart.ps1.
 /corpus/ngdart/.dart_tool/
 /corpus/ngdart/.packages
+
+# Corpus de paridade: o package_config de cada grupo é escrito pelo harness.
+/corpus/diagnosticos/*/.dart_tool/
