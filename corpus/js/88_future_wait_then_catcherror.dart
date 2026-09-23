@@ -1,20 +1,32 @@
 // Future.wait (ordem), wait com erro, Future.any, then encadeado, catchError com test, whenComplete, Future.error/value, timeout, Future.forEach, Future.doWhile.
+//
+// Determinístico sob carga: toda ordem observável sai de Completers concluídos
+// na ordem do programa, ou de timers registrados em ordem crescente de duração
+// (o prazo de um é sempre anterior ao do seguinte). Nenhuma saída depende de
+// um timer mais curto, registrado depois, vencer um mais longo por margem de
+// relógio — isso falhava com vários trabalhadores disputando a máquina.
 import 'dart:async';
 
 Future<int> lento(int v, int ms) =>
     Future.delayed(Duration(milliseconds: ms), () => v);
 
 Future<void> wait() async {
+  // O resultado é posicional: a ordem de conclusão dos timers não aparece.
   final rs = await Future.wait([lento(1, 45), lento(2, 10), lento(3, 30)]);
   print('wait mantém ordem: $rs');
   final vazio = await Future.wait(<Future<int>>[]);
   print('wait vazio: $vazio');
+  final um = Completer<int>(), dois = Completer<int>(), tres = Completer<int>();
   final ordem = <int>[];
-  await Future.wait([
-    lento(1, 45).then((v) => ordem.add(v)),
-    lento(2, 10).then((v) => ordem.add(v)),
-    lento(3, 30).then((v) => ordem.add(v)),
+  final todos = Future.wait([
+    um.future.then((v) => ordem.add(v)),
+    dois.future.then((v) => ordem.add(v)),
+    tres.future.then((v) => ordem.add(v)),
   ]);
+  dois.complete(2);
+  tres.complete(3);
+  um.complete(1);
+  await todos;
   print('ordem de conclusão: $ordem');
   try {
     await Future.wait([
@@ -41,13 +53,18 @@ Future<void> wait() async {
 }
 
 Future<void> any() async {
-  final r = await Future.any([lento(1, 45), lento(2, 10), lento(3, 30)]);
-  print('any: $r');
+  final um = Completer<int>(), dois = Completer<int>(), tres = Completer<int>();
+  final primeiro = Future.any([um.future, dois.future, tres.future]);
+  dois.complete(2);
+  tres.complete(3);
+  um.complete(1);
+  print('any: ${await primeiro}');
+  final demorado = Completer<int>(), falha = Completer<int>();
+  final comErro = Future.any([demorado.future, falha.future]);
+  falha.completeError(Exception('primeiro falhou'));
+  demorado.complete(1);
   try {
-    await Future.any([
-      lento(1, 45),
-      Future<int>.delayed(Duration(milliseconds: 10), () => throw Exception('primeiro falhou')),
-    ]);
+    await comErro;
   } catch (e) {
     print('any com erro: $e');
   }
@@ -99,13 +116,16 @@ Future<void> encadeado() async {
 }
 
 Future<void> timeout() async {
+  // Um futuro que nunca conclui: o timeout é a única saída possível.
+  final nunca = Completer<int>().future;
   try {
-    await lento(1, 60).timeout(Duration(milliseconds: 15));
+    await nunca.timeout(Duration(milliseconds: 15));
   } on TimeoutException {
     print('timeout lançou TimeoutException');
   }
-  final r = await lento(1, 60).timeout(Duration(milliseconds: 15), onTimeout: () => -1);
+  final r = await nunca.timeout(Duration(milliseconds: 15), onTimeout: () => -1);
   print('timeout onTimeout: $r');
+  // O valor (10 ms) é registrado antes do timeout (60 ms): vence sempre.
   final r2 = await lento(2, 10).timeout(Duration(milliseconds: 60));
   print('sem timeout: $r2');
 }

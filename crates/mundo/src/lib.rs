@@ -118,8 +118,11 @@ impl Mundo {
     pub fn seletor(&self, nome: &str) -> bool {
         self.seletores.contains(nome)
     }
+    /// Os seletores vivos, em ordem alfabética (o conjunto é um `HashSet`).
     pub fn seletores(&self) -> impl Iterator<Item = &str> {
-        self.seletores.iter().map(String::as_str)
+        let mut v: Vec<&str> = self.seletores.iter().map(String::as_str).collect();
+        v.sort_unstable();
+        v.into_iter()
     }
     pub fn tearoff_de_construtor(&self, f: FunctionElementId) -> bool {
         self.tearoffs.get(f.0 as usize).copied().unwrap_or(false)

@@ -1558,7 +1558,66 @@ impl<'a> Ctx<'a> {
         false
     }
 
-    /// Membros abstratos (nome, kind) alcançáveis pelos supertipos que não têm implementação concreta.
+    /// Membros de instância declarados em `k`, na ordem de declaração (o id
+    /// da função é atribuído pelo outline na ordem da fonte). O mapa
+    /// `instance_members` é um `HashMap`: iterá-lo direto dá uma ordem que
+    /// muda de uma execução para outra.
+    fn membros_declarados(&self, k: ClassId) -> Vec<(SymbolId, FunctionElementId)> {
+        let mut v: Vec<(SymbolId, FunctionElementId)> = self.program.class(k).instance_members.iter().map(|(&s, &f)| (s, f)).collect();
+        v.sort_by_key(|&(_, f)| f);
+        v
+    }
+
+    /// Ordem dos nomes de membros de instância de `c` como o CFE monta o
+    /// `memberMap` de `ClassMembersNodeBuilder.build` (`members_node.dart`):
+    /// os declarados (getters e métodos, depois setters), os da superclasse,
+    /// os dos mixins (um membro **abstrato** de mixin não entra como
+    /// `mixedInMember`, e sim pela interface da aplicação `S with M`, depois
+    /// de `S`) e os das interfaces, cada nome na primeira vez em que aparece.
+    /// Os encaminhadores de `noSuchMethod` nascem nessa ordem
+    /// (`registerMemberComputation` → `ForwardingNode.finalize` →
+    /// `cls.addProcedure`) e o DDC os emite na ordem de `cls.procedures`.
+    /// Em hierarquias fundas o CFE ainda separa membros de classe dos só de
+    /// interface (`classMemberMap` antes de `interfaceMemberMap`); aqui a
+    /// ordem é a da busca em profundidade — determinística nos dois casos.
+    fn ordem_membros_cfe(&self, c: ClassId) -> Vec<String> {
+        fn visitar(ctx: &Ctx, k: ClassId, vistos: &mut HashSet<ClassId>, out: &mut Vec<String>) {
+            if Some(k) == ctx.object || !vistos.insert(k) {
+                return;
+            }
+            let membros = ctx.membros_declarados(k);
+            for setters in [false, true] {
+                for &(sym, _) in &membros {
+                    let chave = ctx.interner.resolve(sym);
+                    let (nome, e_setter) = match chave.strip_suffix("_=") {
+                        Some(n) => (n, true),
+                        None => (chave, false),
+                    };
+                    if e_setter == setters && !out.iter().any(|x| x == nome) {
+                        out.push(nome.to_string());
+                    }
+                }
+            }
+            let class = ctx.program.class(k);
+            if let Some(s) = class.supertype_class {
+                visitar(ctx, s, vistos, out);
+            }
+            for &mx in &class.mixin_classes {
+                visitar(ctx, mx, vistos, out);
+            }
+            for &i in class.interface_classes.iter().chain(class.on_classes.iter()) {
+                visitar(ctx, i, vistos, out);
+            }
+        }
+        let mut out = Vec::new();
+        visitar(self, c, &mut HashSet::new(), &mut out);
+        out
+    }
+
+    /// Membros abstratos (nome, kind) alcançáveis pelos supertipos que não
+    /// têm implementação concreta, na ordem em que o CFE cria os
+    /// encaminhadores de `noSuchMethod` ([`Self::ordem_membros_cfe`]; getter
+    /// antes do setter de mesmo nome).
     pub fn unimplemented_abstract(&self, c: ClassId) -> Vec<(String, MemberKind)> {
         let mut out: Vec<(String, MemberKind)> = Vec::new();
         let mut seen = HashSet::new();
@@ -1567,8 +1626,7 @@ impl<'a> Ctx<'a> {
             if !seen.insert(k) || Some(k) == self.object {
                 continue;
             }
-            let class = self.program.class(k);
-            for (&sym, &fid) in &class.instance_members {
+            for (sym, fid) in self.membros_declarados(k) {
                 let f = self.program.function(fid);
                 if !f.abstract_ {
                     continue;
@@ -1599,6 +1657,14 @@ impl<'a> Ctx<'a> {
                     queue.push(sc);
                 }
             }
+        }
+        if out.len() > 1 {
+            let ordem = self.ordem_membros_cfe(c);
+            let pos = |n: &str| ordem.iter().position(|x| x == n).unwrap_or(usize::MAX);
+            out.sort_by(|(na, ka), (nb, kb)| {
+                let (sa, sb) = (matches!(ka, MemberKind::Setter(_)), matches!(kb, MemberKind::Setter(_)));
+                pos(na).cmp(&pos(nb)).then_with(|| na.cmp(nb)).then(sa.cmp(&sb))
+            });
         }
         out
     }

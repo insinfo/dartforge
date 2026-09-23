@@ -1,12 +1,19 @@
 // Future.delayed e Timer: ordem por duração, duração igual (ordem de registro), Duration.zero vs microtask, valor, aninhado, Timer.periodic com cancel.
+//
+// Determinístico sob carga: timers de durações distintas são sempre
+// registrados em ordem crescente de duração, então o prazo de cada um é
+// posterior ao do anterior qualquer que seja a pausa entre os registros. Um
+// timer mais curto registrado DEPOIS de um mais longo só vence por margem de
+// relógio, e essa margem some quando vários trabalhadores disputam a máquina.
 import 'dart:async';
 
 Future<void> duracoesDistintas() async {
   print('distintas: início');
-  final f3 = Future.delayed(Duration(milliseconds: 60), () => print('60 ms'));
   final f1 = Future.delayed(Duration(milliseconds: 20), () => print('20 ms'));
   final f2 = Future.delayed(Duration(milliseconds: 40), () => print('40 ms'));
-  await Future.wait([f1, f2, f3]);
+  final f3 = Future.delayed(Duration(milliseconds: 60), () => print('60 ms'));
+  // A lista fora da ordem de registro: a conclusão não depende dela.
+  await Future.wait([f3, f1, f2]);
   print('distintas: fim');
 }
 
