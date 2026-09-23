@@ -43,7 +43,7 @@ conjunto de bits. Medido em §7.
 | 3.7 | curingas `_` (`wildcard-variables`) | escopo | `types` (escopo), `emit_js` (nome JS) | local sem nome; nenhuma forma nova |
 | 3.7 | inferência usando bounds (`inference-using-bounds`) | inferência | `types/constraints.rs`, inferência de argumentos de tipo do `emit_js` | argumentos de tipo reificados diferentes |
 | 3.7 | #56893: campo promovido a `Null` conta na alcançabilidade | fluxo | `types/flow.rs` | nada (só aceita/recusa programas) |
-| 3.8 | elementos null-aware `?e`, `?k: ?v` (`null-aware-elements`) | sintaxe + tipos | parser (gating), `types`, `emit_js`; o nativo recusa | `CollectionElement::NullAwareExpression` / `MapEntry{null_aware_*}` |
+| 3.8 | elementos null-aware `?e`, `?k: ?v` (`null-aware-elements`) | sintaxe + tipos | parser (gating), `types`, `emit_js`, `emit_native` (entrada de mapa null-aware recusada) | `CollectionElement::NullAwareExpression` / `MapEntry{null_aware_*}` |
 | 3.9 | fluxo sólido (`sound-flow-analysis`) | fluxo | `types/flow.rs` | nada |
 | 3.9 | getter/setter com tipos diferentes deixa de ser erro (`getter-setter-error`) | diagnóstico | `types` | nada |
 | 3.10 | atalhos de ponto (`dot-shorthands`) | sintaxe + inferência | parser (`ExprKind::DotShorthand`), `types` (resolução), `emit_js`, `mundo`, `emit_native` | um caso por consumidor: "`.id` é `D.id`", `D` gravado em `Resolved` |
@@ -168,11 +168,10 @@ já os representava (`CollectionElement::NullAwareExpression`,
 §2), o `Set`, o contexto anulável, o curto-circuito do **valor** quando a
 chave null-aware é `null` (conferido na VM: o valor não é avaliado) e o
 nativo. Tipos: contexto `Ps?` para o operando, elemento `NonNull(U)`.
-Constante quando o operando é constante. `emit_native` **recusa** o
-elemento null-aware com diagnóstico explícito: o literal nativo é uma
-alocação com elementos fixos (`AllocList`/`AllocMap`), sem inserção
-condicional — a mesma lacuna de `if`/`for`/spread em coleção no nativo, e
-fica junto dela.
+Constante quando o operando é constante. No `emit_native`, o elemento `?e` de lista e conjunto sai pelo literal
+com inserções condicionais que a rodada α do nativo trouxe junto com
+`if`/`for`/spread (`lower/literais.rs`); a entrada de mapa null-aware ainda
+é recusada com diagnóstico explícito.
 
 ### 4.3 Atalhos de ponto (3.10)
 
@@ -328,7 +327,7 @@ corrigido lá e vale este.
   sai `21.dobro` no `emit_js` e `i.tri()` falha — só o interop JS de extension
   type funciona. O programa 347 (a gramática 3.13 de extension type) fica em
   `PENDENTES` por isso.
-* No nativo: curingas (`_` liga nome), elementos null-aware (recusa explícita)
+* No nativo: curingas (`_` liga nome), entrada de mapa null-aware (recusa explícita)
   e atalho de ponto que não é construção (§4.1–4.3).
 
 ## 7. Placar e medições

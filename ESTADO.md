@@ -51,7 +51,7 @@ CFE; os 4 que faltam estão em `corpus/moderno/PENDENTES`. Na mesma rodada:
 byte a byte** ao da base (222/222), e o parser continua aceitando 426/426 do
 SDK e 1.969/1.969 do pub (cada pacote na versão do seu pubspec). Nenhum
 recurso precisou de runtime novo. O nativo não roda o `corpus/moderno`:
-curinga liga nome, null-aware é recusado e atalho de ponto só sai quando é
+curinga liga nome, entrada de mapa null-aware é recusada e atalho de ponto só sai quando é
 construção. Macros e augmentations: contratos em `docs/MACROS-PROTOCOLO.md`
 e `docs/AUGMENTATIONS.md` (executor nativo auto-hospedado), sem código.
 
@@ -204,6 +204,16 @@ Trilha nova → HIR própria → LLVM IR → Clang → executável, com o runtim
 Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
+
+**Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35871381320), JIT
+81/223 com zero divergências JIT × AOT; os 81 passam também sob
+`--gc-stress`.** Closures com captura em célula e a convenção uniforme de
+chamada de valor função; símbolos estáveis pelo caminho da declaração
+(`df.<biblioteca>.<dono>.<membro>`, teste T-ID); despacho por nome para
+receptor sem tipo e operadores sobre `num`/`dynamic`; `switch` (comando e
+expressão), padrões, enums, records com campo nomeado e `const` canônico;
+cascata, `super`, mixins pela linearização, extensões. Detalhes e decisões
+em `docs/NATIVO-PLANO.md` §7.4–§7.5. Antes disto:
 
 **Corpus nativo: 50/222 (CI, run 35823269758), antes 7/214; sob
 `--gc-stress`, os mesmos 50/222 (run 35823275126).** O backend passou a ter um
@@ -634,6 +644,15 @@ completion, rename, code actions — e a semântica (`crates/types`) por trás
 do `trait Analisador`, que hoje só tem a implementação sintática.
 
 ### 2.5 Backend nativo
+
+**Depois de P1–P4 (Pesado 35871381320): 142 dos 223 falham.** Quase todos
+por membro do SDK sem implementação no runtime (`where`, `map`, `fold`,
+`toStringAsFixed`, `sort`, `List.filled`/`List.generate`, `parse`,
+`hashCode`…, que o P5 resolve com o SDK da fonte), `await`/`yield` (P6/P7)
+e o `toString()` de objeto do programa dentro de uma coleção impressa (o
+runtime não chama código Dart). Da linguagem, faltam os genéricos em tempo
+de execução (RTI: `is List<int>` é diagnóstico) e `super` dentro de mixin.
+A tabela abaixo é a de antes da rodada 2.
 
 172 dos 222 programas do corpus (CI, run 35823269758), agrupados pelo
 relatório do harness (`--nativo`). A família de "handle" (71 de 214 no

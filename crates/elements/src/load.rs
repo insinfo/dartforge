@@ -164,6 +164,9 @@ pub fn load_lenient_gerados(
     let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
     let mut prefetch = Prefetch { gerados: package_config.gerados.clone(), ..Default::default() };
     let mut considerados = 0usize;
+    // Unidades do SDK já decodificadas do cache pela onda, à espera da vez da
+    // biblioteca na fila.
+    let mut sdk_decodificadas: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
     let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
         existing
     } else {
@@ -215,6 +218,21 @@ pub fn load_lenient_gerados(
                     }
                 }
             }
+            // As bibliotecas `dart:` da onda saem do cache decodificadas em
+            // paralelo (em série, no perfil `dev`, custavam tanto quanto
+            // reanalisar o SDK).
+            if let Some(c) = cache.as_mut() {
+                let t_cache = std::time::Instant::now();
+                let nomes: Vec<&str> = program.libraries[considerados..]
+                    .iter()
+                    .filter_map(|l| l.uri.strip_prefix("dart:"))
+                    .filter(|n| c.tem(n))
+                    .collect();
+                if !nomes.is_empty() {
+                    sdk_decodificadas.extend(c.retirar_varios(&nomes));
+                }
+                program.tempos.sdk_cache += t_cache.elapsed();
+            }
             considerados = program.libraries.len();
             prefetch.carregar(caminhos);
             program.tempos.leitura_lex_paralelo += t.elapsed();
@@ -226,7 +244,9 @@ pub fn load_lenient_gerados(
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
             let t_cache = std::time::Instant::now();
-            let do_cache = cache.as_mut().and_then(|c| c.retirar(lib_name));
+            let do_cache = sdk_decodificadas
+                .remove(lib_name)
+                .or_else(|| cache.as_mut().and_then(|c| c.retirar(lib_name)));
             program.tempos.sdk_cache += t_cache.elapsed();
             if let Some(unidades) = do_cache {
                 for u in unidades {

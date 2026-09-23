@@ -68,7 +68,7 @@ fn chamada_de_metodo_com_retorno() {
     ) else {
         return;
     };
-    assert!(main.contains("_dobro(i64"), "{main}");
+    assert!(main.contains(".dobro(i64"), "{main}");
     assert!(!main.contains("@dartforge_print_i64(i64 0)"), "{main}");
 }
 
@@ -81,7 +81,7 @@ fn funcao_de_topo_com_retorno_int_imprime_o_escalar() {
     else {
         return;
     };
-    assert!(main.contains("= call i64 @df_fn_"), "{main}");
+    assert!(main.contains("= call i64 @df."), "{main}");
     assert!(main.contains("@dartforge_print_i64(i64 %v"), "{main}");
     assert!(!main.contains("@dartforge_print_handle"), "{main}");
 }
