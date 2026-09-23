@@ -37,7 +37,6 @@ pub struct FnBuilder<'a, 'c> {
     pub finally_scopes: Vec<FinallyScope>,
     pub active_catch_stack: Vec<(Operand, u8)>,
     pub terminated_blocks: std::collections::HashSet<BlockId>,
-    pub local_functions: HashMap<SymbolId, (String, Type, Vec<Type>)>,
     pub extra_functions: Vec<Function>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
@@ -52,6 +51,15 @@ pub struct FnBuilder<'a, 'c> {
     pub continuar_cadeia: bool,
     /// Valor lido antes de uma atribuição composta (resultado de `x++`).
     pub valor_antigo: Option<Operand>,
+    // --- P1 (closures, α) ---
+    /// Offsets das declarações desta função que moram numa célula (captura.rs).
+    pub celulas: std::collections::HashSet<usize>,
+    /// Closures anônimas já criadas nesta função (nome do corpo).
+    pub n_closures: u32,
+    /// Nomes de corpos de funções locais já usados nesta função.
+    pub nomes_locais: std::collections::HashSet<String>,
+    /// Entradas de tear-off já geradas por esta função.
+    pub entradas_feitas: std::collections::HashSet<String>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -130,7 +138,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             finally_scopes: Vec::new(),
             active_catch_stack: Vec::new(),
             terminated_blocks: std::collections::HashSet::new(),
-            local_functions: HashMap::new(),
             extra_functions: Vec::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
@@ -140,6 +147,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             cadeia_nula: None,
             continuar_cadeia: false,
             valor_antigo: None,
+            celulas: std::collections::HashSet::new(),
+            n_closures: 0,
+            nomes_locais: std::collections::HashSet::new(),
+            entradas_feitas: std::collections::HashSet::new(),
         }
     }
 
@@ -152,7 +163,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(dados) = self.ctx.outline.functions.get(fid) else {
             return;
         };
-        for p in dados.parameters.iter() {
+        // Os offsets dos nomes na declaração: a chave das células (P1).
+        let program = self.ctx.program;
+        let ast_params: &[ast::Parameter] = match program.functions[fid].node {
+            dartforge_elements::model::FunctionRef::Function { unit, function } => program
+                .unit(unit)
+                .ast
+                .function(function)
+                .parameters
+                .as_deref()
+                .unwrap_or(&[]),
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                match &program.unit(unit).ast.member(member).kind {
+                    ast::MemberKind::Constructor(c) => &c.parameters[..],
+                    _ => &[],
+                }
+            }
+            dartforge_elements::model::FunctionRef::None => &[],
+        };
+        for (i, p) in dados.parameters.iter().enumerate() {
             let p_name = p
                 .name
                 .map(|s| self.ctx.symbol_name(s).to_string())
@@ -160,7 +189,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let p_ty = self.repr(p.ty);
             let vid = self.add_param(p_name, p_ty);
             if let Some(sym) = p.name {
-                self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid));
+                match ast_params.get(i).and_then(|a| a.name) {
+                    Some(n) => {
+                        self.declarar_variavel(sym, n.span.start as usize, p_ty, Operand::Val(vid))
+                    }
+                    None => self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid)),
+                }
             }
         }
     }

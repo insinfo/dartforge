@@ -678,6 +678,49 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_iteration_end(i64)",
         efeitos: CONSERVADOR,
     },
+    // --- P1 (closures, α): convenção uniforme e leituras com representação ---
+    Extern {
+        decl: "declare i64 @dartforge_cell_get_ref(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_env_get_ref(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_closure_entry(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_args_casam(ptr, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arg_indice(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_nsm_chamada()",
+        efeitos: CONSERVADOR,
+    },
+    // --- P2 (α): operadores sobre dynamic/num (tapa-buraco até P5) ---
+    Extern {
+        decl: "declare i64 @dartforge_dyn_op(i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_dyn_unario(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    // --- P3 (α): records ---
+    Extern {
+        decl: "declare i64 @dartforge_record_len(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_record_get_ref(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
 ];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.

@@ -89,7 +89,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match &ast.expr(target).kind {
             ast::ExprKind::Identifier(name) => {
                 let sym = name.sym;
-                match self.ctx.get_resolved(self.unit_id, target).cloned() {
+                let resolvido = match self.ctx.get_resolved(self.unit_id, target).cloned() {
+                    // Sem resolução (corpo de closure) e sem local: pelo
+                    // escopo léxico (membro da classe, topo da biblioteca).
+                    None if self.buscar_local(sym).is_none() => self.resolver_por_nome(sym),
+                    r => r,
+                };
+                match resolvido {
                     Some(Resolved::Member { member, .. }) => {
                         self.atribuir_membro(None, member, ast, op, value, span)
                     }
@@ -142,6 +148,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if *null_aware {
                     return self.nao_suportado("atribuição com `?.`", span);
                 }
+                // `super.x = v` (P4).
+                if matches!(ast.expr(*recv).kind, ast::ExprKind::Super) {
+                    let cur = if composto {
+                        Some(self.ler_super(name.sym, span))
+                    } else {
+                        None
+                    };
+                    let v = self.combinar(ast, op, cur, value);
+                    return self.gravar_super(name.sym, v, span);
+                }
                 let alvo_e_classe = matches!(
                     self.ctx.get_resolved(self.unit_id, *recv),
                     Some(Resolved::Element(Element::Class(_)))
@@ -158,6 +174,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let Some((_, member)) = self.membro_do_usuario(target, *recv, name.sym, true)
                 else {
                     let n = self.ctx.symbol_name(name.sym).to_string();
+                    if self.receptor_dinamico(*recv) {
+                        // Receptor sem tipo útil: campo/setter pela classe
+                        // dinâmica.
+                        let alvos = self.alvos_de_escrita(&n);
+                        if !alvos.is_empty() {
+                            let recv_op = self.lower_expr(ast, *recv);
+                            let recv_op = self.coagir(recv_op, Type::Ref);
+                            let cur = if composto {
+                                let leitura = self.alvos_por_nome(&n);
+                                let n2 = n.clone();
+                                Some(self.despachar(
+                                    recv_op.clone(),
+                                    &leitura,
+                                    super::despacho::Uso::Ler,
+                                    &mut |_s: &mut Self| Vec::new(),
+                                    &mut |s: &mut Self| s.lancar_nsm(&n2),
+                                    span,
+                                ))
+                            } else {
+                                None
+                            };
+                            let v = self.combinar(ast, op, cur, value);
+                            let v2 = v.clone();
+                            let n3 = format!("{n}=");
+                            return self.despachar(
+                                recv_op,
+                                &alvos,
+                                super::despacho::Uso::Gravar,
+                                &mut |_s: &mut Self| vec![(None, v2.clone())],
+                                &mut |s: &mut Self| s.lancar_nsm(&n3),
+                                span,
+                            );
+                        }
+                    }
                     return self.nao_suportado(&format!("atribuição a `{n}`"), span);
                 };
                 let recv_op = self.lower_expr(ast, *recv);
@@ -264,6 +314,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     );
                     return v;
                 }
+                if !composto {
+                    return self.gravar_indice_dinamico(ast, t_op, i_op, value, span);
+                }
                 self.nao_suportado("atribuição a índice", span)
             }
             _ => self.nao_suportado("alvo de atribuição", span),
@@ -330,6 +383,94 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.nao_suportado("setter fora de membro de instância", span);
         };
         self.chamar_membro(obj, fid, &[(None, v.clone())], span);
+        v
+    }
+
+    /// `a[i] = v` com `a` sem tipo estático útil: lista ou mapa do runtime
+    /// pela classe do valor, `operator []=` de uma classe do programa, senão
+    /// `NoSuchMethodError`.
+    fn gravar_indice_dinamico(
+        &mut self,
+        ast: &ast::Ast,
+        alvo: Operand,
+        indice: Operand,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
+        let v = self.lower_rhs(ast, value, Type::Ref);
+        let alvo = self.coagir(alvo, Type::Ref);
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(alvo.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let b_lista = self.new_block();
+        let b_mapa = self.new_block();
+        let b_outro = self.new_block();
+        let fim = self.new_block();
+        self.terminate(Terminator::Switch {
+            val: cls,
+            default: b_outro,
+            cases: vec![(-3, b_lista), (-4, b_mapa)],
+        });
+        self.set_block(b_lista);
+        let i = self.coagir(indice.clone(), Type::I64);
+        let tag = self.operand_tag(&v);
+        let (bits, _) = self.para_bits(v.clone());
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_list_set".to_string(),
+                args: vec![
+                    (alvo.clone(), Type::Ref),
+                    (i, Type::I64),
+                    (bits, Type::I64),
+                    (Operand::Constant(Constant::Int(i64::from(tag))), Type::I8),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Branch(fim));
+        self.set_block(b_mapa);
+        let ktag = self.operand_tag(&indice);
+        let (kbits, _) = self.para_bits(indice.clone());
+        let vtag = self.operand_tag(&v);
+        let (vbits, _) = self.para_bits(v.clone());
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_map_set".to_string(),
+                args: vec![
+                    (alvo.clone(), Type::Ref),
+                    (kbits, Type::I64),
+                    (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
+                    (vbits, Type::I64),
+                    (Operand::Constant(Constant::Int(i64::from(vtag))), Type::I8),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Branch(fim));
+        self.set_block(b_outro);
+        let alvos: Vec<_> = self
+            .alvos_por_nome("[]=")
+            .into_iter()
+            .filter(|(_, a)| matches!(a, super::despacho::Alvo::Funcao(_)))
+            .collect();
+        let (i2, v2) = (indice, v.clone());
+        self.despachar(
+            alvo,
+            &alvos,
+            super::despacho::Uso::Chamar,
+            &mut |_s: &mut Self| vec![(None, i2.clone()), (None, v2.clone())],
+            &mut |s: &mut Self| s.lancar_nsm("[]="),
+            span,
+        );
+        self.terminate(Terminator::Branch(fim));
+        self.set_block(fim);
         v
     }
 }

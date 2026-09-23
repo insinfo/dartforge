@@ -388,6 +388,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(Resolved::Element(el)) => {
                         return self.ler_elemento(el, span);
                     }
+                    Some(Resolved::ExtensionMember { member, .. }) => {
+                        let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                        return self.ler_extensao(this, member.0 as usize, span);
+                    }
                     _ => {}
                 }
                 if let Some(op) = self.ler_local_por_nome(sym) {
@@ -404,6 +408,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.ler_campo_com_late(this, vid, span);
                     }
                 }
+                // Sem resolução (corpo de closure, que a inferência ainda não
+                // visita): o nome pelo escopo léxico — membro da classe
+                // envolvente, depois o escopo da biblioteca.
+                if let Some(op) = self.ler_nome_sem_resolucao(sym, span) {
+                    return op;
+                }
                 let nome = self.ctx.symbol_name(sym).to_string();
                 self.nao_suportado(&format!("identificador `{nome}`"), span)
             }
@@ -417,6 +427,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {
                     return self.lower_curto_circuito(ast, *op, *left, *right, expr_id);
                 }
+                // `super op e` (P4).
+                if matches!(ast.expr(*left).kind, ExprKind::Super) {
+                    let rop = self.lower_expr(ast, *right);
+                    let nome = match op {
+                        BinaryOp::Eq | BinaryOp::NotEq => "==",
+                        _ => super::despacho::operador(*op).map_or("?", |(n, _)| n),
+                    };
+                    let r = self.operador_super(nome, rop, expr.span);
+                    if *op == BinaryOp::NotEq {
+                        let b = self.para_bool(r);
+                        return self.emit(Instruction::LNot(b), Type::I1);
+                    }
+                    return r;
+                }
                 let lop = self.lower_expr(ast, *left);
                 let rop = self.lower_expr(ast, *right);
                 let l_ty = self.ctx.get_type(self.unit_id, *left);
@@ -427,11 +451,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `String` pelo tipo estático; com o tipo desconhecido (corpo
                 // não inferido, parâmetro de closure sem tipo) um `Ref` à
                 // esquerda de `+`/`*` é texto, como era antes.
+                // Com o tipo desconhecido, o operador vai ao despacho
+                // dinâmico (`despacho.rs`), que sabe concatenar texto.
+                let _ = desconhecido;
                 let texto = l_ty.is_some_and(|t| self.ctx.is_string(t))
-                    || (matches!(op, BinaryOp::Add) && r_ty.is_some_and(|t| self.ctx.is_string(t)))
-                    || (matches!(op, BinaryOp::Add | BinaryOp::Mul)
-                        && desconhecido(l_ty)
-                        && self.operand_type(&lop) == Type::Ref);
+                    || (matches!(op, BinaryOp::Add) && r_ty.is_some_and(|t| self.ctx.is_string(t)));
                 // `int?`/`double?` promovido pelo fluxo (`if (x != null) x + 1`):
                 // a inferência ainda não grava a promoção no tipo da leitura,
                 // então o operando chega `Ref` e volta ao escalar aqui.
@@ -515,6 +539,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     sub_op
                 };
                 match op {
+                    UnaryOp::Neg | UnaryOp::BitNot if self.operand_type(&sub_op) == Type::Ref => {
+                        self.unario_dinamico(*op, sub_op)
+                    }
                     UnaryOp::Neg if self.operand_type(&sub_op) == Type::F64 => {
                         self.emit(Instruction::FNeg(sub_op), Type::F64)
                     }
@@ -619,12 +646,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     ))
                 );
                 if alvo_e_classe {
+                    if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                        self.ctx.get_resolved(self.unit_id, *target).cloned()
+                        && prop_name == "values"
+                        && super::enums::e_enum(self.ctx, c)
+                    {
+                        return self.valores_do_enum(c, span);
+                    }
                     return match resolved {
                         Some(Resolved::Member { member, .. }) => {
                             self.ler_membro_estatico(member, span)
                         }
                         _ => self.nao_suportado(&format!("membro estático `{prop_name}`"), span),
                     };
+                }
+
+                // `super.x` (P4).
+                if matches!(ast.expr(*target).kind, ExprKind::Super) {
+                    return self.ler_super(name.sym, span);
                 }
 
                 let target_op = self.lower_alvo(ast, *target);
@@ -657,11 +696,58 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         {
                             return self.chamar_membro(target_op, f.0 as usize, &[], span);
                         }
-                        return self
-                            .nao_suportado(&format!("tear-off de método `{prop_name}`"), span);
+                        return self.tearoff_de_metodo(target_op, f.0 as usize, span);
                     }
                 }
 
+                // Getter de extensão (P4).
+                if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone() {
+                    return self.ler_extensao(target_op, member.0 as usize, span);
+                }
+                // `r.$1`: campo posicional de um record.
+                if let Some(n) = prop_name.strip_prefix('$').and_then(|d| d.parse::<i64>().ok())
+                    && n >= 1
+                {
+                    let r = self.coagir(target_op, Type::Ref);
+                    return self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_record_get_ref".to_string(),
+                            args: vec![(r, Type::Ref), (Operand::Constant(Constant::Int(n - 1)), Type::I64)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                }
+                // `index`/`name` de um valor de enum do programa.
+                if let Some(c) = self.classe_do_usuario_de(*target)
+                    && let Some(op) = self.membro_de_enum(c, prop_name, target_op.clone())
+                {
+                    return op;
+                }
+                // Receptor sem tipo útil: o membro pela classe dinâmica.
+                if self.receptor_dinamico(*target) {
+                    let alvos = self.alvos_por_nome(prop_name);
+                    if !alvos.is_empty() {
+                        let nome = prop_name.to_string();
+                        let r2 = target_op.clone();
+                        return self.despachar(
+                            target_op,
+                            &alvos,
+                            super::despacho::Uso::Ler,
+                            &mut |_s: &mut Self| Vec::new(),
+                            &mut |s: &mut Self| {
+                                let n = s.erros.len();
+                                let r = s.propriedade_sdk_por_nome(r2.clone(), &nome, expr_id, span);
+                                if s.erros.len() > n {
+                                    s.erros.truncate(n);
+                                    return s.lancar_nsm(&nome);
+                                }
+                                r
+                            },
+                            span,
+                        );
+                    }
+                }
                 self.propriedade_sdk_por_nome(target_op, prop_name, expr_id, span)
             }
             ExprKind::Index {
@@ -721,6 +807,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     self.ler_elemento_lista(target_op, idx_op, repr)
                 }
+            }
+            ExprKind::Record { named, .. } if !named.is_empty() => {
+                self.nao_suportado("record com campo nomeado", expr.span)
             }
             ExprKind::Record { positional, .. } => {
                 let mut ops = Vec::new();
@@ -806,6 +895,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 super::atribuicao::Rhs::Expr(*value),
                 expr.span,
             ),
+            ExprKind::FunctionExpression(fid) => self.lower_closure(ast, *fid, expr.span),
+            ExprKind::Switch { value, cases } => self.lower_switch_expressao(ast, expr_id, *value, cases),
+            ExprKind::Cascade {
+                target,
+                sections,
+                null_aware,
+            } => self.lower_cascata(ast, *target, sections, *null_aware),
+            ExprKind::CascadeTarget => match self.current_cascade_target.clone() {
+                Some(t) => t,
+                None => self.nao_suportado("cascata", expr.span),
+            },
+            ExprKind::PatternAssign { pattern, value } => {
+                let v = self.lower_expr(ast, *value);
+                self.casar_irrefutavel(ast, *pattern, v.clone(), super::padroes::Ligacao::Atribuir, *value);
+                v
+            }
             ExprKind::This => match self.this_param.clone() {
                 Some(t) => t,
                 None => self.nao_suportado("`this` fora de membro de instância", expr.span),
@@ -814,12 +919,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let oque = match outro {
                     ExprKind::Super => "`super` como valor",
                     ExprKind::Symbol(_) => "literal de símbolo",
-                    ExprKind::FunctionExpression(_) => "closure",
+
                     ExprKind::TypeArguments { .. } => "instanciação de tipo genérico",
-                    ExprKind::PatternAssign { .. } => "atribuição por padrão",
-                    ExprKind::Cascade { .. } | ExprKind::CascadeTarget => "cascata",
+
+
                     ExprKind::Await(_) => "await",
-                    ExprKind::Switch { .. } => "expressão switch",
+
                     _ => "expressão",
                 };
                 self.nao_suportado(oque, expr.span)

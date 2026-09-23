@@ -41,6 +41,8 @@ const FRAGMENTOS: &[&str] = &[
     "strings",
     "colecoes",
     "closures",
+    // P2 (α): operadores sobre dynamic/num (tapa-buraco até P5).
+    "despacho",
 ];
 
 fn main() {

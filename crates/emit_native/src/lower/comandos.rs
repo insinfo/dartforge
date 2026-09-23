@@ -3,7 +3,7 @@
 
 use super::fn_builder::{FinallyScope, FnBuilder};
 use crate::hir::*;
-use dartforge_frontend::ast::{self, ExprId, ExprKind, FunctionBody, StmtId, StmtKind};
+use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtId, StmtKind};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `assert(cond, msg)`: lança `AssertionError` capturável (asserts
@@ -77,8 +77,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     } else {
                         Self::valor_zero(ty)
                     };
-                    self.declarar_local_com_valor(sym, ty, init_op);
+                    self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
                 }
+            }
+            StmtKind::If {
+                condition,
+                case_pattern: Some(p),
+                guard,
+                then,
+                else_,
+            } => {
+                self.lower_if_case(ast, *condition, *p, *guard, *then, *else_);
             }
             StmtKind::If {
                 condition,
@@ -211,7 +220,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 } else {
                                     Self::valor_zero(ty)
                                 };
-                                self.declarar_local_com_valor(sym, ty, init_op);
+                                self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
                             }
                         }
                         ast::ForInit::Expression(e) => {
@@ -254,6 +263,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Branch(loop_update));
 
                 self.set_block(loop_update);
+                // Uma variável nova por volta (a especificação do `for`):
+                // só muda algo para a que mora numa célula (P1).
+                if let Some(ast::ForInit::Variables(var_list)) = init {
+                    for var in var_list.variables.iter() {
+                        self.renovar_celula(var.name.sym);
+                    }
+                }
                 for &u in updates.iter() {
                     self.lower_expr(ast, u);
                 }
@@ -368,7 +384,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let ty = self.repr_do_local(name.span.start);
                         let item_val =
                             self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), ty);
-                        self.declarar_local_com_valor(name.sym, ty, item_val);
+                        self.declarar_variavel(name.sym, name.span.start as usize, ty, item_val);
                     }
                     ast::ForInTarget::Expression(e) => {
                         if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
@@ -380,8 +396,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             self.nao_suportado("alvo de for-in", stmt.span);
                         }
                     }
-                    ast::ForInTarget::Pattern { .. } => {
-                        self.nao_suportado("for-in com padrão", stmt.span);
+                    ast::ForInTarget::Pattern { pattern, .. } => {
+                        let item_val =
+                            self.ler_elemento_lista(iterable_op.clone(), phi_op.clone(), Type::Ref);
+                        self.casar_irrefutavel(ast, *pattern, item_val, super::padroes::Ligacao::Declarar, *iterable);
                     }
                 }
 
@@ -429,51 +447,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
             StmtKind::Function(fid) => {
-                let f = self.ctx.program.unit(self.unit_id).ast.function(*fid);
-                if let Some(fn_name) = f.name {
-                    let sym = fn_name.sym;
-                    let local_sym_name = format!("{}_local_{}", self.func.symbol, fid.0);
-                    let name_str = self.ctx.symbol_name(sym).to_string();
-                    let ret_ty = Type::Ref;
-
-                    let mut b = FnBuilder::new(
-                        self.ctx,
-                        self.unit_id,
-                        local_sym_name.clone(),
-                        name_str,
-                        ret_ty,
-                    );
-                    b.local_functions = self.local_functions.clone();
-
-                    if let Some(params) = &f.parameters {
-                        for p in params.iter() {
-                            let p_name = p
-                                .name
-                                .map(|n| self.ctx.symbol_name(n.sym).to_string())
-                                .unwrap_or_else(|| "arg".to_string());
-                            let vid = b.add_param(p_name, Type::Ref);
-                            if let Some(n) = p.name {
-                                b.declarar_local_com_valor(n.sym, Type::Ref, Operand::Val(vid));
-                            }
-                        }
-                    }
-
-                    match &f.body {
-                        FunctionBody::Block(stmt_id) => {
-                            b.lower_stmt(ast, *stmt_id);
-                        }
-                        FunctionBody::Expression(expr_id) => {
-                            let r = b.lower_expr(ast, *expr_id);
-                            b.terminate(Terminator::Return(Some(r)));
-                        }
-                        _ => {}
-                    }
-
-                    self.local_functions
-                        .insert(sym, (local_sym_name, ret_ty, Vec::new()));
-                    self.extra_functions.push(b.func);
-                    self.extra_functions.extend(b.extra_functions);
-                }
+                self.declarar_funcao_local(ast, *fid, stmt.span);
             }
             StmtKind::Try {
                 body,
@@ -489,11 +463,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_stmt(ast, *body);
             }
             StmtKind::Empty => {}
-            StmtKind::PatternVariables { .. } => {
-                self.nao_suportado("declaração por padrão", stmt.span);
+            StmtKind::PatternVariables { pattern, value, .. } => {
+                let v = self.lower_expr(ast, *value);
+                self.casar_irrefutavel(ast, *pattern, v, super::padroes::Ligacao::Declarar, *value);
             }
-            StmtKind::Switch { .. } => {
-                self.nao_suportado("comando switch", stmt.span);
+            StmtKind::Switch { value, cases } => {
+                self.lower_switch_comando(ast, *value, cases);
             }
             StmtKind::Yield { .. } => {
                 self.nao_suportado("yield", stmt.span);
@@ -549,10 +524,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             });
         }
 
+        // Pouso das exceções que vão para o `finally`: um bloco só, que
+        // registra a entrada "exceção" (2) dos phis do `finally`. Os desvios
+        // de exceção (`emit_call_with_check` com um alvo de exceção) não
+        // registram entrada de phi; ir direto ao `finally` deixava o phi sem
+        // a entrada de cada um deles (o Clang recusa o módulo). Também é o
+        // alvo das exceções dentro dos `catch`: elas passam pelo `finally`
+        // antes de subir.
+        let pouso = fin_info.map(|(entry, _, _, _)| {
+            let p = self.new_block();
+            let prev = self.current_block;
+            self.set_block(p);
+            let default_ret = self.default_return_operand();
+            self.finally_scopes
+                .last_mut()
+                .expect("escopo do finally")
+                .incoming
+                .push((p, 2, default_ret));
+            self.terminate(Terminator::Branch(entry));
+            self.set_block(prev);
+            p
+        });
+
         let try_exc_target = if let Some(cb) = catch_dispatch_block {
             cb
-        } else if let Some((entry, _, _, _)) = fin_info {
-            entry
+        } else if let Some(p) = pouso {
+            p
         } else if let Some(&parent_target) = self.exception_targets.last() {
             parent_target
         } else {
@@ -629,7 +626,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.abrir_escopo();
                 if let Some(ex_name) = &clause.exception {
-                    self.declarar_local_com_valor(ex_name.sym, Type::Ref, ex_bits.clone());
+                    self.declarar_variavel(ex_name.sym, ex_name.span.start as usize, Type::Ref, ex_bits.clone());
                 }
                 if let Some(st_name) = &clause.stack_trace {
                     let st_val = self.emit(
@@ -640,11 +637,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         },
                         Type::Ref,
                     );
-                    self.declarar_local_com_valor(st_name.sym, Type::Ref, st_val);
+                    self.declarar_variavel(st_name.sym, st_name.span.start as usize, Type::Ref, st_val);
                 }
 
                 self.active_catch_stack.push((ex_bits.clone(), 3));
+                if let Some(p) = pouso {
+                    self.exception_targets.push(p);
+                }
                 self.lower_stmt(ast, clause.body);
+                if pouso.is_some() {
+                    self.exception_targets.pop();
+                }
                 self.fechar_escopo();
                 self.active_catch_stack.pop();
 
@@ -739,14 +742,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.route_return(ret_op);
 
                 self.set_block(b_exc);
-                if !self.finally_scopes.is_empty() {
+                // A exceção sobe para o tratador mais interno: o alvo de
+                // exceção corrente (um `catch` de fora, ou o pouso do
+                // `finally` de fora, que registra a entrada do phi) vem antes
+                // de um `finally` de fora — este só é o mais interno quando
+                // não há alvo.
+                if let Some(&parent_target) = self.exception_targets.last() {
+                    self.terminate(Terminator::Branch(parent_target));
+                } else if !self.finally_scopes.is_empty() {
                     let default_ret = self.default_return_operand();
                     let parent_fin = self.finally_scopes.last_mut().unwrap();
                     parent_fin.incoming.push((b_exc, 2, default_ret));
                     let p_entry = parent_fin.entry_block;
                     self.terminate(Terminator::Branch(p_entry));
-                } else if let Some(&parent_target) = self.exception_targets.last() {
-                    self.terminate(Terminator::Branch(parent_target));
                 } else {
                     self.terminate(Terminator::Return(self.default_return_operand_opt()));
                 }

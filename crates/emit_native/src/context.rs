@@ -15,6 +15,29 @@ pub struct Context<'a> {
     pub outline: &'a OutlineTypes,
     pub bodies: &'a BodyTypes,
     pub entry_lib: Option<LibraryId>,
+    /// Id de classe do runtime de cada classe do programa (P2): a ordem do
+    /// caminho estável (`nome_da_biblioteca`, nome da classe), a partir de 1,
+    /// pulando a faixa 1000–1012 das classes de erro do runtime. `None` para
+    /// as classes do SDK.
+    pub ids_de_classe: Vec<Option<u32>>,
+    /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
+    /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
+    raiz: Option<std::path::PathBuf>,
+}
+
+/// Escapa uma parte de um símbolo estável: letras, dígitos e `_` ficam; o
+/// resto vira `$` e dois dígitos hexadecimais por byte UTF-8. O `.` separa as
+/// partes, então nunca aparece cru dentro de uma — o símbolo é injetivo.
+pub fn escapar(parte: &str) -> String {
+    let mut s = String::with_capacity(parte.len());
+    for b in parte.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            s.push(b as char);
+        } else {
+            s.push_str(&format!("${b:02x}"));
+        }
+    }
+    s
 }
 
 impl<'a> Context<'a> {
@@ -26,7 +49,11 @@ impl<'a> Context<'a> {
         outline: &'a OutlineTypes,
         bodies: &'a BodyTypes,
     ) -> Self {
-        Self {
+        let raiz = program.entry.and_then(|l| {
+            let u = *program.library(l).units.first()?;
+            program.unit(u).path.as_ref()?.parent().map(|p| p.to_path_buf())
+        });
+        let mut ctx = Self {
             program,
             interner,
             table,
@@ -34,7 +61,54 @@ impl<'a> Context<'a> {
             outline,
             bodies,
             entry_lib: program.entry,
+            ids_de_classe: Vec::new(),
+            raiz,
+        };
+        let mut chaves: Vec<(String, String, usize)> = program
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !program.library(c.library).is_sdk)
+            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .collect();
+        chaves.sort();
+        let mut ids = vec![None; program.classes.len()];
+        let mut prox = 1u32;
+        for (_, _, i) in chaves {
+            if (1000..=1012).contains(&prox) {
+                prox = 1013;
+            }
+            ids[i] = Some(prox);
+            prox += 1;
         }
+        ctx.ids_de_classe = ids;
+        ctx
+    }
+
+    /// O nome estável de uma biblioteca (P2): `dart:x` e `package:a/b.dart`
+    /// como estão; `file:` pelo caminho relativo ao diretório da biblioteca
+    /// de entrada, com `/` (o mesmo programa tem os mesmos símbolos em
+    /// qualquer máquina e checkout).
+    pub fn nome_da_biblioteca(&self, lib: LibraryId) -> String {
+        let l = self.program.library(lib);
+        if !l.uri.starts_with("file:") {
+            return l.uri.clone();
+        }
+        let caminho = l
+            .units
+            .first()
+            .and_then(|u| self.program.unit(*u).path.clone());
+        if let (Some(c), Some(r)) = (caminho, self.raiz.as_ref())
+            && let Ok(rel) = c.strip_prefix(r)
+        {
+            return rel.to_string_lossy().replace('\\', "/");
+        }
+        l.uri.clone()
+    }
+
+    /// Id de classe do runtime de uma classe do programa.
+    pub fn id_de_classe(&self, cid: dartforge_elements::model::ClassId) -> Option<u32> {
+        self.ids_de_classe.get(cid.0 as usize).copied().flatten()
     }
 
     pub fn symbol_name(&self, sym: SymbolId) -> &str {

@@ -107,7 +107,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// qualquer receptor cuja classe estática seja subtipo da declarante.
     pub fn indice_campo(&self, vid: VariableId) -> Option<usize> {
         let dono = self.ctx.program.variables[vid.0 as usize].class?;
-        layout(self.ctx, dono).iter().position(|&v| v == vid)
+        let base = super::enums::base_do_layout(self.ctx, dono);
+        layout(self.ctx, dono).iter().position(|&v| v == vid).map(|i| i + base)
     }
 
     /// Converte os bits `i64` lidos do heap para a representação `repr`.
@@ -385,7 +386,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn id_de_classe(&self, cid: ClassId) -> Option<i64> {
         let classe = &self.ctx.program.classes[cid.0 as usize];
         if !self.ctx.program.library(classe.library).is_sdk {
-            return Some(i64::from(cid.0 + 1));
+            return self.ctx.id_de_classe(cid).map(i64::from);
         }
         Some(match self.ctx.symbol_name(classe.name) {
             "String" => -2,
@@ -438,7 +439,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fid = f.0 as usize;
         let func = &self.ctx.program.functions[fid];
         if func.kind != FunctionKind::Getter {
-            return self.nao_suportado("tear-off de método", span);
+            if !super::funcao_do_usuario(self.ctx, fid) {
+                return self.nao_suportado("tear-off de método do SDK", span);
+            }
+            if func.static_ {
+                return self.tearoff_de_funcao(fid);
+            }
+            let Some(this) = self.this_param.clone() else {
+                return self.nao_suportado("tear-off de método fora de membro de instância", span);
+            };
+            return self.tearoff_de_metodo(this, fid, span);
         }
         if func.static_ {
             if !super::funcao_do_usuario(self.ctx, fid) {
@@ -473,6 +483,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return self.chamar_direto(fid, None, Vec::new());
         }
+        if super::funcao_do_usuario(self.ctx, fid) && self.ctx.program.functions[fid].static_ {
+            return self.tearoff_de_funcao(fid);
+        }
         self.nao_suportado("tear-off de membro estático", span)
     }
 
@@ -488,6 +501,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 if func.kind == FunctionKind::Getter && super::funcao_do_usuario(self.ctx, fid) {
                     return self.chamar_direto(fid, None, Vec::new());
+                }
+                if super::funcao_do_usuario(self.ctx, fid) && func.kind != FunctionKind::Setter {
+                    return self.tearoff_de_funcao(fid);
                 }
                 self.nao_suportado("tear-off de função", span)
             }
@@ -534,7 +550,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else_block: b_fim,
         });
         self.set_block(b_init);
+        // O inicializador roda com `this` = o objeto do campo (uma closure
+        // nele captura esse `this`, não o da função que leu o campo).
+        let this_salvo = self.this_param.replace(obj.clone());
+        let classe_salva = std::mem::replace(&mut self.enclosing_class, var.class);
         let v = self.lower_expr_de(unit, init);
+        self.this_param = this_salvo;
+        self.enclosing_class = classe_salva;
         self.gravar_campo(obj, vid, v.clone(), span);
         let v = self.coagir(v, repr);
         let fim_init = self.current_block;
@@ -600,7 +622,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Valor padrão do parâmetro `i` de `fid`, ou o herdado do construtor da
     /// superclasse quando o parâmetro é `super.x` sem padrão próprio.
-    fn valor_padrao(&mut self, fid: usize, i: usize) -> Option<Operand> {
+    pub fn valor_padrao(&mut self, fid: usize, i: usize) -> Option<Operand> {
         let (unit, params) = self.parametros_ast(fid)?;
         let p = params.get(i)?;
         if let Some(e) = p.default_value {
@@ -712,8 +734,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Representação do retorno de uma função (Void para construtor).
     pub fn repr_retorno(&self, fid: usize) -> Type {
-        let s = super::simbolo_de(self.ctx, fid);
-        if s.starts_with("df_ctor_") {
+        if super::construtor_generativo(self.ctx, fid) {
             return Type::Void;
         }
         self.ctx
@@ -774,7 +795,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(&f) = cl.instance_members.get(&nome) {
                     let f = f.0 as usize;
                     if super::funcao_do_usuario(ctx, f) && tem_corpo(ctx, f) {
-                        saida.push((kid.0 + 1, f));
+                        if let Some(id) = ctx.id_de_classe(kid) {
+                            saida.push((id, f));
+                        }
                         break;
                     }
                 }
@@ -912,13 +935,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if factory {
             return self.chamar_direto(fid, None, args);
         }
-        let campos = layout(self.ctx, cid).len();
+        let campos = layout(self.ctx, cid).len() + super::enums::base_do_layout(self.ctx, cid);
         let obj = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_new".to_string(),
                 args: vec![
                     (
-                        Operand::Constant(Constant::Int(i64::from(cid.0 + 1))),
+                        Operand::Constant(Constant::Int(i64::from(self.ctx.id_de_classe(cid).unwrap_or(0)))),
                         Type::I64,
                     ),
                     (Operand::Constant(Constant::Int(campos as i64)), Type::I64),
@@ -1118,8 +1141,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Corpo do getter preguiçoso de um global.
     pub fn lower_getter_global(&mut self, vid: VariableId, repr: Type) {
-        let valor = format!("dfg_{}", vid.0);
-        let bandeira = format!("dfg_{}_ok", vid.0);
+        let valor = super::simbolo_valor_global(self.ctx, vid);
+        let bandeira = format!("{valor}$ok");
         let Some(init) = self.variable_initializer_em(vid) else {
             let v = self.emit(
                 Instruction::LoadGlobal {
@@ -1203,7 +1226,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let repr = self.repr(tipo_da_variavel(self.ctx, vid));
         self.emit_call_with_check(
             Instruction::CallStatic {
-                symbol: super::simbolo_global(vid),
+                symbol: super::simbolo_global(self.ctx, vid),
                 args: Vec::new(),
                 ret_ty: repr,
             },
@@ -1225,7 +1248,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let val = self.coagir(val, repr);
         self.emit(
             Instruction::StoreGlobal {
-                simbolo: format!("dfg_{}_ok", vid.0),
+                simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),
                 val: Operand::Constant(Constant::Int(1)),
                 ty: Type::I8,
                 raiz: None,
@@ -1235,7 +1258,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let raiz = (repr == Type::Ref).then_some(vid.0);
         self.emit(
             Instruction::StoreGlobal {
-                simbolo: format!("dfg_{}", vid.0),
+                simbolo: super::simbolo_valor_global(self.ctx, vid),
                 val: val.clone(),
                 ty: repr,
                 raiz,

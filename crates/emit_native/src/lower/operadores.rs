@@ -143,6 +143,60 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let a = self.coagir(a, Type::Ref);
         let b = self.coagir(b, Type::Ref);
+        // `operator ==` de uma classe do programa (§17.26: com um lado null
+        // vale `identical`; senão, `a.==(b)` pela classe dinâmica de `a`).
+        let alvos: Vec<(i64, super::despacho::Alvo)> = self
+            .alvos_por_nome("==")
+            .into_iter()
+            .filter(|(_, x)| matches!(x, super::despacho::Alvo::Funcao(_)))
+            .collect();
+        if !alvos.is_empty() {
+            let b_nulo = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, b.clone(), Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_din = self.new_block();
+            let b_id = self.new_block();
+            let juncao = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: b_nulo,
+                then_block: b_id,
+                else_block: b_din,
+            });
+            self.set_block(b_din);
+            let (a2, b2, b3) = (a.clone(), b.clone(), b.clone());
+            let r = self.despachar(
+                a.clone(),
+                &alvos,
+                super::despacho::Uso::Chamar,
+                &mut |_s: &mut Self| vec![(None, b3.clone())],
+                &mut |s: &mut Self| {
+                    let r = s.igualdade_do_runtime(a2.clone(), b2.clone());
+                    s.coagir(r, Type::Ref)
+                },
+                dartforge_diagnostics::Span { start: 0, end: 0 },
+            );
+            let r1 = self.coagir(r, Type::I1);
+            let fim1 = self.current_block;
+            self.terminate(Terminator::Branch(juncao));
+            self.set_block(b_id);
+            let r2 = self.igualdade_do_runtime(a, b);
+            let fim2 = self.current_block;
+            self.terminate(Terminator::Branch(juncao));
+            self.set_block(juncao);
+            return self.emit(
+                Instruction::Phi {
+                    incoming: vec![(fim1, r1), (fim2, r2)],
+                    ty: Type::I1,
+                },
+                Type::I1,
+            );
+        }
+        self.igualdade_do_runtime(a, b)
+    }
+
+    /// `==` do runtime (identidade, caixas por valor, strings por conteúdo).
+    fn igualdade_do_runtime(&mut self, a: Operand, b: Operand) -> Operand {
         let r = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_equal".to_string(),
@@ -206,7 +260,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let (ta, tb) = (self.operand_type(&lop), self.operand_type(&rop));
         if !Self::e_escalar_numerico(ta) || !Self::e_escalar_numerico(tb) {
-            return self.nao_suportado("operador sobre num/dynamic/objeto", span);
+            return self.operar_dinamico(op, lop, rop, span);
         }
         let em_double = ta == Type::F64 || tb == Type::F64 || matches!(op, BinaryOp::Div);
         if em_double {

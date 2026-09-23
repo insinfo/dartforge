@@ -220,9 +220,16 @@ pub enum Instruction {
         args: Vec<Operand>,
         ret_ty: Type,
     },
+    /// Chamada de um valor função (closure, tear-off) pela convenção
+    /// uniforme: todos os argumentos `Ref`, os posicionais primeiro e depois
+    /// os nomeados na ordem de `nomes` (ordenados); o resultado é `Ref`. O
+    /// emissor monta o vetor de argumentos e o descritor
+    /// (`[n_posicionais, n_nomeados, hash(nome)…]`) e chama a entrada
+    /// uniforme da closure pela tabela de código (`@df_code_table`).
     CallClosure {
         closure: Operand,
         args: Vec<Operand>,
+        nomes: Vec<String>,
         ret_ty: Type,
     },
     CallRuntime {
@@ -257,6 +264,23 @@ pub enum Instruction {
         incoming: Vec<(BlockId, Operand)>,
         ty: Type,
     },
+
+    // --- Closures (P1, docs/NATIVO-PLANO.md §7.4) -----------------------
+    /// O tear-off canônico da função cuja entrada uniforme é `code_symbol`
+    /// (o mesmo handle sempre: `identical(f, f)`).
+    TearOff {
+        code_symbol: String,
+    },
+    /// `base[index]` de um vetor de `i64` (argumentos ou descritor da
+    /// convenção uniforme). O tipo registrado diz a representação lida
+    /// (`Ref` para um argumento, `I64` para um campo do descritor).
+    LoadIndexed {
+        base: Operand,
+        index: Operand,
+    },
+    /// Endereço (`Ptr`) de um vetor constante de `i64`, global do módulo
+    /// (a assinatura de uma entrada uniforme para a checagem de aridade).
+    ConstArray(Vec<i64>),
 }
 
 /// Terminador de controle de fluxo de um bloco básico.
@@ -324,8 +348,10 @@ pub struct Module {
     pub subtyping_edges: Vec<(u32, u32)>,
     pub entry_symbol: Option<String>,
     /// Globais do usuário: (id da variável, representação). Cada um vira
-    /// `@dfg_<id>` (valor) e `@dfg_<id>_ok` (bandeira de inicialização).
-    pub globais: Vec<(u32, Type)>,
+    /// Globais do usuário: (id da raiz no runtime, representação, símbolo
+    /// estável do valor `dfg.<caminho>`); a bandeira de inicialização é
+    /// `<símbolo>$ok`.
+    pub globais: Vec<(u32, Type, String)>,
     /// Construtos que o lowering não sabe baixar (N1). Não vazio = o
     /// programa não compila; o emissor produz só a mensagem.
     pub erros: Vec<String>,
