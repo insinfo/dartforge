@@ -294,11 +294,59 @@ fn tipo_do_padrao_objeto(inf: &mut BodyInferrer<'_>, cx: &Corpo, ty: ast::TypeId
     inf.tipo_de_anotacao(cx, ty)
 }
 
+/// Tipo que o valor casado passa a ter quando `p` casa com um valor de
+/// tipo `t` (`promoteForPattern`, R-FLU-14): tipo escrito de variável ou
+/// curinga, `p?`/`p!`/`!= null` não nulo, cast, padrão objeto; `None` se o
+/// padrão não estreita.
+fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) -> Option<TypeId> {
+    let a = &inf.program.unit(cx.unit).ast;
+    match &a.pattern(p).kind {
+        PatternKind::Variable { ty: Some(x), .. } | PatternKind::Wildcard { ty: Some(x) } => {
+            let x = *x;
+            Some(inf.tipo_de_anotacao(cx, x))
+        }
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) => {
+            let x = *x;
+            let nn = inf.nao_nulo(t);
+            Some(tipo_casado(inf, cx, x, nn).unwrap_or(nn))
+        }
+        PatternKind::Relational { op: ast::BinaryOp::NotEq, value } if matches!(a.expr(*value).kind, ast::ExprKind::Null) => Some(inf.nao_nulo(t)),
+        PatternKind::Parenthesized(x) => {
+            let x = *x;
+            tipo_casado(inf, cx, x, t)
+        }
+        PatternKind::And(x, y) => {
+            let (x, y) = (*x, *y);
+            let tx = tipo_casado(inf, cx, x, t);
+            tipo_casado(inf, cx, y, tx.unwrap_or(t)).or(tx)
+        }
+        PatternKind::Cast { ty, .. } => {
+            let ty = *ty;
+            Some(inf.tipo_de_anotacao(cx, ty))
+        }
+        PatternKind::Object { ty, .. } => {
+            let ty = *ty;
+            Some(tipo_do_padrao_objeto(inf, cx, ty, t))
+        }
+        _ => None,
+    }
+}
+
 /// `case p when g`: tipa o padrão e a guarda, devolve `(casou, não casou)`.
-pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, guarda: Option<ExprId>) -> (Fluxo, Fluxo) {
+/// `escrutinio`: a expressão casada; variável promovível é promovida ao
+/// tipo casado no ramo que casa, antes da guarda (R-FLU-14).
+pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, guarda: Option<ExprId>, escrutinio: Option<ExprId>) -> (Fluxo, Fluxo) {
     let antes = cx.fluxo.clone();
     tipar(inf, cx, p, t, false, false);
     let mut sim = cx.fluxo.clone();
+    if let Some(e) = escrutinio
+        && let Some(id) = expr::alvo_de_promocao(inf, cx, e)
+        && let Some(tc) = tipo_casado(inf, cx, p, t)
+    {
+        let decl = cx.local(id).tipo;
+        inf.promover(&mut sim, id, decl, tc);
+        cx.fluxo = sim.clone();
+    }
     let mut nao = antes;
     if let Some(g) = guarda {
         let (gv, gf) = expr::condicao_verificada(inf, cx, g);
@@ -364,7 +412,7 @@ pub(crate) fn expressao_switch(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, valor
     for c in casos {
         cx.fluxo = nao_casou.clone();
         cx.empurrar_escopo();
-        let (sim, nao) = caso(inf, cx, c.pattern, t, c.guard);
+        let (sim, nao) = caso(inf, cx, c.pattern, t, c.guard, Some(valor));
         cx.fluxo = sim;
         let tc = inferir(inf, cx, c.body, ctx);
         tipos.push(tc);

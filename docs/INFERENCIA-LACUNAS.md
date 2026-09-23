@@ -15,7 +15,7 @@ diverge está em `corpus/inferencia/divergencias.txt` (catraca, só encolhe)
 ## Situação medida (teste do corpus, dono do `crates/types`)
 
 Reconciliado pelo teste do corpus sobre o main depois de `dcedb20`
-(programas iguais ao oráculo: 77/95; depois das correções abaixo, 80/95).
+(programas iguais ao oráculo: 77/95; depois das correções abaixo, 81/95).
 
 | item | situação | evidência |
 |---|---|---|
@@ -31,7 +31,7 @@ Reconciliado pelo teste do corpus sobre o main depois de `dcedb20`
 | L10 | sem medida | — |
 | L11 | resolvida em `6487c26` (`Type::Intersection`) | flu06, flu13 iguais |
 | L12 | resolvida em `3e4c604` | flu12 igual |
-| L13 | aberta | flu14 (8) |
+| L13 | resolvida (escrutínio promovido ao tipo casado no ramo que casa, antes da guarda) | flu14 igual |
 | L14 | resolvida (escritas do membro inteiro, inclusive nos parâmetros, demovem dentro do literal) | flu07 igual |
 | L15 | aberta | flu20 (1) |
 | L16 | resolvida em `f05aa61`/`8ca11ec` | flu15 igual |

@@ -62,7 +62,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 Some(p) => {
                     let t = inferir_livre(inf, cx, *condition);
                     cx.empurrar_escopo();
-                    padroes::caso(inf, cx, *p, t, *guard)
+                    padroes::caso(inf, cx, *p, t, *guard, Some(*condition))
                 }
                 None => expr::condicao_verificada(inf, cx, *condition),
             };
@@ -186,7 +186,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     cx.fluxo = nao_casou.clone();
                     match c.pattern {
                         Some(p) => {
-                            let (vf, ff) = padroes::caso(inf, cx, p, t, c.guard);
+                            let (vf, ff) = padroes::caso(inf, cx, p, t, c.guard, Some(*value));
                             entradas.push(vf);
                             nao_casou = ff;
                         }

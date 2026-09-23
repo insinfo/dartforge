@@ -226,7 +226,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 Some(p) => {
                     let t = inferir_livre(inf, cx, *condition);
                     cx.empurrar_escopo();
-                    let r = super::padroes::caso(inf, cx, *p, t, *guard);
+                    let r = super::padroes::caso(inf, cx, *p, t, *guard, Some(*condition));
                     r
                 }
                 None => expr::condicao_verificada(inf, cx, *condition),
