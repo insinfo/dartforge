@@ -53,7 +53,7 @@
 //! próprio de fato. O `JITDylib` **não**: a API C cria dylibs
 //! (`LLVMOrcExecutionSessionCreateJITDylib`) mas não expõe nenhum
 //! `SetLinkOrder`, então uma dylib nova nasce sem ordem de ligação e não
-//! alcançaria os 18 símbolos de runtime nem os trampolins — o código da geração
+//! alcançaria os símbolos de runtime nem os trampolins — o código da geração
 //! não ligaria. A separação de nomes que a dylib daria é obtida pelo sufixo de
 //! geração, e o descarregamento por geração é do `ResourceTracker`, que é quem o
 //! LLVM oferece para isso.
@@ -68,7 +68,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::ffi::{self, FunctionSignature};
-use crate::{ENTRY_SYMBOL, JitError, JitSession, RUNTIME_SYMBOLS};
+use crate::{ENTRY_SYMBOL, JitError, JitSession};
 
 /// Prefixo das células de ponteiro publicadas como símbolos absolutos de dado.
 ///
@@ -147,7 +147,7 @@ pub(crate) struct Reloadable {
     /// Número da última geração publicada.
     generation: u32,
     /// Entradas estáveis, indexadas pelo nome do símbolo do emissor.
-    entries: BTreeMap<String, Entry>,
+    pub(crate) entries: BTreeMap<String, Entry>,
     /// Layout nominal das classes da versão viva: `(class_id, campos)`.
     layouts: Vec<(i64, i64)>,
     /// Rastreadores das gerações, **retidos** até o encerramento da sessão.
@@ -432,6 +432,7 @@ impl JitSession {
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
+        self.check_target(&parsed)?;
         let parse_ir = phase.elapsed();
 
         let phase = Instant::now();
@@ -847,7 +848,7 @@ fn check_references(
     reloadables: &[Reloadable],
 ) -> Result<(), String> {
     for reference in references {
-        if RUNTIME_SYMBOLS.contains(&reference.as_str())
+        if ffi::is_known_external(reference)
             || defined.contains(&reference.as_str())
             || reloadables
                 .iter()
@@ -857,7 +858,7 @@ fn check_references(
         }
         return Err(format!(
             "o código novo chama {reference}, que esta sessão não define; \
-             o JIT publica apenas os 18 símbolos de runtime e as entradas estáveis já criadas"
+             o JIT publica apenas a tabela do runtime, a CRT listada e as entradas estáveis já criadas"
         ));
     }
     Ok(())

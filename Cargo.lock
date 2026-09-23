@@ -452,15 +452,11 @@ dependencies = [
 name = "dartforge-jit"
 version = "0.1.0"
 dependencies = [
- "dartforge-compiler",
- "dartforge-hir",
- "dartforge-lexer",
- "dartforge-llvm",
- "dartforge-macros",
- "dartforge-native",
- "dartforge-parser",
+ "dartforge-elements",
+ "dartforge-emit-native",
+ "dartforge-intern",
  "dartforge-runtime",
- "dartforge-semantic",
+ "dartforge-types",
  "llvm-sys",
 ]
 
