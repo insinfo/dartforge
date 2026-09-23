@@ -4,12 +4,17 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use dartforge_diferencial::{Ambiente, Opcoes, contrato, executar_corpus, listar, relatorio};
+use dartforge_diferencial::{
+    Ambiente, IrPrograma, Limitador, Opcoes, Programa, contrato, corpus, dartforge_nativo_ir, diferencas_ir, em_paralelo,
+    emitir_ir_corpus, executar_corpus, listar, relatorio, relatorio_ir,
+};
 
 const USO: &str = "uso:
   dartforge-diferencial [--nativo] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
       roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
       (código 0 se todos batem; 1 se algum falha)
+      --fragmento K/N roda só o fragmento K de N do corpus (índice % N == K-1;
+      vale em todos os modos — é como o CI divide o corpus nativo entre máquinas)
       --producao acrescenta o quarto executor: o perfil de produção
       (dartforge-jsprod, arquivo único e podado) — o relatório passa a comparar
       VM × nosso desenvolvimento × nossa produção (docs/JS-PRODUCAO.md)
@@ -17,9 +22,12 @@ const USO: &str = "uso:
       compila cada programa com o dartdevc e escreve docs/CONTRATO-DDC.md
   dartforge-diferencial verificar [--corpus DIR] [--filtro TEXTO]
       só os oráculos: cada programa tem de rodar no dart run e bater com ddc+node
-  dartforge-diferencial determinismo [--nativo] [--producao] [--filtro TEXTO] [--trabalhadores 1,4,8]
+  dartforge-diferencial determinismo [--nativo [--executar]] [--producao] [--filtro TEXTO] [--trabalhadores 1,4,8]
       roda o mesmo corpus com cada número de trabalhadores e exige relatório
-      idêntico (e, no modo nativo, o mesmo LLVM IR emitido)";
+      idêntico. Com --nativo compara o LLVM IR emitido de cada programa, sem
+      Clang, ligação nem execução (DARTFORGE_IR_PARALELO_MAX limita as emissões
+      simultâneas; padrão 2); --executar volta a compilar e executar tudo e
+      comparar o relatório (e o IR, com DARTFORGE_KEEP_IR=1)";
 
 /// Resumo de todo o LLVM IR emitido, para comparar execuções.
 ///
@@ -71,16 +79,97 @@ fn imprimir_primeira_diferenca(a: &str, b: &str) {
     }
 }
 
+/// Determinismo do backend nativo sem executar (PESQUISA-OTIMIZACAO §11): com
+/// cada número de trabalhadores, emite o LLVM IR de todos os programas e exige
+/// o mesmo resumo (ou o mesmo erro) programa a programa. O IR é a entrada da
+/// chave do cache de objeto: se ele muda com a ordem de conclusão, o cache
+/// erra e o Clang roda à toa. O executável é função do IR, da
+/// versão do Clang e da `.lib` do runtime; o que pode mudar com a ordem de
+/// conclusão é o nosso código, e ele aparece inteiro no IR. A correção do
+/// executável é assunto do `--nativo` sem `determinismo` (ESTADO.md §3.2).
+fn determinismo_ir(amb: &Ambiente, programas: &[Programa], trabalhadores: &[usize]) {
+    let limite = Limitador::do_ambiente();
+    eprintln!(
+        "modo IR: só a emissão (sem Clang, ligação nem execução), no máximo {} emissão(ões) simultânea(s)",
+        limite.max()
+    );
+    let mut referencia: Option<(usize, Vec<IrPrograma>)> = None;
+    let mut primeira: Option<(String, usize)> = None;
+    for n in trabalhadores {
+        let inicio = std::time::Instant::now();
+        let atual = emitir_ir_corpus(programas, *n, &limite);
+        let seg = inicio.elapsed().as_secs_f64();
+        match &referencia {
+            None => {
+                eprintln!("{n} trabalhador(es): referência ({} programas, {seg:.1} s)", programas.len());
+                referencia = Some((*n, atual));
+            }
+            Some((n0, r0)) => {
+                let dif = diferencas_ir(r0, &atual);
+                if dif.is_empty() {
+                    eprintln!("{n} trabalhador(es): idêntico a {n0} ({seg:.1} s)");
+                    continue;
+                }
+                eprintln!("{n} trabalhador(es): LLVM IR DIFERENTE de {n0} em {} programa(s) ({seg:.1} s):", dif.len());
+                for d in &dif {
+                    eprintln!("  {d}");
+                }
+                if primeira.is_none() {
+                    primeira = r0.iter().zip(&atual).find(|(x, y)| x != y).map(|(x, _)| (x.nome.clone(), *n));
+                }
+            }
+        }
+    }
+    let Some((_, r0)) = referencia else { return };
+    print!("{}", relatorio_ir(&r0));
+    match primeira {
+        None => println!("determinismo (IR): idêntico com {trabalhadores:?} trabalhadores"),
+        Some((nome, n)) => {
+            if let Some(p) = programas.iter().find(|p| p.nome == nome) {
+                investigar_divergencia(amb, p, n, &limite);
+            }
+            println!("determinismo (IR): FALHOU");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Para o primeiro programa divergente: emite-o sozinho e depois `n` vezes em
+/// paralelo, grava os dois textos em `target/diferencial/determinismo/` e
+/// mostra a primeira linha diferente. Se a diferença não se reproduz com o
+/// programa isolado, ela depende do resto do corpus (estado compartilhado
+/// entre emissões), e isso também é dito.
+fn investigar_divergencia(amb: &Ambiente, programa: &Programa, n: usize, limite: &Limitador) {
+    let dir = amb.trabalho.join("determinismo");
+    let _ = std::fs::create_dir_all(&dir);
+    let texto = |r: Result<String, String>| r.unwrap_or_else(|e| format!("ERRO: {e}\n"));
+    let sozinho = texto(limite.com(|| dartforge_nativo_ir(programa)));
+    let copias = vec![programa.clone(); n.max(1)];
+    let concorrentes = em_paralelo(&copias, n, |p| texto(limite.com(|| dartforge_nativo_ir(p))), |_| {});
+    let outro = concorrentes.iter().find(|t| **t != sozinho).unwrap_or(&concorrentes[0]);
+    let (a, b) = (dir.join(format!("{}.1.ll", programa.nome)), dir.join(format!("{}.{n}.ll", programa.nome)));
+    let _ = std::fs::write(&a, &sozinho);
+    let _ = std::fs::write(&b, outro);
+    eprintln!("{}: emitido sozinho em {} e {n}× em paralelo em {}", programa.nome, a.display(), b.display());
+    if *outro == sozinho {
+        eprintln!("  idênticos isolados: a diferença depende do resto do corpus");
+    } else {
+        imprimir_primeira_diferenca(&sozinho, outro);
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut amb = Ambiente::detectar();
     let mut corpus = amb.raiz.join("corpus/js");
     let mut filtro: Option<String> = None;
+    let mut fragmento: Option<(usize, usize)> = None;
     let mut op = Opcoes::default();
     let mut saida_doc = amb.raiz.join("docs/CONTRATO-DDC.md");
     let mut silencioso = false;
     let mut modo = "relatorio";
     let mut trabalhadores: Vec<usize> = vec![1, 4, 8];
+    let mut executar = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -104,6 +193,13 @@ fn main() {
                 i += 1;
                 filtro = Some(args[i].clone());
             }
+            "--fragmento" => {
+                i += 1;
+                fragmento = Some(corpus::ler_fragmento(&args[i]).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(2)
+                }));
+            }
             "-o" => {
                 i += 1;
                 saida_doc = PathBuf::from(&args[i]);
@@ -123,6 +219,7 @@ fn main() {
             }
             "--sem-forge" => op.com_forge = false,
             "--nativo" => op.nativo = true,
+            "--executar" => executar = true,
             "--producao" => op.com_producao = true,
             "--sem-cache" => amb.usar_cache = false,
             "--silencioso" => silencioso = true,
@@ -147,7 +244,11 @@ fn main() {
     if (op.nativo || op.com_producao) && op.threads == 0 {
         op.threads = 2;
     }
-    let programas = listar(&corpus, filtro.as_deref());
+    let mut programas = listar(&corpus, filtro.as_deref());
+    if let Some((k, n)) = fragmento {
+        programas = corpus::fragmento(programas, k, n);
+        eprintln!("fragmento {k}/{n}: {} programas", programas.len());
+    }
     if programas.is_empty() {
         eprintln!("nenhum programa em {}", corpus.display());
         std::process::exit(2);
@@ -158,7 +259,9 @@ fn main() {
             std::fs::write(&saida_doc, doc).expect("escrever o documento");
             println!("{} programas → {}", programas.len(), saida_doc.display());
         }
+        "determinismo" if op.nativo && !executar => determinismo_ir(&amb, &programas, &trabalhadores),
         "determinismo" => {
+            // Sem `--nativo`, ou com `--executar`: o relatório inteiro.
             // O teste de determinismo do mold (PESQUISA-OTIMIZACAO §11): mesma
             // entrada e mesma configuração têm de dar a mesma saída com
             // qualquer número de trabalhadores. Aqui isso vale para o relatório

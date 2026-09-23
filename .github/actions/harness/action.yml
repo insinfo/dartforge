@@ -1,0 +1,170 @@
+name: Harness diferencial
+description: >
+  Prepara o ambiente de execução (Node, SDK Dart, binários do job `compilar`,
+  cache dos oráculos; no nativo também Rust e LLVM), roda
+  `dartforge-diferencial` com os argumentos dados, publica o placar no
+  $GITHUB_STEP_SUMMARY e numa anotação, e sobe o relatório como artefato.
+
+# Pressupõe o checkout já feito (a ação é local) e o artefato `binarios` do job
+# `compilar` desta mesma execução.
+#
+# Código de saída do harness (crates/diferencial/src/main.rs): 0 = todos batem;
+# 1 = algum programa falha (relatório completo, placar abaixo do total);
+# 2 = argumento inválido ou corpus vazio; 101 = pânico do harness.
+# `aceitar-placar-parcial: true` aceita o 1 — é o caso do nativo, que é trabalho
+# em andamento: o job só falha se o harness quebrar (código fora de {0,1}, ou
+# relatório sem a linha de placar).
+
+inputs:
+  nome:
+    description: Identificador do job (nome do artefato relatorio-<nome>)
+    required: true
+  titulo:
+    description: Título do placar no resumo
+    required: true
+  args:
+    description: Argumentos do dartforge-diferencial
+    required: true
+  nativo:
+    description: Instalar Rust (runtime nativo) e LLVM 22.1.8 (Clang)
+    default: 'false'
+  aceitar-placar-parcial:
+    description: Código 1 (placar abaixo do total) não reprova o job
+    default: 'false'
+  exige:
+    description: Regex que o relatório tem de conter para contar como relatório válido
+    default: '^DartForge '
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      with:
+        node-version: '24'
+    - uses: ./.github/actions/dart
+    - name: Rust fixado (runtime nativo compilado pelo rustc)
+      if: inputs.nativo == 'true'
+      shell: pwsh
+      run: rustup toolchain install 1.98.1 --profile minimal
+    - if: inputs.nativo == 'true'
+      uses: ./.github/actions/llvm-windows
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        name: binarios
+        path: ${{ github.workspace }}
+    - name: Oráculos (cache gravado pelo job compilar)
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: target/diferencial/cache
+        key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
+
+    - name: dartforge-diferencial ${{ inputs.args }}
+      id: rodar
+      shell: pwsh
+      env:
+        ARGS_HARNESS: ${{ inputs.args }}
+        NOME: ${{ inputs.nome }}
+      run: |
+        $dir = Join-Path $env:RUNNER_TEMP "harness-$env:NOME"
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        $rel = Join-Path $dir 'relatorio.txt'
+        $prog = Join-Path $dir 'progresso.txt'
+        $exe = Join-Path $env:GITHUB_WORKSPACE 'target\release\dartforge-diferencial.exe'
+        "dir=$dir" >> $env:GITHUB_OUTPUT
+        Write-Host "$exe $env:ARGS_HARNESS"
+        # Start-Process grava stdout/stderr byte a byte (o relatório é UTF-8) e
+        # deixa este laço medir a memória livre enquanto o harness roda.
+        $os = Get-CimInstance Win32_OperatingSystem
+        $totalGb = $os.TotalVisibleMemorySize / 1MB
+        $minLivre = $os.FreePhysicalMemory / 1MB
+        $inicio = Get-Date
+        $p = Start-Process -FilePath $exe -ArgumentList $env:ARGS_HARNESS -WorkingDirectory $env:GITHUB_WORKSPACE `
+          -RedirectStandardOutput $rel -RedirectStandardError $prog -NoNewWindow -PassThru
+        $null = $p.Handle  # sem isto o ExitCode volta vazio depois do fim do processo
+        $leitor = $null
+        function Drenar {
+          if (!$script:leitor -and (Test-Path $prog)) {
+            $fs = [IO.FileStream]::new($prog, 'Open', 'Read', 'ReadWrite, Delete')
+            $script:leitor = [IO.StreamReader]::new($fs, [Text.Encoding]::UTF8)
+          }
+          if ($script:leitor) { while ($null -ne ($l = $script:leitor.ReadLine())) { Write-Host $l } }
+        }
+        while (!$p.HasExited) {
+          $livre = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
+          if ($livre -lt $minLivre) { $minLivre = $livre }
+          Drenar
+          Start-Sleep -Seconds 5
+        }
+        $p.WaitForExit()
+        Drenar
+        $codigo = $p.ExitCode
+        $dur = (Get-Date) - $inicio
+        $tempo = '{0} min {1:D2} s' -f [int][math]::Floor($dur.TotalMinutes), $dur.Seconds
+        $mem = [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0:F1} de {1:F1} GB', $minLivre, $totalGb)
+        Write-Host "código de saída: $codigo; tempo: $tempo; memória livre mínima: $mem"
+        "codigo=$codigo" >> $env:GITHUB_OUTPUT
+        "tempo=$tempo" >> $env:GITHUB_OUTPUT
+        "memoria=$mem" >> $env:GITHUB_OUTPUT
+        Write-Host '--- relatório ---'
+        if (Test-Path $rel) { Get-Content $rel -Encoding utf8 | Write-Host }
+        exit 0
+
+    - name: Placar no resumo
+      if: always() && steps.rodar.outputs.dir != ''
+      shell: pwsh
+      env:
+        DIR: ${{ steps.rodar.outputs.dir }}
+        TITULO: ${{ inputs.titulo }}
+        NOME: ${{ inputs.nome }}
+        CODIGO: ${{ steps.rodar.outputs.codigo }}
+        TEMPO: ${{ steps.rodar.outputs.tempo }}
+        MEMORIA: ${{ steps.rodar.outputs.memoria }}
+      run: |
+        $rel = Join-Path $env:DIR 'relatorio.txt'
+        $prog = Join-Path $env:DIR 'progresso.txt'
+        $md = Join-Path $env:DIR 'placar.md'
+        $texto = if (Test-Path $rel) { Get-Content $rel -Encoding utf8 } else { @() }
+        if ($texto -match '^determinismo( \(IR\))?: ') {
+          # O modo determinismo não tem placar: diz se as N passadas bateram.
+          $linhas = @("### $env:TITULO", '', '```text')
+          $linhas += $texto | Where-Object { $_ -match '^determinismo( \(IR\))?: |^\d+ programas: ' }
+          if (Test-Path $prog) { $linhas += Get-Content $prog -Encoding utf8 | Where-Object { $_ -match 'trabalhador|linha \d+:|^\s+[ab]: |aviso' } }
+          $linhas += '```'
+          $corpo = $linhas -join "`n"
+          $uma = ($texto | Where-Object { $_ -match '^determinismo( \(IR\))?: ' } | Select-Object -First 1)
+        } else {
+          $corpo = & "$env:GITHUB_WORKSPACE/scripts/ci-placar.ps1" -Relatorio $rel -Titulo $env:TITULO
+          $uma = & "$env:GITHUB_WORKSPACE/scripts/ci-placar.ps1" -Relatorio $rel -Linha
+        }
+        $corpo += "`n`nCódigo de saída do harness: $env:CODIGO. Tempo do harness no runner: $env:TEMPO. Memória livre mínima: $env:MEMORIA.`n"
+        Set-Content -Path $md -Value $corpo -Encoding utf8
+        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $corpo -Encoding utf8
+        # A anotação aparece em `gh run view` e é o que `scripts/ci.ps1 -Listar` lê.
+        Write-Host "::notice title=Placar $env:NOME::$uma ($env:TEMPO)"
+
+    - name: Relatório como artefato
+      if: always() && steps.rodar.outputs.dir != ''
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: relatorio-${{ inputs.nome }}
+        path: ${{ steps.rodar.outputs.dir }}
+        retention-days: 14
+
+    - name: Veredito
+      shell: pwsh
+      env:
+        DIR: ${{ steps.rodar.outputs.dir }}
+        CODIGO: ${{ steps.rodar.outputs.codigo }}
+        PARCIAL: ${{ inputs.aceitar-placar-parcial }}
+        EXIGE: ${{ inputs.exige }}
+      run: |
+        $rel = Join-Path $env:DIR 'relatorio.txt'
+        $valido = (Test-Path $rel) -and ((Get-Content $rel -Encoding utf8) -match $env:EXIGE)
+        if (!$valido) { Write-Host "::error::o harness não escreveu um relatório válido (código $env:CODIGO)"; exit 1 }
+        if ($env:CODIGO -eq '0') { exit 0 }
+        if ($env:CODIGO -eq '1' -and $env:PARCIAL -eq 'true') {
+          Write-Host 'placar abaixo do total — aceito neste job (trabalho em andamento)'
+          exit 0
+        }
+        Write-Host "::error::dartforge-diferencial saiu com código $env:CODIGO"
+        exit 1

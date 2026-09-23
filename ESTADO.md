@@ -187,10 +187,19 @@ das exceções reais —, e exceção que atravessa `await` não pode depender d
 pilha nativa. A justificativa e o custo no caminho feliz estão em
 `docs/NATIVO-PLANO.md`.
 
-**Determinismo verificado**: `dartforge-diferencial determinismo
-[--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico e, com
-`DARTFORGE_KEEP_IR=1`, o mesmo resumo de todo o LLVM IR emitido. Passa com
-1, 4 e 8 trabalhadores nos dois modos.
+**Determinismo verificado no corpus inteiro**: `dartforge-diferencial
+determinismo --nativo [--trabalhadores 1,4,8]` emite o LLVM IR de cada
+programa, sem Clang, ligação nem execução, e exige o mesmo resumo (FNV-1a
+de 128 bits) — ou o mesmo erro — programa a programa. Passa com 1, 4 e 8
+trabalhadores nos 214 programas (184 com IR, 30 com erro de carga), em
+**0,2–0,5 s por passada**. `--executar` mantém o caminho antigo (compilar,
+executar e comparar o relatório; o IR só com `DARTFORGE_KEEP_IR=1`). Ver §3.2.
+
+**Cache de objeto**: o `.obj` de cada programa fica em
+`native_cache/obj/` pela chave do IR + `clang --version` + bandeiras
+(`crates/emit_native/src/cache_objeto.rs`); o mesmo IR dá o mesmo objeto
+byte a byte. `compile-native --emit-ir` grava só o IR, `--resumo` imprime o
+resumo.
 
 ### 1.5.1 JIT — **desligado**
 
@@ -221,14 +230,38 @@ travava a máquina.
 * `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
 * Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): `dartforge-diferencial
   determinismo [--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico
-  com qualquer número de trabalhadores e, com `DARTFORGE_KEEP_IR=1`, o mesmo
-  LLVM IR emitido — se a ordem de conclusão mudar o IR, o cache de objeto por
-  hash erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8.
+  com qualquer número de trabalhadores; no nativo, o mesmo LLVM IR de cada
+  programa — se a ordem de conclusão mudar o IR, o cache de objeto por hash
+  erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8; no nativo,
+  no corpus inteiro e sem precisar de `DARTFORGE_KEEP_IR` (§3.2).
 * `scripts/` — `gerar-dart-sdk.ps1`, `servir.ps1`/`fluxo.mjs` (Edge por
   CDP), `limitless-ui.ps1` (`-Preparar`/`-Montar`/`-Servir`/`-E2e`),
   `medir-lsp.ps1`.
 * Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
   ler, contra ~105 ms de reanálise).
+* **CI no GitHub Actions** (§3.0): `ci.yml` (rápido, todo push) e
+  `pesado.yml` (corpus JS, produção, nativo em fragmentos, determinismo).
+  Fora do `ci.yml`, declarado no cabeçalho dele:
+  * **`cargo fmt --check` e `clippy -D warnings`** — o workspace nunca foi
+    formatado inteiro nem está limpo no clippy (o primeiro crate,
+    `dartforge-elements`, já para com 3 erros). Voltam num commit **só de
+    formatação/lint**, depois que as branches em andamento entrarem;
+    fazê-lo antes conflita com todas elas.
+  * **a trilha velha e o JIT desligado** (§4): 16 testes não ignorados
+    falham em `dartforge-compiler`, `-lexer`, `-llvm` e `-cranelift-jit`.
+    Nenhum crate da trilha nova depende deles.
+  * **Ubuntu**: a trilha nova falha no Linux em `dartforge-dev` (`hashes`,
+    `plato`), `dartforge-emit-js` (`basico`) e `dartforge-elements`
+    (`sdk_cache`), e passa no Windows.
+  * **falha real, registrada**: `dartforge-native`,
+    `real_executable_prints_ints_and_bools` (`#[ignore]`) — o driver antigo
+    `build_executable` compila o runtime como binário, e o runtime agora
+    define `extern "C" fn main() -> i32` (rustc E0277). O backend nativo
+    novo liga pelo `emit_native` e não passa por ali.
+  * **exemplos**: quatro crates (`lsp`, `frontend`, `types`, `emit_js`) têm
+    um exemplo `memoria`, e o `cargo test` liga os quatro no mesmo
+    `target/debug/examples/memoria.exe` (LNK1104 quando se cruzam). O CI
+    testa `--lib --bins --tests` e `--doc`; renomear os exemplos resolve.
 
 ### 1.7 `dartforge serve` e o gerador do ngdart
 
@@ -397,8 +430,12 @@ O lowering de exceções existe (`throw`/`try`/`catch`/`finally`/`rethrow`,
 com o `finally` como sub-rotina e discriminador de razão); falta acertar os
 textos de `toString` dos erros do `dart:core`, que o corpus compara byte a
 byte. Continuam faltando `async` e event loop, genéricos reificados,
-`dart:io`, isolates, o `dart:core` da seção `vm` a partir da fonte, e o
-cache de objetos por módulo (o Clang/link domina o tempo).
+`dart:io`, isolates e o `dart:core` da seção `vm` a partir da fonte. O
+cache de objeto **por programa** existe (§3.2); **por módulo**, com o SDK
+compartilhado entre programas (o resumo por biblioteca de
+`docs/PESQUISA-OTIMIZACAO.md` §6), depende de separar o SDK em módulo
+próprio com símbolos e ids estáveis — hoje não há o que separar: 0% do IR
+é corpo de função do SDK (§3.2).
 
 ### 2.6 ngdart e geração de código
 
@@ -453,10 +490,87 @@ executa 7 de 214 programas não acelera ciclo de desenvolvimento nenhum.
 
 ## 3. Como verificar tudo isto
 
+### 3.0 No GitHub Actions — o caminho normal para o que é pesado
+
+A máquina de desenvolvimento (8 GB, compartilhada por vários agentes) não
+roda mais corpus nenhum: o repositório é público, os minutos de Actions são
+gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
+
+* **`ci.yml`** — todo push no `main` e em `ci/**`, todo PR; ~2,5 min.
+  `cargo test` da trilha nova (`--lib --bins --tests` e `--doc`), os
+  `#[ignore]` da trilha nova que o runner satisfaz (SDK Dart 3.6.2, Clang
+  22.1.8, rustc) e `cargo doc -D warnings`. O que fica de fora e por quê
+  está no cabeçalho dele e em §1.6.
+* **`pesado.yml`** — push em `ci/**`, `workflow_dispatch` (suíte e número de
+  fragmentos) e todo dia às 03:17 (Brasília) no `main`. Medido na rodada de
+  2026-09-23 (`ci/infra`, 214 programas):
+
+| job | o que roda | placar | tempo do job (harness) |
+| --- | --- | --- | --- |
+| compilar | release de `dartforge-diferencial`, `dartforge`, `dartforge-jsprod`; completa o cache dos oráculos (`verificar`) | — | 2,2 min |
+| js (desenvolvimento) | `dartforge-diferencial --jobs 4` | **214/214** | 1,2 min (45 s) |
+| js (produção) | `--producao --jobs 4` | **214/214** e 214/214 | 2,3 min (1 min 48 s) |
+| nativo K/2 | `--nativo --jobs 4 --fragmento K/2` | 4/107 e 3/107 | 1,5 e 1,7 min (28 e 30 s) |
+| nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
+| determinismo (produção) | `determinismo --producao --trabalhadores 1,4,8` | idêntico | 7,5 min (7 min) |
+| determinismo (nativo, IR) | `determinismo --nativo --trabalhadores 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
+| **rodada inteira** | | | **9,8 min** |
+
+**Critério de cada job.** JS desenvolvimento e produção: código de saída do
+harness 0, isto é, **todos os programas do corpus** passam — qualquer que
+seja o tamanho do corpus, sem número fixo. Nativo: placar abaixo do total
+é trabalho em andamento e não reprova; reprova se o harness quebrar
+(código fora de {0, 1} ou relatório sem a linha de placar). Determinismo:
+código 0. Cada job escreve placar, tempo, memória livre mínima e o
+agrupamento de falhas no resumo da rodada (`$GITHUB_STEP_SUMMARY`), deixa
+o placar numa anotação (aparece em `gh run view`) e sobe o relatório
+completo como artefato `relatorio-<job>` (14 dias).
+
+**Convenção: uma branch `ci/<frente>` por frente de trabalho** (`ci/nativo`,
+`ci/ngdart`, `ci/verificacao`, `ci/infra`…). Empurrar para ela roda o
+`pesado.yml` inteiro e o `ci.yml` sobre aquele commit, sem mexer no `main`.
+Rodadas de branches diferentes **nunca se cancelam** (o grupo de
+concorrência inclui a ref); uma rodada nova na **mesma** branch cancela a
+anterior. As branches `ci/**` são descartáveis: o push é forçado.
+
+```powershell
+pwsh scripts/ci.ps1 -Frente nativo -Acompanhar   # HEAD -> ci/nativo, acompanha até o fim
+pwsh scripts/ci.ps1 -Listar                      # última rodada de cada ci/** e do main, com placar
+pwsh scripts/ci.ps1 -Placar <run-id>             # placar de cada job + relatórios baixados
+pwsh scripts/ci.ps1 -Suite nativo -Ref ci/nativo -Fragmentos 4   # workflow_dispatch
+gh run view <run-id> --log-failed                # o log do que falhou
+gh run download <run-id> -p 'relatorio-*'        # relatórios completos
+```
+
+`-Suite` (workflow_dispatch) só funciona depois que o `pesado.yml` estiver
+no `main`; até lá, `-Frente`.
+
+**Limites do plano gratuito, e o dimensionamento.**
+
+* **20 jobs simultâneos na conta inteira** (Linux e Windows juntos); o
+  excedente espera na fila, não falha. Uma rodada `todos` com N fragmentos
+  tem pico de 4 + N jobs: com o **N = 2 padrão**, 6 — cabem três frentes ao
+  mesmo tempo. N sai da medição (§3.2): o corpus nativo inteiro custa ~1 min
+  de harness, e cada job gasta ~1,3 min só preparando o ambiente. Subir N
+  (`-Fragmentos`, ou `gh variable set FRAGMENTOS_NATIVO --body N`) quando um
+  fragmento passar de ~20 min.
+* **10 GB de cache por repositório**, e o que foi usado há mais tempo sai
+  primeiro. Um branch só lê o próprio cache e o do `main`; por isso: o
+  `rust-cache` só é **gravado no `main`** (as `ci/**` restauram o do main e
+  não multiplicam entradas); o Clang 22.1.8 tem chave fixa pela versão
+  (`llvm-22.1.8-windows-x64-clang-v2`); os oráculos (`dart run`,
+  `dartdevc`+Node) têm chave pelo hash de `corpus/js/**` e o `restore-keys`
+  traz o anterior, de modo que só programas alterados são recalculados
+  (~55 KB). O SDK Dart não é cacheado: o `setup-dart` o baixa em ~10 s. O
+  agendamento diário no `main` é o que mantém esses caches no escopo que
+  todas as `ci/**` leem.
+
+### Na máquina local
+
 ```powershell
 pwsh scripts/gerar-dart-sdk.ps1              # dart_sdk.js (3 s, uma vez)
 cargo build --release -p dartforge-cli -p dartforge-diferencial
-cargo run --release -p dartforge-diferencial # 212/212
+cargo run --release -p dartforge-diferencial # 214/214
 
 # projeto real
 cargo run --release -p dartforge-cli -- compile-js `
@@ -481,47 +595,93 @@ pwsh scripts/limpar.ps1 -Limpar -Tudo  # também release e o cache de oráculos
 ```
 
 Custo de recriar: `target/debug` ~10 min, `target/diferencial` (cache dos
-oráculos `dart run`) ~10 min, `target/release` ~5 min. Worktrees de
+oráculos `dart run`) ~10 min, `target/release` ~5 min. Sem custo, e
+apagados sempre: `target/diferencial/nativo` (executáveis e `.ll` do corpus
+nativo; o harness já apaga cada `.exe` depois de executar, salvo
+`DARTFORGE_KEEP_EXE`) e as `.lib` do runtime em `target/native_cache/` fora
+as 2 mais recentes (o próprio cache também poda). Só com `-Tudo`:
+`target/native_cache/obj`, o cache de objeto, que se poda sozinho no teto de
+`DARTFORGE_CACHE_OBJ_MB` (256 MB). `DARTFORGE_CACHE_NATIVO` muda o
+diretório; sem ele, `$CARGO_TARGET_DIR/native_cache`. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
 
-### 3.2 O corpus nativo é lento demais — e isso é um problema a resolver
+### 3.2 Verificação rápida do backend nativo — medido
 
-Medido: **10 dos 214 programas em 9 minutos** no modo nativo, o que dá
-~3 h por passada completa. O teste de determinismo precisa de três
-passadas (1, 4 e 8 trabalhadores), logo **~10 h**. Por isso ele só foi
-verificado num subconjunto (`--filtro 0`, 9 programas, com
-`DARTFORGE_KEEP_IR=1`), e a passada completa nunca rodou.
+O corpus nativo foi registrado aqui como **10 programas em 9 minutos**
+(~3 h por passada, ~10 h para o determinismo), e o determinismo só tinha
+sido verificado num subconjunto. As três saídas propostas estão feitas,
+seguindo `docs/PESQUISA-OTIMIZACAO.md` §11 (determinismo com 1, 4 e 8
+trabalhadores) e §6 (resumo e cache por módulo):
 
-Isso não é aceitável como regime permanente: um teste que ninguém roda não
-protege nada. Antes de aumentar o corpus nativo, é preciso uma estratégia
-de verificação mais rápida. O que já se sabe do custo:
+1. **Determinismo não executa.** `dartforge-diferencial determinismo
+   --nativo` emite o LLVM IR de cada programa dentro do processo
+   (`emitir_ir`, sem Clang, ligação nem execução) e compara, programa a
+   programa, o resumo FNV-1a de 128 bits — ou a mensagem inteira do erro.
+   Divergência lista todos os programas e grava o primeiro, emitido sozinho
+   e `n` vezes em paralelo, em `target/diferencial/determinismo/`.
+   `--executar` mantém o caminho antigo. O relatório (uma linha
+   `<hash> <bytes> <nome>` por programa) não tem tempos nem caminhos: um
+   `diff` de dois relatórios diz quais programas mudaram de IR.
+2. **Cache de objeto por programa** (`cache_objeto.rs`): mesma entrada,
+   mesmo hash, mesmo `.obj`. O cache do runtime ganhou chave estável
+   (versão do `rustc` + bandeiras + fonte), publicação atômica e uma
+   compilação por processo — antes, um trabalhador podia ligar contra uma
+   `.lib` pela metade.
+3. A **amostra estratificada** não foi feita: com os números abaixo, a
+   passada de determinismo inteira custa menos que escolher a amostra.
 
-* o tempo é dominado por **Clang e ligação**, um processo por programa,
-  não pela nossa compilação;
-* não existe **cache de objeto por módulo** (só o do runtime, por hash);
-* cada programa reexecuta a ligação inteira para um `main` que muda pouco.
+Números (release, máquina de 8 núcleos e 7,7 GB compartilhados):
 
-Três caminhos, do mais barato ao mais estrutural:
+| medida | valor |
+| --- | --- |
+| emissão de um programa (front-end + HIR + LLVM IR) | 1–40 ms; HIR e LLVM IR < 1 ms |
+| LLVM IR por programa | 13–120 KB, média 30 KB (184 programas) |
+| fração do IR que é corpo de função do SDK | **0%** |
+| pico de memória de `compile-native` | 6 MB |
+| determinismo IR, 214 programas, 1/4/8 trabalhadores | **0,5 / 0,2 / 0,2 s** por passada; 3,8 s o processo inteiro |
+| pico do harness no determinismo IR, 8 emissões simultâneas | 10 MB |
+| Clang `-O0` de um programa, morno | 33–84 ms |
+| Clang com acerto no cache de objeto | 21 ms (é o `clang --version`) |
+| ligação, morna | ~95 ms |
+| runtime (`rustc -O`), uma vez por conteúdo | ~10 s |
 
-1. **Determinismo não precisa executar.** O que se verifica é que o
-   *artefato* não muda com a ordem dos trabalhadores. Comparar o resumo do
-   LLVM IR emitido (que `DARTFORGE_KEEP_IR=1` já produz) dispensa Clang,
-   ligação e execução — elimina justamente a parte que domina o tempo.
-   A passada de determinismo deveria parar aí por padrão, e só o corpus de
-   **correção** chegar ao executável.
-2. **Cache de objeto por módulo**, com a mesma disciplina do cache do
-   runtime: mesma entrada, mesmo hash, mesmo `.obj`. É o item que já está
-   no §2.5, e ele paga duas vezes — encurta o corpus e o ciclo de quem
-   desenvolve o backend.
-3. **Amostra estratificada por família de recurso** no uso diário
-   (exceções, coleções, classes, strings, `async`…), com a passada
-   completa fora do caminho de trabalho — de madrugada ou sob demanda,
-   numa janela com a máquina livre.
+Por que é tão barato: a seção `vm` do `libraries.json` só declara
+`dart:cli`, e o `include` de `vm_common` ainda não é seguido — o programa é
+compilado sem o SDK, e é por isso também que 30 programas nem carregam
+(`dart:math`, `dart:async`, `dart:collection`…). Quando o SDK entrar, cada
+emissão analisa o SDK inteiro (no JS isso custa centenas de MB, §1.3); por
+isso o harness separa emissões simultâneas de trabalhadores:
+`DARTFORGE_IR_PARALELO_MAX` (padrão 2) limita as emissões físicas, e a
+ordem de conclusão continua variando, que é o que o teste precisa. O
+cache por **módulo** — o SDK compilado uma vez e compartilhado entre
+programas — só paga depois disso, e exige símbolos e ids de classe estáveis
+(hoje são índices globais dependentes da ordem de carga).
 
-Enquanto isso não existir, o número do corpus nativo continua confiável
-(ele roda inteiro quando roda), mas o **determinismo do nativo** é uma
-verificação por amostra, e está registrado como tal.
+Reprodutibilidade do objeto, medida: o Clang gravava o `TimeDateStamp` no
+cabeçalho COFF, e o mesmo IR dava objetos diferentes no byte 4;
+`-mno-incremental-linker-compatible` zera, e agora dois Clang sobre o mesmo
+IR dão o mesmo `.obj`. O Clang também roda no diretório do objeto com o
+nome relativo (o hash), para o `source_filename` não levar o caminho de
+quem compilou.
+
+**A passada executada completa roda no CI, em fragmentos, e foi medida**
+(`pesado.yml`, §3.0; runner Windows de 4 núcleos e 16 GB, `--jobs 4`,
+`DARTFORGE_HEAP_MAX_MB=256`): **7/214**, o mesmo placar da máquina local,
+em **28 e 30 s de harness** para os dois fragmentos de 107 programas —
+cada job inteiro, com a preparação, 1,5–1,7 min. Com 8 fragmentos, cada um
+levou 5–10 s. A memória livre do runner nunca caiu abaixo de 12,8 de 16 GB.
+Ou seja: os **9 minutos para 10 programas** eram da máquina local, não do
+backend — sem oráculos em cache, disputando memória e disco com os outros
+agentes. O tempo desta passada vai crescer quando mais programas rodarem
+até o fim (hoje a maioria falha cedo); é aí que N sobe.
+
+Medido também no CI, antes do cache do runtime com `OnceLock` e publicação
+atômica chegar ao `main`: num runner novo, **62 dos 214 programas** caíam
+em "compilação do runtime nativo com rustc falhou" — os trabalhadores
+compilavam a mesma `.lib` ao mesmo tempo. Na máquina local o cache já
+existia e a corrida não aparecia. Com a correção, a rodada seguinte, sem
+aquecimento nenhum, deu 7/214 sem nenhuma dessas falhas.
 
 ## 4. Organização do repositório
 

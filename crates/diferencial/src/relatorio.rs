@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
+use dartforge_emit_native::resumo::ResumoIr;
+
 use crate::corpus::Programa;
 use crate::processo::Saida;
 
@@ -34,7 +36,7 @@ pub enum Divergencia {
 /// Duas razoes. A primeira e determinismo: o relatorio tem de ser identico
 /// com 1, 4 e 8 trabalhadores, e um identificador de processo ou de thread na
 /// mensagem faz o texto mudar sozinho. A segunda e utilidade: um panico do
-/// runtime traz "thread '<unnamed>' (11220) panicked at ..." e o numero
+/// runtime traz `thread '<unnamed>' (11220) panicked at ...` e o numero
 /// quebrava UM defeito em varios grupos de dois programas, escondendo o
 /// tamanho real dele.
 ///
@@ -304,6 +306,64 @@ pub fn relatorio(resultados: &[Resultado]) -> String {
     out
 }
 
+/// O LLVM IR emitido para um programa, resumido (modo determinismo sem executar).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IrPrograma {
+    pub nome: String,
+    /// O resumo do IR, ou a mensagem inteira do erro de emissão — um erro
+    /// também é resultado, e também tem de ser o mesmo com qualquer número de
+    /// trabalhadores.
+    pub resultado: Result<ResumoIr, String>,
+}
+
+/// Uma linha por programa, na ordem do corpus: `<hash> <bytes> <nome>` ou
+/// `ERRO  <nome>: <chave de falha>`, e o rodapé com a contagem. Não tem tempos
+/// nem caminhos, para poder ser comparado entre execuções e entre versões do
+/// emissor (um `diff` de dois relatórios diz quais programas mudaram de IR).
+pub fn relatorio_ir(programas: &[IrPrograma]) -> String {
+    let mut out = String::new();
+    let mut com_ir = 0usize;
+    for p in programas {
+        match &p.resultado {
+            Ok(r) => {
+                com_ir += 1;
+                let _ = writeln!(out, "{} {:>9} {}", r.hex(), r.bytes, p.nome);
+            }
+            Err(e) => {
+                let chave = truncar(&chave_de_falha(&Saida { stdout: String::new(), stderr: e.clone(), codigo: 1 }), 120);
+                let _ = writeln!(out, "ERRO  {}: {chave}", p.nome);
+            }
+        }
+    }
+    let _ = writeln!(out, "\n{} programas: {com_ir} com IR, {} com erro de emissão", programas.len(), programas.len() - com_ir);
+    out
+}
+
+/// Todos os programas cujo resultado difere entre duas execuções (vazio =
+/// idênticas). Compara o resultado inteiro, inclusive a mensagem completa do
+/// erro, e não só a linha que o relatório mostra.
+pub fn diferencas_ir(a: &[IrPrograma], b: &[IrPrograma]) -> Vec<String> {
+    let mut out = Vec::new();
+    if a.len() != b.len() {
+        out.push(format!("número de programas: {} × {}", a.len(), b.len()));
+    }
+    for (x, y) in a.iter().zip(b) {
+        if x.nome != y.nome {
+            out.push(format!("ordem do corpus: {} × {}", x.nome, y.nome));
+        } else if x.resultado != y.resultado {
+            out.push(format!("{}: {} × {}", x.nome, descrever_ir(&x.resultado), descrever_ir(&y.resultado)));
+        }
+    }
+    out
+}
+
+fn descrever_ir(r: &Result<ResumoIr, String>) -> String {
+    match r {
+        Ok(r) => format!("{} ({} bytes)", r.hex(), r.bytes),
+        Err(e) => format!("erro «{}»", truncar(e.lines().next().unwrap_or(""), 80)),
+    }
+}
+
 fn descrever(d: Divergencia) -> String {
     match d {
         Divergencia::Codigo => "código de saída".into(),
@@ -349,5 +409,36 @@ mod testes {
         assert!(t.contains("DartForge desenvolvimento: 1/3 ok"), "{t}");
         assert!(t.contains("   2  erro: X"), "{t}");
         assert!(t.contains("b, c"), "{t}");
+    }
+
+    fn ir(nome: &str, resultado: Result<&str, &str>) -> IrPrograma {
+        IrPrograma { nome: nome.into(), resultado: resultado.map(ResumoIr::de).map_err(str::to_string) }
+    }
+
+    #[test]
+    fn relatorio_ir_formato() {
+        let r = vec![
+            ir("01_a", Ok("define void @dart_main()")),
+            ir("02_b", Err("[emitir-ir] a thread abortou: índice fora de faixa\ndetalhe")),
+            ir("10_c", Ok("")),
+        ];
+        let t = relatorio_ir(&r);
+        let linhas: Vec<&str> = t.lines().collect();
+        let a = ResumoIr::de("define void @dart_main()");
+        assert_eq!(linhas[0], format!("{}        24 01_a", a.hex()));
+        assert_eq!(linhas[1], "ERRO  02_b: [emitir-ir] a thread abortou: índice fora de faixa");
+        assert_eq!(linhas[2], "6c62272e07bb014262b821756295c58d         0 10_c");
+        assert_eq!(linhas[4], "3 programas: 2 com IR, 1 com erro de emissão");
+    }
+
+    #[test]
+    fn diferencas_ir_lista_todas() {
+        let a = vec![ir("a", Ok("x")), ir("b", Ok("y")), ir("c", Err("e\n1")), ir("d", Ok("z"))];
+        assert!(diferencas_ir(&a, &a.clone()).is_empty());
+        let b = vec![ir("a", Ok("x")), ir("b", Ok("Y")), ir("c", Err("e\n2")), ir("d", Ok("Z"))];
+        let d = diferencas_ir(&a, &b);
+        assert_eq!(d.len(), 3, "{d:?}");
+        assert!(d[0].starts_with("b: ") && d[1].starts_with("c: ") && d[2].starts_with("d: "), "{d:?}");
+        assert_eq!(diferencas_ir(&a, &b[..3]).len(), 3);
     }
 }
