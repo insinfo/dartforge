@@ -87,6 +87,27 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn membro_de_interface(&mut self, recv: TypeId, nome: SymbolId, setter: bool) -> Option<Membro> {
         let recv = self.nao_nulo(recv);
         let recv = self.completar_args(recv);
+        if setter {
+            if let Some(m) = self.chave_setter(nome).and_then(|_| self.membro_de_interface_chave(recv, nome, true)) {
+                return Some(m);
+            }
+            // `late final x;` sem inicializador tem setter implícito (uma
+            // única atribuição); o modelo de elementos só o cria para
+            // campos não finais.
+            let m = self.membro_de_interface_chave(recv, nome, false)?;
+            let e_late_final = match m.funcao.map(|f| self.program.function(f)) {
+                Some(fe) if fe.kind == FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| {
+                    let ve = self.program.variable(v);
+                    ve.late && ve.final_ && self.inicializador(v).is_none()
+                }),
+                _ => false,
+            };
+            return if e_late_final { Some(m) } else { None };
+        }
+        self.membro_de_interface_chave(recv, nome, false)
+    }
+
+    fn membro_de_interface_chave(&mut self, recv: TypeId, nome: SymbolId, setter: bool) -> Option<Membro> {
         let chave = if setter { self.chave_setter(nome)? } else { nome };
         match self.table.get(recv).clone() {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {

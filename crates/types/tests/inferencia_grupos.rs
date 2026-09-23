@@ -188,3 +188,24 @@ void main() {
     assert_eq!(r.tipo("dados"), "Map<dynamic, dynamic>");
     assert_eq!(r.tipo("c.v"), "num?");
 }
+
+/// `late final x;` sem inicializador tem setter (atribuição única): a
+/// atribuição tipa o valor pelo campo, sem aviso de setter indefinido.
+#[test]
+fn setter_de_late_final() {
+    let r = ou_pula!(inferir(
+        r#"
+T cast<T>(Object? o) => o as T;
+class V {
+  late final String nome;
+  void iniciar(Object o) {
+    nome = cast(o);
+    this.nome = cast(o);
+  }
+}
+"#
+    ));
+    assert_eq!(r.tipo("nome = cast(o)"), "String");
+    assert_eq!(r.tipo("this.nome = cast(o)"), "String");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
