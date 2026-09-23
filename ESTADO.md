@@ -22,7 +22,7 @@ Alvos reais usados como critério:
 | Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
-| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** | 120.055 expressões do SDK em 155 ms; 40/40 negativos do `analyzer`; ~17 mil avisos no `new_sali/core` (ver §2.1) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 1.079 avisos e 1.625 de 634.368 expressões divergentes, `frontend` 1.322 avisos e 2.454 de 1.259.011 (ver §2.1) |
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
@@ -442,13 +442,13 @@ arquivo oficial correspondente serve de teste byte a byte.
 
 ### 2.1 Correção (ordem de prioridade)
 
-1. **~17 mil avisos de tipos** no `new_sali/core` e ~85 mil no `frontend`.
-   Não impedem a execução (o emissor recua para despacho dinâmico, que é
-   sempre correto), mas cada aviso é uma inferência que não aconteceu —
-   custa tamanho e velocidade no JS. Os dez grupos mais frequentes estão
-   listados em `docs/FRONTEND-NEW-SALI.md`; os maiores são argumento
-   incompatível `dynamic`→`int`, `num`→`double`, condição sem tipo `bool`
-   e nome indefinido em cadeias longas de genéricos.
+1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0
+   diagnósticos nos projetos: todo aviso nosso é falso positivo). Medido
+   em 2026-09-23 com o oráculo (`tools/oraculo_tipos`, método em
+   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **1.079** avisos,
+   `frontend` 57.883 → **1.322**; divergências de tipo estático por
+   expressão 137.428 → 1.625 (core) e 316.756 → 2.454 (frontend). Os
+   grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
 2. **Escrita em disco** no `limitless_ui`: 233 s para 484 arquivos, contra
    10,5 s de compilação. É I/O do Windows com antivírus, não compilador —
    o `dartforge dev` já contorna (reescreveu 58 arquivos na recompilação),

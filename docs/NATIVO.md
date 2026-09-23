@@ -46,7 +46,9 @@ Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
 ## 2. Modelo de objetos (runtime, `crates/runtime`)
 
 O runtime é Rust, com heap preciso por **handles** (`heap.rs`): um `Ref` do
-código gerado é um `i64` que indexa a tabela de handles; `0` é null. O código
+código gerado é um `i64` — `0` é null, um valor **par** indexa a tabela de
+handles e um valor **ímpar** é um `int` pequeno etiquetado, o `Smi` (R10,
+NATIVO-PLANO §6.2), que não aloca e que o coletor nunca segue. O código
 fonte do runtime são os fragmentos `nucleo`, `gc_raizes`, `excecoes`, `saida`,
 `strings`, `colecoes` e `closures` de `crates/runtime/src/`, concatenados na
 ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
@@ -59,12 +61,22 @@ ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
   por `DeclId` entram em P2.
 - **`int`:** `i64` com estouro modular, como a VM. **`double`:** `f64`.
   **`bool`:** `i1` no IR, `u8` na fronteira com o runtime. Numa posição `Ref`
-  (`Object?`, `dynamic`) os três viram **caixa** no heap (R3); as coleções
-  guardam o escalar com a tag, nunca a caixa (R8).
-- **`String`:** `String` do Rust, **UTF-8**. `length`, `codeUnitAt` e
-  `substring` convertem para UTF-16 a cada chamada. A semântica do Dart é de
-  unidades de código UTF-16; a representação da VM (`_OneByteString` Latin-1 /
-  `_TwoByteString` UTF-16) entra **antes** do P5 (NATIVO-PLANO §7, decisão 5).
+  (`Object?`, `dynamic`) o `int` vira `Smi` quando cabe em 63 bits (sem
+  alocação) e `_Mint` no heap quando não cabe; `double` vira caixa no heap e
+  `bool` um de dois singletons (R3/R10). As coleções guardam o escalar com a
+  tag, nunca a caixa nem o `Smi` (R8).
+- **`String`:** unidades de código UTF-16 na forma da VM (`Texto`,
+  `heap.rs`; NATIVO-PLANO §7, decisão 5): `_OneByteString` (toda unidade ≤
+  0xFF, um byte cada, Latin-1) ou `_TwoByteString` (dois bytes), escolhido
+  pelo conteúdo e canônico — um pedaço Latin-1 de um texto de dois bytes
+  volta a um byte. `length`, índices, `codeUnitAt`, `substring`, busca,
+  `split`, `padLeft` e comparação são por unidade, em O(1) por acesso; um
+  surrogate solto é uma unidade como outra (`runes` o devolve como ele
+  mesmo). Só o `print` troca o surrogate solto por U+FFFD, como a VM
+  (`Utf8::Encode`, `runtime/vm/unicode.cc`). As constantes chegam do IR em
+  UTF-8 e o runtime aceita WTF-8 (`dartforge_string_new`); `toString` e
+  interpolação montam o texto por unidades (`TextoMut`), sem passar por
+  `String` do Rust. `StringBuffer` guarda as unidades.
 - **Listas, mapas, conjuntos:** valores do runtime com slots etiquetados
   `(bits, tag)`; os membros são externs `dartforge_list_*`, `dartforge_map_*`,
   `dartforge_set_*`.

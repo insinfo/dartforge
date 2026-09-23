@@ -431,6 +431,18 @@ representação ser honesta transforma cada escalar em posição `Ref` num
   mapa é a mesma chave vindo encaixotada ou não.
 * **R9.** Igualdade e identidade de caixas são por valor: `identical(1, 1)` e
   `==` entre um `int` encaixotado e outro, como na VM.
+* **R10 (rodada 2, pré-requisito do P5).** `Ref` com `Smi` etiquetado: um
+  `Ref` é `0` (null), um handle **par** (`(índice + 1) << 1`) ou um `int`
+  pequeno **ímpar**, `(v << 1) | 1`, para `v` em `[-2^62, 2^62)`. O `Box` de
+  um `int` nessa faixa não aloca; fora dela vai para o heap como o `_Mint`
+  da VM (`Value::BoxedInt`). A forma é canônica — o que cabe no `Smi` nunca é
+  encaixotado —, então `identical(1, 1)` é igualdade de bits. O bit é o
+  inverso do da VM (lá `kSmiTag = 0`), para o `0` continuar sendo null sem
+  mudar o código gerado. **O coletor nunca segue um `Smi`**: raiz, campo
+  `Ref`, global e exceção pendente podem conter um, e a marcação pula as
+  arestas ímpares; as coleções normalizam o `Smi` para o escalar (R8). Um
+  `Smi` desreferenciado como objeto é o quinto erro de N4 ("Smi usado como
+  handle"). Código: `runtime/src/heap.rs`, módulo `smi`.
 
 ### 6.3 E — arestas do heap
 
@@ -461,7 +473,8 @@ representação ser honesta transforma cada escalar em posição `Ref` num
 * **N4.** No runtime, `Heap::get`/`get_mut`/`set` distinguem quatro falhas
   com mensagens próprias: handle `0` (null desreferenciado — bug do
   compilador), negativo, além da tabela (escalar usado como handle) e slot
-  já coletado (raiz faltando). Nenhuma delas devolve valor padrão.
+  já coletado (raiz faltando). Nenhuma delas devolve valor padrão. Com R10
+  há uma quinta: `Smi` (ímpar) lido como objeto.
 * **N5.** Construtor generativo é uma função da HIR,
   `df_ctor_<id>(this, parâmetros…)`; `C(args)` é `object_new(classe,
   |layout|)` seguido da chamada. A função executa, nesta ordem (a do
