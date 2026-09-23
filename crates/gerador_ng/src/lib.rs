@@ -22,6 +22,7 @@ pub mod diretivas;
 pub mod dom;
 pub mod expr;
 pub mod html;
+pub mod incremental;
 pub mod metadados;
 pub mod micro;
 pub mod resolucao;
@@ -35,6 +36,7 @@ use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use visao::{Motivo, Recusa, recusa};
+pub use incremental::{ConsultaNg, SaidaArquivo, analisar_arquivo, gerar_arquivo};
 
 /// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
@@ -358,7 +360,7 @@ pub fn gerar_em(
 
     for (p, nome, achados) in &arquivos {
         let (texto, entradas, extras) =
-            match gerar_arquivo(pacote, p, nome, achados, resolvedor, interner, &indice) {
+            match gerar_interno(pacote, p, nome, achados, resolvedor, interner, &indice) {
                 Ok(x) => x,
                 Err(primeira) => {
                     // Forma que o gerador ainda não cobre: fica com o
@@ -952,11 +954,11 @@ fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
 
 /// O que sai de um arquivo: o `.template.dart`, os arquivos que o alimentam
 /// e os gerados à parte (o `.css.shim.dart` de cada folha).
-type Gerado = (String, Vec<PathBuf>, Vec<(PathBuf, String)>);
+pub(crate) type Gerado = (String, Vec<PathBuf>, Vec<(PathBuf, String)>);
 
 /// Conteúdo do `.template.dart` de um arquivo, quando sabemos gerá-lo, com os
 /// arquivos que o alimentam (o `.dart` e o `.html` do template).
-fn gerar_arquivo(
+pub(crate) fn gerar_interno(
     pacote: &Pacote,
     fonte: &Path,
     nome_do_arquivo: &str,

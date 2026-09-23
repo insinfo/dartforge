@@ -4465,7 +4465,7 @@ pub fn coletar(
     if let Err(r) = r {
         fora.insert(r);
     }
-    // A folha de estilo é compilada por quem chama (`gerar_arquivo`); o
+    // A folha de estilo é compilada por quem chama (`gerar_interno`); o
     // diagnóstico roda a mesma conta aqui.
     if c.style_urls.len() == 1 {
         let url = &c.style_urls[0];
