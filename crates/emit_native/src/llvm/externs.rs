@@ -752,7 +752,7 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i32 @dartforge_iniciar(ptr)",
+        decl: "declare i32 @dartforge_iniciar(ptr, ptr)",
         efeitos: CONSERVADOR,
     },
 ];

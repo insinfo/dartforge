@@ -1115,7 +1115,7 @@ impl<'a> LlvmEmitter<'a> {
             // executável é este, e entrega a entrada ao runtime.
             writeln!(
                 self.out,
-                "define i32 @main() {{\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry)\n  ret i32 %r\n}}\n"
+                "define i32 @main() {{\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}}\n"
             )
             .unwrap();
             return;

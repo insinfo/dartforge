@@ -156,6 +156,11 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
             });
         }
     }
+    if depurar() {
+        let cid = if value.is_ref { dartforge_value_class(value.bits) } else { -100 };
+        let nome = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
+        eprintln!("[depurar] throw: classe {cid} {nome}");
+    }
     // G6: a exceção pendente é raiz até ser consumida.
     HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, if value.is_ref { value.bits } else { 0 }));
     EXCEPTION.with(|slot| *slot.borrow_mut() = Some(value));
@@ -337,6 +342,10 @@ pub extern "C" fn dartforge_type_error_new() -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_no_such_method_error_new(nome: i64) -> i64 {
+    if depurar() {
+        let t = HEAP.with(|h| h.borrow().try_get(nome).map(|_| h.borrow().texto(nome).para_string()));
+        eprintln!("[depurar] NoSuchMethodError: {t:?}");
+    }
     alocar_erro_com_rastro(1012, vec![(nome, true)])
 }
 

@@ -146,6 +146,10 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
             // SAFETY: o nome é uma constante do módulo com `len` bytes.
             let bytes = unsafe { std::slice::from_raw_parts(nome, len as usize) };
             let texto = String::from_utf8_lossy(bytes).into_owned();
+            if depurar() {
+                let classe = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
+                eprintln!("[depurar] seletor ausente: {texto} na classe {cid} {classe}");
+            }
             SELETOR_AUSENTE.with(|s| *s.borrow_mut() = texto);
             dartforge_nsm_seletor as usize
         }
@@ -163,4 +167,13 @@ pub extern "C" fn dartforge_membro_recusado(texto: i64) {
     let _ = std::io::stdout().flush();
     let _ = writeln!(std::io::stderr().lock(), "erro: membro do SDK não suportado no backend nativo: {t}");
     std::process::exit(254);
+}
+
+/// `DARTFORGE_DEPURAR=1`: o runtime conta no stderr cada exceção lançada e
+/// cada seletor que a classe do receptor não tem.
+fn depurar() -> bool {
+    thread_local! {
+        static D: bool = std::env::var("DARTFORGE_DEPURAR").is_ok_and(|v| v == "1");
+    }
+    D.with(|d| *d)
 }

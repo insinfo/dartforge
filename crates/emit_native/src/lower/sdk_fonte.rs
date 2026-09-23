@@ -45,14 +45,15 @@ pub enum Tipo {
 
 /// O texto do seletor: `c:m`, `g:x`, `s:x`; um nome privado leva
 /// `@<biblioteca>` (dois `_m` de bibliotecas diferentes são membros
-/// diferentes). O `=` do nome de um setter sai.
+/// diferentes). O `_=` da chave de um setter nas tabelas do elemento sai
+/// (`==` e `[]=` são operadores, não setters).
 pub fn texto_seletor(ctx: &Context, tipo: Tipo, nome: &str, lib: LibraryId) -> String {
     let p = match tipo {
         Tipo::Chamar => "c",
         Tipo::Ler => "g",
         Tipo::Gravar => "s",
     };
-    let nome = nome.strip_suffix("_=").or_else(|| nome.strip_suffix('=')).unwrap_or(nome);
+    let nome = nome.strip_suffix("_=").unwrap_or(nome);
     if nome.starts_with('_') {
         format!("{p}:{nome}@{}", ctx.nome_da_biblioteca(lib))
     } else {
@@ -119,21 +120,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.chamar_por_seletor(recv, s, avaliados)
     }
 
-    /// Hook de `chamar_membro` (SDK da fonte): o membro público de instância
-    /// de uma classe do SDK que o programa pode sobrescrever vai pelo
-    /// seletor. `None`: o caminho do mundo fechado vale.
+    /// Hook de `chamar_membro` (SDK da fonte): o membro de instância de uma
+    /// classe do SDK vai pelo seletor, a não ser que só a biblioteca dela o
+    /// possa sobrescrever e ele tenha **uma** implementação, que é um método
+    /// (chamada direta). `None`: classe do programa (o mundo fechado de
+    /// `membros.rs` vale).
     pub fn chamar_membro_fonte(&mut self, recv: Operand, decl_fid: usize, avaliados: &[Avaliado]) -> Option<Operand> {
         if !self.ctx.sdk_da_fonte || self.em_adaptador {
             return None;
         }
         let f = &self.ctx.program.functions[decl_fid];
         let cid = f.class?;
-        if f.static_ {
+        if f.static_ || !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
             return None;
         }
         let nome = self.ctx.symbol_name(f.name).to_string();
-        if membro_fechado(self.ctx, cid, &nome) {
-            return None;
+        let chave = if f.kind == FunctionKind::Setter { format!("{nome}_=") } else { nome.clone() };
+        if membro_fechado(self.ctx, cid, &nome)
+            && let [Implementacao::Funcao(alvo)] = implementacoes(self.ctx, cid, &chave)[..]
+        {
+            let args = self.casar_args(alvo, avaliados);
+            let r = self.chamar_direto(alvo, Some(recv), args);
+            let ret = self.repr_retorno(decl_fid);
+            return Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) });
         }
         let tipo = match f.kind {
             FunctionKind::Getter => Tipo::Ler,
@@ -156,14 +165,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let v = &self.ctx.program.variables[vid.0 as usize];
         let cid = v.class?;
+        if !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+            return None;
+        }
         let nome = self.ctx.symbol_name(v.name).to_string();
-        if membro_fechado(self.ctx, cid, &nome) {
+        if membro_fechado(self.ctx, cid, &nome)
+            && implementacoes(self.ctx, cid, &nome).iter().all(|i| *i == Implementacao::Campo(vid))
+        {
             return None;
         }
         let s = texto_seletor(self.ctx, Tipo::Ler, &nome, v.library);
         let r = self.chamar_por_seletor(obj, s, &[]);
         let repr = self.repr_do_campo(vid);
         Some(self.coagir(r, repr))
+    }
+
+    /// Hook da gravação de campo por atribuição (SDK da fonte): o campo de
+    /// uma classe do SDK que um setter pode sobrescrever vai pelo seletor
+    /// `s:x`. `false`: a gravação direta de sempre vale.
+    pub fn gravar_campo_fonte(&mut self, obj: Operand, vid: VariableId, valor: Operand) -> bool {
+        if !self.ctx.sdk_da_fonte || self.em_adaptador {
+            return false;
+        }
+        let v = &self.ctx.program.variables[vid.0 as usize];
+        let Some(cid) = v.class else { return false };
+        if !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+            return false;
+        }
+        let nome = self.ctx.symbol_name(v.name).to_string();
+        if membro_fechado(self.ctx, cid, &nome)
+            && implementacoes(self.ctx, cid, &format!("{nome}_=")).iter().all(|i| *i == Implementacao::Campo(vid))
+        {
+            return false;
+        }
+        let s = texto_seletor(self.ctx, Tipo::Gravar, &nome, v.library);
+        self.chamar_por_seletor(obj, s, &[(None, valor)]);
+        true
     }
 
     /// `a == b` com o SDK da fonte (§17.26 "Equality"): com um lado null,
@@ -189,6 +226,85 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(juncao));
         self.set_block(juncao);
         self.emit(Instruction::Phi { incoming: vec![(fim1, r1), (fim2, r2)], ty: Type::I1 }, Type::I1)
+    }
+
+    /// `op is T` com o SDK da fonte (hook de `testar_tipo`): toda classe
+    /// (`int`, `num`, `String`, `Object`…) é uma classe compilada com id, e
+    /// a resposta é a do grafo de subtipos que as bibliotecas registram; null
+    /// só é um `T` quando `T` é `Null` ou anulável (§20.3). Um nome que não é
+    /// classe (parâmetro de tipo, `typedef`) num `as` confere só a classe,
+    /// como os argumentos de tipo (`checar_tipo_ou_lancar`); num `is`,
+    /// `None` (o diagnóstico de sempre). `None` também sem o SDK da fonte.
+    pub fn testar_tipo_fonte(
+        &mut self,
+        ast_ty: &dartforge_frontend::ast::TypeAnnotation,
+        name: &[dartforge_frontend::ast::Name],
+        op: Operand,
+    ) -> Option<Operand> {
+        if !self.ctx.sdk_da_fonte {
+            return None;
+        }
+        let ultimo = name.last()?;
+        let nome = self.ctx.symbol_name(ultimo.sym).to_string();
+        let repr = self.operand_type(&op);
+        if repr != Type::Ref {
+            // Escalar: o tipo é decidido em compilação (como no caminho de
+            // sempre).
+            let r = matches!(
+                (nome.as_str(), repr),
+                ("int", Type::I64)
+                    | ("double", Type::F64)
+                    | ("bool", Type::I1 | Type::I8)
+                    | ("num", Type::I64 | Type::F64)
+                    | ("Object" | "dynamic" | "Comparable", _)
+            );
+            return Some(Operand::Constant(Constant::Bool(r)));
+        }
+        if nome == "dynamic" {
+            return Some(Operand::Constant(Constant::Bool(true)));
+        }
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let binding = match name {
+            [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
+            _ => self.ctx.program.lookup(lib, ultimo.sym),
+        };
+        let cid = binding.and_then(|b| match b.getter {
+            Some(dartforge_elements::model::Element::Class(c)) => Some(c),
+            _ => None,
+        });
+        let Some(id) = cid.and_then(|c| self.ctx.id_de_classe(c)) else {
+            return self.cast_so_pela_classe.then_some(Operand::Constant(Constant::Bool(true)));
+        };
+        let zero = Operand::Constant(Constant::Int(0));
+        let nulo = self.emit(Instruction::ICmp(ICmpOp::Eq, op.clone(), zero.clone()), Type::I1);
+        if nome == "Null"
+            && cid.is_some_and(|c| self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).uri == "dart:core")
+        {
+            return Some(nulo);
+        }
+        let cls = self.emit(
+            Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(op, Type::Ref)], ret_ty: Type::I64 },
+            Type::I64,
+        );
+        let sub = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_is_subclass".to_string(),
+                args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(i64::from(id))), Type::I64)],
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        let sub = self.emit(Instruction::ICmp(ICmpOp::Ne, sub, zero), Type::I1);
+        // null não é um `T` não anulável, mesmo que `Null` seja subclasse de
+        // `Object` no grafo das classes.
+        let nao_nulo = self.emit(Instruction::LNot(nulo.clone()), Type::I1);
+        let base = self.emit(Instruction::And(sub, nao_nulo), Type::I64);
+        let base = self.emit(Instruction::ICmp(ICmpOp::Ne, base, Operand::Constant(Constant::Int(0))), Type::I1);
+        if !ast_ty.nullable {
+            return Some(base);
+        }
+        let r = self.emit(Instruction::Or(base, nulo), Type::I64);
+        Some(self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1))
     }
 
     /// `toString()` de um valor pelo seletor (interpolação com o SDK da
@@ -242,8 +358,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `bool` cruza a fronteira como `i8` (nativos.rs).
         let mut a = Vec::with_capacity(args.len() + 1);
         if let Some(t) = this {
-            let t = self.coagir(t, Type::Ref);
-            a.push((t, Type::Ref));
+            // O receptor de um native de `int`/`double`/`bool` é o valor (as
+            // funções do runtime recebem `i64`/`double`, como a VM, que
+            // desencaixota o `Smi`); o de qualquer outra classe, o `Ref`.
+            let r = f.class.map_or(Type::Ref, |c| self.repr_do_receptor(c));
+            let t = self.coagir(t, r);
+            if r == Type::I1 {
+                let b = self.emit(Instruction::ZExt { op: t, from: Type::I1, to: Type::I8 }, Type::I8);
+                a.push((b, Type::I8));
+            } else {
+                a.push((t, r));
+            }
         }
         for v in args {
             let t = self.operand_type(v);
@@ -269,6 +394,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// A representação do receptor de um membro de `cid`: o valor para as
+    /// classes de `int`, `double` e `bool` (e as implementações delas,
+    /// `_Smi`, `_Mint`, `_Double`), senão `Ref`.
+    fn repr_do_receptor(&self, cid: ClassId) -> Type {
+        let core = self.ctx.core;
+        let de = |c: Option<ClassId>| c.is_some_and(|c| subclasse_de(self.ctx, cid, c));
+        if de(core.int_class) {
+            Type::I64
+        } else if de(core.double_class) {
+            Type::F64
+        } else if de(core.bool_class) {
+            Type::I1
+        } else {
+            Type::Ref
+        }
+    }
+
     /// Um native que o lowering gera no lugar da chamada
     /// (`nativos::Estado::Embutido`).
     fn nativo_embutido(&mut self, nome: &str, fid: usize, args: &[Operand]) -> Operand {
@@ -282,6 +424,49 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => self.nao_suportado(&format!("native embutido `{nome}`"), Span { start: 0, end: 0 }),
         }
     }
+}
+
+/// Uma implementação concreta de um membro de instância.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Implementacao {
+    /// Método, getter, setter ou operador (com corpo, patch ou native).
+    Funcao(usize),
+    /// Campo (o getter/setter implícito).
+    Campo(VariableId),
+}
+
+/// As implementações distintas de `chave` (o nome; `x_=` para o setter)
+/// nas classes concretas compiladas que são subtipos de `cid`, cada uma
+/// achada pela linearização da classe (a primeira que implementa).
+pub fn implementacoes(ctx: &Context, cid: ClassId, chave: &str) -> Vec<Implementacao> {
+    let Some(sym) = ctx.interner.lookup(chave) else { return Vec::new() };
+    let mut saida = Vec::new();
+    for (k, classe) in ctx.program.classes.iter().enumerate() {
+        let kid = ClassId(k as u32);
+        if !ctx.biblioteca_compilada(classe.library)
+            || classe.modifiers.abstract_
+            || super::membros::e_mixin(ctx, kid)
+            || !subclasse_de(ctx, kid, cid)
+        {
+            continue;
+        }
+        for c in linearizacao(ctx, kid) {
+            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else { continue };
+            let f = f.0 as usize;
+            if !implementado(ctx, f) {
+                continue;
+            }
+            let i = match ctx.program.functions[f].variable {
+                Some(v) => Implementacao::Campo(v),
+                None => Implementacao::Funcao(f),
+            };
+            if !saida.contains(&i) {
+                saida.push(i);
+            }
+            break;
+        }
+    }
+    saida
 }
 
 /// O que uma entrada da tabela de métodos faz.
@@ -589,9 +774,10 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
             if !super::membros::tem_corpo(ctx, fid) {
                 return;
             }
-            let motivo = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
+            let curto = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
             let simbolo = super::simbolo_de(ctx, fid);
-            module.functions.push(funcao_recusada(ctx, fid, &motivo));
+            module.functions.push(funcao_recusada(ctx, fid, &curto));
+            // No resumo vai o diagnóstico inteiro, com a posição.
             module.recusados.push((simbolo, motivo));
         }
         (Err(_), None) => unreachable!(),

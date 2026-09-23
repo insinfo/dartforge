@@ -33,7 +33,8 @@ pub extern "C" fn main() -> i32 {
 /// executável — que o emissor escreve — chama esta função com a
 /// `dartforge_entry` dele.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn()) -> i32 {
+pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern "C" fn(i64) -> i64) -> i32 {
+    PARA_TEXTO.with(|p| p.set(Some(para_texto)));
     entrada();
     let codigo = finalizar_programa();
     if codigo != 0 {
@@ -61,7 +62,17 @@ pub fn finalizar_programa() -> i32 {
             let detail = match tag {
                 1 => format!("{bits}"),
                 2 => format!("{}", bits != 0),
-                _ => describe_handle(&heap, bits),
+                _ => match PARA_TEXTO.with(|p| p.get()) {
+                    // SDK da fonte: o `toString()` Dart do objeto lançado.
+                    Some(f) => {
+                        drop(heap);
+                        EXCEPTION.with(|slot| slot.borrow_mut().take());
+                        let t = f(bits);
+                        let s = HEAP.with(|h| h.borrow().try_get(t).map(|_| h.borrow().texto(t).para_string()));
+                        s.unwrap_or_else(|| "?".to_string())
+                    }
+                    None => describe_handle(&heap, bits),
+                },
             };
             use std::io::Write;
             let _ = writeln!(
@@ -88,6 +99,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 thread_local! {
+    /// SDK da fonte: o `toString()` Dart de um valor (a
+    /// `dartforge_dispatch_toString` do programa), para a exceção não
+    /// capturada.
+    static PARA_TEXTO: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::new());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::new());
@@ -117,6 +132,14 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
 /// Consulta pertinência de subtipagem nominal em tempo de execução.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_is_subclass(class_id: i64, target_class: i64) -> u8 {
+    let r = is_subclass(class_id, target_class);
+    if depurar() {
+        eprintln!("[depurar] is_subclass({class_id}, {target_class}) = {r}");
+    }
+    r
+}
+
+fn is_subclass(class_id: i64, target_class: i64) -> u8 {
     if class_id == target_class {
         return 1;
     }

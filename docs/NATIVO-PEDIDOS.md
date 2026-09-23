@@ -174,3 +174,19 @@ entraram só ganchos de uma a três linhas, que desviam para
 Nada disso muda o comportamento sem o SDK da fonte; os 22 programas do
 filtro `0` passam iguais antes e depois, e os testes de `emit-native` e do
 runtime seguem verdes.
+
+## δ (P5c) → dono de `crates/elements`: campos de `@patch class` (feito, registro)
+
+**O que faltava:** `merge_class_patch` (`outline.rs`) fundia métodos e
+construtores de uma `@patch class`, mas descartava os **campos** (`_ => {}`).
+O `StringBuffer` da VM guarda o estado em campos do patch
+(`_bufferPosition`, `_parts`…), o `Error` guarda `_stackTrace`: sem os campos
+os identificadores ficam sem resolução e o membro do SDK da fonte é recusado.
+
+**O que o δ fez (commit próprio, mínimo):** o braço `MemberKind::Field` em
+`merge_class_patch`, igual ao dos campos da declaração original (elemento da
+variável, acessores implícitos, `fields`, `instance_members`/`static_members`
+com a chave `x_=` do setter). Nada muda para quem não usa patch de classe com
+campo; os testes de `dartforge-elements` passam. O teste
+`sobreposicao_do_nativo_troca_os_patches_e_carrega` (`sdk.rs`, de δ) conta as
+trocas novas da sobreposição (`print_patch.dart`, `string_buffer_patch.dart`).

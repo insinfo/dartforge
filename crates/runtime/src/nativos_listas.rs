@@ -215,3 +215,156 @@ pub extern "C" fn dartforge_nativo_Object_equals(this: i64, outro: i64) -> u8 {
 pub extern "C" fn dartforge_nativo_DartForge_imprimir(linha: i64) {
     dartforge_print_string(linha);
 }
+
+/// `_StringBase.codeUnitAt(i)` (intrínseco da VM), com a conferência de
+/// índice.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_codeUnitAt(this: i64, indice: i64) -> i64 {
+    let t = texto_de(this);
+    if indice < 0 || indice as usize >= t.len() {
+        lancar_indice(indice, this, t.len() as i64);
+        return 0;
+    }
+    i64::from(t.unidade(indice as usize))
+}
+
+/// `_StringBase._concatRangeNative(strings, start, end)`: a concatenação
+/// de `strings[start..end]` (`String_concatRange`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_String_concatRange(lista: i64, inicio: i64, fim: i64) -> i64 {
+    let mut saida = TextoMut::new();
+    let n = lista_len(lista);
+    for i in inicio.max(0)..fim.min(n) {
+        let v = HEAP.with(|heap| heap.borrow().list_get(lista, i as usize));
+        if v.is_ref && v.bits != 0 {
+            let t = texto_de(v.bits);
+            saida.push_texto(&t);
+        }
+    }
+    alocar_texto(saida.fim())
+}
+
+/// `has63BitSmis()`: o `Smi` daqui tem 63 bits (R10).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_verdadeiro() -> u8 {
+    1
+}
+
+/// `_Smi.hashCode`/`_Mint.hashCode`: o próprio valor (a VM devolve o `Smi`;
+/// o `_Mint` cabe no `hashCode` de 64 bits daqui).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
+    this
+}
+
+/// `Object._getHash`/`hashCode` de identidade: o handle do objeto, estável
+/// enquanto ele vive e único entre os vivos (a VM sorteia; o valor não é
+/// observável pelo programa além de igualdade).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_getHash(o: i64) -> i64 {
+    if crate::heap::smi::e_smi(o) {
+        return crate::heap::smi::valor(o);
+    }
+    (o >> 1) & 0x3fff_ffff
+}
+
+/// `Object.toString()` (`Object_toString`): `Instance of 'Classe'`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
+    let cid = dartforge_value_class(this);
+    let nome = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
+    alocar_str(&format!("Instance of '{nome}'"))
+}
+
+/// `Object._haveSameRuntimeType(a, b)`: a mesma classe (os argumentos de
+/// tipo ficam para a RTI).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_haveSameRuntimeType(a: i64, b: i64) -> u8 {
+    u8::from(dartforge_value_class(a) == dartforge_value_class(b))
+}
+
+/// `_trySetStackTrace(error, stackTrace)`: o rastro dos erros da fonte fica
+/// para depois (o `Error.stackTrace` devolve null).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Error_trySetStackTrace(_erro: i64, _rastro: i64) {}
+
+/// `makeListFixedLength(list)`: uma `_List` com os mesmos elementos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Internal_makeListFixedLength(lista: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let Value::List(itens) = heap.get(lista) else { return 0 };
+        let itens = itens.clone();
+        let h = heap.allocate(Value::List(itens));
+        heap.fixas.insert(h);
+        h
+    })
+}
+
+/// `makeFixedListUnmodifiable(list)`: uma `_ImmutableList` com os mesmos
+/// elementos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Internal_makeFixedListUnmodifiable(lista: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let Value::List(itens) = heap.get(lista) else { return 0 };
+        let itens = itens.clone();
+        let h = heap.allocate(Value::List(itens));
+        heap.imutaveis.insert(h);
+        h
+    })
+}
+
+/// `_Double.toInt()`: truncado; NaN e infinito lançam `UnsupportedError`
+/// na VM (aqui: o valor saturado, até os erros da fonte chegarem aqui).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
+    this as i64
+}
+
+/// `_Double.floorToDouble()` e afins.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_floor(this: f64) -> f64 {
+    this.floor()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_ceil(this: f64) -> f64 {
+    this.ceil()
+}
+
+/// `roundToDouble`: metade para longe de zero (`round` da VM).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_round(this: f64) -> f64 {
+    this.round()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_truncate(this: f64) -> f64 {
+    this.trunc()
+}
+
+/// `_Double._modulo(other)`: `%` euclidiano de `double` (resultado nunca
+/// negativo), como `DoubleModulo` da VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_modulo(this: f64, outro: f64) -> f64 {
+    let r = this % outro;
+    if r < 0.0 { r + outro.abs() } else { r }
+}
+
+/// `_Double._remainder(other)`: o resto com o sinal do dividendo.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_remainder(this: f64, outro: f64) -> f64 {
+    this % outro
+}
+
+/// `_Double.hashCode`: o do `int` quando o valor é inteiro (`1.0.hashCode ==
+/// 1.hashCode`, exigido pela igualdade de `num`), senão os bits.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
+    if this.is_finite() && this == this.trunc() && this.abs() < 9.0e18 {
+        return this as i64;
+    }
+    let b = this.to_bits();
+    ((b ^ (b >> 32)) & 0x3fff_ffff) as i64
+}
