@@ -86,6 +86,8 @@ const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
 const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
 const EMBEDDED_VIEW: &str = "package:ngdart/src/core/linker/views/embedded_view.dart";
 const RENDER_VIEW: &str = "package:ngdart/src/core/linker/views/render_view.dart";
+const DIRECTIVE_CHANGE_DETECTOR: &str =
+    "package:ngdart/src/core/change_detection/directive_change_detector.dart";
 
 /// Bibliotecas que o emissor oficial importa **sem prefixo**, por serem a API
 /// pública do ngdart (`_allowListedImports` em `output/dart_emitter.dart`).
@@ -110,6 +112,10 @@ pub enum Motivo {
     DiretivaOuPipe,
     /// `@GenerateInjector`.
     Injetor,
+    /// `@HostBinding`/`@HostListener` em diretiva numa forma que o
+    /// `DirectiveChangeDetector` gerado ainda não cobre (herança, ligação que
+    /// não é `class.x`, várias diretivas no arquivo).
+    HostBindingEmDiretiva,
     /// Mais de um componente no arquivo.
     VariosComponentes,
     /// `styleUrls`/`styles`: mexem em `styles$X` e ligam o shim de estilo.
@@ -177,6 +183,7 @@ impl Motivo {
         match self {
             Motivo::DiretivaOuPipe => "diretiva ou pipe",
             Motivo::Injetor => "@GenerateInjector",
+            Motivo::HostBindingEmDiretiva => "@HostBinding/@HostListener em diretiva",
             Motivo::VariosComponentes => "vários componentes no arquivo",
             Motivo::Estilos => "folha de estilo",
             Motivo::InjecaoAnotada => "injeção: parâmetro anotado",
@@ -1602,6 +1609,44 @@ fn literal(t: &str) -> String {
         }
     }
     s.push('\'');
+    s
+}
+
+/// O arquivo de uma `@Directive` com `@HostBinding`: a classe `XNgCd`, que o
+/// oficial gera para tirar de cada ponto de uso a detecção das ligações do
+/// hospedeiro (emissão em `directive_compiler.dart`, ligações por
+/// `bindAndWriteToRenderer` com `isHtmlElement` falso — daí o
+/// `updateClassBindingNonHtml`). O `checkBinding` leva `null, null` porque a
+/// ligação de hospedeiro não tem texto de template.
+pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
+    let mut imp = Importacoes::default();
+    // A ordem dos imports é a da escrita da classe: a superclasse, o campo
+    // `instance`, os parâmetros de `detectHostChanges` e, no corpo,
+    // `checkBinding` e o `dom_helpers`.
+    let cd = imp.alias(DIRECTIVE_CHANGE_DETECTOR);
+    let proprio = imp.alias(arquivo);
+    let rv = imp.alias(RENDER_VIEW);
+    let html = imp.alias("dart:html");
+    let chk = imp.alias(CHECK_BINDING);
+    let dom = imp.alias(DOM_HELPERS);
+    let x = &h.classe;
+    let mut campos = String::new();
+    let mut corpo = String::new();
+    for (k, (classe_css, membro)) in h.classes.iter().enumerate() {
+        let _ = writeln!(campos, "  Object? _expr_{k};");
+        let _ = write!(
+            corpo,
+            "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {dom}.updateClassBindingNonHtml(el, '{classe_css}', currVal_{k});\n      this._expr_{k} = currVal_{k};\n    }}\n"
+        );
+    }
+    let mut s = String::with_capacity(1024);
+    s.push_str(crate::CABECALHO);
+    let _ = writeln!(s, "import '{arquivo}';");
+    imp.escrever(&mut s);
+    let _ = write!(
+        s,
+        "\nclass {x}NgCd extends {cd}.DirectiveChangeDetector {{\n  final {proprio}.{x} instance;\n{campos}  {x}NgCd(this.instance);\n  void detectHostChanges({rv}.RenderView view, {html}.Element el) {{\n{corpo}  }}\n}}\n"
+    );
     s
 }
 

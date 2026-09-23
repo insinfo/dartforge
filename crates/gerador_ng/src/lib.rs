@@ -45,9 +45,100 @@ pub struct Achados {
     pub pipes: Vec<String>,
     /// `@GenerateInjector` em qualquer declaração de topo.
     pub injetores: Vec<String>,
-    /// Alguma classe do arquivo tem `@HostBinding`/`@HostListener`, que fazem
-    /// o oficial gerar um `DirectiveChangeDetector`.
-    pub tem_hospedeiro: bool,
+    /// `@Directive` com `@HostBinding`: cada uma ganha um
+    /// `DirectiveChangeDetector` no arquivo gerado.
+    pub hospedeiras: Vec<Hospedeira>,
+    /// `@Directive` com `@HostBinding`/`@HostListener` que herda de alguém
+    /// (`extends`, `with`): o oficial coleta também os membros herdados, que
+    /// daqui não se veem.
+    pub hospedeiro_herdado: bool,
+}
+
+/// Uma `@Directive` com `@HostBinding`: o oficial gera para ela a classe
+/// `XNgCd` (`requiresDirectiveChangeDetector`, em `compile_metadata.dart`).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Hospedeira {
+    pub classe: String,
+    /// `(classe CSS, membro)` de cada `@HostBinding('class.x')`, na ordem em
+    /// que o oficial os coleta (`DirectiveVisitor`, em
+    /// `angular_compiler/analyzer/view/directive.dart`): acessores, depois
+    /// métodos, depois campos — cada grupo em ordem de declaração.
+    pub classes: Vec<(String, String)>,
+    /// Alguma ligação fora do que sabemos traduzir.
+    pub recusada: bool,
+}
+
+/// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
+fn hospedeira(arvore: &ast::Ast, interner: &Interner, classe: &ast::ClassDecl) -> Option<Hospedeira> {
+    let mut acessores = Vec::new();
+    let mut campos = Vec::new();
+    let mut recusada = false;
+    let mut alguma = false;
+    for &m in &classe.members {
+        let membro = arvore.member(m);
+        for a in membro.metadata.iter() {
+            if nome_da_anotacao(a, interner) != "HostBinding" {
+                continue;
+            }
+            alguma = true;
+            // Sem argumento, o nome da ligação é o do próprio membro — uma
+            // ligação de propriedade, fora do subconjunto.
+            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
+                [x] if x.name.is_none() => match &arvore.expr(x.value).kind {
+                    ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+                    _ => None,
+                },
+                _ => None,
+            });
+            // Só `class.x`. `attr.`, `style.` e propriedade têm cada um a sua
+            // chamada e ficam de fora até terem caso no corpus.
+            let Some(classe_css) = nome.as_deref().and_then(|n| n.strip_prefix("class.")) else {
+                recusada = true;
+                continue;
+            };
+            match &membro.kind {
+                // Campo `final` é imutável e seria escrito uma vez, na
+                // primeira checagem (`isImmutable`); estático lê pela classe.
+                // Nenhum dos dois ainda.
+                ast::MemberKind::Field(l)
+                    if !l.static_ && !l.final_ && !l.const_ && l.variables.len() == 1 =>
+                {
+                    let membro = interner.resolve(l.variables[0].name.sym).to_string();
+                    campos.push((classe_css.to_string(), membro));
+                }
+                ast::MemberKind::Method(f) => {
+                    let funcao = arvore.function(*f);
+                    match (funcao.kind, funcao.name) {
+                        (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                            let membro = interner.resolve(n.sym).to_string();
+                            acessores.push((classe_css.to_string(), membro));
+                        }
+                        _ => recusada = true,
+                    }
+                }
+                _ => recusada = true,
+            }
+        }
+    }
+    if !alguma {
+        return None;
+    }
+    acessores.extend(campos);
+    // O mapa do oficial é por nome de ligação: repetir o nome sobrescreve o
+    // valor e mantém a posição do primeiro.
+    let mut vistos = std::collections::HashSet::new();
+    if !acessores.iter().all(|(c, _)| vistos.insert(c.clone())) {
+        recusada = true;
+    }
+    // Tipo genérico muda a declaração da classe (`XNgCd<T>`); ainda não.
+    if !classe.type_params.is_empty() {
+        recusada = true;
+    }
+    Some(Hospedeira {
+        classe: interner.resolve(classe.name.sym).to_string(),
+        classes: acessores,
+        recusada,
+    })
 }
 
 impl Achados {
@@ -94,16 +185,6 @@ pub fn achar(
             ast::DeclKind::Class(c) => interner.resolve(c.name.sym).to_string(),
             _ => String::new(),
         };
-        if let ast::DeclKind::Class(classe) = &decl.kind {
-            for &m in &classe.members {
-                for a in arvore.member(m).metadata.iter() {
-                    let n = nome_da_anotacao(a, interner);
-                    if n == "HostBinding" || n == "HostListener" {
-                        achados.tem_hospedeiro = true;
-                    }
-                }
-            }
-        }
         for a in decl.metadata.iter() {
             match nome_da_anotacao(a, interner).as_str() {
                 "Component" => {
@@ -113,7 +194,25 @@ pub fn achar(
                         ));
                     }
                 }
-                "Directive" => achados.diretivas.push(alvo.clone()),
+                "Directive" => {
+                    achados.diretivas.push(alvo.clone());
+                    // Só `@HostBinding` muda o arquivo da diretiva; o
+                    // `@HostListener` vai para quem a usa. Mas o oficial
+                    // coleta os dois também nas superclasses.
+                    if let ast::DeclKind::Class(classe) = &decl.kind {
+                        let herda = classe.extends.is_some() || !classe.with.is_empty();
+                        let anotada = classe.members.iter().any(|&m| {
+                            arvore.member(m).metadata.iter().any(|a| {
+                                matches!(
+                                    nome_da_anotacao(a, interner).as_str(),
+                                    "HostBinding" | "HostListener"
+                                )
+                            })
+                        });
+                        achados.hospedeiro_herdado |= herda && anotada;
+                        achados.hospedeiras.extend(hospedeira(arvore, interner, classe));
+                    }
+                }
                 "Pipe" => achados.pipes.push(alvo.clone()),
                 "GenerateInjector" => achados.injetores.push(alvo.clone()),
                 _ => {}
@@ -405,14 +504,25 @@ fn gerar_arquivo(
     if !achados.injetores.is_empty() {
         return Err(Motivo::Injetor);
     }
-    // Diretiva e pipe não geram visão: o arquivo deles é o trivial, desde
-    // que nenhuma classe tenha `@HostBinding`/`@HostListener` — esses fazem o
-    // oficial gerar um `DirectiveChangeDetector`.
+    // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
+    // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
+    // `DirectiveChangeDetector` dela.
     if achados.componentes.is_empty() {
-        if achados.tem_hospedeiro {
-            return Err(Motivo::DiretivaOuPipe);
+        if achados.hospedeiro_herdado {
+            return Err(Motivo::HostBindingEmDiretiva);
         }
-        return Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new()));
+        return match achados.hospedeiras.as_slice() {
+            [] => Ok((template_trivial(nome_do_arquivo), vec![fonte.to_path_buf()], Vec::new())),
+            // Uma diretiva só no arquivo: com mais de uma classe gerada a
+            // numeração dos imports passa a ser compartilhada, e isso ainda
+            // não tem caso no corpus.
+            [h] if !h.recusada && achados.diretivas.len() == 1 && achados.pipes.is_empty() => Ok((
+                visao::detector_de_diretiva(h, nome_do_arquivo),
+                vec![fonte.to_path_buf()],
+                Vec::new(),
+            )),
+            _ => Err(Motivo::HostBindingEmDiretiva),
+        };
     }
     if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
         return Err(Motivo::DiretivaOuPipe);
