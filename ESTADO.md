@@ -187,10 +187,19 @@ das exceções reais —, e exceção que atravessa `await` não pode depender d
 pilha nativa. A justificativa e o custo no caminho feliz estão em
 `docs/NATIVO-PLANO.md`.
 
-**Determinismo verificado**: `dartforge-diferencial determinismo
-[--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico e, com
-`DARTFORGE_KEEP_IR=1`, o mesmo resumo de todo o LLVM IR emitido. Passa com
-1, 4 e 8 trabalhadores nos dois modos.
+**Determinismo verificado no corpus inteiro**: `dartforge-diferencial
+determinismo --nativo [--trabalhadores 1,4,8]` emite o LLVM IR de cada
+programa, sem Clang, ligação nem execução, e exige o mesmo resumo (FNV-1a
+de 128 bits) — ou o mesmo erro — programa a programa. Passa com 1, 4 e 8
+trabalhadores nos 214 programas (184 com IR, 30 com erro de carga), em
+**0,2–0,5 s por passada**. `--executar` mantém o caminho antigo (compilar,
+executar e comparar o relatório; o IR só com `DARTFORGE_KEEP_IR=1`). Ver §3.2.
+
+**Cache de objeto**: o `.obj` de cada programa fica em
+`native_cache/obj/` pela chave do IR + `clang --version` + bandeiras
+(`crates/emit_native/src/cache_objeto.rs`); o mesmo IR dá o mesmo objeto
+byte a byte. `compile-native --emit-ir` grava só o IR, `--resumo` imprime o
+resumo.
 
 ### 1.5.1 JIT — **desligado**
 
@@ -221,9 +230,10 @@ travava a máquina.
 * `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
 * Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): `dartforge-diferencial
   determinismo [--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico
-  com qualquer número de trabalhadores e, com `DARTFORGE_KEEP_IR=1`, o mesmo
-  LLVM IR emitido — se a ordem de conclusão mudar o IR, o cache de objeto por
-  hash erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8.
+  com qualquer número de trabalhadores; no nativo, o mesmo LLVM IR de cada
+  programa — se a ordem de conclusão mudar o IR, o cache de objeto por hash
+  erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8; no nativo,
+  no corpus inteiro e sem precisar de `DARTFORGE_KEEP_IR` (§3.2).
 * `scripts/` — `gerar-dart-sdk.ps1`, `servir.ps1`/`fluxo.mjs` (Edge por
   CDP), `limitless-ui.ps1` (`-Preparar`/`-Montar`/`-Servir`/`-E2e`),
   `medir-lsp.ps1`.
@@ -397,8 +407,12 @@ O lowering de exceções existe (`throw`/`try`/`catch`/`finally`/`rethrow`,
 com o `finally` como sub-rotina e discriminador de razão); falta acertar os
 textos de `toString` dos erros do `dart:core`, que o corpus compara byte a
 byte. Continuam faltando `async` e event loop, genéricos reificados,
-`dart:io`, isolates, o `dart:core` da seção `vm` a partir da fonte, e o
-cache de objetos por módulo (o Clang/link domina o tempo).
+`dart:io`, isolates e o `dart:core` da seção `vm` a partir da fonte. O
+cache de objeto **por programa** existe (§3.2); **por módulo**, com o SDK
+compartilhado entre programas (o resumo por biblioteca de
+`docs/PESQUISA-OTIMIZACAO.md` §6), depende de separar o SDK em módulo
+próprio com símbolos e ids estáveis — hoje não há o que separar: 0% do IR
+é corpo de função do SDK (§3.2).
 
 ### 2.6 ngdart e geração de código
 
@@ -481,47 +495,82 @@ pwsh scripts/limpar.ps1 -Limpar -Tudo  # também release e o cache de oráculos
 ```
 
 Custo de recriar: `target/debug` ~10 min, `target/diferencial` (cache dos
-oráculos `dart run`) ~10 min, `target/release` ~5 min. Worktrees de
+oráculos `dart run`) ~10 min, `target/release` ~5 min. Sem custo, e
+apagados sempre: `target/diferencial/nativo` (executáveis e `.ll` do corpus
+nativo; o harness já apaga cada `.exe` depois de executar, salvo
+`DARTFORGE_KEEP_EXE`) e as `.lib` do runtime em `target/native_cache/` fora
+as 2 mais recentes (o próprio cache também poda). Só com `-Tudo`:
+`target/native_cache/obj`, o cache de objeto, que se poda sozinho no teto de
+`DARTFORGE_CACHE_OBJ_MB` (256 MB). `DARTFORGE_CACHE_NATIVO` muda o
+diretório; sem ele, `$CARGO_TARGET_DIR/native_cache`. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
 
-### 3.2 O corpus nativo é lento demais — e isso é um problema a resolver
+### 3.2 Verificação rápida do backend nativo — medido
 
-Medido: **10 dos 214 programas em 9 minutos** no modo nativo, o que dá
-~3 h por passada completa. O teste de determinismo precisa de três
-passadas (1, 4 e 8 trabalhadores), logo **~10 h**. Por isso ele só foi
-verificado num subconjunto (`--filtro 0`, 9 programas, com
-`DARTFORGE_KEEP_IR=1`), e a passada completa nunca rodou.
+O corpus nativo foi registrado aqui como **10 programas em 9 minutos**
+(~3 h por passada, ~10 h para o determinismo), e o determinismo só tinha
+sido verificado num subconjunto. As três saídas propostas estão feitas,
+seguindo `docs/PESQUISA-OTIMIZACAO.md` §11 (determinismo com 1, 4 e 8
+trabalhadores) e §6 (resumo e cache por módulo):
 
-Isso não é aceitável como regime permanente: um teste que ninguém roda não
-protege nada. Antes de aumentar o corpus nativo, é preciso uma estratégia
-de verificação mais rápida. O que já se sabe do custo:
+1. **Determinismo não executa.** `dartforge-diferencial determinismo
+   --nativo` emite o LLVM IR de cada programa dentro do processo
+   (`emitir_ir`, sem Clang, ligação nem execução) e compara, programa a
+   programa, o resumo FNV-1a de 128 bits — ou a mensagem inteira do erro.
+   Divergência lista todos os programas e grava o primeiro, emitido sozinho
+   e `n` vezes em paralelo, em `target/diferencial/determinismo/`.
+   `--executar` mantém o caminho antigo. O relatório (uma linha
+   `<hash> <bytes> <nome>` por programa) não tem tempos nem caminhos: um
+   `diff` de dois relatórios diz quais programas mudaram de IR.
+2. **Cache de objeto por programa** (`cache_objeto.rs`): mesma entrada,
+   mesmo hash, mesmo `.obj`. O cache do runtime ganhou chave estável
+   (versão do `rustc` + bandeiras + fonte), publicação atômica e uma
+   compilação por processo — antes, um trabalhador podia ligar contra uma
+   `.lib` pela metade.
+3. A **amostra estratificada** não foi feita: com os números abaixo, a
+   passada de determinismo inteira custa menos que escolher a amostra.
 
-* o tempo é dominado por **Clang e ligação**, um processo por programa,
-  não pela nossa compilação;
-* não existe **cache de objeto por módulo** (só o do runtime, por hash);
-* cada programa reexecuta a ligação inteira para um `main` que muda pouco.
+Números (release, máquina de 8 núcleos e 7,7 GB compartilhados):
 
-Três caminhos, do mais barato ao mais estrutural:
+| medida | valor |
+| --- | --- |
+| emissão de um programa (front-end + HIR + LLVM IR) | 1–40 ms; HIR e LLVM IR < 1 ms |
+| LLVM IR por programa | 13–120 KB, média 30 KB (184 programas) |
+| fração do IR que é corpo de função do SDK | **0%** |
+| pico de memória de `compile-native` | 6 MB |
+| determinismo IR, 214 programas, 1/4/8 trabalhadores | **0,5 / 0,2 / 0,2 s** por passada; 3,8 s o processo inteiro |
+| pico do harness no determinismo IR, 8 emissões simultâneas | 10 MB |
+| Clang `-O0` de um programa, morno | 33–84 ms |
+| Clang com acerto no cache de objeto | 21 ms (é o `clang --version`) |
+| ligação, morna | ~95 ms |
+| runtime (`rustc -O`), uma vez por conteúdo | ~10 s |
 
-1. **Determinismo não precisa executar.** O que se verifica é que o
-   *artefato* não muda com a ordem dos trabalhadores. Comparar o resumo do
-   LLVM IR emitido (que `DARTFORGE_KEEP_IR=1` já produz) dispensa Clang,
-   ligação e execução — elimina justamente a parte que domina o tempo.
-   A passada de determinismo deveria parar aí por padrão, e só o corpus de
-   **correção** chegar ao executável.
-2. **Cache de objeto por módulo**, com a mesma disciplina do cache do
-   runtime: mesma entrada, mesmo hash, mesmo `.obj`. É o item que já está
-   no §2.5, e ele paga duas vezes — encurta o corpus e o ciclo de quem
-   desenvolve o backend.
-3. **Amostra estratificada por família de recurso** no uso diário
-   (exceções, coleções, classes, strings, `async`…), com a passada
-   completa fora do caminho de trabalho — de madrugada ou sob demanda,
-   numa janela com a máquina livre.
+Por que é tão barato: a seção `vm` do `libraries.json` só declara
+`dart:cli`, e o `include` de `vm_common` ainda não é seguido — o programa é
+compilado sem o SDK, e é por isso também que 30 programas nem carregam
+(`dart:math`, `dart:async`, `dart:collection`…). Quando o SDK entrar, cada
+emissão analisa o SDK inteiro (no JS isso custa centenas de MB, §1.3); por
+isso o harness separa emissões simultâneas de trabalhadores:
+`DARTFORGE_IR_PARALELO_MAX` (padrão 2) limita as emissões físicas, e a
+ordem de conclusão continua variando, que é o que o teste precisa. O
+cache por **módulo** — o SDK compilado uma vez e compartilhado entre
+programas — só paga depois disso, e exige símbolos e ids de classe estáveis
+(hoje são índices globais dependentes da ordem de carga).
 
-Enquanto isso não existir, o número do corpus nativo continua confiável
-(ele roda inteiro quando roda), mas o **determinismo do nativo** é uma
-verificação por amostra, e está registrado como tal.
+Reprodutibilidade do objeto, medida: o Clang gravava o `TimeDateStamp` no
+cabeçalho COFF, e o mesmo IR dava objetos diferentes no byte 4;
+`-mno-incremental-linker-compatible` zera, e agora dois Clang sobre o mesmo
+IR dão o mesmo `.obj`. O Clang também roda no diretório do objeto com o
+nome relativo (o hash), para o `source_filename` não levar o caminho de
+quem compilou.
+
+O que continua em aberto: com Clang + ligação em ~0,15 s por programa, os
+**9 minutos para 10 programas** não se explicam pela compilação. A passada
+executada completa (`--nativo`) não foi remedida nesta mudança — ela roda
+os binários, e o que falta medir é onde o tempo vai (execução até o limite
+de 5 s, o `dart run` do oráculo sem cache, a corrida do cache do runtime já
+corrigida). É a próxima medida a fazer, numa janela com a máquina livre.
 
 ## 4. Organização do repositório
 
