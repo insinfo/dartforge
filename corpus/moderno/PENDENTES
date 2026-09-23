@@ -1,19 +1,10 @@
 # Programas de recursos ainda não implementados no DartForge
 # (docs/VERSOES-LINGUAGEM.md §5): podem falhar sem reprovar o job `moderno`;
 # um programa daqui que passa reprova, para a lista só encolher.
-300_curingas_locais
-301_curingas_membros
-303_curingas_ler_erro
-310_null_aware_elementos
-320_nomeados_privados
-321_nomeados_privados_versao_311
-322_nomeados_privados_super_erro
-323_nomeados_privados_sem_publico
 330_atalhos_ponto
 340_construtores_primarios
 341_primarios_escopo
 342_new_factory
-344_final_parametro_erro
 346_primarios_tipos_omitidos
 350_inferencia_bounds
 351_fluxo_solido

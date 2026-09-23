@@ -637,17 +637,44 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 add(self, v.code);
             }
             CollectionElement::NullAwareExpression(e) => {
-                let (v, _) = self.emit_expr(*e, Some(elem_ty));
+                // Contexto anulável para o operando (spec 3.8): o `null` é
+                // descartado aqui, não chega ao literal.
+                let (v, _) = self.emit_expr(*e, Some(&elem_ty.with_nullable(true)));
                 let t = self.temp();
                 crate::linha!(self.w, "{t} = {};", v.code);
                 crate::abre!(self.w, "if ({t} != null) {{");
                 add(self, t);
                 self.w.close("}");
             }
-            CollectionElement::MapEntry { key, value, .. } => {
+            CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } => {
                 let (k, _) = self.emit_expr(*key, Some(elem_ty));
                 let (v, _) = self.emit_expr(*value, value_ty);
                 add(self, format!("{}\u{0}{}", k.code, v.code));
+            }
+            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
+                // Entrada null-aware (3.8): a chave antes do valor; chave
+                // null-aware nula descarta a entrada SEM avaliar o valor.
+                let kctx = if *null_aware_key { elem_ty.with_nullable(true) } else { elem_ty.clone() };
+                let (k, _) = self.emit_expr(*key, Some(&kctx));
+                let tk = self.temp();
+                crate::linha!(self.w, "{tk} = {};", k.code);
+                if *null_aware_key {
+                    crate::abre!(self.w, "if ({tk} != null) {{");
+                }
+                let vctx = value_ty.map(|t| if *null_aware_value { t.with_nullable(true) } else { t.clone() });
+                let (v, _) = self.emit_expr(*value, vctx.as_ref());
+                let tv = self.temp();
+                crate::linha!(self.w, "{tv} = {};", v.code);
+                if *null_aware_value {
+                    crate::abre!(self.w, "if ({tv} != null) {{");
+                }
+                add(self, format!("{tk}\u{0}{tv}"));
+                if *null_aware_value {
+                    self.w.close("}");
+                }
+                if *null_aware_key {
+                    self.w.close("}");
+                }
             }
             CollectionElement::Spread { value, null_aware } => {
                 let (v, vty) = self.emit_expr(*value, None);
@@ -953,9 +980,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut vs = Vec::new();
         for el in elements {
             match el {
-                CollectionElement::MapEntry { key, value, .. } => {
-                    ks.push(self.type_of(*key));
-                    vs.push(self.type_of(*value));
+                CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
+                    // Parte null-aware entra sem o `null` (spec 3.8, NonNull).
+                    let k = self.type_of(*key);
+                    let v = self.type_of(*value);
+                    ks.push(if *null_aware_key { k.non_null() } else { k });
+                    vs.push(if *null_aware_value { v.non_null() } else { v });
                 }
                 CollectionElement::Spread { value, .. } => {
                     let t = self.type_of(*value);

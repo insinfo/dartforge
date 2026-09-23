@@ -616,7 +616,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let alvo = if p.kind == ParameterKind::Named {
             sup_params
                 .iter()
-                .position(|sp| sp.name == p.name.map(|n| n.sym))?
+                .position(|sp| sp.externo == p.name.map(|n| n.sym))?
         } else {
             let k = params[..i]
                 .iter()
@@ -682,7 +682,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let params: Vec<(Option<SymbolId>, TypeId, ParameterKind)> = dados
             .parameters
             .iter()
-            .map(|p| (p.name, p.ty, p.kind))
+            // O nome externo casa com o do argumento (nomeado privado da 3.12).
+            .map(|p| (p.externo, p.ty, p.kind))
             .collect();
         let mut posicionais = avaliados
             .iter()

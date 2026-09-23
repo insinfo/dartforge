@@ -1685,7 +1685,7 @@ impl<'a> Ctx<'a> {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
                 ast::ParameterKind::Named => {
-                    let n = p.name.map(|s| self.interner.resolve(s).to_string()).unwrap_or_default();
+                    let n = p.externo.or(p.name).map(|s| self.interner.resolve(s).to_string()).unwrap_or_default();
                     named.push((n, t, p.required));
                 }
             }

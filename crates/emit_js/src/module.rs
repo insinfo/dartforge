@@ -689,7 +689,7 @@ fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, head_name: Opt
     let mut tp_js: Vec<String> = Vec::new();
     for &pid in data.type_params.iter() {
         let p = ctx.ty_param_of(pid);
-        let jsn = js::ident(&p.name);
+        let jsn = e.nome_js_parametro_de_tipo(&p.name);
         e.fn_type_params.push((p.id, jsn.clone()));
         tp_js.push(jsn);
     }
@@ -1918,7 +1918,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
             if let Some(n) = p.name {
                 let name = ctx.name(n.sym).to_string();
                 let target = field_target(fields, &name);
-                let jsn = e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(&name));
+                let jsn = e.js_do_parametro(n);
                 crate::linha!(body, "{target} = {jsn};");
             }
         }
@@ -1973,7 +1973,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                         }
                         for p in ctor.parameters.iter().filter(|p| p.super_) {
                             let Some(n) = p.name else { continue };
-                            let jsn = e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(ctx.name(n.sym)));
+                            let jsn = e.js_do_parametro(n);
                             if p.kind == ast::ParameterKind::Named {
                                 named_js.push(format!("{}: {jsn}", js::prop_key(ctx.name(n.sym))));
                             } else {
@@ -2011,7 +2011,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 let mut super_named: Vec<String> = Vec::new();
                 for p in ctor.parameters.iter().filter(|p| p.super_) {
                     let Some(n) = p.name else { continue };
-                    let jsn = e.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or(js::ident(ctx.name(n.sym)));
+                    let jsn = e.js_do_parametro(n);
                     if p.kind == ast::ParameterKind::Named {
                         let key = js::prop_key(ctx.name(n.sym));
                         if p.default_value.is_none() && !p.required {

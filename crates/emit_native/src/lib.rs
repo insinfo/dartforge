@@ -93,9 +93,22 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
-    let (mut outline, _outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, _body_diags) =
+    let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    // Erros de linguagem dos recursos 3.7–3.13 abortam (docs/VERSOES-LINGUAGEM.md §3);
+    // o resto de `types` é aviso e não aparece aqui.
+    let mut erros = outline_diags
+        .iter()
+        .chain(body_diags.iter())
+        .filter(|d| dartforge_types::codes::e_erro_de_linguagem(&d.message));
+    if let Some(primeiro) = erros.next() {
+        let mut msg = format!("erro: {primeiro}");
+        for d in erros {
+            msg.push_str(&format!("\nerro: {d}"));
+        }
+        return Err(msg);
+    }
 
     let ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
     let front_duration = t_front.elapsed();

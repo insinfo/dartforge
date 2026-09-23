@@ -679,7 +679,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
             let p = self.ctx.fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
-            scope_params.push((p.id, js::ident(&p.name)));
+            let jsn = self.nome_js_parametro_de_tipo(&p.name);
+            scope_params.push((p.id, jsn));
             tps.push(p);
         }
         let saved_tps = self.fn_type_params.clone();
@@ -799,7 +800,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
-                ast::ParameterKind::Named => named.push((self.name(n.sym).to_string(), t, p.required)),
+                ast::ParameterKind::Named => named.push((self.name(p.nome_externo().unwrap_or(n).sym).to_string(), t, p.required)),
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));

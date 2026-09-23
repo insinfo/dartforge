@@ -3180,6 +3180,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.nao_suportado(&oque, expr.span)
             }
             ExprKind::List { elements, .. } => {
+                // Elemento null-aware (3.8) precisa de um literal construído
+                // por inserções condicionais, que o nativo ainda não tem (a
+                // mesma lacuna de `if`/`for`/spread em coleções): recusa
+                // explícita, nunca o elemento descartado em silêncio.
+                if elements.iter().any(|el| matches!(el, ast::CollectionElement::NullAwareExpression(_))) {
+                    return self.nao_suportado("elemento null-aware em coleção (Dart 3.8)", expr.span);
+                }
                 let mut elem_ops = Vec::new();
                 for el in elements.iter() {
                     if let ast::CollectionElement::Expression(e) = el {
@@ -3191,6 +3198,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.emit(Instruction::AllocList { elements: elem_ops }, Type::Ref)
             }
             ExprKind::SetOrMap { elements, .. } => {
+                if elements.iter().any(|el| {
+                    matches!(
+                        el,
+                        ast::CollectionElement::NullAwareExpression(_)
+                            | ast::CollectionElement::MapEntry { null_aware_key: true, .. }
+                            | ast::CollectionElement::MapEntry { null_aware_value: true, .. }
+                    )
+                }) {
+                    return self.nao_suportado("elemento null-aware em coleção (Dart 3.8)", expr.span);
+                }
                 let mut entries = Vec::new();
                 for el in elements.iter() {
                     if let ast::CollectionElement::MapEntry { key, value, .. } = el {
