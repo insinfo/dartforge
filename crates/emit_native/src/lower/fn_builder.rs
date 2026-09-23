@@ -2109,6 +2109,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else if prop_name == "isOdd" {
+                    // O receptor é `int`: um `Ref` (parâmetro de função local,
+                    // `int?` promovido) é a CAIXA — a paridade do handle não é
+                    // a do número (R3).
+                    let target_op = self.coagir(target_op, Type::I64);
                     let rem = self.emit(
                         Instruction::And(target_op, Operand::Constant(Constant::Int(1))),
                         Type::I64,
@@ -2118,6 +2122,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::I1,
                     )
                 } else if prop_name == "isEven" {
+                    // O receptor é `int`: um `Ref` (parâmetro de função local,
+                    // `int?` promovido) é a CAIXA — a paridade do handle não é
+                    // a do número (R3).
+                    let target_op = self.coagir(target_op, Type::I64);
                     let rem = self.emit(
                         Instruction::And(target_op, Operand::Constant(Constant::Int(1))),
                         Type::I64,
@@ -2575,11 +2583,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Type::I64,
                         );
                     } else if m_name == "toRadixString" {
+                        let recv_op = self.coagir(recv_op, Type::I64);
                         let radix_op = if let Some(first_arg) = arguments.args.first() {
                             self.lower_expr(ast, first_arg.value)
                         } else {
                             Operand::Constant(Constant::Int(10))
                         };
+                        let radix_op = self.coagir(radix_op, Type::I64);
                         return self.emit(
                             Instruction::CallRuntime {
                                 name: "dartforge_int_to_radix_string".to_string(),
