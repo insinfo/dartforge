@@ -1,0 +1,30 @@
+# 04_up_down/up08_contexto_update3.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+13	10	266	245	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var sem = /*
+14	11	298	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+14	11	298	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+14	16	303	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+15	18	329	15	ConditionalExpression	A	-	1	b ? C1() : C2()
+15	18	329	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+15	22	333	4	InstanceCreationExpression	C1	CONSTRUCTOR:C1.	0	C1()
+15	29	340	4	InstanceCreationExpression	C2	CONSTRUCTOR:C2.	0	C2()
+16	17	362	15	ConditionalExpression	B1	-	1	b ? C1() : C2()
+16	17	362	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+16	21	366	4	InstanceCreationExpression	C1	CONSTRUCTOR:C1.	0	C1()
+16	28	373	4	InstanceCreationExpression	C2	CONSTRUCTOR:C2.	0	C2()
+18	20	407	9	BinaryExpression	B2	-	1	n ?? C2()
+18	20	407	1	SimpleIdentifier	C1?	LOCAL_VARIABLE:main.n	1	n
+18	25	412	4	InstanceCreationExpression	C2	CONSTRUCTOR:C2.	0	C2()
+19	16	433	42	SwitchExpression	B1	-	1	switch (b) { true => C1(), false => C2() }
+19	24	441	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	0	b
+19	29	446	4	BooleanLiteral	bool	-	0	true
+19	37	454	4	InstanceCreationExpression	C1	CONSTRUCTOR:C1.	0	C1()
+19	43	460	5	BooleanLiteral	bool	-	0	false
+19	52	469	4	InstanceCreationExpression	C2	CONSTRUCTOR:C2.	0	C2()
+20	3	479	29	MethodInvocation	void	FUNCTION:print	0	print([sem, com, seNulo, sw])
+20	3	479	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+20	9	485	22	ListLiteral	List<A>	-	0	[sem, com, seNulo, sw]
+20	10	486	3	SimpleIdentifier	A	LOCAL_VARIABLE:main.sem	0	sem
+20	15	491	3	SimpleIdentifier	B1	LOCAL_VARIABLE:main.com	0	com
+20	20	496	6	SimpleIdentifier	B2	LOCAL_VARIABLE:main.seNulo	0	seNulo
+20	28	504	2	SimpleIdentifier	B1	LOCAL_VARIABLE:main.sw	0	sw

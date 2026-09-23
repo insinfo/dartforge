@@ -1,0 +1,22 @@
+# 10_padroes/pad06_for_in_padrao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	76	195	FunctionExpression	void Function(List<(int, String)>, Map<String, int>)	-	0	(List<(int, String)> l, Map<String, int> m) { for (var (i,
+3	22	143	1	SimpleIdentifier	List<(int, String)>	PARAMETER:f.l	0	l
+4	5	152	23	MethodInvocation	void	FUNCTION:print	0	print([/*@*/i, /*@*/s])
+4	5	152	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+4	11	158	16	ListLiteral	List<Object>	-	0	[/*@*/i, /*@*/s]
+4	17	164	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.i	1	i
+4	25	172	1	SimpleIdentifier	String	LOCAL_VARIABLE:f.s	1	s
+6	38	218	9	PrefixedIdentifier	Iterable<MapEntry<String, int>>	GETTER:Map.entries	0	m.entries
+6	38	218	1	SimpleIdentifier	Map<String, int>	PARAMETER:f.m	0	m
+6	40	220	7	SimpleIdentifier	Iterable<MapEntry<String, int>>	GETTER:Map.entries	0	entries
+7	5	235	29	MethodInvocation	void	FUNCTION:print	0	print([/*@*/key, /*@*/value])
+7	5	235	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+7	11	241	22	ListLiteral	List<Object>	-	0	[/*@*/key, /*@*/value]
+7	17	247	3	SimpleIdentifier	String	LOCAL_VARIABLE:f.key	1	key
+7	27	257	5	SimpleIdentifier	int	LOCAL_VARIABLE:f.value	1	value
+11	10	282	16	FunctionExpression	void Function()	-	0	() => f([], {});
+11	16	288	9	MethodInvocation	void	FUNCTION:f	0	f([], {})
+11	16	288	1	SimpleIdentifier	void Function(List<(int, String)>, Map<String, int>)	FUNCTION:f	0	f
+11	18	290	2	ListLiteral	List<(int, String)>	-	0	[]
+11	22	294	2	SetOrMapLiteral	Map<String, int>	-	0	{}

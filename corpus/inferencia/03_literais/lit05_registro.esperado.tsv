@@ -1,0 +1,42 @@
+# 03_literais/lit05_registro.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	97	229	FunctionExpression	void Function()	-	0	() { var a = /*@*/(1, 'a'); var b = /*@*/(x: 1, y: 2.5);
+4	16	117	8	RecordLiteral	(int, String)	-	1	(1, 'a')
+4	17	118	1	IntegerLiteral	int	-	0	1
+4	20	121	3	SimpleStringLiteral	String	-	0	'a'
+5	16	142	14	RecordLiteral	({int x, double y})	-	1	(x: 1, y: 2.5)
+5	17	143	4	NamedExpression	int	-	0	x: 1
+5	17	143	1	SimpleIdentifier	-	-	0	x
+5	20	146	1	IntegerLiteral	int	-	0	1
+5	23	149	6	NamedExpression	double	-	0	y: 2.5
+5	23	149	1	SimpleIdentifier	-	-	0	y
+5	26	152	3	DoubleLiteral	double	-	0	2.5
+6	26	183	16	RecordLiteral	(double, int)	-	1	(/*@*/1, /*@*/2)
+6	32	189	1	IntegerLiteral	double	-	1	1
+6	40	197	1	IntegerLiteral	int	-	1	2
+7	30	230	11	RecordLiteral	(int, {String s})	-	1	(1, s: 'x')
+7	31	231	1	IntegerLiteral	int	-	0	1
+7	34	234	6	NamedExpression	String	-	0	s: 'x'
+7	34	234	1	SimpleIdentifier	-	-	0	s
+7	37	237	3	SimpleStringLiteral	String	-	0	'x'
+8	16	258	17	RecordLiteral	(int, List<int>, {Null n})	-	1	(1, [2], n: null)
+8	17	259	1	IntegerLiteral	int	-	0	1
+8	20	262	3	ListLiteral	List<int>	-	0	[2]
+8	21	263	1	IntegerLiteral	int	-	0	2
+8	25	267	7	NamedExpression	Null	-	0	n: null
+8	25	267	1	SimpleIdentifier	-	-	0	n
+8	28	270	4	NullLiteral	Null	-	0	null
+9	3	279	44	MethodInvocation	void	FUNCTION:print	0	print([/*@*/a.$1, /*@*/b.y, c, /*@*/d.s, e])
+9	3	279	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	9	285	37	ListLiteral	List<Object>	-	0	[/*@*/a.$1, /*@*/b.y, c, /*@*/d.s, e]
+9	15	291	4	PropertyAccess	int	-	1	a.$1
+9	15	291	1	SimpleIdentifier	(int, String)	LOCAL_VARIABLE:main.a	1	a
+9	17	293	2	SimpleIdentifier	int	-	0	$1
+9	26	302	3	PropertyAccess	double	-	1	b.y
+9	26	302	1	SimpleIdentifier	({int x, double y})	LOCAL_VARIABLE:main.b	1	b
+9	28	304	1	SimpleIdentifier	double	-	0	y
+9	31	307	1	SimpleIdentifier	(double, num)	LOCAL_VARIABLE:main.c	0	c
+9	39	315	3	PropertyAccess	String	-	1	d.s
+9	39	315	1	SimpleIdentifier	(int, {String s})	LOCAL_VARIABLE:main.d	1	d
+9	41	317	1	SimpleIdentifier	String	-	0	s
+9	44	320	1	SimpleIdentifier	(int, List<int>, {Null n})	LOCAL_VARIABLE:main.e	0	e

@@ -1,0 +1,34 @@
+# 04_up_down/up07_futureor.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	10	60	231	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; FutureOr<int
+5	11	92	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+5	11	92	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+5	16	97	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+6	22	127	1	IntegerLiteral	int	-	0	1
+7	16	145	10	ConditionalExpression	FutureOr<int>	-	1	b ? fo : 1
+7	16	145	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+7	20	149	2	SimpleIdentifier	FutureOr<int>	LOCAL_VARIABLE:main.fo	0	fo
+7	25	154	1	IntegerLiteral	int	-	0	1
+8	16	172	24	ConditionalExpression	FutureOr<int>	-	1	b ? fo : Future.value(1)
+8	16	172	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+8	20	176	2	SimpleIdentifier	FutureOr<int>	LOCAL_VARIABLE:main.fo	0	fo
+8	25	181	15	InstanceCreationExpression	Future<int>	CONSTRUCTOR:Future.value	0	Future.value(1)
+8	32	188	5	SimpleIdentifier	-	CONSTRUCTOR:Future.value	0	value
+8	38	194	1	IntegerLiteral	int	-	0	1
+9	16	213	23	ConditionalExpression	Object	-	1	b ? Future.value(1) : 1
+9	16	213	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+9	20	217	15	InstanceCreationExpression	Future<int>	CONSTRUCTOR:Future.value	0	Future.value(1)
+9	27	224	5	SimpleIdentifier	-	CONSTRUCTOR:Future.value	0	value
+9	33	230	1	IntegerLiteral	int	-	0	1
+9	38	235	1	IntegerLiteral	int	-	0	1
+10	16	253	12	ConditionalExpression	FutureOr<num>	-	1	b ? fo : 2.5
+10	16	253	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+10	20	257	2	SimpleIdentifier	FutureOr<int>	LOCAL_VARIABLE:main.fo	0	fo
+10	25	262	3	DoubleLiteral	double	-	0	2.5
+11	3	269	19	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s])
+11	3	269	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	275	12	ListLiteral	List<Object>	-	0	[p, q, r, s]
+11	10	276	1	SimpleIdentifier	FutureOr<int>	LOCAL_VARIABLE:main.p	0	p
+11	13	279	1	SimpleIdentifier	FutureOr<int>	LOCAL_VARIABLE:main.q	0	q
+11	16	282	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.r	0	r
+11	19	285	1	SimpleIdentifier	FutureOr<num>	LOCAL_VARIABLE:main.s	0	s

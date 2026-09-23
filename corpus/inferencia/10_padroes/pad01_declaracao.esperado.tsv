@@ -1,0 +1,34 @@
+# 10_padroes/pad01_declaracao.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	10	82	219	FunctionExpression	void Function()	-	0	() { var (a, b) = (1, 'x'); final [x, y] = [1, 2.5]; v
+3	16	102	8	RecordLiteral	(int, String)	-	0	(1, 'x')
+3	17	103	1	IntegerLiteral	int	-	0	1
+3	20	106	3	SimpleStringLiteral	String	-	0	'x'
+4	18	129	8	ListLiteral	List<num>	-	0	[1, 2.5]
+4	19	130	1	IntegerLiteral	int	-	0	1
+4	22	133	3	DoubleLiteral	double	-	0	2.5
+5	8	146	3	SimpleStringLiteral	String	-	0	'k'
+5	18	156	10	SetOrMapLiteral	Map<String, double>	-	0	{'k': 1.5}
+5	19	157	3	SimpleStringLiteral	String	-	0	'k'
+5	24	162	3	DoubleLiteral	double	-	0	1.5
+6	16	183	9	RecordLiteral	({bool n})	-	0	(n: true)
+6	17	184	7	NamedExpression	bool	-	0	n: true
+6	17	184	1	SimpleIdentifier	-	-	0	n
+6	20	187	4	BooleanLiteral	bool	-	0	true
+7	19	212	11	RecordLiteral	(int, {List<int> q})	-	0	(1, q: [1])
+7	20	213	1	IntegerLiteral	int	-	0	1
+7	23	216	6	NamedExpression	List<int>	-	0	q: [1]
+7	23	216	1	SimpleIdentifier	-	-	0	q
+7	26	219	3	ListLiteral	List<int>	-	0	[1]
+7	27	220	1	IntegerLiteral	int	-	0	1
+8	3	227	71	MethodInvocation	void	FUNCTION:print	0	print([/*@*/a, /*@*/b, /*@*/x, /*@*/y, /*@*/v, /*@*/z, /*@*/
+8	3	227	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	9	233	64	ListLiteral	List<Object>	-	0	[/*@*/a, /*@*/b, /*@*/x, /*@*/y, /*@*/v, /*@*/z, /*@*/p, /*@
+8	15	239	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.a	1	a
+8	23	247	1	SimpleIdentifier	String	LOCAL_VARIABLE:main.b	1	b
+8	31	255	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.x	1	x
+8	39	263	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.y	1	y
+8	47	271	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.v	1	v
+8	55	279	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.z	1	z
+8	63	287	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.p	1	p
+8	71	295	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.r	1	r

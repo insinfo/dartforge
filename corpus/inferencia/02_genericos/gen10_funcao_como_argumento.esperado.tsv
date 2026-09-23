@@ -1,0 +1,24 @@
+# 02_genericos/gen10_funcao_como_argumento.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	4	115	55	FunctionExpression	T Function<T>(void Function(T), void Function(T))	-	0	<T>(void Function(T) a, void Function(T) b) => throw 0;
+3	51	162	7	ThrowExpression	Never	-	0	throw 0
+3	57	168	1	IntegerLiteral	int	-	0	0
+4	4	174	43	FunctionExpression	T Function<T>(T Function(), T Function())	-	0	<T>(T Function() a, T Function() b) => a();
+4	43	213	3	FunctionExpressionInvocation	T	-	0	a()
+4	43	213	1	SimpleIdentifier	T Function()	PARAMETER:g.a	0	a
+5	10	227	103	FunctionExpression	void Function()	-	0	() { var p = /*@*/f((int x) {}, (num x) {}); var r = /*@
+6	16	247	25	MethodInvocation	int	FUNCTION:f	1	f((int x) {}, (num x) {})
+6	16	247	1	SimpleIdentifier	T Function<T>(void Function(T), void Function(T))	FUNCTION:f	1	f
+6	18	249	10	FunctionExpression	void Function(int)	-	0	(int x) {}
+6	30	261	10	FunctionExpression	void Function(num)	-	0	(num x) {}
+7	16	289	21	MethodInvocation	num	FUNCTION:g	1	g(() => 1, () => 2.5)
+7	16	289	1	SimpleIdentifier	T Function<T>(T Function(), T Function())	FUNCTION:g	1	g
+7	18	291	7	FunctionExpression	int Function()	-	0	() => 1
+7	24	297	1	IntegerLiteral	int	-	0	1
+7	27	300	9	FunctionExpression	double Function()	-	0	() => 2.5
+7	33	306	3	DoubleLiteral	double	-	0	2.5
+8	3	314	13	MethodInvocation	void	FUNCTION:print	0	print([p, r])
+8	3	314	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	9	320	6	ListLiteral	List<num>	-	0	[p, r]
+8	10	321	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.p	0	p
+8	13	324	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.r	0	r

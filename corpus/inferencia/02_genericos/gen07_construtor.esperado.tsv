@@ -1,0 +1,32 @@
+# 02_genericos/gen07_construtor.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+5	3	162	5	SimpleIdentifier	-	CLASS:Caixa	0	Caixa
+9	11	212	1	SimpleIdentifier	-	CLASS:L	0	L
+13	3	266	2	SimpleIdentifier	-	CLASS:_L	0	_L
+16	10	287	218	FunctionExpression	void Function()	-	0	() { var a = /*@*/Caixa(1); Caixa<num> b = /*@*/Caixa(/*
+17	16	307	8	InstanceCreationExpression	Caixa<int>	CONSTRUCTOR:Caixa.	1	Caixa(1)
+17	22	313	1	IntegerLiteral	int	-	0	1
+18	23	339	13	InstanceCreationExpression	Caixa<num>	CONSTRUCTOR:Caixa.	1	Caixa(/*@*/1)
+18	34	350	1	IntegerLiteral	int	-	1	1
+19	16	369	13	InstanceCreationExpression	Caixa<num>	CONSTRUCTOR:Caixa.	1	Caixa<num>(1)
+19	27	380	1	IntegerLiteral	int	-	0	1
+20	16	399	9	InstanceCreationExpression	L<String>	CONSTRUCTOR:L.de	1	L.de('a')
+20	18	401	2	SimpleIdentifier	-	CONSTRUCTOR:L.de	0	de
+20	21	404	3	SimpleStringLiteral	String	-	0	'a'
+21	22	431	9	InstanceCreationExpression	L<Object>	CONSTRUCTOR:L.de	1	L.de('a')
+21	24	433	2	SimpleIdentifier	-	CONSTRUCTOR:L.de	0	de
+21	27	436	3	SimpleStringLiteral	String	-	0	'a'
+22	16	457	16	InstanceCreationExpression	Map<int, String>	CONSTRUCTOR:Map.of	1	Map.of({1: 'a'})
+22	20	461	2	SimpleIdentifier	-	CONSTRUCTOR:Map.of	0	of
+22	23	464	8	SetOrMapLiteral	Map<int, String>	-	0	{1: 'a'}
+22	24	465	1	IntegerLiteral	int	-	0	1
+22	27	468	3	SimpleStringLiteral	String	-	0	'a'
+23	3	477	25	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d, e, f])
+23	3	477	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+23	9	483	18	ListLiteral	List<Object>	-	0	[a, b, c, d, e, f]
+23	10	484	1	SimpleIdentifier	Caixa<int>	LOCAL_VARIABLE:main.a	0	a
+23	13	487	1	SimpleIdentifier	Caixa<num>	LOCAL_VARIABLE:main.b	0	b
+23	16	490	1	SimpleIdentifier	Caixa<num>	LOCAL_VARIABLE:main.c	0	c
+23	19	493	1	SimpleIdentifier	L<String>	LOCAL_VARIABLE:main.d	0	d
+23	22	496	1	SimpleIdentifier	L<Object>	LOCAL_VARIABLE:main.e	0	e
+23	25	499	1	SimpleIdentifier	Map<int, String>	LOCAL_VARIABLE:main.f	0	f

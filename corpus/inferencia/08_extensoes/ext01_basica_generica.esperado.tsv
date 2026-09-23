@@ -1,0 +1,41 @@
+# 08_extensoes/ext01_basica_generica.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	20	126	10	BinaryExpression	int	METHOD:num.*	0	length * 2
+4	20	126	6	SimpleIdentifier	int	GETTER:String.length	0	length
+4	29	135	1	IntegerLiteral	int	-	0	2
+8	21	189	5	SimpleIdentifier	T	GETTER:Iterable.first	0	first
+9	39	234	26	ListLiteral	List<R>	-	0	[for (var e in this) f(e)]
+9	54	249	4	ThisExpression	List<T>	-	0	this
+9	60	255	4	FunctionExpressionInvocation	R	-	0	f(e)
+9	60	255	1	SimpleIdentifier	R Function(T)	PARAMETER:mapa.f	0	f
+9	62	257	1	SimpleIdentifier	T	LOCAL_VARIABLE:mapa.e	0	e
+13	15	323	30	MethodInvocation	T	METHOD:Iterable.reduce	0	reduce((a, b) => (a + b) as T)
+13	15	323	6	SimpleIdentifier	T Function(T Function(T, T))	METHOD:Iterable.reduce	0	reduce
+13	22	330	22	FunctionExpression	T Function(T, T)	-	0	(a, b) => (a + b) as T
+13	32	340	12	AsExpression	T	-	0	(a + b) as T
+13	32	340	7	ParenthesizedExpression	num	-	0	(a + b)
+13	33	341	5	BinaryExpression	num	METHOD:num.+	0	a + b
+13	33	341	1	SimpleIdentifier	T	PARAMETER:.a	0	a
+13	37	345	1	SimpleIdentifier	T	PARAMETER:.b	0	b
+16	10	367	99	FunctionExpression	void Function()	-	0	() { print([/*@*/'a'.dobro, /*@*/[1].primeiro, /*@*/[1.5].
+17	3	374	89	MethodInvocation	void	FUNCTION:print	0	print([/*@*/'a'.dobro, /*@*/[1].primeiro, /*@*/[1.5].soma(),
+17	3	374	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+17	9	380	82	ListLiteral	List<Object>	-	0	[/*@*/'a'.dobro, /*@*/[1].primeiro, /*@*/[1.5].soma(), /*@*/
+17	15	386	9	PropertyAccess	int	GETTER:null.dobro	1	'a'.dobro
+17	15	386	3	SimpleStringLiteral	String	-	1	'a'
+17	19	390	5	SimpleIdentifier	int	GETTER:null.dobro	0	dobro
+17	31	402	12	PropertyAccess	int	GETTER:E.primeiro	1	[1].primeiro
+17	31	402	3	ListLiteral	List<int>	-	1	[1]
+17	32	403	1	IntegerLiteral	int	-	0	1
+17	35	406	8	SimpleIdentifier	int	GETTER:E.primeiro	0	primeiro
+17	50	421	12	MethodInvocation	double	METHOD:N.soma	1	[1.5].soma()
+17	50	421	5	ListLiteral	List<double>	-	1	[1.5]
+17	51	422	3	DoubleLiteral	double	-	0	1.5
+17	56	427	4	SimpleIdentifier	double Function()	METHOD:N.soma	0	soma
+17	69	440	21	MethodInvocation	List<String>	METHOD:E.mapa	1	[1].mapa((x) => '$x')
+17	69	440	3	ListLiteral	List<int>	-	1	[1]
+17	70	441	1	IntegerLiteral	int	-	0	1
+17	73	444	4	SimpleIdentifier	List<R> Function<R>(R Function(int))	METHOD:E.mapa	0	mapa
+17	78	449	11	FunctionExpression	String Function(int)	-	0	(x) => '$x'
+17	85	456	4	StringInterpolation	String	-	0	'$x'
+17	87	458	1	SimpleIdentifier	int	PARAMETER:.x	0	x

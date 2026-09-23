@@ -1,0 +1,50 @@
+# 06_fluxo/flu12_campo_privado.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+7	3	159	1	SimpleIdentifier	-	CLASS:C	0	C
+9	9	209	10	BinaryExpression	bool	METHOD:num.==	0	_x != null
+9	9	209	2	SimpleIdentifier	int?	GETTER:C._x	0	_x
+9	15	215	4	NullLiteral	Null	-	0	null
+9	21	221	14	MethodInvocation	void	FUNCTION:print	0	print(/*@*/_x)
+9	21	221	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	32	232	2	SimpleIdentifier	int	GETTER:C._x	1	_x
+10	9	245	15	BinaryExpression	bool	METHOD:num.==	0	this._x != null
+10	9	245	7	PropertyAccess	int?	GETTER:C._x	0	this._x
+10	9	245	4	ThisExpression	C	-	0	this
+10	14	250	2	SimpleIdentifier	int?	GETTER:C._x	0	_x
+10	20	256	4	NullLiteral	Null	-	0	null
+10	26	262	19	MethodInvocation	void	FUNCTION:print	0	print(/*@*/this._x)
+10	26	262	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	37	273	7	PropertyAccess	int	GETTER:C._x	1	this._x
+10	37	273	4	ThisExpression	C	-	1	this
+10	42	278	2	SimpleIdentifier	int	GETTER:C._x	0	_x
+11	9	291	16	BinaryExpression	bool	METHOD:num.==	0	outro._x != null
+11	9	291	8	PrefixedIdentifier	int?	GETTER:C._x	0	outro._x
+11	9	291	5	SimpleIdentifier	C	PARAMETER:m.outro	0	outro
+11	15	297	2	SimpleIdentifier	int?	GETTER:C._x	0	_x
+11	21	303	4	NullLiteral	Null	-	0	null
+11	27	309	20	MethodInvocation	void	FUNCTION:print	0	print(/*@*/outro._x)
+11	27	309	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	38	320	8	PrefixedIdentifier	int	GETTER:C._x	1	outro._x
+11	38	320	5	SimpleIdentifier	C	PARAMETER:m.outro	1	outro
+11	44	326	2	SimpleIdentifier	int	GETTER:C._x	0	_x
+12	9	339	11	BinaryExpression	bool	METHOD:num.==	0	pub != null
+12	9	339	3	SimpleIdentifier	int?	GETTER:C.pub	0	pub
+12	16	346	4	NullLiteral	Null	-	0	null
+12	22	352	15	MethodInvocation	void	FUNCTION:print	0	print(/*@*/pub)
+12	22	352	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	33	363	3	SimpleIdentifier	int?	GETTER:C.pub	1	pub
+13	9	377	16	BinaryExpression	bool	METHOD:num.==	0	_mutavel != null
+13	9	377	8	SimpleIdentifier	int?	GETTER:C._mutavel	0	_mutavel
+13	21	389	4	NullLiteral	Null	-	0	null
+13	27	395	20	MethodInvocation	void	FUNCTION:print	0	print(/*@*/_mutavel)
+13	27	395	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	38	406	8	SimpleIdentifier	int?	GETTER:C._mutavel	1	_mutavel
+17	10	433	25	FunctionExpression	void Function()	-	0	() => C(1, 2).m(C(3, 4));
+17	16	439	18	MethodInvocation	void	METHOD:C.m	0	C(1, 2).m(C(3, 4))
+17	16	439	7	InstanceCreationExpression	C	CONSTRUCTOR:C.	0	C(1, 2)
+17	18	441	1	IntegerLiteral	int	-	0	1
+17	21	444	1	IntegerLiteral	int	-	0	2
+17	24	447	1	SimpleIdentifier	void Function(C)	METHOD:C.m	0	m
+17	26	449	7	InstanceCreationExpression	C	CONSTRUCTOR:C.	0	C(3, 4)
+17	28	451	1	IntegerLiteral	int	-	0	3
+17	31	454	1	IntegerLiteral	int	-	0	4

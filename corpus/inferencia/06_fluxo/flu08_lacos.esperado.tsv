@@ -1,0 +1,44 @@
+# 06_fluxo/flu08_lacos.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	85	270	FunctionExpression	void Function(int?, int?, List<int>)	-	0	(int? x, int? y, List<int> l) { if (x == null || y == null
+3	7	123	22	BinaryExpression	bool	-	0	x == null || y == null
+3	7	123	9	BinaryExpression	bool	METHOD:num.==	0	x == null
+3	7	123	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+3	12	128	4	NullLiteral	Null	-	0	null
+3	20	136	9	BinaryExpression	bool	METHOD:num.==	0	y == null
+3	20	136	1	SimpleIdentifier	int?	PARAMETER:f.y	0	y
+3	25	141	4	NullLiteral	Null	-	0	null
+4	10	164	9	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	l.isEmpty
+4	10	164	1	SimpleIdentifier	List<int>	PARAMETER:f.l	0	l
+4	12	166	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+5	5	181	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+5	5	181	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	16	192	1	SimpleIdentifier	int?	PARAMETER:f.x	1	x
+6	5	200	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+6	5	200	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	16	211	1	SimpleIdentifier	int	PARAMETER:f.y	1	y
+7	5	219	8	AssignmentExpression	Null	PARAMETER:f.x	0	x = null
+7	5	219	1	SimpleIdentifier	-	PARAMETER:f.x	0	x
+7	9	223	4	NullLiteral	Null	-	0	null
+9	17	249	1	SimpleIdentifier	List<int>	PARAMETER:f.l	0	l
+10	5	258	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+10	5	258	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	16	269	1	SimpleIdentifier	int	PARAMETER:f.y	1	y
+11	5	277	8	MethodInvocation	void	FUNCTION:print	0	print(i)
+11	5	277	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	11	283	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.i	0	i
+14	5	302	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+14	5	302	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+14	16	313	1	SimpleIdentifier	int?	PARAMETER:f.y	1	y
+15	5	321	8	AssignmentExpression	Null	PARAMETER:f.y	0	y = null
+15	5	321	1	SimpleIdentifier	-	PARAMETER:f.y	0	y
+15	9	325	4	NullLiteral	Null	-	0	null
+16	12	342	9	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	l.isEmpty
+16	12	342	1	SimpleIdentifier	List<int>	PARAMETER:f.l	0	l
+16	14	344	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+19	10	366	18	FunctionExpression	void Function()	-	0	() => f(1, 2, []);
+19	16	372	11	MethodInvocation	void	FUNCTION:f	0	f(1, 2, [])
+19	16	372	1	SimpleIdentifier	void Function(int?, int?, List<int>)	FUNCTION:f	0	f
+19	18	374	1	IntegerLiteral	int	-	0	1
+19	21	377	1	IntegerLiteral	int	-	0	2
+19	24	380	2	ListLiteral	List<int>	-	0	[]

@@ -1,0 +1,36 @@
+# 04_up_down/up03_funcoes.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	144	13	FunctionExpression	int Function(int)	-	0	(int x) => x;
+3	18	155	1	SimpleIdentifier	int	PARAMETER:f1.x	0	x
+4	10	167	15	FunctionExpression	double Function(num)	-	0	(num x) => 1.5;
+4	21	178	3	DoubleLiteral	double	-	0	1.5
+5	6	188	20	FunctionExpression	int Function(int, int)	-	0	(int x, int y) => x;
+5	24	206	1	SimpleIdentifier	int	PARAMETER:g.x	0	x
+6	7	215	13	FunctionExpression	void Function(String)	-	0	(String s) {}
+7	10	238	179	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var p = /*@*
+8	11	270	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+8	11	270	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+8	16	275	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+9	16	299	11	ConditionalExpression	num Function(int)	-	1	b ? f1 : f2
+9	16	299	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+9	20	303	2	SimpleIdentifier	int Function(int)	FUNCTION:f1	0	f1
+9	25	308	2	SimpleIdentifier	double Function(num)	FUNCTION:f2	0	f2
+10	16	327	10	ConditionalExpression	Function	-	1	b ? f1 : g
+10	16	327	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+10	20	331	2	SimpleIdentifier	int Function(int)	FUNCTION:f1	0	f1
+10	25	336	1	SimpleIdentifier	int Function(int, int)	FUNCTION:g	0	g
+11	16	354	10	ConditionalExpression	Object	-	1	b ? f1 : 1
+11	16	354	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+11	20	358	2	SimpleIdentifier	int Function(int)	FUNCTION:f1	0	f1
+11	25	363	1	IntegerLiteral	int	-	0	1
+12	16	381	10	ConditionalExpression	void Function(Never)	-	1	b ? f1 : h
+12	16	381	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+12	20	385	2	SimpleIdentifier	int Function(int)	FUNCTION:f1	0	f1
+12	25	390	1	SimpleIdentifier	void Function(String)	FUNCTION:h	0	h
+13	3	395	19	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s])
+13	3	395	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	9	401	12	ListLiteral	List<Object>	-	0	[p, q, r, s]
+13	10	402	1	SimpleIdentifier	num Function(int)	LOCAL_VARIABLE:main.p	0	p
+13	13	405	1	SimpleIdentifier	Function	LOCAL_VARIABLE:main.q	0	q
+13	16	408	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.r	0	r
+13	19	411	1	SimpleIdentifier	void Function(Never)	LOCAL_VARIABLE:main.s	0	s

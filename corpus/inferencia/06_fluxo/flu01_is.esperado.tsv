@@ -1,0 +1,26 @@
+# 06_fluxo/flu01_is.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	84	117	FunctionExpression	void Function(Object)	-	0	(Object o) { if (o is int) { print(/*@*/o); } prin
+3	7	103	8	IsExpression	bool	-	0	o is int
+3	7	103	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+4	5	119	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+4	5	119	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+4	16	130	1	SimpleIdentifier	int	PARAMETER:f.o	1	o
+6	3	140	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+6	3	140	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	14	151	1	SimpleIdentifier	Object	PARAMETER:f.o	1	o
+7	7	161	12	IsExpression	bool	-	0	o is! String
+7	7	161	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+8	3	185	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+8	3	185	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	14	196	1	SimpleIdentifier	String	PARAMETER:f.o	1	o
+11	7	209	55	FunctionExpression	void Function(num)	-	0	(num n) { if (n is String) { print(/*@*/n); } }
+12	7	225	11	IsExpression	bool	-	0	n is String
+12	7	225	1	SimpleIdentifier	num	PARAMETER:g.n	0	n
+13	5	244	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/n)
+13	5	244	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	16	255	1	SimpleIdentifier	num	PARAMETER:g.n	1	n
+17	10	275	13	FunctionExpression	void Function()	-	0	() => f('a');
+17	16	281	6	MethodInvocation	void	FUNCTION:f	0	f('a')
+17	16	281	1	SimpleIdentifier	void Function(Object)	FUNCTION:f	0	f
+17	18	283	3	SimpleStringLiteral	String	-	0	'a'

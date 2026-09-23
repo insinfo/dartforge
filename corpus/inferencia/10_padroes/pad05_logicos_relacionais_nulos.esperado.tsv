@@ -1,0 +1,44 @@
+# 10_padroes/pad05_logicos_relacionais_nulos.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	81	391	FunctionExpression	void Function(int?, Object, num)	-	0	(int? n, Object o, num k) { switch (n) { case var v? w
+3	11	119	1	SimpleIdentifier	int?	PARAMETER:f.n	0	n
+4	22	145	5	BinaryExpression	bool	METHOD:num.>	0	v > 0
+4	22	145	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.v	0	v
+4	26	149	1	IntegerLiteral	int	-	0	0
+5	7	158	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/v)
+5	7	158	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	18	169	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.v	1	v
+8	11	200	1	SimpleIdentifier	num	PARAMETER:f.k	0	k
+9	12	216	1	IntegerLiteral	int	-	0	0
+9	19	223	2	IntegerLiteral	int	-	0	10
+10	7	233	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/k)
+10	7	233	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	18	244	1	SimpleIdentifier	num	PARAMETER:f.k	1	k
+13	7	271	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+13	33	297	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/o)
+13	33	297	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	44	308	1	SimpleIdentifier	Object	PARAMETER:f.o	1	o
+14	17	328	6	RecordLiteral	(int?, int)	-	0	(n, 1)
+14	18	329	1	SimpleIdentifier	int?	PARAMETER:f.n	0	n
+14	21	332	1	IntegerLiteral	int	-	0	1
+15	33	368	16	ListLiteral	List<Object>	-	0	<Object>[1, 'x']
+15	42	377	1	IntegerLiteral	int	-	0	1
+15	45	380	3	SimpleStringLiteral	String	-	0	'x'
+16	7	392	1	SimpleIdentifier	num	PARAMETER:f.k	0	k
+16	25	410	1	IntegerLiteral	int	-	0	3
+16	28	413	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/j)
+16	28	413	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+16	39	424	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.j	1	j
+17	3	430	39	MethodInvocation	void	FUNCTION:print	0	print([/*@*/a, /*@*/b, /*@*/c, /*@*/d])
+17	3	430	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+17	9	436	32	ListLiteral	List<Object>	-	0	[/*@*/a, /*@*/b, /*@*/c, /*@*/d]
+17	15	442	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.a	1	a
+17	23	450	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.b	1	b
+17	31	458	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.c	1	c
+17	39	466	1	SimpleIdentifier	String	LOCAL_VARIABLE:f.d	1	d
+20	10	483	17	FunctionExpression	void Function()	-	0	() => f(1, 2, 3);
+20	16	489	10	MethodInvocation	void	FUNCTION:f	0	f(1, 2, 3)
+20	16	489	1	SimpleIdentifier	void Function(int?, Object, num)	FUNCTION:f	0	f
+20	18	491	1	IntegerLiteral	int	-	0	1
+20	21	494	1	IntegerLiteral	int	-	0	2
+20	24	497	1	IntegerLiteral	int	-	0	3

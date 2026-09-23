@@ -1,0 +1,20 @@
+# 03_literais/lit06_outros.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	10	87	158	FunctionExpression	void Function()	-	0	() { var a = /*@*/'a${1}b'; var b = /*@*/'a' 'b'; var
+3	16	107	8	StringInterpolation	String	-	1	'a${1}b'
+3	20	111	1	IntegerLiteral	int	-	0	1
+4	16	132	7	AdjacentStrings	String	-	1	'a' 'b'
+4	16	132	3	SimpleStringLiteral	String	-	1	'a'
+4	20	136	3	SimpleStringLiteral	String	-	0	'b'
+5	16	156	8	SymbolLiteral	Symbol	-	1	#simbolo
+6	16	181	4	BooleanLiteral	bool	-	1	true
+7	16	202	3	DoubleLiteral	double	-	1	1.5
+8	3	209	33	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d, e, /*@*/null])
+8	3	209	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	9	215	26	ListLiteral	List<Object?>	-	0	[a, b, c, d, e, /*@*/null]
+8	10	216	1	SimpleIdentifier	String	LOCAL_VARIABLE:main.a	0	a
+8	13	219	1	SimpleIdentifier	String	LOCAL_VARIABLE:main.b	0	b
+8	16	222	1	SimpleIdentifier	Symbol	LOCAL_VARIABLE:main.c	0	c
+8	19	225	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.d	0	d
+8	22	228	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.e	0	e
+8	30	236	4	NullLiteral	Null	-	1	null

@@ -1,0 +1,35 @@
+# 10_padroes/pad04_objeto_lista_mapa.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+5	3	107	5	SimpleIdentifier	-	CLASS:Ponto	0	Ponto
+8	7	139	291	FunctionExpression	void Function(Object, List<int>, Map<String, num>)	-	0	(Object o, List<int> l, Map<String, num> m) { if (o case P
+9	7	191	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+9	40	224	24	MethodInvocation	void	FUNCTION:print	0	print([/*@*/px, /*@*/y])
+9	40	224	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+9	46	230	17	ListLiteral	List<num>	-	0	[/*@*/px, /*@*/y]
+9	52	236	2	SimpleIdentifier	int	LOCAL_VARIABLE:f.px	1	px
+9	61	245	1	SimpleIdentifier	double	LOCAL_VARIABLE:f.y	1	y
+10	7	256	1	SimpleIdentifier	List<int>	PARAMETER:f.l	0	l
+10	33	282	23	MethodInvocation	void	FUNCTION:print	0	print([/*@*/h, /*@*/t])
+10	33	282	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	39	288	16	ListLiteral	List<Object>	-	0	[/*@*/h, /*@*/t]
+10	45	294	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.h	1	h
+10	53	302	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:f.t	1	t
+11	7	313	1	SimpleIdentifier	Map<String, num>	PARAMETER:f.m	0	m
+11	15	321	3	SimpleStringLiteral	String	-	0	'a'
+11	28	334	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/a)
+11	28	334	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	39	345	1	SimpleIdentifier	num	LOCAL_VARIABLE:f.a	1	a
+12	7	355	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+12	28	376	14	MethodInvocation	void	FUNCTION:print	0	print(/*@*/li)
+12	28	376	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	39	387	2	SimpleIdentifier	List<int>	LOCAL_VARIABLE:f.li	1	li
+13	7	398	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+13	23	414	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/e)
+13	23	414	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	34	425	1	SimpleIdentifier	Object?	LOCAL_VARIABLE:f.e	1	e
+16	10	441	19	FunctionExpression	void Function()	-	0	() => f(1, [], {});
+16	16	447	12	MethodInvocation	void	FUNCTION:f	0	f(1, [], {})
+16	16	447	1	SimpleIdentifier	void Function(Object, List<int>, Map<String, num>)	FUNCTION:f	0	f
+16	18	449	1	IntegerLiteral	int	-	0	1
+16	21	452	2	ListLiteral	List<int>	-	0	[]
+16	25	456	2	SetOrMapLiteral	Map<String, num>	-	0	{}

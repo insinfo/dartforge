@@ -1,0 +1,31 @@
+# 07_membros/mem09_relacional_is_as.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	7	62	139	FunctionExpression	void Function(int, Object, bool)	-	0	(int a, Object o, bool b) { print([/*@*/a == o, /*@*/a < 2
+3	3	92	106	MethodInvocation	void	FUNCTION:print	0	print([/*@*/a == o, /*@*/a < 2, /*@*/o is int, /*@*/o as num
+3	3	92	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+3	9	98	99	ListLiteral	List<Object>	-	0	[/*@*/a == o, /*@*/a < 2, /*@*/o is int, /*@*/o as num, /*@*
+3	15	104	6	BinaryExpression	bool	METHOD:num.==	1	a == o
+3	15	104	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+3	20	109	1	SimpleIdentifier	Object	PARAMETER:f.o	0	o
+3	28	117	5	BinaryExpression	bool	METHOD:num.<	1	a < 2
+3	28	117	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+3	32	121	1	IntegerLiteral	int	-	0	2
+3	40	129	8	IsExpression	bool	-	1	o is int
+3	40	129	1	SimpleIdentifier	Object	PARAMETER:f.o	1	o
+3	55	144	8	AsExpression	num	-	1	o as num
+3	55	144	1	SimpleIdentifier	Object	PARAMETER:f.o	1	o
+3	70	159	2	PrefixExpression	bool	-	1	!b
+3	71	160	1	SimpleIdentifier	bool	PARAMETER:f.b	0	b
+3	79	168	6	BinaryExpression	bool	METHOD:num.==	1	a != 1
+3	79	168	1	SimpleIdentifier	int	PARAMETER:f.a	1	a
+3	84	173	1	IntegerLiteral	int	-	0	1
+3	92	181	15	MethodInvocation	bool	FUNCTION:identical	1	identical(a, o)
+3	92	181	9	SimpleIdentifier	bool Function(Object?, Object?)	FUNCTION:identical	1	identical
+3	102	191	1	SimpleIdentifier	int	PARAMETER:f.a	0	a
+3	105	194	1	SimpleIdentifier	num	PARAMETER:f.o	0	o
+6	10	212	20	FunctionExpression	void Function()	-	0	() => f(1, 2, true);
+6	16	218	13	MethodInvocation	void	FUNCTION:f	0	f(1, 2, true)
+6	16	218	1	SimpleIdentifier	void Function(int, Object, bool)	FUNCTION:f	0	f
+6	18	220	1	IntegerLiteral	int	-	0	1
+6	21	223	1	IntegerLiteral	int	-	0	2
+6	24	226	4	BooleanLiteral	bool	-	0	true

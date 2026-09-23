@@ -1,0 +1,32 @@
+# 04_up_down/up05_variaveis_de_tipo.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	7	105	182	FunctionExpression	void Function<T extends num, U extends T>(T, U, bool)	-	0	<T extends num, U extends T>(T t, U u, bool b) { var p = /
+4	16	169	9	ConditionalExpression	num	-	1	b ? t : 1
+4	16	169	1	SimpleIdentifier	bool	PARAMETER:f.b	1	b
+4	20	173	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+4	24	177	1	IntegerLiteral	int	-	0	1
+5	16	195	9	ConditionalExpression	T	-	1	b ? t : u
+5	16	195	1	SimpleIdentifier	bool	PARAMETER:f.b	1	b
+5	20	199	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+5	24	203	1	SimpleIdentifier	U	PARAMETER:f.u	0	u
+6	16	221	11	ConditionalExpression	Object	-	1	b ? u : 'a'
+6	16	221	1	SimpleIdentifier	bool	PARAMETER:f.b	1	b
+6	20	225	1	SimpleIdentifier	U	PARAMETER:f.u	0	u
+6	24	229	3	SimpleStringLiteral	String	-	0	'a'
+7	16	249	12	ConditionalExpression	T?	-	1	b ? t : null
+7	16	249	1	SimpleIdentifier	bool	PARAMETER:f.b	1	b
+7	20	253	1	SimpleIdentifier	T	PARAMETER:f.t	0	t
+7	24	257	4	NullLiteral	Null	-	0	null
+8	3	265	19	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s])
+8	3	265	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	9	271	12	ListLiteral	List<Object?>	-	0	[p, q, r, s]
+8	10	272	1	SimpleIdentifier	num	LOCAL_VARIABLE:f.p	0	p
+8	13	275	1	SimpleIdentifier	T	LOCAL_VARIABLE:f.q	0	q
+8	16	278	1	SimpleIdentifier	Object	LOCAL_VARIABLE:f.r	0	r
+8	19	281	1	SimpleIdentifier	T?	LOCAL_VARIABLE:f.s	0	s
+11	10	298	30	FunctionExpression	void Function()	-	0	() => f<int, int>(1, 2, true);
+11	16	304	23	MethodInvocation	void	FUNCTION:f	0	f<int, int>(1, 2, true)
+11	16	304	1	SimpleIdentifier	void Function<T extends num, U extends T>(T, U, bool)	FUNCTION:f	0	f
+11	28	316	1	IntegerLiteral	int	-	0	1
+11	31	319	1	IntegerLiteral	int	-	0	2
+11	34	322	4	BooleanLiteral	bool	-	0	true

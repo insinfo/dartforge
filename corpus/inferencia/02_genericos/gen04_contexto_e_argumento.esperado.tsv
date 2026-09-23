@@ -1,0 +1,20 @@
+# 02_genericos/gen04_contexto_e_argumento.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	5	133	14	FunctionExpression	T Function<T>(T)	-	0	<T>(T x) => x;
+3	17	145	1	SimpleIdentifier	T	PARAMETER:id.x	0	x
+4	10	157	101	FunctionExpression	void Function()	-	0	() { num n = /*@*/id(1); Object o = /*@*/id('a'); num?
+5	16	177	5	MethodInvocation	num	FUNCTION:id	1	id(1)
+5	16	177	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+5	19	180	1	IntegerLiteral	int	-	0	1
+6	19	202	7	MethodInvocation	Object	FUNCTION:id	1	id('a')
+6	19	202	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+6	22	205	3	SimpleStringLiteral	String	-	0	'a'
+7	17	227	8	MethodInvocation	num?	FUNCTION:id	1	id(null)
+7	17	227	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+7	20	230	4	NullLiteral	Null	-	0	null
+8	3	239	16	MethodInvocation	void	FUNCTION:print	0	print([n, o, m])
+8	3	239	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+8	9	245	9	ListLiteral	List<Object?>	-	0	[n, o, m]
+8	10	246	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.n	0	n
+8	13	249	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.o	0	o
+8	16	252	1	SimpleIdentifier	num?	LOCAL_VARIABLE:main.m	0	m

@@ -1,0 +1,32 @@
+# 05_closures/clo01_parametros_do_contexto.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	96	256	FunctionExpression	void Function()	-	0	() { void Function(int) f = (x) { print(/*@*/x); };
+4	26	126	28	FunctionExpression	void Function(int)	-	0	(x) { print(/*@*/x); }
+5	5	136	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+5	5	136	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	16	147	1	SimpleIdentifier	int	PARAMETER:.x	1	x
+7	33	188	15	FunctionExpression	int Function(String)	-	1	(s) => s.length
+7	40	195	8	PrefixedIdentifier	int	GETTER:String.length	0	s.length
+7	40	195	1	SimpleIdentifier	String	PARAMETER:.s	0	s
+7	42	197	6	SimpleIdentifier	int	GETTER:String.length	0	length
+8	16	220	8	FunctionExpression	dynamic Function(dynamic)	-	1	(x) => x
+8	23	227	1	SimpleIdentifier	dynamic	PARAMETER:.x	0	x
+9	21	250	8	FunctionExpression	int Function(dynamic)	-	1	(x) => 1
+9	28	257	1	IntegerLiteral	int	-	0	1
+10	19	278	8	FunctionExpression	int Function(dynamic)	-	1	(x) => 1
+10	26	285	1	IntegerLiteral	int	-	0	1
+11	11	298	22	MethodInvocation	Iterable<int>	METHOD:Iterable.map	0	[1].map(/*@*/(x) => x)
+11	11	298	3	ListLiteral	List<int>	-	0	[1]
+11	12	299	1	IntegerLiteral	int	-	0	1
+11	15	302	3	SimpleIdentifier	Iterable<T> Function<T>(T Function(int))	METHOD:Iterable.map	0	map
+11	24	311	8	FunctionExpression	int Function(int)	-	1	(x) => x
+11	31	318	1	SimpleIdentifier	int	PARAMETER:.x	0	x
+12	3	324	25	MethodInvocation	void	FUNCTION:print	0	print([f, g, h, k, o, l])
+12	3	324	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+12	9	330	18	ListLiteral	List<Object>	-	0	[f, g, h, k, o, l]
+12	10	331	1	SimpleIdentifier	void Function(int)	LOCAL_VARIABLE:main.f	0	f
+12	13	334	1	SimpleIdentifier	int Function(String)	LOCAL_VARIABLE:main.g	0	g
+12	16	337	1	SimpleIdentifier	dynamic Function(dynamic)	LOCAL_VARIABLE:main.h	0	h
+12	19	340	1	SimpleIdentifier	Function	LOCAL_VARIABLE:main.k	0	k
+12	22	343	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.o	0	o
+12	25	346	1	SimpleIdentifier	Iterable<int>	LOCAL_VARIABLE:main.l	0	l

@@ -1,0 +1,37 @@
+# 06_fluxo/flu10_never.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	12	85	14	FunctionExpression	Never Function()	-	0	() => throw 0;
+2	18	91	7	ThrowExpression	Never	-	0	throw 0
+2	24	97	1	IntegerLiteral	int	-	0	0
+3	7	106	196	FunctionExpression	void Function(int?, int?, int?)	-	0	(int? x, int? y, int? z) { if (x == null) throw 0; print
+4	7	139	9	BinaryExpression	bool	METHOD:num.==	0	x == null
+4	7	139	1	SimpleIdentifier	int?	PARAMETER:f.x	0	x
+4	12	144	4	NullLiteral	Null	-	0	null
+4	18	150	7	ThrowExpression	Never	-	0	throw 0
+4	24	156	1	IntegerLiteral	int	-	0	0
+5	3	161	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/x)
+5	3	161	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	14	172	1	SimpleIdentifier	int	PARAMETER:f.x	1	x
+6	7	182	9	BinaryExpression	bool	METHOD:num.==	0	y == null
+6	7	182	1	SimpleIdentifier	int?	PARAMETER:f.y	0	y
+6	12	187	4	NullLiteral	Null	-	0	null
+6	18	193	7	MethodInvocation	Never	FUNCTION:falha	0	falha()
+6	18	193	5	SimpleIdentifier	Never Function()	FUNCTION:falha	0	falha
+7	3	204	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/y)
+7	3	204	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+7	14	215	1	SimpleIdentifier	int	PARAMETER:f.y	1	y
+8	7	225	9	BinaryExpression	bool	METHOD:num.==	0	z == null
+8	7	225	1	SimpleIdentifier	int?	PARAMETER:f.z	0	z
+8	12	230	4	NullLiteral	Null	-	0	null
+11	5	265	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/z)
+11	5	265	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	16	276	1	SimpleIdentifier	int	PARAMETER:f.z	1	z
+13	3	286	13	MethodInvocation	void	FUNCTION:print	0	print(/*@*/z)
+13	3	286	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+13	14	297	1	SimpleIdentifier	int	PARAMETER:f.z	1	z
+16	10	313	17	FunctionExpression	void Function()	-	0	() => f(1, 2, 3);
+16	16	319	10	MethodInvocation	void	FUNCTION:f	0	f(1, 2, 3)
+16	16	319	1	SimpleIdentifier	void Function(int?, int?, int?)	FUNCTION:f	0	f
+16	18	321	1	IntegerLiteral	int	-	0	1
+16	21	324	1	IntegerLiteral	int	-	0	2
+16	24	327	1	IntegerLiteral	int	-	0	3
