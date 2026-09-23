@@ -604,4 +604,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => None,
         }
     }
+
+    /// Tear-off de construtor (`C.new`, `C.nome`): canônico, e a entrada
+    /// constrói o objeto com os argumentos recebidos.
+    pub fn tearoff_de_construtor(&mut self, fid: usize, span: Span) -> Operand {
+        let alvo = super::simbolo_de(self.ctx, fid);
+        let simbolo_ent = format!("{alvo}$tear");
+        if !self.entradas_feitas.contains(&simbolo_ent) {
+            self.entradas_feitas.insert(simbolo_ent.clone());
+            let infos = self.params_da_funcao(fid);
+            let nome = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), nome, Type::Ref);
+            e.add_param("closure".to_string(), Type::Ref);
+            let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
+            let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+            if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
+                    .parameters
+                    .iter()
+                    .zip(vals)
+                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .collect();
+                let r = e.instanciar_avaliados(dartforge_elements::model::FunctionElementId(fid as u32), &avaliados, span);
+                let r = e.coagir(r, Type::Ref);
+                e.terminate(Terminator::Return(Some(r)));
+            }
+            self.absorver(e);
+        }
+        self.emit(
+            Instruction::TearOff {
+                code_symbol: simbolo_ent,
+            },
+            Type::Ref,
+        )
+    }
 }

@@ -46,6 +46,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
                 return self.chamar_extensao(this, member.0 as usize, &avaliados, expr.span);
             }
+            // Método do SDK chamado sem receptor (no corpo de uma extensão
+            // sobre um tipo do SDK): pelo nome, com `this`.
+            if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = resolvido
+                && !crate::lower::funcao_do_usuario(self.ctx, f.0 as usize)
+                && let Some(this) = self.this_param.clone()
+            {
+                let nome = self.ctx.symbol_name(id.sym).to_string();
+                return self.metodo_sdk_por_nome(ast, expr, target, target, &nome, this, arguments);
+            }
             match resolvido {
                 Some(Resolved::Element(dartforge_elements::model::Element::Function(f)))
                     if crate::lower::funcao_do_usuario(self.ctx, f.0 as usize)
@@ -153,6 +162,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let m_name = self.ctx.symbol_name(method_name.sym);
             let resolved_alvo = self.ctx.get_resolved(self.unit_id, *target).cloned();
 
+            // `prefixo.f(…)`: o elemento importado com prefixo.
+            if let Some(el) = self.elemento_prefixado(ast, *inner_target, method_name.sym) {
+                use dartforge_elements::model::Element;
+                match el {
+                    Element::Function(f)
+                        if crate::lower::funcao_do_usuario(self.ctx, f.0 as usize)
+                            && self.ctx.program.functions[f.0 as usize].variable.is_none()
+                            && self.ctx.program.functions[f.0 as usize].kind
+                                != dartforge_elements::model::FunctionKind::Getter =>
+                    {
+                        let fid = f.0 as usize;
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        let args = self.casar_args(fid, &avaliados);
+                        return self.chamar_direto(fid, None, args);
+                    }
+                    Element::Class(c) if !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk => {
+                        let vazio = self.ctx.interner.lookup("");
+                        if let Some(f) = vazio.and_then(|v| self.ctx.program.classes[c.0 as usize].constructors.get(&v).copied()) {
+                            return self.instanciar(ast, f, &arguments.args, expr.span);
+                        }
+                    }
+                    outro => {
+                        let v = self.ler_elemento(outro, expr.span);
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        return self.chamar_valor_funcao(v, &avaliados);
+                    }
+                }
+            }
+
             // `C.m(…)`: método estático do usuário.
             let alvo_e_classe = matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
@@ -210,7 +248,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
 
             // Membro de extensão (P4): chamada direta com o receptor.
-            if let Some(Resolved::ExtensionMember { member, .. }) = resolved_alvo {
+            if let Some(Resolved::ExtensionMember { member, .. }) = resolved_alvo
+                && crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
+            {
                 let avaliados = self.avaliar_args(ast, &arguments.args);
                 return self.chamar_extensao(recv_op, member.0 as usize, &avaliados, expr.span);
             }
@@ -368,5 +408,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             recv_op,
             arguments,
         )
+    }
+
+    /// `prefixo.nome` com `prefixo` de um `import … as prefixo`: o elemento.
+    pub fn elemento_prefixado(
+        &self,
+        ast: &ast::Ast,
+        alvo: ExprId,
+        nome: dartforge_intern::SymbolId,
+    ) -> Option<dartforge_elements::model::Element> {
+        let ExprKind::Identifier(p) = &ast.expr(alvo).kind else {
+            return None;
+        };
+        match self.ctx.get_resolved(self.unit_id, alvo) {
+            Some(Resolved::Prefix(_)) | None => {}
+            _ => return None,
+        }
+        if self.buscar_local(p.sym).is_some() {
+            return None;
+        }
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let b = self.ctx.program.lookup_prefixed(lib, p.sym, nome)?;
+        b.getter.or(b.setter)
     }
 }

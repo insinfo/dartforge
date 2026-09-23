@@ -365,6 +365,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.ctx.get_resolved(self.unit_id, acesso)
         {
             let classe = &self.ctx.program.classes[class.0 as usize];
+            // Membro herdado do SDK (`index`/`name` de enum, `hashCode`,
+            // `toString` de `Object`…) numa classe do programa: não é
+            // membro compilado — vai pelos caminhos do SDK.
+            let lib_do_membro = match member {
+                MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
+                MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
+            };
+            if self.ctx.program.library(lib_do_membro).is_sdk {
+                return None;
+            }
             return (!self.ctx.program.library(classe.library).is_sdk).then_some((*class, *member));
         }
         let cid = self.classe_do_usuario_de(recv)?;
@@ -1123,6 +1133,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         };
         let s = nome.unwrap_or(vazio);
+        if nome.is_none() && sup_classe.constructors.is_empty() {
+            // Superclasse sem construtor declarado e sem o sintético (a
+            // classe abstrata não o ganha no elemento): o construtor padrão
+            // implícito — inicializadores de campo e o `super()` dela.
+            self.inicializar_campos(sup);
+            self.chamar_super(sup, None, Vec::new(), span);
+            return;
+        }
         let Some(&sf) = sup_classe.constructors.get(&s) else {
             self.nao_suportado("construtor da superclasse não encontrado", span);
             return;

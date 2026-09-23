@@ -383,6 +383,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                     Some(Resolved::Member { member, .. }) => {
+                        if let Some(op) = self.ler_membro_implicito_do_sdk(member, sym, expr_id, span) {
+                            return op;
+                        }
                         return self.ler_membro_implicito(member, span);
                     }
                     Some(Resolved::Element(el)) => {
@@ -395,6 +398,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     _ => {}
                 }
                 if let Some(op) = self.ler_local_por_nome(sym) {
+                    return op;
+                }
+                // `$this` numa interpolação chega como identificador.
+                if self.ctx.symbol_name(sym) == "this"
+                    && let Some(t) = self.this_param.clone()
+                {
+                    return t;
+                }
+                // `$1` sem receptor, no corpo de uma extensão sobre um record.
+                if self.ctx.symbol_name(sym).starts_with('$')
+                    && let Some(t) = self.this_param.clone()
+                    && let Some(op) = {
+                        let nome = self.ctx.symbol_name(sym).to_string();
+                        let mut padrao = |s: &mut Self| s.lancar_nsm(&nome);
+                        self.ler_campo_de_registro(t, self.ctx.symbol_name(sym), &mut padrao)
+                    }
+                {
                     return op;
                 }
                 // `x` no corpo de um construtor com `this.x`: a inferência o
@@ -653,6 +673,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     {
                         return self.valores_do_enum(c, span);
                     }
+                    // `C.new`/`C.nome`: tear-off de construtor (P4).
+                    if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                        self.ctx.get_resolved(self.unit_id, *target).cloned()
+                        && !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk
+                    {
+                        let chave = if prop_name == "new" {
+                            self.ctx.interner.lookup("")
+                        } else {
+                            Some(name.sym)
+                        };
+                        if let Some(f) = chave.and_then(|k| self.ctx.program.classes[c.0 as usize].constructors.get(&k).copied())
+                            && !matches!(resolved, Some(Resolved::Member { .. }))
+                        {
+                            return self.tearoff_de_construtor(f.0 as usize, span);
+                        }
+                    }
                     return match resolved {
                         Some(Resolved::Member { member, .. }) => {
                             self.ler_membro_estatico(member, span)
@@ -661,6 +697,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                 }
 
+                // `prefixo.x`: o elemento importado com prefixo.
+                if let Some(el) = self.elemento_prefixado(ast, *target, name.sym) {
+                    return self.ler_elemento(el, span);
+                }
                 // `super.x` (P4).
                 if matches!(ast.expr(*target).kind, ExprKind::Super) {
                     return self.ler_super(name.sym, span);
@@ -669,6 +709,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let target_op = self.lower_alvo(ast, *target);
                 if *null_aware {
                     self.desviar_se_nulo(&target_op);
+                }
+
+                // `index`/`name` de um valor de enum do programa (os
+                // campos implícitos, que o elemento não compila).
+                if let Some(c) = self.classe_do_usuario_de(*target)
+                    && let Some(op) = self.membro_de_enum(c, prop_name, target_op.clone())
+                {
+                    return op;
                 }
 
                 // Membro de classe do usuário: pelo elemento resolvido (R7),
@@ -701,7 +749,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
 
                 // Getter de extensão (P4).
-                if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone() {
+                if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone()
+                    && crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
+                {
                     return self.ler_extensao(target_op, member.0 as usize, span);
                 }
                 // `r.$1`/`r.nome`: campo de um record (posicional do
@@ -967,5 +1017,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         self.propriedade_sdk_por_nome(target_op, prop_name, expr_id, span)
+    }
+
+    /// Membro implícito (`x` = `this.x`) que é do SDK (a extensão sobre um
+    /// tipo do SDK, o `name`/`index` do enum dentro dele): pelo caminho do
+    /// SDK com `this` como receptor.
+    pub fn ler_membro_implicito_do_sdk(
+        &mut self,
+        member: dartforge_types::resolved::MemberRef,
+        sym: dartforge_intern::SymbolId,
+        expr_id: ExprId,
+        span: dartforge_diagnostics::Span,
+    ) -> Option<Operand> {
+        let lib = match member {
+            MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
+            MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
+        };
+        if !self.ctx.program.library(lib).is_sdk {
+            return None;
+        }
+        let this = self.this_param.clone()?;
+        let nome = self.ctx.symbol_name(sym).to_string();
+        if let Some(c) = self.enclosing_class
+            && let Some(op) = self.membro_de_enum(c, &nome, this.clone())
+        {
+            return Some(op);
+        }
+        if nome.starts_with('$') {
+            let n2 = nome.clone();
+            let mut padrao = |s: &mut Self| s.lancar_nsm(&n2);
+            if let Some(op) = self.ler_campo_de_registro(this.clone(), &nome, &mut padrao) {
+                return Some(op);
+            }
+        }
+        Some(self.propriedade_sdk_por_nome(this, &nome, expr_id, span))
     }
 }

@@ -799,10 +799,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => {
                 let lib = self.ctx.program.unit(self.unit_id).library;
-                let cid = self
-                    .ctx
-                    .program
-                    .lookup(lib, ultimo.sym)
+                // `p.Tipo` (import com prefixo) ou `Tipo`.
+                let binding = match &name[..] {
+                    [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
+                    _ => self.ctx.program.lookup(lib, ultimo.sym),
+                };
+                let cid = binding
                     .and_then(|b| match b.getter {
                         Some(dartforge_elements::model::Element::Class(c)) => Some(c),
                         _ => None,

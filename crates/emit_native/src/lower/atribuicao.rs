@@ -148,6 +148,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if *null_aware {
                     return self.nao_suportado("atribuição com `?.`", span);
                 }
+                // `prefixo.x = v`: variável de topo importada com prefixo.
+                if let Some(el) = self.elemento_prefixado(ast, *recv, name.sym) {
+                    let vid = match el {
+                        Element::Variable(v) => Some(v),
+                        Element::Function(f) => self.ctx.program.functions[f.0 as usize].variable,
+                        _ => None,
+                    };
+                    if let Some(vid) = vid {
+                        let cur = if composto {
+                            Some(self.ler_global(vid, span))
+                        } else {
+                            None
+                        };
+                        let v = self.combinar(ast, op, cur, value);
+                        return self.gravar_global(vid, v, span);
+                    }
+                }
                 // `super.x = v` (P4).
                 if matches!(ast.expr(*recv).kind, ast::ExprKind::Super) {
                     let cur = if composto {

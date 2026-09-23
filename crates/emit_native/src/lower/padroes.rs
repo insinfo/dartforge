@@ -91,7 +91,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let ultimo = name.last()?;
         let lib = self.ctx.program.unit(self.unit_id).library;
-        match self.ctx.program.lookup(lib, ultimo.sym)?.getter {
+        let binding = match &name[..] {
+            [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
+            _ => self.ctx.program.lookup(lib, ultimo.sym),
+        };
+        match binding?.getter {
             Some(Element::Class(c)) => Some(c),
             _ => None,
         }
