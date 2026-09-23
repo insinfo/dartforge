@@ -83,6 +83,10 @@ pub struct Componente {
     /// entrassem no mesmo mapa, `{{ titulo }}` (tearoff) seria interpolado
     /// como se fosse o valor de retorno.
     pub metodos: std::collections::HashMap<String, String>,
+    /// Parâmetros posicionais de cada método de instância: é o que decide,
+    /// num tear-off (`(click)="salvar"`), entre `salvar()` e
+    /// `salvar($event)` (`rewriteTearOff`).
+    pub aridades: std::collections::HashMap<String, usize>,
 }
 
 /// Um `@Input`.
@@ -169,14 +173,14 @@ pub struct Consulta {
     pub tipo: String,
 }
 
-/// Um `@HostListener` do componente na forma que o oficial liga com
-/// `eventHandler0`/`eventHandler1` direto no nó raiz.
+/// Um `@HostListener` do componente: o evento e o texto do handler que o
+/// oficial monta (`_addHostListener`: `metodo(args)`, com `$event`
+/// deduzido quando não há `args` e o método tem um parâmetro). O texto passa
+/// pelo mesmo conversor de handlers do template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ouvinte {
     pub evento: String,
-    pub metodo: String,
-    /// 0 para `m()`, 1 para `m($event)`.
-    pub aridade: u8,
+    pub handler: String,
 }
 
 /// Um parâmetro do construtor do componente.
@@ -307,6 +311,7 @@ fn ler(
     c.parametros = parametros_do_construtor(arvore, fonte, interner, classe);
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
     c.metodos = tipos_dos_metodos(arvore, fonte, interner, classe);
+    c.aridades = aridades_dos_metodos(arvore, interner, classe);
     // `exports:` põe nomes estáticos no escopo das expressões, e eles vencem
     // o membro de mesmo nome (`_matchExport` antes do receptor implícito).
     // Um membro sombreado assim sai do mapa, e usá-lo é recusado.
@@ -314,6 +319,7 @@ fn ler(
         let simples = n.split('.').next().unwrap_or(n);
         c.membros.remove(simples);
         c.metodos.remove(simples);
+        c.aridades.remove(simples);
     }
     c.entradas = entradas_da_classe(arvore, interner, classe);
     c.saidas = saidas_da_classe(arvore, interner, classe);
@@ -486,12 +492,9 @@ fn consultas_da_classe(
 }
 
 /// Os `@HostListener` da classe, na ordem de declaração dos métodos (o
-/// `DirectiveVisitor` visita os métodos em ordem). A regra do handler é a de
+/// `DirectiveVisitor` visita os métodos em ordem). O handler é o texto de
 /// `_addHostListener` (`find_components.dart`): sem `args`, um método de um
-/// parâmetro recebe `$event`; o texto `metodo(args)` é então classificado
-/// por `handlerTypeFromExpression` (`parse_utils.dart`) — só `m()` e
-/// `m($event)` são simples. O resto vira um método `_handleEvent_N` (caso
-/// b17 do corpus), forma que ainda recusamos.
+/// parâmetro recebe `$event`.
 fn ouvintes_da_classe(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -505,7 +508,7 @@ fn ouvintes_da_classe(
             if crate::nome_da_anotacao(a, interner) != "HostListener" {
                 continue;
             }
-            match ouvinte_simples(arvore, interner, membro, a) {
+            match ouvinte(arvore, interner, membro, a) {
                 Some(o) if !saida.iter().any(|x| x.evento == o.evento) => saida.push(o),
                 // Dois ouvintes do mesmo evento: o mapa do oficial fica com o
                 // último, no lugar do primeiro. Ainda não.
@@ -515,7 +518,7 @@ fn ouvintes_da_classe(
                 )),
                 None => fora.push(recusa(
                     Motivo::HostListenerEmComponente,
-                    "@HostListener fora da forma `m()`/`m($event)` de evento nativo",
+                    "@HostListener de evento não nativo ou fora da forma `m(args)`",
                 )),
             }
         }
@@ -523,8 +526,8 @@ fn ouvintes_da_classe(
     saida
 }
 
-/// Lê um `@HostListener` na forma simples, ou `None`.
-fn ouvinte_simples(
+/// Lê um `@HostListener`, ou `None` se ele sai da forma conhecida.
+fn ouvinte(
     arvore: &ast::Ast,
     interner: &Interner,
     membro: &ast::Member,
@@ -548,11 +551,11 @@ fn ouvinte_simples(
     };
     let evento = texto_do_argumento(arvore, evento.value)?;
     // Evento que não é do DOM (`document:click`, `keyup.enter`) vai pelo
-    // `eventManager`, outra forma.
+    // `eventManager` e, com `:`, nem é aceito pelo oficial; ainda não.
     if !crate::visao::evento_nativo(&evento) {
         return None;
     }
-    let argumentos = match lista {
+    let mut argumentos = match lista {
         None => Vec::new(),
         Some(l) => {
             let ast::ExprKind::List { elements, .. } = &arvore.expr(l).kind else {
@@ -565,16 +568,12 @@ fn ouvinte_simples(
             textos
         }
     };
-    let aridade = match argumentos.as_slice() {
-        [] if parametros == 1 => 1,
-        [] => 0,
-        [x] if x == "$event" => 1,
-        _ => return None,
-    };
+    if argumentos.is_empty() && parametros == 1 {
+        argumentos.push("$event".into());
+    }
     Some(Ouvinte {
         evento,
-        metodo,
-        aridade,
+        handler: format!("{metodo}({})", argumentos.join(", ")),
     })
 }
 
@@ -849,6 +848,33 @@ fn saidas_da_classe(
     // dos campos pelo `visitChildren` da classe), depois campos.
     getters.extend(campos);
     getters
+}
+
+/// Parâmetros posicionais (obrigatórios e opcionais) de cada método de
+/// instância.
+fn aridades_dos_metodos(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+) -> std::collections::HashMap<String, usize> {
+    let mut saida = std::collections::HashMap::new();
+    for &id in &classe.members {
+        let ast::MemberKind::Method(f) = &arvore.member(id).kind else {
+            continue;
+        };
+        let funcao = arvore.function(*f);
+        if !matches!(funcao.kind, ast::FunctionKind::Function) || funcao.static_ {
+            continue;
+        }
+        let Some(nome) = funcao.name else { continue };
+        let posicionais = funcao.parameters.as_ref().map_or(0, |ps| {
+            ps.iter()
+                .filter(|p| !matches!(p.kind, ast::ParameterKind::Named))
+                .count()
+        });
+        saida.insert(interner.resolve(nome.sym).to_string(), posicionais);
+    }
+    saida
 }
 
 /// Retorno de cada método de instância da classe.

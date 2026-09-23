@@ -103,6 +103,7 @@ const SEM_PREFIXO: &[&str] = &[
     "package:ngdart/src/core/render/api.dart",
 ];
 const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
+const APP_VIEW_UTILS: &str = "package:ngdart/src/core/linker/app_view_utils.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
 /// é isso que diz qual forma vale a pena aprender em seguida.
@@ -542,6 +543,19 @@ struct Corpo<'a> {
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
     /// Métodos da classe, válidos só como alvo de chamada.
     metodos: &'a std::collections::HashMap<String, String>,
+    /// Parâmetros posicionais de cada método, para o tear-off de evento.
+    aridades: &'a std::collections::HashMap<String, usize>,
+    /// Os métodos `_handleEvent_N` desta visão, na ordem em que foram
+    /// criados (`createEventHandler`); saem depois do `destroyInternal`.
+    metodos_evento: Vec<String>,
+    /// Declaração (`final local_x = …;`) de cada local **desta** visão, ou
+    /// por que ele não pode ser declarado. Local de visão ancestral não está
+    /// aqui: ele é lido pela cadeia de `parentView`, forma ainda recusada.
+    decl_locais: std::collections::HashMap<String, Result<String, Recusa>>,
+    /// Os locais lidos pelas ligações da detecção, na ordem do primeiro uso
+    /// (`_localsInScope` do `ViewNameResolver` da visão): é a ordem das
+    /// declarações no topo do `detectChangesInternal`.
+    locais_raiz: Vec<String>,
     /// Componentes que este template pode usar, por seletor.
     filhos: &'a std::collections::HashMap<String, Filho>,
     /// Todas as diretivas e componentes de `directives:`, para saber o que
@@ -634,20 +648,43 @@ impl Corpo<'_> {
             .ok_or_else(|| recusa(motivo, "ligação em template escrito na anotação"))
     }
 
+    /// Converte uma expressão das ligações da detecção; os locais que ela lê
+    /// entram na lista da raiz, na ordem do primeiro uso.
     fn converter(
         &mut self,
         texto: &str,
         motivo: Motivo,
     ) -> Result<crate::expr::Convertida, Recusa> {
-        crate::expr::converter_com_locais(
-            texto,
-            self.membros,
-            self.metodos,
-            &self.locais,
-            self.nomes,
-            self.tipos,
-        )
-        .map_err(|r| r.em(motivo))
+        let locais = self.locais.clone();
+        let escopo = crate::expr::Escopo {
+            membros: self.membros,
+            metodos: self.metodos,
+            aridades: self.aridades,
+            locais: &locais,
+            tipos: self.tipos,
+        };
+        let c = crate::expr::converter_no_escopo(texto, &escopo, self.nomes)
+            .map_err(|r| r.em(motivo))?;
+        for l in &c.locais {
+            self.declaracao_do_local(l, motivo)?;
+            if !self.locais_raiz.contains(l) {
+                self.locais_raiz.push(l.clone());
+            }
+        }
+        Ok(c)
+    }
+
+    /// A declaração de um local desta visão, ou a recusa: local de visão
+    /// ancestral (lido por `parentView`) e local sem tipo conhecido.
+    fn declaracao_do_local(&self, nome: &str, motivo: Motivo) -> Result<String, Recusa> {
+        match self.decl_locais.get(nome) {
+            Some(Ok(d)) => Ok(d.clone()),
+            Some(Err(r)) => Err(r.clone().em(motivo)),
+            None => Err(recusa(
+                motivo,
+                "local de `*` ancestral lido na visão aninhada",
+            )),
+        }
     }
 
     /// `[x]="e"`: valor novo, `checkBinding` contra o anterior e a ação sobre
@@ -808,58 +845,112 @@ impl Corpo<'_> {
         })
     }
 
-    /// `(e)="metodo()"` ou `(e)="metodo($event)"`: o oficial passa o método
-    /// por referência a `eventHandlerN`, onde N é quantos argumentos o
-    /// template escreveu.
-    fn evento(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<(), Recusa> {
-        // Evento fora da lista do DOM (`keyup.enter`, `document:click`,
-        // evento próprio) vai pelo `eventManager` do ngdart, outra forma.
-        if !evento_nativo(&l.nome) {
-            return Err(recusa(
-                Motivo::Evento,
-                if l.nome.contains('.') {
-                    "evento com modificador (`keyup.enter`)"
-                } else {
-                    "evento não nativo"
-                },
-            ));
+    /// Os eventos de um elemento, como `bindRenderOutputs` os liga: os do
+    /// mesmo nome fundidos num handler só (`mergeEvents`, na ordem da
+    /// primeira ocorrência), cada um com o seu ouvinte no fim do `build()`.
+    fn eventos(&mut self, e: &crate::html::Elemento, alvo: &str) -> Result<(), Recusa> {
+        let mut grupos: Vec<(&str, Vec<&str>)> = Vec::new();
+        for l in &e.eventos {
+            match grupos.iter_mut().find(|(n, _)| *n == l.nome) {
+                // Dois `(click)` escritos no mesmo elemento são erro no
+                // oficial ("Found multiple events with the same name"); a
+                // fusão só acontece com os ouvintes que vêm de diretivas.
+                Some(_) => {
+                    return Err(recusa(
+                        Motivo::Evento,
+                        "dois handlers do mesmo evento no template",
+                    ));
+                }
+                None => grupos.push((&l.nome, vec![&l.valor])),
+            }
         }
-        let complexo = || recusa(Motivo::Evento, "handler complexo");
-        let texto = l.valor.trim();
-        let Some((nome, resto)) = texto.split_once('(') else {
-            return Err(complexo());
-        };
-        let Some(args) = resto.strip_suffix(')') else {
-            return Err(complexo());
-        };
-        let aridade = match args.trim() {
-            "" => 0,
-            "$event" => 1,
-            _ => return Err(complexo()),
-        };
-        // O alvo é um método do componente, passado por referência
-        // (`_tearOffSimpleHandler`): `_ctx.metodo`. Pelo conversor de
-        // expressões não dá — método solto não é valor lá, e o evento nunca
-        // saía. Local de visão com o mesmo nome sombrearia o método.
-        let nome = nome.trim();
-        if !self.metodos.contains_key(nome) || self.locais.contains_key(nome) {
-            return Err(recusa(
-                Motivo::Evento,
-                "handler que não é método do componente",
-            ));
+        for (nome, handlers) in grupos {
+            match self.handler(&handlers) {
+                Ok(h) => self.ouvinte(nome, alvo, &h),
+                Err(r) => self.anotar(r)?,
+            }
         }
-        // Na visão embutida o `build()` não declara `_ctx`; o que o oficial
-        // escreve ali ainda não tem caso no corpus.
-        if self.embutida {
-            return Err(recusa(Motivo::Evento, "evento em visão embutida"));
-        }
-        let metodo = format!("_ctx.{nome}");
-        self.usa_ctx_no_build = true;
-        let evento = &l.nome;
-        self.ouvintes.push(format!(
-            "    {alvo}.addEventListener('{evento}', this.eventHandler{aridade}({metodo}));"
-        ));
         Ok(())
+    }
+
+    /// O ouvinte de um evento: `addEventListener` do elemento para evento do
+    /// DOM, o `eventManager` do ngdart para o resto (`keyup.enter`, evento
+    /// próprio) — `visitNativeEvent` × `visitCustomEvent`.
+    fn ouvinte(&mut self, nome: &str, alvo: &str, handler: &str) {
+        let linha = if evento_nativo(nome) {
+            format!("    {alvo}.addEventListener('{nome}', {handler});")
+        } else {
+            let utils = tardio_q(APP_VIEW_UTILS);
+            format!(
+                "    {utils}appViewUtils.eventManager.addEventListener({alvo}, '{nome}', {handler});"
+            )
+        };
+        self.ouvintes.push(linha);
+    }
+
+    /// A expressão do handler de um evento (`BoundValueConverter`): um só
+    /// handler simples vira tear-off (`this.eventHandler0(_ctx.m)`); o
+    /// resto — atribuição, argumentos, vários handlers fundidos — vira o
+    /// método `_handleEvent_N` desta visão, com `eventHandler1`.
+    fn handler(&mut self, textos: &[&str]) -> Result<String, Recusa> {
+        let escopo_locais = self.locais.clone();
+        let escopo = crate::expr::Escopo {
+            membros: self.membros,
+            metodos: self.metodos,
+            aridades: self.aridades,
+            locais: &escopo_locais,
+            tipos: self.tipos,
+        };
+        let mut acoes = Vec::new();
+        for t in textos {
+            acoes.push(
+                crate::expr::converter_acao(t, &escopo, self.nomes)
+                    .map_err(|r| r.em(Motivo::Evento))?,
+            );
+        }
+        if let [
+            crate::expr::Acao::Simples {
+                metodo, aridade, ..
+            },
+        ] = acoes.as_slice()
+        {
+            self.usa_ctx_no_build = true;
+            return Ok(format!("this.eventHandler{aridade}(_ctx.{metodo})"));
+        }
+        // Complexo: as instruções, com os locais que elas leem declarados
+        // no topo do método (o escopo do `scopeNamespace`).
+        let mut instrucoes = Vec::new();
+        let mut locais: Vec<String> = Vec::new();
+        for a in &acoes {
+            match a {
+                crate::expr::Acao::Simples { instrucao, .. } => instrucoes.push(instrucao.clone()),
+                crate::expr::Acao::Complexa(c) => {
+                    instrucoes.push(c.texto.clone());
+                    for l in &c.locais {
+                        if !locais.contains(l) {
+                            locais.push(l.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let mut corpo = Vec::new();
+        for l in &locais {
+            corpo.push(format!(
+                "    {}",
+                self.declaracao_do_local(l, Motivo::Evento)?
+            ));
+        }
+        if cita_ctx(&instrucoes) {
+            corpo.push("    final _ctx = this.ctx;".to_string());
+        }
+        corpo.extend(instrucoes.iter().map(|i| format!("    {i};")));
+        let n = self.metodos_evento.len();
+        self.metodos_evento.push(format!(
+            "\n  void _handleEvent_{n}($event) {{\n{}\n  }}\n",
+            corpo.join("\n")
+        ));
+        Ok(format!("this.eventHandler1(this._handleEvent_{n})"))
     }
 
     /// Um componente dentro do template: a visão-filha é um campo, a
@@ -1570,23 +1661,9 @@ impl Corpo<'_> {
             }
         }
         self.escrever_ligacoes(ligadas);
-        // Dois `(click)` no mesmo elemento viram um método só
-        // (`mergeEvents`); ainda não.
-        // Evento em nó projetado num filho ainda não tem caso no
-        // corpus.
-        if pai.is_empty() && !e.eventos.is_empty() {
-            self.anotar(recusa(Motivo::Evento, "evento em nó projetado"))?;
-        }
-        let mut vistos = std::collections::HashSet::new();
-        for l in &e.eventos {
-            if !vistos.insert(l.nome.as_str()) {
-                self.anotar(recusa(Motivo::Evento, "dois handlers do mesmo evento"))?;
-                continue;
-            }
-            if let Err(r) = self.evento(l, &alvo) {
-                self.anotar(r)?;
-            }
-        }
+        // Os ouvintes saem juntos no fim do `build()`, na ordem em que os
+        // elementos aparecem (`bindView` depois de `_buildView`).
+        self.eventos(e, &alvo)?;
         if self.com_estilo {
             // Isolamento de estilo por atributo: o elemento entra
             // no escopo do componente.
@@ -1771,6 +1848,7 @@ struct EspecEmbutida {
 struct Contexto<'a> {
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
     metodos: &'a std::collections::HashMap<String, String>,
+    aridades: &'a std::collections::HashMap<String, usize>,
     filhos: &'a std::collections::HashMap<String, Filho>,
     usadas: &'a [Usada],
     asset: String,
@@ -1813,6 +1891,10 @@ impl<'a> Contexto<'a> {
             url_do_template: self.url_do_template.clone(),
             membros: self.membros,
             metodos: self.metodos,
+            aridades: self.aridades,
+            metodos_evento: Vec::new(),
+            decl_locais: Default::default(),
+            locais_raiz: Vec::new(),
             filhos: self.filhos,
             usadas: self.usadas,
             coleta,
@@ -1881,69 +1963,24 @@ fn corpo_da_embutida(
     if tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
     }
-    // Local declarado numa visão *ancestral* é lido pela cadeia de
-    // `parentView`, com cast para a classe daquela visão:
-    // `unsafeCast<_ViewX2>((this.parentView!)).locals['$implicit']`.
-    // É mecanismo próprio e ainda não está verificado por caso de corpus.
-    for nome in espec.locais.keys() {
-        let meu = espec.micro.locais.iter().any(|(n, _)| n == nome);
-        if !meu && local_citado(&espec.nos, nome) {
-            dentro.anotar(recusa(
-                Motivo::Ligacao,
-                "local de `*` ancestral lido na visão aninhada",
-            ))?;
-        }
-    }
     if let Err(r) = alocar_imports_dos_campos(dentro.imp, &espec.nos, ctx.filhos, &ctx.asset) {
         dentro.anotar(r)?;
     }
     // O construtor vem depois dos campos e antes do `build()`, e é ele que
     // nomeia a `RenderView`.
     let rv = dentro.imp.alias(RENDER_VIEW);
-    // As declarações de local abrem o `detectChangesInternal`, antes de
-    // qualquer ligação; o argumento de tipo do `unsafeCast` é que traz o
-    // `dart:core`.
     let util = dentro.imp.alias(UTILITIES);
-    let usados: Vec<&(String, String)> = espec
-        .micro
-        .locais
-        .iter()
-        .filter(|(nome, _)| local_citado(&espec.nos, nome))
-        .collect();
-    // O argumento de tipo do `unsafeCast` precisa estar importado e
-    // qualificado: do `dart:core` sai sem prefixo, de outra biblioteca sai
-    // com o prefixo dela — a biblioteca que declara o tipo, procurada no
-    // escopo em que o texto do tipo foi escrito.
-    let mut tipos_locais: std::collections::HashMap<String, String> = Default::default();
-    for (nome, _) in &usados {
+    // A declaração de cada local desta visão, pronta para quem a pedir (a
+    // detecção ou um `_handleEvent_N`). Local de visão *ancestral* é lido
+    // pela cadeia de `parentView` (`unsafeCast<_ViewX2>((this.parentView!))
+    // .locals['$implicit']`), mecanismo ainda sem caso no corpus: fica fora
+    // do mapa e quem o lê recusa.
+    for (nome, chave) in &espec.micro.locais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
             continue;
         };
-        if matches!(
-            l.tipo.as_str(),
-            "String" | "int" | "double" | "bool" | "num" | "Object"
-        ) {
-            dentro.imp.alias("dart:core");
-            tipos_locais.insert(nome.to_string(), l.tipo.clone());
-            continue;
-        }
-        let sem_import = || recusa(Motivo::Ligacao, "tipo do local de `*ngFor` sem import");
-        let Some((r, arquivo)) = ctx.tipos else {
-            dentro.anotar(sem_import())?;
-            continue;
-        };
-        let escopo = l.escopo.as_deref().unwrap_or(arquivo);
-        let caminho = r
-            .uri_do_tipo(escopo, &l.tipo)
-            .and_then(|uri| asset_de_uri(&uri, "", Path::new("")))
-            .and_then(|alvo| caminho_do_import(&ctx.asset, &alvo));
-        let Some(caminho) = caminho else {
-            dentro.anotar(sem_import())?;
-            continue;
-        };
-        let q = dentro.imp.q(&caminho);
-        let simples = l.tipo.rsplit('.').next().unwrap_or(&l.tipo);
-        tipos_locais.insert(nome.to_string(), format!("{q}{simples}"));
+        let decl = declaracao_de_local(l, chave, ctx, &util);
+        dentro.decl_locais.insert(nome.clone(), decl);
     }
     let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
     dentro.nos(&espec.nos, "")?;
@@ -1952,27 +1989,32 @@ fn corpo_da_embutida(
     if dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
         dentro.anotar(recusa(Motivo::Ligacao, "visão embutida sem nó"))?;
     }
-    // O local só é declarado se for usado, como no oficial.
+    // Os locais lidos pela detecção, na ordem do primeiro uso.
     let mut declaracoes = Vec::new();
-    for (nome, chave) in &usados {
-        let Some(l) = espec.locais.get(nome.as_str()) else {
-            continue;
-        };
-        let d = &l.dart;
-        let t = tipos_locais.get(nome.as_str()).unwrap_or(&l.tipo);
-        // A chave sai como literal escapado (`'\$implicit'`): sem o escape,
-        // o `$` viraria interpolação em Dart.
-        let chave = literal(chave);
-        declaracoes.push(format!(
-            "    final {d} = {util}.unsafeCast<{t}>(this.locals[{chave}]);"
-        ));
+    for nome in dentro.locais_raiz.clone() {
+        if let Some(Ok(d)) = dentro.decl_locais.get(&nome) {
+            declaracoes.push(format!("    {d}"));
+        }
     }
+    // Os ouvintes são escritos depois dos nós: os imports deles vêm agora.
+    let ouvintes: Vec<String> = dentro
+        .ouvintes
+        .iter()
+        .map(|o| resolver_tardios(dentro.imp, o))
+        .collect();
+    // `_ctx` no `build()` só se alguém o lê ali (tear-off de evento, texto
+    // imutável): `maybeCachedCtxDeclarationStatement`.
+    let ctx_build = if cita_ctx(&dentro.linhas) || cita_ctx(&ouvintes) {
+        "    final _ctx = this.ctx;\n"
+    } else {
+        ""
+    };
     // Os nós, depois os ouvintes — e só então o `initRootNode`, que é a
     // declaração de fechamento (`_generateInitStatement`).
     let corpo = dentro
         .linhas
         .iter()
-        .chain(&dentro.ouvintes)
+        .chain(&ouvintes)
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
@@ -2041,11 +2083,53 @@ fn corpo_da_embutida(
         )
     };
     let aninhadas = std::mem::take(&mut dentro.embutidas);
+    // Os `_handleEvent_N`, depois do `destroyInternal`.
+    let metodos: String = dentro
+        .metodos_evento
+        .iter()
+        .map(|m| resolver_tardios(dentro.imp, m))
+        .collect();
     let tipo_do_contexto = &ctx.tipo_do_contexto;
     let texto = format!(
-        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}{destruicao}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}\n    this.initRootNode(_el_0);\n  }}\n{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
     );
     Ok((texto, aninhadas))
+}
+
+/// `final local_x = unsafeCast<T>(this.locals['chave']);` — a declaração que
+/// o `ViewNameResolver` guarda para o local, com o tipo qualificado pelo
+/// import da biblioteca que o declara. O import fica marcado: é alocado onde
+/// a declaração for escrita primeiro.
+fn declaracao_de_local(
+    l: &crate::expr::Local,
+    chave: &str,
+    ctx: &Contexto,
+    util: &str,
+) -> Result<String, Recusa> {
+    let d = &l.dart;
+    // A chave sai como literal escapado (`'\$implicit'`): sem o escape, o
+    // `$` viraria interpolação em Dart.
+    let chave = literal(chave);
+    let tipo = if matches!(
+        l.tipo.as_str(),
+        "String" | "int" | "double" | "bool" | "num" | "Object"
+    ) {
+        format!("{}{}", tardio_q("dart:core"), l.tipo)
+    } else {
+        let sem_import = || recusa(Motivo::Ligacao, "tipo do local de `*ngFor` sem import");
+        let (r, arquivo) = ctx.tipos.ok_or_else(sem_import)?;
+        let escopo = l.escopo.as_deref().unwrap_or(arquivo);
+        let caminho = r
+            .uri_do_tipo(escopo, &l.tipo)
+            .and_then(|uri| asset_de_uri(&uri, "", Path::new("")))
+            .and_then(|alvo| caminho_do_import(&ctx.asset, &alvo))
+            .ok_or_else(sem_import)?;
+        let simples = l.tipo.rsplit('.').next().unwrap_or(&l.tipo);
+        format!("{}{simples}", tardio_q(&caminho))
+    };
+    Ok(format!(
+        "final {d} = {util}.unsafeCast<{tipo}>(this.locals[{chave}]);"
+    ))
 }
 
 /// Aloca os imports que os **campos** da classe usam, na ordem em que eles
@@ -2191,7 +2275,14 @@ fn tardio(uri: &str) -> String {
     format!("\u{1}{uri}\u{2}")
 }
 
-/// Troca cada marca de [`tardio`] pelo prefixo, alocando na ordem do texto.
+/// Como [`tardio`], mas resolve para o qualificador (`import3.` ou nada,
+/// para as bibliotecas importadas sem prefixo).
+fn tardio_q(uri: &str) -> String {
+    format!("\u{1}q:{uri}\u{2}")
+}
+
+/// Troca cada marca de [`tardio`] e [`tardio_q`] pelo prefixo, alocando na
+/// ordem do texto.
 fn resolver_tardios(imp: &mut Importacoes, texto: &str) -> String {
     let mut saida = String::with_capacity(texto.len());
     let mut resto = texto;
@@ -2200,7 +2291,11 @@ fn resolver_tardios(imp: &mut Importacoes, texto: &str) -> String {
         let Some(f) = resto[i..].find('\u{2}') else {
             break;
         };
-        saida.push_str(&imp.alias(&resto[i + 1..i + f]));
+        let marca = &resto[i + 1..i + f];
+        match marca.strip_prefix("q:") {
+            Some(uri) => saida.push_str(&imp.q(uri)),
+            None => saida.push_str(&imp.alias(marca)),
+        }
         resto = &resto[i + f + 1..];
     }
     saida.push_str(resto);
@@ -2365,8 +2460,9 @@ fn tem_interpolacao(nos: &[No]) -> bool {
     })
 }
 
-/// Literal Dart de uma string, com aspas simples.
-fn literal(t: &str) -> String {
+/// Literal Dart de uma string, com aspas simples — o `escapeSingleQuoteString`
+/// do emissor oficial.
+pub(crate) fn literal(t: &str) -> String {
     let mut s = String::with_capacity(t.len() + 2);
     s.push('\'');
     for c in t.chars() {
@@ -2573,6 +2669,7 @@ fn gerar_componente(
     let ctx = Contexto {
         membros: &c.membros,
         metodos: &c.metodos,
+        aridades: &c.aridades,
         filhos,
         usadas,
         asset: local.asset(),
@@ -2611,16 +2708,35 @@ fn gerar_componente(
         }
         corpo.usa_ctx_no_build = true;
     }
+    // Os ouvintes dos elementos são escritos depois dos nós: os imports
+    // deles entram agora.
+    let ouvintes: Vec<String> = corpo
+        .ouvintes
+        .iter()
+        .map(|o| resolver_tardios(corpo.imp, o))
+        .collect();
     // Os `@HostListener` do componente fecham o `build()`, ligados ao nó
     // raiz (`_writeComponentHostEventListeners`, depois do
-    // `writeBuildStatements` em `_generateBuildMethod`).
+    // `writeBuildStatements` em `_generateBuildMethod`). O handler passa
+    // pelo mesmo conversor dos eventos do template, e um complexo ganha o
+    // próximo `_handleEvent_N`.
     let mut hospedeiro = Vec::new();
     for o in &c.ouvintes {
-        corpo.usa_ctx_no_build = true;
-        hospedeiro.push(format!(
-            "    parentRenderNode.addEventListener('{}', this.eventHandler{}(_ctx.{}));",
-            o.evento, o.aridade, o.metodo
-        ));
+        match corpo.handler(&[&o.handler]) {
+            Ok(h) => hospedeiro.push(format!(
+                "    parentRenderNode.addEventListener('{}', {h});",
+                o.evento
+            )),
+            Err(r) => {
+                let r = r.em(Motivo::HostListenerEmComponente);
+                if corpo.coletando() {
+                    corpo.anotar(r)?;
+                } else {
+                    *coleta = corpo.coleta.take();
+                    return Err(r);
+                }
+            }
+        }
     }
     let ctx_no_build = if corpo.usa_ctx_no_build {
         "\n    final _ctx = this.ctx;"
@@ -2633,7 +2749,7 @@ fn gerar_componente(
     let linhas = corpo
         .linhas
         .iter()
-        .chain(&corpo.ouvintes)
+        .chain(&ouvintes)
         .chain(&consultas)
         .chain(&hospedeiro)
         .cloned()
@@ -2708,6 +2824,12 @@ fn gerar_componente(
             linhas.join("\n")
         )
     };
+    // Os `_handleEvent_N`, depois do `destroyInternal`.
+    let metodos: String = corpo
+        .metodos_evento
+        .iter()
+        .map(|m| resolver_tardios(corpo.imp, m))
+        .collect();
     // `corpo` empresta o interner e a tabela de imports; a emissão das
     // visões embutidas precisa dos dois.
     *coleta = corpo.coleta.take();
@@ -2780,7 +2902,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
   void build() {{{ctx_no_build}
     final parentRenderNode = this.initViewRoot();{corpo_build}
   }}
-{deteccao}{destruicao}
+{deteccao}{destruicao}{metodos}
   static void _debugClearComponentStyles() {{
     _componentStyles = null;
   }}

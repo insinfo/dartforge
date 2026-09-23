@@ -17,6 +17,9 @@
 //!   ternário também.
 //! - `canBeNull`: só o literal não é nulo (e `a ?? b` quando um lado não é).
 //! - o tipo (`_TypeResolver`): do membro ou do getter; o resto é `dynamic`.
+//!
+//! Os handlers de evento (`parseAction`) são a mesma linguagem com duas
+//! formas a mais: `$event` e a atribuição (`x = y`, `a.b = y`).
 use crate::componente::Membro;
 use crate::resolucao::Resolucao;
 use crate::visao::{Motivo, Recusa, recusa};
@@ -62,6 +65,10 @@ pub struct Convertida {
     /// É um literal primitivo (`'x'`, `1`, `true`, `null`): o valor é o
     /// próprio texto.
     pub literal: bool,
+    /// Os locais da visão que a expressão lê, na ordem em que o conversor
+    /// oficial os pede ao `ViewNameResolver` — é a ordem em que as
+    /// declarações `final local_x = …` saem no método.
+    pub locais: Vec<String>,
 }
 
 impl Convertida {
@@ -74,8 +81,34 @@ impl Convertida {
             escopo: None,
             forma,
             literal: false,
+            locais: Vec::new(),
         }
     }
+}
+
+/// Junta listas de locais mantendo a primeira ocorrência de cada um.
+fn juntar(partes: &[&[String]]) -> Vec<String> {
+    let mut saida: Vec<String> = Vec::new();
+    for p in partes {
+        for l in p.iter() {
+            if !saida.contains(l) {
+                saida.push(l.clone());
+            }
+        }
+    }
+    saida
+}
+
+/// O que as expressões de um componente enxergam: membros, métodos, os
+/// locais da visão e o banco semântico.
+#[derive(Clone, Copy)]
+pub struct Escopo<'a> {
+    pub membros: &'a HashMap<String, Membro>,
+    pub metodos: &'a HashMap<String, String>,
+    /// Parâmetros posicionais de cada método (`rewriteTearOff`).
+    pub aridades: &'a HashMap<String, usize>,
+    pub locais: &'a HashMap<String, Local>,
+    pub tipos: Option<(&'a dyn Resolucao, &'a Path)>,
 }
 
 /// Converte uma expressão escrita no template.
@@ -121,8 +154,75 @@ pub fn converter_com_locais(
     interner: &mut Interner,
     tipos: Option<(&dyn Resolucao, &Path)>,
 ) -> Result<Convertida, Recusa> {
-    // Um `var` de topo é o menor contexto em que o parser aceita uma
-    // expressão qualquer.
+    let aridades = HashMap::new();
+    let escopo = Escopo {
+        membros,
+        metodos,
+        aridades: &aridades,
+        locais,
+        tipos,
+    };
+    converter_no_escopo(expressao, &escopo, interner)
+}
+
+/// Converte uma expressão de ligação (`parseBinding`/`parseInterpolation`).
+pub fn converter_no_escopo(
+    expressao: &str,
+    escopo: &Escopo,
+    interner: &mut Interner,
+) -> Result<Convertida, Recusa> {
+    let (analisada, fonte, raiz) = analisar(expressao, interner)?;
+    let c = Conversor {
+        ast: &analisada.ast,
+        fonte: &fonte,
+        interner,
+        escopo,
+        acao: false,
+    };
+    c.expr(raiz, true)
+}
+
+/// Um handler de evento convertido: `parseAction` seguido de
+/// `handlerTypeFromExpression` (`parse_utils.dart`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Acao {
+    /// `m()` ou `m($event)` com receptor implícito (ou o tear-off `m`
+    /// reescrito para uma dessas por `rewriteTearOff`): sai como tear-off,
+    /// `this.eventHandlerN(_ctx.m)`.
+    Simples {
+        metodo: String,
+        aridade: u8,
+        /// A mesma chamada como instrução (`_ctx.m($event)`), para quando
+        /// este handler é fundido com outro do mesmo evento.
+        instrucao: String,
+    },
+    /// Qualquer outra forma: uma instrução do método `_handleEvent_N`.
+    Complexa(Convertida),
+}
+
+/// Converte o texto de um `(evento)="..."`.
+pub fn converter_acao(
+    expressao: &str,
+    escopo: &Escopo,
+    interner: &mut Interner,
+) -> Result<Acao, Recusa> {
+    let (analisada, fonte, raiz) = analisar(expressao, interner)?;
+    let c = Conversor {
+        ast: &analisada.ast,
+        fonte: &fonte,
+        interner,
+        escopo,
+        acao: true,
+    };
+    c.acao(raiz)
+}
+
+/// Analisa o texto como expressão Dart: um `var` de topo é o menor contexto
+/// em que o parser aceita uma expressão qualquer.
+fn analisar(
+    expressao: &str,
+    interner: &mut Interner,
+) -> Result<(dartforge_frontend::parser::Parsed, String, ast::ExprId), Recusa> {
     let fonte = format!("var _e = {expressao};");
     let analisada = dartforge_frontend::parser::parse(&fonte, interner);
     let invalida = || recusa(Motivo::Expressao, "expressão que o parser Dart não aceita");
@@ -141,28 +241,16 @@ pub fn converter_com_locais(
     let Some(inicial) = v.initializer else {
         return Err(invalida());
     };
-    let c = Conversor {
-        ast: &analisada.ast,
-        fonte: &fonte,
-        interner,
-        membros,
-        metodos,
-        locais,
-        tipos,
-    };
-    c.expr(inicial, true)
+    Ok((analisada, fonte, inicial))
 }
 
 struct Conversor<'a> {
     ast: &'a ast::Ast,
     fonte: &'a str,
     interner: &'a Interner,
-    membros: &'a HashMap<String, Membro>,
-    metodos: &'a HashMap<String, String>,
-    locais: &'a HashMap<String, Local>,
-    /// Banco semântico e o arquivo em que a expressão foi escrita, para
-    /// perguntar o tipo de um membro que está noutra classe.
-    tipos: Option<(&'a dyn Resolucao, &'a Path)>,
+    escopo: &'a Escopo<'a>,
+    /// Handler de evento: `$event` e atribuição valem.
+    acao: bool,
 }
 
 fn fora(forma: &'static str) -> Recusa {
@@ -170,6 +258,127 @@ fn fora(forma: &'static str) -> Recusa {
 }
 
 impl Conversor<'_> {
+    /// O handler inteiro: classifica (simples × complexo) e converte.
+    fn acao(&self, id: ast::ExprId) -> Result<Acao, Recusa> {
+        let id = self.sem_parenteses(id);
+        let e = self.ast.expr(id);
+        // Tear-off (`(click)="m"`): `rewriteTearOff` troca por `m()` ou
+        // `m($event)`, pelos parâmetros posicionais do método.
+        if let ast::ExprKind::Identifier(n) = &e.kind {
+            let nome = self.interner.resolve(n.sym);
+            if !self.escopo.locais.contains_key(nome) && nome != "$event" {
+                if let Some(&posicionais) = self.escopo.aridades.get(nome) {
+                    let aridade = u8::from(posicionais > 0);
+                    return self.simples(nome, aridade);
+                }
+                if self.escopo.metodos.contains_key(nome) {
+                    return Err(fora("tear-off de método sem aridade conhecida"));
+                }
+            }
+        }
+        // `handlerTypeFromExpression`: `m()` ou `m($event)`, receptor
+        // implícito, sem argumento nomeado.
+        if let ast::ExprKind::Call { target, arguments } = &e.kind
+            && let ast::ExprKind::Identifier(n) = &self.ast.expr(*target).kind
+            && arguments.type_args.is_empty()
+            && arguments.args.iter().all(|a| a.name.is_none())
+        {
+            let nome = self.interner.resolve(n.sym);
+            let aridade = match &arguments.args[..] {
+                [] => Some(0),
+                [a] if self.e_event(a.value) => Some(1),
+                _ => None,
+            };
+            if let Some(aridade) = aridade {
+                // Local com o nome do método: o oficial chama a função do
+                // local (`InvokeFunctionExpr`) e recusa o tear-off.
+                if self.escopo.locais.contains_key(nome) {
+                    return Err(fora("handler que chama um local"));
+                }
+                return self.simples(nome, aridade);
+            }
+        }
+        let c = match &e.kind {
+            // Atribuição no topo da instrução sai sem parênteses
+            // (`lineWasEmpty` em `visitWritePropExpr`).
+            ast::ExprKind::Assign { .. } => self.atribuicao(id)?,
+            _ => self.expr(id, true)?,
+        };
+        Ok(Acao::Complexa(c))
+    }
+
+    /// Um handler simples: o método tem de ser do componente (ou um campo,
+    /// que o tear-off lê do mesmo jeito).
+    fn simples(&self, nome: &str, aridade: u8) -> Result<Acao, Recusa> {
+        if !self.escopo.metodos.contains_key(nome) && !self.escopo.membros.contains_key(nome) {
+            return Err(fora("handler que não é membro do componente"));
+        }
+        let arg = if aridade == 1 { "$event" } else { "" };
+        Ok(Acao::Simples {
+            metodo: nome.to_string(),
+            aridade,
+            instrucao: format!("_ctx.{nome}({arg})"),
+        })
+    }
+
+    fn e_event(&self, id: ast::ExprId) -> bool {
+        matches!(&self.ast.expr(self.sem_parenteses(id)).kind,
+            ast::ExprKind::Identifier(n) if self.interner.resolve(n.sym) == "$event")
+    }
+
+    fn sem_parenteses(&self, mut id: ast::ExprId) -> ast::ExprId {
+        while let ast::ExprKind::Parenthesized(i) = &self.ast.expr(id).kind {
+            id = *i;
+        }
+        id
+    }
+
+    /// `x = y`, `a.b = y`, `a[i] = y` (`PropertyWrite`/`KeyedWrite`), sem os
+    /// parênteses — quem está dentro de outra expressão os põe.
+    fn atribuicao(&self, id: ast::ExprId) -> Result<Convertida, Recusa> {
+        let ast::ExprKind::Assign { op, target, value } = &self.ast.expr(id).kind else {
+            return Err(fora("atribuição"));
+        };
+        if !self.acao {
+            return Err(fora("atribuição fora de evento"));
+        }
+        // O oficial ignora o operador de uma atribuição composta e escreve
+        // `x = y`: forma que não se reproduz de propósito.
+        if *op != ast::AssignOp::Assign {
+            return Err(fora("atribuição composta (`+=`)"));
+        }
+        let (alvo, locais_alvo) = match &self.ast.expr(*target).kind {
+            ast::ExprKind::Identifier(n) => {
+                let nome = self.interner.resolve(n.sym);
+                if self.escopo.locais.contains_key(nome) || nome == "$event" {
+                    return Err(fora("atribuição a local"));
+                }
+                if !self.escopo.membros.contains_key(nome) {
+                    return Err(fora("atribuição a nome fora do componente"));
+                }
+                (format!("_ctx.{nome}"), Vec::new())
+            }
+            ast::ExprKind::Property {
+                target: t,
+                name,
+                null_aware: false,
+            } => {
+                let r = self.expr(*t, true)?;
+                (
+                    format!("{}.{}", r.texto, self.interner.resolve(name.sym)),
+                    r.locais,
+                )
+            }
+            ast::ExprKind::Index { .. } => return Err(fora("atribuição a índice `a[i] = x`")),
+            _ => return Err(fora("atribuição a alvo desconhecido")),
+        };
+        let v = self.expr(*value, true)?;
+        Ok(Convertida {
+            locais: juntar(&[&locais_alvo, &v.locais]),
+            ..Convertida::nova(format!("{alvo} = {}", v.texto), "atribuição")
+        })
+    }
+
     /// `raiz` diz se este nó é o receptor implícito — só aí um identificador
     /// vira `_ctx.nome`; em `a.b`, o `b` é membro de `a`.
     fn expr(&self, id: ast::ExprId, raiz: bool) -> Result<Convertida, Recusa> {
@@ -177,16 +386,43 @@ impl Conversor<'_> {
         match &e.kind {
             // `LiteralPrimitive`: imutável e nunca nulo (`canBeNull`). O tipo
             // é `String` para texto e `dynamic` para o resto
-            // (`visitLiteralPrimitive` do `_TypeResolver`).
-            ast::ExprKind::Int(_) | ast::ExprKind::Double(_) | ast::ExprKind::Bool(_) => {
+            // (`visitLiteralPrimitive` do `_TypeResolver`). O texto é o que
+            // `o.literal(valor)` escreve, não o que o template escreveu.
+            ast::ExprKind::Int(_) => {
+                let t = self.texto(id);
+                let Ok(v) = t.parse::<u64>() else {
+                    return Err(fora("literal inteiro fora da forma decimal"));
+                };
                 Ok(Convertida {
                     imutavel: true,
                     pode_ser_nulo: false,
                     tipo: Some("dynamic".into()),
                     literal: true,
-                    ..Convertida::nova(self.texto(id), "literal")
+                    ..Convertida::nova(v.to_string(), "literal")
                 })
             }
+            ast::ExprKind::Double(_) => {
+                let t = self.texto(id);
+                // `double.toString()` do Dart e o `{:?}` do Rust concordam
+                // na forma curta (`1.5`, `2.0`); expoente, não.
+                match t.parse::<f64>() {
+                    Ok(v) if format!("{v:?}") == t && !t.contains(['e', 'E']) => Ok(Convertida {
+                        imutavel: true,
+                        pode_ser_nulo: false,
+                        tipo: Some("dynamic".into()),
+                        literal: true,
+                        ..Convertida::nova(t, "literal")
+                    }),
+                    _ => Err(fora("literal double fora da forma canônica")),
+                }
+            }
+            ast::ExprKind::Bool(b) => Ok(Convertida {
+                imutavel: true,
+                pode_ser_nulo: false,
+                tipo: Some("dynamic".into()),
+                literal: true,
+                ..Convertida::nova(b.to_string(), "literal")
+            }),
             ast::ExprKind::Null => Ok(Convertida {
                 imutavel: true,
                 pode_ser_nulo: false,
@@ -197,15 +433,15 @@ impl Conversor<'_> {
             ast::ExprKind::String(lit) => {
                 // Só literal sem interpolação: `'a$b'` dentro do template é
                 // outra coisa e não aparece nos projetos do proprietário.
-                if lit.constant_value().is_none() {
+                let Some(valor) = lit.constant_value() else {
                     return Err(fora("texto com interpolação Dart"));
-                }
+                };
                 Ok(Convertida {
                     imutavel: true,
                     pode_ser_nulo: false,
                     tipo: Some("String".into()),
                     literal: true,
-                    ..Convertida::nova(self.texto(id), "literal")
+                    ..Convertida::nova(crate::visao::literal(&valor.to_string_lossy()), "literal")
                 })
             }
             ast::ExprKind::Identifier(n) => {
@@ -213,16 +449,27 @@ impl Conversor<'_> {
                 if !raiz {
                     return Ok(Convertida::nova(nome.to_string(), "nome"));
                 }
+                // `getLocal('$event')` devolve a variável do handler.
+                if nome == "$event" {
+                    if !self.acao {
+                        return Err(fora("`$event` fora de evento"));
+                    }
+                    return Ok(Convertida {
+                        tipo: Some("dynamic".into()),
+                        ..Convertida::nova("$event".into(), "`$event`")
+                    });
+                }
                 // O local do laço sombreia o membro do componente.
-                if let Some(l) = self.locais.get(nome) {
+                if let Some(l) = self.escopo.locais.get(nome) {
                     return Ok(Convertida {
                         tipo: Some(l.tipo.clone()),
                         escopo: l.escopo.clone(),
+                        locais: vec![nome.to_string()],
                         ..Convertida::nova(l.dart.clone(), "local")
                     });
                 }
-                let Some(m) = self.membros.get(nome) else {
-                    return Err(fora(if self.metodos.contains_key(nome) {
+                let Some(m) = self.escopo.membros.get(nome) else {
+                    return Err(fora(if self.escopo.metodos.contains_key(nome) {
                         "método como valor"
                     } else {
                         "nome fora do componente"
@@ -246,7 +493,7 @@ impl Conversor<'_> {
                 let ponto = if *null_aware { "?." } else { "." };
                 // O tipo do fim da cadeia está noutra classe: é o banco
                 // semântico que responde, como o analyzer responde ao oficial.
-                let achado = match (&alvo.tipo, self.tipos) {
+                let achado = match (&alvo.tipo, self.escopo.tipos) {
                     (Some(t), Some((r, arquivo))) => {
                         r.tipo_do_membro(alvo.escopo.as_deref().unwrap_or(arquivo), t, nome)
                     }
@@ -260,6 +507,7 @@ impl Conversor<'_> {
                 Ok(Convertida {
                     tipo,
                     escopo,
+                    locais: alvo.locais,
                     ..Convertida::nova(
                         format!("{}{ponto}{nome}", alvo.texto),
                         if *null_aware { "`?.`" } else { "propriedade" },
@@ -267,26 +515,16 @@ impl Conversor<'_> {
                 })
             }
             ast::ExprKind::Call { target, arguments } => {
-                // O alvo de uma chamada pode ser um método da classe, que não
-                // vale como valor solto.
-                let (alvo, retorno) = match &self.ast.expr(*target).kind {
-                    ast::ExprKind::Identifier(n)
-                        if raiz && !self.locais.contains_key(self.interner.resolve(n.sym)) =>
-                    {
-                        let nome = self.interner.resolve(n.sym);
-                        match self.metodos.get(nome) {
-                            Some(t) => (format!("_ctx.{nome}"), Some(t.clone())),
-                            None => (self.expr(*target, raiz)?.texto, None),
-                        }
-                    }
-                    _ => (self.expr(*target, raiz)?.texto, None),
-                };
                 if !arguments.type_args.is_empty() {
                     return Err(fora("chamada com argumento de tipo"));
                 }
+                // `visitMethodCall` converte os argumentos **antes** do
+                // receptor: é a ordem em que os locais são pedidos.
                 let mut args = Vec::new();
+                let mut locais_args = Vec::new();
                 for a in arguments.args.iter() {
                     let v = self.expr(a.value, true)?;
+                    locais_args.extend(v.locais);
                     match &a.name {
                         Some(n) => {
                             args.push(format!("{}: {}", self.interner.resolve(n.sym), v.texto))
@@ -294,16 +532,40 @@ impl Conversor<'_> {
                         None => args.push(v.texto),
                     }
                 }
+                // O alvo de uma chamada pode ser um método da classe, que não
+                // vale como valor solto.
+                let (alvo, retorno, locais_alvo) = match &self.ast.expr(*target).kind {
+                    ast::ExprKind::Identifier(n)
+                        if raiz
+                            && !self
+                                .escopo
+                                .locais
+                                .contains_key(self.interner.resolve(n.sym)) =>
+                    {
+                        let nome = self.interner.resolve(n.sym);
+                        match self.escopo.metodos.get(nome) {
+                            Some(t) => (format!("_ctx.{nome}"), Some(t.clone()), Vec::new()),
+                            None => {
+                                let t = self.expr(*target, raiz)?;
+                                (t.texto, None, t.locais)
+                            }
+                        }
+                    }
+                    _ => {
+                        let t = self.expr(*target, raiz)?;
+                        (t.texto, None, t.locais)
+                    }
+                };
                 Ok(Convertida {
                     tipo: retorno,
+                    locais: juntar(&[&locais_args, &locais_alvo]),
                     ..Convertida::nova(format!("{alvo}({})", args.join(", ")), "chamada")
                 })
             }
             ast::ExprKind::Unary { op, operand } => {
                 // Só `!`. O parser de expressões do ngcompiler lê `-x` como
-                // `0 - x` e sai `(0 - _ctx.x)`; `x!` sai sem parênteses; `~`
-                // nem existe lá. Traduzir qualquer um deles daria um arquivo
-                // diferente do oficial.
+                // `0 - x` e sai `(0 - _ctx.x)`; `x!` sai como `(x!)`; `~` nem
+                // existe lá. Os dois primeiros ainda não têm caso no corpus.
                 if *op != ast::UnaryOp::Not {
                     return Err(fora(match op {
                         ast::UnaryOp::NullAssert => "`x!` pós-fixo",
@@ -316,6 +578,7 @@ impl Conversor<'_> {
                 // `PrefixNot` não entra no `isImmutable`: é mutável.
                 Ok(Convertida {
                     tipo: Some("dynamic".into()),
+                    locais: v.locais,
                     ..Convertida::nova(format!("({op}{})", v.texto), "`!`")
                 })
             }
@@ -358,6 +621,7 @@ impl Conversor<'_> {
                     imutavel: a.imutavel && b.imutavel,
                     pode_ser_nulo,
                     tipo: Some(tipo.into()),
+                    locais: juntar(&[&a.locais, &b.locais]),
                     ..Convertida::nova(
                         format!("({} {texto_op} {})", a.texto, b.texto),
                         if se_nulo { "`??`" } else { "binário" },
@@ -374,6 +638,7 @@ impl Conversor<'_> {
                 let f = self.expr(*else_, raiz)?;
                 Ok(Convertida {
                     tipo: Some("dynamic".into()),
+                    locais: juntar(&[&c.locais, &t.locais, &f.locais]),
                     ..Convertida::nova(
                         format!("({} ? {} : {})", c.texto, t.texto, f.texto),
                         "ternário",
@@ -381,8 +646,15 @@ impl Conversor<'_> {
                 })
             }
             ast::ExprKind::Parenthesized(inner) => self.expr(*inner, raiz),
+            // Dentro de outra expressão a atribuição ganha parênteses.
+            ast::ExprKind::Assign { .. } => {
+                let a = self.atribuicao(id)?;
+                Ok(Convertida {
+                    texto: format!("({})", a.texto),
+                    ..a
+                })
+            }
             ast::ExprKind::Index { .. } => Err(fora("índice `a[i]`")),
-            ast::ExprKind::Assign { .. } => Err(fora("atribuição")),
             ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. } => {
                 Err(fora("literal de coleção"))
             }
@@ -494,6 +766,7 @@ mod testes {
         assert_eq!(conv("item.nome").texto, "_ctx.item.nome");
         assert_eq!(conv("!item.ativo").texto, "(!_ctx.item.ativo)");
         assert_eq!(conv("'fixo'").texto, "'fixo'");
+        assert_eq!(conv("\"fixo\"").texto, "'fixo'");
         assert!(conv("'fixo'").imutavel);
     }
 
@@ -555,7 +828,7 @@ mod testes {
     }
 
     /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é
-    /// `0 - x` lá, `x!` sai sem parênteses, `&` não existe.
+    /// `0 - x` lá, `x!` ainda sem caso, `&` não existe.
     #[test]
     fn operadores_fora_do_template_sao_recusados() {
         let m = &membros();
@@ -569,5 +842,61 @@ mod testes {
     #[test]
     fn nome_desconhecido_e_recusado() {
         assert!(converter("outro", &membros(), &mut Interner::new()).is_err());
+    }
+
+    fn acao(e: &str) -> Acao {
+        let m = membros();
+        let metodos = HashMap::from([
+            ("salvar".to_string(), "void".to_string()),
+            ("ir".to_string(), "void".to_string()),
+        ]);
+        let aridades = HashMap::from([("salvar".to_string(), 0), ("ir".to_string(), 1)]);
+        let locais = HashMap::from([(
+            "x".to_string(),
+            Local {
+                dart: "local_x".into(),
+                tipo: "int".into(),
+                escopo: None,
+            },
+        )]);
+        let escopo = Escopo {
+            membros: &m,
+            metodos: &metodos,
+            aridades: &aridades,
+            locais: &locais,
+            tipos: None,
+        };
+        converter_acao(e, &escopo, &mut Interner::new()).expect("converte")
+    }
+
+    /// `handlerTypeFromExpression` e `rewriteTearOff`.
+    #[test]
+    fn handlers_simples_e_tear_off() {
+        assert!(matches!(acao("salvar()"), Acao::Simples { aridade: 0, .. }));
+        assert!(matches!(
+            acao("ir($event)"),
+            Acao::Simples { aridade: 1, .. }
+        ));
+        assert!(matches!(acao("salvar"), Acao::Simples { aridade: 0, .. }));
+        assert!(matches!(acao("ir"), Acao::Simples { aridade: 1, .. }));
+    }
+
+    /// Complexos: atribuição no topo sem parênteses, argumentos, locais na
+    /// ordem em que o oficial os pede (argumentos antes do receptor).
+    #[test]
+    fn handlers_complexos() {
+        let Acao::Complexa(c) = acao("nome = $event") else {
+            panic!()
+        };
+        assert_eq!(c.texto, "_ctx.nome = $event");
+        let Acao::Complexa(c) = acao("ir(x)") else {
+            panic!()
+        };
+        assert_eq!(c.texto, "_ctx.ir(local_x)");
+        assert_eq!(c.locais, vec!["x".to_string()]);
+        let Acao::Complexa(c) = acao("$event.stopPropagation()") else {
+            panic!()
+        };
+        assert_eq!(c.texto, "$event.stopPropagation()");
     }
 }
