@@ -305,6 +305,12 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
 /// Baixa uma função (de topo, método, construtor) para o módulo.
 pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
     let func_elem = &ctx.program.functions[f_idx];
+    if func_elem.external && ctx.sdk_da_fonte {
+        // `external` (inclusive construtor): o corpo é o do patch ou o
+        // native (`sdk_fonte::chamar_externo`); nada a baixar aqui — um
+        // corpo vazio com o mesmo símbolo tomaria o lugar do patch.
+        return;
+    }
     {
         let name = ctx.symbol_name(func_elem.name);
         let symbol = simbolo_de(ctx, f_idx);

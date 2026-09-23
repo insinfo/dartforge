@@ -791,6 +791,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
                 let idx_op = self.lower_expr(ast, *index);
+                if self.ctx.sdk_da_fonte {
+                    // SDK da fonte: `[]` pela classe dinâmica.
+                    let r = self.chamar_por_nome(target_op, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
+                }
                 // `operator []` de classe do usuário, pela classe estática.
                 if let Some(cid) = self.classe_do_usuario_de(*target) {
                     let Some(fid) = self.membro_na_classe(cid, "[]") else {

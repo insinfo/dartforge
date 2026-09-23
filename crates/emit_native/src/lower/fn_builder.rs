@@ -802,6 +802,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(ultimo) = name.last() else {
             return self.nao_suportado("teste de tipo", ast_ty.span);
         };
+        if let Some(r) = self.testar_tipo_fonte(ast_ty, name, op.clone()) {
+            return r;
+        }
         let nome = self.ctx.symbol_name(ultimo.sym).to_string();
         let repr = self.operand_type(&op);
         if repr != Type::Ref {

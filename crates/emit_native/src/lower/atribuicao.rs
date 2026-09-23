@@ -240,6 +240,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
+                if self.ctx.sdk_da_fonte {
+                    // SDK da fonte: `[]`/`[]=` pela classe dinâmica.
+                    use super::sdk_fonte::Tipo;
+                    let cur = composto.then(|| self.chamar_por_nome(t_op.clone(), Tipo::Chamar, "[]", &[(None, i_op.clone())]));
+                    let v = self.combinar(ast, op, cur, value);
+                    self.chamar_por_nome(t_op, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
+                    return v;
+                }
                 if let Some(cid) = self.classe_do_usuario_de(*t) {
                     let (Some(set), get) = (
                         self.membro_na_classe(cid, "[]="),
@@ -375,7 +383,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None
             };
             let v = self.combinar(ast, op, cur, value);
-            self.gravar_campo(obj, vid, v.clone(), span);
+            if !self.gravar_campo_fonte(obj.clone(), vid, v.clone()) {
+                self.gravar_campo(obj, vid, v.clone(), span);
+            }
             return v;
         }
         let MemberRef::Function(f) = member else {

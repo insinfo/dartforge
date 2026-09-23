@@ -184,10 +184,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
 
             // `C.m(…)`: método estático do usuário.
+            // `C.m(…)` (e `Alias.m(…)`, com `typedef Alias = C`).
             let alvo_e_classe = matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
                 Some(Resolved::Element(
-                    dartforge_elements::model::Element::Class(_)
+                    dartforge_elements::model::Element::Class(_) | dartforge_elements::model::Element::Typedef(_)
                 ))
             );
             if alvo_e_classe {
