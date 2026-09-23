@@ -17,5 +17,25 @@ unsafe_op_in_unsafe_fn = "deny"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# O runtime nativo precisa ter a MESMA semântica em qualquer perfil: o AOT o
+# compila com `rustc -O` (crates/emit_native/src/cache.rs), isto é, opt-level 2,
+# sem debug-assertions e sem overflow-checks. Com os padrões de `dev`/`test`,
+# a mesma fonte entraria em `panic` por estouro onde o executável AOT faz
+# aritmética modular, e o JIT divergiria do AOT. `dartforge-jit` entra aqui
+# porque, até a fonte única do runtime (plano do JIT, §3.1), é nele que
+# `runtime_main.rs` é compilado.
+[profile.dev.package.dartforge-runtime]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.dartforge-jit]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.release.package.dartforge-runtime]
+opt-level = 2
+[profile.release.package.dartforge-jit]
+opt-level = 2
 [profile.bench]
 debug = true

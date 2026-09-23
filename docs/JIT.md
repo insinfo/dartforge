@@ -14,6 +14,26 @@ O contrato entre os dois é observável e testado: `crates/jit/tests/execucao.rs
 compila um programa Dart uma única vez, executa o IR resultante pelos dois
 caminhos e exige saída idêntica. Divergir em tempo de compilação é esperado;
 divergir em resultado é defeito.
+> **Estado em 2026-09-23 — rebase na trilha nova, parte 1.** O crate deixou de
+> depender da trilha velha e passou a consumir o IR do `crates/emit_native`:
+> runtime publicado a partir da fonte do harness AOT, pré-verificação de
+> externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
+> `dartforge-executar-ir`. **Ainda não** ligados: `dartforge run`/`reload` na
+> CLI (esperam a separação `emitir_ir` do `emit_native`) e a fonte única do
+> runtime (espera o merge do trabalho em `crates/runtime`). As seções «O que
+> executa» e «Hot reload» abaixo descrevem a trilha velha; o mecanismo de
+> `src/reload.rs` continua, mas os testes dele esperam migração em
+> `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT
+> (passos 1–13).
+>
+> **O caminho de execução (`run_ir`, `dartforge-executar-ir` e o futuro
+> `dartforge run`/`reload` R0) não passa por `src/reload.rs`.** O módulo entra
+> por `add_ir_module`, sem trampolim nem célula: as chamadas são diretas, como
+> no AOT. Isso é contrato, não detalhe. O trampolim acrescenta um quadro por
+> chamada, e a profundidade de recursão divergiria do executável AOT
+> (`docs/PESQUISA-HOT-RELOAD.md` §4.3). A indireção de R1 será uma célula lida
+> no ponto de chamada, emitida só no perfil recarregável.
+
 
 ## O que executa
 
@@ -66,44 +86,66 @@ anexado. Não há `panic` em caminho de erro esperado.
 
 ## Como o runtime é ligado
 
-Esta é a diferença estrutural entre os dois perfis, e a decisão menos óbvia do
-crate.
+A regra é **uma fonte só**: as funções `dartforge_*` que o código JIT chama são
+as de `crates/runtime/src/runtime_main.rs`, as mesmas que o driver AOT compila
+com `rustc` avulso e liga ao executável. Nenhuma delas é reimplementada aqui.
 
-`crates/runtime` **não** exporta os símbolos da ABI nativa como biblioteca. Ele
-publica `RUNTIME_MAIN`, um programa Rust completo em forma de texto
-(`include_str!` de `heap.rs` + `runtime_main.rs`), que o driver AOT grava no
-staging e manda o `rustc` compilar. Os `#[unsafe(no_mangle)] extern "C" fn` só
-existem *nesse* binário. O processo que hospeda o JIT não os tem.
+Como o arquivo ainda não é módulo do crate `dartforge-runtime` (só existe como
+texto em `RUNTIME_MAIN`), o `build.rs` de `crates/jit` faz, **provisoriamente**:
 
-Logo, registrar o gerador de símbolos do processo
-(`LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess`) **não resolveria nada**:
-`dartforge_print_i64` não está entre os símbolos do processo. Além disso, esse
-gerador exporia ao código gerado todo símbolo do executável hospedeiro, uma
-superfície muito maior que o contrato de `crates/llvm`, e resolveria por
-acidente um nome homônimo em vez de falhar alto.
+1. uma cópia do arquivo em `OUT_DIR` com três substituições mecânicas, cada
+   uma exigida exatamente uma vez. O `main` C do harness vira
+   `dartforge_jit_main_provisorio`, porque colidiria com o `main` de qualquer
+   binário Rust. A entrada `dartforge_entry` que ele chama vira
+   `dartforge_jit_entrada_provisoria`, definida em `src/ffi.rs`, que salta para
+   o endereço resolvido na `LLJIT`. Se o runtime mudar de forma, o build falha
+   dizendo qual substituição deixou de casar;
+2. a tabela `(nome, endereço)`, gerada a partir dos `#[unsafe(no_mangle)]` do
+   mesmo arquivo. Ela é publicada com `LLVMOrcAbsoluteSymbols`, junto com
+   `_fltused`, o marcador que o gerador COFF exige quando há `double` e que no
+   AOT vem da CRT estática.
 
-A sessão faz o equivalente exato da ligação AOT, pela via explícita:
-`crates/jit/src/runtime.rs` reimplementa a mesma ABI sobre o mesmo
-`dartforge_runtime::heap::Heap`, e `crates/jit/src/ffi.rs` publica os endereços
-dessas funções como símbolos absolutos (`LLVMOrcAbsoluteSymbols` +
-`LLVMOrcJITDylibDefine`) na `JITDylib` principal, com os nomes decorados por
-`LLVMOrcLLJITMangleAndIntern` para casar com a decoração que o `lookup` aplica.
+O `heap` vem de `dartforge_runtime::heap`, o mesmo `heap.rs`. Os perfis de
+compilação de `dartforge-runtime` e `dartforge-jit` estão fixados no
+`Cargo.toml` raiz em opt-level 2, sem debug-assertions e sem overflow-checks,
+que é o que `rustc -O` dá ao AOT. Sem isso, a mesma fonte entraria em `panic`
+por estouro em `dev`, onde o AOT faz aritmética modular.
 
-São 18 nomes, os mesmos que `crates/llvm` declara no IR e que o harness AOT
-define. A lista está em `dartforge_jit::RUNTIME_SYMBOLS` e é verificada por
-teste. **Toda mudança em `crates/runtime/src/runtime_main.rs` tem contrapartida
-em `crates/jit/src/runtime.rs`**; o teste diferencial é o que impede a divergência
-de passar despercebida.
+O gerador de símbolos do processo **não** é a fonte do runtime. Um `.exe`
+Windows não exporta os `#[no_mangle]` das bibliotecas Rust que liga. Além
+disso, o gerador resolveria nomes homônimos por acaso. Antes de entregar um
+módulo ao LLVM, a sessão confere cada nome **declarado** no IR. Ele tem de
+estar na tabela do runtime, em `CRT_SYMBOLS` (cópia de memória e matemática de
+`double`), ser `llvm.*` ou ser definido por um módulo residente. Se não
+estiver, o módulo é recusado na etapa `símbolos`, com o nome na mensagem.
+Símbolos que o próprio gerador de código introduz sem aparecer no IR
+(`__chkstk`, `memcpy` de intrínsecos) são resolvidos pela `LLJIT` no processo.
 
-### Captura de saída
+O teste `cada_declare_do_emissor_existe_no_runtime` confere, sem LLVM nem Clang,
+que todo `declare @dartforge_*` do emissor está na tabela.
 
-O runtime do JIT imprime no stdout do processo, como o AOT. Para o teste
-diferencial isso não serve — seria preciso redirecionar o stdout do processo de
-teste, o que não é confiável sob execução paralela. Por isso as funções de
-impressão escrevem num destino `thread_local` que `run_entry_capturing` e
-`run_ir_capturing` desviam para um buffer, com quebras `\n` em qualquer sistema.
-É a única diferença deliberada de comportamento entre os dois runtimes, e ela
-não afeta o texto produzido.
+Quando a fonte única entrar em `crates/runtime`, com `runtime_main.rs` como
+módulo, `finalizar_programa()` e a tabela gerada lá, o bloco provisório sai. O
+contrato não muda.
+
+### Execução e término
+
+A entrada é executada pelo **mesmo `main` do harness** que o executável AOT
+roda, numa thread nova com 1 MiB de pilha: a reserva padrão da thread principal
+de um `.exe`. Todo o estado do runtime é `thread_local`, então cada execução
+começa com heap, classes registradas e exceção pendente zerados.
+
+O harness termina o processo com `process::exit` nos mesmos casos que o AOT:
+exceção não capturada (101, `Uncaught exception: …` em stderr), asserção de não
+nulidade (101) e teto do heap (255). Por isso testes e harness executam por
+subprocesso, com `dartforge-executar-ir <programa.ll> [--timings]`: o stdout e o
+código de saída são os do programa, e uma falha do próprio JIT sai com 70. A
+captura de saída em processo da versão anterior foi removida: ela exigia uma
+segunda cópia das funções de impressão.
+
+Divergência conhecida: estouro de pilha. No AOT o processo morre com
+`STATUS_STACK_OVERFLOW`. No JIT, a thread Rust tem o tratador do `std`, que
+imprime `thread '<unnamed>' has overflowed its stack` e aborta.
 
 ## Ciclo de vida e liberação
 
@@ -341,15 +383,17 @@ Limites adicionais, e explícitos:
 
 ### Correspondência com o hot reload da Dart VM
 
-Vale registrar o precedente, porque os limites acima não são atalho deste
-projeto — a implementação oficial tem os mesmos, pelos mesmos motivos.
+Vale registrar o precedente. **Correção:** a versão anterior deste texto dizia
+que os limites acima não eram atalho, porque a implementação oficial teria os
+mesmos. Não tem. A VM aceita bem mais do que esta versão aceita (ver
+`docs/PESQUISA-HOT-RELOAD.md`), e as recusas acima são degrau nosso.
 
 | Dart VM | Aqui |
 | --- | --- |
 | O front-end manda um **Dill delta**: só o que mudou | `hot_reload` recebe o IR do **programa inteiro**. É a diferença mais custosa, e a medição abaixo mostra onde ela aparece |
 | Localiza a classe no heap e **troca os ponteiros de método**; instâncias não mudam de endereço e os campos ficam intactos | Troca os ponteiros das **células** das entradas estáveis; os objetos do heap gerenciado não são tocados, mesmo handle, mesmos campos. A ideia é a mesma, um nível acima: lá por método de classe, aqui por função |
 | Código já promovido ao otimizador é **descartado**, não remendado; a função volta ao tier não otimizado | Não há dois níveis aqui. Se houver, esta é a política a seguir: descartar a geração otimizada e recompilar, nunca remendar código otimizado no lugar |
-| Recarga **falha** e exige reinício quando muda `main()`, `initState()`, o inicializador de uma global já inicializada, herança ou assinaturas | Recusas equivalentes na etapa `contract`, tabela acima. `main` é `@dartforge_entry`, uma entrada estável como as outras, e mudar o corpo dela é aceito — a restrição da VM é sobre o *estado* de `main`, não sobre o código |
+| **Corrigido** (esta linha dizia que a VM recusa mudança de herança ou de assinatura; o código mostra o contrário, `docs/PESQUISA-HOT-RELOAD.md` §1.6, §1.8 e §1.9). A VM **aceita** mudar assinatura, superclasse e campos. Chamadas pendentes são religadas por nome, e quem chama um membro que sumiu ou mudou de aridade recebe `NoSuchMethodError` **na chamada** (`object_reload.cc:806-841`; `isolate_reload_test.cc:1479-1531`, `:3205-3235`, `SuperClassChanged` `:760-789`). Campo de tipo novo vira `TypeError` na leitura, pela guarda de carga. A lista de recusas é curta: enum ↔ classe, número de parâmetros de tipo, classe `const` que perde campos ou deixa de ser `const`, e campos nativos (`object_reload.cc:351-607`). Mudar o corpo de `main()` ou de `initState()` também é aceito; só não é reexecutado | As recusas da etapa `contract` (assinatura, função removida, campos de classe) são **limitação desta versão, não semântica do Dart**. O alvo (pesquisa §4.4) é célula nova por `(DeclId, abi)` e a célula antiga reescrita para lançar `NoSuchMethodError`, sem recusa |
 | Inicializador de global já inicializada **preserva o valor antigo** | Divergimos, e o limite é concreto: `crates/llvm` guarda os estáticos de classe e as variáveis de topo numa área do heap cujo handle vive em `@df_statics = internal global i64 0`, e grava todos eles no começo de `dartforge_entry()`. `internal` significa uma cópia por geração, e a inicialização na carga significa que **executar a entrada de novo reinicializa os estáticos** — o que já vale sem hot reload nenhum. Consequências: o estado em estáticos **não** sobrevive a uma recarga, e depois de recarregar é preciso executar a entrada antes de chamar entradas estáveis que toquem estáticos, senão elas leem o handle zero da geração nova. O que persiste entre gerações é o **heap gerenciado** alcançado por handles que o chamador guarda, e é isso que o teste do contador vivo afirma |
 
 ### Medição do ciclo de recarga

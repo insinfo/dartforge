@@ -7,11 +7,13 @@ publish = false
 
 # Este crate adota a lint do workspace (`unsafe_code = "deny"`). Todo o `unsafe`
 # está concentrado em `src/ffi.rs`, único arquivo com `#![allow(unsafe_code)]`;
-# `src/runtime.rs` e `src/lib.rs` permanecem 100% seguros.
+# `src/lib.rs` e `src/reload.rs` permanecem 100% seguros.
 [lints]
 workspace = true
 
 [dependencies]
+# O `heap` do runtime vem daqui; o harness (`runtime_main.rs`) é compilado neste
+# crate a partir da mesma fonte, por `build.rs` (provisório até a fonte única).
 dartforge-runtime = { path = "../runtime" }
 # `no-llvm-linking`: as assinaturas e os invólucros de inicialização vêm daqui,
 # mas quem emite as diretivas de ligação é o `build.rs` deste crate, que liga a
@@ -21,17 +23,13 @@ dartforge-runtime = { path = "../runtime" }
 llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }
 
 [dev-dependencies]
-dartforge-compiler = { path = "../compiler" }
-dartforge-native = { path = "../native" }
-# Só para a medição do ciclo de recarga em `tests/hot_reload.rs`. O relatório
-# exigido por PLANO.md separa «análise do Dart novo» de «geração do IR», e
-# `dartforge_compiler::compile_llvm` devolve as duas somadas: a única forma de
-# cronometrá-las no próprio trecho é montar o mesmo pipeline. O teste confere que
-# o IR resultante é idêntico ao de `compile_llvm`, o que denuncia a divergência
-# se o pipeline do compilador mudar.
-dartforge-hir = { path = "../hir" }
-dartforge-lexer = { path = "../lexer" }
-dartforge-llvm = { path = "../llvm" }
-dartforge-macros = { path = "../macros" }
-dartforge-parser = { path = "../parser" }
-dartforge-semantic = { path = "../semantic" }
+# Só para `tests/execucao.rs`: produzir o IR de um programa Dart pela trilha
+# nova (`emitir_ir`) e ligá-lo pelo driver AOT, para o diferencial JIT × AOT
+# sobre o mesmo texto.
+dartforge-emit-native = { path = "../emit_native" }
+
+# Executor isolado: um processo por programa, para que `process::exit` e
+# `abort` do runtime encerrem a execução e não quem a pediu (testes, harness).
+[[bin]]
+name = "dartforge-executar-ir"
+path = "src/bin/executar_ir.rs"

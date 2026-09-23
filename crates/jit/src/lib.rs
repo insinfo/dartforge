@@ -1,24 +1,28 @@
-//! Execução em memória do subconjunto nativo, via LLVM ORCv2 (`LLJIT`).
+//! Execução em memória do LLVM IR do backend nativo, via LLVM ORCv2 (`LLJIT`).
 //!
 //! Este é o **perfil de desenvolvimento** do DartForge. O perfil de produção
-//! continua sendo o AOT de `crates/native`: IR → objeto por Clang → executável
-//! ligado ao runtime Rust. Os dois consomem exatamente o mesmo LLVM IR, emitido
-//! por `dartforge_compiler::compile_llvm_with_options`, e o teste diferencial em
-//! `tests/execucao.rs` existe para provar que produzem a mesma saída.
+//! é o AOT de `crates/emit_native`: IR → objeto por Clang → executável ligado
+//! ao runtime Rust. Os dois consomem **exatamente o mesmo LLVM IR textual**; o
+//! que muda é só o destino dele:
 //!
-//! A diferença está no que acontece depois do IR:
-//!
-//! | | AOT (`crates/native`) | JIT (este crate) |
+//! | | AOT (`crates/emit_native`) | JIT (este crate) |
 //! | --- | --- | --- |
-//! | Geração de código | Clang, em processo separado | ORCv2, em memória |
-//! | Runtime | `rustc` compila `RUNTIME_MAIN` e o linker resolve | endereços das funções Rust registrados como símbolos absolutos |
+//! | Geração de código | Clang `-O0`, em processo separado | ORCv2 em memória, `CodeGenLevelNone`, CPU `x86-64` |
+//! | Runtime | `rustc` compila `runtime_main.rs` e o linker resolve | a mesma fonte, compilada neste crate; endereços publicados como símbolos absolutos |
+//! | `main` | o `main` C do harness chama `@dartforge_entry` | o mesmo `main` do harness, chamado numa thread própria |
 //! | Saída | executável em disco | nada em disco |
-//! | Isolamento | processo próprio | **mesmo processo** do compilador |
 //!
-//! A última linha é o limite mais importante: o código gerado executa dentro do
-//! processo hospedeiro, com o mesmo heap gerenciado e o mesmo stdout. Um erro
-//! interno do runtime aborta o hospedeiro. [`docs/JIT.md`] detalha esses
-//! limites.
+//! O contrato completo — de onde vem cada símbolo, a pré-verificação de
+//! externos, o que é provisório — está em `docs/JIT.md` e no plano do JIT.
+//!
+//! # Término do programa
+//!
+//! O runtime encerra o **processo** com `process::exit` nos mesmos casos em que
+//! o executável AOT termina: exceção não capturada e asserção de não nulidade
+//! (101), teto do heap (255). Um erro interno do runtime aborta. Dentro de
+//! `dartforge run` isso é o comportamento certo — o processo termina com o
+//! código do programa, como `dart run`. Para testes e para o harness
+//! diferencial, a execução isolada é o binário `dartforge-executar-ir`.
 //!
 //! # Exemplo
 //!
@@ -30,9 +34,8 @@
 //!   ret void
 //! }
 //! ";
-//! let (saida, relatorio) = dartforge_jit::run_ir_capturing(ir)?;
-//! assert_eq!(saida, "7\n");
-//! assert!(relatorio.total >= relatorio.entry.execute);
+//! let relatorio = dartforge_jit::run_ir(ir)?; // imprime 7 no stdout
+//! assert_eq!(relatorio.entry.exit_code, 0);
 //! # Ok::<(), dartforge_jit::JitError>(())
 //! ```
 //!
@@ -49,23 +52,24 @@
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod ffi;
 mod reload;
-mod runtime;
 
 pub use reload::{HotReloadReport, StableEntry};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-/// Nome do símbolo que `crates/llvm` emite para o corpo de `main`.
+/// Nome do símbolo que o emissor nativo gera para o programa.
 ///
-/// O emissor nativo não produz uma função chamada `main`: o corpo de `main` e as
-/// instruções de topo do módulo viram `void @dartforge_entry()`. Quem procurar
+/// O emissor não produz uma função chamada `main`: o registro das classes e a
+/// chamada ao `main` Dart ficam em `void @dartforge_entry()`. Quem procurar
 /// `main` por engano recebe erro de símbolo ausente, não uma chamada errada.
 pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 
-/// Nomes do runtime nativo que a sessão define para o código gerado.
+/// Nomes do runtime nativo que a sessão publica para o código gerado.
 ///
-/// É o mesmo conjunto que o harness AOT exporta com `#[unsafe(no_mangle)]`.
+/// Gerado por `build.rs` a partir dos `#[unsafe(no_mangle)]` de
+/// `crates/runtime/src/runtime_main.rs` — a mesma fonte que o AOT liga —, na
+/// ordem da fonte. Nenhum nome é mantido à mão.
 ///
 /// ```
 /// assert!(dartforge_jit::RUNTIME_SYMBOLS.contains(&"dartforge_print_i64"));
@@ -73,21 +77,35 @@ pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 /// ```
 pub const RUNTIME_SYMBOLS: &[&str] = ffi::RUNTIME_SYMBOLS;
 
+/// Externos da CRT que o IR pode declarar além do runtime.
+///
+/// Lista fechada: qualquer outro nome declarado e não definido por um módulo da
+/// sessão é recusado na etapa `símbolos` antes de chegar ao LLVM.
+pub const CRT_SYMBOLS: &[&str] = ffi::CRT_SYMBOLS;
+
+/// Pilha da thread que executa o programa, em bytes.
+///
+/// É a reserva padrão que o linker dá à thread principal de um executável
+/// Windows — a que o programa AOT recebe, já que o driver não passa `/STACK`.
+/// Usar o mesmo tamanho faz recursão profunda falhar nos mesmos pontos nos dois
+/// perfis. Se o AOT passar a fixar a pilha, esta constante acompanha.
+pub const PROGRAM_STACK_BYTES: usize = 1 << 20;
+
 /// Etapa e diagnóstico de uma falha da sessão JIT.
 ///
 /// `message` traz a explicação em português e, quando existe, o texto original
 /// do LLVM anexado. Nenhum caminho de erro esperado usa `panic`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JitError {
-    /// Etapa que falhou: `lljit`, `runtime-symbols`, `parse-ir`, `add-module`,
-    /// `lookup`, `resource` ou, no hot reload, `contract`, `link`, `publish` e
-    /// `poisoned`.
+    /// Etapa que falhou: `lljit`, `runtime-symbols`, `parse-ir`, `layout`,
+    /// `símbolos`, `add-module`, `lookup`, `execute`, `resource` ou, no hot
+    /// reload, `contract`, `link`, `publish` e `poisoned`.
     pub stage: &'static str,
     /// Explicação em português, com o diagnóstico do LLVM quando houver.
     pub message: String,
 }
 impl std::fmt::Display for JitError {
-    /// Apresenta a etapa antes da mensagem, como faz `dartforge_native`.
+    /// Apresenta a etapa antes da mensagem.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.stage, self.message)
     }
@@ -110,11 +128,11 @@ impl JitError {
 /// Custo de incorporar um módulo à sessão, medido por fase.
 ///
 /// Cada intervalo é cronometrado no próprio trecho, nunca por subtração, no
-/// mesmo espírito de `LinkStats` (veja `docs/DESEMPENHO.md`). `total` cobre a
-/// chamada inteira e é pelo menos a soma das fases.
+/// mesmo espírito de `docs/DESEMPENHO.md`. `total` cobre a chamada inteira e é
+/// pelo menos a soma das fases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModuleReport {
-    /// Análise do IR textual e construção do `ThreadSafeModule`.
+    /// Análise do IR textual, verificações e construção do `ThreadSafeModule`.
     pub parse_ir: Duration,
     /// Entrega do módulo à `LLJIT` sob um `ResourceTracker` próprio.
     pub add_module: Duration,
@@ -124,7 +142,7 @@ pub struct ModuleReport {
     pub ir_bytes: usize,
 }
 
-/// Custo de resolver e executar um símbolo da sessão.
+/// Custo e resultado de resolver e executar a entrada da sessão.
 ///
 /// `lookup` inclui a **geração de código sob demanda**: no ORCv2 o módulo só é
 /// compilado quando algum de seus símbolos é procurado. Por isso o primeiro
@@ -134,10 +152,13 @@ pub struct ModuleReport {
 pub struct EntryReport {
     /// Resolução do símbolo, incluindo a compilação sob demanda do módulo.
     pub lookup: Duration,
-    /// Execução do código gerado, do `call` ao retorno.
+    /// Execução do programa, do `main` do harness ao retorno.
     pub execute: Duration,
     /// Chamada completa de [`JitSession::run_entry`].
     pub total: Duration,
+    /// Código que o `main` do harness devolveu. Os finais com código diferente
+    /// de zero encerram o processo antes de chegar aqui (ver o topo do crate).
+    pub exit_code: i32,
 }
 
 /// Custo completo de compilar e executar um IR numa sessão descartável.
@@ -157,9 +178,9 @@ pub struct JitReport {
 ///
 /// # Threading
 ///
-/// A sessão não é `Send` nem `Sync`. O heap gerenciado é `thread_local`, então o
-/// código gerado precisa executar na thread que criou a sessão; em outra thread
-/// ele veria um heap vazio e os handles não fariam sentido.
+/// A sessão não é `Send` nem `Sync`: contém ponteiros crus da API C. O programa
+/// executa numa thread própria por execução ([`JitSession::run_entry`]), com o
+/// runtime zerado, porque todo o estado do runtime é `thread_local`.
 ///
 /// # Símbolos duplicados
 ///
@@ -200,16 +221,11 @@ impl JitSession {
     /// Abre uma `LLJIT` para o host e publica os símbolos do runtime nativo.
     ///
     /// Os símbolos vêm de [`RUNTIME_SYMBOLS`] e são registrados como endereços
-    /// absolutos das funções Rust deste processo. Foi a alternativa escolhida em
-    /// vez do gerador de símbolos do processo
-    /// (`LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess`) por três razões:
-    /// o runtime do DartForge **não é** exportado pelo executável hospedeiro —
-    /// `crates/runtime` publica o harness como texto Rust, compilado pelo driver
-    /// AOT, não como biblioteca com símbolos exportados; o gerador de processo
-    /// exporia ao código gerado todo símbolo do processo, uma superfície muito
-    /// maior que o contrato de `crates/llvm`; e a lista explícita falha alto
-    /// quando o emissor passa a declarar um nome novo, em vez de resolvê-lo por
-    /// acidente para algo homônimo.
+    /// absolutos das funções Rust deste processo — não pelo gerador de símbolos
+    /// do processo (`LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess`), por
+    /// duas razões: um executável Windows não exporta os `#[no_mangle]` das
+    /// bibliotecas Rust que liga, então o gerador não os acharia; e ele
+    /// resolveria por acidente um nome homônimo em vez de falhar alto.
     ///
     /// # Erros
     /// Falha se o LLVM não tiver backend para o host, se a `LLJIT` não puder ser
@@ -240,26 +256,100 @@ impl JitSession {
         })
     }
 
+    /// Versão da `LLVM-C.dll` carregada neste processo, `(major, minor, patch)`.
+    ///
+    /// Existe porque há duas instalações do LLVM 22.1.8 nesta máquina e só a
+    /// completa serve; a DLL que o carregador acha primeiro no `PATH` é a que
+    /// vale, e `dartforge-executar-ir --timings` a registra.
+    pub fn llvm_version() -> (u32, u32, u32) {
+        ffi::llvm_version()
+    }
+
+    /// Confere o alvo do módulo contra o da `LLJIT`.
+    ///
+    /// Um `target datalayout` ou `target triple` ausente é aceito (a `LLJIT`
+    /// impõe o dela). Um presente e diferente é recusado com as duas strings:
+    /// significaria que o IR foi emitido para outro alvo que não o do processo,
+    /// e o conserto é no emissor, não aqui.
+    fn check_target(&self, parsed: &ffi::ParsedModule) -> Result<(), JitError> {
+        let (layout, triple) = parsed.target();
+        let (jit_layout, jit_triple) = self.lljit.target();
+        if !layout.is_empty() && layout != jit_layout {
+            return Err(JitError {
+                stage: "layout",
+                message: format!(
+                    "o módulo fixa target datalayout \"{layout}\" e a LLJIT deste processo usa \
+                     \"{jit_layout}\""
+                ),
+            });
+        }
+        if !triple.is_empty() && triple != jit_triple {
+            return Err(JitError {
+                stage: "layout",
+                message: format!(
+                    "o módulo fixa target triple \"{triple}\" e a LLJIT deste processo usa \
+                     \"{jit_triple}\""
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// Nomes que os módulos residentes definem, para resolver entre módulos.
+    fn defined_names(&self) -> Vec<&str> {
+        self.modules
+            .iter()
+            .filter(|module| !module.removed)
+            .flat_map(|module| module.signatures.iter().map(|s| s.name.as_str()))
+            .chain(
+                self.reloadables
+                    .iter()
+                    .flat_map(|module| module.entries.keys().map(String::as_str)),
+            )
+            .collect()
+    }
+
     /// Analisa IR textual e o incorpora à sessão sob um rastreador próprio.
     ///
-    /// `name` identifica o módulo nos relatórios e nos diagnósticos do LLVM; não
-    /// precisa ser único, mas ajuda quando é. O IR não pode fixar `target
-    /// triple` nem `target datalayout`: a `LLJIT` impõe o layout do host, e um
-    /// layout divergente é recusado pelo próprio LLVM.
+    /// Antes de entregar o módulo ao LLVM, confere:
+    ///
+    /// * o alvo (`layout`), contra o da `LLJIT`;
+    /// * cada nome **declarado e não definido** (`símbolos`): tem de ser do
+    ///   runtime ([`RUNTIME_SYMBOLS`]), da CRT listada ([`CRT_SYMBOLS`]), um
+    ///   intrínseco `llvm.*`, ou definido por um módulo já residente.
+    ///
+    /// Um nome fora disso é recusado com o nome na mensagem, em vez de virar um
+    /// erro de ligação do ORC — ou, pior, ser resolvido por acaso para algo
+    /// homônimo do processo.
     ///
     /// # Erros
-    /// IR inválido devolve o diagnóstico do LLVM na etapa `parse-ir`; símbolo já
-    /// definido na sessão devolve erro na etapa `add-module`. Em nenhum dos dois
-    /// casos a sessão fica em estado parcial: o módulo não é registrado.
+    /// IR inválido (`parse-ir`), alvo divergente (`layout`), externo
+    /// desconhecido (`símbolos`) ou símbolo já definido na sessão
+    /// (`add-module`). Em nenhum caso a sessão fica em estado parcial.
     pub fn add_ir_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
+        self.check_target(&parsed)?;
+        let signatures = parsed.signatures();
+        let defined = self.defined_names();
+        if let Some(unknown) = parsed.declarations().into_iter().find(|reference| {
+            !ffi::is_known_external(reference)
+                && !defined.contains(&reference.as_str())
+                && !signatures.iter().any(|s| &s.name == reference)
+        }) {
+            return Err(JitError {
+                stage: "símbolos",
+                message: format!(
+                    "o módulo referencia {unknown}, que nem o runtime nem a lista de CRT definem, \
+                     e nenhum módulo da sessão define"
+                ),
+            });
+        }
         // A impressão digital do contrato é lida aqui, e não só no hot reload,
         // porque é o que permite a uma recarga futura comparar a versão nova com
         // esta — inclusive quando este módulo entrou pelo caminho simples.
-        let signatures = parsed.signatures();
         let layouts = parsed.class_layouts();
         let module = parsed.into_thread_safe();
         let parse_ir = phase.elapsed();
@@ -304,45 +394,43 @@ impl JitSession {
         })
     }
 
-    /// Resolve e executa [`ENTRY_SYMBOL`], imprimindo no stdout do processo.
+    /// Resolve [`ENTRY_SYMBOL`] e executa o programa como o `main` do AOT.
+    ///
+    /// O programa roda numa thread nova com [`PROGRAM_STACK_BYTES`] de pilha e
+    /// runtime zerado, e imprime no stdout do processo. Pode ser chamada mais de
+    /// uma vez: cada execução começa de um runtime limpo.
     ///
     /// # Erros
-    /// Falha se nenhum módulo da sessão definir a entrada, ou se a compilação
-    /// sob demanda desse módulo falhar.
+    /// Falha se nenhum módulo da sessão definir a entrada, se a compilação sob
+    /// demanda desse módulo falhar (`lookup`) ou se a thread do programa não
+    /// puder ser criada (`execute`).
     ///
-    /// # Panics
-    /// Não entra em `panic` por erro esperado. Um erro **interno** do runtime
-    /// (handle inválido, tipo errado num campo) chega como `panic` numa função
-    /// `extern "C"`, o que aborta o processo; e uma asserção de não nulidade
-    /// falha encerra o processo com código 101, como no AOT.
+    /// # Término
+    /// Exceção não capturada, asserção de não nulidade e teto do heap encerram
+    /// o processo com o código do AOT; um erro interno do runtime aborta. Ver o
+    /// topo do crate.
     pub fn run_entry(&self) -> Result<EntryReport, JitError> {
         let started = Instant::now();
-        let (lookup, execute) = self.lljit.run_entry().map_err(|detail| {
-            JitError::new(
-                "lookup",
-                &format!("não foi possível resolver o símbolo {ENTRY_SYMBOL}"),
-                detail,
-            )
-        })?;
+        let (lookup, exit_code, execute) =
+            self.lljit.run_entry(PROGRAM_STACK_BYTES).map_err(|detail| {
+                if detail.starts_with("não foi possível criar a thread")
+                    || detail.starts_with("a thread do programa")
+                {
+                    JitError::new("execute", "a execução do programa falhou", detail)
+                } else {
+                    JitError::new(
+                        "lookup",
+                        &format!("não foi possível resolver o símbolo {ENTRY_SYMBOL}"),
+                        detail,
+                    )
+                }
+            })?;
         Ok(EntryReport {
             lookup,
             execute,
             total: started.elapsed(),
+            exit_code,
         })
-    }
-
-    /// Executa a entrada capturando as linhas impressas em vez de escrevê-las.
-    ///
-    /// As linhas usam `\n` em qualquer sistema. A captura vale apenas para as
-    /// funções de impressão do runtime; qualquer escrita direta em stdout feita
-    /// por outra parte do processo continua indo para o stdout real.
-    ///
-    /// # Erros
-    /// Os mesmos de [`JitSession::run_entry`]; em caso de erro o texto
-    /// eventualmente já impresso é descartado junto com o resultado.
-    pub fn run_entry_capturing(&self) -> Result<(String, EntryReport), JitError> {
-        let (report, output) = runtime::capturing(|| self.run_entry());
-        report.map(|report| (output, report))
     }
 
     /// Nomes dos módulos ainda residentes, na ordem de inclusão.
@@ -370,15 +458,9 @@ impl JitSession {
     /// da remoção é uso de memória liberada.
     ///
     /// A assinatura é a única garantia possível em Rust: `&mut self` aqui contra
-    /// `&self` em [`JitSession::run_entry`] impede que uma execução em curso e
-    /// uma remoção coexistam **nesta** sessão. O que o compilador não pode
-    /// impedir é a remoção a partir de dentro de uma chamada ao código gerado —
-    /// por exemplo, de dentro de uma função de runtime invocada pelo programa. O
-    /// hot reload, que virá numa etapa seguinte, depende de stubs indiretos
-    /// justamente para não precisar dessa garantia manual.
-    ///
-    /// Os handles do heap gerenciado **não** são liberados: o heap pertence à
-    /// thread, não ao módulo, e sobrevive à remoção.
+    /// `&self` em [`JitSession::run_entry`] — que só retorna depois que a thread
+    /// do programa terminou — impede que uma execução em curso e uma remoção
+    /// coexistam **nesta** sessão.
     ///
     /// # Erros
     /// Índice fora da faixa, módulo já removido ou falha do LLVM viram erro na
@@ -400,22 +482,17 @@ impl JitSession {
         module.removed = true;
         Ok(())
     }
-
-    /// Estatísticas do heap gerenciado da thread, equivalentes a `DARTFORGE_GC_STATS`.
-    ///
-    /// O heap é da thread e acumula entre execuções da mesma sessão; não é
-    /// reiniciado ao adicionar ou remover módulos.
-    pub fn gc_stats(&self) -> dartforge_runtime::heap::HeapStats {
-        runtime::gc_stats()
-    }
 }
 
 /// Compila e executa um IR numa sessão descartável, imprimindo no stdout.
 ///
-/// É o caminho usado por `dartforge run`. A sessão nasce e morre na chamada, o
-/// que significa que todo o código gerado é descartado ao final — apropriado
-/// para uma execução única, não para um laço de desenvolvimento, que deve
-/// manter uma [`JitSession`] aberta.
+/// É o caminho de `dartforge-executar-ir` (e, depois do merge do emissor, de
+/// `dartforge run`). A sessão nasce e morre na chamada.
+///
+/// O módulo entra por [`JitSession::add_ir_module`], **nunca** pelo caminho
+/// recarregável: sem trampolim, as chamadas são diretas como no AOT, e a
+/// profundidade de recursão é a mesma nos dois perfis. Isso é contrato do
+/// diferencial JIT × AOT (`docs/PESQUISA-HOT-RELOAD.md` §4.3).
 ///
 /// # Erros
 /// Propaga as falhas de [`JitSession::new`], [`JitSession::add_ir_module`] e
@@ -434,15 +511,6 @@ pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
         entry,
         total: started.elapsed(),
     })
-}
-
-/// Igual a [`run_ir`], mas devolve as linhas impressas em vez de escrevê-las.
-///
-/// # Erros
-/// As mesmas de [`run_ir`].
-pub fn run_ir_capturing(ir: &str) -> Result<(String, JitReport), JitError> {
-    let (report, output) = runtime::capturing(|| run_ir(ir));
-    report.map(|report| (output, report))
 }
 
 #[cfg(test)]
@@ -468,6 +536,8 @@ mod tests {
     fn entry_symbol_is_not_a_runtime_symbol() {
         assert_eq!(ENTRY_SYMBOL, "dartforge_entry");
         assert!(!RUNTIME_SYMBOLS.contains(&ENTRY_SYMBOL));
-        assert_eq!(RUNTIME_SYMBOLS.len(), 18);
+        assert!(!RUNTIME_SYMBOLS.contains(&"main"));
+        // A tabela é gerada da fonte: ela cresce com o runtime, nunca à mão.
+        assert!(RUNTIME_SYMBOLS.len() > 100, "{}", RUNTIME_SYMBOLS.len());
     }
 }
