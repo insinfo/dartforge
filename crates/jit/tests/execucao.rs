@@ -356,29 +356,44 @@ fn executor_falha_do_jit_sai_com_70() {
 
 // ─── Diferencial JIT × AOT sobre o IR do emissor nativo ───────────────────
 
-/// Programa da trilha nova que exercita escalares, objetos e strings.
+/// Programa que o emissor de hoje executa certo: strings e uma função de topo.
+///
+/// É pequeno por uma razão medida em 2026-09-23. O diferencial só prova alguma
+/// coisa sobre a saída **esperada** se o AOT a produz, e três formas mais ricas
+/// ainda saíam erradas do emissor, nos dois perfis:
+/// - um `for` cuja variável é reatribuída (`i = i + 1`): o IR recalcula `i + 1`
+///   e descarta o resultado, então o laço não termina;
+/// - uma chamada de método de instância (`c.dobro()`), baixada como `print(0)`;
+/// - `print` de um `int` devolvido por função, que passa por
+///   `dartforge_print_handle` e cai em `handle não vivo` (ESTADO §2.5).
+///
+/// Quando o emissor fechar essas formas, elas voltam para cá. Enquanto isso,
+/// elas estão em [`PROGRAMAS_COM_DEFEITO`], onde se exige só que JIT e AOT
+/// concordem.
 const PROGRAMA: &str = "\
-class Contador {
-  int valor;
-  Contador(this.valor);
-  int dobro() { return valor * 2; }
-}
 String saudacao(String nome) { return 'ola ' + nome; }
 void main() {
-  int total = 0;
-  for (int i = 1; i <= 4; i = i + 1) {
-    total = total + i;
-  }
-  print(total);
-  print(total > 5);
-  Contador c = Contador(21);
-  print(c.dobro());
+  print('inicio');
   print(saudacao('mundo'));
 }
 ";
 
 /// Saída esperada, com quebras `\n` em qualquer sistema.
-const ESPERADO: &str = "10\ntrue\n42\nola mundo\n";
+const ESPERADO: &str = "inicio\nola mundo\n";
+
+/// Programas em que o emissor de hoje erra, nos dois perfis.
+///
+/// O contrato vale mesmo assim: o mesmo IR tem de dar o mesmo stdout e o mesmo
+/// código de saída pelo JIT e pelo AOT, inclusive quando o runtime aborta.
+/// Esses programas não podem travar, porque um laço infinito não prova
+/// acordo; o que trava fica fora daqui e está descrito em [`PROGRAMA`].
+const PROGRAMAS_COM_DEFEITO: &[&str] = &["\
+int soma(int a, int b) { return a + b; }
+void main() {
+  print('antes');
+  print(soma(40, 2));
+}
+"];
 
 /// Emite o LLVM IR de um arquivo Dart pela trilha nova (`emitir_ir`), o mesmo
 /// texto que o driver AOT entrega ao Clang.
@@ -389,22 +404,17 @@ fn emitir_ir(entrada: &Path) -> String {
         .texto
 }
 
-/// O mesmo IR precisa produzir a mesma saída e o mesmo código nos dois perfis.
-///
-/// Contrato central: desenvolvimento e produção podem divergir em tempo de
-/// compilação, nunca em resultado observável.
-#[test]
-#[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
-fn jit_e_aot_concordam_no_mesmo_ir() {
+/// Emite o IR de `fonte` uma vez e executa esse mesmo texto pelos dois perfis.
+fn executar_nos_dois_perfis(rotulo: &str, fonte: &str) -> (Execucao, Execucao) {
     let inicio = std::time::Instant::now();
-    let dir = OutputDir::new("diferencial");
-    let fonte = dir.0.join("programa.dart");
-    std::fs::write(&fonte, PROGRAMA).unwrap();
+    let dir = OutputDir::new(rotulo);
+    let arquivo = dir.0.join("programa.dart");
+    std::fs::write(&arquivo, fonte).unwrap();
     etapa(inicio, "emitir_ir");
     // Pilha grande como a CLI: o lowering é recursivo sobre a AST.
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || emitir_ir(&fonte))
+        .spawn(move || emitir_ir(&arquivo))
         .unwrap()
         .join()
         .unwrap();
@@ -423,8 +433,34 @@ fn jit_e_aot_concordam_no_mesmo_ir() {
     etapa(inicio, "executar o AOT");
     let aot = executar(&mut Command::new(&executavel));
     etapa(inicio, &format!("AOT terminou ({:?})", aot.codigo));
+    (jit, aot)
+}
 
+/// O mesmo IR produz a mesma saída e o mesmo código, e a saída é a esperada.
+///
+/// Contrato central: desenvolvimento e produção podem divergir em tempo de
+/// compilação, nunca em resultado observável.
+#[test]
+#[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
+fn jit_e_aot_concordam_no_mesmo_ir() {
+    let (jit, aot) = executar_nos_dois_perfis("diferencial", PROGRAMA);
     assert_eq!(jit.stdout, aot.stdout, "JIT {jit:?}\nAOT {aot:?}");
     assert_eq!(jit.codigo, aot.codigo, "JIT {jit:?}\nAOT {aot:?}");
-    assert_eq!(jit.stdout, ESPERADO);
+    assert_eq!(jit.stdout, ESPERADO, "os dois perfis concordam, mas o programa não fez o esperado: {jit:?}");
+    assert_eq!(jit.codigo, Some(0), "{jit:?}");
+}
+
+/// Nos programas em que o emissor ainda erra, os dois perfis erram igual.
+///
+/// Só stdout e código são comparados. O stderr de um `panic` do runtime traz o
+/// caminho do arquivo-fonte e a thread, que diferem entre a compilação avulsa
+/// do AOT e a do crate.
+#[test]
+#[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
+fn jit_e_aot_concordam_ate_no_defeito() {
+    for (indice, fonte) in PROGRAMAS_COM_DEFEITO.iter().enumerate() {
+        let (jit, aot) = executar_nos_dois_perfis(&format!("defeito-{indice}"), fonte);
+        assert_eq!(jit.stdout, aot.stdout, "programa {indice}\nJIT {jit:?}\nAOT {aot:?}");
+        assert_eq!(jit.codigo, aot.codigo, "programa {indice}\nJIT {jit:?}\nAOT {aot:?}");
+    }
 }
