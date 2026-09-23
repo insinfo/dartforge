@@ -346,7 +346,26 @@ pub fn load_lenient_gerados(
         let t_dir = std::time::Instant::now();
         let (leitura_antes, parse_antes) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
-        while unit_idx < program.libraries[lib_id.0 as usize].units.len() {
+        // A augmentation que o hospedeiro de macros montou para esta
+        // biblioteca (em memória, `<nome>.macro.dart` ao lado dela) entra
+        // por último, depois de todas as partes — como as bibliotecas de
+        // augmentation que o CFE cria para a saída das macros. Só é
+        // consultada quando há fontes geradas (custo zero sem macros).
+        let mut macro_anexada = false;
+        loop {
+            if unit_idx >= program.libraries[lib_id.0 as usize].units.len() {
+                if macro_anexada {
+                    break;
+                }
+                macro_anexada = true;
+                match anexar_augmentation_de_macro(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
+                    Some(uid) => {
+                        program.libraries[lib_id.0 as usize].units.push(uid);
+                        continue;
+                    }
+                    None => break,
+                }
+            }
             let unit_id = program.libraries[lib_id.0 as usize].units[unit_idx];
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
@@ -1084,6 +1103,46 @@ fn evaluate_configuration(
         return supported;
     }
     false
+}
+
+/// O caminho da augmentation de macro de uma biblioteca: `x.macro.dart` ao
+/// lado de `x.dart` (o mesmo nome da materialização,
+/// docs/MACROS-COMPATIBILIDADE.md).
+pub fn caminho_da_augmentation_de_macro(biblioteca: &Path) -> PathBuf {
+    let stem = biblioteca.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    biblioteca.with_file_name(format!("{stem}.macro.dart"))
+}
+
+/// Carrega a augmentation de macro de `lib`, se a geração em memória tiver
+/// uma (e a biblioteca ainda não a incluir por `import augment`/`part`).
+fn anexar_augmentation_de_macro(
+    program: &mut Program,
+    lib_id: LibraryId,
+    package_config: &PackageConfig,
+    corrente: LanguageVersion,
+    interner: &mut Interner,
+    diagnostics: &mut Vec<Diagnostic>,
+    prefetch: &mut Prefetch,
+) -> Option<UnitId> {
+    let gerados = package_config.gerados.as_ref().filter(|g| !g.vazia())?;
+    let lib = &program.libraries[lib_id.0 as usize];
+    if lib.is_sdk {
+        return None;
+    }
+    let principal = program.units[lib.units.first()?.0 as usize].path.clone()?;
+    let caminho = caminho_da_augmentation_de_macro(&principal);
+    if !gerados.contem(&caminho) {
+        return None;
+    }
+    let chave = crate::gerado::chave(&caminho);
+    if lib.units.iter().any(|u| program.units[u.0 as usize].path.as_deref().map(crate::gerado::chave).as_ref() == Some(&chave)) {
+        return None;
+    }
+    let uri = canonical_file_uri(&caminho, package_config);
+    let versao = Versao::Parte { da_biblioteca: lib.features, config: package_config, corrente };
+    let lido = prefetch.tirar(&caminho);
+    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, versao, interner, program, diagnostics, lido, None)?;
+    Some(uid)
 }
 
 /// A unidade de `import augment 'x'` tem de começar por `augment library 'y'`

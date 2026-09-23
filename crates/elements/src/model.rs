@@ -89,6 +89,11 @@ pub struct Program {
     /// ordem de aplicação (docs/AUGMENTATIONS.md). Vazio num programa sem
     /// augmentations.
     pub augmentacoes: HashMap<ClassId, Vec<DeclRef>>,
+    /// As classes declaradas com `macro` (experimento `macros`), anotadas na
+    /// mesma passada que cria os elementos. Vazio ⇒ nenhuma anotação pode ser
+    /// aplicação de macro, e o hospedeiro de macros nem é consultado
+    /// (regra de custo zero, docs/MACROS-PROTOCOLO.md §2).
+    pub classes_macro: Vec<ClassId>,
 }
 
 /// Papel de um arquivo dentro da sua biblioteca.

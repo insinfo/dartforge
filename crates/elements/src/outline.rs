@@ -66,6 +66,7 @@ pub fn build_outline(
         };
 
         let mut cadeias: Vec<(ClassId, DeclRef)> = Vec::new();
+        let mut classes_macro: Vec<ClassId> = Vec::new();
         for unit_id in unit_ids {
             let role = program.units[unit_id.0 as usize].role;
             let decl_ids = program.units[unit_id.0 as usize].unit.declarations.clone();
@@ -123,6 +124,9 @@ pub fn build_outline(
                             let class_id = create_class_element(
                                 &mut pools, ast, lib_id, unit_id, decl_id, c, empty_sym, interner,
                             );
+                            if c.modifiers.macro_ {
+                                classes_macro.push(class_id);
+                            }
                             let entry = program.libraries[lib_idx]
                                 .declared
                                 .entry(class_name)
@@ -343,6 +347,7 @@ pub fn build_outline(
         for (c, d) in cadeias {
             program.augmentacoes.entry(c).or_default().push(d);
         }
+        program.classes_macro.append(&mut classes_macro);
     }
 
     // -----------------------------------------------------------------------
