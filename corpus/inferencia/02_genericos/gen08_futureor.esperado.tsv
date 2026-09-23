@@ -1,0 +1,23 @@
+# 02_genericos/gen08_futureor.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+5	4	142	30	FunctionExpression	T Function<T>(FutureOr<T>)	-	0	<T>(FutureOr<T> x) => throw 0;
+5	26	164	7	ThrowExpression	Never	-	0	throw 0
+5	32	170	1	IntegerLiteral	int	-	0	0
+6	10	182	109	FunctionExpression	void Function()	-	0	() { var a = /*@*/f(1); var b = /*@*/f(Future.value(1));
+7	16	202	4	MethodInvocation	int	FUNCTION:f	1	f(1)
+7	16	202	1	SimpleIdentifier	T Function<T>(FutureOr<T>)	FUNCTION:f	1	f
+7	18	204	1	IntegerLiteral	int	-	0	1
+8	16	223	18	MethodInvocation	int	FUNCTION:f	1	f(Future.value(1))
+8	16	223	1	SimpleIdentifier	T Function<T>(FutureOr<T>)	FUNCTION:f	1	f
+8	18	225	15	InstanceCreationExpression	Future<int>	CONSTRUCTOR:Future.value	0	Future.value(1)
+8	25	232	5	SimpleIdentifier	-	CONSTRUCTOR:Future.value	0	value
+8	31	238	1	IntegerLiteral	int	-	0	1
+9	16	258	10	MethodInvocation	List<int>	FUNCTION:f	1	f(<int>[])
+9	16	258	1	SimpleIdentifier	T Function<T>(FutureOr<T>)	FUNCTION:f	1	f
+9	18	260	7	ListLiteral	List<int>	-	0	<int>[]
+10	3	272	16	MethodInvocation	void	FUNCTION:print	0	print([a, b, c])
+10	3	272	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	9	278	9	ListLiteral	List<Object>	-	0	[a, b, c]
+10	10	279	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.a	0	a
+10	13	282	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.b	0	b
+10	16	285	1	SimpleIdentifier	List<int>	LOCAL_VARIABLE:main.c	0	c

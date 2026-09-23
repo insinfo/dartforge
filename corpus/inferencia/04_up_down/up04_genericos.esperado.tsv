@@ -1,0 +1,34 @@
+# 04_up_down/up04_genericos.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	107	288	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { var b = args.isEmpty; var p = /*@*
+4	11	139	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+4	11	139	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+4	16	144	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+5	16	168	24	ConditionalExpression	List<num>	-	1	b ? <int>[] : <double>[]
+5	16	168	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+5	20	172	7	ListLiteral	List<int>	-	0	<int>[]
+5	30	182	10	ListLiteral	List<double>	-	0	<double>[]
+6	16	209	24	ConditionalExpression	List<Object>	-	1	b ? <int>[] : <String>[]
+6	16	209	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+6	20	213	7	ListLiteral	List<int>	-	0	<int>[]
+6	30	223	10	ListLiteral	List<String>	-	0	<String>[]
+7	16	250	40	ConditionalExpression	Map<String, num>	-	1	b ? <String, int>{} : <String, double>{}
+7	16	250	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+7	20	254	15	SetOrMapLiteral	Map<String, int>	-	0	<String, int>{}
+7	38	272	18	SetOrMapLiteral	Map<String, double>	-	0	<String, double>{}
+8	16	307	21	ConditionalExpression	Iterable<int>	-	1	b ? <int>[] : <int>{}
+8	16	307	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+8	20	311	7	ListLiteral	List<int>	-	0	<int>[]
+8	30	321	7	SetOrMapLiteral	Set<int>	-	0	<int>{}
+9	16	345	21	ConditionalExpression	List<num>	-	1	b ? <int>[] : <num>[]
+9	16	345	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.b	1	b
+9	20	349	7	ListLiteral	List<int>	-	0	<int>[]
+9	30	359	7	ListLiteral	List<num>	-	0	<num>[]
+10	3	370	22	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s, t])
+10	3	370	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	9	376	15	ListLiteral	List<Object>	-	0	[p, q, r, s, t]
+10	10	377	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.p	0	p
+10	13	380	1	SimpleIdentifier	List<Object>	LOCAL_VARIABLE:main.q	0	q
+10	16	383	1	SimpleIdentifier	Map<String, num>	LOCAL_VARIABLE:main.r	0	r
+10	19	386	1	SimpleIdentifier	Iterable<int>	LOCAL_VARIABLE:main.s	0	s
+10	22	389	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.t	0	t

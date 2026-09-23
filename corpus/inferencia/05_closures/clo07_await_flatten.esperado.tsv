@@ -1,0 +1,22 @@
+# 05_closures/clo07_await_flatten.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+4	15	78	252	FunctionExpression	Future<void> Function<T extends Future<int>>(FutureOr<int>, Future<int>?, T, Future<Future<int>>, int)	-	0	<T extends Future<int>>( FutureOr<int> a, Future<int>? b
+6	16	198	7	AwaitExpression	int	-	1	await a
+6	22	204	1	SimpleIdentifier	FutureOr<int>	PARAMETER:f.a	0	a
+7	16	222	7	AwaitExpression	int?	-	1	await b
+7	22	228	1	SimpleIdentifier	Future<int>?	PARAMETER:f.b	0	b
+8	16	246	7	AwaitExpression	int	-	1	await c
+8	22	252	1	SimpleIdentifier	T	PARAMETER:f.c	0	c
+9	16	270	7	AwaitExpression	Future<int>	-	1	await d
+9	22	276	1	SimpleIdentifier	Future<Future<int>>	PARAMETER:f.d	0	d
+10	16	294	7	AwaitExpression	int	-	1	await e
+10	22	300	1	SimpleIdentifier	int	PARAMETER:f.e	0	e
+11	3	305	22	MethodInvocation	void	FUNCTION:print	0	print([p, q, r, s, t])
+11	3	305	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	311	15	ListLiteral	List<Object?>	-	0	[p, q, r, s, t]
+11	10	312	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.p	0	p
+11	13	315	1	SimpleIdentifier	int?	LOCAL_VARIABLE:f.q	0	q
+11	16	318	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.r	0	r
+11	19	321	1	SimpleIdentifier	Future<int>	LOCAL_VARIABLE:f.s	0	s
+11	22	324	1	SimpleIdentifier	int	LOCAL_VARIABLE:f.t	0	t
+14	10	341	5	FunctionExpression	void Function()	-	0	() {}

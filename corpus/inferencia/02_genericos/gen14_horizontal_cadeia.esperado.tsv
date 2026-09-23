@@ -1,0 +1,25 @@
+# 02_genericos/gen14_horizontal_cadeia.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	4	159	60	FunctionExpression	V Function<T, U, V>(V Function(U), U Function(T), T)	-	0	<T, U, V>(V Function(U) a, U Function(T) b, T c) => a(b(c));
+3	56	211	7	FunctionExpressionInvocation	V	-	0	a(b(c))
+3	56	211	1	SimpleIdentifier	V Function(U)	PARAMETER:h.a	0	a
+3	58	213	4	FunctionExpressionInvocation	U	-	0	b(c)
+3	58	213	1	SimpleIdentifier	U Function(T)	PARAMETER:h.b	0	b
+3	60	215	1	SimpleIdentifier	T	PARAMETER:h.c	0	c
+4	10	229	84	FunctionExpression	void Function()	-	0	() { var r = /*@*/h((u) => (/*@*/u).isEven, (t) => (/*@*/t
+5	16	249	49	MethodInvocation	bool	FUNCTION:h	1	h((u) => (/*@*/u).isEven, (t) => (/*@*/t) * 2, 1)
+5	16	249	1	SimpleIdentifier	V Function<T, U, V>(V Function(U), U Function(T), T)	FUNCTION:h	1	h
+5	18	251	22	FunctionExpression	bool Function(int)	-	0	(u) => (/*@*/u).isEven
+5	25	258	15	PropertyAccess	bool	GETTER:int.isEven	0	(/*@*/u).isEven
+5	25	258	8	ParenthesizedExpression	int	-	0	(/*@*/u)
+5	31	264	1	SimpleIdentifier	int	PARAMETER:.u	1	u
+5	34	267	6	SimpleIdentifier	bool	GETTER:int.isEven	0	isEven
+5	42	275	19	FunctionExpression	int Function(int)	-	0	(t) => (/*@*/t) * 2
+5	49	282	12	BinaryExpression	int	METHOD:num.*	0	(/*@*/t) * 2
+5	49	282	8	ParenthesizedExpression	int	-	0	(/*@*/t)
+5	55	288	1	SimpleIdentifier	int	PARAMETER:.t	1	t
+5	60	293	1	IntegerLiteral	int	-	0	2
+5	63	296	1	IntegerLiteral	int	-	0	1
+6	3	302	8	MethodInvocation	void	FUNCTION:print	0	print(r)
+6	3	302	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+6	9	308	1	SimpleIdentifier	bool	LOCAL_VARIABLE:main.r	0	r

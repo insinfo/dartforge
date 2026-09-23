@@ -1,0 +1,35 @@
+# 01_contexto/ctx06_se_nulo.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	146	249	FunctionExpression	void Function(List<String>)	-	0	(List<String> args) { List<num>? a = args.isEmpty ? null :
+4	18	185	24	ConditionalExpression	List<num>?	-	0	args.isEmpty ? null : []
+4	18	185	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+4	18	185	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+4	23	190	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+4	33	200	4	NullLiteral	Null	-	0	null
+4	40	207	2	ListLiteral	List<num>	-	0	[]
+5	17	227	13	BinaryExpression	List<num>	-	0	a ?? /*@*/[1]
+5	17	227	1	SimpleIdentifier	List<num>?	LOCAL_VARIABLE:main.a	0	a
+5	27	237	3	ListLiteral	List<num>	-	1	[1]
+5	28	238	1	IntegerLiteral	int	-	0	1
+6	12	253	23	ConditionalExpression	int?	-	0	args.isEmpty ? null : 1
+6	12	253	12	PrefixedIdentifier	bool	GETTER:Iterable.isEmpty	0	args.isEmpty
+6	12	253	4	SimpleIdentifier	List<String>	PARAMETER:main.args	0	args
+6	17	258	7	SimpleIdentifier	bool	GETTER:Iterable.isEmpty	0	isEmpty
+6	27	268	4	NullLiteral	Null	-	0	null
+6	34	275	1	IntegerLiteral	int	-	0	1
+7	16	293	8	BinaryExpression	num	-	1	i ?? 2.0
+7	16	293	1	SimpleIdentifier	int?	LOCAL_VARIABLE:main.i	1	i
+7	21	298	3	DoubleLiteral	double	-	0	2.0
+9	14	329	11	BinaryExpression	double	-	0	d ?? /*@*/1
+9	14	329	1	SimpleIdentifier	double?	LOCAL_VARIABLE:main.d	0	d
+9	24	339	1	IntegerLiteral	double	-	1	1
+10	16	357	12	BinaryExpression	List<num>	-	1	a ?? /*@*/[]
+10	16	357	1	SimpleIdentifier	List<num>?	LOCAL_VARIABLE:main.a	1	a
+10	26	367	2	ListLiteral	List<num>	-	1	[]
+11	3	373	19	MethodInvocation	void	FUNCTION:print	0	print([b, c, e, f])
+11	3	373	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	379	12	ListLiteral	List<Object>	-	0	[b, c, e, f]
+11	10	380	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.b	0	b
+11	13	383	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.c	0	c
+11	16	386	1	SimpleIdentifier	double	LOCAL_VARIABLE:main.e	0	e
+11	19	389	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.f	0	f

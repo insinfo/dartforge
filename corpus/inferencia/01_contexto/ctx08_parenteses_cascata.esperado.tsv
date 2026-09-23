@@ -1,0 +1,17 @@
+# 01_contexto/ctx08_parenteses_cascata.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	10	78	87	FunctionExpression	void Function()	-	0	() { List<num> a = (/*@*/[1]); List<num> b = /*@*/[1]..a
+3	17	99	10	ParenthesizedExpression	List<num>	-	0	(/*@*/[1])
+3	23	105	3	ListLiteral	List<num>	-	1	[1]
+3	24	106	1	IntegerLiteral	int	-	0	1
+4	22	132	13	CascadeExpression	List<num>	-	1	[1]..add(2.5)
+4	22	132	3	ListLiteral	List<num>	-	1	[1]
+4	23	133	1	IntegerLiteral	int	-	0	1
+4	25	135	10	MethodInvocation	void	METHOD:List.add	0	..add(2.5)
+4	27	137	3	SimpleIdentifier	void Function(num)	METHOD:List.add	0	add
+4	31	141	3	DoubleLiteral	double	-	0	2.5
+5	3	149	13	MethodInvocation	void	FUNCTION:print	0	print([a, b])
+5	3	149	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+5	9	155	6	ListLiteral	List<List<num>>	-	0	[a, b]
+5	10	156	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.a	0	a
+5	13	159	1	SimpleIdentifier	List<num>	LOCAL_VARIABLE:main.b	0	b

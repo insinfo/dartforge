@@ -1,0 +1,37 @@
+# 03_literais/lit03_conjunto_mapa.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+3	10	110	306	FunctionExpression	void Function()	-	0	() { var a = /*@*/{}; var b = /*@*/{1}; var c = /*@*/{
+4	16	130	2	SetOrMapLiteral	Map<dynamic, dynamic>	-	1	{}
+5	16	149	3	SetOrMapLiteral	Set<int>	-	1	{1}
+5	17	150	1	IntegerLiteral	int	-	0	1
+6	16	169	8	SetOrMapLiteral	Map<int, String>	-	1	{1: 'a'}
+6	17	170	1	IntegerLiteral	int	-	0	1
+6	20	173	3	SimpleStringLiteral	String	-	0	'a'
+7	21	199	2	SetOrMapLiteral	Set<int>	-	1	{}
+8	26	228	2	SetOrMapLiteral	Set<int>	-	1	{}
+9	19	250	2	SetOrMapLiteral	Map<dynamic, dynamic>	-	1	{}
+10	16	269	6	SetOrMapLiteral	Set<int>	-	1	{...b}
+10	20	273	1	SimpleIdentifier	Set<int>	LOCAL_VARIABLE:main.b	0	b
+11	16	292	6	SetOrMapLiteral	Map<int, String>	-	1	{...c}
+11	20	296	1	SimpleIdentifier	Map<int, String>	LOCAL_VARIABLE:main.c	0	c
+12	29	328	8	SetOrMapLiteral	Map<String, num>	-	1	{'a': 1}
+12	30	329	3	SimpleStringLiteral	String	-	0	'a'
+12	35	334	1	IntegerLiteral	int	-	0	1
+13	16	353	19	SetOrMapLiteral	Map<num, String?>	-	1	{1: 'a', 2.5: null}
+13	17	354	1	IntegerLiteral	int	-	0	1
+13	20	357	3	SimpleStringLiteral	String	-	0	'a'
+13	25	362	3	DoubleLiteral	double	-	0	2.5
+13	30	367	4	NullLiteral	Null	-	0	null
+14	3	376	37	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d, e, f, g, h, i, j])
+14	3	376	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+14	9	382	30	ListLiteral	List<Object>	-	0	[a, b, c, d, e, f, g, h, i, j]
+14	10	383	1	SimpleIdentifier	Map<dynamic, dynamic>	LOCAL_VARIABLE:main.a	0	a
+14	13	386	1	SimpleIdentifier	Set<int>	LOCAL_VARIABLE:main.b	0	b
+14	16	389	1	SimpleIdentifier	Map<int, String>	LOCAL_VARIABLE:main.c	0	c
+14	19	392	1	SimpleIdentifier	Set<int>	LOCAL_VARIABLE:main.d	0	d
+14	22	395	1	SimpleIdentifier	Iterable<int>	LOCAL_VARIABLE:main.e	0	e
+14	25	398	1	SimpleIdentifier	Object	LOCAL_VARIABLE:main.f	0	f
+14	28	401	1	SimpleIdentifier	Set<int>	LOCAL_VARIABLE:main.g	0	g
+14	31	404	1	SimpleIdentifier	Map<int, String>	LOCAL_VARIABLE:main.h	0	h
+14	34	407	1	SimpleIdentifier	Map<String, num>	LOCAL_VARIABLE:main.i	0	i
+14	37	410	1	SimpleIdentifier	Map<num, String?>	LOCAL_VARIABLE:main.j	0	j

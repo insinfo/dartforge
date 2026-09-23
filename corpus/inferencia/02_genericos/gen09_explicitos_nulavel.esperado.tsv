@@ -1,0 +1,27 @@
+# 02_genericos/gen09_explicitos_nulavel.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+2	5	64	14	FunctionExpression	T Function<T>(T)	-	0	<T>(T x) => x;
+2	17	76	1	SimpleIdentifier	T	PARAMETER:id.x	0	x
+3	4	82	21	FunctionExpression	T Function<T>(T?)	-	0	<T>(T? x) => throw 0;
+3	17	95	7	ThrowExpression	Never	-	0	throw 0
+3	23	101	1	IntegerLiteral	int	-	0	0
+4	10	113	137	FunctionExpression	void Function()	-	0	() { var a = /*@*/id<num>(/*@*/1); var b = /*@*/n(1);
+5	16	133	15	MethodInvocation	num	FUNCTION:id	1	id<num>(/*@*/1)
+5	16	133	2	SimpleIdentifier	T Function<T>(T)	FUNCTION:id	1	id
+5	29	146	1	IntegerLiteral	int	-	1	1
+6	16	165	4	MethodInvocation	int	FUNCTION:n	1	n(1)
+6	16	165	1	SimpleIdentifier	T Function<T>(T?)	FUNCTION:n	1	n
+6	18	167	1	IntegerLiteral	int	-	0	1
+7	16	186	7	MethodInvocation	Null	FUNCTION:n	1	n(null)
+7	16	186	1	SimpleIdentifier	T Function<T>(T?)	FUNCTION:n	1	n
+7	18	188	4	NullLiteral	Null	-	0	null
+9	16	220	4	MethodInvocation	int	FUNCTION:n	1	n(i)
+9	16	220	1	SimpleIdentifier	T Function<T>(T?)	FUNCTION:n	1	n
+9	18	222	1	SimpleIdentifier	int?	LOCAL_VARIABLE:main.i	0	i
+10	3	228	19	MethodInvocation	void	FUNCTION:print	0	print([a, b, c, d])
+10	3	228	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+10	9	234	12	ListLiteral	List<dynamic>	-	0	[a, b, c, d]
+10	10	235	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.a	0	a
+10	13	238	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.b	0	b
+10	16	241	1	SimpleIdentifier	dynamic	LOCAL_VARIABLE:main.c	0	c
+10	19	244	1	SimpleIdentifier	int	LOCAL_VARIABLE:main.d	0	d

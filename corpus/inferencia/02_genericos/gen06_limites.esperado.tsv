@@ -1,0 +1,18 @@
+# 02_genericos/gen06_limites.dart — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)
+# linha	coluna	offset	comprimento	nó	tipo	elemento	marca	trecho
+5	4	126	29	FunctionExpression	T Function<T extends num>()	-	0	<T extends num>() => throw 0;
+5	25	147	7	ThrowExpression	Never	-	0	throw 0
+5	31	153	1	IntegerLiteral	int	-	0	0
+6	10	165	111	FunctionExpression	void Function()	-	0	() { var c = /*@*/C(); C cru = /*@*/C(); var x = /*@*/
+7	16	185	3	InstanceCreationExpression	C<num>	CONSTRUCTOR:C.	1	C()
+8	16	205	3	InstanceCreationExpression	C<num>	CONSTRUCTOR:C.	1	C()
+9	16	225	3	MethodInvocation	num	FUNCTION:f	1	f()
+9	16	225	1	SimpleIdentifier	T Function<T extends num>()	FUNCTION:f	1	f
+10	17	246	2	ListLiteral	List<dynamic>	-	1	[]
+11	3	252	21	MethodInvocation	void	FUNCTION:print	0	print([c, cru, x, l])
+11	3	252	5	SimpleIdentifier	void Function(Object?)	FUNCTION:print	0	print
+11	9	258	14	ListLiteral	List<Object>	-	0	[c, cru, x, l]
+11	10	259	1	SimpleIdentifier	C<num>	LOCAL_VARIABLE:main.c	0	c
+11	13	262	3	SimpleIdentifier	C<num>	LOCAL_VARIABLE:main.cru	0	cru
+11	18	267	1	SimpleIdentifier	num	LOCAL_VARIABLE:main.x	0	x
+11	21	270	1	SimpleIdentifier	List<dynamic>	LOCAL_VARIABLE:main.l	0	l
