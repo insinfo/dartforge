@@ -911,7 +911,8 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
             *por_simbolo.entry(chave).or_default() += f.fim - f.ini;
         }
         let mut v: Vec<(&str, usize)> = por_simbolo.into_iter().collect();
-        v.sort_by(|a, b| b.1.cmp(&a.1));
+        // Empate no tamanho desempata pelo símbolo (o `HashMap` não tem ordem).
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
         eprintln!("[jsprod] {} raízes, {} símbolos, {vivas}/{} unidades vivas", raizes.len(), simbolos.total(), fatias.len());
         for (s, n) in v.iter().take(25) {
             eprintln!("[jsprod] {n:>8}  {s}");

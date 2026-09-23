@@ -119,48 +119,18 @@ fn executar_pelo_jit(dir: &Path, ir: &str) -> Execucao {
 
 // ─── Tabela de símbolos × emissor, sem LLVM ───────────────────────────────
 
-/// Nomes `@dartforge_*` que o emissor nativo declara no IR.
-///
-/// Lidos do fonte do emissor (`emit_runtime_decls`), porque é lá que a lista
-/// mora e porque este teste precisa rodar sem Clang nem programa Dart.
-fn declaracoes_do_emissor() -> Vec<String> {
-    let fonte = Path::new(env!("CARGO_MANIFEST_DIR")).join("../emit_native/src/llvm/mod.rs");
-    let texto = std::fs::read_to_string(&fonte).unwrap();
-    let mut nomes: Vec<String> = texto
-        .lines()
-        .filter(|linha| linha.contains("\"declare "))
-        .filter_map(|linha| {
-            let depois = &linha[linha.find("@dartforge_")? + 1..];
-            Some(
-                depois
-                    .chars()
-                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                    .collect(),
-            )
-        })
-        .collect();
-    nomes.sort();
-    nomes.dedup();
-    nomes
-}
-
 /// Todo símbolo que o emissor declara existe na tabela publicada pelo JIT.
 ///
-/// A tabela é gerada da fonte do runtime; o emissor mantém a lista de
-/// `declare` à parte. Quando os dois divergem, o AOT falha na ligação e o JIT
-/// na pré-verificação — este teste denuncia a divergência antes, sem Clang.
+/// A lista de externs do emissor é `dartforge_emit_native::llvm::externs::EXTERNS`
+/// (a tabela de efeitos, fonte única do lado do emissor). A tabela do JIT é
+/// gerada da fonte do runtime. Quando as duas divergem, o AOT falha na ligação
+/// e o JIT na pré-verificação; este teste denuncia antes, sem LLVM nem Clang.
 #[test]
-fn cada_declare_do_emissor_existe_no_runtime() {
-    let declarados = declaracoes_do_emissor();
-    assert!(declarados.len() > 100, "a leitura do emissor falhou: {declarados:?}");
-    let faltando: Vec<&String> = declarados
-        .iter()
-        .filter(|nome| !RUNTIME_SYMBOLS.contains(&nome.as_str()))
-        .collect();
-    assert!(
-        faltando.is_empty(),
-        "o emissor declara símbolos que o runtime não define: {faltando:?}"
-    );
+fn cada_extern_do_emissor_existe_no_runtime() {
+    let declarados: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS.iter().map(|e| e.nome()).collect();
+    assert!(declarados.len() > 100, "tabela de externs inesperada: {declarados:?}");
+    let faltando: Vec<&&str> = declarados.iter().filter(|nome| !RUNTIME_SYMBOLS.contains(nome)).collect();
+    assert!(faltando.is_empty(), "o emissor declara externs que o runtime não define: {faltando:?}");
 }
 
 // ─── Sessão em processo, IR escrito à mão ─────────────────────────────────
@@ -368,44 +338,75 @@ fn executor_falha_do_jit_sai_com_70() {
 
 // ─── Diferencial JIT × AOT sobre o IR do emissor nativo ───────────────────
 
-/// Programa que o emissor de hoje executa certo: strings e uma função de topo.
+/// Programas da trilha nova com a saída que a VM dá, cada um passando pelos
+/// dois perfis a partir do mesmo IR.
 ///
-/// É pequeno por uma razão medida em 2026-09-23. O diferencial só prova alguma
-/// coisa sobre a saída **esperada** se o AOT a produz, e três formas mais ricas
-/// ainda saíam erradas do emissor, nos dois perfis:
-/// - um `for` cuja variável é reatribuída (`i = i + 1`): o IR recalcula `i + 1`
-///   e descarta o resultado, então o laço não termina;
-/// - uma chamada de método de instância (`c.dobro()`), baixada como `print(0)`;
-/// - `print` de um `int` devolvido por função, que passa por
-///   `dartforge_print_handle` e cai em `handle não vivo` (ESTADO §2.5).
-///
-/// Quando o emissor fechar essas formas, elas voltam para cá. Enquanto isso,
-/// elas estão em [`PROGRAMAS_COM_DEFEITO`], onde se exige só que JIT e AOT
-/// concordem.
-const PROGRAMA: &str = "\
+/// Os três primeiros são as formas que o emissor errava em 2026-09-23 (achadas
+/// por este diferencial): `for` com a variável reatribuída, método de
+/// instância e `print` de `int` devolvido por função. Foram corrigidas com o
+/// contrato de representação do nativo (`crates/emit_native/tests/contrato.rs`)
+/// e ficam aqui como regressão dos dois perfis.
+const PROGRAMAS: &[(&str, &str, &str)] = &[
+    (
+        "for",
+        "\
+void main() {
+  int total = 0;
+  for (int i = 1; i <= 4; i = i + 1) {
+    total = total + i;
+  }
+  print(total);
+  print(total > 5);
+}
+",
+        "10\ntrue\n",
+    ),
+    (
+        "metodo",
+        "\
+class Contador {
+  int valor;
+  Contador(this.valor);
+  int dobro() { return valor * 2; }
+}
+void main() {
+  Contador c = Contador(21);
+  print(c.dobro());
+}
+",
+        "42\n",
+    ),
+    (
+        "retorno_int",
+        "\
+int soma(int a, int b) { return a + b; }
+int maior(int a, int b) {
+  if (a > b) {
+    return a;
+  } else {
+    return b;
+  }
+}
+void main() {
+  print(soma(40, 2));
+  print(soma(1, 2) > 2);
+  print(maior(3, 9));
+}
+",
+        "42\ntrue\n9\n",
+    ),
+    (
+        "strings",
+        "\
 String saudacao(String nome) { return 'ola ' + nome; }
 void main() {
   print('inicio');
   print(saudacao('mundo'));
 }
-";
-
-/// Saída esperada, com quebras `\n` em qualquer sistema.
-const ESPERADO: &str = "inicio\nola mundo\n";
-
-/// Programas em que o emissor de hoje erra, nos dois perfis.
-///
-/// O contrato vale mesmo assim: o mesmo IR tem de dar o mesmo stdout e o mesmo
-/// código de saída pelo JIT e pelo AOT, inclusive quando o runtime aborta.
-/// Esses programas não podem travar, porque um laço infinito não prova
-/// acordo; o que trava fica fora daqui e está descrito em [`PROGRAMA`].
-const PROGRAMAS_COM_DEFEITO: &[&str] = &["\
-int soma(int a, int b) { return a + b; }
-void main() {
-  print('antes');
-  print(soma(40, 2));
-}
-"];
+",
+        "inicio\nola mundo\n",
+    ),
+];
 
 /// Emite o LLVM IR de um arquivo Dart pela trilha nova (`emitir_ir`), o mesmo
 /// texto que o driver AOT entrega ao Clang.
@@ -448,31 +449,21 @@ fn executar_nos_dois_perfis(rotulo: &str, fonte: &str) -> (Execucao, Execucao) {
     (jit, aot)
 }
 
-/// O mesmo IR produz a mesma saída e o mesmo código, e a saída é a esperada.
+/// O mesmo IR produz a mesma saída e o mesmo código nos dois perfis, e a
+/// saída é a da VM.
 ///
 /// Contrato central: desenvolvimento e produção podem divergir em tempo de
-/// compilação, nunca em resultado observável.
+/// compilação, nunca em resultado observável. A divergência entre os perfis
+/// num programa que falha é coberta em escala pelo job `jit` do CI
+/// (`dartforge-diferencial --jit-aot`, corpus inteiro).
 #[test]
 #[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
 fn jit_e_aot_concordam_no_mesmo_ir() {
-    let (jit, aot) = executar_nos_dois_perfis("diferencial", PROGRAMA);
-    assert_eq!(jit.stdout, aot.stdout, "JIT {jit:?}\nAOT {aot:?}");
-    assert_eq!(jit.codigo, aot.codigo, "JIT {jit:?}\nAOT {aot:?}");
-    assert_eq!(jit.stdout, ESPERADO, "os dois perfis concordam, mas o programa não fez o esperado: {jit:?}");
-    assert_eq!(jit.codigo, Some(0), "{jit:?}");
-}
-
-/// Nos programas em que o emissor ainda erra, os dois perfis erram igual.
-///
-/// Só stdout e código são comparados. O stderr de um `panic` do runtime traz o
-/// caminho do arquivo-fonte e a thread, que diferem entre a compilação avulsa
-/// do AOT e a do crate.
-#[test]
-#[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
-fn jit_e_aot_concordam_ate_no_defeito() {
-    for (indice, fonte) in PROGRAMAS_COM_DEFEITO.iter().enumerate() {
-        let (jit, aot) = executar_nos_dois_perfis(&format!("defeito-{indice}"), fonte);
-        assert_eq!(jit.stdout, aot.stdout, "programa {indice}\nJIT {jit:?}\nAOT {aot:?}");
-        assert_eq!(jit.codigo, aot.codigo, "programa {indice}\nJIT {jit:?}\nAOT {aot:?}");
+    for (rotulo, fonte, esperado) in PROGRAMAS {
+        let (jit, aot) = executar_nos_dois_perfis(rotulo, fonte);
+        assert_eq!(jit.stdout, aot.stdout, "{rotulo}\nJIT {jit:?}\nAOT {aot:?}");
+        assert_eq!(jit.codigo, aot.codigo, "{rotulo}\nJIT {jit:?}\nAOT {aot:?}");
+        assert_eq!(&jit.stdout, esperado, "{rotulo}: os dois perfis concordam, mas não com a VM: {jit:?}");
+        assert_eq!(jit.codigo, Some(0), "{rotulo}: {jit:?}");
     }
 }

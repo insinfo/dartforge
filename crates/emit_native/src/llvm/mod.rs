@@ -1,5 +1,9 @@
 //! Gerador de LLVM IR a partir da HIR nativa.
 
+pub mod externs;
+#[cfg(test)]
+mod testes;
+
 use crate::hir::*;
 use std::fmt::Write;
 
@@ -14,6 +18,12 @@ pub struct LlvmEmitter<'a> {
     /// Conversoes que uma entrada de phi exige, atribuidas ao bloco de ORIGEM:
     /// (bloco, nome do temporario, tipo de origem, valor, tipo do phi).
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
+    /// Tipo guardado por cada `alloca` da função (para o `store`).
+    apontado: std::collections::HashMap<ValueId, Type>,
+    /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
+    slots: std::collections::HashMap<ValueId, usize>,
+    /// A função abriu um frame de raízes (`%gcf`).
+    tem_frame: bool,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -25,10 +35,16 @@ impl<'a> LlvmEmitter<'a> {
             tipos: std::collections::HashMap::new(),
             prox_coercao: 0,
             conv_phi: Vec::new(),
+            apontado: std::collections::HashMap::new(),
+            slots: std::collections::HashMap::new(),
+            tem_frame: false,
         }
     }
 
     pub fn emit_all(mut self) -> String {
+        if !self.module.erros.is_empty() {
+            return self.emit_modulo_de_erro();
+        }
         // Coleta literais de strings do módulo para declaração como constantes globais
         self.collect_string_constants();
 
@@ -43,6 +59,9 @@ impl<'a> LlvmEmitter<'a> {
 
         // 4. Classes e vtables
         self.emit_vtables();
+
+        // 4b. Globais do usuário (N6)
+        self.emit_globais();
 
         // 5. Funções compiladas
         for func in &self.module.functions {
@@ -85,150 +104,12 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_runtime_decls(&mut self) {
-        self.out.push_str("; Declarações do runtime nativo Rust\n");
-        self.out.push_str("declare void @dartforge_print_i64(i64)\n");
-        self.out.push_str("declare void @dartforge_print_f64(double)\n");
-        self.out.push_str("declare void @dartforge_print_bool(i8)\n");
-        self.out.push_str("declare void @dartforge_print_null()\n");
-        self.out.push_str("declare void @dartforge_print_string(i64)\n");
-        self.out.push_str("declare void @dartforge_print_list(i64)\n");
-        self.out.push_str("declare void @dartforge_print_map(i64)\n");
-        self.out.push_str("declare void @dartforge_print_set(i64)\n");
-        self.out.push_str("declare void @dartforge_print_handle(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_concat(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_equal(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_equal(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_register_class_name(i64, ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_object_new(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_object_get(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_object_set(i64, i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_object_class(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_get_bits(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_list_get_tag(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_list_set(i64, i64, i64, i8)\n");
-        self.out.push_str("declare void @dartforge_list_push(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_map_new(ptr, ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_map_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_map_get_bits(i64, i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_map_get_tag(i64, i64, i8)\n");
-        self.out.push_str("declare void @dartforge_map_set(i64, i64, i8, i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_map_contains(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_set_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_set_len(i64)\n");
-        self.out.push_str("declare i8 @dartforge_set_contains(i64, i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_set_add(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_cell_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_cell_get_bits(i64)\n");
-        self.out.push_str("declare i8 @dartforge_cell_get_tag(i64)\n");
-        self.out.push_str("declare void @dartforge_cell_set(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_env_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_env_get(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_closure_new(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_closure_code(i64)\n");
-        self.out.push_str("declare i64 @dartforge_closure_env(i64)\n");
-        self.out.push_str("declare i64 @dartforge_tearoff(i64)\n");
-        self.out.push_str("declare i64 @dartforge_gc_push_frame(i64)\n");
-        self.out.push_str("declare void @dartforge_gc_set_root(i64, i64, i64)\n");
-        self.out.push_str("declare void @dartforge_gc_root(i64, i64)\n");
-        self.out.push_str("declare void @dartforge_gc_pop_frame(i64)\n");
-        self.out.push_str("declare void @dartforge_gc_collect()\n");
-        self.out.push_str("declare void @dartforge_null_assert_fail() noreturn\n");
-        self.out.push_str("declare void @dartforge_exception_throw(i64, i8)\n");
-        self.out.push_str("declare i8 @dartforge_exception_pending()\n");
-        self.out.push_str("declare i64 @dartforge_exception_take_bits()\n");
-        self.out.push_str("declare i8 @dartforge_exception_take_tag()\n");
-        self.out.push_str("declare i64 @dartforge_exception_peek_bits()\n");
-        self.out.push_str("declare i8 @dartforge_exception_peek_tag()\n");
-        self.out.push_str("declare void @dartforge_exception_clear()\n");
-        self.out.push_str("declare void @dartforge_register_subclass(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_is_subclass(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_stack_trace_get()\n");
-        self.out.push_str("declare i64 @dartforge_stack_trace_empty()\n");
-        self.out.push_str("declare i64 @dartforge_stack_trace_from_string(i64)\n");
-        self.out.push_str("declare void @dartforge_throw_with_stack_trace(i64, i8, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_first(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_last(i64)\n");
-        self.out.push_str("declare i64 @dartforge_value_class(i64)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_i64(i64)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_f64(double)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_bool(i8)\n");
-        self.out.push_str("declare i64 @dartforge_to_string_handle(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_generic_len(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_code_unit_at(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_code_units(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_runes(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_to_upper(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_repeat(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_join(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_new_empty()\n");
-        self.out.push_str("declare i64 @dartforge_map_get_to_string(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_record_new(ptr, i64)\n");
-        self.out.push_str("declare i64 @dartforge_int_to_radix_string(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_int_parse(i64)\n");
-        self.out.push_str("declare i64 @dartforge_int_try_parse(i64)\n");
-        self.out.push_str("declare double @dartforge_double_parse(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_substring(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_from_char_code(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_from_char_codes(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_index_of(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_last_index_of(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_split(i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_contains(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_replace_all(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_pad_left(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_pad_right(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_trim(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_trim_left(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_trim_right(i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_starts_with(i64, i64, i64)\n");
-        self.out.push_str("declare i8 @dartforge_string_ends_with(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_to_lower(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_compare_to(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_replace_first(i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_replace_range(i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_reversed(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_buffer_new()\n");
-        self.out.push_str("declare void @dartforge_string_buffer_write(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_regexp_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_string_split_map_pieces(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_collection_mark_unmodifiable(i64)\n");
-        self.out.push_str("declare i8 @dartforge_collection_is_unmodifiable(i64)\n");
-        self.out.push_str("declare i64 @dartforge_exception_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_format_exception_new(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_state_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_argument_error_new(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_argument_error_value(i64, i8, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_argument_error_not_null(i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_value(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_range(i64, i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_range_error_index(i64, i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_unsupported_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_unimplemented_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_assertion_error_new(i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_concurrent_modification_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_type_error_new()\n");
-        self.out.push_str("declare i64 @dartforge_no_such_method_error_new(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_message(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_name(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_invalid_value(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_start(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_end(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_source(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_offset(i64)\n");
-        self.out.push_str("declare i64 @dartforge_error_get_stack_trace(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_single(i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_sublist(i64, i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_remove_at(i64, i64)\n");
-        self.out.push_str("declare i64 @dartforge_list_filled(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_map_remove(i64, i64, i8)\n");
-        self.out.push_str("declare i64 @dartforge_map_keys(i64)\n");
-        self.out.push_str("declare void @dartforge_iteration_begin(i64)\n");
-        self.out.push_str("declare void @dartforge_iteration_end(i64)\n\n");
+        self.out.push_str("; Declarações do runtime nativo Rust (tabela em llvm/externs.rs)\n");
+        for e in externs::EXTERNS {
+            self.out.push_str(e.decl);
+            self.out.push('\n');
+        }
+        self.out.push('\n');
     }
 
     fn emit_string_constants(&mut self) {
@@ -271,6 +152,14 @@ impl<'a> LlvmEmitter<'a> {
         // i1 (resultado de icmp) ou um i64, e imprime "ret i64 %v8" para um
         // valor i1 — modulo inteiro recusado pelo Clang.
         self.tipos.clear();
+        self.apontado.clear();
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                if let Instruction::Alloca(t) = inst {
+                    self.apontado.insert(*vid, *t);
+                }
+            }
+        }
         self.prox_coercao = 0;
         for (vid, _, ty) in &func.params {
             self.tipos.insert(*vid, *ty);
@@ -324,11 +213,59 @@ impl<'a> LlvmEmitter<'a> {
 
         writeln!(self.out, "define {ret_ty} @{}({}) {{", func.symbol, params_str).unwrap();
 
+        // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot fixo por `alloca` de
+        // tipo `Ref` e por valor SSA `Ref` (parâmetro, resultado de chamada,
+        // `Load`, `phi`, caixa, alocação). A ordem é a das instruções, para
+        // o IR ser determinístico.
+        self.slots.clear();
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                if matches!(inst, Instruction::Alloca(Type::Ref)) {
+                    let n = self.slots.len();
+                    self.slots.insert(*vid, n);
+                }
+            }
+        }
+        for (vid, _, ty) in &func.params {
+            if *ty == Type::Ref {
+                let n = self.slots.len();
+                self.slots.insert(*vid, n);
+            }
+        }
+        for block in &func.blocks {
+            for (vid, inst, _) in &block.instructions {
+                let define_ref = self.tipos.get(vid) == Some(&Type::Ref)
+                    && !matches!(inst, Instruction::Const(Constant::Null) | Instruction::Alloca(_));
+                if define_ref {
+                    let n = self.slots.len();
+                    self.slots.insert(*vid, n);
+                }
+            }
+        }
+        self.tem_frame = !self.slots.is_empty();
+
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
+            if block.id.0 == 0 && self.tem_frame {
+                writeln!(self.out, "  %gcf = call i64 @dartforge_gc_push_frame(i64 {})", self.slots.len()).unwrap();
+                for (vid, _, ty) in &func.params {
+                    if *ty == Type::Ref {
+                        let slot = self.slots[vid];
+                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{})", vid.0).unwrap();
+                    }
+                }
+            }
+            // `phi` tem de ser a primeira instrução do bloco: as raízes dos
+            // `phi` saem todas depois do último deles.
+            let mut raizes_de_phi: Vec<(usize, u32)> = Vec::new();
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
+                if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
+                    for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
+                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{pv})").unwrap();
+                    }
+                }
                 match inst {
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
@@ -491,11 +428,12 @@ impl<'a> LlvmEmitter<'a> {
                             "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
                         ).unwrap();
                         for (idx, field) in fields.iter().enumerate() {
+                            // E1: `is_ref` pela representação do valor.
+                            let is_ref = u8::from(self.tipo_de(field) == Type::Ref);
                             let sf = self.coagir(field, Type::I64);
-                            // tag de ref: 0 por enquanto
                             writeln!(
                                 self.out,
-                                "  call void @dartforge_object_set(i64 %v{v}, i64 {idx}, i64 {sf}, i8 0)"
+                                "  call void @dartforge_object_set(i64 %v{v}, i64 {idx}, i64 {sf}, i8 {is_ref})"
                             ).unwrap();
                         }
                     }
@@ -507,11 +445,12 @@ impl<'a> LlvmEmitter<'a> {
                         ).unwrap();
                     }
                     Instruction::SetField { object, index, value } => {
+                        let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
                         let so = self.coagir(object, Type::I64);
                         let sv = self.coagir(value, Type::I64);
                         writeln!(
                             self.out,
-                            "  call void @dartforge_object_set(i64 {so}, i64 {index}, i64 {sv}, i8 0)"
+                            "  call void @dartforge_object_set(i64 {so}, i64 {index}, i64 {sv}, i8 {is_ref})"
                         ).unwrap();
                     }
                     Instruction::CallStatic { symbol, args, ret_ty } => {
@@ -622,9 +561,78 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = load {}, ptr {sp}", ty.llvm_ir()).unwrap();
                     }
                     Instruction::Store { ptr, val } => {
+                        // O local guarda a representação do seu tipo (R6); o
+                        // valor chega já coagido pelo lowering, e aqui só se
+                        // acerta a largura.
+                        let t = match ptr {
+                            Operand::Val(p) => self.apontado.get(p).copied().unwrap_or(Type::I64),
+                            _ => Type::I64,
+                        };
                         let sp = self.operand_str(ptr);
-                        let sv = self.coagir(val, Type::I64);
-                        writeln!(self.out, "  store i64 {sv}, ptr {sp}").unwrap();
+                        let sv = self.coagir(val, t);
+                        writeln!(self.out, "  store {} {sv}, ptr {sp}", t.llvm_ir()).unwrap();
+                        // G2: o local `Ref` tem slot próprio, atualizado a
+                        // cada gravação — ele vive mais que o SSA que o gravou.
+                        if let Operand::Val(pv) = ptr
+                            && let Some(&slot) = self.slots.get(pv)
+                        {
+                            writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 {sv})").unwrap();
+                        }
+                    }
+                    Instruction::Box { op, from } => {
+                        match from {
+                            Type::F64 => {
+                                let so = self.coagir(op, Type::F64);
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_double(double {so})").unwrap();
+                            }
+                            Type::I1 | Type::I8 => {
+                                let so = self.coagir(op, Type::I8);
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_bool(i8 {so})").unwrap();
+                            }
+                            _ => {
+                                let so = self.coagir(op, Type::I64);
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_int(i64 {so})").unwrap();
+                            }
+                        }
+                    }
+                    Instruction::Unbox { op, to } => {
+                        let so = self.coagir(op, Type::Ref);
+                        match to {
+                            Type::F64 => {
+                                writeln!(self.out, "  %v{v} = call double @dartforge_unbox_double(i64 {so})").unwrap();
+                            }
+                            Type::I1 => {
+                                writeln!(self.out, "  %u{v} = call i8 @dartforge_unbox_bool(i64 {so})").unwrap();
+                                writeln!(self.out, "  %v{v} = trunc i8 %u{v} to i1").unwrap();
+                            }
+                            _ => {
+                                writeln!(self.out, "  %v{v} = call i64 @dartforge_unbox_int(i64 {so})").unwrap();
+                            }
+                        }
+                    }
+                    Instruction::LShr(a, b) => {
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
+                        writeln!(self.out, "  %v{v} = lshr i64 {sa}, {sb}").unwrap();
+                    }
+                    Instruction::Bitcast { op, to } => {
+                        if *to == Type::F64 {
+                            let so = self.coagir(op, Type::I64);
+                            writeln!(self.out, "  %v{v} = bitcast i64 {so} to double").unwrap();
+                        } else {
+                            let so = self.coagir(op, Type::F64);
+                            writeln!(self.out, "  %v{v} = bitcast double {so} to i64").unwrap();
+                        }
+                    }
+                    Instruction::LoadGlobal { simbolo, ty } => {
+                        writeln!(self.out, "  %v{v} = load {}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
+                    }
+                    Instruction::StoreGlobal { simbolo, val, ty, raiz } => {
+                        let sv = self.coagir(val, *ty);
+                        writeln!(self.out, "  store {} {sv}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
+                        if let Some(id) = raiz {
+                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 {id}, i64 {sv})").unwrap();
+                        }
                     }
                     Instruction::Phi { incoming, ty } => {
                         let t = ty.llvm_ir();
@@ -657,10 +665,25 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = phi {t} {joined}").unwrap();
                     }
                     _ => {
-                        // Outras instruções serão expandidas conforme necessário
-                        writeln!(self.out, "  ; inst pendente {:?}", inst).unwrap();
+                        // E3: o verificador da HIR recusa, antes da emissão,
+                        // toda instrução sem lowering aqui (o antigo
+                        // "; inst pendente" que o Clang aceitava calado).
+                        unreachable!("instrução sem emissão passou pelo verificador: {inst:?}");
                     }
                 }
+                // G1: a raiz logo depois da definição — nada aloca entre
+                // o retorno da chamada e este `set_root` (G5).
+                if let Some(&slot) = self.slots.get(vid) {
+                    if matches!(inst, Instruction::Phi { .. }) {
+                        raizes_de_phi.push((slot, v));
+                    } else if !matches!(inst, Instruction::Alloca(_)) {
+                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{v})").unwrap();
+                    }
+                }
+                let _ = ty;
+            }
+            for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
+                writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{pv})").unwrap();
             }
 
             for (b, nome, de, v, para) in self.conv_phi.clone() {
@@ -670,6 +693,11 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
 
+            // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
+            // das saídas por exceção (que retornam o valor padrão).
+            if self.tem_frame && matches!(block.terminator, Terminator::Return(_)) {
+                writeln!(self.out, "  call void @dartforge_gc_pop_frame(i64 %gcf)").unwrap();
+            }
             match &block.terminator {
                 Terminator::Return(Some(op)) => {
                     if func.return_ty == Type::Void {
@@ -680,10 +708,15 @@ impl<'a> LlvmEmitter<'a> {
                     }
                 }
                 Terminator::Return(None) => {
+                    let zero = match func.return_ty {
+                        Type::F64 => "0.0",
+                        Type::I1 => "false",
+                        _ => "0",
+                    };
                     if func.return_ty == Type::Void {
                         writeln!(self.out, "  ret void").unwrap();
                     } else {
-                        writeln!(self.out, "  ret {} 0", func.return_ty.llvm_ir()).unwrap();
+                        writeln!(self.out, "  ret {} {zero}", func.return_ty.llvm_ir()).unwrap();
                     }
                 }
                 Terminator::Branch(target) => {
@@ -702,8 +735,14 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, " ]").unwrap();
                 }
                 Terminator::Throw(op) => {
+                    let tag = match self.tipo_de(op) {
+                        Type::I64 => 1,
+                        Type::I1 | Type::I8 => 2,
+                        Type::F64 => 4,
+                        _ => 3,
+                    };
                     let sop = self.coagir(op, Type::I64);
-                    writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 3)").unwrap();
+                    writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})").unwrap();
                     writeln!(self.out, "  unreachable").unwrap();
                 }
                 Terminator::Unreachable => {
@@ -713,6 +752,59 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
+    }
+
+    /// Programa com construto não suportado (N1): o lowering não gera
+    /// código; o executável só relata os diagnósticos e sai com 254.
+    ///
+    /// O lugar certo deste erro é `compilar` devolver `Err` — o que exige
+    /// mexer em `lib.rs`, congelado nesta sessão por outro trabalho (a
+    /// separação da emissão de IR e o cache de objeto). Até lá o diagnóstico
+    /// chega ao placar pelo executável, com a mesma primeira linha.
+    fn emit_modulo_de_erro(mut self) -> String {
+        self.emit_header();
+        // Primeira linha sem a posição: é a chave de agrupamento do harness,
+        // e o mesmo construto em programas diferentes tem de cair no mesmo
+        // grupo. As posições vêm nas linhas seguintes.
+        let primeiro = &self.module.erros[0];
+        let resumo = primeiro.rsplit_once(" (").map_or(primeiro.as_str(), |(a, _)| a);
+        let mut texto = format!("erro de compilação: {resumo}\n");
+        for e in &self.module.erros {
+            texto.push_str("  ");
+            texto.push_str(e);
+            texto.push('\n');
+        }
+        let bytes = texto.as_bytes();
+        let mut escapado = String::new();
+        for &b in bytes {
+            if (b as char).is_ascii_alphanumeric() || b == b' ' {
+                escapado.push(b as char);
+            } else {
+                write!(escapado, "\\{:02X}", b).unwrap();
+            }
+        }
+        writeln!(self.out, "@.erros = private unnamed_addr constant [{} x i8] c\"{escapado}\"", bytes.len()).unwrap();
+        self.out.push_str("declare void @dartforge_erro_de_compilacao(ptr, i64)\n\n");
+        writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+        writeln!(self.out, "  call void @dartforge_erro_de_compilacao(ptr @.erros, i64 {})", bytes.len()).unwrap();
+        writeln!(self.out, "  ret void").unwrap();
+        writeln!(self.out, "}}").unwrap();
+        self.out
+    }
+
+    /// `@dfg_<id>` (valor, no tipo da representação) e `@dfg_<id>_ok`.
+    fn emit_globais(&mut self) {
+        for (id, ty) in &self.module.globais {
+            let (t, zero) = match ty {
+                Type::F64 => ("double", "0.0"),
+                Type::I1 => ("i1", "false"),
+                Type::I8 => ("i8", "0"),
+                _ => ("i64", "0"),
+            };
+            writeln!(self.out, "@dfg_{id} = internal global {t} {zero}").unwrap();
+            writeln!(self.out, "@dfg_{id}_ok = internal global i8 0").unwrap();
+        }
+        self.out.push('\n');
     }
 
     fn emit_dispatch_functions(&mut self) {
@@ -792,7 +884,8 @@ impl<'a> LlvmEmitter<'a> {
         match inst {
             Instruction::Const(Constant::Bool(_)) => Type::I1,
             Instruction::Const(Constant::Double(_)) => Type::F64,
-            Instruction::Const(_) => Type::I64,
+            Instruction::Const(Constant::Int(_)) => Type::I64,
+            Instruction::Const(_) => Type::Ref,
             Instruction::Add(..)
             | Instruction::Sub(..)
             | Instruction::Mul(..)
@@ -805,12 +898,16 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Xor(..)
             | Instruction::Neg(..)
             | Instruction::Not(..)
-            | Instruction::DoubleToInt(..)
-            | Instruction::AllocObject { .. }
-            | Instruction::GetField { .. }
+            | Instruction::LShr(..)
+            | Instruction::DoubleToInt(..) => Type::I64,
+            Instruction::AllocObject { .. }
             | Instruction::AllocList { .. }
             | Instruction::AllocMap { .. }
-            | Instruction::AllocRecord { .. } => Type::I64,
+            | Instruction::AllocRecord { .. }
+            | Instruction::Box { .. } => Type::Ref,
+            Instruction::Unbox { to, .. } => *to,
+            Instruction::Alloca(_) => Type::Ptr,
+            Instruction::GetField { .. } => Type::I64,
             Instruction::FAdd(..)
             | Instruction::FSub(..)
             | Instruction::FMul(..)
@@ -818,7 +915,8 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::FNeg(..)
             | Instruction::IntToDouble(..) => Type::F64,
             Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(..) => Type::I1,
-            Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => *to,
+            Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } | Instruction::Bitcast { to, .. } => *to,
+            Instruction::LoadGlobal { ty, .. } => *ty,
             Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } => *ret_ty,
             Instruction::Load { ty, .. } => *ty,
             Instruction::Phi { ty, .. } => *ty,
@@ -833,7 +931,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
-            Operand::Constant(Constant::Null) => Type::I64,
+            Operand::Constant(Constant::Null) => Type::Ref,
             Operand::Constant(Constant::String(_)) => Type::Ref,
         }
     }

@@ -91,3 +91,7 @@ fn p7_bibliotecas() {
 fn p3_genericas() {
     verifica("p3_genericas");
 }
+#[test]
+fn p8_nosuchmethod_ordem() {
+    verifica("p8_nosuchmethod_ordem");
+}
