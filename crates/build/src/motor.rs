@@ -241,6 +241,16 @@ fn indices(gp: &GrafoPacotes, grafo: &Grafo, n_fases: usize) -> Indices {
     Indices { por_fase, naturais, esperadas, fontes, dirs: dirs.into_iter().collect() }
 }
 
+/// Forma canônica de um caminho de evento (o arquivo pode ter sido apagado:
+/// então canoniza o diretório).
+fn canonico(p: &Path) -> Option<PathBuf> {
+    let c = match std::fs::canonicalize(p) {
+        Ok(c) => c,
+        Err(_) => std::fs::canonicalize(p.parent()?).ok()?.join(p.file_name()?),
+    };
+    Some(chave(&dartforge_elements::config::sem_verbatim(c)))
+}
+
 /// A consulta pode ter mudado com estes eventos?
 fn afetada(c: &Consulta, mudados: &HashSet<PathBuf>, dart_mudou: bool, estruturais: &HashSet<PathBuf>) -> bool {
     match c {
@@ -513,7 +523,19 @@ impl Motor {
     /// Recalcula o que for preciso e publica a geração.
     pub fn atualizar(&mut self, ctx: &Contexto<'_>, mudados: &[PathBuf], demanda: Demanda) -> Result<Atualizacao, String> {
         let t0 = Instant::now();
-        let mut mudados: HashSet<PathBuf> = mudados.iter().map(|p| chave(p)).collect();
+        // Os caminhos do motor saem do `package_config.json` (canônicos); um
+        // evento pode vir por outro nome do mesmo arquivo (nome curto 8.3 do
+        // Windows, link): entra também a forma canônica.
+        let mut mudados: HashSet<PathBuf> = {
+            let mut m = HashSet::with_capacity(mudados.len() * 2);
+            for p in mudados {
+                m.insert(chave(p));
+                if let Some(c) = canonico(p) {
+                    m.insert(c);
+                }
+            }
+            m
+        };
         if self.configuracao_mudou(&mudados) {
             let antiga = std::mem::take(&mut self.memoria);
             let opcoes = self.opcoes.clone();

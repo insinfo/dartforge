@@ -24,8 +24,12 @@ New-Item -ItemType Directory -Force $trabalho | Out-Null
 function Compilar([string]$fonte, [string]$alvo, [string]$destino) {
     Push-Location $fonte
     $env:CARGO_TARGET_DIR = $alvo
-    cargo build --release -p dartforge-cli -p dartforge-dev --example medir
+    # Dois comandos: `--example` restringe os alvos de todos os pacotes
+    # pedidos, e o binário `dartforge` ficaria de fora.
+    cargo build --release -p dartforge-cli
     $ok = $LASTEXITCODE -eq 0
+    cargo build --release -p dartforge-dev --example medir
+    $ok = $ok -and ($LASTEXITCODE -eq 0)
     Remove-Item Env:CARGO_TARGET_DIR
     Pop-Location
     if (-not $ok) { throw "build falhou em $fonte" }
