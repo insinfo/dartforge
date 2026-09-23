@@ -291,10 +291,9 @@ fn o_que_nao_entendemos(
                 continue;
             };
             match nome {
-                // A lista vazia é 57 dos 70 `providers:` do new_sali.
-                "providers" if lista_vazia(arvore, a.value) => {
-                    fora.push((Motivo::ProvidersVazio, "@Component(.., providers: [])".into()))
-                }
+                // A lista vazia não muda a visão (caso b18 do corpus) — e é
+                // 57 dos 70 `providers:` do new_sali.
+                "providers" if lista_vazia(arvore, a.value) => {}
                 "providers" => {
                     fora.push((Motivo::Providers, "@Component(.., providers: [..])".into()))
                 }

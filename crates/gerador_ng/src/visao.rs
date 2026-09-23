@@ -147,8 +147,6 @@ pub enum Motivo {
     /// Atributo ou ligação que pertence a uma diretiva do ecossistema
     /// (`ngClass`, `ngModel`…), não ao DOM.
     Diretiva,
-    /// `providers: []` — a lista vazia.
-    ProvidersVazio,
     /// `providers:` com provedores: a injeção do elemento hospedeiro.
     Providers,
     /// `@ViewChild('ref')` com `#ref` num elemento HTML da própria visão:
@@ -160,8 +158,6 @@ pub enum Motivo {
     /// `@ViewChild` que consulta um componente ou diretiva (seletor de tipo,
     /// `read:`, `#ref` em componente filho, campo que não é `Element`).
     ViewChildEmFilho,
-    /// `pipes:` declarado e nenhum pipe usado no template.
-    PipesSemUso,
     /// Pipe usado no template (`x | nome`, `$pipe.nome(x)`).
     PipesUsados,
     /// `encapsulation:` — muda o shim de estilo.
@@ -199,12 +195,10 @@ impl Motivo {
             Motivo::TemplateAusente => "template não encontrado",
             Motivo::LigacaoEmFilho => "ligação em componente filho",
             Motivo::Diretiva => "ligação de diretiva",
-            Motivo::ProvidersVazio => "providers: []",
             Motivo::Providers => "providers: [..]",
             Motivo::ViewChildEstatico => "@ViewChild estático",
             Motivo::ViewChildDinamico => "@ViewChild em visão embutida / @ViewChildren",
             Motivo::ViewChildEmFilho => "@ViewChild de componente ou diretiva",
-            Motivo::PipesSemUso => "pipes: sem uso",
             Motivo::PipesUsados => "pipe usado no template",
             Motivo::Encapsulamento => "encapsulation:",
             Motivo::HostListenerEmComponente => "@HostListener em componente",
@@ -256,8 +250,10 @@ fn formas_contra_o_template(
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> Vec<Motivo> {
     let mut fora = Vec::new();
-    if c.pipes {
-        fora.push(if usa_pipe(nos) { Motivo::PipesUsados } else { Motivo::PipesSemUso });
+    // `pipes:` sem uso não muda a visão (caso b19); usado, cria o pipe e o
+    // `pureProxy` no `build()` — ainda não.
+    if c.pipes && usa_pipe(nos) {
+        fora.push(Motivo::PipesUsados);
     }
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
