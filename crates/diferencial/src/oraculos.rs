@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::corpus::Programa;
-use crate::processo::{Saida, executar, executar_com_path};
+use crate::processo::{Saida, executar, executar_com_ambiente, executar_com_path};
 
 /// Onde estão as ferramentas. Construído uma vez por execução do harness.
 #[derive(Debug, Clone)]
@@ -34,6 +34,8 @@ pub struct Ambiente {
     pub limite_nativo: Duration,
     /// Diretórios prefixados ao `PATH` do `dartforge` (a `LLVM-C.dll`; ver `scripts/env.ps1`).
     pub path_extra: Vec<PathBuf>,
+    /// `--gc-stress`: o executável nativo roda com `DARTFORGE_GC_STRESS=1`.
+    pub gc_stress: bool,
 }
 
 impl Ambiente {
@@ -89,6 +91,7 @@ impl Ambiente {
             usar_cache: true,
             limite: Duration::from_secs(120),
             limite_nativo: Duration::from_secs(5),
+            gc_stress: false,
         }
     }
 
@@ -323,7 +326,8 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
         return Saida::erro("[compile-native] devolveu Ok mas não gerou executável");
     }
 
-    let s = executar_com_path(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra);
+    let ambiente: &[(&str, &str)] = if amb.gc_stress { &[("DARTFORGE_GC_STRESS", "1")] } else { &[] };
+    let s = executar_com_ambiente(&saida_exe.to_string_lossy(), &[], dir, amb.limite_nativo, &amb.path_extra, ambiente);
     // O executável já disse o que tinha a dizer; 214 deles ficariam no disco
     // a cada passada. DARTFORGE_KEEP_EXE os mantém para depurar.
     if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
