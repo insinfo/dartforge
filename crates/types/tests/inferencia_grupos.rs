@@ -36,11 +36,17 @@ impl Resultado {
 }
 
 fn inferir(codigo: &str) -> Option<Resultado> {
-    let sdk = sdk()?;
+    sdk()?;
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main.dart");
     std::fs::write(&main, codigo).unwrap();
-    let r = std::thread::Builder::new()
+    Some(inferir_arquivo(&main))
+}
+
+fn inferir_arquivo(main: &std::path::Path) -> Resultado {
+    let sdk = sdk().unwrap();
+    let main = main.to_path_buf();
+    std::thread::Builder::new()
         .stack_size(1 << 28)
         .spawn(move || {
             let mut interner = Interner::new();
@@ -66,8 +72,7 @@ fn inferir(codigo: &str) -> Option<Resultado> {
         })
         .unwrap()
         .join()
-        .unwrap();
-    Some(r)
+        .unwrap()
 }
 
 /// Como `DartType.getDisplayString()`.
@@ -333,5 +338,22 @@ void main() {
     assert_eq!(r.tipo("partes()"), "Iterable<List<T>>");
     assert_eq!(r.tipo("-1"), "double");
     assert_eq!(r.tipo("() => w"), "int? Function()");
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
+/// Conflito de import entre `dart:` e um pacote: o do sistema fica oculto
+/// (`dart:html` também exporta `NotificationEvent`).
+#[test]
+fn import_do_sistema_perde_o_conflito() {
+    let Some(sdk) = sdk() else { return };
+    let _ = sdk;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.dart"), "class Duration { final int n; Duration(this.n); }").unwrap();
+    let main = dir.path().join("main.dart");
+    std::fs::write(&main, "import 'dart:core';
+import 'lib.dart';
+void main() { var d = Duration(3); var n = d.n; }").unwrap();
+    let r = inferir_arquivo(&main);
+    assert_eq!(r.tipo("d.n"), "int");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
