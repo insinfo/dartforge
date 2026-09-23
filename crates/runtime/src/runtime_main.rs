@@ -327,6 +327,25 @@ pub extern "C" fn dartforge_gc_root(frame: i64, handle: i64) {
 pub extern "C" fn dartforge_gc_pop_frame(frame: i64) {
     HEAP.with(|heap| heap.borrow_mut().pop_frame(frame));
 }
+/// Valor corrente de um global `Ref` do programa, mantido como raiz permanente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
+    HEAP.with(|heap| heap.borrow_mut().set_global_root(id, handle));
+}
+/// Programa que não compilou (construto não suportado): imprime os
+/// diagnósticos que o lowering produziu e sai com 254.
+///
+/// # Safety
+/// `ptr` aponta para `len` bytes UTF-8 de uma constante do módulo.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_erro_de_compilacao(ptr: *const u8, len: i64) {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    // SAFETY: constante LLVM legível pelo comprimento informado.
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    use std::io::Write;
+    let _ = std::io::stderr().lock().write_all(bytes);
+    std::process::exit(254);
+}
 /// Permite coleta explícita em testes e futuras rotinas de manutenção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_collect() {

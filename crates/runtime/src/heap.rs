@@ -204,6 +204,9 @@ pub struct Heap {
     /// coletado" e passa com a coleta desligada tem raiz faltando; um que
     /// morre igual nos dois modos tem escalar usado como handle.
     gc_desligado: bool,
+    /// Valor corrente de cada global `Ref` do programa (variável de topo ou
+    /// campo estático), por id: raízes permanentes (N6/G6 do contrato).
+    globais: std::collections::HashMap<i64, i64>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -224,6 +227,16 @@ impl Heap {
             enum_values: std::collections::HashMap::new(),
             tearoffs: std::collections::HashMap::new(),
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
+            globais: std::collections::HashMap::new(),
+        }
+    }
+    /// Registra o valor corrente de um global `Ref`; 0 (null) solta a raiz.
+    pub fn set_global_root(&mut self, id: i64, handle: i64) {
+        if handle == 0 {
+            self.globais.remove(&id);
+        } else {
+            self.get(handle);
+            self.globais.insert(id, handle);
         }
     }
     /// Le o teto do heap do ambiente uma vez, na criacao.
@@ -773,6 +786,7 @@ impl Heap {
         self.pending.clear();
         self.pending.extend(self.enum_values.values().copied());
         self.pending.extend(self.tearoffs.values().copied());
+        self.pending.extend(self.globais.values().copied());
         self.pending.extend(
             self.frames
                 .iter()

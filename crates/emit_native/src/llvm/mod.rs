@@ -29,6 +29,9 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     pub fn emit_all(mut self) -> String {
+        if !self.module.erros.is_empty() {
+            return self.emit_modulo_de_erro();
+        }
         // Coleta literais de strings do módulo para declaração como constantes globais
         self.collect_string_constants();
 
@@ -43,6 +46,9 @@ impl<'a> LlvmEmitter<'a> {
 
         // 4. Classes e vtables
         self.emit_vtables();
+
+        // 4b. Globais do usuário (N6)
+        self.emit_globais();
 
         // 5. Funções compiladas
         for func in &self.module.functions {
@@ -135,6 +141,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare void @dartforge_gc_root(i64, i64)\n");
         self.out.push_str("declare void @dartforge_gc_pop_frame(i64)\n");
         self.out.push_str("declare void @dartforge_gc_collect()\n");
+        self.out.push_str("declare void @dartforge_gc_global_root(i64, i64)\n");
         self.out.push_str("declare void @dartforge_null_assert_fail() noreturn\n");
         self.out.push_str("declare void @dartforge_exception_throw(i64, i8)\n");
         self.out.push_str("declare i8 @dartforge_exception_pending()\n");
@@ -626,6 +633,30 @@ impl<'a> LlvmEmitter<'a> {
                         let sv = self.coagir(val, Type::I64);
                         writeln!(self.out, "  store i64 {sv}, ptr {sp}").unwrap();
                     }
+                    Instruction::LShr(a, b) => {
+                        let sa = self.coagir(a, Type::I64);
+                        let sb = self.coagir(b, Type::I64);
+                        writeln!(self.out, "  %v{v} = lshr i64 {sa}, {sb}").unwrap();
+                    }
+                    Instruction::Bitcast { op, to } => {
+                        if *to == Type::F64 {
+                            let so = self.coagir(op, Type::I64);
+                            writeln!(self.out, "  %v{v} = bitcast i64 {so} to double").unwrap();
+                        } else {
+                            let so = self.coagir(op, Type::F64);
+                            writeln!(self.out, "  %v{v} = bitcast double {so} to i64").unwrap();
+                        }
+                    }
+                    Instruction::LoadGlobal { simbolo, ty } => {
+                        writeln!(self.out, "  %v{v} = load {}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
+                    }
+                    Instruction::StoreGlobal { simbolo, val, ty, raiz } => {
+                        let sv = self.coagir(val, *ty);
+                        writeln!(self.out, "  store {} {sv}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
+                        if let Some(id) = raiz {
+                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 {id}, i64 {sv})").unwrap();
+                        }
+                    }
                     Instruction::Phi { incoming, ty } => {
                         let t = ty.llvm_ir();
                         // A coercao de uma entrada de `phi` NAO pode ser emitida
@@ -713,6 +744,59 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
+    }
+
+    /// Programa com construto não suportado (N1): o lowering não gera
+    /// código; o executável só relata os diagnósticos e sai com 254.
+    ///
+    /// O lugar certo deste erro é `compilar` devolver `Err` — o que exige
+    /// mexer em `lib.rs`, congelado nesta sessão por outro trabalho (a
+    /// separação da emissão de IR e o cache de objeto). Até lá o diagnóstico
+    /// chega ao placar pelo executável, com a mesma primeira linha.
+    fn emit_modulo_de_erro(mut self) -> String {
+        self.emit_header();
+        // Primeira linha sem a posição: é a chave de agrupamento do harness,
+        // e o mesmo construto em programas diferentes tem de cair no mesmo
+        // grupo. As posições vêm nas linhas seguintes.
+        let primeiro = &self.module.erros[0];
+        let resumo = primeiro.rsplit_once(" (").map_or(primeiro.as_str(), |(a, _)| a);
+        let mut texto = format!("erro de compilação: {resumo}\n");
+        for e in &self.module.erros {
+            texto.push_str("  ");
+            texto.push_str(e);
+            texto.push('\n');
+        }
+        let bytes = texto.as_bytes();
+        let mut escapado = String::new();
+        for &b in bytes {
+            if (b as char).is_ascii_alphanumeric() || b == b' ' {
+                escapado.push(b as char);
+            } else {
+                write!(escapado, "\\{:02X}", b).unwrap();
+            }
+        }
+        writeln!(self.out, "@.erros = private unnamed_addr constant [{} x i8] c\"{escapado}\"", bytes.len()).unwrap();
+        self.out.push_str("declare void @dartforge_erro_de_compilacao(ptr, i64)\n\n");
+        writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+        writeln!(self.out, "  call void @dartforge_erro_de_compilacao(ptr @.erros, i64 {})", bytes.len()).unwrap();
+        writeln!(self.out, "  ret void").unwrap();
+        writeln!(self.out, "}}").unwrap();
+        self.out
+    }
+
+    /// `@dfg_<id>` (valor, no tipo da representação) e `@dfg_<id>_ok`.
+    fn emit_globais(&mut self) {
+        for (id, ty) in &self.module.globais {
+            let (t, zero) = match ty {
+                Type::F64 => ("double", "0.0"),
+                Type::I1 => ("i1", "false"),
+                Type::I8 => ("i8", "0"),
+                _ => ("i64", "0"),
+            };
+            writeln!(self.out, "@dfg_{id} = internal global {t} {zero}").unwrap();
+            writeln!(self.out, "@dfg_{id}_ok = internal global i8 0").unwrap();
+        }
+        self.out.push('\n');
     }
 
     fn emit_dispatch_functions(&mut self) {
@@ -805,6 +889,7 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Xor(..)
             | Instruction::Neg(..)
             | Instruction::Not(..)
+            | Instruction::LShr(..)
             | Instruction::DoubleToInt(..)
             | Instruction::AllocObject { .. }
             | Instruction::GetField { .. }
@@ -818,7 +903,8 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::FNeg(..)
             | Instruction::IntToDouble(..) => Type::F64,
             Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(..) => Type::I1,
-            Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => *to,
+            Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } | Instruction::Bitcast { to, .. } => *to,
+            Instruction::LoadGlobal { ty, .. } => *ty,
             Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } => *ret_ty,
             Instruction::Load { ty, .. } => *ty,
             Instruction::Phi { ty, .. } => *ty,

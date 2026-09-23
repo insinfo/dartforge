@@ -526,7 +526,70 @@ Os 7 que passavam: `01_print`, `03_strings_escapes`, `06_strings_metodos`,
 `141_antigo_arithmetic`, `142_antigo_boolean`, `164_antigo_numeric_edges`,
 `169_antigo_string_escapes`.
 
-### 6.7 Custo aceito
+#### O que o passo 1 achou, e mudou no desenho
+
+* **O backend nativo rodava sem `dart:core`.** A seção `vm` do
+  `libraries.json` do SDK 3.6.2 só declara `cli`; `core`, `async`,
+  `collection`… vêm de `"include": [{"target": "vm_common"}]`, e
+  `SdkLayout::load` não seguia o `include`. O programa carregava sem o SDK,
+  e todo tipo estático de primitivo (`int`, `String`, `bool`) era `dynamic`
+  — `to_hir_type` devolvia `Ref` para quase tudo, e o lowering vivia de
+  adivinhar pelo tipo do operando. R é impossível sem os tipos: o passo 1
+  começa fazendo `SdkLayout::load` seguir o `include`. Com isso
+  `Program::functions` passa a ter o `dart:core` inteiro, e o lowering só
+  compila as funções do **usuário** (o runtime em Rust implementa o SDK);
+  chamada a função do SDK sem implementação no runtime é diagnóstico (N1).
+* **A inferência de corpos pulava comandos.** `infer_stmt` não tinha braço
+  para `for-in` nem para rótulo: o corpo de todo `for (x in xs)` ficava sem
+  tipos e sem resolução. Entraram os dois (o elemento vem de
+  `Iterable<E>` pelos supertipos instanciados). Também: o acesso a um campo
+  pelo getter implícito devolvia o **tipo de função** do getter, não o do
+  campo (`a.next!.text` não resolvia `text`); corrigido em `scope.rs` e na
+  leitura de getter de topo.
+* **Membros de extensão** não têm lowering (o receptor implícito); eles não
+  são compilados, e só o **uso** de um é diagnóstico — uma extensão
+  declarada e nunca chamada não derruba o programa.
+* **O diagnóstico de N1 chega ao placar pelo executável.** O certo é
+  `compilar` devolver `Err`, mas `lib.rs` está congelado nesta sessão (outro
+  trabalho separa a emissão de IR); o emissor produz, para um módulo com
+  erros, só um `dartforge_entry` que imprime os diagnósticos e sai com 254.
+  A primeira linha não tem a posição, para agrupar no harness.
+
+### 6.7 Referências consultadas, e o que adotamos
+
+* **Dartino (`references/dartino-llvm`, `src/vm/codegen_llvm.cc`,
+  `gc_llvm.cc`).** Representação **uniforme**: todo valor é um
+  `Object*`, e o inteiro pequeno é um Smi com a etiqueta no bit baixo; o
+  código gerado marca os ponteiros do heap com `addrspace(1)`, roda
+  `PlaceSafepoints` + `RewriteStatepointsForGC` e o GC (que move objetos)
+  percorre a pilha pelos *stack maps* do LLVM (`.llvm_stackmaps`),
+  atualizando pares base/derivado.
+  *Não adotado agora:* os passes de statepoint precisam do pipeline do LLVM
+  sob nosso controle (nós emitimos IR textual e chamamos o `clang`), e o
+  leitor de stack maps teria de ler a seção no COFF do Windows — que o
+  Dartino não precisava. Nosso heap não move objetos (handles indexam uma
+  tabela), então não há ponteiro derivado a corrigir: a pilha-sombra
+  explícita (G1–G3) é suficiente e portátil. *Adotado:* a separação
+  "o GC só vê o que está marcado como referência" — no Dartino é o
+  `addrspace(1)`, aqui é `Type::Ref` na HIR e o slot de raiz.
+  *Registrado para depois:* Smi com etiqueta evitaria a caixa no heap para
+  `int` em posição `Ref` (R3); exigiria que todo `Ref` pudesse ser um
+  inteiro etiquetado, e o runtime distinguir por bit — é a otimização
+  natural se o custo de `Box` aparecer na medição.
+* **VM oficial (`references/dart-sdk/runtime/vm`).** `Smi` (63 bits
+  etiquetado), `Mint` (inteiro de 64 bits em caixa) e `Double` em caixa; o
+  código compilado tem *stack maps* compactados por ponto de segurança.
+  `Instance::IsIdenticalTo` (`object.cc`) dá a semântica que R9 segue:
+  mesmo ponteiro, ou dois inteiros de mesmo valor, ou dois `double`
+  bit a bit iguais; `int` e `double` nunca são idênticos entre si, mas
+  `1 == 1.0` é verdadeiro pelo `==` de `num`.
+* **`docs/PESQUISA-OTIMIZACAO.md` §2 e §16.** "Nenhum cache cresce sem
+  política de descarte": as tabelas laterais por handle do runtime são
+  purgadas a cada coleta (G6), e as caixas de `bool` são dois singletons
+  fixos, não um cache. Arena não é ganho automático: o heap continua um
+  vetor de slots reutilizáveis, sem mudança de alocador nesta etapa.
+
+### 6.8 Custo aceito
 
 `set_root` por definição é uma chamada externa com empréstimo do `RefCell`.
 É deliberadamente o mais simples que é correto; slots por *liveness*, pular

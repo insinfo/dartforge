@@ -59,6 +59,11 @@ pub struct UnitBodyTypes {
     pub static_types: Vec<TypeId>,
     /// Alvo resolvido de expressões de identificador, propriedade ou chamada.
     pub resolved: Vec<Option<Resolved>>,
+    /// Tipo declarado (ou inferido do inicializador) de cada variável local,
+    /// pelo offset do nome na declaração. O backend nativo guarda o local
+    /// na representação desse tipo (`int?` é caixa, `int` é `i64`), que não
+    /// se deduz das leituras: elas têm o tipo promovido pelo fluxo.
+    pub tipos_de_locais: std::collections::HashMap<usize, TypeId>,
 }
 
 impl UnitBodyTypes {
@@ -67,7 +72,18 @@ impl UnitBodyTypes {
         Self {
             static_types: vec![fallback_type; num_exprs],
             resolved: vec![None; num_exprs],
+            tipos_de_locais: std::collections::HashMap::new(),
         }
+    }
+
+    /// Registra o tipo de uma variável local declarada em `offset`.
+    pub fn set_tipo_local(&mut self, offset: usize, ty: TypeId) {
+        self.tipos_de_locais.insert(offset, ty);
+    }
+
+    /// Tipo da variável local declarada em `offset` (o do nome).
+    pub fn tipo_local(&self, offset: usize) -> Option<TypeId> {
+        self.tipos_de_locais.get(&offset).copied()
     }
 
     /// Define o tipo estático de uma expressão.

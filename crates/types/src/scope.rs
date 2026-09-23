@@ -407,7 +407,7 @@ impl<'a> MemberResolver<'a> {
                 }
             } else if func_elem.kind != FunctionKind::Setter {
                 let member_ty = self.get_instantiated_function_type(func_id, class_id, args);
-                let ty = if func_elem.kind == FunctionKind::Getter {
+                let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                     if let Type::Function { ret, .. } = self.table.get(member_ty) {
                         *ret
                     } else {
@@ -501,7 +501,7 @@ impl<'a> MemberResolver<'a> {
                             super_cls,
                             &final_super_args,
                         );
-                        let ty = if func_elem.kind == FunctionKind::Getter {
+                        let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                             if let Type::Function { ret, .. } = self.table.get(member_ty) {
                                 *ret
                             } else {
@@ -624,7 +624,7 @@ impl<'a> MemberResolver<'a> {
                 }
             } else if func_elem.kind != FunctionKind::Setter {
                 let member_ty = self.get_instantiated_function_type(func_id, decl, args);
-                let ty = if func_elem.kind == FunctionKind::Getter {
+                let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                     if let Type::Function { ret, .. } = self.table.get(member_ty) {
                         *ret
                     } else {
@@ -729,7 +729,7 @@ impl<'a> MemberResolver<'a> {
                 } else {
                     sig
                 }
-            } else if func_elem.kind == FunctionKind::Getter {
+            } else if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                 if let Type::Function { ret, .. } = self.table.get(sig) {
                     *ret
                 } else {
@@ -767,7 +767,7 @@ impl<'a> MemberResolver<'a> {
             } else {
                 sig
             }
-        } else if func_elem.kind == FunctionKind::Getter {
+        } else if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
             if let Type::Function { ret, .. } = self.table.get(sig) {
                 *ret
             } else {
