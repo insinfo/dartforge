@@ -76,6 +76,7 @@ struct Modifiers {
     late: bool,
     final_: bool,
     const_: bool,
+    const_span: Option<Span>,
     var_: bool,
 }
 
@@ -1274,7 +1275,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         loop {
             match self.kind() {
                 Kind::Keyword(Keyword::Final) => m.final_ = true,
-                Kind::Keyword(Keyword::Const) => m.const_ = true,
+                Kind::Keyword(Keyword::Const) => {
+                    m.const_ = true;
+                    m.const_span = Some(self.span());
+                }
                 Kind::Keyword(Keyword::Var) => m.var_ = true,
                 Kind::Ident if self.modifier_ok() => match self.text() {
                     "external" => {
@@ -1737,6 +1741,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             body
         };
+        if factory && redirect.is_none() {
+            if let Some(span) = mods.const_span {
+                self.erro_em(codigos::parser::CONST_FACTORY, span, &[]);
+            }
+        }
         Ok(MemberKind::Constructor(Constructor {
             external: mods.external,
             const_: mods.const_,
@@ -2080,6 +2089,37 @@ mod tests {
         let mut nomes = Interner::new();
         let parsed = parse("class C { const C(); const factory C.x() => C(); }", &mut nomes);
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)));
+    }
+
+    #[test]
+    fn const_factory_sem_redirecionamento_aponta_para_const() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (fonte, inicio) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_6ecedb96.dart")),
+                12,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_c135c0a2.dart")),
+                25,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_d7023785.dart")),
+                55,
+            ),
+        ] {
+            let mut nomes = Interner::new();
+            let parsed = parse(fonte, &mut nomes);
+            assert!(parsed.diagnostics.iter().any(|d|
+                d.code == Some(c::CONST_FACTORY) && d.span.start == inicio && d.span.end == inicio + 5
+                    && d.message == "Only redirecting factory constructors can be declared to be 'const'."
+                    && d.correcao().as_deref() == Some("Try removing the 'const' keyword, or replacing the body with '=' followed by a valid target.")
+            ), "{fonte}: {:?}", parsed.diagnostics);
+        }
+
+        let mut nomes = Interner::new();
+        let parsed = parse("class A { const A(); const factory A.named() = A; }", &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)));
     }
 
     // -- Independentes dos outros módulos -----------------------------------
