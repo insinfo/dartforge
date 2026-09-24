@@ -35,3 +35,40 @@ fn falha_de_recarga_nao_destroi_a_versao_boa() {
     assert_eq!(sessao.lookup("df_fn_0").unwrap(), endereco);
     assert_eq!(entrada.call(&sessao).unwrap(), 8);
 }
+
+/// Um handle guardado pelo chamador continua apontando para o mesmo objeto
+/// enquanto a entrada estável passa a chamar o corpo da geração nova.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn contador_vivo_sobrevive_a_recarga() {
+    let ir = |passo: i64| format!("\
+declare i64 @dartforge_object_new(i64, i64)
+declare i64 @dartforge_object_get(i64, i64)
+declare void @dartforge_object_set(i64, i64, i64, i8)
+define i64 @df_fn_0() {{
+  %h = call i64 @dartforge_object_new(i64 7, i64 1)
+  ret i64 %h
+}}
+define i64 @df_fn_1(i64 %h) {{
+  %v = call i64 @dartforge_object_get(i64 %h, i64 0)
+  %n = add i64 %v, {passo}
+  call void @dartforge_object_set(i64 %h, i64 0, i64 %n, i8 0)
+  ret i64 %n
+}}
+");
+
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("contador", &ir(1)).expect("geração 1");
+    let criar = sessao.stable_entry("df_fn_0").expect("criar contador");
+    let somar = sessao.stable_entry("df_fn_1").expect("incrementar contador");
+    let endereco = sessao.lookup("df_fn_1").expect("endereço estável");
+    let contador = criar.call(&sessao).expect("objeto vivo");
+    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 1);
+    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 2);
+    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 3);
+
+    sessao.hot_reload("contador", &ir(10)).expect("geração 2");
+    assert_eq!(sessao.lookup("df_fn_1").unwrap(), endereco);
+    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 13);
+    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 23);
+}
