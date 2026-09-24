@@ -1,4 +1,80 @@
-# Estado do DartForge — 2026-09-22
+# Estado do DartForge — 2026-09-23
+
+## Fechamento do dia 2026-09-23
+
+Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
+Trabalho não pronto para o `main` fica em ramos `wip/*`: cada um tem o último
+commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
+
+### O que entrou no `main` hoje (CI e Pesado verdes antes de cada merge)
+
+* **Macros** (8cf79cd):
+  * augmentations nas duas formas (3.6.2 experimental e 3.13.4);
+  * `macro class`, `import augment` e `augment library` no parser;
+  * cadeia de augmentation no outline, generalizando o `@patch` do SDK;
+  * a API de macros reescrita por nós em Dart puro (`pacotes/macros`);
+  * o hospedeiro em Rust (`crates/macros_host`) sobre o protocolo `dfexec/1`, o mesmo dos builders;
+  * a augmentation do `@JsonCodable` sai idêntica à do CFE 3.6.2;
+  * a materialização gera `.dart` comum para a toolchain oficial;
+  * job `macros` no Pesado.
+* **Inferência de tipos reescrita pela especificação** (67d5fa4):
+  * `new_sali/core`: 15 avisos e 31 divergências em 634 mil expressões;
+  * `frontend`: 28 avisos (17 legítimos) e 56 divergências em 1,26 milhão;
+  * SDK: 18 diagnósticos, todos legítimos;
+  * corpus da especificação: 83/95.
+* **Paridade do analisador A1–A2** (6109201): saída no formato do `dart analyze`, tabela dos 1.030 códigos do analyzer 6.11, placar sobre 9.441 arquivos, regra de publicação.
+* **Dart moderno P0–P5** (0acdf61): versões de linguagem 3.7–3.13 por biblioteca; dois SDKs de oráculo; `corpus/moderno` 22/26.
+* **Nativo com async, RTI e `super` em mixin**: corpus nativo **91/223**, e o JIT também 91/223, sem divergência.
+* **Portão de custo zero**: razões pareadas, confirmação em segunda passada, média com duas casas decimais e tolerância de 10% (decisão do proprietário).
+* **`crates/runtime/README.md`**: o que falta no coletor de lixo.
+  * weak refs e `Expando`, finalizers, heap por isolate;
+  * geracional e compactação;
+  * custo das raízes e pausas.
+* **Ambiente**:
+  * `scripts/ci.ps1 -Placar` baixa em `target/ci-placar` e apaga depois;
+  * `.gitignore` com `**/target/`;
+  * `%TEMP%` limpo no fim do dia;
+  * relatório local de disco em `RELATORIO-DISCO-C.md` (fora do git).
+
+### Trabalho em andamento (ramos `wip/*`, não integrados)
+
+| ramo | frente | estado no fim do dia | primeiro passo amanhã |
+| --- | --- | --- | --- |
+| `wip/paridade` (d558f16) | analisador em Rust (A1–A2 → L1) | acerto exato **5.647/26.133 (21,6%, era 7,4%)**; `unused_local_variable` 2.231/2.315, `duplicate_definition` 723/1.317, `unused_import` 112/153, `expected_token` 786/1.724; 3 códigos de enum publicados (100%, sem falso positivo); projetos reais 0/15/183 internos, nenhum publicado. CI 35941746401 verde; Pesado 35941746311 rodava no fechamento | confirmar o Pesado; parser recusar sintaxe 3.7+ em biblioteca 3.6 e recuperar erro como o parser oficial (um erro por token ruim) |
+| `wip/inferencia` (de9b68b) | inferência (lacunas restantes) | b485cdf verde nos dois workflows (CI 35941571461, Pesado 35941571357). Avisos no `new_sali`: core **5**, frontend **19**, todos também dados pelo analyzer (17 em templates gerados, 6 `dead_code` já com `ignore`, 1 cast desnecessário por promoção de campo); divergências core **22**, frontend **45**; corpus **89/95**; sonda 6/7 (falta `unused_local_variable`) | `git merge main`; lacuna L03 (inferência horizontal em fases de dependência, gen14); depois L05, L20, L21, L28; `unused_local_variable` (sonda 7/7) e P6 |
+| `wip/nativo-sdk-fonte` (70ec1e4) | nativo P5c/P5d (SDK compilado da fonte) | merge do `main` concluído (13 conflitos: async/RTI, Dart moderno, macros), compila; testes de emit_native, runtime e elements passam local. Último verde: Pesado 35930483005 — padrão 82/223, SDK da fonte 84/223 (108/223 local antes do merge). Rodada atual vermelha: o link de produção autocontido pega o lld do LLVM 20 do runner, que não lê bitcode do LLVM 22 | ligar a produção com o `lld-link` explícito do LLVM do `DARTFORGE_CLANG` (`-fuse-ld=` com caminho), push em `ci/nativo-d2`, conferir padrão 91/223 e o primeiro placar do SDK da fonte pós-merge |
+
+### O que falta, por frente (ordem de prioridade)
+
+1. **Nativo**: 132 dos 223 do corpus ainda falham.
+   * Terminar P5c/P5d, o SDK compilado da fonte: DLL em cache no desenvolvimento, executável único estático com ThinLTO em produção.
+   * Depois: extension types, `sync*`/`async*` restantes e isolates.
+2. **Inferência**: integrar o `wip/inferencia` (divergências 22/45, corpus 89/95; no `main` ainda 31/56 e 83/95) e fechar o resto; P6 (inferência e fluxo 3.7–3.10, `corpus/moderno` 350–352).
+3. **Analisador e LSP em Rust**: subir de 21,6% para a paridade.
+   * Primeiro a sintaxe (recuperação de erro igual à do parser oficial), depois os códigos de tipo.
+   * Só publicar um código com 100% no corpus e zero falso positivo nos projetos reais.
+   * Mensagens em inglês idênticas às do SDK.
+4. **Macros**: executor nativo auto-hospedado. A macro compilada pelo nosso backend nativo roda dentro do `dfexec/1`, sem Node e sem VM de terceiros.
+   * Fases 1–3 completas.
+   * Cache por hash de entrada, para custo zero em quem não usa.
+5. **Motor de build (substituto do `build_runner`)**: ngdart com 186 gerados e 0 diferentes. Falta o resto dos builders do `new_sali` e a invalidação fina.
+6. **JIT**: acompanha o nativo (mesmo IR). Hot reload R1+ segue `docs/` (ORCv2, sessão persistente).
+7. **Produção JS**: segue a pesquisa de otimização (`docs/PESQUISA-OTIMIZACAO.md`).
+8. **Coletor de lixo**: os 9 itens de `crates/runtime/README.md`.
+9. **Dart moderno**: `corpus/moderno` 347 (membros de extension type) e 350–352 (P6).
+
+### Ambiente e máquina
+
+* O D: (HD mecânico USB) é o gargalo. O cache de escrita foi ligado e **só vale depois de reiniciar o PC**; agora é seguro reiniciar.
+* O Defender já tem exclusões para o D: e para as toolchains.
+* Hardware recomendado: +8 GB de DDR4 no segundo slot e SSD SATA de 2,5" (ou NVMe de 1 TB).
+* Regras em vigor:
+  * no máximo 4 agentes;
+  * testes pesados só no CI;
+  * merge só com os dois workflows verdes;
+  * temporários no D:.
+
+---
 
 ## Migração para SSD — 2026-09-24
 
