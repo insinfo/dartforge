@@ -224,7 +224,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.pos == start_pos && !self.at_eof() {
             self.advance();
             return;
-        }        let mut depth = self.nesting_between(start_pos, self.pos);
+        }
+        let mut depth = self.nesting_between(start_pos, self.pos);
         loop {
             match self.kind() {
                 Kind::Eof => break,
