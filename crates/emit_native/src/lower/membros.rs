@@ -1100,7 +1100,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // compilação. A CLI nativa ainda não aceita `-D`, portanto nenhuma
         // chave foi definida e vale o `defaultValue` especificado pelo SDK.
         // Nunca chamamos o native da VM para essas factories.
-        if f.const_ && !super::funcao_do_usuario(self.ctx, fid) {
+        if f.const_ && f.external {
             let nome = self.ctx.symbol_name(f.name);
             let classe = if Some(cid) == self.ctx.core.bool_class {
                 Some("bool")
