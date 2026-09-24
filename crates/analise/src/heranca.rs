@@ -87,4 +87,25 @@ mod testes {
         assert!(diags[1].1.message.contains("Object.toString"));
         fs::remove_dir_all(&raiz).unwrap();
     }
+
+    #[test]
+    fn campo_estatico_ve_metodo_transitivo_mas_nao_duplica_conflito_local() {
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/heranca-transitiva-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&raiz);
+        fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
+        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let fonte = "class A { void foo() {} }\nclass B extends A { static int foo = 0; }\nclass C extends B { static void foo() {} }\nclass D extends A { void foo() {} static void foo() {} }\n";
+        let entrada = raiz.join("main.dart");
+        fs::write(&entrada, fonte).unwrap();
+        let mut nomes = Interner::new();
+        let (programa, _) = load_lenient(&entrada, &sdk, None, &mut nomes);
+        let diags = estatico_contra_super(&programa, programa.entry.unwrap(), &nomes);
+        assert_eq!(diags.len(), 2, "{diags:?}");
+        assert!(diags.iter().all(|(_, d)| d.message.contains("A.foo")), "{diags:?}");
+        assert!(diags.iter().all(|(_, d)| &fonte[d.span.start as usize..d.span.end as usize] == "foo"));
+        fs::remove_dir_all(&raiz).unwrap();
+    }
 }
