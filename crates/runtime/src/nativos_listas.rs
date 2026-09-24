@@ -293,6 +293,17 @@ pub extern "C" fn dartforge_nativo_Object_getHash(o: i64) -> i64 {
 /// `Object.toString()` (`Object_toString`): `Instance of 'Classe'`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
+    // O `Object_toString` da VM também escreve os números (o `_Mint` e o
+    // `_Double` não têm `toString` próprio na fonte).
+    if let Some(i) = HEAP.with(|h| h.borrow().int_de_ref(this)) {
+        return dartforge_to_string_i64(i);
+    }
+    if let Some(Value::BoxedDouble(d)) = HEAP.with(|h| h.borrow().try_get(this).map(|v| match v {
+        Value::BoxedDouble(d) => Value::BoxedDouble(*d),
+        _ => Value::BoxedInt(0),
+    })) {
+        return dartforge_nativo_Double_toString(d);
+    }
     let cid = dartforge_value_class(this);
     let nome = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
     alocar_str(&format!("Instance of '{nome}'"))
@@ -389,4 +400,210 @@ pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
     }
     let b = this.to_bits();
     ((b ^ (b >> 32)) & 0x3fff_ffff) as i64
+}
+
+/// Os elementos `[inicio, fim)` de uma lista de inteiros (códigos).
+fn codigos_da_lista(lista: i64, inicio: i64, fim: i64) -> Vec<i64> {
+    let n = lista_len(lista);
+    (inicio.max(0)..fim.min(n))
+        .map(|i| {
+            let v = HEAP.with(|heap| heap.borrow().list_get(lista, i as usize));
+            HEAP.with(|heap| heap.borrow().normalizar(v)).bits
+        })
+        .collect()
+}
+
+/// `_OneByteString._allocateFromOneByteList(list, start, end)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_OneByteString_allocateFromOneByteList(lista: i64, inicio: i64, fim: i64) -> i64 {
+    let u: Vec<u16> = codigos_da_lista(lista, inicio, fim).into_iter().map(|c| (c & 0xFF) as u16).collect();
+    alocar_texto(Texto::de_unidades(u))
+}
+
+/// `_TwoByteString._allocateFromTwoByteList(list, start, end)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_TwoByteString_allocateFromTwoByteList(lista: i64, inicio: i64, fim: i64) -> i64 {
+    let u: Vec<u16> = codigos_da_lista(lista, inicio, fim).into_iter().map(|c| (c & 0xFFFF) as u16).collect();
+    alocar_texto(Texto::de_unidades(u))
+}
+
+/// `_StringBase._createFromCodePoints(list, start, end)`: pontos de código
+/// (acima de U+FFFF viram o par substituto).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_StringBase_createFromCodePoints(lista: i64, inicio: i64, fim: i64) -> i64 {
+    let mut u = Vec::new();
+    for c in codigos_da_lista(lista, inicio, fim) {
+        crate::heap::empurrar_ponto(&mut u, c as u32);
+    }
+    alocar_texto(Texto::de_unidades(u))
+}
+
+/// `_StringBase._joinReplaceAllResult(base, matches, length, oneByte)`: as
+/// fatias de `base` (um `Smi` negativo `-(início << 11 | tamanho)`, ou o par
+/// início, fim) e as substituições, na ordem (`string_patch.dart`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_StringBase_joinReplaceAllResult(base: i64, partes: i64, _tamanho: i64, _um_byte: u8) -> i64 {
+    let b = texto_de(base);
+    let mut saida = TextoMut::new();
+    let n = lista_len(partes);
+    let mut i = 0;
+    while i < n {
+        let v = HEAP.with(|heap| heap.borrow().list_get(partes, i as usize));
+        let v = HEAP.with(|heap| heap.borrow().normalizar(v));
+        if v.is_ref {
+            saida.push_texto(&texto_de(v.bits));
+        } else {
+            let (ini, fim) = if v.bits < 0 {
+                let bits = -v.bits;
+                let ini = bits >> 11;
+                (ini, ini + (bits & ((1 << 11) - 1)))
+            } else {
+                i += 1;
+                let f = HEAP.with(|heap| heap.borrow().list_get(partes, i as usize));
+                let f = HEAP.with(|heap| heap.borrow().normalizar(f));
+                (v.bits, f.bits)
+            };
+            saida.push_texto(&b.fatia(ini as usize, fim as usize));
+        }
+        i += 1;
+    }
+    alocar_texto(saida.fim())
+}
+
+/// `_Closure.==` (`Closure_equals`): a mesma função e o mesmo receptor (o
+/// tear-off de um método sobre o mesmo objeto); closures comuns só são
+/// iguais a si mesmas.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, outro: i64) -> u8 {
+    if this == outro {
+        return 1;
+    }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match (heap.try_get(this), heap.try_get(outro)) {
+            (Some(Value::Closure { code_id: a, environment: ea }), Some(Value::Closure { code_id: b, environment: eb }))
+                if a == b =>
+            {
+                match (heap.try_get(*ea), heap.try_get(*eb)) {
+                    (Some(Value::Environment(x)), Some(Value::Environment(y))) if x.len() == 1 && y.len() == 1 => {
+                        u8::from(x[0].is_ref && y[0].is_ref && x[0].bits == y[0].bits)
+                    }
+                    _ => 0,
+                }
+            }
+            _ => 0,
+        }
+    })
+}
+
+/// `double._nativeParse(str, start, end)` (`Double_parse`): o número do
+/// texto `[start, end)` ou null — decimal com expoente opcional, `NaN`,
+/// `Infinity`, com sinal (o `CStringToDouble` da VM; `inf`/`nan` em
+/// minúsculas não são aceitos, como na VM).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Double_parse(texto: i64, inicio: i64, fim: i64) -> i64 {
+    let t = texto_de(texto).fatia(inicio.max(0) as usize, fim.max(0) as usize).para_string();
+    let corpo = t.strip_prefix(['+', '-']).unwrap_or(&t);
+    let valido = corpo == "NaN"
+        || corpo == "Infinity"
+        || (!corpo.is_empty()
+            && corpo.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-'))
+            && corpo.chars().any(|c| c.is_ascii_digit()));
+    if !valido {
+        return 0;
+    }
+    let v = if corpo == "NaN" {
+        f64::NAN
+    } else if corpo == "Infinity" {
+        if t.starts_with('-') { f64::NEG_INFINITY } else { f64::INFINITY }
+    } else {
+        match t.parse::<f64>() {
+            Ok(v) => v,
+            Err(_) => return 0,
+        }
+    };
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedDouble(v)))
+}
+
+/// Intrínsecos de `dart:math` (`_sqrt`, `_sin`…): a função da libm do Rust.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_sqrt(x: f64) -> f64 {
+    x.sqrt()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_sin(x: f64) -> f64 {
+    x.sin()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_cos(x: f64) -> f64 {
+    x.cos()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_tan(x: f64) -> f64 {
+    x.tan()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_acos(x: f64) -> f64 {
+    x.acos()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_asin(x: f64) -> f64 {
+    x.asin()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_atan(x: f64) -> f64 {
+    x.atan()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_atan2(a: f64, b: f64) -> f64 {
+    a.atan2(b)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_exp(x: f64) -> f64 {
+    x.exp()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_log(x: f64) -> f64 {
+    x.ln()
+}
+/// `_doublePow(base, exponent)`: `pow` da C (a VM chama `pow`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_pow(base: f64, expoente: f64) -> f64 {
+    base.powf(expoente)
+}
+
+/// `_Record._numFields`: quantos campos (o record posicional do runtime).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_numFields(this: i64) -> i64 {
+    HEAP.with(|heap| match heap.borrow().try_get(this) {
+        Some(Value::Record(v)) => v.len() as i64,
+        _ => 0,
+    })
+}
+
+/// `_Record._shape`: a forma — para o record posicional, o número de campos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_shape(this: i64) -> i64 {
+    dartforge_nativo_DartForge_record_numFields(this)
+}
+
+/// `_Record._fieldNames`: os nomes (nenhum no record posicional).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_fieldNames(_this: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.allocate(Value::List(Vec::new()));
+        heap.imutaveis.insert(h);
+        h
+    })
+}
+
+/// `_Record._fieldAt(i)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_fieldAt(this: i64, i: i64) -> i64 {
+    let v = HEAP.with(|heap| match heap.borrow().try_get(this) {
+        Some(Value::Record(v)) => v.get(i as usize).copied(),
+        _ => None,
+    });
+    v.map_or(0, valor_como_ref)
 }

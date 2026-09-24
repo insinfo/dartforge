@@ -6,6 +6,8 @@
 // SAFETY: símbolo reservado e contrato C sem retorno, conforme a declaração LLVM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_null_assert_fail() -> ! {
+    // Com o SDK da fonte o `!` sobre null também encerra aqui (o lowering
+    // não tem como continuar depois desta chamada); o texto é o da VM.
     use std::io::Write;
     let _ = writeln!(
         std::io::stderr().lock(),
@@ -257,6 +259,11 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeEstado") {
+        // SAFETY: registrado pelo `dart:core` com a assinatura `(String) -> Object`.
+        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[msg_handle], || g(msg_handle));
+    }
     alocar_erro_com_rastro(1002, vec![(msg_handle, true)])
 }
 
@@ -292,6 +299,12 @@ pub extern "C" fn dartforge_range_error_value(val: i64, name_handle: i64, msg_ha
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name_handle: i64, msg_handle: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeFaixa") {
+        // SAFETY: registrado pelo `dart:core`: `(int, int, int, String?) -> Object`.
+        let g: extern "C" fn(i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let _ = msg_handle;
+        return com_raizes(&[name_handle], || g(val, min, max, name_handle));
+    }
     alocar_erro_com_rastro(1004, vec![(msg_handle, true), (name_handle, true), (val, false), (min, false), (max, false), (1, false), (1, false)])
 }
 
@@ -322,6 +335,12 @@ pub extern "C" fn dartforge_unimplemented_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeAssercao") {
+        // SAFETY: registrado pelo `dart:core` com a assinatura `(Object?) -> Object`.
+        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let m = if is_ref != 0 { msg_bits } else { valor_como_ref(TaggedValue::scalar(msg_bits)) };
+        return com_raizes(&[m], || g(m));
+    }
     alocar_erro_com_rastro(1009, vec![(msg_bits, is_ref != 0)])
 }
 
@@ -338,6 +357,10 @@ pub extern "C" fn dartforge_concurrent_modification_error_new(modified: i64) -> 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_type_error_new() -> i64 {
+    // SDK da fonte: o `_TypeError` da fonte (`identical_patch.dart`).
+    if let Some(e) = erro_da_fonte_com_texto("_dartforgeErroDeTipo", "TypeError") {
+        return e;
+    }
     alocar_erro_com_rastro(1011, vec![(0, false)])
 }
 
@@ -441,3 +464,13 @@ pub extern "C" fn dartforge_error_get_stack_trace(handle: i64) -> i64 {
     })
 }
 
+
+/// SDK da fonte: o erro construído pela função Dart `nome(texto)`
+/// registrada (`identical_patch.dart`), ou `None` sem ela.
+fn erro_da_fonte_com_texto(nome: &str, texto: &str) -> Option<i64> {
+    let f = ajudante(nome)?;
+    // SAFETY: registrado pelo `dart:core` com a assinatura `(String) -> Object`.
+    let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let t = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(texto))));
+    Some(com_raizes(&[t], || g(t)))
+}

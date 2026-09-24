@@ -238,10 +238,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn testar_tipo_fonte(
         &mut self,
         ast_ty: &dartforge_frontend::ast::TypeAnnotation,
-        name: &[dartforge_frontend::ast::Name],
         op: Operand,
     ) -> Option<Operand> {
         if !self.ctx.sdk_da_fonte {
+            return None;
+        }
+        // No código do SDK, os testes com argumentos de tipo (`is List<E>`)
+        // escolhem um caminho rápido equivalente para um programa correto
+        // (`ListBase.setRange`, `List.from`, `ListQueue.addAll`…): até a RTI,
+        // eles conferem a classe. No programa, só o cast (`as`) confere a
+        // classe; o `is` com argumentos continua diagnóstico.
+        let no_sdk = self.ctx.program.library(self.ctx.program.unit(self.unit_id).library).is_sdk;
+        let so_classe = self.cast_so_pela_classe || no_sdk;
+        let dartforge_frontend::ast::TypeKind::Named { name, args } = &ast_ty.kind else {
+            // Tipo de função/record num cast: confere só... nada (a classe
+            // de uma função é `_Closure`); o `is` estrutural fica diagnóstico.
+            return self.cast_so_pela_classe.then_some(Operand::Constant(Constant::Bool(true)));
+        };
+        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+        let trivial = |t: &dartforge_frontend::ast::TypeAnnotation| match &t.kind {
+            dartforge_frontend::ast::TypeKind::Named { name, args } if args.is_empty() => name.last().is_some_and(|n| {
+                let s = self.ctx.symbol_name(n.sym);
+                s == "dynamic" || (s == "Object" && t.nullable)
+            }),
+            _ => false,
+        };
+        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) && !so_classe {
             return None;
         }
         let ultimo = name.last()?;
@@ -269,7 +291,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Operand::Constant(Constant::Bool(true)));
         }
         let lib = self.ctx.program.unit(self.unit_id).library;
-        let binding = match name {
+        let binding = match &name[..] {
             [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
             _ => self.ctx.program.lookup(lib, ultimo.sym),
         };
@@ -280,6 +302,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(id) = cid.and_then(|c| self.ctx.id_de_classe(c)) else {
             return self.cast_so_pela_classe.then_some(Operand::Constant(Constant::Bool(true)));
         };
+        let _ = so_classe;
         let zero = Operand::Constant(Constant::Int(0));
         let nulo = self.emit(Instruction::ICmp(ICmpOp::Eq, op.clone(), zero.clone()), Type::I1);
         if nome == "Null"
@@ -375,26 +398,60 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 a.push((t, r));
             }
         }
-        for v in args {
-            let t = self.operand_type(v);
+        // Os parâmetros e o retorno na representação de valor dos tipos
+        // declarados: `_Smi`/`_Double` (as implementações de `int`/`double`)
+        // também cruzam como `i64`/`double`.
+        let tipos: Vec<Type> = self
+            .ctx
+            .outline
+            .functions
+            .get(fid)
+            .map(|d| d.parameters.iter().map(|p| self.repr_nativo(p.ty)).collect())
+            .unwrap_or_default();
+        for (i, v) in args.iter().enumerate() {
+            let t = tipos.get(i).copied().unwrap_or_else(|| self.operand_type(v));
+            let t = if t == Type::Void { Type::Ref } else { t };
+            let v = self.coagir(v.clone(), t);
             if t == Type::I1 {
-                let b = self.emit(Instruction::ZExt { op: v.clone(), from: Type::I1, to: Type::I8 }, Type::I8);
+                let b = self.emit(Instruction::ZExt { op: v, from: Type::I1, to: Type::I8 }, Type::I8);
                 a.push((b, Type::I8));
             } else {
-                a.push((v.clone(), if t == Type::Void { Type::Ref } else { t }));
+                a.push((v, t));
             }
         }
         let ret = self.repr_retorno(fid);
-        let ret_nativo = if ret == Type::I1 { Type::I8 } else { ret };
+        let ret_valor = if super::construtor_generativo(self.ctx, fid) {
+            Type::Void
+        } else {
+            self.ctx.outline.functions.get(fid).map_or(ret, |d| self.repr_nativo(d.return_type))
+        };
+        let ret_nativo = if ret_valor == Type::I1 { Type::I8 } else { ret_valor };
         let r = self.emit_call_with_check(
             Instruction::CallRuntime { name: crate::nativos::simbolo(&nome), args: a, ret_ty: ret_nativo },
             ret_nativo,
         );
-        Some(match ret {
-            Type::Void => Operand::Constant(Constant::Null),
+        let r = match ret_valor {
+            Type::Void => return Some(Operand::Constant(Constant::Null)),
             Type::I1 => self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1),
             _ => r,
-        })
+        };
+        Some(if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) })
+    }
+
+    /// A representação de um tipo na fronteira com um native: a de valor
+    /// (`i64`, `double`, `i1`) para as classes de `int`, `double` e `bool`
+    /// não anuláveis (inclusive `_Smi`, `_Mint`, `_Double`), senão a da HIR.
+    fn repr_nativo(&self, ty: dartforge_types::table::TypeId) -> Type {
+        if self.ctx.is_void(ty) {
+            return Type::Void;
+        }
+        if let dartforge_types::table::Type::Interface { class, nullable: false, .. } = self.ctx.table.get(ty) {
+            let r = self.repr_do_receptor(*class);
+            if r != Type::Ref {
+                return r;
+            }
+        }
+        self.repr(ty)
     }
 }
 
@@ -1045,5 +1102,173 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.labeled_continue_targets.remove(&r);
         }
         self.set_block(fim);
+    }
+}
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// `v is <nome>` para uma classe de `dart:core` (`List`, `Map`,
+    /// `Record`), pelo grafo de classes do SDK da fonte; null não é.
+    pub fn e_instancia_do_core(&mut self, v: Operand, nome: &str) -> Operand {
+        let zero = Operand::Constant(Constant::Int(0));
+        let Some(id) = self.ctx.classe_do_sdk("core", nome).and_then(|c| self.ctx.id_de_classe(c)) else {
+            return Operand::Constant(Constant::Bool(false));
+        };
+        let cls = self.emit(
+            Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(v.clone(), Type::Ref)], ret_ty: Type::I64 },
+            Type::I64,
+        );
+        let sub = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_is_subclass".to_string(),
+                args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(i64::from(id))), Type::I64)],
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        let sub = self.emit(Instruction::ICmp(ICmpOp::Ne, sub, zero.clone()), Type::I1);
+        let nao_nulo = self.emit(Instruction::ICmp(ICmpOp::Ne, v, zero.clone()), Type::I1);
+        let r = self.emit(Instruction::And(sub, nao_nulo), Type::I64);
+        self.emit(Instruction::ICmp(ICmpOp::Ne, r, zero), Type::I1)
+    }
+
+    /// Segue se `cond`, senão desvia para `falha`.
+    fn exigir_fonte(&mut self, cond: Operand, falha: BlockId) {
+        let cond = self.para_bool(cond);
+        let ok = self.new_block();
+        self.terminate(Terminator::CondBranch { cond, then_block: ok, else_block: falha });
+        self.set_block(ok);
+    }
+
+    /// Padrão de lista com o SDK da fonte (§19.4.6 "List pattern"): o valor é
+    /// um `List`, e `length`, `[]` e `sublist` vão pelo seletor.
+    #[allow(clippy::too_many_arguments)]
+    pub fn casar_lista_fonte(
+        &mut self,
+        ast: &dartforge_frontend::ast::Ast,
+        elements: &[dartforge_frontend::ast::ListPatternElement],
+        valor: Operand,
+        falha: BlockId,
+        ligacao: super::padroes::Ligacao,
+        ligados: &mut std::collections::HashSet<dartforge_intern::SymbolId>,
+        origem: dartforge_frontend::ast::ExprId,
+    ) {
+        use dartforge_frontend::ast::ListPatternElement;
+        let v = self.coagir(valor, Type::Ref);
+        let e = self.e_instancia_do_core(v.clone(), "List");
+        self.exigir_fonte(e, falha);
+        let len = self.chamar_por_seletor(v.clone(), "g:length".to_string(), &[]);
+        let len = self.coagir(len, Type::I64);
+        let resto = elements.iter().position(|e| matches!(e, ListPatternElement::Rest(_)));
+        let n_fixos = elements.len() - usize::from(resto.is_some());
+        let ok = self.emit(
+            Instruction::ICmp(
+                if resto.is_some() { ICmpOp::Sge } else { ICmpOp::Eq },
+                len.clone(),
+                Operand::Constant(Constant::Int(n_fixos as i64)),
+            ),
+            Type::I1,
+        );
+        self.exigir_fonte(ok, falha);
+        for (i, el) in elements.iter().enumerate() {
+            match (el, resto) {
+                (ListPatternElement::Pattern(sp), r) => {
+                    let idx = match r {
+                        Some(r) if i > r => {
+                            let depois = (elements.len() - i) as i64;
+                            self.emit(Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(depois))), Type::I64)
+                        }
+                        _ => Operand::Constant(Constant::Int(i as i64)),
+                    };
+                    let x = self.chamar_por_seletor(v.clone(), "c:[]".to_string(), &[(None, idx)]);
+                    self.casar(ast, *sp, x, falha, ligacao, ligados, origem);
+                }
+                (ListPatternElement::Rest(Some(sp)), _) => {
+                    let depois = (elements.len() - i - 1) as i64;
+                    let fim = self.emit(Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(depois))), Type::I64);
+                    let sub = self.chamar_por_seletor(
+                        v.clone(),
+                        "c:sublist".to_string(),
+                        &[(None, Operand::Constant(Constant::Int(i as i64))), (None, fim)],
+                    );
+                    self.casar(ast, *sp, sub, falha, ligacao, ligados, origem);
+                }
+                (ListPatternElement::Rest(None), _) => {}
+            }
+        }
+    }
+
+    /// Padrão de mapa com o SDK da fonte (§19.4.7 "Map pattern"): o valor é
+    /// um `Map`, e cada chave existe (`containsKey`) e casa (`[]`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn casar_mapa_fonte(
+        &mut self,
+        ast: &dartforge_frontend::ast::Ast,
+        entries: &[dartforge_frontend::ast::MapPatternEntry],
+        valor: Operand,
+        falha: BlockId,
+        ligacao: super::padroes::Ligacao,
+        ligados: &mut std::collections::HashSet<dartforge_intern::SymbolId>,
+        origem: dartforge_frontend::ast::ExprId,
+    ) {
+        let v = self.coagir(valor, Type::Ref);
+        let e = self.e_instancia_do_core(v.clone(), "Map");
+        self.exigir_fonte(e, falha);
+        for en in entries {
+            let k = self.lower_expr(ast, en.key);
+            let tem = self.chamar_por_seletor(v.clone(), "c:containsKey".to_string(), &[(None, k.clone())]);
+            let tem = self.coagir(tem, Type::I1);
+            self.exigir_fonte(tem, falha);
+            let x = self.chamar_por_seletor(v.clone(), "c:[]".to_string(), &[(None, k)]);
+            self.casar(ast, en.value, x, falha, ligacao, ligados, origem);
+        }
+    }
+}
+/// As formas de record com campo nomeado do programa (`registros.rs`) com o
+/// SDK da fonte: cada uma ganha a tabela de métodos — `toString` e `==`
+/// (os gerados), e os membros de `Object` — com os adaptadores.
+pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
+    let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else { return };
+    let objeto = ctx.core.object_class.map(|c| tabela_de_metodos(ctx, c)).unwrap_or_default();
+    for k in 0..ctx.formas_de_record.len() {
+        let id = crate::context::ID_BASE_DE_FORMA + k as u32;
+        let base = format!("df.$registro.{k}");
+        // toString$c
+        let mut b = FnBuilder::new(ctx, u, format!("{base}.toString$c"), "toString".to_string(), Type::Ref);
+        let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        b.add_param("args".to_string(), Type::Ptr);
+        b.add_param("desc".to_string(), Type::Ptr);
+        let r = b.emit_call_with_check(
+            Instruction::CallStatic { symbol: format!("{base}.toString"), args: vec![recv], ret_ty: Type::Ref },
+            Type::Ref,
+        );
+        b.terminate(Terminator::Return(Some(r)));
+        b.finalizar(module);
+        // ==$c
+        let mut b = FnBuilder::new(ctx, u, format!("{base}.$3d$3d$c"), "==".to_string(), Type::Ref);
+        let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
+        b.add_param("desc".to_string(), Type::Ptr);
+        let outro = b.emit(Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
+        let r = b.emit_call_with_check(
+            Instruction::CallStatic {
+                symbol: super::registros::SIMBOLO_IGUAL.to_string(),
+                args: vec![recv, outro],
+                ret_ty: Type::I1,
+            },
+            Type::I1,
+        );
+        let r = b.coagir(r, Type::Ref);
+        b.terminate(Terminator::Return(Some(r)));
+        b.finalizar(module);
+        let mut tabela: Vec<(String, String)> = vec![
+            ("c:toString".to_string(), format!("{base}.toString$c")),
+            ("c:==".to_string(), format!("{base}.$3d$3d$c")),
+        ];
+        for (s, f) in &objeto {
+            if !tabela.iter().any(|(x, _)| x == s) {
+                tabela.push((s.clone(), f.clone()));
+            }
+        }
+        module.tabelas_de_metodos.push((id, format!("df.mt.$registro.{k}"), tabela));
     }
 }

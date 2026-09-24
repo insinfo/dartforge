@@ -126,6 +126,14 @@ impl LlvmEmitter<'_> {
             writeln!(corpo, "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})").unwrap();
         }
         corpo.push_str(&self.emitir_tabelas_de_metodos());
+        if !modulo.biblioteca_sdk {
+            // As classes do programa (e as formas de record) registram a
+            // tabela já na partida: os valores delas também nascem fora do
+            // `dartforge_object_new_t` (enums, records).
+            for (cid, simbolo, _) in &modulo.tabelas_de_metodos {
+                writeln!(corpo, "  call void @dartforge_registrar_tabela(i64 {cid}, ptr @{simbolo})").unwrap();
+            }
+        }
         for (k, (nome, simbolo)) in modulo.ajudantes.iter().enumerate() {
             writeln!(
                 self.out,

@@ -13,7 +13,8 @@
       "_internal/vm/lib/print_patch.dart": "internal/print_patch.dart",
       "_internal/vm_shared/lib/string_buffer_patch.dart": "core/string_buffer_patch.dart",
       "_internal/vm_shared/lib/compact_hash.dart": "collection/compact_hash.dart",
-      "_internal/vm/lib/typed_data_patch.dart": "typed_data/typed_data_patch.dart"
+      "_internal/vm/lib/typed_data_patch.dart": "typed_data/typed_data_patch.dart",
+      "_internal/vm/lib/identical_patch.dart": "core/identical_patch.dart"
     }
   }
 }

@@ -547,7 +547,7 @@ mod testes {
             return;
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK)).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 8);
+        assert_eq!(sdk.substituicoes.len(), 9);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
@@ -670,7 +670,11 @@ mod testes {
     #[test]
     #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
     fn producao_e_um_executavel_autocontido() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
+        // O SDK instalado (no CI, o do `DART_HOME`); sem ele, o teste só é
+        // pulado fora do CI — no CI, ausência é falha, não sucesso vazio.
+        let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from(SDK));
+        if !sdk_dir.join("libraries.json").is_file() {
+            assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
             return;
         }
         let dir = tempfile::tempdir().unwrap();
@@ -682,7 +686,7 @@ mod testes {
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: true };
+                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true };
                 crate::compilar_com(&e2, &x2, &opcoes, true)
             })
             .unwrap()

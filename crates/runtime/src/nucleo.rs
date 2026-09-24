@@ -35,6 +35,15 @@ pub extern "C" fn main() -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern "C" fn(i64) -> i64) -> i32 {
     PARA_TEXTO.with(|p| p.set(Some(para_texto)));
+    if depurar() {
+        // Depuração: o pânico do runtime mostra a pilha de funções Dart
+        // (`DARTFORGE_RASTRO=1` na compilação).
+        let padrao = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |i| {
+            mostrar_rastro();
+            padrao(i);
+        }));
+    }
     entrada();
     let codigo = finalizar_programa();
     if codigo != 0 {
