@@ -84,7 +84,7 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -110,7 +110,7 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
