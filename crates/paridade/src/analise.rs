@@ -182,6 +182,9 @@ impl Motor {
         let unidades_proprias: BTreeSet<UnitId> = unidade_de.values().copied().collect();
 
         // 1. Sintaxe: o `elements` prefixa o caminho e o offset na mensagem.
+        // O que ali não é sintático (marcador de versão) entra depois, fora da
+        // faixa publicada sempre.
+        let mut da_carga_semanticos: Vec<(PathBuf, Diagnostic)> = Vec::new();
         for d in &diags_carga {
             for (k, u) in &unidade_de {
                 let Some(p) = &program.unit(*u).path else { continue };
@@ -189,12 +192,20 @@ impl Motor {
                 if let Some(msg) = d.message.strip_prefix(&prefixo) {
                     let mut cru = d.clone();
                     cru.message = msg.to_string();
-                    let a = analise.arquivos.get_mut(k).expect("próprio");
-                    a.diags.push(ponte::codificar_sintaxe(&cru));
-                    a.sintaticos += 1;
+                    let sintatico = cru.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
+                    if sintatico {
+                        let a = analise.arquivos.get_mut(k).expect("próprio");
+                        a.diags.push(ponte::codificar_sintaxe(&cru));
+                        a.sintaticos += 1;
+                    } else {
+                        da_carga_semanticos.push((k.clone(), cru));
+                    }
                     break;
                 }
             }
+        }
+        for (k, d) in da_carga_semanticos {
+            analise.arquivos.get_mut(&k).expect("próprio").diags.push(d);
         }
 
         // 2. Diretivas cujo alvo não existe.
