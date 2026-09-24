@@ -756,7 +756,13 @@ impl Motor {
         let mut dart = self.dart.lock().map_err(|_| "executor Dart envenenado")?;
         let resultado = dart.executar(&pedido, &mut servico).map_err(|e| e.0)?;
         if resultado.falhou {
-            return Err(format!("{}: builder Dart falhou", pedido.chave));
+            let detalhes = resultado.logs.iter().filter(|(nivel, _)| nivel == "severo" || nivel == "erro")
+                .map(|(_, mensagem)| mensagem.as_str())
+                .chain(servico.logs.iter().filter(|(nivel, _)| *nivel == crate::executor::Nivel::Severo)
+                    .map(|(_, mensagem)| mensagem.as_str()))
+                .collect::<Vec<_>>().join("; ");
+            return Err(if detalhes.is_empty() { format!("{}: builder Dart falhou", pedido.chave) }
+                else { format!("{}: {detalhes}", pedido.chave) });
         }
         for (id, bytes) in resultado.saidas {
             servico.escrever(&id, bytes).map_err(|e| format!("builder Dart escreveu saída não permitida: {}", e.0.texto()))?;
