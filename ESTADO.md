@@ -94,6 +94,16 @@ que a rodada anterior. O mesmo Pesado mediu o nativo em **146/223** e
 JIT × AOT em **223/223 saídas idênticas**; o caso 104 ainda falha nos dois
 perfis antes da correção de passagem de variáveis de cases compartilhados.
 
+Na [CI nativa 35981507325](https://github.com/insinfo/dartforge/actions/runs/35981507325)
+e no [Pesado 35981507387](https://github.com/insinfo/dartforge/actions/runs/35981507387),
+atribuições compostas, listas e literais de `Type` elevaram o SDK da fonte a
+**151/223**. A [suíte nativa 35982482442](https://github.com/insinfo/dartforge/actions/runs/35982482442)
+confirmou `210_constantes_de_ambiente` e **152/223**. A rodada combinada
+[35982589082](https://github.com/insinfo/dartforge/actions/runs/35982589082)
+mediu **157/223**: o seletor genérico liberou seis casos, inclusive
+`104_sealed_exaustivo`, mas `69_list_de_lists_e_matriz` regrediu no
+`fold<int>` após `expand`; a correção dessa regressão está pendente.
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
