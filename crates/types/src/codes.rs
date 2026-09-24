@@ -72,6 +72,16 @@ pub const CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = Diagno
     "Membro de instância em instanciação de classe",
 );
 
+pub const CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "class_instantiation_access_to_static_member",
+    "Membro estático em instanciação de classe",
+);
+
+pub const CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "class_instantiation_access_to_unknown_member",
+    "Membro desconhecido em instanciação de classe",
+);
+
 pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
     "invocation_of_extension_without_call",
     "Invocação de extensão sem call",

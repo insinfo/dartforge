@@ -854,6 +854,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
 
 /// Acesso estático `C.x` / `E.x` / `C.new`.
 fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: RefTipo, name: ast::Name) -> TypeId {
+    let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     match rt {
         RefTipo::Extensao(x) => match inf.membro_estatico_de_extensao(x, name.sym, false) {
             Some(m) => {
@@ -874,20 +875,33 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
         },
         RefTipo::Classe(c, targs) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
+                if instancia_explicita {
+                    avisar_instanciacao_estatica(inf, cx, e, name);
+                    return inf.core.dynamic_;
+                }
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
             }
             let args = targs.map(|v| v.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect::<Vec<_>>());
-            tearoff_de_construtor(inf, cx, e, c, args, name)
+            tearoff_de_construtor(inf, cx, e, c, args, name, true)
         }
         RefTipo::Alias(c, args, _) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
+                if instancia_explicita {
+                    avisar_instanciacao_estatica(inf, cx, e, name);
+                    return inf.core.dynamic_;
+                }
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
             }
-            tearoff_de_construtor(inf, cx, e, c, args, name)
+            tearoff_de_construtor(inf, cx, e, c, args, name, false)
         }
     }
+}
+
+fn receptor_de_instanciacao_explicita(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    let ExprKind::Property { target, .. } = &ast(inf, cx).expr(e).kind else { return false };
+    matches!(&ast(inf, cx).expr(*target).kind, ExprKind::TypeArguments { .. })
 }
 
 /// Somente membros declarados na própria classe; a busca herdada requer
@@ -918,17 +932,32 @@ fn avisar_instanciacao_de_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: E
     true
 }
 
+fn avisar_instanciacao_estatica(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: ExprId, name: ast::Name) {
+    let msg = format!("{}: '{}'", CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER.template, inf.interner.resolve(name.sym));
+    let span = ast(inf, cx).expr(expr).span;
+    inf.aviso(msg, span);
+}
+
+fn avisar_instanciacao_desconhecida(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: ExprId, classe: ClassId, name: ast::Name) {
+    let classe = inf.interner.resolve(inf.program.class(classe).name);
+    let membro = inf.interner.resolve(name.sym);
+    let msg = format!("{}: '{classe}', '{membro}'", CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER.template);
+    let span = ast(inf, cx).expr(expr).span;
+    inf.aviso(msg, span);
+}
+
 /// `C.nome` / `C.new` como valor: tipo de função do construtor (genérico
 /// sobre os parâmetros da classe se não instanciado).
-fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name) -> TypeId {
-    let instancia_explicita = match &ast(inf, cx).expr(e).kind {
-        ExprKind::Property { target, .. } => matches!(&ast(inf, cx).expr(*target).kind, ExprKind::TypeArguments { .. }),
-        _ => false,
-    };
+fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name, diagnosticar_ausencia: bool) -> TypeId {
+    let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
     let Some(f) = inf.construtor_de(c, chave) else {
         if instancia_explicita && avisar_instanciacao_de_classe(inf, cx, e, c, name, false) {
+            return inf.core.dynamic_;
+        }
+        if instancia_explicita && diagnosticar_ausencia {
+            avisar_instanciacao_desconhecida(inf, cx, e, c, name);
             return inf.core.dynamic_;
         }
         if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, c, name, false) {
@@ -1678,6 +1707,20 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     }
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
         registrar_ref_tipo(inf, cx, target);
+        let instancia_explicita = matches!(&ast(inf, cx).expr(target).kind, ExprKind::TypeArguments { .. });
+        if instancia_explicita {
+            if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
+                if inf.membro_estatico(*c, name.sym, true).is_some()
+                    || inf.membro_estatico(*c, name.sym, false).is_some()
+                {
+                    avisar_instanciacao_estatica(inf, cx, alvo, name);
+                    return inf.core.dynamic_;
+                }
+                if avisar_instanciacao_de_classe(inf, cx, alvo, *c, name, true) {
+                    return inf.core.dynamic_;
+                }
+            }
+        }
         let m = match &rt {
             RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(*c, name.sym, true),
             RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(*x, name.sym, true),
@@ -1689,11 +1732,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
             }
             None => {
                 if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
-                    let instancia_explicita = matches!(&ast(inf, cx).expr(target).kind, ExprKind::TypeArguments { .. });
                     if inf.membro_estatico(*c, name.sym, false).is_none() {
-                        if instancia_explicita && avisar_instanciacao_de_classe(inf, cx, alvo, *c, name, true) {
-                            return inf.core.dynamic_;
-                        }
                         if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, *c, name, true) {
                             return inf.core.dynamic_;
                         }
