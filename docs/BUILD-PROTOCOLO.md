@@ -80,6 +80,10 @@ grafo, para que a criação posterior do arquivo invalide a ação.
 
 No canal, os nomes da primeira coluna usam o prefixo `build.` (por exemplo,
 `build.ler` e `build.resposta`), e cada pedido recebe o mesmo `id` na resposta.
+Um pedido com `AssetId` ou bytes inválidos recebe `build.resposta {id, erro}`;
+o canal permanece aberto, para que o builder possa tratar o erro e continuar a
+ação. Mensagens sem `id` ou respostas fora de ordem continuam sendo falhas do
+protocolo.
 
 Legibilidade das respostas segue o `build_impl.dart:443-463` (§3 de
 `docs/BUILD-MOTOR.md`).

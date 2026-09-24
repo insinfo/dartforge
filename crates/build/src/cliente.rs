@@ -42,8 +42,16 @@ impl<C: Canal> ClienteBuild<C> {
         loop {
             let mensagem = self.canal.receber().map_err(ErroExecutor)?;
             let tipo = mensagem.get("t").and_then(Value::as_str).unwrap_or("");
-            if tipo.starts_with("build.") && tipo != esperado {
-                let resposta = self.servir(&mensagem, servico)?;
+            if matches!(tipo, "build.ler" | "build.existe" | "build.glob" | "build.digest" |
+                "build.escrever" | "build.log" | "build.resolver") || tipo.starts_with("build.resolver.") {
+                let resposta = match self.servir(&mensagem, servico) {
+                    Ok(resposta) => resposta,
+                    Err(erro) => {
+                        let pedido = mensagem.get("id").and_then(Value::as_u64)
+                            .ok_or_else(|| ErroExecutor(format!("consulta build sem id: {mensagem}")))?;
+                        json!({"t":"build.resposta","id":pedido,"erro":erro.0})
+                    }
+                };
                 self.canal.enviar(&resposta).map_err(ErroExecutor)?;
                 continue;
             }
@@ -292,5 +300,34 @@ mod testes {
             raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: Vec::new() };
         let mut servico = ServicoFalso { escritas: Vec::new() };
         assert!(cliente.executar(&pedido, &mut servico).is_err());
+    }
+
+    #[test]
+    fn consulta_invalida_recebe_erro_sem_encerrar_acao() {
+        let enviadas = Arc::new(Mutex::new(Vec::new()));
+        let canal = CanalFalso {
+            recebidas: [
+                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
+                json!({"t":"build.carregado","id":1}),
+                json!({"t":"build.ler","id":9,"asset":"invalido"}),
+                json!({"t":"build.escrever","id":10,"asset":"p|lib/a.g.dart","bytes_base64":"?"}),
+                json!({"t":"build.existe","id":11,"asset":"p|lib/a.dart"}),
+                json!({"t":"build.resultado","id":2,"saidas":[],"falhou":false}),
+            ].into(),
+            enviadas: enviadas.clone(),
+        };
+        let mut cliente = ClienteBuild::novo(canal);
+        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
+        let pedido = PedidoAcao { fase: 0, chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(),
+            raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: Vec::new() };
+        let mut servico = ServicoFalso { escritas: Vec::new() };
+        assert!(!cliente.executar(&pedido, &mut servico).unwrap().falhou);
+        let enviadas = enviadas.lock().unwrap();
+        assert_eq!(enviadas[3]["id"], 9);
+        assert!(enviadas[3]["erro"].as_str().unwrap().contains("AssetId"));
+        assert_eq!(enviadas[4]["id"], 10);
+        assert!(enviadas[4]["erro"].as_str().unwrap().contains("base64"));
+        assert_eq!(enviadas[5], json!({"t":"build.resposta","id":11,"sim":true}));
+        assert!(servico.escritas.is_empty());
     }
 }
