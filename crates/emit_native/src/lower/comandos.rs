@@ -75,13 +75,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // R6: o local guarda a representação do tipo declarado
                     // (ou inferido do inicializador), não a do valor.
                     let ty = self.repr_do_local(var.name.span.start);
+                    let late_local = var_list.late
+                        && !self.celulas.contains(&(var.name.span.start as usize));
                     if var_list.const_
                         && let Some(init_id) = var.initializer
                         && let Some(k) = self.chave_constante(ast, init_id, true)
                     {
                         self.chaves_de_const_locais.insert(sym, (k, init_id));
                     }
-                    let init_op = if var_list.late {
+                    let init_op = if late_local {
                         Self::valor_zero(ty)
                     } else if let Some(init_id) = var.initializer {
                         let op = if var_list.const_ {
@@ -103,10 +105,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Self::valor_zero(ty)
                     };
                     self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
-                    if var_list.late
-                        && !self.configurar_local_late(sym, var_list.final_, var.initializer)
-                    {
-                        self.nao_suportado("late local capturado", var.name.span);
+                    if late_local {
+                        self.configurar_local_late(sym, var_list.final_, var.initializer);
                     }
                 }
             }
@@ -245,7 +245,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             for var in &var_list.variables {
                                 let sym = var.name.sym;
                                 let ty = self.repr_do_local(var.name.span.start);
-                                let init_op = if var_list.late {
+                                let late_local = var_list.late
+                                    && !self.celulas.contains(&(var.name.span.start as usize));
+                                let init_op = if late_local {
                                     Self::valor_zero(ty)
                                 } else if let Some(init_id) = var.initializer {
                                     self.lower_expr(ast, init_id)
@@ -253,10 +255,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                     Self::valor_zero(ty)
                                 };
                                 self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
-                                if var_list.late
-                                    && !self.configurar_local_late(sym, var_list.final_, var.initializer)
-                                {
-                                    self.nao_suportado("late local capturado", var.name.span);
+                                if late_local {
+                                    self.configurar_local_late(sym, var_list.final_, var.initializer);
                                 }
                             }
                         }
