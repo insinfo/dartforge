@@ -365,8 +365,38 @@ fn metodo_estatico_em_sobreposicao_de_extensao() {
 
     let estaticos: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
     assert_eq!(estaticos.len(), 1, "{diags:?}");
+    assert_eq!(diags.len(), 1, "{diags:?}");
     assert_eq!(&fonte[estaticos[0].span.start as usize..estaticos[0].span.end as usize], "empty");
     assert!(!diags.iter().any(|d| d.message.contains("instance")), "{diags:?}");
+}
+
+#[test]
+fn call_estatico_em_sobreposicao_de_extensao() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; extension E on int { static void call() {} } void f() { E(0)(); }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let estaticos: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
+    assert_eq!(estaticos.len(), 1, "{diags:?}");
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    assert_eq!(&fonte[estaticos[0].span.start as usize..estaticos[0].span.end as usize], "()");
+
+    let fonte_instancia = "library test; import 'dart:core'; extension F on int { void call() {} } void g() { F(0)(); }";
+    fs::write(&main_dart, fonte_instancia).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    assert!(!diags.iter().any(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template), "{diags:?}");
 }
 
 #[test]
