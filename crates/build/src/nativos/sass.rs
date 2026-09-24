@@ -1,14 +1,15 @@
 //! `sass_builder:sass_builder` pelo Sass do `gerador_ng`
-//! (`sass::compilar_em`, API pública).
+//! (`sass::compilar_com`, API pública).
 //!
-//! **Porta de igualdade**: a regra governante exige byte a byte, e o Sass do
-//! `gerador_ng` só é verificado depois do shim do ngdart (`sass.rs:14-17`),
-//! não contra o CSS do `sass_builder` (estilos `expanded`/`compressed`, e o
-//! `.css.map` de desenvolvimento). Então este gerador é **não verificado**:
-//! o motor publica o apoio e só o executa para medir (`--comparar`), o que
-//! diz quantos `.css` já sairiam iguais. O `.css` de componente nem é pedido
-//! (o ngdart lê o `.scss` direto); o que chega ao navegador é o servido.
+//! **Porta de igualdade**: o estilo `compressed` sem mapas tem medição byte a
+//! byte, mas o estilo `expanded` e o `.css.map` ainda não são suportados.
+//! Portanto este gerador permanece **não verificado**: o motor publica o
+//! apoio e só executa o nativo para medir (`--comparar`). Os módulos lidos
+//! por `@use`/`@import` são registrados como dependências da ação.
+use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
+use crate::valor::Valor;
+use dartforge_gerador_ng::sass::{compilar_com, Estilo};
 
 pub struct SassNativo;
 
@@ -40,26 +41,31 @@ impl GeradorNativo for SassNativo {
                 s.recusas.insert(a.entrada_natural.clone(), "sass: sintaxe indentada (.sass) não suportada".into());
                 continue;
             }
+            if !matches!(a.opcoes.obter("outputStyle"), Some(Valor::Texto(v)) if v == "compressed") {
+                s.recusas.insert(a.entrada_natural.clone(), "sass: outputStyle expanded ainda não verificado".into());
+                continue;
+            }
             let Some(fonte) = ctx.ler(&a.entrada_natural) else {
                 s.recusas.insert(a.entrada_natural.clone(), "sass: entrada ilegível".into());
                 continue;
             };
             let texto = String::from_utf8_lossy(&fonte);
-            let css = match dartforge_gerador_ng::sass::compilar_em(&texto, a.entrada_natural.parent()) {
+            let (mut saida, modulos) = match compilar_com(&texto, a.entrada_natural.parent(), Estilo::Comprimido) {
                 Ok(c) => c,
                 Err(m) => {
                     s.recusas.insert(a.entrada_natural.clone(), format!("sass: recusa {m:?}"));
                     continue;
                 }
             };
-            let mapas = a.opcoes.obter("sourceMaps") == Some(&crate::valor::Valor::Bool(true));
-            let mut saida = css;
+            for modulo in modulos {
+                ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(&modulo)));
+            }
+            let mapas = a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true));
             if mapas {
                 let base = nome.rsplit_once('.').map(|(b, _)| b).unwrap_or(nome);
-                saida.push_str(&format!("\n\n/*# sourceMappingURL={base}.css.map */"));
+                saida.push_str(&format!("\n/*# sourceMappingURL={base}.css.map */\n"));
                 s.recusas.insert(a.entrada_natural.clone(), "sass: .css.map não gerado".into());
             }
-            saida.push('\n');
             if let Some((_, n)) = a.saidas.iter().find(|(id, _)| id.caminho.ends_with(".css")) {
                 s.saidas.insert(n.clone(), saida.into_bytes());
             }

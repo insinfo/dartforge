@@ -885,7 +885,7 @@ impl Motor {
         let res = gerador.gerar(&mut c, &pedido);
         let consultas = std::mem::take(&mut c.consultas);
         match res {
-            Ok(s) if gerador.verificado() && !s.saidas.is_empty() => Registro {
+            Ok(s) if gerador.verificado() && s.recusas.is_empty() && !s.saidas.is_empty() => Registro {
                 impressao: [0; 32],
                 consultas,
                 saidas: acao

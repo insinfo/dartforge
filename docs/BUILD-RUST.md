@@ -25,7 +25,9 @@ Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
 * **B4** — sessão, `serve`, `compile-js` (o `emit_js` não depende mais do
   `gerador_ng`), `dartforge build`, custo zero com os três portões.
 * **B5** — ngdart nativo no estágio A (ação de pacote) e Sass nativo **não
-  verificado** (só medição; a porta de igualdade publica o apoio).
+  verificado** (só medição; a porta de igualdade publica o apoio). O Sass
+  mede apenas `compressed`, registra os módulos importados na ação e recusa
+  `expanded` e mapas de fonte até que sejam reproduzidos byte a byte.
 * **B6** — o estágio B do ngdart depende do que está pedido ao `gerador_ng`
   em `docs/BUILD-PEDIDOS-GERADOR-NG.md`.
 
