@@ -279,6 +279,26 @@ fn atribuir_a_tipos_e_funcao_de_topo() {
 }
 
 #[test]
+fn funcao_local_nao_e_variavel_final_atribuivel() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; void f() { g(int x) {} g = 0; void Function() h = () {}; h = () {}; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    assert!(diags[0].message.starts_with(ASSIGNMENT_TO_FUNCTION.template), "{diags:?}");
+    assert_eq!(diags[0].span.start as usize, fonte.find("g = 0").unwrap(), "{diags:?}");
+    assert_eq!(diags[0].span.end as usize, fonte.find("g = 0").unwrap() + 1, "{diags:?}");
+}
+
+#[test]
 fn getter_lexico_sem_setter_em_atribuicoes_e_incrementos() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
