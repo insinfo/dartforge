@@ -216,7 +216,9 @@ impl<'a> ServicoAcao<'a> {
         let no = self.pacotes.no(&id.pacote)?;
         // Só os nós do grafo entram aqui; caminhos arbitrários do executor
         // não podem escapar da raiz do pacote.
-        if !self.grafo.existe(id) || id.caminho.split('/').any(|p| p == ".." || p == ".") {
+        if !self.grafo.existe(id)
+            || id.caminho.split('/').any(|p| p.is_empty() || p == ".." || p == "." || p.contains('\\') || p.contains(':'))
+        {
             return None;
         }
         Some(dartforge_elements::gerado::chave(&no.raiz.join(id.caminho.as_ref())))
@@ -296,7 +298,7 @@ impl ServicoBuildStep for ServicoAcao<'_> {
     }
 
     fn escrever(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), SaidaNaoPermitida> {
-        if self.grafo.acoes.get(self.acao).is_none_or(|a| !a.saidas.contains(id)) {
+        if self.caminho(id).is_none() || self.grafo.acoes.get(self.acao).is_none_or(|a| !a.saidas.contains(id)) {
             return Err(SaidaNaoPermitida(id.clone()));
         }
         self.escritas.insert(id.clone(), bytes);
@@ -367,18 +369,20 @@ mod testes_servico {
         let primeiro = AssetId::novo("p", "lib/a.g.dart");
         let segundo = AssetId::novo("p", "lib/a.h.dart");
         let futuro = AssetId::novo("p", "lib/a.i.dart");
+        let escape = AssetId::novo("p", "lib/../escape.dart");
         std::fs::create_dir(dir.path().join("lib")).unwrap();
         std::fs::write(dir.path().join("lib/a.dart"), b"source").unwrap();
         let mut grafo = Grafo::default();
         grafo.fontes.entry("p".into()).or_default().insert("lib/a.dart".into());
         grafo.acoes = vec![
             Acao { fase: 0, entrada: fonte.clone(), saidas: vec![primeiro.clone()] },
-            Acao { fase: 1, entrada: primeiro.clone(), saidas: vec![segundo.clone()] },
+            Acao { fase: 1, entrada: primeiro.clone(), saidas: vec![segundo.clone(), escape.clone()] },
             Acao { fase: 2, entrada: segundo.clone(), saidas: vec![futuro.clone()] },
         ];
         for (id, acao, fase) in [(&primeiro, 0, 0), (&segundo, 1, 1), (&futuro, 2, 2)] {
             grafo.gerados.insert(id.clone(), NoGerado { acao, fase, oculto: false });
         }
+        grafo.gerados.insert(escape.clone(), NoGerado { acao: 1, fase: 1, oculto: false });
         let memoria = [(primeiro.clone(), Arc::from(&b"prior"[..])), (futuro.clone(), Arc::from(&b"future"[..]))].into();
         let mut s = ServicoAcao::novo(&grafo, &pacotes, 1, &memoria);
         assert_eq!(s.ler(&fonte).as_deref(), Some(&b"source"[..]));
@@ -386,6 +390,7 @@ mod testes_servico {
         assert!(!s.can_read(&segundo));
         assert!(!s.can_read(&futuro));
         assert!(s.escrever(&futuro, Arc::from(&b"bad"[..])).is_err());
+        assert!(s.escrever(&escape, Arc::from(&b"bad"[..])).is_err());
         s.escrever(&segundo, Arc::from(&b"own"[..])).unwrap();
         assert_eq!(s.ler(&segundo).as_deref(), Some(&b"own"[..]));
         assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);
