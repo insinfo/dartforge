@@ -17,6 +17,22 @@ de desenvolvimento e produção passou o corpus completo, e macros ficaram
 468 posições erradas, com resultado idêntico em 1/4/8 trabalhadores. Esta é a
 última medição combinada concluída, não a do HEAD atual.
 
+No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
+serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente
+para o protocolo `build.*` sobre o canal `dfexec/1`. O processo Dart que
+execute builders ainda não está implementado; o padrão continua indisponível.
+Gates isolados da integração recente: o nativo chegou a **166/223** no SDK da
+fonte após RTI de fábrica redirecionadora e getter de interface implementado
+por campo ([Pesado 36010112751](https://github.com/insinfo/dartforge/actions/runs/36010112751));
+macros passaram **15/15** em JS de desenvolvimento e produção, incluindo
+definição de método da fixture 418, com augmentation idêntica ao CFE
+([Pesado 36010353726](https://github.com/insinfo/dartforge/actions/runs/36010353726));
+o analyzer isolado alcançou **5.868/26.133** diagnósticos na posição exata,
+5.579 mensagens iguais, 4.326 falsos positivos, 19.797 falsos negativos e
+468 posições erradas, com determinismo em 1/4/8 trabalhadores
+([Pesado 36008510883](https://github.com/insinfo/dartforge/actions/runs/36008510883)).
+Esses números vêm de ramos isolados; a medição conjunta do HEAD está pendente.
+
 Depois dela, foram integrados `Function.apply` e `NoSuchMethodError` de
 aridade de closures, chamada de função devolvida por getter estático,
 modelos de macros 413–415, hover/definition de import prefixado no LSP,
