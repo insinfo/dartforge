@@ -66,7 +66,7 @@ pub fn bootstrap(apps: &[Aplicacao]) -> String {
                 // A fábrica é usada apenas como @Macro(): invocar o
                 // construtor diretamente preserva defaults sem depender de
                 // Function.apply, Symbol ou Map.entries no executor nativo.
-                s.push_str(&format!("    '{c}': (_, _) => {tearoff}(),\n"));
+                s.push_str(&format!("    '{c}': (p, n) => {tearoff}(),\n"));
             } else {
                 s.push_str(&format!(
                     "    '{c}': (p, n) => Function.apply({tearoff}, p, {{for (final e in n.entries) Symbol(e.key): e.value}}),\n"
