@@ -149,8 +149,9 @@ Por ação, na ordem, o primeiro que aceita:
    a versão do lock está no `imita` do descritor, e ele não recusou.
 2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): o motor já chama um
    executor injetado e serve `BuildStep` com visibilidade, consultas e saídas
-   permitidas. O padrão ainda é `Indisponivel(motivo)`; o cliente `build.*`
-   virá do executor nativo auto-hospedado, compartilhado com as macros.
+   permitidas. O cliente `build.*` já usa o canal `dfexec/1` compartilhado com
+   as macros. O padrão ainda é `Indisponivel(motivo)` até existir o processo
+   Dart auto-hospedado que implemente esse serviço.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
