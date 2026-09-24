@@ -151,7 +151,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("Double_toStringAsExponential"),
     runtime("Double_toStringAsFixed"),
     runtime("Double_toStringAsPrecision"),
-    pendente("Error_throwWithStackTrace"),
+    runtime("Error_throwWithStackTrace"),
     runtime("Error_trySetStackTrace"),
     pendente("FinalizerEntry_allocate"),
     pendente("Function_apply"),

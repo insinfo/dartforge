@@ -790,6 +790,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i64 @dartforge_nativo_Error_throwWithStackTrace(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare void @dartforge_nativo_Error_trySetStackTrace(i64, i64)",
         efeitos: CONSERVADOR,
     },

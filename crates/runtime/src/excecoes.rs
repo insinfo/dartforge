@@ -104,6 +104,15 @@ pub extern "C" fn dartforge_throw_with_stack_trace(bits: i64, tag: u8, st_handle
     dartforge_exception_throw(bits, tag);
 }
 
+/// Native da VM `Error._throw`: instala o rastro explícito e entrega a
+/// exceção ao protocolo de exceção pendente do código gerado. O retorno é
+/// inalcançável em Dart (`Never`), mas ocupa `Ref` na ABI do SDK da fonte.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Error_throwWithStackTrace(error: i64, trace: i64) -> i64 {
+    dartforge_throw_with_stack_trace(error, 3, trace);
+    0
+}
+
 /// Exceção pendente do esquema portátil de `throw`/`try`/`catch`.
 ///
 /// Em vez de desenrolamento nativo (`landingpad`/personalidade C++), que
@@ -138,12 +147,13 @@ fn allocate_range_error(message: &str) -> i64 {
 pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
     let value = tagged(bits, tag);
     if value.is_ref && value.bits != 0 {
-        // Só os erros que o próprio runtime representa (ids 1000–1012) têm o
-        // campo do rastro; um objeto do usuário que estende `Error` tem o
-        // layout dele (R7) e não pode ganhar campo aqui. O rastro é alocado
-        // SEM empréstimo do heap aberto (G6: a versão anterior chamava
-        // `dartforge_stack_trace_get` com `borrow_mut` ativo — "RefCell
-        // already borrowed").
+        // O SDK da fonte reserva o primeiro campo de `Error` para
+        // `_stackTrace`; subclasses conservam esse prefixo no layout R7.
+        // Os erros internos (ids 1000–1012) mantêm seus índices próprios.
+        // O rastro é alocado SEM empréstimo mutável do heap aberto (G6).
+        let erro_sdk = CLASS_NAMES.with(|map| {
+            map.borrow().iter().find(|(_, nome)| *nome == "Error").map(|(&id, _)| id)
+        });
         let precisa = HEAP.with(|heap| match heap.borrow().try_get(value.bits) {
             Some(Value::Object { class_id, fields }) if (1000..=1012).contains(class_id) && dartforge_is_subclass(*class_id, 1007) != 0 => {
                 let st_idx = match *class_id {
@@ -152,6 +162,9 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
                     _ => 1,
                 };
                 (fields.get(st_idx).map_or(0, |f| f.0) == 0).then_some(st_idx)
+            }
+            Some(Value::Object { class_id, fields }) if erro_sdk.is_some_and(|cid| dartforge_is_subclass(*class_id, cid) != 0) => {
+                fields.first().is_some_and(|(valor, _)| *valor == 0).then_some(0)
             }
             _ => None,
         });

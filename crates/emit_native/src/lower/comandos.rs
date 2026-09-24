@@ -676,6 +676,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
 
                 self.set_block(body_b);
+                // O rastro explícito pertence à exceção pendente. Leia-o
+                // antes de `clear`, que libera o slot e a raiz do runtime.
+                let st_val = clause.stack_trace.as_ref().map(|_| self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_stack_trace_get".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ));
                 self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_exception_clear".to_string(),
@@ -689,15 +699,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(ex_name) = &clause.exception {
                     self.declarar_variavel(ex_name.sym, ex_name.span.start as usize, Type::Ref, ex_bits.clone());
                 }
-                if let Some(st_name) = &clause.stack_trace {
-                    let st_val = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_stack_trace_get".to_string(),
-                            args: Vec::new(),
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
+                if let (Some(st_name), Some(st_val)) = (&clause.stack_trace, st_val) {
                     self.declarar_variavel(st_name.sym, st_name.span.start as usize, Type::Ref, st_val);
                 }
 

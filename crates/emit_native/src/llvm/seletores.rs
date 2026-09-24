@@ -126,11 +126,14 @@ impl LlvmEmitter<'_> {
             writeln!(corpo, "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})").unwrap();
         }
         corpo.push_str(&self.emitir_tabelas_de_metodos());
-        if !modulo.biblioteca_sdk {
-            // As classes do programa (e as formas de record) registram a
-            // tabela já na partida: os valores delas também nascem fora do
-            // `dartforge_object_new_t` (enums, records).
-            for (cid, simbolo, _) in &modulo.tabelas_de_metodos {
+        // As classes do programa (e as formas de record) registram a tabela
+        // na partida. `_StackTrace` do SDK também precisa: o runtime cria o
+        // primeiro trace diretamente, sem passar por `object_new_t`, que é o
+        // ponto de registro preguiçoso das demais classes do SDK.
+        for (cid, simbolo, _) in &modulo.tabelas_de_metodos {
+            let trace_do_runtime = modulo.biblioteca_sdk && modulo.classes.iter()
+                .any(|classe| classe.id == *cid && classe.name == "_StackTrace");
+            if !modulo.biblioteca_sdk || trace_do_runtime {
                 writeln!(corpo, "  call void @dartforge_registrar_tabela(i64 {cid}, ptr @{simbolo})").unwrap();
             }
         }
