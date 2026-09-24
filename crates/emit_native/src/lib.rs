@@ -30,6 +30,8 @@ pub struct CompileOptions<'a> {
     /// Versão de linguagem corrente (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
     /// `None` = a da ferramenta (3.13).
     pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
+    /// Experimentos pedidos explicitamente para bibliotecas na versão corrente.
+    pub experimentos: Vec<dartforge_frontend::Feature>,
 }
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
@@ -132,6 +134,11 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
         .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
     if let Some(v) = options.versao_linguagem {
         sdk.versao_corrente = v;
+    }
+    for experimento in &options.experimentos {
+        if !sdk.experimentos.contains(experimento) {
+            sdk.experimentos.push(*experimento);
+        }
     }
 
     let mut interner = Interner::new();
@@ -287,7 +294,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -334,7 +341,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  var f = #a;\n  var g = #b;\n  print(1);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))

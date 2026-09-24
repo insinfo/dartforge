@@ -26,6 +26,7 @@ fn ir_de(fonte: &str) -> Option<String> {
                 timings: false,
                 optimize: false,
                 versao_linguagem: None,
+                experimentos: Vec::new(),
             };
             emitir_ir(&entrada, &options)
                 .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
