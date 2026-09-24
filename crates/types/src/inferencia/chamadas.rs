@@ -804,11 +804,13 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
     };
     let f = chave.and_then(|k| inf.construtor_ou_primario(c, k));
     // `new E()` / `const E()`: o construtor gerador do enum (ou o sem nome
-    // implícito) não instancia fora da criação de constantes. Factories
-    // seguem o caminho normal (`construir`). O intervalo é o nome do
-    // construtor, ou o da classe quando ele é implícito.
-    if inf.program.class(c).kind == ClassKind::Enum
-        && !f.is_some_and(|f| f.is_some_and(|f| inf.program.function(f).factory))
+    // implícito) não instancia fora da criação de constantes. Nome
+    // explícito sem alvo (`const E.foo()`) é outro diagnóstico
+    // (`const_with_undefined_constructor`, fora do escopo) e segue mudo.
+    // Factories seguem o caminho normal (`construir`). O intervalo é o nome
+    // do construtor, ou o da classe quando ele é implícito.
+    let gerador = f.is_some_and(|f| f.is_some_and(|f| !inf.program.function(f).factory));
+    if inf.program.class(c).kind == ClassKind::Enum && (gerador || (constructor.is_none() && f.is_none()))
     {
         let span = constructor.map(|n| n.span).unwrap_or_else(|| name.last().map(|n| n.span).unwrap_or(a.expr(e).span));
         inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), span);

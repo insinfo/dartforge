@@ -594,11 +594,15 @@ fn invocacao_de_construtor_gerador_de_enum_com_new_const_e_sem_nome() {
         assert_eq!(alvo[0].span.end as usize, offset + comp, "{arquivo}: {diags:?}");
     }
     // Negativos: factory com o mesmo nome e redirecionamentos para o
-    // gerador em inicializador (`: this(...)`) continuam sem acusar.
+    // gerador em inicializador (`: this(...)`) continuam sem acusar; nome
+    // explícito sem alvo (`const E.foo()`) é de outro código.
     for arquivo in [
         "InvalidReferenceToGenerativeEnumConstru_7e4106b1.dart",
         "InvalidReferenceToGenerativeEnumConstru_4fcf1842.dart",
         "InvalidReferenceToGenerativeEnumConstru_bd7327c1.dart",
+        "../../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_not_6ecbcaf1.dart",
+        "../../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_not_a082a644.dart",
+        "../../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_unresolved.dart",
     ] {
         let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
         let fonte = fs::read_to_string(&caminho).unwrap();
