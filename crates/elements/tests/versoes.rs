@@ -148,7 +148,7 @@ fn marcador_fora_do_intervalo_e_erro() {
     let (p, d) = load_lenient(&alto, &sdk, None, &mut Interner::new());
     assert_eq!(d.len(), 1, "{d:?}");
     assert!(
-        d[0].message.contains("acima da suportada"),
+        d[0].message.contains("greater than the latest known language version"),
         "{}",
         d[0].message
     );
@@ -157,7 +157,7 @@ fn marcador_fora_do_intervalo_e_erro() {
     fs::write(&baixo, "// @dart=2.9\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&baixo, &sdk, None, &mut Interner::new());
     assert!(
-        d.len() == 1 && d[0].message.contains("abaixo da mínima"),
+        d.len() == 1 && d[0].message.contains("The language version must be >=2.12.0."),
         "{d:?}"
     );
 }
