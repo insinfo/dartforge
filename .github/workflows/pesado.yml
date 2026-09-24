@@ -309,6 +309,9 @@ jobs:
       - name: Macro aplicada em part (CFE byte a byte)
         shell: pwsh
         run: ./scripts/testar-macros-421.ps1
+      - name: Macro aplicada à biblioteca (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-422.ps1
 
   macros-aot-sonda:
     name: sonda AOT do executor de macros
