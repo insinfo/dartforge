@@ -243,6 +243,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `421_macro_part` — anotação em declaração de uma `part`, com macro
   importada pela biblioteca principal; a augmentation pertence à biblioteca
   e é comparada integralmente ao CFE 3.6.2.
+* `422_macro_biblioteca` — `LibraryDeclarationsMacro` anotada na diretiva
+  `library` declara uma constante de topo usada pela própria biblioteca; a
+  augmentation é comparada integralmente ao CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
