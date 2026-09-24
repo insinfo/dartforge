@@ -906,7 +906,7 @@ fn check_references(
             || defined.contains(&reference.as_str())
             || reloadables
                 .iter()
-                .any(|module| module.entries.contains_key(reference))
+                .any(|module| module.entries.get(reference).is_some_and(|entry| entry.generation > 0))
         {
             continue;
         }
@@ -1068,6 +1068,32 @@ mod tests {
         assert!(erro.contains("df.sdk_ausente"), "{erro}");
         let erro = check_references(&["dartforge_object_new".to_owned()], &[], &[], &externos, false).unwrap_err();
         assert!(erro.contains("dartforge_object_new"), "{erro}");
+    }
+
+    /// Um trampolim criado por uma recarga que falhou tem célula nula. Ele só
+    /// pode satisfazer referências externas depois de uma geração publicá-lo.
+    #[test]
+    fn references_reject_unimplemented_trampoline() {
+        let mut entries = BTreeMap::new();
+        entries.insert("df_fn_1".to_owned(), Entry {
+            signature: signature("df_fn_1", "i64", &[]),
+            slot: Box::new(AtomicUsize::new(0)),
+            generation: 0,
+        });
+        let mut modules = vec![Reloadable {
+            name: "app".to_owned(),
+            generation: 1,
+            entries,
+            layouts: Vec::new(),
+            generations: Vec::new(),
+            stubs: Vec::new(),
+        }];
+        let reference = ["df_fn_1".to_owned()];
+        let erro = check_references(&reference, &[], &modules, &HashSet::new(), true).unwrap_err();
+        assert!(erro.contains("df_fn_1"), "{erro}");
+
+        modules[0].entries.get_mut("df_fn_1").unwrap().generation = 2;
+        assert!(check_references(&reference, &[], &modules, &HashSet::new(), true).is_ok());
     }
 
     /// Ciclo completo sobre IR direto, sem passar pelo front-end Dart.
