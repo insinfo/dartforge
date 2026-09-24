@@ -53,7 +53,7 @@ fn ir_de_fonte(fonte: &str) -> Option<String> {
     let entrada = dir.path().join("main.dart");
     std::fs::write(&entrada, fonte).unwrap();
     Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
-        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None };
+        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
         emitir_ir_com(&entrada, &options, true).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
     }).unwrap().join().unwrap())
 }
