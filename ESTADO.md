@@ -244,7 +244,9 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
   são `experiment_not_enabled`.
 * **Verificadores sem tipo** (`crates/analise`): o
   `DuplicateDefinitionVerifier` e o `MemberDuplicateDefinitionVerifier`
-  inteiros, e a parte local do `UnusedLocalElementsVerifier`.
+  inteiros, a parte local do `UnusedLocalElementsVerifier` e o
+  `ImportsVerifier` (`unused_import` e `unused_shown_name`, pelo lado seguro:
+  112/153 no corpus, 0 FP nos projetos).
 * **Regra de publicação** (`crates/analise/verificados.txt`, a mesma no CLI
   e no LSP): sintaxe sempre; semântica só com 100% no corpus e 0 FP nos
   três projetos reais. Publicados hoje: `enum_constant_same_name_as_enclosing`,
@@ -266,8 +268,8 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
 * **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
   9.441 arquivos e 26.133 diagnósticos do oráculo, 376 s com 2
   trabalhadores.
-  * **5.523 na posição exata (21,1%), 5.243 com mensagem igual.** No começo
-    da rodada eram 1.935 (7,4%). Posição errada 538; FP 3.912; FN 20.072.
+  * **5.647 na posição exata (21,6%), 5.358 com mensagem igual.** No começo
+    da rodada eram 1.935 (7,4%). Posição errada 538; FP 3.923; FN 19.948.
   * `unused_local_variable` 2.231/2.315 (FP 9);
     `duplicate_definition` 723/1.317 (FP 69; quase todo o resto é sintaxe de
     augmentation e construtor primário, que o 3.6.2 analisa de outro jeito);
@@ -772,8 +774,8 @@ verificados. O caminho até os demais:
    (`expected_executable`) e nos membros (`expected_class_member`), e a
    do comando (`missing_const_final_var_or_type`). Recurso de linguagem que
    o SDK 3.6.2 não conhece: pede um parser que o rejeite na versão 3.6.
-3. **A3 restante**: `unused_import` (o `ImportsTracking`, pela resolução de
-   nomes do `elements`), `unused_element` dos privados de topo e membros,
+3. **A3 restante**: `unused_import` exato (o `ImportsTracking` pede a
+   resolução completa), `unused_element` dos privados de topo e membros,
    `unused_field`, `dead_code`.
 4. **Publicar**: `unused_local_variable` e `duplicate_definition` entram na
    lista quando fecharem 100% no corpus (hoje 96% e 55%).
