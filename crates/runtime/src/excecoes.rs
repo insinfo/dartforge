@@ -67,6 +67,12 @@ pub extern "C" fn dartforge_stack_trace_get() -> i64 {
     alocar_stack_trace("#0      main (dart:native)\n")
 }
 
+/// Native do getter estático `StackTrace.current` da VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_StackTrace_current() -> i64 {
+    dartforge_stack_trace_get()
+}
+
 /// Retorna um objeto StackTrace vazio gerenciado no heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_trace_empty() -> i64 {

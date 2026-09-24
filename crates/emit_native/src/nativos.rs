@@ -228,7 +228,7 @@ pub const NATIVOS: &[Nativo] = &[
     pendente("SecureRandom_getBytes"),
     runtime("Smi_bitLength"),
     runtime("Smi_bitNegate"),
-    pendente("StackTrace_current"),
+    runtime("StackTrace_current"),
     pendente("Stopwatch_frequency"),
     pendente("Stopwatch_now"),
     runtime("StringBase_createFromCodePoints"),
