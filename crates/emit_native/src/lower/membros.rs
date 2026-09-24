@@ -943,7 +943,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cdecl) = decl.class else {
             return Vec::new();
         };
-        let nome = decl.name;
+        // Getters e setters compartilham `FunctionElement.name`, mas o
+        // outline guarda o setter na chave distinta `x_=`. Despachar por
+        // `x` chamaria o getter e descartaria o valor atribuído.
+        let nome = if decl.kind == FunctionKind::Setter {
+            let chave = format!("{}_=", ctx.symbol_name(decl.name));
+            let Some(sym) = ctx.interner.lookup(&chave) else { return Vec::new() };
+            sym
+        } else {
+            decl.name
+        };
         let mut saida = Vec::new();
         for (k, classe) in ctx.program.classes.iter().enumerate() {
             let kid = ClassId(k as u32);
