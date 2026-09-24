@@ -67,6 +67,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::ASSIGNMENT_TO_FINAL,
         c::ASSIGNMENT_TO_FINAL_NO_SETTER,
         c::ASSIGNMENT_TO_METHOD,
+        c::UNDEFINED_EXTENSION_SETTER,
         c::ASSIGNMENT_TO_CONST,
         c::ASSIGNMENT_TO_TYPE,
         c::ASSIGNMENT_TO_FUNCTION,
@@ -246,6 +247,17 @@ mod testes {
         let c = codificar_tipos(&d, "foo");
         assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_METHOD));
         assert_eq!(c.message, "Methods can't be assigned a value.");
+    }
+
+    #[test]
+    fn setter_ausente_em_sobreposicao_de_extensao() {
+        let d = Diagnostic::new(
+            format!("{}: 'foo' em 'E'", dartforge_types::codes::UNDEFINED_EXTENSION_SETTER.template),
+            Span { start: 7, end: 10 },
+        );
+        let c = codificar_tipos(&d, "foo");
+        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_SETTER));
+        assert_eq!(c.message, "The setter 'foo' isn't defined for the extension 'E'.");
     }
 
     #[test]

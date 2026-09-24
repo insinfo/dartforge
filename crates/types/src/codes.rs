@@ -52,6 +52,11 @@ pub const ASSIGNMENT_TO_METHOD: DiagnosticCode = DiagnosticCode::new(
     "Não é possível atribuir um valor a um método.",
 );
 
+pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode = DiagnosticCode::new(
+    "undefined_extension_setter",
+    "Setter de extensão não encontrado",
+);
+
 pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_const",
     "Variáveis constantes não podem receber nova atribuição.",
