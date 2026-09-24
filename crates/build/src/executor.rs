@@ -221,12 +221,15 @@ impl<'a> ServicoAcao<'a> {
     }
 
     fn caminho(&self, id: &AssetId) -> Option<PathBuf> {
+        if !self.grafo.existe(id) { return None; }
+        self.caminho_de_consulta(id)
+    }
+
+    fn caminho_de_consulta(&self, id: &AssetId) -> Option<PathBuf> {
         let no = self.pacotes.no(&id.pacote)?;
-        // Só os nós do grafo entram aqui; caminhos arbitrários do executor
-        // não podem escapar da raiz do pacote.
-        if !self.grafo.existe(id)
-            || id.caminho.split('/').any(|p| p.is_empty() || p == ".." || p == "." || p.contains('\\') || p.contains(':'))
-        {
+        // Consultas negativas precisam observar arquivos que ainda não
+        // entraram no grafo; mesmo assim não podem escapar do pacote.
+        if id.caminho.split('/').any(|p| p.is_empty() || p == ".." || p == "." || p.contains('\\') || p.contains(':')) {
             return None;
         }
         Some(dartforge_elements::gerado::chave(&no.raiz.join(id.caminho.as_ref())))
@@ -261,7 +264,7 @@ impl<'a> ServicoAcao<'a> {
     }
 
     fn registrar(&mut self, id: &AssetId, existe: bool, bytes: Option<&[u8]>) {
-        if let Some(p) = self.caminho(id) {
+        if let Some(p) = self.caminho_de_consulta(id) {
             let c = if existe { Consulta::Existe(p) } else { Consulta::Arquivo(p) };
             let d = if existe { bytes.map(|_| digest_bytes(b"1")) } else { bytes.map(digest_bytes) };
             self.consultas.push((c, d));
@@ -411,6 +414,10 @@ mod testes_servico {
         assert!(!s.can_read(&futuro));
         assert!(s.escrever(&futuro, Arc::from(&b"bad"[..])).is_err());
         assert!(s.escrever(&escape, Arc::from(&b"bad"[..])).is_err());
+        let novo = AssetId::novo("p", "lib/novo.dart");
+        assert!(!s.can_read(&novo));
+        assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Existe(p) if p.ends_with("novo.dart")) && d.is_none()),
+            "canRead negativo precisa invalidar quando a fonte aparecer");
         s.escrever(&segundo, Arc::from(&b"own"[..])).unwrap();
         assert_eq!(s.ler(&segundo).as_deref(), Some(&b"own"[..]));
         assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);

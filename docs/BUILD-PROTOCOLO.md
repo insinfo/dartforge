@@ -65,6 +65,8 @@ Cada método do `BuildStep` vira um pedido; o hospedeiro registra **cada
 um** como `Consulta` da ação (é assim que o motor sabe o que a ação leu):
 `findAssets` limita o glob ao pacote da entrada e registra também os
 candidatos gerados ainda ausentes; uma nova saída em memória invalida a ação.
+`canRead` negativo registra o caminho válido mesmo antes de ele entrar no
+grafo, para que a criação posterior do arquivo invalide a ação.
 
 | pedido | `BuildStep` | resposta |
 |---|---|---|
