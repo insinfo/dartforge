@@ -4,7 +4,7 @@
 use crate::{Analisador, AnalisadorSintatico, DocumentStore, navegacao};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Element, FunctionKind, FunctionRef, Program, UnitId, VariableRef}, sdk::SdkLayout};
-use dartforge_frontend::ast::{ParameterKind, TypeKind};
+use dartforge_frontend::ast::{ExprKind, ParameterKind, TypeKind};
 use dartforge_intern::Interner;
 use dartforge_types::{CoreTypes, TypeTable, resolve_outline};
 use url::Url;
@@ -56,9 +56,22 @@ impl AnalisadorSemantico {
     fn elemento_importado(programa: &Program, unidade: UnitId, offset: usize) -> Option<(Span, Element)> {
         let u = programa.unit(unidade);
         if !u.ast.patterns.is_empty() { return None; }
-        let referencia = navegacao::referencia_expr(&u.ast, offset)?;
-        if navegacao::sombreado(&u.ast, referencia.sym) { return None; }
-        let binding = programa.lookup(u.library, referencia.sym)?;
+        let qualificada = u.ast.exprs.iter().find_map(|e| {
+            let ExprKind::Property { target, name, null_aware: false } = &e.kind else { return None };
+            if !(name.span.start <= offset && offset < name.span.end) { return None; }
+            let ExprKind::Identifier(prefixo) = &u.ast.expr(*target).kind else { return None };
+            Some((*prefixo, *name))
+        });
+        let (referencia, binding) = if let Some((prefixo, nome)) = qualificada {
+            if navegacao::sombreado(&u.ast, prefixo.sym)
+                || programa.library(u.library).declared.contains_key(&prefixo.sym)
+            { return None; }
+            (nome.span, programa.lookup_prefixed(u.library, prefixo.sym, nome.sym)?)
+        } else {
+            let nome = navegacao::referencia_expr(&u.ast, offset)?;
+            if navegacao::sombreado(&u.ast, nome.sym) { return None; }
+            (nome.span, programa.lookup(u.library, nome.sym)?)
+        };
         if binding.ambiguous { return None; }
         let elemento = binding.getter?;
         let biblioteca = match elemento {
@@ -67,7 +80,7 @@ impl AnalisadorSemantico {
             _ => return None,
         };
         if biblioteca == u.library { return None; }
-        Some((referencia.span, elemento))
+        Some((referencia, elemento))
     }
 
     fn destino_variavel(programa: &Program, variavel: &dartforge_elements::model::VariableElement) -> Option<(String, Span)> {
