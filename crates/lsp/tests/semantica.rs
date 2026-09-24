@@ -1,5 +1,5 @@
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_lsp::{AnalisadorSemantico, Servidor};
+use dartforge_lsp::{Analisador, AnalisadorSemantico, Servidor};
 use serde_json::{Value, json};
 use std::{fs, path::Path};
 
@@ -59,6 +59,19 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     }
     let crescimento = dartforge_instrument::live_bytes().saturating_sub(vivos_antes);
     assert!(crescimento < 256 * 1024, "consultas retiveram {crescimento} bytes");
+    // O importado também está aberto e ainda não foi salvo. A posição e o
+    // tipo vêm da versão em memória, não da versão antiga no disco.
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":destino,"languageId":"dart","version":1,
+            "text":"// 👭\n// nova linha\nString answer = 'x';\n"}
+    }}));
+    servidor.bombear();
+    let definicao_aberta = requisitar(&mut servidor, 60, "textDocument/definition", &uri, 10);
+    assert_eq!(definicao_aberta["range"]["start"], json!({"line":2,"character":7}));
+    assert_eq!(requisitar(&mut servidor, 61, "textDocument/hover", &uri, 10)["contents"], "String answer\nType: String");
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":destino}}}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 62, "textDocument/definition", &uri, 10)["range"]["start"], json!({"line":1,"character":4}));
 
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
         "textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"import 'lib.dart';\nvar x = missing;\n"}]
@@ -84,5 +97,23 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     }}));
     servidor.bombear();
     assert_ne!(requisitar(&mut servidor, 6, "textDocument/hover", &uri, 10), Value::Null);
+
+    struct DestinoAusente(String);
+    impl Analisador for DestinoAusente {
+        fn diagnosticar(&mut self, _: &str, _: &str) -> Vec<dartforge_diagnostics::Diagnostic> { Vec::new() }
+        fn definicao(&mut self, _: &str, _: &str, _: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+            Some((self.0.clone(), Some(dartforge_diagnostics::Span { start: 10, end: 16 })))
+        }
+    }
+    let ausente = url::Url::from_file_path(raiz.join("fantasma.dart")).unwrap().to_string();
+    let mut sem_arquivo = Servidor::com_analisador(DestinoAusente(ausente));
+    sem_arquivo.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":texto}
+    }}));
+    sem_arquivo.bombear();
+    sem_arquivo.receber(json!({"jsonrpc":"2.0","id":80,"method":"textDocument/definition","params":{
+        "textDocument":{"uri":uri},"position":{"line":1,"character":10}
+    }}));
+    assert_eq!(sem_arquivo.bombear()[0]["result"], Value::Null);
     fs::remove_dir_all(&raiz).unwrap();
 }

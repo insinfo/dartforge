@@ -240,9 +240,19 @@ pub trait Analisador {
         None
     }
 
+    /// Variante com os buffers abertos, para resolver imports ainda não
+    /// salvos sem duplicar documentos no analisador residente.
+    fn definicao_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+        self.definicao(uri, texto, offset)
+    }
+
     /// Descrição sintática segura e intervalo da referência sob o cursor.
     fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         None
+    }
+
+    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+        self.hover(uri, texto, offset)
     }
 
     /// Descarta estado associado ao documento quando ele sai do editor.
