@@ -144,6 +144,24 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
             _ => nsm_operador(op),
         };
     }
+    if op == OP_ADD {
+        // `List.+` devolve uma lista nova e expansível. Algumas listas do SDK
+        // reservam capacidade antes de publicar o comprimento em `pendentes`.
+        let itens = HEAP.with(|heap| {
+            let heap = heap.borrow();
+            let (Some(Value::List(esquerda)), Some(Value::List(direita))) =
+                (heap.try_get(a), heap.try_get(b)) else { return None };
+            let len_a = heap.pendentes.get(&a).copied().unwrap_or(esquerda.len());
+            let len_b = heap.pendentes.get(&b).copied().unwrap_or(direita.len());
+            let mut itens = Vec::with_capacity(len_a + len_b);
+            itens.extend_from_slice(&esquerda[..len_a]);
+            itens.extend_from_slice(&direita[..len_b]);
+            Some(itens)
+        });
+        if let Some(itens) = itens {
+            return HEAP.with(|heap| heap.borrow_mut().create_list(itens));
+        }
+    }
     let (Some(x), Some(y)) = (ler_num(a), ler_num(b)) else {
         return nsm_operador(op);
     };
