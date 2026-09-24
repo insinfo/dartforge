@@ -102,25 +102,19 @@ fn cinco_recargas_preservam_entrada_estavel() {
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
 fn colisao_com_outro_modulo_nao_destroi_promocao() {
-    let antigo = "declare void @dartforge_print_i64(i64)\n\
-define void @dartforge_entry() {\n\
-  call void @dartforge_print_i64(i64 7)\n\
-  ret void\n}\n";
-    let novo = "declare void @dartforge_print_i64(i64)\n\
-define void @dartforge_entry() {\n\
-  call void @dartforge_print_i64(i64 8)\n\
-  ret void\n}\n\
+    let antigo = "define i32 @main() { ret i32 7 }\n";
+    let novo = "define i32 @main() { ret i32 8 }\n\
 define i64 @df_fn_1() { ret i64 1 }\n";
     let mut sessao = JitSession::new().expect("sessão");
     sessao.add_ir_module("app", antigo).expect("programa antigo");
     sessao.add_ir_module("biblioteca", "define i64 @df_fn_1() { ret i64 2 }\n")
         .expect("outra definição residente");
-    assert_eq!(sessao.run_entry_capturing().unwrap().0, "7\n");
+    assert_eq!(sessao.run_main().unwrap().exit_code, 7);
 
     let erro = sessao.hot_reload("app", novo).unwrap_err();
     assert_eq!(erro.stage, "contract");
     assert!(erro.message.contains("df_fn_1"), "{erro}");
-    assert_eq!(sessao.run_entry_capturing().unwrap().0, "7\n");
+    assert_eq!(sessao.run_main().unwrap().exit_code, 7);
     assert_eq!(sessao.generation("app"), None);
 }
 
