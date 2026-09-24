@@ -57,7 +57,7 @@ try {
         'package:caso_json/modelos.dart',
         'package:corpus_macros_discovery/modelos.dart')
     [IO.File]::WriteAllText($entrada, $mainBuilder, $utf8)
-    & $binario compile-js $entrada -o $saida --enable-experiment=macros
+    & $binario compile-js $entrada -o $saida --versao-linguagem 3.6 --enable-experiment=macros
     if ($LASTEXITCODE -ne 0) { throw 'compile-js não consumiu .macro.dart do builder' }
     $observado = @(& node (Join-Path $saida 'main.mjs'))
     if ($LASTEXITCODE -ne 0) { throw 'Node não executou 410 materializado' }
@@ -65,7 +65,7 @@ try {
         throw "410 divergiu da VM: esperado $($esperado -join ' | '); observado $($observado -join ' | ')"
     }
     $arquivoProducao = Join-Path $trabalho 'producao.js'
-    & $binarioProducao $entrada -o $arquivoProducao --enable-experiment=macros
+    & $binarioProducao $entrada -o $arquivoProducao --versao-linguagem 3.6 --enable-experiment=macros
     if ($LASTEXITCODE -ne 0) { throw 'jsprod não consumiu .macro.dart do builder' }
     & node --check $arquivoProducao
     if ($LASTEXITCODE -ne 0) { throw 'bundle de produção 410 inválido' }
