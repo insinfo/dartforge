@@ -23,9 +23,10 @@ A saída de uma macro é uma **augmentation em Dart comum**, gravável em
 arquivo — o `.g.dart` das macros —, na forma que cada versão do SDK aceita.
 Dois caminhos produzem **o mesmo texto, byte a byte**:
 
-* **no DartForge**, o executor nativo (D4) roda a macro em memória, no
-  hospedeiro (`crates/macros_host`), e o texto vive em
-  `elements/src/gerado.rs` como `<biblioteca>.macro.dart`;
+* **no DartForge JS**, o hospedeiro (`crates/macros_host`) executa a macro na
+  VM Dart provisoriamente e recarrega o texto em memória como
+  `<biblioteca>.macro.dart` (`elements/src/gerado.rs`). O executor nativo D4
+  continua pendente;
 * **na toolchain oficial**, um *builder* do `build_runner` roda **a mesma
   macro** na VM oficial, com a **nossa** API de macros (`pacotes/macros`, Dart
   puro, sem nada que só o nosso compilador tenha), e grava o arquivo.
@@ -168,6 +169,13 @@ do fonte no fixture com `import augment`, e registra sua entrada em
 `lib/modelos.dart` originais; só DartForge usa a cópia. Antes da comparação, o
 arquivo materializado da cópia é conferido integralmente contra a augmentation
 do CFE, ajustando apenas as URIs da cópia.
+Esse 7/7 mede consumo do arquivo preparado, não execução automática da
+anotação original no compilador. O caso independente `411_pedido_independente`
+exercita essa execução no `compile-js` e no `dartforge-jsprod`; sua fonte
+original é usada pelos quatro executores do harness, enquanto o builder do
+fixture é comparado separadamente ao CFE byte a byte. O JS usa uma VM Dart
+como executor provisório; o executor nativo D4 e a integração no `dev` seguem
+pendentes.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
