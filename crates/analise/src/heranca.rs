@@ -1,6 +1,6 @@
 //! Conflito entre membro estático declarado e membro de instância herdado.
 //! Parte delimitada de `ErrorVerifier._checkForConflictingClassMembers`:
-//! cadeia linear de superclasses, sem composição de interfaces ou mixins.
+//! cadeia linear de superclasses e uma interface direta, sem mixins.
 
 use dartforge_diagnostics::{Diagnostic, codigos::compile_time_error as c};
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
@@ -13,8 +13,9 @@ use std::collections::HashSet;
 pub fn estatico_contra_super(programa: &Program, lib: LibraryId, nomes: &Interner) -> Vec<(UnitId, Diagnostic)> {
     let mut saida = Vec::new();
     for (i, classe) in programa.classes.iter().enumerate() {
-        if classe.library != lib || classe.decl.is_none() || classe.kind != ClassKind::Class
-            || !classe.mixins.is_empty() || !classe.interfaces.is_empty()
+        if classe.library != lib || classe.decl.is_none()
+            || !matches!(classe.kind, ClassKind::Class | ClassKind::Mixin)
+            || !classe.mixins.is_empty() || classe.interface_classes.len() > 1
         { continue; }
         let id = ClassId(i as u32);
         let nome_classe = nomes.resolve(classe.name);
@@ -34,6 +35,7 @@ pub fn estatico_contra_super(programa: &Program, lib: LibraryId, nomes: &Interne
                 { continue; }
                 let mut ancestral = classe.supertype_class;
                 let mut vistos = HashSet::new();
+                let mut dono = None;
                 while let Some(base) = ancestral {
                     if !vistos.insert(base) { break; }
                     let herdada = programa.class(base);
@@ -42,15 +44,28 @@ pub fn estatico_contra_super(programa: &Program, lib: LibraryId, nomes: &Interne
                     if visivel && (herdada.instance_members.contains_key(&declarado.sym)
                         || setter.is_some_and(|s| herdada.instance_members.contains_key(&s)))
                     {
-                        let dono = nomes.resolve(herdada.name);
-                        saida.push((unidade, Diagnostic::com_codigo(
-                            c::CONFLICTING_STATIC_AND_INSTANCE,
-                            declarado.span,
-                            [nome_classe, nome, dono],
-                        )));
+                        dono = Some(nomes.resolve(herdada.name));
                         break;
                     }
                     ancestral = herdada.supertype_class;
+                }
+                // `implements` também compõe a interface herdada. Começamos
+                // pelo caso de uma interface direta, sem ambiguidade de dono.
+                if dono.is_none() {
+                    if let Some(&interface) = classe.interface_classes.first() {
+                        let herdada = programa.class(interface);
+                        let visivel = !nome.starts_with('_') || herdada.library == lib;
+                        if visivel && (herdada.instance_members.contains_key(&declarado.sym)
+                            || setter.is_some_and(|s| herdada.instance_members.contains_key(&s)))
+                        { dono = Some(nomes.resolve(herdada.name)); }
+                    }
+                }
+                if let Some(dono) = dono {
+                    saida.push((unidade, Diagnostic::com_codigo(
+                        c::CONFLICTING_STATIC_AND_INSTANCE,
+                        declarado.span,
+                        [nome_classe, nome, dono],
+                    )));
                 }
             }
         }
@@ -141,6 +156,40 @@ mod testes {
             assert_eq!(d.code, Some(c::CONFLICTING_STATIC_AND_INSTANCE));
             assert_eq!(d.message, esperado, "{}", arquivo.display());
             assert!(matches!(&fonte[d.span.start as usize..d.span.end as usize], "foo" | "toString" | "runtimeType"));
+        }
+        fs::remove_dir_all(&raiz).unwrap();
+    }
+
+    #[test]
+    fn quinze_casos_de_interface_direta_do_corpus_oficial() {
+        // analyzer/test/src/diagnostics/conflicting_static_and_instance_test.dart:
+        // `test_inInterface_*`, extraídos em corpus/diagnosticos/analyzer.
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/heranca-interface-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&raiz);
+        fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
+        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let corpus = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../corpus/diagnosticos/analyzer/conflicting_static_and_instance");
+        let mut fontes: Vec<_> = fs::read_dir(corpus).unwrap().flatten()
+            .map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().contains("__inIn_"))).collect();
+        fontes.sort();
+        assert_eq!(fontes.len(), 15);
+        let entrada = raiz.join("main.dart");
+        for arquivo in fontes {
+            let fonte = fs::read_to_string(&arquivo).unwrap();
+            fs::write(&entrada, &fonte).unwrap();
+            let mut nomes = Interner::new();
+            let (programa, _) = load_lenient(&entrada, &sdk, None, &mut nomes);
+            let diags = estatico_contra_super(&programa, programa.entry.unwrap(), &nomes);
+            assert_eq!(diags.len(), 1, "{}: {diags:?}", arquivo.display());
+            let d = &diags[0].1;
+            let esperado = fonte.lines().find_map(|l| l.split_once("[diag.conflictingStaticAndInstance] ").map(|(_, m)| m)).unwrap();
+            assert_eq!(d.code, Some(c::CONFLICTING_STATIC_AND_INSTANCE));
+            assert_eq!(d.message, esperado, "{}", arquivo.display());
+            assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo");
         }
         fs::remove_dir_all(&raiz).unwrap();
     }
