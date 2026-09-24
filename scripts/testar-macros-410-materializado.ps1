@@ -4,6 +4,7 @@ $caso = Join-Path $raiz 'corpus/builders/macros_discovery'
 $original = Join-Path $raiz 'corpus/macros/410_json_codable'
 $fonte = Join-Path $caso 'lib/modelos.dart'
 $binario = Join-Path $raiz 'target/release/dartforge.exe'
+$binarioProducao = Join-Path $raiz 'target/release/dartforge-jsprod.exe'
 $trabalho = Join-Path $caso 'target/410-materializado'
 $saida = Join-Path $trabalho 'js'
 $entrada = Join-Path $trabalho 'main.dart'
@@ -11,6 +12,9 @@ $utf8 = [Text.UTF8Encoding]::new($false)
 
 if (-not (Test-Path -LiteralPath $binario)) {
     throw "binário DartForge ausente: $binario"
+}
+if (-not (Test-Path -LiteralPath $binarioProducao)) {
+    throw "binário de produção ausente: $binarioProducao"
 }
 New-Item -ItemType Directory -Force -Path $trabalho | Out-Null
 $env:TEMP = $trabalho
@@ -60,7 +64,17 @@ try {
     if (($observado -join [char]10) -cne ($esperado -join [char]10)) {
         throw "410 divergiu da VM: esperado $($esperado -join ' | '); observado $($observado -join ' | ')"
     }
-    Write-Host "410 materializado: $($observado.Count) linhas iguais à VM oficial"
+    $arquivoProducao = Join-Path $trabalho 'producao.js'
+    & $binarioProducao $entrada -o $arquivoProducao --enable-experiment=macros
+    if ($LASTEXITCODE -ne 0) { throw 'jsprod não consumiu .macro.dart do builder' }
+    & node --check $arquivoProducao
+    if ($LASTEXITCODE -ne 0) { throw 'bundle de produção 410 inválido' }
+    $observadoProducao = @(& node $arquivoProducao)
+    if ($LASTEXITCODE -ne 0) { throw 'Node não executou 410 em produção' }
+    if (($observadoProducao -join [char]10) -cne ($esperado -join [char]10)) {
+        throw "410 em produção divergiu da VM: esperado $($esperado -join ' | '); observado $($observadoProducao -join ' | ')"
+    }
+    Write-Host "410 materializado: $($observado.Count) linhas iguais à VM oficial em desenvolvimento e produção"
 }
 finally {
     [IO.File]::WriteAllBytes($fonte, $bytes)
