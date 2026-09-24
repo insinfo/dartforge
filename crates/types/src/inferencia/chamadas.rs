@@ -425,6 +425,17 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     (inf.core.never, curto)
                 }
                 Busca::Ausente => {
+                    if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {
+                        let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extensao);
+                        inf.aviso(msg, name.span);
+                        let d = inf.core.dynamic_;
+                        registrar(inf, cx, target, d);
+                        for x in args.args.iter() {
+                            inferir_livre(inf, cx, x.value);
+                        }
+                        return (d, curto);
+                    }
                     let msg = format!(
                         "{}: '{}' para o tipo '{}'",
                         UNDEFINED_METHOD.template,
