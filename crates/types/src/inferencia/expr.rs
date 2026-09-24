@@ -584,10 +584,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             instanciar_em_contexto(inf, t, ctx)
         }
         ExprKind::Index { target, index, null_aware } => {
-            let (recv, c) = receptor(inf, cx, *target, *null_aware);
+            let (t, c) = ler_indice(inf, cx, e, *target, *index, *null_aware, ctx);
             curto = c;
-            let op = inf.sym.indice;
-            let (t, _) = operador_binario(inf, cx, recv, op, *index, ctx, span, Some(e));
             t
         }
         ExprKind::Call { .. } => {
@@ -990,6 +988,39 @@ fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
     inf.interner.lookup(texto_operador(op)?)
 }
 
+fn span_indice(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId, target: ExprId) -> dartforge_diagnostics::Span {
+    let todo = inf.span_expr(cx.unit, alvo);
+    let inicio = inf.span_expr(cx.unit, target).end;
+    let entre = inf.program.unit(cx.unit).source.get(inicio..todo.end).unwrap_or("");
+    let colchete = inicio + entre.find('[').unwrap_or(0);
+    dartforge_diagnostics::Span { start: colchete, end: todo.end }
+}
+
+fn avisar_operador_de_extensao(inf: &mut BodyInferrer<'_>, x: ExtensionId, nome: &str, span: dartforge_diagnostics::Span) {
+    let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+    let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, nome, extensao);
+    inf.aviso(msg, span);
+}
+
+fn ler_indice(
+    inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId,
+    index: ExprId, null_aware: bool, ctx: TypeId,
+) -> (TypeId, bool) {
+    let (recv, curto) = receptor(inf, cx, target, null_aware);
+    let op = inf.sym.indice;
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if let Some((s, m)) = op.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false).map(|m| (s, m))) {
+            return (operador_binario_com_membro(inf, cx, recv, s, index, ctx, Some(alvo), m).0, curto);
+        }
+        inferir_livre(inf, cx, index);
+        let span = span_indice(inf, cx, alvo, target);
+        avisar_operador_de_extensao(inf, x, "[]", span);
+        return (inf.core.dynamic_, curto);
+    }
+    let span = inf.span_expr(cx.unit, alvo);
+    (operador_binario(inf, cx, recv, op, index, ctx, span, Some(alvo)).0, curto)
+}
+
 /// Invocação de um operador de um argumento (`a + b`, `a[i]`): busca o
 /// membro no receptor, infere o argumento com o contexto do parâmetro
 /// (com o refinamento numérico) e devolve `(tipo, membro)`.
@@ -1365,11 +1396,14 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) ->
         }
         ExprKind::Index { target, index, null_aware } => {
             let (target, index, null_aware) = (*target, *index, *null_aware);
-            let (recv, _) = receptor(inf, cx, target, null_aware);
-            let op = inf.sym.indice;
-            let sp = inf.span_expr(cx.unit, alvo);
             let u = inf.core.unknown;
-            let (t, _) = operador_binario(inf, cx, recv, op, index, u, sp, Some(alvo));
+            let (t, _) = ler_indice(inf, cx, alvo, target, index, null_aware, u);
+            if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned()
+                && inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)).is_none()
+            {
+                let span = span_indice(inf, cx, alvo, target);
+                avisar_operador_de_extensao(inf, x, "[]=", span);
+            }
             registrar(inf, cx, alvo, t);
             (t, t, None)
         }
@@ -1688,11 +1722,30 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
 
 /// `r[i] = …`: tipo do valor em `[]=`.
 fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv: TypeId, index: ExprId, span: dartforge_diagnostics::Span) -> TypeId {
-    let Some(op) = inf.sym.indice_set else {
-        inferir_livre(inf, cx, index);
-        return inf.core.dynamic_;
+    let target = match &ast(inf, cx).expr(alvo).kind {
+        ExprKind::Index { target, .. } => Some(*target),
+        _ => None,
     };
-    match inf.buscar_membro(cx.lib, recv, op, false) {
+    let busca = if let Some(target) = target
+        && let Some((x, args)) = cx.sobreposicoes.get(&target).cloned()
+    {
+        match inf.sym.indice_set.and_then(|op| inf.membro_de_extensao_explicita(x, &args, op, false)) {
+            Some(m) => Busca::Achado(m),
+            None => {
+                inferir_livre(inf, cx, index);
+                let sp = span_indice(inf, cx, alvo, target);
+                avisar_operador_de_extensao(inf, x, "[]=", sp);
+                return inf.core.dynamic_;
+            }
+        }
+    } else {
+        let Some(op) = inf.sym.indice_set else {
+            inferir_livre(inf, cx, index);
+            return inf.core.dynamic_;
+        };
+        inf.buscar_membro(cx.lib, recv, op, false)
+    };
+    match busca {
         Busca::Achado(m) => {
             resolver(inf, cx, alvo, m.resolved.clone());
             let (pi, pv) = match inf.table.get(m.tipo).clone() {
