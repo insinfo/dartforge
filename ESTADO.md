@@ -110,6 +110,16 @@ e na [suíte nativa 35986493960](https://github.com/insinfo/dartforge/actions/ru
 voltou a passar, junto com `138_collection_hashmap_ordenado` e
 `199_antigo_reified18`; `41_classes_ctor_nomeado` e `64_map_ordem_insercao`
 permaneceram verdes após reificar tear-offs de construtor e `MapEntry<K,V>`.
+Na integração `06a7516`, a [CI 35987446180](https://github.com/insinfo/dartforge/actions/runs/35987446180)
+e o [Pesado 35987446121](https://github.com/insinfo/dartforge/actions/runs/35987446121)
+passaram. O nativo com SDK da fonte manteve **160/223**; JavaScript
+desenvolvimento e produção ficaram em **223/223**, e macros em **6/7**.
+O job JIT × AOT teve **223/223 saídas idênticas**, mas apenas **93/223**
+programas passaram no corpus padrão; 122 não produziram IR, portanto a
+igualdade entre perfis não implica compatibilidade com a VM. Os ajustes de
+RTI em cópias de lista, URI Unicode no LSP e execução de macros pelo
+`build_runner` foram integrados depois dessa rodada e aguardam o próximo
+Pesado combinado.
 
 Os quatro diagnósticos adicionais de membros somente para leitura passaram
 na [CI 35981633280](https://github.com/insinfo/dartforge/actions/runs/35981633280)
@@ -125,6 +135,13 @@ positivos, 19.871 falsos negativos, 469 posições erradas e determinismo em
 1/4/8 trabalhadores. São +25 acertos exatos e -2 falsos positivos. O próprio
 relatório marca grupos do oráculo como desatualizados; esse placar é uma medida
 de paridade com a versão gravada, não um certificado de correção total.
+Na mesma [rodada combinada 35987446121](https://github.com/insinfo/dartforge/actions/runs/35987446121),
+após os diagnósticos de atribuição e construtores, o analyzer alcançou
+**5.827/26.133 (22,3%)** na posição exata, 5.538 mensagens iguais,
+4.342 falsos positivos, 19.837 falsos negativos e 469 posições erradas,
+com relatório idêntico em 1/4/8 trabalhadores. As correções posteriores
+de `Enum.index` e setter de extensão explícita ainda não fazem parte
+desse placar combinado.
 
 ## Fechamento do dia 2026-09-23
 
