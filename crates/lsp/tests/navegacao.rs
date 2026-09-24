@@ -79,3 +79,20 @@ fn tipo_homonimo_de_parametro_generico_nao_navega_para_classe() {
         "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":15}}}));
     assert_eq!(servidor.bombear()[0]["result"], Value::Null);
 }
+
+#[test]
+fn referencia_a_variavel_de_topo_unica_navega_para_declaracao() {
+    let mut servidor = Servidor::new();
+    let uri = "file:///var-topo.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"int resposta = 42;\nvoid main() { print(resposta); }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/definition",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":22}}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"]["uri"], uri);
+    assert_eq!(resposta[0]["result"]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(resposta[0]["result"]["range"]["end"], json!({"line":0,"character":12}));
+}

@@ -3,7 +3,7 @@
 //! `ExportDirective` e `PartDirective` quando o destino existe.
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{DeclKind, DirectiveKind, StringLit, TypeKind};
+use dartforge_frontend::ast::{DeclKind, DirectiveKind, ExprKind, ForInTarget, ForInit, MemberKind, StmtKind, StringLit, TypeKind};
 use dartforge_frontend::LibraryFeatures;
 use dartforge_intern::Interner;
 use url::Url;
@@ -17,6 +17,7 @@ pub(super) struct TipoLocal {
     pub declaracao: Span,
     pub referencia: Span,
     pub descricao: Option<String>,
+    pub tipo_estatico: Option<String>,
 }
 
 /// Destino para um literal de URI relativa ou tipo único do próprio arquivo.
@@ -47,7 +48,9 @@ pub(super) fn destino(
             return resolver(&base, literal).map(Alvo::Arquivo);
         }
     }
-    tipo_local(&parsed.unit, &parsed.ast, &nomes, offset).map(Alvo::NomeLocal)
+    tipo_local(&parsed.unit, &parsed.ast, &nomes, offset)
+        .or_else(|| variavel_topo(&parsed.unit, &parsed.ast, &nomes, offset))
+        .map(Alvo::NomeLocal)
 }
 
 fn tipo_local(
@@ -104,7 +107,79 @@ fn tipo_local(
         declaracao: unico.0,
         referencia: referencia.span,
         descricao: (!unico.2).then(|| format!("{} {}", unico.1, nomes.resolve(chave))),
+        tipo_estatico: None,
     })
+}
+
+/// Referência a variável de topo única, sem qualquer declaração homônima que
+/// possa sombreá-la. Só os tipos primitivos escritos dão hover: os outros
+/// precisam da resolução de aliases, limites e imports.
+fn variavel_topo(
+    unit: &dartforge_frontend::ast::CompilationUnit,
+    ast: &dartforge_frontend::ast::Ast,
+    nomes: &Interner,
+    offset: usize,
+) -> Option<TipoLocal> {
+    if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+        || !ast.patterns.is_empty()
+    {
+        return None;
+    }
+    let referencia = ast.exprs.iter().find_map(|e| {
+        let ExprKind::Identifier(n) = &e.kind else { return None };
+        (n.span.start <= offset && offset < n.span.end).then_some(*n)
+    })?;
+    let chave = referencia.sym;
+    if ast.functions.iter().any(|f| f.parameters.as_ref().is_some_and(|ps| ps.iter().any(|p| p.name.is_some_and(|n| n.sym == chave))))
+        || ast.members.iter().any(|m| match &m.kind {
+            MemberKind::Field(v) => v.variables.iter().any(|x| x.name.sym == chave),
+            MemberKind::Method(f) => ast.function(*f).name.is_some_and(|n| n.sym == chave),
+            MemberKind::Constructor(c) => c.name.is_some_and(|n| n.sym == chave),
+        })
+        || ast.stmts.iter().any(|s| match &s.kind {
+            StmtKind::Variables(v) => v.variables.iter().any(|x| x.name.sym == chave),
+            StmtKind::Function(f) => ast.function(*f).name.is_some_and(|n| n.sym == chave),
+            StmtKind::For { init: Some(ForInit::Variables(v)), .. } =>
+                v.variables.iter().any(|x| x.name.sym == chave),
+            StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => name.sym == chave,
+            StmtKind::Try { catches, .. } => catches.iter().any(|c|
+                c.exception.is_some_and(|n| n.sym == chave)
+                    || c.stack_trace.is_some_and(|n| n.sym == chave)),
+            _ => false,
+        })
+    {
+        return None;
+    }
+    let mut encontrados = Vec::new();
+    for id in &unit.declarations {
+        match &ast.decl(*id).kind {
+            DeclKind::Variables(v) => {
+                for var in v.variables.iter().filter(|x| x.name.sym == chave) {
+                    encontrados.push((var.name.span, v.ty));
+                }
+            }
+            DeclKind::Class(d) if d.name.sym == chave => return None,
+            DeclKind::Mixin(d) if d.name.sym == chave => return None,
+            DeclKind::Enum(d) if d.name.sym == chave => return None,
+            DeclKind::ExtensionType(d) if d.name.sym == chave => return None,
+            DeclKind::Typedef(d) if d.name.sym == chave => return None,
+            DeclKind::Function(f) if ast.function(*f).name.is_some_and(|n| n.sym == chave) => return None,
+            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
+            _ => {}
+        }
+    }
+    if encontrados.len() != 1 { return None; }
+    let (declaracao, ty) = encontrados[0];
+    let tipo_estatico = ty.and_then(|t| {
+        let t = ast.ty(t);
+        let TypeKind::Named { name, args } = &t.kind else { return None };
+        if name.len() != 1 || !args.is_empty() { return None; }
+        let base = nomes.resolve(name[0].sym);
+        matches!(base, "int" | "double" | "num" | "bool" | "String" | "Object" | "dynamic")
+            .then(|| format!("{base}{}", if t.nullable { "?" } else { "" }))
+    });
+    let descricao = tipo_estatico.as_ref().map(|t| format!("{t} {}", nomes.resolve(chave)));
+    Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico })
 }
 
 fn resolver(base: &Url, literal: &StringLit) -> Option<String> {
