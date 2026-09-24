@@ -802,8 +802,10 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         return (membro_super(inf, cx, e, name, false), false);
     }
     let (recv, curto) = receptor(inf, cx, target, null_aware);
-    if let Some((x, _)) = cx.sobreposicoes.get(&target).cloned() {
-        if inf.membro_estatico_de_extensao(x, name.sym, false).is_some() {
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if inf.membro_de_extensao_explicita(x, &args, name.sym, false).is_none()
+            && inf.membro_estatico_de_extensao(x, name.sym, false).is_some()
+        {
             inf.aviso(EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(), name.span);
             return (inf.core.dynamic_, curto);
         }
@@ -1597,6 +1599,10 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     // `E(valor).m` força a extensão nomeada: na falta de setter ela emite
     // `undefined_extension_setter`, mesmo que a extensão tenha um getter `m`.
     if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if let Some(m) = inf.membro_de_extensao_explicita(x, &args, name.sym, true) {
+            resolver(inf, cx, alvo, m.resolved);
+            return m.tipo;
+        }
         if inf.membro_estatico_de_extensao(x, name.sym, true).is_some() {
             // `+=` resolve leitura e escrita do mesmo nome. O analyzer relata
             // o acesso estático uma vez, mesmo quando ambos os lados resolvem.
@@ -1609,10 +1615,6 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                 inf.aviso(EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(), name.span);
             }
             return inf.core.dynamic_;
-        }
-        if let Some(m) = inf.membro_de_extensao_explicita(x, &args, name.sym, true) {
-            resolver(inf, cx, alvo, m.resolved);
-            return m.tipo;
         }
         let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
         let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extensao);
