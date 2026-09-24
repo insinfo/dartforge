@@ -448,6 +448,7 @@ impl JitSession {
         let defined = self.defined_names();
         if let Some(unknown) = parts.declarations.iter().find(|reference| {
             !ffi::is_known_external(reference)
+                && !self.externos_do_sdk.contains(reference.as_str())
                 && !defined.contains(&String::as_str(reference))
                 && !parts.signatures.iter().any(|s| &s.name == *reference)
         }) {
@@ -721,5 +722,23 @@ mod tests {
         assert!(!RUNTIME_SYMBOLS.contains(&"main"));
         // A tabela é gerada da fonte: ela cresce com o runtime, nunca à mão.
         assert!(RUNTIME_SYMBOLS.len() > 100, "{}", RUNTIME_SYMBOLS.len());
+    }
+
+    /// O caminho de objeto em cache aceita os mesmos externos do SDK da fonte
+    /// que o caminho de IR textual; sem autorização, ambos os recusam.
+    #[test]
+    #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+    fn objeto_em_cache_aceita_externo_autorizado_pelo_sdk() {
+        let ir = "declare void @df.sdk_teste()\ndefine void @dartforge_entry() {\n  call void @df.sdk_teste()\n  ret void\n}\n";
+        let compilado = compile_module("sdk", ir).unwrap();
+        let mut sem_sdk = JitSession::new().unwrap();
+        assert_eq!(sem_sdk.add_compiled_module(&compilado).unwrap_err().stage, "símbolos");
+
+        let mut com_sdk = JitSession::new().unwrap();
+        com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
+        com_sdk.add_ir_module("sdk-ir", ir).unwrap();
+        let mut com_sdk = JitSession::new().unwrap();
+        com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
+        com_sdk.add_compiled_module(&compilado).unwrap();
     }
 }
