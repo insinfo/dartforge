@@ -76,7 +76,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // (ou inferido do inicializador), não a do valor.
                     let ty = self.repr_do_local(var.name.span.start);
                     let late_local = var_list.late
-                        && !self.celulas.contains(&(var.name.span.start as usize));
+                        && (var.initializer.is_none()
+                            || !self.celulas.contains(&(var.name.span.start as usize)));
                     if var_list.const_
                         && let Some(init_id) = var.initializer
                         && let Some(k) = self.chave_constante(ast, init_id, true)
@@ -246,7 +247,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 let sym = var.name.sym;
                                 let ty = self.repr_do_local(var.name.span.start);
                                 let late_local = var_list.late
-                                    && !self.celulas.contains(&(var.name.span.start as usize));
+                                    && (var.initializer.is_none()
+                                        || !self.celulas.contains(&(var.name.span.start as usize)));
                                 let init_op = if late_local {
                                     Self::valor_zero(ty)
                                 } else if let Some(init_id) = var.initializer {
