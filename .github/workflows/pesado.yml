@@ -34,7 +34,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, jit, determinismo, moderno, macros, custo-zero, analise]
+        options: [todos, js, producao, limitless-ui, nativo, jit, determinismo, moderno, macros, custo-zero, analise]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -185,6 +185,56 @@ jobs:
           nome: producao
           titulo: JS produção — VM × desenvolvimento × produção (dartforge-jsprod)
           args: --producao --jobs 4
+
+  # A galeria pública fornece 26 testes Puppeteer de comportamento real.
+  # Revisão fixa: mudanças no oráculo não alteram silenciosamente o placar.
+  limitless-ui:
+    name: limitless_ui (bundle de produção, e2e)
+    needs: compilar
+    if: needs.compilar.outputs.suite == 'limitless-ui' || (needs.compilar.outputs.suite == 'todos' && github.ref == 'refs/heads/ci/js')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: insinfo/limitless_ui
+          ref: 9e381736413e635e4d616046fbe82997ccf66a08
+          path: references/limitless_ui
+          persist-credentials: false
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: binarios
+          path: ${{ github.workspace }}
+      - name: Preparar os gerados do ngdart
+        shell: pwsh
+        run: pwsh scripts/limitless-ui.ps1 -Preparar -Producao
+      - name: Montar o bundle de produção
+        shell: pwsh
+        run: pwsh scripts/limitless-ui.ps1 -Montar -Producao
+      - name: E2E no navegador
+        shell: pwsh
+        run: |
+          $raiz = (Resolve-Path references/limitless_ui).Path
+          $saida = (Resolve-Path work/lui/out-producao).Path
+          $servidor = Start-Process -FilePath (Get-Command dart).Source `
+            -ArgumentList @('run', 'tool/serve_example.dart', '--dir', $saida, '--port', '8081', '--quiet') `
+            -WorkingDirectory $raiz -WindowStyle Hidden -PassThru
+          try {
+            $pronto = $false
+            foreach ($tentativa in 1..60) {
+              try {
+                $resposta = Invoke-WebRequest 'http://127.0.0.1:8081/' -TimeoutSec 2
+                if ($resposta.StatusCode -eq 200) { $pronto = $true; break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $pronto) { throw 'servidor da galeria não iniciou' }
+            pwsh scripts/limitless-ui.ps1 -E2e -Producao
+            if ($LASTEXITCODE -ne 0) { throw "E2E falhou (código $LASTEXITCODE)" }
+          } finally {
+            Stop-Process -Id $servidor.Id -Force -ErrorAction SilentlyContinue
+          }
 
   # Recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §5): o corpus/moderno contra
   # o SDK de oráculo 3.13.4 (dart run e dartdevc+node, cada um com o seu

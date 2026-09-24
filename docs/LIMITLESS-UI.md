@@ -20,6 +20,21 @@ tem de passar contra a nossa saída.
 | oficial | `build_web_compilers --release` (dart2js), um `main.dart.js` de 4,5 MB | **26/26** | **52/53** |
 | DartForge | `dartforge compile-js`, 483 módulos ES6 + `dart_sdk.js` do DDC | **26/26** | **52/53** |
 
+O perfil de produção tem agora um caminho próprio de montagem e o mesmo
+teste e2e, sem alterar o carregamento `defer` do arquivo único:
+
+```powershell
+pwsh scripts/limitless-ui.ps1 -Preparar -Producao
+pwsh scripts/limitless-ui.ps1 -Montar -Producao
+pwsh scripts/limitless-ui.ps1 -Servir dartforge -Producao -Porta 8082
+pwsh scripts/limitless-ui.ps1 -E2e -Producao -Porta 8082
+```
+
+O script procura `references/limitless_ui` junto ao repositório; `-Raiz`
+aponta para uma cópia externa. O job `limitless-ui` de `pesado.yml` baixa a
+revisão `9e381736413e635e4d616046fbe82997ccf66a08` e roda esses passos
+no GitHub Actions. O placar de produção fica pendente até essa rodada.
+
 A aplicação compilou, subiu e passou nos 26 testes na primeira execução. A
 suíte, porém, não cobre tudo: uma sonda própria percorreu as **53 rotas** da
 galeria recolhendo `window.onerror`, `unhandledrejection`, `console.error` e
