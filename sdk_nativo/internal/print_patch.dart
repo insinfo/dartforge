@@ -27,3 +27,6 @@ Object _dartforgeErroLate(String nome, int codigo) {
   if (codigo == 4) return new LateError.fieldADI(nome);
   return new LateError.localADI(nome);
 }
+
+@pragma("vm:entry-point")
+Object _dartforgeErroPilha() => const StackOverflowError();

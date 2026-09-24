@@ -2,6 +2,9 @@
 late String topLevel;
 late final int topLevelFinal;
 late int topLevelPreguicoso = calcula('topLevelPreguicoso', 7);
+late int globalReentrante = lerGlobalReentrante();
+
+int lerGlobalReentrante() => globalReentrante;
 
 int calcula(String nome, int v) {
   print('calculando $nome');
@@ -142,4 +145,12 @@ void main() {
     print(e);
   }
   print(lerCapturado());
+
+  for (var i = 0; i < 2; i++) {
+    try {
+      print(globalReentrante);
+    } catch (e) {
+      print(e);
+    }
+  }
 }

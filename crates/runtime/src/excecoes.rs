@@ -412,6 +412,19 @@ pub extern "C" fn dartforge_late_error_new(nome: i64, codigo: i64) -> i64 {
     dartforge_state_error_new(msg)
 }
 
+/// Reentrância de um inicializador global: a VM recursaria no getter até
+/// lançar `StackOverflowError`. Construímos o mesmo erro sem consumir a pilha.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroPilha") {
+        // SAFETY: helper registrado pelo dart:_internal como () -> Object.
+        let g: extern "C" fn() -> i64 = unsafe { std::mem::transmute(f) };
+        return g();
+    }
+    let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str("Stack Overflow"))));
+    dartforge_state_error_new(msg)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_no_such_method_error_new(nome: i64) -> i64 {
     if depurar() {

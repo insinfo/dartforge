@@ -130,3 +130,8 @@ precisa transportar o ambiente da declaração. Campos `late` com
 inicializador já inicializam na leitura, mas a recursão do próprio
 inicializador ainda precisa de um corpo separado para não expandir o AST
 recursivamente durante o lowering. Estes casos seguem pendentes.
+
+Um global com inicializador distingue três estados (`0` pendente, `2` em
+avaliação, `1` pronto). A leitura reentrante constrói `StackOverflowError`
+do SDK, que é o erro capturável observado na VM, e uma exceção durante a
+avaliação restaura o estado pendente para a próxima leitura.
