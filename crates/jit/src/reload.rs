@@ -558,6 +558,7 @@ impl JitSession {
         let contract = phase.elapsed();
 
         let generation = existing.map_or(1, |index| self.reloadables[index].generation + 1);
+        let previous_globals = existing.map(|index| self.reloadables[index].globals.clone()).unwrap_or_default();
         let suffix = format!("$gen{generation}");
         // As implementações têm nomes estáveis únicos entre módulos; as
         // globais `@dfg_*` do emissor não. A LLJIT usa uma JITDylib única,
@@ -567,6 +568,18 @@ impl JitSession {
         let phase = Instant::now();
         let globals = parsed.version_mutable_globals(&global_suffix)
             .map_err(|detail| JitError::new("globais", "a geração tem estado que a sessão não sabe reiniciar", detail))?;
+        for next in &globals {
+            if !static_do_programa(&next.logical_name) {
+                continue;
+            }
+            if let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name)
+                && previous.size != next.size
+            {
+                return Err(JitError::new("contract", "o layout de um estático mudou", format!(
+                    "{}: {} para {} bytes", next.logical_name, previous.size, next.size
+                )));
+            }
+        }
         let published = parsed.version_definitions(&suffix);
         let tracker = self.lljit.create_tracker();
         self.lljit
@@ -683,6 +696,25 @@ impl JitSession {
                     self.register_unimplemented(name, orfas, &published, stub_tracker.take());
                     return Err(self.poison_if(promoted, error));
                 }
+            }
+        }
+        // O código da geração nova já foi ligado, mas as entradas estáveis
+        // ainda chamam a antiga. Preserve apenas os estáticos do programa;
+        // caches de seletor guardam endereços da geração anterior e devem
+        // começar vazios.
+        for next in &globals {
+            if !static_do_programa(&next.logical_name) {
+                continue;
+            }
+            let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name) else {
+                continue;
+            };
+            if let Err(detail) = self.lljit.copy_global(previous, next) {
+                let error = JitError::new("link", "não foi possível preservar um estático", detail);
+                let _ = tracker.remove();
+                let orfas = std::mem::take(&mut slots);
+                self.register_unimplemented(name, orfas, &published, stub_tracker.take());
+                return Err(self.poison_if(promoted, error));
             }
         }
         let link = phase.elapsed();
@@ -839,6 +871,11 @@ impl JitSession {
             message,
         }
     }
+}
+
+/// Somente estado do programa atravessa gerações; caches do código não.
+fn static_do_programa(name: &str) -> bool {
+    name.starts_with("dfg_") || name == "df_statics"
 }
 
 /// Compara a impressão digital do contrato entre a versão viva e a nova.

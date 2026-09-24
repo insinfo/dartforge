@@ -1200,6 +1200,8 @@ pub(crate) fn llvm_version() -> (u32, u32, u32) {
 /// execução: nome e tamanho em bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MutableGlobal {
+    /// Nome do emissor antes do sufixo de módulo/geração.
+    pub(crate) logical_name: String,
     pub(crate) name: String,
     pub(crate) size: usize,
 }
@@ -1266,12 +1268,13 @@ impl ParsedModule {
                     if matches!(linkage, LLVMLinkage::LLVMInternalLinkage | LLVMLinkage::LLVMPrivateLinkage) {
                         llvm_sys::core::LLVMSetLinkage(global, LLVMLinkage::LLVMExternalLinkage);
                     }
+                    let logical_name = name.clone();
                     let name = if suffix.is_empty() { name } else {
                         let versioned = format!("{name}{suffix}");
                         llvm_sys::core::LLVMSetValueName2(global, versioned.as_ptr().cast::<c_char>(), versioned.len());
                         versioned
                     };
-                    globals.push(MutableGlobal { name, size });
+                    globals.push(MutableGlobal { logical_name, name, size });
                 }
                 global = next;
             }
@@ -1281,6 +1284,27 @@ impl ParsedModule {
 }
 
 impl Lljit {
+    /// Transfere um estático da geração anterior após materializar a nova e
+    /// antes de redirecionar as entradas estáveis. A sessão tem `&mut self`
+    /// durante a recarga, então nenhum código JIT executa nesta janela.
+    pub(crate) fn copy_global(&self, previous: &MutableGlobal, next: &MutableGlobal) -> Result<(), String> {
+        if previous.size != next.size {
+            return Err(format!("a global {} mudou de {} para {} bytes", previous.logical_name, previous.size, next.size));
+        }
+        let source = self.lookup(&previous.name)?;
+        let target = self.lookup(&next.name)?;
+        // SAFETY: os endereços pertencem a globais materializadas da LLJIT,
+        // com o mesmo tamanho verificado acima e gerações distintas retidas.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                usize::try_from(source).unwrap_or(usize::MAX) as *const u8,
+                usize::try_from(target).unwrap_or(usize::MAX) as *mut u8,
+                next.size,
+            );
+        }
+        Ok(())
+    }
+
     /// Escreve zeros na global mutável, já materializada.
     ///
     /// # Erros

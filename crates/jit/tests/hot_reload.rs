@@ -197,6 +197,56 @@ define i64 @{funcao}() {{\n\
     assert_eq!(biblioteca.call(&sessao).unwrap(), 1);
 }
 
+/// Uma recarga de corpo mantém os estáticos do programa já inicializados.
+/// O cache de despacho da geração anterior deve começar vazio no código novo.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn recarga_preserva_estaticos_do_programa_sem_copiar_caches() {
+    let ir = |passo: i64| format!("@dfg_0 = internal global i64 0\n\
+@dfg_0$ok = internal global i8 0\n\
+@df.ic.0 = private global [2 x i64] zeroinitializer\n\
+define i64 @df_fn_0() {{\n\
+  %anterior = load i64, ptr @dfg_0\n\
+  %novo = add i64 %anterior, {passo}\n\
+  store i64 %novo, ptr @dfg_0\n\
+  store i8 1, ptr @dfg_0$ok\n\
+  ret i64 %novo\n}}\n\
+define i64 @df_fn_1() {{\n\
+  %celula = getelementptr [2 x i64], ptr @df.ic.0, i64 0, i64 0\n\
+  %anterior = load i64, ptr %celula\n\
+  %novo = add i64 %anterior, 1\n\
+  store i64 %novo, ptr %celula\n\
+  ret i64 %novo\n}}\n\
+define i64 @df_fn_2() {{\n\
+  %ok = load i8, ptr @dfg_0$ok\n\
+  %largo = zext i8 %ok to i64\n\
+  ret i64 %largo\n}}\n");
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", &ir(1)).expect("geração 1");
+    let proximo = sessao.stable_entry("df_fn_0").expect("estático");
+    let cache = sessao.stable_entry("df_fn_1").expect("cache");
+    let inicializado = sessao.stable_entry("df_fn_2").expect("indicador");
+    assert_eq!(proximo.call(&sessao).unwrap(), 1);
+    assert_eq!(proximo.call(&sessao).unwrap(), 2);
+    assert_eq!(cache.call(&sessao).unwrap(), 1);
+    assert_eq!(cache.call(&sessao).unwrap(), 2);
+    assert_eq!(inicializado.call(&sessao).unwrap(), 1);
+
+    sessao.hot_reload("app", &ir(10)).expect("geração 2");
+    assert_eq!(inicializado.call(&sessao).unwrap(), 1);
+    assert_eq!(proximo.call(&sessao).unwrap(), 12);
+    assert_eq!(cache.call(&sessao).unwrap(), 1);
+
+    let tipo_alterado = "@dfg_0 = internal global i32 0\n\
+define i64 @df_fn_0() { ret i64 99 }\n\
+define i64 @df_fn_1() { ret i64 99 }\n\
+define i64 @df_fn_2() { ret i64 99 }\n";
+    let erro = sessao.hot_reload("app", tipo_alterado).unwrap_err();
+    assert_eq!(erro.stage, "contract");
+    assert!(erro.message.contains("dfg_0"), "{erro}");
+    assert_eq!(proximo.call(&sessao).unwrap(), 22);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]
