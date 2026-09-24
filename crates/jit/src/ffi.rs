@@ -356,6 +356,27 @@ impl ParsedModule {
         names
     }
 
+    /// Globais de dados declaradas sem definição neste módulo.
+    ///
+    /// A pré-verificação de funções não cobre `@nome = external global ...`.
+    /// Uma referência de dado ausente também pode falhar na materialização do
+    /// ORC depois de uma promoção já ter removido o módulo antigo.
+    pub(crate) fn external_globals(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        // SAFETY: travessia pela API do LLVM sobre o módulo vivo; cada nome é
+        // copiado antes de a referência ao módulo ser consumida pelo ORC.
+        unsafe {
+            let mut global = llvm_sys::core::LLVMGetFirstGlobal(self.module);
+            while !global.is_null() {
+                if LLVMIsDeclaration(global) != 0 {
+                    names.push(value_name(global));
+                }
+                global = llvm_sys::core::LLVMGetNextGlobal(global);
+            }
+        }
+        names
+    }
+
     /// `target datalayout` e `target triple` do módulo, vazios quando ausentes.
     pub(crate) fn target(&self) -> (String, String) {
         // SAFETY: as duas funções devolvem strings que pertencem ao módulo vivo;

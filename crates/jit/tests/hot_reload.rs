@@ -118,6 +118,28 @@ define i64 @df_fn_1() { ret i64 1 }\n";
     assert_eq!(sessao.generation("app"), None);
 }
 
+/// Uma global externa ausente também é erro de contrato prévio à promoção.
+/// O nome não é uma declaração de função, portanto exercita a verificação
+/// separada de dados e mantém o `main` antigo executável.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn global_externa_ausente_nao_destroi_promocao() {
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_ir_module("app", "define i32 @main() { ret i32 7 }\n").unwrap();
+    assert_eq!(sessao.run_main().unwrap().exit_code, 7);
+
+    let ir = "@missing = external global i64\n\
+define i32 @main() {\n\
+  %v = load i64, ptr @missing\n\
+  %r = trunc i64 %v to i32\n\
+  ret i32 %r\n}\n";
+    let erro = sessao.hot_reload("app", ir).unwrap_err();
+    assert_eq!(erro.stage, "contract");
+    assert!(erro.message.contains("missing"), "{erro}");
+    assert_eq!(sessao.run_main().unwrap().exit_code, 7);
+    assert_eq!(sessao.generation("app"), None);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]

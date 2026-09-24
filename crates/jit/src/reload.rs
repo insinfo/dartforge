@@ -485,6 +485,17 @@ impl JitSession {
                 message,
             }
         })?;
+        // Dados externos não aparecem em `declarations()`, que percorre só
+        // funções. Resolver aqui também detecta dados ausentes antes da janela
+        // destrutiva da promoção. Um símbolo já publicado pela LLJIT, inclusive
+        // por outro módulo ou pela DLL do SDK, pode ser usado normalmente.
+        for global in parsed.external_globals() {
+            self.lljit.lookup(&global).map_err(|detail| JitError::new(
+                "contract",
+                &format!("a global externa {global} não está disponível nesta sessão"),
+                detail,
+            ))?;
+        }
         let mut known: Vec<&str> = signatures.iter().map(|s| s.name.as_str()).collect();
         // Outros módulos ainda residentes também são fonte válida de símbolos: uma
         // sessão pode ter o programa e uma biblioteca em módulos separados, como
