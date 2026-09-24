@@ -331,6 +331,37 @@ fn campo_final_sem_setter_e_late_final_atribuivel() {
 }
 
 #[test]
+fn membros_estaticos_somente_leitura_em_atribuicoes() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; class A { static final int x = 0; static int get g => 0; static late final int l; static const int c = 0; } void f() { A.x = 0; A.x += 0; ++A.x; A.x++; A.g = 0; A.g += 0; ++A.g; A.g++; A.c = 1; A.l = 1; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    let getters: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
+    let constantes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
+    assert_eq!(finais.len(), 4, "{diags:?}");
+    assert_eq!(getters.len(), 4, "{diags:?}");
+    assert_eq!(constantes.len(), 1, "{diags:?}");
+    for d in finais {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "x");
+    }
+    for d in getters {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "g");
+        assert!(d.message.contains("na classe 'A'"));
+    }
+    assert_eq!(&fonte[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
+    assert!(!diags.iter().any(|d| d.message.contains("'l'")), "{diags:?}");
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

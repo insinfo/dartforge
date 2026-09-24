@@ -1517,16 +1517,30 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     }
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
         registrar_ref_tipo(inf, cx, target);
-        let m = match rt {
-            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, true),
-            RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, true),
+        let m = match &rt {
+            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(*c, name.sym, true),
+            RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(*x, name.sym, true),
         };
         return match m {
             Some(m) => {
                 resolver(inf, cx, alvo, m.resolved.clone());
                 m.tipo
             }
-            None => inf.core.dynamic_,
+            None => {
+                let getter = match rt {
+                    RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, false),
+                    RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, false),
+                };
+                if let Some(getter) = getter {
+                    if let Some(f) = getter.funcao {
+                        if avisar_membro_sem_setter(inf, name, f) {
+                            resolver(inf, cx, alvo, getter.resolved);
+                            return getter.tipo;
+                        }
+                    }
+                }
+                inf.core.dynamic_
+            }
         };
     }
     if matches!(a.expr(target).kind, ExprKind::Super) {
