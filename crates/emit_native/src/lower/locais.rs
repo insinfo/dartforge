@@ -18,6 +18,8 @@
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
+use dartforge_elements::model::UnitId;
+use dartforge_frontend::ast::ExprId;
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
 
@@ -48,6 +50,16 @@ pub struct Local {
     /// Offset do nome na declaração (a chave de `captura.rs`); `None` para
     /// os ligados por valor.
     pub offset: Option<usize>,
+    /// Marca separada do valor, pois zero/null são atribuições legítimas.
+    pub late: Option<LateLocal>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LateLocal {
+    pub inicializado: Operand,
+    pub final_: bool,
+    pub nome: String,
+    pub inicializador: Option<(UnitId, ExprId)>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -107,6 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 modo: Modo::Memoria(ptr.clone()),
                 ty,
                 offset: None,
+                late: None,
             },
         );
         ptr
@@ -142,6 +155,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     modo: Modo::Memoria(ptr),
                     ty,
                     offset: Some(offset),
+                    late: None,
                 },
             );
             return;
@@ -162,8 +176,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 modo: Modo::Celula(ptr),
                 ty,
                 offset: Some(offset),
+                late: None,
             },
         );
+    }
+
+    /// Ativa a semântica de `late` sem inicializador em um local ordinário.
+    /// Capturas precisam de uma célula compartilhada para o estado e ainda
+    /// são recusadas pelo chamador, em vez de perder a checagem na closure.
+    pub fn configurar_local_late(&mut self, sym: SymbolId, final_: bool, init: Option<ExprId>) -> bool {
+        let Some(local) = self.buscar_local(sym) else { return false };
+        if !matches!(local.modo, Modo::Memoria(_)) {
+            return false;
+        }
+        let estado = self.alloca_na_entrada(Type::I8);
+        self.emit(
+            Instruction::Store { ptr: estado.clone(), val: Operand::Constant(Constant::Int(0)) },
+            Type::Void,
+        );
+        let nome = self.ctx.symbol_name(sym).to_string();
+        if let Some(local) = self.escopos.last_mut().and_then(|e| e.get_mut(&sym)) {
+            local.late = Some(LateLocal {
+                inicializado: estado,
+                final_,
+                nome,
+                inicializador: init.map(|e| (self.unit_id, e)),
+            });
+        }
+        true
     }
 
     /// Liga um nome a um posição do ambiente da closure corrente.
@@ -178,6 +218,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 ty,
                 offset: None,
+                late: None,
             },
         );
     }
@@ -191,6 +232,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 modo: Modo::Valor(valor),
                 ty,
                 offset: None,
+                late: None,
             },
         );
     }
@@ -228,6 +270,86 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Lê um local já encontrado, na representação dele.
     pub fn ler_local(&mut self, local: &Local) -> Operand {
+        if let Some(late) = &local.late {
+            if let Some((unit, init)) = late.inicializador
+                && !local.offset.is_some_and(|off| self.late_inicializadores_em_lowering.contains(&off))
+            {
+                let estado = self.emit(
+                    Instruction::Load { ptr: late.inicializado.clone(), ty: Type::I8 },
+                    Type::I8,
+                );
+                let vazio = self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, estado, Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
+                let b_init = self.new_block();
+                let b_verificar = self.new_block();
+                self.terminate(Terminator::CondBranch { cond: vazio, then_block: b_init, else_block: b_verificar });
+                self.set_block(b_init);
+                self.emit(
+                    Instruction::Store {
+                        ptr: late.inicializado.clone(),
+                        val: Operand::Constant(Constant::Int(2)),
+                    },
+                    Type::Void,
+                );
+                let b_falha = self.new_block();
+                self.exception_targets.push(b_falha);
+                if let Some(off) = local.offset {
+                    self.late_inicializadores_em_lowering.insert(off);
+                }
+                let valor = self.lower_expr_de(unit, init);
+                if let Some(off) = local.offset {
+                    self.late_inicializadores_em_lowering.remove(&off);
+                }
+                self.exception_targets.pop();
+                let valor = self.coagir(valor, local.ty);
+                let Modo::Memoria(ptr) = &local.modo else { unreachable!("late capturado recusado") };
+                self.emit(Instruction::Store { ptr: ptr.clone(), val: valor }, Type::Void);
+                self.emit(
+                    Instruction::Store {
+                        ptr: late.inicializado.clone(),
+                        val: Operand::Constant(Constant::Int(1)),
+                    },
+                    Type::Void,
+                );
+                self.terminate(Terminator::Branch(b_verificar));
+                self.set_block(b_falha);
+                self.emit(
+                    Instruction::Store {
+                        ptr: late.inicializado.clone(),
+                        val: Operand::Constant(Constant::Int(0)),
+                    },
+                    Type::Void,
+                );
+                // Encaminha a exceção ao `catch`/`finally` externo após
+                // restaurar a célula para permitir nova tentativa de leitura.
+                self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::I8,
+                    },
+                    Type::I8,
+                );
+                self.terminate(Terminator::Unreachable);
+                self.set_block(b_verificar);
+            }
+            let estado = self.emit(
+                Instruction::Load { ptr: late.inicializado.clone(), ty: Type::I8 },
+                Type::I8,
+            );
+            let pronto = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, estado, Operand::Constant(Constant::Int(1))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_ler = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: pronto, then_block: b_ler, else_block: b_erro });
+            self.set_block(b_erro);
+            self.lancar_erro_late(&late.nome, 2);
+            self.set_block(b_ler);
+        }
         if let Some(c) = self.celula_do_local(local) {
             return self.emit(Instruction::CellGet { cell: c }, local.ty);
         }
@@ -263,6 +385,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn gravar_local(&mut self, sym: SymbolId, valor: Operand) -> Option<Operand> {
         let local = self.buscar_local(sym)?;
         let v = self.coagir(valor, local.ty);
+        if let Some(late) = &local.late {
+            let estado = self.emit(
+                Instruction::Load { ptr: late.inicializado.clone(), ty: Type::I8 },
+                Type::I8,
+            );
+            let iniciando = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, estado.clone(), Operand::Constant(Constant::Int(2))),
+                Type::I1,
+            );
+            let b_adi = self.new_block();
+            let b_proximo = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: iniciando, then_block: b_adi, else_block: b_proximo });
+            self.set_block(b_adi);
+            self.lancar_erro_late(&late.nome, 5);
+            self.set_block(b_proximo);
+            if late.final_ {
+                let ja_inicializado = self.emit(
+                    Instruction::ICmp(ICmpOp::Ne, estado, Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
+                let b_erro = self.new_block();
+                let b_gravar = self.new_block();
+                self.terminate(Terminator::CondBranch { cond: ja_inicializado, then_block: b_erro, else_block: b_gravar });
+                self.set_block(b_erro);
+                self.lancar_erro_late(&late.nome, 3);
+                self.set_block(b_gravar);
+            }
+            self.emit(
+                Instruction::Store {
+                    ptr: late.inicializado.clone(),
+                    val: Operand::Constant(Constant::Int(1)),
+                },
+                Type::Void,
+            );
+        }
         if let Some(c) = self.celula_do_local(&local) {
             self.emit(
                 Instruction::CellSet {
