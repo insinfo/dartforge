@@ -142,8 +142,9 @@ tipos inferidos de inicializador e imports com prefixo ainda não geram esse
 resultado. Sem SDK, permanecem as respostas sintáticas anteriores. Cada
 requisição carrega o texto vigente do editor por geração em memória;
 `Program`, `Interner`, AST e `TypeTable` são descartados ao responder.
-Nesta primeira etapa, dependências importadas são lidas do disco; edições
-simultâneas ainda abertas nelas aguardam uma geração conjunta do workspace.
+Documentos importados também abertos entram na mesma geração com seus textos
+vigentes; as outras dependências são lidas do disco. Nenhuma cópia dessas
+fontes fica retida depois da consulta.
 `didChange` antigo e `didClose` preservam as garantias de versão. O intervalo
 de definição em outro arquivo é convertido com as linhas **desse arquivo**.
 Teste: `cargo test -p dartforge-lsp --test semantica --locked`.

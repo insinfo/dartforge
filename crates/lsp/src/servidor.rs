@@ -350,31 +350,25 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let offset = self.documentos.linhas(u)?
                         .offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (destino, selecao) = self.analisador.definicao(u, &texto, offset)?;
-                    let range = selecao.map_or_else(
-                        || json!({
-                            "start": {"line": 0, "character": 0},
-                            "end": {"line": 0, "character": 0},
-                        }),
-                        |s| {
-                            let externo = (destino != u).then(|| {
-                                let caminho = url::Url::parse(&destino).ok()?.to_file_path().ok()?;
-                                let fonte = std::fs::read_to_string(caminho).ok()?;
-                                let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
-                                Some((fonte, tabela))
-                            }).flatten();
-                            let (fonte, tabela) = match externo.as_ref() {
-                                Some((fonte, tabela)) => (fonte.as_str(), tabela),
-                                None => (&*texto, self.documentos.linhas(u).expect("documento aberto")),
-                            };
+                    let (destino, selecao) = self.analisador.definicao_no_workspace(u, &texto, offset, &self.documentos)?;
+                    let range = if let Some(s) = selecao {
+                        let (l0, c0, l1, c1) = if let Some(fonte) = self.documentos.get(&destino) {
+                            let tabela = self.documentos.linhas(&destino)?;
                             let (l0, c0) = tabela.posicao_de_offset(fonte, s.start);
                             let (l1, c1) = tabela.posicao_de_offset(fonte, s.end);
-                            json!({
-                                "start": {"line": l0, "character": c0},
-                                "end": {"line": l1, "character": c1},
-                            })
-                        },
-                    );
+                            (l0, c0, l1, c1)
+                        } else {
+                            let caminho = url::Url::parse(&destino).ok()?.to_file_path().ok()?;
+                            let fonte = std::fs::read_to_string(caminho).ok()?;
+                            let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
+                            let (l0, c0) = tabela.posicao_de_offset(&fonte, s.start);
+                            let (l1, c1) = tabela.posicao_de_offset(&fonte, s.end);
+                            (l0, c0, l1, c1)
+                        };
+                        json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
+                    } else {
+                        json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}})
+                    };
                     Some(json!({
                         "uri": destino,
                         "range": range,
@@ -393,7 +387,7 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (span, descricao, tipo) = self.analisador.hover(u, &texto, offset)?;
+                    let (span, descricao, tipo) = self.analisador.hover_no_workspace(u, &texto, offset, &self.documentos)?;
                     let (l0, c0) = tabela.posicao_de_offset(&texto, span.start);
                     let (l1, c1) = tabela.posicao_de_offset(&texto, span.end);
                     let conteudo = if self.hover_markdown {

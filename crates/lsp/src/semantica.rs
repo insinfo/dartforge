@@ -1,7 +1,7 @@
 //! Consultas semânticas transitórias. A árvore, o programa e a tabela de tipos
 //! pertencem a uma única requisição e caem antes da próxima versão do texto.
 
-use crate::{Analisador, AnalisadorSintatico, navegacao};
+use crate::{Analisador, AnalisadorSintatico, DocumentStore, navegacao};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Element, Program, UnitId, VariableId, VariableRef}, sdk::SdkLayout};
 use dartforge_intern::Interner;
@@ -27,11 +27,22 @@ impl AnalisadorSemantico {
         Self::novo(sdk)
     }
 
-    fn carregar(&self, uri: &str, texto: &str) -> Option<(Program, Interner, UnitId)> {
+    fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
         let sdk = self.sdk.as_ref()?;
         let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
         if caminho.extension().is_none_or(|e| e != "dart") { return None; }
         let mut gerador = Construtor::nova();
+        if let Some(documentos) = documentos {
+            for aberto in documentos.uris() {
+                let Some(fonte) = documentos.get(aberto) else { continue };
+                let Some(arquivo) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) else { continue };
+                if arquivo.extension().is_some_and(|e| e == "dart") {
+                    gerador.por(arquivo, fonte.to_owned(), "lsp", vec![]);
+                }
+            }
+        }
+        // A chamada direta da trait também usa o texto recebido, mesmo sem
+        // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
         gerador.por(caminho.clone(), texto.to_owned(), "lsp", vec![]);
         let geracao = gerador.concluir(1).ok()?;
         let mut nomes = Interner::new();
@@ -61,6 +72,28 @@ impl AnalisadorSemantico {
         let uri = Url::from_file_path(u.path.as_ref()?).ok()?.to_string();
         Some((uri, nome))
     }
+
+    fn definir(&mut self, uri: &str, texto: &str, offset: usize, documentos: Option<&DocumentStore>) -> Option<(String, Option<Span>)> {
+        if let Some(alvo) = self.sintatico.definicao(uri, texto, offset) { return Some(alvo) }
+        let (programa, _, unidade) = self.carregar(uri, texto, documentos)?;
+        let (_, id) = Self::variavel_importada(&programa, unidade, offset)?;
+        let (uri, span) = Self::destino_variavel(&programa, programa.variable(id))?;
+        Some((uri, Some(span)))
+    }
+
+    fn passar_hover(&mut self, uri: &str, texto: &str, offset: usize, documentos: Option<&DocumentStore>) -> Option<(Span, String, Option<String>)> {
+        if let Some(descricao) = self.sintatico.hover(uri, texto, offset) { return Some(descricao) }
+        let (programa, nomes, unidade) = self.carregar(uri, texto, documentos)?;
+        let (referencia, id) = Self::variavel_importada(&programa, unidade, offset)?;
+        let mut tabela = TypeTable::new();
+        let core = CoreTypes::init(&mut tabela, &programa, &nomes);
+        let (outline, _) = resolve_outline(&programa, &nomes, &mut tabela, &core);
+        let tipo = outline.variables[id.0 as usize].declared_type?;
+        let texto_tipo = tabela.format(tipo, &nomes, &programa);
+        if texto_tipo == "dynamic" { return None; }
+        let nome = nomes.resolve(programa.variable(id).name);
+        Some((referencia, format!("{texto_tipo} {nome}"), Some(texto_tipo)))
+    }
 }
 
 impl Analisador for AnalisadorSemantico {
@@ -73,25 +106,19 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn definicao(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(String, Option<Span>)> {
-        if let Some(alvo) = self.sintatico.definicao(uri, texto, offset) { return Some(alvo) }
-        let (programa, _, unidade) = self.carregar(uri, texto)?;
-        let (_, id) = Self::variavel_importada(&programa, unidade, offset)?;
-        let (uri, span) = Self::destino_variavel(&programa, programa.variable(id))?;
-        Some((uri, Some(span)))
+        self.definir(uri, texto, offset, None)
+    }
+
+    fn definicao_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<Span>)> {
+        self.definir(uri, texto, offset, Some(documentos))
     }
 
     fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(Span, String, Option<String>)> {
-        if let Some(descricao) = self.sintatico.hover(uri, texto, offset) { return Some(descricao) }
-        let (programa, nomes, unidade) = self.carregar(uri, texto)?;
-        let (referencia, id) = Self::variavel_importada(&programa, unidade, offset)?;
-        let mut tabela = TypeTable::new();
-        let core = CoreTypes::init(&mut tabela, &programa, &nomes);
-        let (outline, _) = resolve_outline(&programa, &nomes, &mut tabela, &core);
-        let tipo = outline.variables[id.0 as usize].declared_type?;
-        let texto_tipo = tabela.format(tipo, &nomes, &programa);
-        if texto_tipo == "dynamic" { return None; }
-        let nome = nomes.resolve(programa.variable(id).name);
-        Some((referencia, format!("{texto_tipo} {nome}"), Some(texto_tipo)))
+        self.passar_hover(uri, texto, offset, None)
+    }
+
+    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(Span, String, Option<String>)> {
+        self.passar_hover(uri, texto, offset, Some(documentos))
     }
 
     fn documento_fechado(&mut self, uri: &str) {
