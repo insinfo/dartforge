@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
+import 'package:analyzer/dart/analysis/features.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:dartforge_macros_builder/src/resolver_identificadores.dart';
 import 'package:dartforge_macros_builder/src/consultas_definicoes.dart';
@@ -230,6 +232,22 @@ Future<void> main() async {
             'package:caso_json/modelos.dart') !=
         augmentationCfe) {
       throw StateError('augmentation completa difere byte a byte do CFE');
+    }
+    final materializado = File('lib/modelos.macro.dart')
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+    if (materializado != completo.replaceFirst(
+            "augment library 'package:corpus_macros_discovery/modelos.dart';",
+            "augment library 'modelos.dart';")) {
+      throw StateError('arquivo .macro.dart divergiu da montagem');
+    }
+    final parseado = parseString(
+      content: materializado,
+      featureSet: FeatureSet.latestLanguageVersion(flags: ['macros']),
+      throwIfDiagnostics: false,
+    );
+    if (parseado.errors.isNotEmpty) {
+      throw StateError('arquivo .macro.dart inválido: ${parseado.errors}');
     }
     final modelosDeDefinicao = jsonDecode(
             File('lib/modelos.macro_definitions_model.json').readAsStringSync())

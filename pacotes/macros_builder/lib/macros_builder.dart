@@ -55,6 +55,7 @@ final class _MacroDeclarationsBuilder implements Builder {
           '.macro_definitions_model.json',
           '.macro_definitions.json',
           '.macro_complete.txt',
+          '.macro.dart',
         ]
       };
 
@@ -157,6 +158,16 @@ final class _MacroDeclarationsBuilder implements Builder {
       step.inputId.changeExtension('.macro_definitions.json'),
       '${jsonEncode({'versao': 1, 'resultados': resultadosDeDefinicao})}\n',
     );
+    for (final item in [...resultados, ...resultadosDeDefinicao]) {
+      final resultado = item['resultado'] as Map<String, Object?>;
+      final erros = (resultado['diagnosticos'] as List)
+          .where((d) => (d as Map)['severidade'] == 'error')
+          .toList();
+      if (resultado['excecao'] != null || erros.isNotEmpty) {
+        throw StateError('macro de ${item['alvo']} falhou; '
+            'augmentation não materializada: ${resultado['excecao'] ?? erros}');
+      }
+    }
     final completo = montarAugmentation(
       [
         for (final item in resultados)
@@ -170,6 +181,11 @@ final class _MacroDeclarationsBuilder implements Builder {
     );
     await step.writeAsString(
         step.inputId.changeExtension('.macro_complete.txt'), completo);
+    final nomeDaBiblioteca = step.inputId.path.split('/').last;
+    final materializado = completo.replaceFirst(
+        "augment library '$uri';", "augment library '$nomeDaBiblioteca';");
+    await step.writeAsString(
+        step.inputId.changeExtension('.macro.dart'), materializado);
   }
 }
 

@@ -19,6 +19,8 @@ try {
     if (-not (Test-Path -LiteralPath $resultadoDef)) { throw 'resultado de definicoes ausente' }
     $completo = Join-Path $caso 'lib/modelos.macro_complete.txt'
     if (-not (Test-Path -LiteralPath $completo)) { throw 'montagem completa ausente' }
+    $materializado = Join-Path $caso 'lib/modelos.macro.dart'
+    if (-not (Test-Path -LiteralPath $materializado)) { throw 'augmentation materializada ausente' }
     $manifesto = Get-Content -LiteralPath $saida -Raw -Encoding utf8 | ConvertFrom-Json
     $nomes = @($manifesto.aplicacoes | ForEach-Object { "$($_.alvo):$($_.classe)" })
     $esperados = @('Endereco:JsonCodable', 'Usuario:JsonCodable', 'SoSaida:JsonEncodable', 'SoEntrada:JsonDecodable')

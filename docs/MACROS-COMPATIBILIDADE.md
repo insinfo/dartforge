@@ -115,7 +115,8 @@ declarações de `Endereco` é emitido em `modelos.macro_declarations.json` e
 comparado integralmente com o `macro.resultado` do CFE. Quatro aplicações são
 executadas no mesmo isolate do builder. A fábrica recebe a anotação resolvida
 para poder ler argumentos; o registro distingue construtores nomeados. Esta
-etapa ainda é opt-in e não materializa `.macro.dart`.
+etapa é opt-in; após as fases de declarações e definições, materializa
+`.macro.dart` no projeto que registrou as fábricas.
 As aplicações da mesma biblioteca agora compartilham uma tabela de IDs
 semânticos: classes distintas não colidem e `Map`, `String` e `Object` mantêm
 o ID entre as quatro execuções. Os IDs das duas primeiras classes seguem o
@@ -124,8 +125,8 @@ pré-requisito para fundir os resultados na augmentation parcial.
 O adaptador de montagem do analyzer já funde essas quatro declarações em
 `modelos.macro_declarations.txt`: os quatro blocos `augment class` são
 comparados byte a byte com a parte correspondente da augmentation do CFE.
-O `.txt` é uma saída intermediária, pois ainda faltam a recarga do analyzer
-com essas declarações e a fase de definições para formar `.macro.dart`.
+O `.txt` é a saída intermediária usada para reconstruir o modelo da fase de
+definições. A montagem final é gravada em `.macro.dart`.
 O analyzer 7.3 não associa `import augment` à classe original neste ensaio;
 por isso o builder lê a AST da saída parcial e serializa os métodos e
 construtores gerados para `modelos.macro_definitions_model.json`. O modelo
@@ -152,8 +153,11 @@ O fixture foi alinhado ao fonte original de `410_json_codable` (dez campos de
 construtor e parâmetros de tipo de interfaces do SDK. As quatro aplicações
 agora produzem resultados de definições estruturalmente iguais ao CFE; a
 augmentation inteira tem 3266 caracteres idênticos byte a byte após trocar
-somente a URI do pacote do fixture. A publicação como `.macro.dart` e o teste
-de consumo pelo compilador seguem pendentes.
+somente a URI do pacote do fixture. O builder opt-in grava `modelos.macro.dart`
+com cabeçalho relativo `augment library 'modelos.dart';`, mas só se as duas
+fases terminarem sem erro. O `build_runner` concluiu 8 ações e 9 saídas no
+fixture, sem realimentar o `.macro.dart` como entrada. O consumo pelo DartForge
+ainda precisa de CI dirigida.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
