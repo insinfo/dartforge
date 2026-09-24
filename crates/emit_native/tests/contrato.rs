@@ -299,6 +299,76 @@ fn enum_name_index_implicito_no_sdk() {
                "terra:1\nmercurio:0\nterra\n0\nterra\n0\n");
 }
 
+/// `values` implícito (sem o prefixo `E.`) no corpo de um membro de enum:
+/// a lista dos valores, como o caminho explícito. O getter implícito não
+/// tem corpo — antes saía uma chamada a um símbolo nunca definido, e a
+/// ligação falhava. Sem Clang: a emissão não deixa chamada a `.values()`.
+#[test]
+fn enum_values_implicito_vira_a_lista_dos_valores() {
+    let fonte = "enum E { a, b; E get proximo => values[(index + 1) % 2]; static E primeiro() => values.first; }\n\
+        void main() { print(E.a.proximo); print(E.primeiro()); }\n";
+    let Some(ir) = ir_de_fonte(fonte) else { return };
+    let chamadas = ir
+        .lines()
+        .filter(|l| l.contains("call ") && l.contains(".values("))
+        .collect::<Vec<_>>();
+    assert!(chamadas.is_empty(), "chamada a values sem define:\n{chamadas:?}\n{ir}");
+}
+
+/// O programa acima executado (AOT com SDK da fonte).
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn enum_values_implicito_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("enum_values_implicito.dart");
+    let exe = dir.path().join("enum_values_implicito.exe");
+    std::fs::write(&entrada, include_str!("fixtures/enum_values_implicito.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "E.b\nE.a\nE.a\n2\n");
+}
+
+/// `toString()` padrão de instância de classe genérica inclui os argumentos
+/// (`Instance of 'Caixa<int>'`, como a VM); sem argumentos, o nome
+/// registrado, como antes. Só execução prova (o runtime monta o texto).
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn classe_generica_tostring_padrao_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("classe_generica_tostring_padrao.dart");
+    let exe = dir.path().join("classe_generica_tostring_padrao.exe");
+    std::fs::write(&entrada, include_str!("fixtures/classe_generica_tostring_padrao.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "true\nInstance of 'Caixa<String>'\nInstance of 'Caixa<Caixa<int>>'\ntrue\n");
+}
+
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]

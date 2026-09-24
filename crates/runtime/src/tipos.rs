@@ -834,6 +834,18 @@ pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64
     dartforge_rti_definir(obj, tipo);
 }
 
+/// Texto com argumentos de tipo para o `toString` padrão de um valor
+/// (`Instance of 'Caixa<int>'`, como a VM), ou `None` quando o tipo do valor
+/// não tem argumentos — aí o chamador usa o nome registrado da classe.
+pub(crate) fn texto_com_argumentos(v: i64) -> Option<String> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let t = tipo_do_ref(&mut u, v);
+        let tem_args = matches!(u.tipo(t), Tipo::Interface(_, args) if !args.is_empty());
+        tem_args.then(|| u.texto(t))
+    })
+}
+
 /// O tipo de um valor `Ref`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_do_valor(v: i64) -> i64 {

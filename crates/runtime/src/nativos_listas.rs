@@ -321,7 +321,11 @@ pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
         return dartforge_nativo_Double_toString(d);
     }
     let cid = dartforge_value_class(this);
-    let nome = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
+    // Genérica com argumentos reificados: o nome inclui os argumentos
+    // (`Instance of 'Caixa<int>'`), como a VM; sem argumentos, o nome
+    // registrado da classe, como antes.
+    let nome = texto_com_argumentos(this)
+        .unwrap_or_else(|| CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default());
     alocar_str(&format!("Instance of '{nome}'"))
 }
 

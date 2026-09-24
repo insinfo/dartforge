@@ -584,6 +584,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Identificador que a resolução diz ser membro da classe envolvente
     /// (`x` = `this.x`, ou membro estático).
     pub fn ler_membro_implicito(&mut self, member: MemberRef, span: Span) -> Operand {
+        // `values` implícito de um enum do programa, lido sem o prefixo
+        // `E.` no corpo de um membro do enum: a lista dos valores, como o
+        // caminho explícito (`E.values`, `valores_do_enum`). O getter
+        // implícito não tem corpo para chamar — emitir a chamada deixava um
+        // símbolo indefinido na ligação.
+        if let MemberRef::Function(f) = member {
+            let fid = f.0 as usize;
+            let (e_estatico, nome, cid) = {
+                let func = &self.ctx.program.functions[fid];
+                (func.static_, self.ctx.symbol_name(func.name).to_string(), func.class)
+            };
+            if e_estatico
+                && nome == "values"
+                && !tem_corpo(self.ctx, fid)
+                && let Some(cid) = cid
+                && super::enums::e_enum(self.ctx, cid)
+            {
+                return self.valores_do_enum(cid, span);
+            }
+        }
         let vid = match member {
             MemberRef::Variable(v) => Some(v),
             MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].variable,
