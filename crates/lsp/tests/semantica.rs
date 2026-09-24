@@ -189,5 +189,20 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 92, "textDocument/definition", &uri_prefixada, 23), Value::Null);
     assert_eq!(requisitar(&mut servidor, 93, "textDocument/hover", &uri_prefixada, 23), Value::Null);
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+        "textDocument":{"uri":destino_fn,"version":3},
+        "contentChanges":[{"text":"int soma(int a, int b) => a + b;\n"}]
+    }}));
+    servidor.bombear();
+    let entrada_funcao_prefixada = raiz.join("main_func_prefix.dart");
+    fs::write(&entrada_funcao_prefixada, "import 'funcao.dart' as f;\nvar y = 0;\n").unwrap();
+    let uri_funcao_prefixada = url::Url::from_file_path(&entrada_funcao_prefixada).unwrap().to_string();
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri_funcao_prefixada,"languageId":"dart","version":1,
+            "text":"import 'funcao.dart' as f;\nvar y = f.soma(1, 2);\n"}
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 94, "textDocument/definition", &uri_funcao_prefixada, 11)["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(requisitar(&mut servidor, 95, "textDocument/hover", &uri_funcao_prefixada, 11)["contents"], "int soma(int a, int b)");
     fs::remove_dir_all(&raiz).unwrap();
 }
