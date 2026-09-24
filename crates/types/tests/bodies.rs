@@ -280,6 +280,30 @@ fn getter_lexico_sem_setter_em_atribuicoes_e_incrementos() {
 }
 
 #[test]
+fn getter_de_extensao_sem_setter() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; extension E on int { int get x => 0; } void f() { 0.x = 0; 0.x += 0; ++0.x; 0.x++; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let readonly: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
+    assert_eq!(readonly.len(), 4, "{diags:?}");
+    for (d, alvo) in readonly.iter().zip(["0.x = 0", "0.x += 0", "++0.x", "0.x++"]) {
+        let indice = fonte.find(alvo).unwrap() + alvo.find('x').unwrap();
+        assert_eq!(d.span.start as usize, indice, "{diags:?}");
+        assert_eq!(d.span.end as usize, indice + 1, "{diags:?}");
+        assert!(d.message.contains("na classe 'E'"), "{diags:?}");
+    }
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
