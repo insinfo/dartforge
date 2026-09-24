@@ -133,20 +133,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Hook de `chamar_membro` (SDK da fonte): o membro de instância de uma
     /// classe do SDK vai pelo seletor, a não ser que só a biblioteca dela o
     /// possa sobrescrever e ele tenha **uma** implementação, que é um método
-    /// (chamada direta). `None`: classe do programa (o mundo fechado de
-    /// `membros.rs` vale).
+    /// (chamada direta). Um getter de interface do programa também usa o
+    /// seletor quando alguma implementação concreta é um campo: o despacho
+    /// por funções de `membros.rs` não pode representar esse getter implícito.
     pub fn chamar_membro_fonte(&mut self, recv: Operand, decl_fid: usize, avaliados: &[Avaliado]) -> Option<Operand> {
         if !self.ctx.sdk_da_fonte || self.em_adaptador {
             return None;
         }
         let f = &self.ctx.program.functions[decl_fid];
         let cid = f.class?;
-        if f.static_ || !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+        if f.static_ {
             return None;
         }
         let nome = self.ctx.symbol_name(f.name).to_string();
         let chave = if f.kind == FunctionKind::Setter { format!("{nome}_=") } else { nome.clone() };
-        if membro_fechado(self.ctx, cid, &nome)
+        let e_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
+        if !e_sdk && (!matches!(f.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+            || !implementacoes(self.ctx, cid, &chave).iter().any(|i| matches!(i, Implementacao::Campo(_))))
+        {
+            return None;
+        }
+        if e_sdk && membro_fechado(self.ctx, cid, &nome)
             && let [Implementacao::Funcao(alvo)] = implementacoes(self.ctx, cid, &chave)[..]
         {
             let args = self.casar_args(alvo, avaliados);

@@ -458,6 +458,9 @@ jobs:
       - name: Factory redirecionadora preserva RTI do destino
         shell: pwsh
         run: cargo test --locked --release -p dartforge-emit-native --test contrato factory_redirecionadora_preserva_rti_do_destino -- --ignored --nocapture
+      - name: Getter de interface despacha campo e getter
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato getter_de_interface_despacha_campo_e_getter -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).
