@@ -151,7 +151,8 @@ pub enum Nivel {
 #[derive(Debug, Clone)]
 pub struct ScriptDeBuilders {
     pub aplicacoes: Vec<(String, String, Vec<String>)>,
-    /// `blake3(fontes + versões do lock + versão do DartForge + ABI)`.
+    /// Chave provisória do plano, versões do lock e versão do motor; fontes
+    /// e ABI entrarão antes de habilitar o cache do processo real.
     pub chave_de_cache: String,
 }
 

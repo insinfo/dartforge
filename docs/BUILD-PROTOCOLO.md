@@ -46,8 +46,10 @@ executor fica `Indisponivel(motivo)` para a sessão.
 * `build.carregar {id, script}` — `script` é o equivalente ao
   `.dart_tool/build/entrypoint/build.dart` do oficial: imports das
   fábricas e mapa chave → fábricas. O executor compila **uma vez** e guarda
-  em cache por `blake3(fontes + versões do lock + versão do DartForge +
-  ABI)`; nunca recompila por ciclo. Resposta `build.carregado {id}` ou
+  em cache por uma chave versionada. O motor atual envia o hash do plano,
+  versões do lock e versão do DartForge; a inclusão dos bytes das fontes e
+  da ABI ainda precisa ser implementada antes de reutilizar compilações do
+  processo real. Resposta `build.carregado {id}` ou
   `erro {id, mensagem}`.
 * `build.executar {id, fase, chave, fabrica, opcoes, entrada,
   saidas_permitidas}` — `entrada` e `saidas_permitidas` são AssetIds
@@ -77,8 +79,9 @@ Legibilidade das respostas segue o `build_impl.dart:443-463` (§3 de
 ## 4. Encerramento
 
 `{"t":"fim"}` do hospedeiro; o executor responde `{"t":"fim"}` e sai.
-Processo que morre no meio de uma ação: a ação falha com o stderr no
-diagnóstico, e o próximo pedido inicia um executor novo.
+Processo que morre no meio de uma ação: a ação falha. Reiniciar o processo no
+próximo pedido e incluir stderr no diagnóstico são requisitos do futuro
+adaptador de processo; o cliente atual recebe um canal já aberto.
 
 ## 5. Serviço `macro.*`
 
