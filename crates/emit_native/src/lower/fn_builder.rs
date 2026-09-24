@@ -783,6 +783,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
     /// String…) — sem desreferenciar null (H6).
     pub fn testar_tipo(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
+        if let Some(r) = self.testar_tipo_fonte(ast_ty, op.clone()) {
+            return r;
+        }
         let ast::TypeKind::Named { name, args } = &ast_ty.kind else {
             return self.nao_suportado("teste de tipo estrutural", ast_ty.span);
         };
@@ -802,9 +805,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(ultimo) = name.last() else {
             return self.nao_suportado("teste de tipo", ast_ty.span);
         };
-        if let Some(r) = self.testar_tipo_fonte(ast_ty, name, op.clone()) {
-            return r;
-        }
         let nome = self.ctx.symbol_name(ultimo.sym).to_string();
         let repr = self.operand_type(&op);
         if repr != Type::Ref {

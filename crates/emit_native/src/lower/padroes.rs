@@ -310,6 +310,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let _ = (valor, falha, ligados, origem, ligacao);
                 self.nao_suportado("padrão de coleção com argumento de tipo (RTI)", span);
             }
+            PatternKind::List { elements, .. } if self.ctx.sdk_da_fonte => {
+                self.casar_lista_fonte(ast, elements, valor, falha, ligacao, ligados, origem);
+            }
+            PatternKind::Map { entries, .. } if self.ctx.sdk_da_fonte => {
+                self.casar_mapa_fonte(ast, entries, valor, falha, ligacao, ligados, origem);
+            }
             PatternKind::List { elements, .. } => {
                 let v = self.coagir(valor, Type::Ref);
                 let cls = self.emit(
@@ -509,10 +515,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::I64,
                 );
-                let e_rec = self.emit(
-                    Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-7))),
-                    Type::I1,
-                );
+                let e_rec = if self.ctx.sdk_da_fonte {
+                    let _ = cls;
+                    self.e_instancia_do_core(v.clone(), "Record")
+                } else {
+                    self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-7))), Type::I1)
+                };
                 self.exigir(e_rec, falha);
                 let n = self.emit(
                     Instruction::CallRuntime {

@@ -299,7 +299,11 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     if ctx.sdk_da_fonte {
         sdk_fonte::lower_adaptadores_e_tabelas(ctx, &mut module);
     }
-    lower_globais_e_resto(ctx, module)
+    let mut module = lower_globais_e_resto(ctx, module);
+    if ctx.sdk_da_fonte {
+        sdk_fonte::tabelas_das_formas_de_record(ctx, &mut module);
+    }
+    module
 }
 
 /// Baixa uma função (de topo, método, construtor) para o módulo.
