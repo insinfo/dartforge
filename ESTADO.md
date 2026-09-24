@@ -29,6 +29,11 @@ os seletores de `Type` e `_StackTrace`,
 mediu **119/223** tanto AOT quanto JIT; 104 casos ainda falham. A
 correção de `%` fez `11_int_truncdiv_modulo_negativos` passar e permitiu que
 `13b_double_tostring_divergencia_web` avançasse até os seletores de `Type`.
+Após corrigir setters dinâmicos, `StackTrace` e acesso lexical a `super`,
+[Pesado 35975868181](https://github.com/insinfo/dartforge/actions/runs/35975868181)
+mediu **125/223** no AOT com SDK da fonte (98 casos ainda falham). A rodada
+ainda não continha a correção do getter que sobrescreve campo herdado nem
+as correções seguintes de `Object` em enums e `_Type`.
 
 O analisador integrado passou em [CI 35970218894](https://github.com/insinfo/dartforge/actions/runs/35970218894)
 e [Pesado 35970218770](https://github.com/insinfo/dartforge/actions/runs/35970218770):
