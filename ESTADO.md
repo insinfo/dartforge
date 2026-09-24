@@ -17,11 +17,14 @@ e testes pequenos; o corpus e o link de produção rodam no GitHub Actions.
 Na rodada de validação, [CI 35965411301](https://github.com/insinfo/dartforge/actions/runs/35965411301)
 e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225)
 passaram. O executável autocontido em produção passou após a correção dos
-símbolos RTI; após canonizar literais de string, [Pesado 35967809393](https://github.com/insinfo/dartforge/actions/runs/35967809393)
-mediu SDK da fonte: **109/223** tanto AOT quanto JIT. O corpus padrão
+símbolos RTI; após canonizar literais de string e corrigir a notação exponencial
+sem precisão explícita, [Pesado 35969733768](https://github.com/insinfo/dartforge/actions/runs/35969733768)
+mediu SDK da fonte: **110/223** tanto AOT quanto JIT. O corpus padrão
 segue **91/223**, JS desenvolvimento/produção **223/223**, Dart moderno
 **22/26**, macros **6/7**, com determinismo em 1/4/8 trabalhadores. P5c/P5d
-ainda não está completo: 114 casos do corpus do SDK da fonte falham.
+ainda não está completo: 113 casos do corpus do SDK da fonte falham. O
+próximo lote, que inclui `%` de inteiros e doubles conforme a VM, está em
+[Pesado 35970757894](https://github.com/insinfo/dartforge/actions/runs/35970757894).
 
 O analisador integrado passou em [CI 35967061037](https://github.com/insinfo/dartforge/actions/runs/35967061037)
 e [Pesado 35967060973](https://github.com/insinfo/dartforge/actions/runs/35967060973):
