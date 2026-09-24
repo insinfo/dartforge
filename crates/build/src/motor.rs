@@ -1076,6 +1076,9 @@ impl Motor {
     /// foi (a demanda de um `.css` pedido pelo navegador).
     pub fn materializar(&mut self, ctx: &Contexto<'_>, caminho: &Path) -> Option<Arc<[u8]>> {
         let mut k = chave(caminho);
+        if let Some(c) = self.memoria.get(&k) {
+            return Some(c.clone());
+        }
         // `package_config.json` usa a raiz canônica; a URL servida pode
         // chegar pela grafia lexical (alias 8.3 ou link no Windows). O
         // arquivo gerado ainda não existe, então canonizamos só o pai.
