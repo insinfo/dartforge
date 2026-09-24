@@ -78,7 +78,7 @@ async function sondar() {
     await send('Page.navigate', { url });
     await sleep(8000);
     const result = await send('Runtime.evaluate', {
-      expression: `({url:location.href, pronto:document.readyState, montados:document.querySelectorAll('.demo-page, .content').length, erros:window.__erros || [], titulo:document.title, corpo:(document.body?.innerText || '').slice(0, 500), head:!!document.head, sdkHead:(() => { try { return !!dart.global.document.head; } catch (e) { return String(e); } })(), htmlHead:(() => { try { return !!html.document.head; } catch (e) { return String(e); } })()})`,
+      expression: `({url:location.href, pronto:document.readyState, montados:document.querySelectorAll('.demo-page, .content').length, erros:window.__erros || [], titulo:document.title, corpo:(document.body?.innerText || '').slice(0, 500), head:!!document.head, sdkHead:(() => { try { return !!dart.global.document.head; } catch (e) { return String(e); } })(), htmlHead:(() => { try { return !!html.document.head; } catch (e) { return String(e); } })(), symbolHead:(() => { try { return String($head); } catch (e) { return String(e); } })(), viaSymbol:(() => { try { return String(html.document[$head]); } catch (e) { return String(e); } })(), headOwners:(() => { try { const out = []; for (let p = html.document; p && out.length < 10; p = Object.getPrototypeOf(p)) { if (Object.prototype.hasOwnProperty.call(p, $head)) out.push(p.constructor?.name || '?'); } return out; } catch (e) { return String(e); } })()})`,
       returnByValue: true,
     });
     const state = result.result.value;

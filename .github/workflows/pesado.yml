@@ -237,9 +237,16 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'startup da galeria falhou; veja o diagnóstico CDP acima' }
             pwsh scripts/limitless-ui.ps1 -E2e -Producao
             if ($LASTEXITCODE -ne 0) { throw "E2E falhou (código $LASTEXITCODE)" }
-          } finally {
-            Stop-Process -Id $servidor.Id -Force -ErrorAction SilentlyContinue
-          }
+            } finally {
+              Stop-Process -Id $servidor.Id -Force -ErrorAction SilentlyContinue
+            }
+      - name: Preservar bundle JS para diagnóstico quando o E2E falhar
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: limitless-ui-bundle-js
+          path: work/lui/out-producao/main.dart.js
+          retention-days: 1
 
   # Recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §5): o corpus/moderno contra
   # o SDK de oráculo 3.13.4 (dart run e dartdevc+node, cada um com o seu
