@@ -328,6 +328,29 @@ fn sobreposicao_explicita_de_extensao_sem_setter() {
 }
 
 #[test]
+fn sobreposicao_explicita_sem_getter_usa_codigo_de_extensao() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; extension E on int { set foo(int v) {} } void f() { E(0).foo; E(0).foo += 1; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
+    assert_eq!(ausentes.len(), 2, "{diags:?}");
+    for d in ausentes {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo");
+        assert!(d.message.contains("'foo' em 'E'"));
+    }
+    assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
+}
+
+#[test]
 fn sobreposicao_explicita_de_extensao_rejeita_membros_estaticos() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

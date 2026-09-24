@@ -835,6 +835,12 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         }
         Busca::Nunca => inf.core.never,
         Busca::Ausente => {
+            if let Some((x, _)) = cx.sobreposicoes.get(&target).cloned() {
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extensao);
+                inf.aviso(msg, name.span);
+                return (inf.core.dynamic_, curto);
+            }
             let msg = format!(
                 "{}: getter '{}' não definido para o tipo '{}'",
                 UNDEFINED_GETTER.template,
