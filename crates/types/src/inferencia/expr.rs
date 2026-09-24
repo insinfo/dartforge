@@ -1329,6 +1329,11 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     match (fe.kind, fe.variable) {
                         (FunctionKind::ImplicitAccessor, Some(v)) => inf.tipo_variavel(v),
                         (FunctionKind::Setter, _) => inf.outline.functions[f.0 as usize].parameters.first().map(|p| p.ty).unwrap_or(inf.core.dynamic_),
+                        (FunctionKind::Getter, _) => {
+                            let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(n.sym));
+                            inf.aviso(msg, n.span);
+                            inf.outline.functions[f.0 as usize].return_type
+                        }
                         _ => inf.core.dynamic_,
                     }
                 }

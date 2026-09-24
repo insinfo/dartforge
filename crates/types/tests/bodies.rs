@@ -362,6 +362,31 @@ fn membros_estaticos_somente_leitura_em_atribuicoes() {
 }
 
 #[test]
+fn getter_de_topo_sem_setter_e_par_com_setter() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; int get x => 0; int get y => 0; set y(int v) {} void f() { x = 0; x += 0; ++x; x++; y = 0; y += 0; ++y; y++; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    assert_eq!(finais.len(), 4, "{diags:?}");
+    for (d, alvo) in finais.iter().zip(["x = 0", "x += 0", "++x", "x++"]) {
+        let indice = fonte.find(alvo).unwrap() + alvo.find('x').unwrap();
+        assert_eq!(d.span.start as usize, indice, "{diags:?}");
+        assert_eq!(d.span.end as usize, indice + 1, "{diags:?}");
+        assert!(d.message.contains("'x'"), "{diags:?}");
+    }
+    assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
