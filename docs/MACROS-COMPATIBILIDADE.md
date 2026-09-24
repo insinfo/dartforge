@@ -93,6 +93,10 @@ A montagem dos resultados estruturados também existe em Dart
 `macro.resultado` de `sessao.dfexec` produz os mesmos 3266 caracteres da
 augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
 execução da macro pelo builder.
+Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
+`pacotes/macros`, reproduz os 8 resultados da sessão CFE. O builder ainda
+precisa construir o modelo semântico a partir do `Resolver` e registrar as
+fábricas de macro do projeto para chamar esse executor sem a sessão gravada.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

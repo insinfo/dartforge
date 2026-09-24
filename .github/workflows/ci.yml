@@ -112,6 +112,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'montagem Dart das augmentations falhou' }
             dart run test/montagem_cfe.dart
             if ($LASTEXITCODE -ne 0) { throw 'montagem Dart divergiu do CFE' }
+            dart --enable-experiment=macros run test/executor_cfe.dart
+            if ($LASTEXITCODE -ne 0) { throw 'executor Dart no mesmo isolate divergiu do CFE' }
           }
           finally { Pop-Location }
       - name: test (ignorados que o runner satisfaz)
