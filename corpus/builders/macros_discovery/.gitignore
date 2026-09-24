@@ -1,4 +1,5 @@
 *.macro_uses.json
 *.macro_declarations.json
+*.macro_declarations.txt
 .dart_tool/
 pubspec.lock

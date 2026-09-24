@@ -13,10 +13,12 @@ import 'package:build/build.dart';
 import 'package:macros/macros.dart' show Macro;
 import 'package:macros/src/executor/executar.dart';
 import 'package:macros/src/executor/modelo.dart';
+import 'package:macros/src/executor/montagem.dart';
 import 'package:macros/src/executor/resultado.dart';
 
 import 'src/modelo_analyzer.dart';
 import 'src/resolver_identificadores.dart';
+import 'src/resolvedor_montagem_analyzer.dart';
 import 'src/tabela_identificadores.dart';
 
 Builder macroDiscoveryBuilder(BuilderOptions _) => _MacroDiscoveryBuilder();
@@ -48,7 +50,7 @@ final class _MacroDeclarationsBuilder implements Builder {
 
   @override
   Map<String, List<String>> get buildExtensions => const {
-        '.dart': ['.macro_declarations.json']
+        '.dart': ['.macro_declarations.json', '.macro_declarations.txt']
       };
 
   @override
@@ -87,6 +89,21 @@ final class _MacroDeclarationsBuilder implements Builder {
       step.inputId.changeExtension('.macro_declarations.json'),
       '${jsonEncode({'versao': 1, 'resultados': resultados})}\n',
     );
+    if (!step.inputId.path.startsWith('lib/')) {
+      throw UnsupportedError('augmentation de biblioteca fora de lib/');
+    }
+    final uri =
+        'package:${step.inputId.package}/${step.inputId.path.substring(4)}';
+    final parcial = montarAugmentation(
+      [
+        for (final item in resultados) item['resultado'] as Map<String, Object?>
+      ],
+      ResolvedorMontagemAnalyzer(tabela),
+      cabecalho: 'augment library',
+      uri: uri,
+    );
+    await step.writeAsString(
+        step.inputId.changeExtension('.macro_declarations.txt'), parcial);
   }
 }
 

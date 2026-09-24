@@ -162,6 +162,31 @@ Future<void> main() async {
       throw StateError(
           'tabela de ids divergiu das duas primeiras aplicações do CFE');
     }
+    final parcial = File('lib/modelos.macro_declarations.txt')
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+    final augmentationCfe =
+        File('../../macros/410_json_codable/esperado/modelos.augmentation.dart')
+            .readAsStringSync()
+            .replaceAll('\r\n', '\n');
+    String declaracoesDe(String texto, String nome) {
+      final inicio = texto.indexOf('augment class $nome {\n');
+      if (inicio < 0) throw StateError('classe $nome ausente da augmentation');
+      final proximaDefinicao = texto.indexOf('\n  augment ', inicio);
+      final fimDaClasse = texto.indexOf('\n}', inicio);
+      if (fimDaClasse < 0) throw StateError('classe $nome sem fechamento');
+      final fim = proximaDefinicao >= 0 && proximaDefinicao < fimDaClasse
+          ? proximaDefinicao
+          : fimDaClasse;
+      return texto.substring(inicio, fim);
+    }
+
+    for (final alvo in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
+      if (declaracoesDe(parcial, alvo) !=
+          declaracoesDe(augmentationCfe, alvo)) {
+        throw StateError('declarações montadas de $alvo diferem do CFE');
+      }
+    }
     final peloBuilder =
         geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
     if (peloBuilder['macro'] != 'package:json/json.dart#JsonCodable' ||
@@ -184,7 +209,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou 4 aplicações; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }

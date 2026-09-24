@@ -121,6 +121,11 @@ semânticos: classes distintas não colidem e `Map`, `String` e `Object` mantêm
 o ID entre as quatro execuções. Os IDs das duas primeiras classes seguem o
 oráculo CFE (1 para `Endereco`, 8 para `Usuario` neste corpus). A tabela é
 pré-requisito para fundir os resultados na augmentation parcial.
+O adaptador de montagem do analyzer já funde essas quatro declarações em
+`modelos.macro_declarations.txt`: os quatro blocos `augment class` são
+comparados byte a byte com a parte correspondente da augmentation do CFE.
+O `.txt` é uma saída intermediária, pois ainda faltam a recarga do analyzer
+com essas declarações e a fase de definições para formar `.macro.dart`.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
