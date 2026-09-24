@@ -169,6 +169,7 @@ pub fn aplicar(
     SESSOES.fetch_add(1, Ordering::Relaxed);
 
     if let Err(e) = executor.iniciar() {
+        executor.encerrar();
         return Err(apps.iter().map(|a| diagnostico(a, &e)).collect());
     }
     // Uma instância por (macro, construtor, argumentos), como o CFE.
@@ -255,7 +256,13 @@ pub fn aplicar(
                 mudou = true;
                 // Fase 2: a próxima aplicação vê o que esta declarou.
                 if fase == Fase::Declaracoes && erros.is_empty() {
-                    textos = recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados)?;
+                    textos = match recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados) {
+                        Ok(textos) => textos,
+                        Err(diagnosticos) => {
+                            executor.encerrar();
+                            return Err(diagnosticos);
+                        }
+                    };
                     mudou = false;
                 }
             }
@@ -265,7 +272,13 @@ pub fn aplicar(
             return Err(erros);
         }
         if mudou {
-            textos = recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados)?;
+            textos = match recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados) {
+                Ok(textos) => textos,
+                Err(diagnosticos) => {
+                    executor.encerrar();
+                    return Err(diagnosticos);
+                }
+            };
         }
     }
     executor.encerrar();
