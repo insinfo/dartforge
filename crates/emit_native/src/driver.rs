@@ -221,14 +221,14 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], runtime_lib: &Path, output: 
         // CRT do runtime, ThinLTO entre o programa e o SDK (lld), e o ligador
         // tira as seções que nada alcança.
         // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só é
-        // lido pela mesma versão): `-fuse-ld=lld` pega o primeiro do PATH, que
-        // no runner do CI é de outro LLVM (medido: LLVM 20 lendo bitcode 22).
+        // lido pela mesma versão). O Clang exige o valor literal `lld` para
+        // ThinLTO e procura primeiro o `lld-link` irmão do próprio binário.
+        // Recusar sua ausência evita cair no LLVM de outra versão no PATH.
         let lld = clang.with_file_name("lld-link.exe");
-        if lld.is_file() {
-            cmd.arg(format!("-fuse-ld={}", lld.display()));
-        } else {
-            cmd.arg("-fuse-ld=lld");
+        if !lld.is_file() {
+            return Err(format!("ThinLTO requer lld-link.exe ao lado de {}", clang.display()));
         }
+        cmd.arg("-fuse-ld=lld");
         cmd.args([
             "-flto=thin",
             "-O2",
