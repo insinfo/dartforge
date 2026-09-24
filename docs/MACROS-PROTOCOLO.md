@@ -212,6 +212,10 @@ dos identificadores é local. As declarações `augment` que os builders da fase
   anotada original nos quatro executores; o JS roda a macro automaticamente
   com o executor VM provisório, sem `dartforge-entrada.txt` nem preparação
   manual. O `.macro.dart` do builder também é comparado byte a byte ao CFE.
+* `412_argumento_posicional` — macro própria `@Rotulo('P7')`, exercitando
+  `Function.apply` e o argumento posicional do protocolo no caminho direto
+  de desenvolvimento e produção. A augmentation do hospedeiro é comparada
+  byte a byte com a fonte extraída do kernel pelo CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 

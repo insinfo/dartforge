@@ -1,0 +1,6 @@
+name: caso_rotulo
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  macros: 0.1.3-main.0
