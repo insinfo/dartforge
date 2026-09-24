@@ -64,6 +64,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::RETURN_OF_INVALID_TYPE,
         c::INVALID_ASSIGNMENT,
         c::ASSIGNMENT_TO_FINAL_LOCAL,
+        c::ASSIGNMENT_TO_FINAL,
         c::ASSIGNMENT_TO_FINAL_NO_SETTER,
         c::ASSIGNMENT_TO_CONST,
         c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
@@ -191,6 +192,22 @@ mod testes {
         let c = codificar_tipos(&d, "h");
         assert_eq!(c.code.unwrap().info().nome, "undefined_identifier");
         assert_eq!(c.message, "Undefined name 'h'.");
+    }
+
+    #[test]
+    fn atribuir_const_e_final_de_topo_tem_codigos_proprios() {
+        let span = Span { start: 2, end: 3 };
+        let constante = Diagnostic::new(dartforge_types::codes::ASSIGNMENT_TO_CONST.template, span);
+        let final_ = Diagnostic::new(
+            format!("{}: 'x'", dartforge_types::codes::ASSIGNMENT_TO_FINAL.template),
+            span,
+        );
+        let constante = codificar_tipos(&constante, "x");
+        assert_eq!(constante.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_CONST));
+        assert_eq!(constante.message, "Constant variables can't be assigned a value.");
+        let final_ = codificar_tipos(&final_, "x");
+        assert_eq!(final_.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL));
+        assert_eq!(final_.message, "'x' can't be used as a setter because it's final.");
     }
 
     #[test]

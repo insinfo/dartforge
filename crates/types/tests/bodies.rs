@@ -248,6 +248,12 @@ fn atribuicao_a_final_local_marca_somente_o_identificador() {
 }
 
 #[test]
+fn const_local_e_final_de_topo_nao_sao_final_local() {
+    verificar_diagnostico("void f() { const x = 1; x = 2; }", ASSIGNMENT_TO_CONST);
+    verificar_diagnostico("final int x = 1; void f() { x = 2; }", ASSIGNMENT_TO_FINAL);
+}
+
+#[test]
 fn negativos_do_analyzer_40_casos() {
     // 1. ARGUMENT_TYPE_NOT_ASSIGNABLE: passa String para int
     verificar_diagnostico(

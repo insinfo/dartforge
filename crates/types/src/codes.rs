@@ -37,6 +37,11 @@ pub const ASSIGNMENT_TO_FINAL_LOCAL: DiagnosticCode = DiagnosticCode::new(
     "A variável local final '{0}' só pode ser atribuída uma vez.",
 );
 
+pub const ASSIGNMENT_TO_FINAL: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_final",
+    "A variável final não tem setter.",
+);
+
 pub const ASSIGNMENT_TO_FINAL_NO_SETTER: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_final_no_setter",
     "Não há setter para '{0}' na classe '{1}'.",
