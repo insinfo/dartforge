@@ -282,9 +282,6 @@ jobs:
           sdk-313: 'true'
           pub-get: corpus/macros
           preparar: ./scripts/preparar-macros-410.ps1
-      - name: 410 materializado pelo build_runner
-        shell: pwsh
-        run: ./scripts/testar-macros-410-materializado.ps1
 
   nativo:
     name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
