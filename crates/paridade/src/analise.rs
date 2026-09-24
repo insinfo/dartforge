@@ -506,4 +506,24 @@ mod testes {
         assert!(!e_parte("library a;\npart 'b.dart';\n"));
         assert!(!e_parte("void main() {}\n"));
     }
+
+    #[test]
+    fn conflito_herdado_chega_ao_arquivo_certo_no_motor() {
+        let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/motor-heranca-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&raiz);
+        std::fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        std::fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
+        let entrada = raiz.join("main.dart");
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
+        std::fs::write(&entrada, fonte).unwrap();
+        let motor = Motor::novo(&raiz.join("sdk/lib")).unwrap();
+        let resultado = motor.analisar(&raiz, std::slice::from_ref(&entrada), None);
+        let arquivo = &resultado.arquivos[&chave(&entrada)];
+        let achados: Vec<_> = arquivo.diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
+        assert_eq!(achados.len(), 1, "{:?}", arquivo.diags);
+        assert_eq!(&fonte[achados[0].span.start as usize..achados[0].span.end as usize], "foo");
+        std::fs::remove_dir_all(&raiz).unwrap();
+    }
 }
