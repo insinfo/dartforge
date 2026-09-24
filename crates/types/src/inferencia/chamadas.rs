@@ -348,7 +348,21 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
-            match expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false) {
+            let mut busca = expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false);
+            if matches!(busca, Busca::Ausente) {
+                if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {
+                    if let Some(m) = inf.membro_estatico_de_extensao(x, name.sym, false) {
+                        // O analyzer ainda resolve a assinatura do método,
+                        // mas rejeita seu acesso via `E(valor).metodo()`.
+                        inf.aviso(
+                            EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(),
+                            name.span,
+                        );
+                        busca = Busca::Achado(m);
+                    }
+                }
+            }
+            match busca {
                 Busca::Achado(m) => {
                     resolver(inf, cx, target, m.resolved.clone());
                     registrar(inf, cx, target, m.tipo);
