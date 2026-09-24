@@ -190,7 +190,8 @@ fn sass_release_css_sob_demanda_sem_apoio() {
         m.naturais.iter().filter(|(id, _)| id.caminho.contains("principal")).collect::<Vec<_>>()
     );
     let css = m.materializar(&ctx, &destino).unwrap_or_else(|| {
-        let estado: Vec<_> = m.estado_canonico().lines().filter(|l| l.contains("principal.scss")).collect();
+        let estado_completo = m.estado_canonico();
+        let estado: Vec<_> = estado_completo.lines().filter(|l| l.contains("principal.scss")).collect();
         panic!("CSS nativo sob demanda: {estado:?}")
     });
     assert_eq!(&*css, b".a{color:red}\n");
