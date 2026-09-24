@@ -219,8 +219,11 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
                 }
             }
         }
-        Instruction::CallSeletor { recv, args, .. } => {
+        Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
             c.checar_ref("chamada por seletor", recv, Type::Ref);
+            if c.tipo(tupla_tipos) != Type::I64 {
+                c.erro(format!("tupla de tipos do seletor não é I64: {tupla_tipos:?}"));
+            }
             for a in args {
                 if c.tipo(a) != Type::Ref {
                     c.erro(format!("argumento de seletor não é Ref: {a:?}"));

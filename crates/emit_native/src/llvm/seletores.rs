@@ -50,14 +50,18 @@ impl LlvmEmitter<'_> {
         recv: &Operand,
         args: &[Operand],
         nomes: &[String],
+        tupla_tipos: &Operand,
     ) {
         let k = self.vetor_de[&Self::descritor(args.len(), nomes)];
-        let n = args.len().max(1);
+        let n = args.len() + 1;
         for (i, a) in args.iter().enumerate() {
             let s = self.coagir(a, Type::I64);
             writeln!(self.out, "  %sa{v}_{i} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {i}").unwrap();
             writeln!(self.out, "  store i64 {s}, ptr %sa{v}_{i}").unwrap();
         }
+        let tupla = self.coagir(tupla_tipos, Type::I64);
+        writeln!(self.out, "  %sat{v} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {}", args.len()).unwrap();
+        writeln!(self.out, "  store i64 {tupla}, ptr %sat{v}").unwrap();
         let r = self.coagir(recv, Type::Ref);
         let ic = self.caches_de_seletor;
         let nome = match self.nomes_de_seletor.iter().position(|s| s == seletor) {

@@ -1249,6 +1249,13 @@ privados. A chamada é direta quando só a biblioteca da classe pode
 sobrescrever o membro e ele tem uma implementação que é método
 (`sdk_fonte::implementacoes`).
 
+A entrada uniforme guarda a tupla RTI do método genérico num slot oculto
+depois dos argumentos posicionais e nomeados; o descritor de aridade continua
+contando só os argumentos Dart. O adaptador passa essa tupla à função real.
+O `T` de uma classe genérica, por sua vez, é avaliado pelo RTI do receptor.
+Essa combinação permite que `Iterable.whereType<T>` filtre por `T` mesmo
+quando a chamada e `WhereTypeIterator<T>.moveNext` passam por seletores.
+
 **O que é nosso na sobreposição** (além do de 7.4): `print_patch.dart`
 (`printToConsole` como native, e os erros que o runtime lança construídos
 como os objetos da fonte, `_dartforge*`), `string_buffer_patch.dart` (o

@@ -297,6 +297,8 @@ pub enum Instruction {
         recv: Operand,
         args: Vec<Operand>,
         nomes: Vec<String>,
+        /// Tupla RTI do método genérico, no slot oculto após os argumentos.
+        tupla_tipos: Operand,
     },
     /// Chama o valor função `closure` repassando o vetor de argumentos e o
     /// descritor já montados (os parâmetros de uma entrada uniforme): o

@@ -1038,8 +1038,8 @@ impl<'a> LlvmEmitter<'a> {
                 self.entrada_da_closure(v, &c);
                 writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
             }
-            Instruction::CallSeletor { seletor, recv, args, nomes } => {
-                self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes);
+            Instruction::CallSeletor { seletor, recv, args, nomes, tupla_tipos } => {
+                self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes, tupla_tipos);
             }
             Instruction::LoadIndexed { base, index } => {
                 let b = self.operand_str(base);
@@ -1067,7 +1067,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
                     }
                     Instruction::CallSeletor { args, .. } => {
-                        writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
+                        writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
                     }
                     Instruction::AllocEnv { values } if !values.is_empty() => {
                         writeln!(self.out, "  %envbuf{} = alloca [{} x i64]", vid.0, values.len() * 2).unwrap();

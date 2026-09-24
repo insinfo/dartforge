@@ -217,7 +217,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Os nomes dos parâmetros de tipo da classe envolvente (na ordem).
-    fn params_da_classe(&self) -> Vec<SymbolId> {
+    pub(super) fn params_da_classe(&self) -> Vec<SymbolId> {
         let Some(c) = self.enclosing_class else { return Vec::new() };
         self.ctx
             .outline

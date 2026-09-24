@@ -779,9 +779,10 @@ fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(base);
             op(index);
         }
-        Instruction::CallSeletor { recv, args, .. } => {
+        Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
             op(recv);
             args.iter().for_each(&mut op);
+            op(tupla_tipos);
         }
         Instruction::CallClosureRepasse { closure, args, desc } => {
             op(closure);
@@ -887,9 +888,10 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             t(base);
             t(index);
         }
-        Instruction::CallSeletor { recv, args, .. } => {
+        Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
             t(recv);
             args.iter_mut().for_each(t);
+            t(tupla_tipos);
         }
         Instruction::CallClosureRepasse { closure, args, desc } => {
             t(closure);

@@ -90,6 +90,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `recv.<seletor>(avaliados)` pela convenção uniforme; o resultado é
     /// `Ref`.
     pub fn chamar_por_seletor(&mut self, recv: Operand, seletor: String, avaliados: &[Avaliado]) -> Operand {
+        self.chamar_por_seletor_com_tupla(recv, seletor, avaliados, Operand::Constant(Constant::Int(0)))
+    }
+
+    fn chamar_por_seletor_com_tupla(
+        &mut self,
+        recv: Operand,
+        seletor: String,
+        avaliados: &[Avaliado],
+        tupla_tipos: Operand,
+    ) -> Operand {
         let recv = self.coagir(recv, Type::Ref);
         let mut args = Vec::with_capacity(avaliados.len());
         for (n, v) in avaliados {
@@ -109,7 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             args.push(v);
             nomes.push(n);
         }
-        self.emit_call_with_check(Instruction::CallSeletor { seletor, recv, args, nomes }, Type::Ref)
+        self.emit_call_with_check(Instruction::CallSeletor { seletor, recv, args, nomes, tupla_tipos }, Type::Ref)
     }
 
     /// `recv.nome(avaliados)` pelo seletor, com o nome privado da biblioteca
@@ -152,7 +162,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => Tipo::Chamar,
         };
         let s = texto_seletor(self.ctx, tipo, &nome, f.library);
-        let r = self.chamar_por_seletor(recv, s, avaliados);
+        let tupla = if self.funcao_generica(decl_fid) {
+            self.tupla_armada.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
+        } else {
+            Operand::Constant(Constant::Int(0))
+        };
+        let r = self.chamar_por_seletor_com_tupla(recv, s, avaliados, tupla);
         let ret = self.repr_retorno(decl_fid);
         Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) })
     }
@@ -238,10 +253,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `op is T` com o SDK da fonte (hook de `testar_tipo`): toda classe
     /// (`int`, `num`, `String`, `Object`…) é uma classe compilada com id, e
     /// a resposta é a do grafo de subtipos que as bibliotecas registram; null
-    /// só é um `T` quando `T` é `Null` ou anulável (§20.3). Um nome que não é
-    /// classe (parâmetro de tipo, `typedef`) num `as` confere só a classe,
-    /// como os argumentos de tipo (`checar_tipo_ou_lancar`); num `is`,
-    /// `None` (o diagnóstico de sempre). `None` também sem o SDK da fonte.
+    /// só é um `T` quando `T` é `Null` ou anulável (§20.3). Parâmetros de tipo
+    /// são resolvidos pelo RTI da instância ou pela tupla do método.
     pub fn testar_tipo_fonte(
         &mut self,
         ast_ty: &dartforge_frontend::ast::TypeAnnotation,
@@ -257,11 +270,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // classe; o `is` com argumentos continua diagnóstico.
         let no_sdk = self.ctx.program.library(self.ctx.program.unit(self.unit_id).library).is_sdk;
         let so_classe = self.cast_so_pela_classe || no_sdk;
-        // O que a classe não responde (variável de tipo, tipo de função ou de
-        // record) num `is` do código do SDK: recusado. A RTI (`rti.rs`) não
-        // vale ali — a entrada uniforme da tabela de métodos não leva a tupla
-        // dos argumentos de tipo, e o `T` de um método genérico chamado pelo
-        // seletor seria `dynamic` (um `whereType<int>` deixaria passar tudo).
+        // Tipos sem classe que não têm receita resolvida continuam recusados.
         let sem_classe = |b: &mut Self| -> Option<Operand> {
             if b.cast_so_pela_classe {
                 Some(Operand::Constant(Constant::Bool(true)))
@@ -289,6 +298,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let ultimo = name.last()?;
         let nome = self.ctx.symbol_name(ultimo.sym).to_string();
+        // Parâmetros da classe vêm do RTI de `this` (`P<i>`). Os de método
+        // vêm da tupla oculta repassada pelo adaptador do seletor (`M<i>`).
+        if no_sdk
+            && !self.cast_so_pela_classe
+            && args.is_empty()
+            && (self.params_de_tipo_da_funcao.contains(&ultimo.sym)
+                || self.params_da_classe().contains(&ultimo.sym))
+        {
+            let receita = self.receita_da_anotacao(ast_ty)?;
+            let tipo = self.rti_da_receita(&receita);
+            return Some(self.testar_rti(op, tipo));
+        }
         let mut op = op;
         let repr = self.operand_type(&op);
         if repr != Type::Ref {
@@ -710,12 +731,24 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
             }
             _ => {
                 let infos = b.params_da_funcao(fid);
-                let Some(vals) = b.desempacotar(&infos, args, desc) else {
+                let Some(vals) = b.desempacotar(&infos, args.clone(), desc.clone()) else {
                     b.finalizar(module);
                     continue;
                 };
                 let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
                 let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coagir(v, r)).collect();
+                if b.funcao_generica(fid) {
+                    let npos = b.emit(
+                        Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) },
+                        Type::I64,
+                    );
+                    let nnom = b.emit(
+                        Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) },
+                        Type::I64,
+                    );
+                    let indice = b.emit(Instruction::Add(npos, nnom), Type::I64);
+                    b.tupla_armada = Some(b.emit(Instruction::LoadIndexed { base: args.clone(), index: indice }, Type::I64));
+                }
                 b.chamar_direto(fid, Some(recv), vals)
             }
         };
