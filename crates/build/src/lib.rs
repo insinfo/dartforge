@@ -10,6 +10,7 @@
 //! crate é construído se o `package_config.json` não tem `build_runner`
 //! ([`detectar`]); [`instancias`] conta os motores criados, para o portão.
 pub mod config;
+pub mod cliente;
 pub mod consulta;
 pub mod descritor;
 pub mod executor;
