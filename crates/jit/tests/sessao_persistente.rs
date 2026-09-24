@@ -142,7 +142,7 @@ fn medicao_sessao_persistente() {
     let emitido = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None };
+            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
             dartforge_emit_native::emitir_ir(&fonte, &opcoes).unwrap().texto
         })
         .unwrap()

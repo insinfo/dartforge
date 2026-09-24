@@ -47,6 +47,7 @@ fn emitir(
                 timings: false,
                 optimize: false,
                 versao_linguagem: None,
+                experimentos: Vec::new(),
             };
             dartforge_emit_native::emitir_ir(&entrada, &opcoes)
         })

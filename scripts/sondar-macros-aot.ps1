@@ -28,10 +28,21 @@ if (!(Test-Path -LiteralPath $bootstrap) -or !(Test-Path -LiteralPath $pacotes))
     throw 'bootstrap ou package_config do dfexec/1 ausente'
 }
 
+& $binario compile-native $bootstrap -o (Join-Path $trabalho 'invalido.exe') `
+    --enable-experiment=desconhecido *> (Join-Path $trabalho 'parser.txt')
+if ($LASTEXITCODE -eq 0 -or
+    -not ([IO.File]::ReadAllText((Join-Path $trabalho 'parser.txt')).Contains('experimento desconhecido'))) {
+    throw 'parser nativo não rejeitou experimento desconhecido'
+}
+
 & $binario compile-native $bootstrap -o (Join-Path $trabalho 'executor.exe') `
-    --packages $pacotes --sdk $env:DARTFORGE_SDK_LIB *> $log
+    --packages $pacotes --sdk $env:DARTFORGE_SDK_LIB `
+    --versao-linguagem 3.6 --enable-experiment=macros *> $log
 $codigo = $LASTEXITCODE
 $linhas = @(Get-Content -LiteralPath $log -Encoding utf8)
+if ($linhas -match 'experiment_not_enabled_off_by_default') {
+    throw 'flag macros não chegou ao loader nativo'
+}
 Write-Host "Sonda AOT dfexec/1: saída $codigo"
 $linhas | Select-Object -First 80 | Write-Host
 $resumo = @('### Sonda AOT do bootstrap de macros', '', "Código de saída: $codigo", '', '```text')
