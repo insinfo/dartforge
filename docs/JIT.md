@@ -399,6 +399,9 @@ os mesmos corpos.
 IR inválido e referência não resolvível, e
 exige que a versão boa continue executando e que uma recarga válida ainda
 funcione depois delas.
+`cinco_recargas_preservam_entrada_estavel` exercita cinco publicações
+consecutivas, conferindo identidade do trampolim e contagem de gerações
+retidas; não mede vazamento, pois a retenção é deliberada nesta versão.
 
 ### A única janela não transacional: promoção
 

@@ -73,6 +73,30 @@ define i64 @df_fn_1(i64 %h) {{
     assert_eq!(somar.call_with(&sessao, contador).unwrap(), 23);
 }
 
+/// Cinco recargas consecutivas mantêm o endereço público estável e avançam
+/// geração por geração. O código antigo permanece retido pela política atual;
+/// este teste não afirma ausência de crescimento de memória.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn cinco_recargas_preservam_entrada_estavel() {
+    let ir = |valor: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {valor}\n}}\n");
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", &ir(0)).expect("geração inicial");
+    let entrada = sessao.stable_entry("df_fn_0").expect("entrada estável");
+    let endereco = sessao.lookup("df_fn_0").expect("endereço público");
+    assert_eq!(entrada.call(&sessao).unwrap(), 0);
+
+    for valor in 1..=5 {
+        let relatorio = sessao.hot_reload("app", &ir(valor)).expect("recarga");
+        assert_eq!(relatorio.generation, valor as u32 + 1);
+        assert_eq!(relatorio.new_entries, 0);
+        assert_eq!(relatorio.retained_generations, valor as usize + 1);
+        assert_eq!(sessao.lookup("df_fn_0").unwrap(), endereco);
+        assert_eq!(entrada.call(&sessao).unwrap(), valor);
+        assert_eq!(sessao.module_names(), vec!["app"]);
+    }
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]
