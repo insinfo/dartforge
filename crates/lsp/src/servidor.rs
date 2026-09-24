@@ -259,6 +259,7 @@ impl<A: Analisador> Servidor<A> {
                         "positionEncoding": "utf-16",
                         "documentSymbolProvider": true,
                         "workspaceSymbolProvider": true,
+                        "definitionProvider": true,
                     },
                     "serverInfo": {
                         "name": "dartforge-lsp",
@@ -308,6 +309,28 @@ impl<A: Analisador> Servidor<A> {
                 }
                 resultado.retain(|s| s["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&consulta)));
                 resposta(&id, json!(resultado))
+            }
+            "textDocument/definition" => {
+                let params = mensagem.get("params");
+                let uri = params
+                    .and_then(|p| p.get("textDocument"))
+                    .and_then(|d| d.get("uri"))
+                    .and_then(Value::as_str);
+                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
+                let resultado = uri.zip(posicao).and_then(|(u, p)| {
+                    let texto = self.documentos.get(u)?.to_string();
+                    let offset = self.documentos.linhas(u)?
+                        .offset_de_posicao(&texto, p.linha, p.coluna);
+                    let destino = self.analisador.definicao(u, &texto, offset)?;
+                    Some(json!({
+                        "uri": destino,
+                        "range": {
+                            "start": {"line": 0, "character": 0},
+                            "end": {"line": 0, "character": 0},
+                        },
+                    }))
+                });
+                resposta(&id, resultado.unwrap_or(Value::Null))
             }
             METODO_DORMIR => {
                 let ms = mensagem

@@ -87,6 +87,15 @@ antes da análise, e cada AST é liberada antes da próxima: uma consulta não
 mantém cópias das versões já substituídas. O resultado é sempre
 `SymbolInformation[]`, no intervalo do nome.
 
+`textDocument/definition` navega do literal de URI em `import`, `export`,
+`part`, `part of` e `import augment` para um **arquivo relativo existente**.
+A posição de entrada é UTF-16; a resposta `Location` aponta para o início do
+arquivo. URIs `dart:`/`package:` e nomes de código aguardam resolução de
+bibliotecas e elementos. A regra de ativação segue a navegação de diretivas
+do analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo
+quando o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
+--locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -94,7 +103,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: hover, completion, definição, referências,
+Explicitamente fora deste brief: hover, completion, definição de nomes, referências,
 rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Semântica
 (nomes não resolvidos, erros de tipo) chega depois via `crates/types`,

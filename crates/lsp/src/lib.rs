@@ -12,6 +12,7 @@
 //! trocada pela semântica (`crates/types`) sem tocar no transporte.
 
 pub mod servidor;
+mod navegacao;
 mod simbolos;
 pub mod transporte;
 pub mod utf16;
@@ -231,6 +232,11 @@ pub trait Analisador {
     fn simbolos(&mut self, _uri: &str, _texto: &str) -> Vec<serde_json::Value> {
         Vec::new()
     }
+
+    /// Definição conservadora da posição no texto, como URI `file:`.
+    fn definicao(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<String> {
+        None
+    }
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -308,5 +314,10 @@ impl Analisador for AnalisadorSintatico {
     fn simbolos(&mut self, uri: &str, texto: &str) -> Vec<serde_json::Value> {
         let features = self.features(uri, texto);
         simbolos::do_documento(texto, features)
+    }
+
+    fn definicao(&mut self, uri: &str, texto: &str, offset: usize) -> Option<String> {
+        let features = self.features(uri, texto);
+        navegacao::uri_relativa(uri, texto, features, offset)
     }
 }

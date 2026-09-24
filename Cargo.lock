@@ -256,6 +256,7 @@ dependencies = [
  "dartforge-intern",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]
