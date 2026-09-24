@@ -653,6 +653,24 @@ pub(crate) fn tipo_lista_da_tupla(tupla: i64, classe_concreta: Option<i64>) -> O
     })
 }
 
+/// `_List._sliceInternal` cria outra classe concreta de lista, mas conserva
+/// o argumento `E` do receptor. O native não recebe tupla de tipo separada.
+pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> Option<i64> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let classe = classe_concreta.unwrap_or(u.rt.list);
+        if classe == 0 {
+            return None;
+        }
+        let origem = tipo_do_ref(&mut u, origem);
+        let args = match u.tipo(origem) {
+            Tipo::Interface(_, args) => args.clone(),
+            _ => vec![T_DINAMICO],
+        };
+        Some(u.internar(Tipo::Interface(classe, args)))
+    })
+}
+
 // --- ABI do código gerado ------------------------------------------------
 
 /// Registra uma classe do universo: id RTI, nome (`String` do heap) e
