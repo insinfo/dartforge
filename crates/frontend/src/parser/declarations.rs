@@ -1741,7 +1741,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             body
         };
-        if factory && redirect.is_none() {
+        // O SDK declara factories constantes `external` (por exemplo
+        // `bool.fromEnvironment`); o ErrorVerifier só aplica `constFactory`
+        // ao ramo sem `externalKeyword`.
+        if factory && !mods.external && redirect.is_none() {
             if let Some(span) = mods.const_span {
                 self.erro_em(codigos::parser::CONST_FACTORY, span, &[]);
             }
@@ -2120,6 +2123,15 @@ mod tests {
         let mut nomes = Interner::new();
         let parsed = parse("class A { const A(); const factory A.named() = A; }", &mut nomes);
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)));
+
+        // Declarações do SDK 3.6.2: lib/core/bool.dart e lib/core/int.dart.
+        let sdk = "class bool { external const factory bool.fromEnvironment(String name, {bool defaultValue = false}); external const factory bool.hasEnvironment(String name); } class int { external const factory int.fromEnvironment(String name, {int defaultValue = 0}); }";
+        let parsed = parse(sdk, &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
+
+        let corpus = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/const/native_factory_test.dart"));
+        let parsed = parse(corpus, &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
     }
 
     // -- Independentes dos outros módulos -----------------------------------
