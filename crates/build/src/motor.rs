@@ -269,6 +269,8 @@ fn afetada(c: &Consulta, mudados: &HashSet<PathBuf>, dart_mudou: bool, estrutura
         // Uma listagem só muda quando entra ou sai arquivo (diretório observado
         // que mudou, ou arquivo novo/apagado).
         Consulta::Glob { dir, .. } => estruturais.iter().any(|m| m.starts_with(dir)),
+        Consulta::GlobAtivos { dir, candidatos, .. } => estruturais.iter().any(|m| m.starts_with(dir))
+            || candidatos.iter().any(|(rel, _)| mudados.contains(&chave(&dir.join(rel)))),
         _ => c.caminho().is_some_and(|p| mudados.contains(p)) || (c.semantica() && dart_mudou),
     }
 }

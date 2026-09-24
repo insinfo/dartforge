@@ -120,6 +120,13 @@ pub(crate) fn digest_de(
             let lista = crate::grafo::listar(dir, std::slice::from_ref(&g));
             Some(digest_bytes(lista.into_iter().collect::<Vec<_>>().join("\n").as_bytes()))
         }
+        Consulta::GlobAtivos { dir, candidatos, .. } => {
+            let lista = candidatos.iter().filter_map(|(rel, gerado)| {
+                let caminho = dir.join(rel);
+                (if *gerado { memoria(&caminho).is_some() } else { caminho.is_file() }).then_some(rel.as_str())
+            }).collect::<Vec<_>>();
+            Some(digest_bytes(lista.join("\n").as_bytes()))
+        }
         _ => banco.digest(c),
     }
 }
@@ -278,17 +285,21 @@ impl ServicoBuildStep for ServicoAcao<'_> {
     fn find_assets(&mut self, glob: &str) -> Vec<AssetId> {
         let Ok(padrao) = crate::glob::Glob::novo(glob) else { return Vec::new() };
         let Some(pacote) = self.grafo.acoes.get(self.acao).map(|a| a.entrada.pacote.clone()) else { return Vec::new() };
+        let fase = self.grafo.acoes[self.acao].fase;
         let mut ids: Vec<_> = self.grafo.fontes.iter().flat_map(|(p, cs)| cs.iter().map(|c| AssetId { pacote: p.clone(), caminho: c.clone() }))
             .chain(self.grafo.gerados.keys().cloned())
-            .filter(|id| id.pacote == pacote && padrao.casa(&id.caminho)).collect();
+            .filter(|id| id.pacote == pacote && padrao.casa(&id.caminho)
+                && self.grafo.gerados.get(id).is_none_or(|g| g.fase < fase || (g.fase == fase && g.acao == self.acao)))
+            .collect();
         ids.sort();
         ids.dedup();
+        let candidatos: Vec<_> = ids.iter().map(|id| (id.caminho.to_string(), self.grafo.gerados.contains_key(id))).collect();
         ids.retain(|id| self.can_read(id));
-        // Uma listagem vazia também depende da estrutura dos diretórios.
+        // Uma listagem vazia também depende das saídas geradas que ainda não
+        // existem. Um arquivo de apoio antigo não conta como saída atual.
         if let Some(no) = self.pacotes.no(&pacote) {
-            let disco = crate::grafo::listar(&no.raiz, std::slice::from_ref(&padrao));
-            self.consultas.push((Consulta::Glob { dir: no.raiz.clone(), padrao: glob.to_string() },
-                Some(digest_bytes(disco.into_iter().collect::<Vec<_>>().join("\n").as_bytes()))));
+            self.consultas.push((Consulta::GlobAtivos { dir: no.raiz.clone(), padrao: glob.to_string(), candidatos },
+                Some(digest_bytes(ids.iter().map(|id| id.caminho.as_ref()).collect::<Vec<_>>().join("\n").as_bytes()))));
         }
         ids
     }
@@ -405,5 +416,24 @@ mod testes_servico {
         assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);
         assert!(!s.find_assets("lib/**").contains(&estrangeiro), "findAssets fica no pacote da entrada, como build 2.4.2");
         assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Existe(_)) && d.is_none()));
+    }
+
+    #[test]
+    fn glob_de_buildstep_revalida_saida_gerada_em_memoria() {
+        let dir = tempfile::tempdir().unwrap();
+        let consulta = Consulta::GlobAtivos {
+            dir: dir.path().to_path_buf(), padrao: "lib/**".into(),
+            candidatos: vec![("lib/a.g.dart".into(), true)],
+        };
+        let vazio = |_: &Path| None;
+        let cheio = |p: &Path| (p == dir.path().join("lib/a.g.dart")).then(|| Arc::from(&b"gerado"[..]));
+        assert_ne!(digest_de(&consulta, &crate::consulta::SemBanco, &vazio),
+            digest_de(&consulta, &crate::consulta::SemBanco, &cheio));
+        // Um arquivo de apoio antigo no disco não torna presente a saída da
+        // rodada atual quando o gerador não a publicou em memória.
+        std::fs::create_dir(dir.path().join("lib")).unwrap();
+        std::fs::write(dir.path().join("lib/a.g.dart"), b"antigo").unwrap();
+        assert_eq!(digest_de(&consulta, &crate::consulta::SemBanco, &vazio),
+            Some(digest_bytes(b"")));
     }
 }
