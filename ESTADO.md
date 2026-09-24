@@ -18,17 +18,18 @@ Na rodada de validação, [CI 35965411301](https://github.com/insinfo/dartforge/
 e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225)
 passaram. O executável autocontido em produção passou após a correção dos
 símbolos RTI; após canonizar literais de string e corrigir a notação exponencial
-sem precisão explícita, [Pesado 35969733768](https://github.com/insinfo/dartforge/actions/runs/35969733768)
-mediu SDK da fonte: **110/223** tanto AOT quanto JIT. O corpus padrão
-segue **91/223**, JS desenvolvimento/produção **223/223**, Dart moderno
+sem precisão explícita e aplicar `%` de Dart a inteiros e doubles,
+[Pesado 35970757894](https://github.com/insinfo/dartforge/actions/runs/35970757894)
+mediu SDK da fonte: **112/223** tanto AOT quanto JIT. O corpus padrão
+chegou a **92/223**, JS desenvolvimento/produção **223/223**, Dart moderno
 **22/26**, macros **6/7**, com determinismo em 1/4/8 trabalhadores. P5c/P5d
-ainda não está completo: 113 casos do corpus do SDK da fonte falham. O
-próximo lote, que inclui `%` de inteiros e doubles conforme a VM, está em
-[Pesado 35970757894](https://github.com/insinfo/dartforge/actions/runs/35970757894).
+ainda não está completo: 111 casos do corpus do SDK da fonte falham. A
+correção de `%` fez `11_int_truncdiv_modulo_negativos` passar e permitiu que
+`13b_double_tostring_divergencia_web` avançasse até os seletores de `Type`.
 
-O analisador integrado passou em [CI 35967061037](https://github.com/insinfo/dartforge/actions/runs/35967061037)
-e [Pesado 35967060973](https://github.com/insinfo/dartforge/actions/runs/35967060973):
-**5.343/26.133 (20,4%)** diagnósticos na posição exata, ante 1.445/26.133
+O analisador integrado passou em [CI 35970218894](https://github.com/insinfo/dartforge/actions/runs/35970218894)
+e [Pesado 35970218770](https://github.com/insinfo/dartforge/actions/runs/35970218770):
+**5.381/26.133 (20,6%)** diagnósticos na posição exata, ante 1.445/26.133
 antes do merge, com relatório idêntico em 1/4/8 trabalhadores. O teste de navegador do bundle de produção continua vermelho no
 bootstrap do `limitless_ui`; a poda de getters calculados do SDK está em
 correção separada.
