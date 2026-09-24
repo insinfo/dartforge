@@ -662,6 +662,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.ler_campo_fonte(obj.clone(), vid) {
             return r;
         }
+        self.ler_campo_com_late_direto(obj, vid, span)
+    }
+
+    /// `super.campo` tem resolução lexical: preserva `late`, mas não pode
+    /// voltar ao getter sobrescrito da classe dinâmica via seletor do SDK.
+    pub fn ler_campo_com_late_direto(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
         let atual = self.ler_campo(obj.clone(), vid, span);
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.late {
