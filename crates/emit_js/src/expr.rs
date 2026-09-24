@@ -1297,7 +1297,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         return (Js::new(format!("{js} === void 0 ? {js} = {init} : {js}", ), P_COND).paren(), ty);
                     }
                     if l.late_check {
-                        return (Js::new(format!("{js} === void 0 ? dart.throwLateInitializationError({}) : {js}", js::string_literal(&n)), P_COND).paren(), ty);
+                        self.m.use_sdk("_internal");
+                        return (Js::new(format!("{js} === void 0 ? dart.throw(new _internal.LateError.localNI({})) : {js}", js::string_literal(&n)), P_COND).paren(), ty);
                     }
                 }
                 (Js::prim(js), ty)
