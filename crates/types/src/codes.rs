@@ -57,6 +57,11 @@ pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode = DiagnosticCode::new(
     "Setter de extensão não encontrado",
 );
 
+pub const EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "extension_override_access_to_static_member",
+    "An extension override can't be used to access a static member from an extension.",
+);
+
 pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_const",
     "Variáveis constantes não podem receber nova atribuição.",
