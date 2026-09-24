@@ -240,6 +240,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `420_fase_tipos` — `ClassTypesMacro` declara uma classe nova na fase 1; a
   biblioteca usa o tipo gerado, e o hospedeiro compara o texto integral com
   o CFE 3.6.2.
+* `421_macro_part` — anotação em declaração de uma `part`, com macro
+  importada pela biblioteca principal; a augmentation pertence à biblioteca
+  e é comparada integralmente ao CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
