@@ -38,7 +38,7 @@ use crate::ast::{
 };
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Diagnostic, Span};
+use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
 /// Como tratar um `?` final ao ler um tipo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,7 +172,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 },
             }));
         }
-        Err(self.error("esperava um tipo"))
+        Err(self.erro(codigos::parser::EXPECTED_TYPE_NAME, &[]))
     }
 
     /// `Function<T>(params)` com o tipo de retorno já lido (ou nenhum).
@@ -509,7 +509,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if in_function_type && ty.is_some() {
             None
         } else {
-            return Err(self.error("esperava o nome do parâmetro"));
+            return Err(self.erro_identificador());
         };
 
         // Forma antiga de parâmetro-função: `int f<T>(T x)`, `this.f(int x)`.
@@ -570,10 +570,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let resto = texto.strip_prefix('_')?;
         let inicializa_campo = this_ || (declarante && self.em_construtor_primario);
         if !inicializa_campo {
-            self.diagnostics.push(Diagnostic::new(
-                format!("um parâmetro nomeado que não inicializa nem declara campo não pode começar com '_': '{texto}'"),
-                n.span,
-            ));
+            self.diagnostics.push(Diagnostic::com_codigo(codigos::compile_time_error::PRIVATE_OPTIONAL_PARAMETER, n.span, Vec::<&str>::new()));
             return None;
         }
         self.exigir(Feature::PrivateNamedParameters, n.span);
@@ -584,7 +581,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             && Keyword::from_text(resto).is_none();
         if !valido {
             self.diagnostics.push(Diagnostic::new(
-                format!("o parâmetro nomeado privado '{texto}' não tem nome público correspondente ('_' seguido de um nome público)"),
+                format!("The private named parameter '{texto}' has no corresponding public name."),
                 n.span,
             ));
             return None;
@@ -606,10 +603,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return;
         }
         let texto = &self.source[span.start..span.end];
-        self.diagnostics.push(Diagnostic::new(
-            format!("o modificador '{texto}' não é permitido aqui: desde a 3.13, 'var'/'final' só declaram campo num construtor primário"),
-            span,
-        ));
+        self.diagnostics.push(Diagnostic::com_codigo(codigos::parser::EXTRANEOUS_MODIFIER, span, [texto]));
     }
 
     /// Nome público de nomeado privado que repete o de outro parâmetro é
@@ -625,10 +619,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 .any(|(j, q)| j != i && q.name.is_some_and(|qn| qn.sym == publico.sym));
             if colide {
                 let texto = self.interner.resolve(publico.sym).to_string();
-                self.diagnostics.push(Diagnostic::new(
-                    format!("o nome público '{texto}' do parâmetro nomeado privado colide com outro parâmetro"),
-                    publico.span,
-                ));
+                self.diagnostics.push(Diagnostic::com_codigo(codigos::compile_time_error::DUPLICATE_DEFINITION, publico.span, [texto.as_str()]));
             }
         }
     }

@@ -120,6 +120,11 @@ pub fn codificar_tipos(d: &Diagnostic, texto_no_span: &str) -> Diagnostic {
         "O símbolo encontrado não é um tipo" | "O elemento prefixado não é um tipo" => {
             Some((codigos::compile_time_error::NOT_A_TYPE, vec![nome]))
         }
+        "Tipo prefixado não encontrado" => Some((codigos::compile_time_error::UNDEFINED_CLASS, vec![nome])),
+        "Parâmetro de tipo não aceita argumentos de tipo" => {
+            Some((codigos::parser::TYPE_ARGUMENTS_ON_TYPE_VARIABLE, vec![nome]))
+        }
+        "Referência ambígua de tipo" => Some((codigos::compile_time_error::AMBIGUOUS_IMPORT, vec![nome, ""])),
         _ => None,
     };
     match codigo {

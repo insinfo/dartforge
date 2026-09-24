@@ -10,7 +10,7 @@
 //! * [`placar`]: a comparação por código.
 //!
 //! Regra de publicação (plano §2.3): sintaxe é publicada sempre; um código
-//! semântico só é publicado se estiver em `verificados.txt` (100% no corpus e
+//! semântico só é publicado se estiver em `crates/analise/verificados.txt` (100% no corpus e
 //! 0 falso positivo nos projetos reais). O resto existe internamente e vai só
 //! para o placar.
 
@@ -24,35 +24,12 @@ pub mod ponte;
 pub mod projetos;
 
 use analise::{Analise, Motor};
-use dartforge_diagnostics::{Diagnostic, TipoErro};
 use oraculo::Registro;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// A lista versionada de códigos semânticos verificados.
-pub const VERIFICADOS: &str = include_str!("../verificados.txt");
-
-/// Os códigos de [`VERIFICADOS`] (sem comentários).
-pub fn verificados() -> Vec<&'static str> {
-    VERIFICADOS
-        .lines()
-        .map(|l| l.split('#').next().unwrap_or("").trim())
-        .filter(|l| !l.is_empty())
-        .collect()
-}
-
-/// O diagnóstico vai para o editor/CLI? `sintaxe`: veio do lexer/parser.
-pub fn publicado(d: &Diagnostic, sintaxe: bool) -> bool {
-    if sintaxe {
-        return true;
-    }
-    match d.code {
-        Some(c) if c.info().tipo == TipoErro::SyntacticError => true,
-        Some(c) => verificados().contains(&c.info().nome),
-        None => false,
-    }
-}
+pub use dartforge_analise::publicacao::{VERIFICADOS, publicado, verificados};
 
 /// Os diagnósticos da análise no JSON v1, com os filtros aplicados
 /// (`analysis_options.yaml` da raiz e `// ignore:`). `so_publicados` aplica a

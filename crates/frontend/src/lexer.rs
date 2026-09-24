@@ -16,7 +16,7 @@
 //!   como qualquer comentário (a árvore não os guarda por enquanto).
 use crate::text::{DartStr, DartStrBuilder};
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
-use dartforge_diagnostics::{Diagnostic, Span};
+use dartforge_diagnostics::{Diagnostic, Span, Codigo, codigos};
 
 /// Literal suspenso por `${`, aguardando a chave correspondente.
 #[derive(Debug, Clone, Copy)]
@@ -87,14 +87,31 @@ impl<'s> Lexer<'s> {
         });
     }
 
-    fn error(&self, start: usize, message: &str) -> Diagnostic {
-        Diagnostic::new(
-            message,
-            Span {
-                start,
-                end: self.pos.max(start + 1).min(self.bytes.len().max(start + 1)),
-            },
-        )
+    /// Erro do `ScannerErrorCode` do analyzer em `[inicio, inicio + 1)`: o
+    /// scanner do fasta relata com comprimento 1 (`translateErrorToken`).
+    fn erro(&self, codigo: Codigo, inicio: usize, args: &[&str]) -> Diagnostic {
+        Diagnostic::com_codigo(codigo, Span { start: inicio, end: inicio + 1 }, args.iter().copied())
+    }
+
+    /// `ILLEGAL_CHARACTER` com o ponto de código em decimal (o argumento do
+    /// analyzer é `token.character`, um inteiro).
+    fn caractere_ilegal(&self, inicio: usize, ch: char) -> Diagnostic {
+        let n = (ch as u32).to_string();
+        self.erro(codigos::scanner::ILLEGAL_CHARACTER, inicio, &[&n])
+    }
+
+    /// Onde o fasta põe `UNTERMINATED_STRING_LITERAL`: no último caractere da
+    /// string, antes da quebra de linha ou do fim do arquivo (`endOffset - 1`).
+    fn string_nao_terminada(&self) -> Diagnostic {
+        let mut fim = self.pos;
+        if fim > 0 && self.bytes.get(fim) == Some(&b'\n') && self.bytes[fim - 1] == b'\r' {
+            fim -= 1;
+        }
+        let mut ultimo = fim.saturating_sub(1);
+        while ultimo > 0 && !self.source.is_char_boundary(ultimo) {
+            ultimo -= 1;
+        }
+        self.erro(codigos::scanner::UNTERMINATED_STRING_LITERAL, ultimo, &[])
     }
 
     fn run(&mut self) -> Result<(), Diagnostic> {
@@ -177,7 +194,7 @@ impl<'s> Lexer<'s> {
                 // fora de string ou comentário é erro.
                 let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
                 self.pos += ch.len_utf8();
-                return Err(self.error(start, &format!("caractere inesperado '{ch}'")));
+                return Err(self.caractere_ilegal(start, ch));
             }
             self.operator(start)?;
         }
@@ -217,7 +234,8 @@ impl<'s> Lexer<'s> {
             }
         }
         if depth != 0 {
-            return Err(self.error(start, "comentário de bloco não terminado"));
+            let _ = start;
+            return Err(self.erro(codigos::scanner::UNTERMINATED_MULTI_LINE_COMMENT, self.bytes.len().saturating_sub(1), &[]));
         }
         Ok(())
     }
@@ -285,7 +303,7 @@ impl<'s> Lexer<'s> {
     ) -> Result<(), Diagnostic> {
         loop {
             let Some(&b) = self.bytes.get(self.pos) else {
-                return Err(self.error(start, "string não terminada"));
+                return Err(self.string_nao_terminada());
             };
             if b == flags.quote {
                 if flags.triple {
@@ -300,7 +318,7 @@ impl<'s> Lexer<'s> {
                 break;
             }
             if b == b'\n' && !flags.triple {
-                return Err(self.error(start, "quebra de linha em string de aspas simples"));
+                return Err(self.string_nao_terminada());
             }
             if b == b'\\' && !flags.raw {
                 // Um escape nunca termina a string: pula o par inteiro. Escapes
@@ -364,7 +382,8 @@ impl<'s> Lexer<'s> {
                     let tail_start = self.pos;
                     return self.string_tail(tail_start, flags);
                 }
-                return Err(self.error(self.pos, "'$' precisa de identificador ou '{' em string"));
+                let dolar = if self.pos > 0 && self.bytes[self.pos - 1] == b'$' { self.pos - 1 } else { self.pos };
+                return Err(self.erro(codigos::scanner::MISSING_IDENTIFIER, dolar, &[]));
             }
             self.pos += 1;
         }
@@ -449,7 +468,7 @@ impl<'s> Lexer<'s> {
         }
         let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
         self.pos += ch.len_utf8();
-        Err(self.error(start, &format!("caractere inesperado '{ch}'")))
+        Err(self.caractere_ilegal(start, ch))
     }
 }
 

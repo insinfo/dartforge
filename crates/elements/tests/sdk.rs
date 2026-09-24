@@ -12,11 +12,8 @@ fn get_sdk() -> Option<(PathBuf, SdkLayout)> {
     Some((lib_dir, layout))
 }
 
-fn is_parser_diagnostic(msg: &str) -> bool {
-    msg.contains("esperava")
-        || msg.contains("não suportad")
-        || msg.contains("token inesperado")
-        || msg.contains("caractere inválido")
+fn is_parser_diagnostic(d: &dartforge_diagnostics::Diagnostic) -> bool {
+    d.code.is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
 }
 
 #[test]
@@ -44,7 +41,7 @@ fn test_sdk_core_load_and_patch() {
     let mut elements_diags = Vec::new();
 
     for d in diags {
-        if is_parser_diagnostic(&d.message) {
+        if is_parser_diagnostic(&d) {
             parser_diags.push(d);
         } else {
             elements_diags.push(d);
@@ -125,7 +122,7 @@ fn todo_dart_x_carrega() {
     let mut elements_diags = Vec::new();
 
     for d in diags {
-        if is_parser_diagnostic(&d.message) {
+        if is_parser_diagnostic(&d) {
             parser_diags.push(d);
         } else {
             elements_diags.push(d);
@@ -184,7 +181,7 @@ fn supertipos_do_sdk_resolvem() {
     let mut interner = Interner::new();
     let (program, diags) = load_lenient(&entry, &sdk, None, &mut interner);
 
-    let elements_diags: Vec<_> = diags.into_iter().filter(|d| !is_parser_diagnostic(&d.message)).collect();
+    let elements_diags: Vec<_> = diags.into_iter().filter(|d| !is_parser_diagnostic(d)).collect();
     assert!(elements_diags.is_empty(), "Diagnósticos do elements: {:?}", elements_diags);
 
     // Assegura que todas as classes que declararam extends têm supertype_class resolvido (exceto Object)

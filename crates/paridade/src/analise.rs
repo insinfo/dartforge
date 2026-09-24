@@ -182,18 +182,30 @@ impl Motor {
         let unidades_proprias: BTreeSet<UnitId> = unidade_de.values().copied().collect();
 
         // 1. Sintaxe: o `elements` prefixa o caminho e o offset na mensagem.
+        // O que ali não é sintático (marcador de versão) entra depois, fora da
+        // faixa publicada sempre.
+        let mut da_carga_semanticos: Vec<(PathBuf, Diagnostic)> = Vec::new();
         for d in &diags_carga {
             for (k, u) in &unidade_de {
                 let Some(p) = &program.unit(*u).path else { continue };
                 let prefixo = format!("{}:{}: ", p.display(), d.span.start);
                 if let Some(msg) = d.message.strip_prefix(&prefixo) {
-                    let cru = Diagnostic::new(msg, d.span);
-                    let a = analise.arquivos.get_mut(k).expect("próprio");
-                    a.diags.push(ponte::codificar_sintaxe(&cru));
-                    a.sintaticos += 1;
+                    let mut cru = d.clone();
+                    cru.message = msg.to_string();
+                    let sintatico = cru.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
+                    if sintatico {
+                        let a = analise.arquivos.get_mut(k).expect("próprio");
+                        a.diags.push(ponte::codificar_sintaxe(&cru));
+                        a.sintaticos += 1;
+                    } else {
+                        da_carga_semanticos.push((k.clone(), cru));
+                    }
                     break;
                 }
             }
+        }
+        for (k, d) in da_carga_semanticos {
+            analise.arquivos.get_mut(&k).expect("próprio").diags.push(d);
         }
 
         // 2. Diretivas cujo alvo não existe.
@@ -213,7 +225,34 @@ impl Motor {
             }
         }
 
-        // 3. Tipos.
+        // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
+        for lib in &libs_proprias {
+            let biblioteca = program.library(*lib);
+            let ids: Vec<UnitId> = biblioteca
+                .units
+                .iter()
+                .copied()
+                .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
+                .collect();
+            let unidades: Vec<dartforge_analise::Unidade<'_>> = ids
+                .iter()
+                .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
+                .collect();
+            let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+            let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga);
+            for (i, u) in unidades.iter().enumerate() {
+                achados.extend(dartforge_analise::locais::nao_usados(*u, &interner, curinga).into_iter().map(|d| (i, d)));
+            }
+            for (i, d) in achados {
+                if let Some(p) = &program.unit(ids[i]).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
+        }
+
+        // 4. Tipos.
         let mut table = dartforge_types::TypeTable::new();
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, diags_outline) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
@@ -292,6 +331,25 @@ impl Motor {
             }
             let k = chave(program.unit(unidade).path.as_deref().expect("próprio tem caminho"));
             analise.arquivos.get_mut(&k).expect("próprio").diags.push(cod);
+        }
+
+        // 5. Imports não usados, depois de tudo (a supressão olha os
+        // diagnósticos da biblioteca).
+        for lib in &libs_proprias {
+            let chaves: Vec<PathBuf> =
+                program.library(*lib).units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(chave)).collect();
+            let ja: Vec<Diagnostic> = chaves
+                .iter()
+                .filter_map(|k| analise.arquivos.get(k))
+                .flat_map(|a| a.diags.iter().cloned())
+                .collect();
+            for (u, d) in dartforge_analise::importacoes::nao_usados(&program, *lib, &interner, &ja) {
+                if let Some(p) = &program.unit(u).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
         }
         analise
     }

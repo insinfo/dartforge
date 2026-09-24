@@ -354,59 +354,70 @@ parser novo, `DocumentStore` como dono por documento. Extensão VS Code
 mensagens: **DartForge pico 21,3 MiB / platô 19,0 MiB; `dart
 language-server` pico 640,5 MiB / platô 633,7 MiB**.
 
-**Diagnósticos com paridade (plano A1/A2) — `crates/diagnostics`,
-`crates/paridade`, `dartforge analyze`.** O `Diagnostic` tem código,
-severidade e argumentos; a mensagem de um diagnóstico com código é o molde
-oficial em inglês renderizado como o `formatList` do analyzer. A tabela
-(`diagnostics/src/codigos_g.rs`) é gerada do `analyzer-6.11.0` da cache do
-pub: 1.030 códigos — 542 `CompileTimeErrorCode`, 7 `StaticWarningCode`,
-144 `WarningCode`, 8 `HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12
-`ScannerErrorCode`, 4 `TodoCode`. `dartforge analyze [--format=json]` emite o
-mesmo JSON v1 do `dart analyze` (offset UTF-16, ordem do dartdev, códigos de
-saída 3/2/0) e publica pela regra do plano §2.3: sintaxe sempre, semântica só
-os códigos de `crates/paridade/verificados.txt` — **vazia hoje**.
-
+**Diagnósticos com paridade — `crates/diagnostics`, `crates/frontend`,
+`crates/analise`, `crates/paridade`, `dartforge analyze`, LSP.** O
+`Diagnostic` tem código, severidade e argumentos; a mensagem é o molde
+oficial em inglês renderizado como o `formatList` do analyzer (**nada de
+português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
+`analyzer-6.11.0` da cache do pub: 1.030 códigos — 542
+`CompileTimeErrorCode`, 7 `StaticWarningCode`, 144 `WarningCode`, 8
+`HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12 `ScannerErrorCode`, 4
+`TodoCode`.
+* **Sintaxe**: o lexer e o parser saem com o código, a mensagem e a posição
+  do fasta, medidos em sondas: `;` que falta no token anterior, o resto no
+  token corrente; fecho que falta no fim do arquivo é o `expected_token` do
+  scanner com comprimento 1; `missing_identifier` ou
+  `expected_identifier_but_got_keyword`; os recursos desligados pela versão
+  são `experiment_not_enabled`.
+* **Verificadores sem tipo** (`crates/analise`): o
+  `DuplicateDefinitionVerifier` e o `MemberDuplicateDefinitionVerifier`
+  inteiros, a parte local do `UnusedLocalElementsVerifier` e o
+  `ImportsVerifier` (`unused_import` e `unused_shown_name`, pelo lado seguro:
+  112/153 no corpus, 0 FP nos projetos).
+* **Regra de publicação** (`crates/analise/verificados.txt`, a mesma no CLI
+  e no LSP): sintaxe sempre; semântica só com 100% no corpus e 0 FP nos
+  três projetos reais. Publicados hoje: `enum_constant_same_name_as_enclosing`,
+  `enum_with_name_values` e `values_declaration_in_enum`.
+* **LSP (L1)**: cada documento passa pela sintaxe e pelos verificadores sem
+  tipo, filtrados pela regra. O diagnóstico leva `code`, a severidade do
+  analyzer e a mensagem com a correção.
+  * Medido no `new_sali`, 1.258 arquivos abertos e editados
+    (`memoria_lsp`): 20,03 MiB vivos (antes, 19,94), pico 20,51 MiB,
+    780–810 ms, 1,90 M alocações (antes, 1,37 M).
 * **Aceite de A2**: dados código, argumentos e intervalo, a sonda de 7 erros
   sai **byte a byte** igual ao JSON gravado do SDK 3.6.2
-  (`crates/paridade/tests/sonda.rs`). Pela análise de hoje (inferência pela
-  especificação, main 27c31d0), 3 dos 7 batem em posição e mensagem:
-  `non_bool_condition`, `not_assigned_potentially_non_nullable_local_variable`
-  e `argument_type_not_assignable`. Os outros 4 dependem do pedido T1 a
-  `types`: `undefined_function` sai como `undefined_identifier`;
-  `return_of_invalid_type` cobre o comando inteiro, e não a expressão;
-  `unchecked_use_of_nullable_value` não existe; e `unused_local_variable` é
-  do A3. Há 1 falso positivo.
+  (`crates/paridade/tests/sonda.rs`).
+  * Pela análise de hoje, 4 dos 7 batem: `non_bool_condition`,
+    `not_assigned_potentially_non_nullable_local_variable`,
+    `argument_type_not_assignable` e `unused_local_variable`.
+  * Os outros 3 são do T1 (`types`): `undefined_function`,
+    `return_of_invalid_type` (posição) e `unchecked_use_of_nullable_value`.
 * **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
-  9.441 arquivos em 5 grupos — `tests/language` (1.180), trechos de
-  `pkg/analyzer/test/src/diagnostics` (8.253), os de `@dart` 3.7+ com o
-  oráculo 3.13.4 (7) e a sonda — e 26.133 diagnósticos do oráculo.
-  **1.935 na posição exata (7,4%), 1.731 com mensagem igual**; posição
-  errada 1.638; FP 2.696; FN 22.560. Antes da inferência reescrita o placar
-  era 1.268 (4,9%) e FP 4.660.
-  * Códigos com 100%: `illegal_character` e `unnecessary_cast`, de 593 com
-    casos.
-  * FN maiores: `unused_local_variable` 2.315 (A3), `duplicate_definition`
-    1.317, `expected_executable` 1.240, `type_argument_not_matching_bounds`
-    1.175 e `missing_const_final_var_or_type` 912. Dos 1.724
-    `expected_token`, a recuperação do parser difere da do fasta.
-  * FP maiores: `expected_token` 410, `undefined_identifier` 377,
-    `undefined_method` 368, `undefined_class` 359 e `undefined_getter` 202.
-  * 2 pânicos isolados: `part/self_test.dart` esgota a memória, e um caso de
-    `recursive_interface_inheritance` não termina. Cada lote roda num
+  9.441 arquivos e 26.133 diagnósticos do oráculo, 376 s com 2
+  trabalhadores.
+  * **5.647 na posição exata (21,6%), 5.358 com mensagem igual.** No começo
+    da rodada eram 1.935 (7,4%). Posição errada 538; FP 3.923; FN 19.948.
+  * `unused_local_variable` 2.231/2.315 (FP 9);
+    `duplicate_definition` 723/1.317 (FP 69; quase todo o resto é sintaxe de
+    augmentation e construtor primário, que o 3.6.2 analisa de outro jeito);
+    `expected_token` 786/1.724; `values_declaration_in_enum` 13/13;
+    `conflicting_static_and_instance` 39/266 (os 227 que faltam dependem da
+    interface herdada).
+  * FN maiores: `expected_executable` 1.236 e
+    `missing_const_final_var_or_type` 912 (recuperação do fasta),
+    `type_argument_not_matching_bounds` 1.175 e `use_of_void_result` 479
+    (T1).
+  * 2 pânicos isolados (`part/self_test.dart` esgota a memória; um caso de
+    `recursive_interface_inheritance` não termina). Cada lote roda num
     processo filho com teto de memória e de tempo.
-  * 290 atribuições ambíguas: `types` ainda não diz a unidade do
-    diagnóstico.
-* **Projetos reais**: o oráculo 3.6.2 dá **0** no `new_sali/core` (36 s),
-  no `new_sali/frontend` (24 s) e no `limitless_ui` (233 s). O nosso lado
-  tem, internamente, **53, 29 e 216** diagnósticos, todos falsos positivos
-  (antes da inferência reescrita: 3.746, 3.029 e 2.045). Por código:
-  `undefined_identifier` 127, `uri_has_not_been_generated` 70,
-  `const_initialized_with_non_constant_value` 47,
-  `missing_required_argument` 34 e `argument_type_not_assignable` 13.
-  **Publicados pela regra: 0.** Nenhum chega ao editor.
+* **Projetos reais**: o oráculo 3.6.2 dá **0** no `new_sali/core`, no
+  `new_sali/frontend` e no `limitless_ui`. O nosso lado tem, internamente,
+  **0, 15 e 183**, todos de tipo ou de `uri_has_not_been_generated`.
+  Nenhum dos verificadores sem tipo tem FP nos três. **Publicados: 0.**
 * **Mutações** dos três projetos: 45 mutantes (`nome`, `import`, `tipo`,
   `!` e `await`), com o oráculo regravado sobre cada um. Oráculo 190;
-  **acertos 75**; posição errada 9; FP 58; FN 106.* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
+  **acertos 75**; FP 49; FN 106.
+* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
   não roda `dart analyze`), com o relatório idêntico em 1, 4 e 8
   trabalhadores (`determinismo`).
 ### 1.5 Backend nativo — `crates/emit_native` (feature `nativo`)
@@ -881,25 +892,20 @@ Falta tudo além de diagnósticos: hover, ir para definição, referências,
 completion, rename, code actions — e a semântica (`crates/types`) por trás
 do `trait Analisador`, que hoje só tem a implementação sintática.
 
-Diagnósticos semânticos (plano A1/A2 feitos; ver §1.4): a lista de
-verificados está vazia. Nenhum código semântico tem 100% no corpus com 0 FP
-nos projetos, então o editor só recebe sintaxe. O caminho até lá:
+Diagnósticos (ver §1.4): o editor recebe a sintaxe e 3 códigos
+verificados. O caminho até os demais:
 
-1. **T1 em `types`**: emitir `code`/`args` (hoje a `paridade/src/ponte.rs`
-   reconhece os moldes em português) e dizer a unidade de cada diagnóstico
-   (hoje uma passada de inferência por biblioteca e casamento de intervalo:
-   290 atribuições ambíguas no corpus), e acertar posição e argumentos
-   (`undefined_function`, `return_of_invalid_type_from_*`).
-2. **Parser com `ParserErrorCode`** (métrica separada, não bloqueia):
-   a recuperação difere da do fasta em `expected_token`.
-3. **A3** (warnings: `unused_local_variable` 2.315 FN, `unused_import`,
-   `unused_element`, `dead_code`) e o `ErrorVerifier` (`duplicate_definition`,
-   `type_argument_not_matching_bounds`...).
-4. Os FP dos projetos reais: 298 internos (53 + 29 + 216). O portão dos
-   códigos que dependem de tipo é o oráculo de tipos de `types`
-   (`examples/comparar_tipos`): um código desses só entra na lista quando as
-   divergências de tipo nas bibliotecas do corpus zerarem.
-
+1. **T1 em `types`** (agente da inferência): código, argumentos e unidade
+   de cada diagnóstico; ele apaga a `paridade/src/ponte.rs`.
+2. **Sintaxe**: portar a recuperação do fasta — um erro por token no topo
+   (`expected_executable`) e nos membros (`expected_class_member`), e a
+   do comando (`missing_const_final_var_or_type`). Recurso de linguagem que
+   o SDK 3.6.2 não conhece: pede um parser que o rejeite na versão 3.6.
+3. **A3 restante**: `unused_import` exato (o `ImportsTracking` pede a
+   resolução completa), `unused_element` dos privados de topo e membros,
+   `unused_field`, `dead_code`.
+4. **Publicar**: `unused_local_variable` e `duplicate_definition` entram na
+   lista quando fecharem 100% no corpus (hoje 96% e 55%).
 ### 2.5 Backend nativo
 
 **Depois de P1–P4 (Pesado 35871381320): 142 dos 223 falham.** Quase todos
