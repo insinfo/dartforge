@@ -386,6 +386,32 @@ pub extern "C" fn dartforge_type_error_new() -> i64 {
     alocar_erro_com_rastro(1011, vec![(0, false)])
 }
 
+/// Erro de leitura/escrita de `late`: 0/1 = campo, 2/3 = local,
+/// 4/5 = escrita durante o inicializador. A fonte do SDK constrói `LateError`
+/// para preservar a identidade `is Error` e o `toString` da VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_error_new(nome: i64, codigo: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroLate") {
+        // SAFETY: helper registrado pelo dart:_internal como (String, int) -> Object.
+        let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[nome], || g(nome, codigo));
+    }
+    let n = HEAP.with(|h| h.borrow().texto(nome).para_string());
+    let (onde, mensagem) = match codigo {
+        0 => ("Field", "has not been initialized"),
+        1 => ("Field", "has already been initialized"),
+        2 => ("Local", "has not been initialized"),
+        3 => ("Local", "has already been initialized"),
+        4 => ("Field", "has been assigned during initialization"),
+        _ => ("Local", "has been assigned during initialization"),
+    };
+    // No modo sem SDK da fonte, ao menos lança um Error capturável. Não
+    // reservamos um CID sintético: 1013 pode pertencer a uma classe real.
+    let texto = format!("LateInitializationError: {onde} '{n}' {mensagem}.");
+    let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(&texto))));
+    dartforge_state_error_new(msg)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_no_such_method_error_new(nome: i64) -> i64 {
     if depurar() {

@@ -17,3 +17,13 @@ external void printToConsole(String line);
 @pragma("vm:entry-point")
 Object _dartforgeErroDeIndice(int indice, Object? alvo, int tamanho) =>
     new IndexError.withLength(indice, tamanho, indexable: alvo, name: "index");
+
+@pragma("vm:entry-point")
+Object _dartforgeErroLate(String nome, int codigo) {
+  if (codigo == 0) return new LateError.fieldNI(nome);
+  if (codigo == 1) return new LateError.fieldAI(nome);
+  if (codigo == 2) return new LateError.localNI(nome);
+  if (codigo == 3) return new LateError.localAI(nome);
+  if (codigo == 4) return new LateError.fieldADI(nome);
+  return new LateError.localADI(nome);
+}
