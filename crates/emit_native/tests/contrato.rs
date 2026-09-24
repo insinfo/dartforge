@@ -121,6 +121,33 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
                "getter\narg\n42\n6\ngetter\n8\n");
 }
 
+/// A factory redirecionadora passa os tipos da anotação do destino, inclusive
+/// quando muda de classe e permuta os parâmetros de tipo.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn factory_redirecionadora_preserva_rti_do_destino() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("redirect_factory_rti.dart");
+    let exe = dir.path().join("redirect_factory_rti.exe");
+    std::fs::write(&entrada, include_str!("fixtures/redirect_factory_rti.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None,
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "true\nMemory<String>\ntrue\nPairImpl<String, int>\n");
+}
+
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]

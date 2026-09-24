@@ -236,6 +236,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(r)
     }
 
+    /// Argumentos reificados de um tipo anotado, para a ABI de uma factory
+    /// redirecionadora. A receita usa o ambiente da factory de origem:
+    /// `Impl<T>` precisa ler `T` da tupla recebida por ela.
+    pub fn tupla_da_anotacao(&mut self, a: &ast::TypeAnnotation) -> Option<Operand> {
+        let TypeKind::Named { args, .. } = &a.kind else { return None };
+        if args.is_empty() { return None; }
+        let args = args.clone();
+        let mut r = Receita { texto: "L<".to_string(), variaveis: false };
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 { r.texto.push(','); }
+            let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+            let sub = self.receita_da_anotacao(unit_ast.ty(*arg))?;
+            r.texto.push_str(&sub.texto);
+            r.variaveis |= sub.variaveis;
+        }
+        r.texto.push('>');
+        Some(self.rti_da_receita(&r))
+    }
+
     fn escrever_anotacao(&self, a: &ast::TypeAnnotation, ligadas: &mut Vec<SymbolId>, r: &mut Receita) -> Option<()> {
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
         match &a.kind {

@@ -509,10 +509,24 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                                 // Sem isso, `MapEntry<K,V>` nasce como
                                 // `MapEntry<dynamic,dynamic>` mesmo quando a
                                 // fábrica recebeu `L<K,V>` pela ABI.
-                                if ctx.program.functions[t.0 as usize].class == Some(cid) {
+                                let classe_alvo = ctx.program.functions[t.0 as usize].class;
+                                if classe_alvo == Some(cid) {
                                     builder.tipo_da_criacao = Some(ctx.outline.functions[f_idx].return_type);
                                 }
-                                let r = builder.instanciar_avaliados(t, &avaliados, span);
+                                let (rti_alvo, tupla_alvo) = if classe_alvo
+                                    .is_some_and(|alvo| builder.classe_generica(alvo))
+                                {
+                                    let anotacao = ast.ty(r.ty);
+                                    let rti = builder.receita_da_anotacao(anotacao)
+                                        .map(|receita| builder.rti_da_receita(&receita));
+                                    let tupla = builder.tupla_da_anotacao(anotacao);
+                                    (rti, tupla)
+                                } else {
+                                    (None, None)
+                                };
+                                let r = builder.instanciar_avaliados_com_rti(
+                                    t, &avaliados, span, rti_alvo, tupla_alvo,
+                                );
                                 builder.terminate(Terminator::Return(Some(r)));
                             }
                             None => {

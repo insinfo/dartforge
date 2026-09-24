@@ -452,6 +452,9 @@ jobs:
       - name: Getter estático de função executa com ordem correta
         shell: pwsh
         run: cargo test --locked --release -p dartforge-emit-native --test contrato getter_estatico_que_retorna_funcao_e_chamado_como_valor -- --ignored --nocapture
+      - name: Factory redirecionadora preserva RTI do destino
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato factory_redirecionadora_preserva_rti_do_destino -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).

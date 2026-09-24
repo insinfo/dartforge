@@ -1285,6 +1285,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `C(args)` com os argumentos já avaliados.
     pub fn instanciar_avaliados(&mut self, ctor_fid: FunctionElementId, avaliados: &[Avaliado], span: Span) -> Operand {
+        self.instanciar_avaliados_com_rti(ctor_fid, avaliados, span, None, None)
+    }
+
+    /// Uma factory redirecionadora pode mudar a classe e até permutar seus
+    /// argumentos de tipo. Nesse caso, o RTI e a tupla do alvo vêm da
+    /// anotação `= Destino<U, T>`, não do tipo de retorno da origem.
+    pub fn instanciar_avaliados_com_rti(
+        &mut self,
+        ctor_fid: FunctionElementId,
+        avaliados: &[Avaliado],
+        span: Span,
+        rti_explicito: Option<Operand>,
+        tupla_explicita: Option<Operand>,
+    ) -> Operand {
         let tipo = self.tipo_da_criacao.take();
         let fid = ctor_fid.0 as usize;
         let f = &self.ctx.program.functions[fid];
@@ -1299,7 +1313,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && let Some(vazio) = self.ctx.interner.lookup("")
                 && let Some(&construtor) = self.ctx.program.classes[concreta.0 as usize].constructors.get(&vazio)
             {
-                return self.instanciar_avaliados(construtor, avaliados, span);
+                return self.instanciar_avaliados_com_rti(construtor, avaliados, span, rti_explicito, tupla_explicita);
             }
         }
         if !super::funcao_do_usuario(self.ctx, fid) {
@@ -1319,7 +1333,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // RTI: a fábrica de uma classe genérica recebe os argumentos de
             // tipo da classe na tupla (o último parâmetro).
             if generica {
-                let t = self.tupla_da_criacao(tipo);
+                let t = tupla_explicita.unwrap_or_else(|| self.tupla_da_criacao(tipo));
                 args.push(t);
             }
             return self.chamar_direto(fid, None, args);
@@ -1340,8 +1354,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         // RTI: a instância de classe genérica guarda o tipo (`C<T…>`).
-        if generica && let Some(t) = tipo {
-            let r = self.rti_de_tipo(t);
+        if generica && let Some(r) = rti_explicito.or_else(|| tipo.map(|t| self.rti_de_tipo(t))) {
             self.definir_rti(obj.clone(), r);
         }
         self.chamar_direto(fid, Some(obj.clone()), args);
