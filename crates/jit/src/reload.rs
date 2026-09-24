@@ -559,8 +559,13 @@ impl JitSession {
 
         let generation = existing.map_or(1, |index| self.reloadables[index].generation + 1);
         let suffix = format!("$gen{generation}");
+        // As implementações têm nomes estáveis únicos entre módulos; as
+        // globais `@dfg_*` do emissor não. A LLJIT usa uma JITDylib única,
+        // então o dado precisa carregar também a identidade do módulo.
+        let module_index = existing.unwrap_or(self.reloadables.len());
+        let global_suffix = format!("$module{module_index}{suffix}");
         let phase = Instant::now();
-        let globals = parsed.version_mutable_globals(&suffix)
+        let globals = parsed.version_mutable_globals(&global_suffix)
             .map_err(|detail| JitError::new("globais", "a geração tem estado que a sessão não sabe reiniciar", detail))?;
         let published = parsed.version_definitions(&suffix);
         let tracker = self.lljit.create_tracker();

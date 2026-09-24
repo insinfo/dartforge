@@ -182,8 +182,9 @@ e em cache, e custo zero para quem não usa. A biblioteca já tem as peças.
   vez de ser reiniciada errado.
 * **`run_main()` com SDK da fonte** cria uma thread nova e zera as globais
   mutáveis dos módulos JIT do programa, inclusive da geração recarregável
-  ativa, antes de cada chamada. Os globais das gerações retidas recebem nomes
-  distintos e só os da geração publicada são reiniciados. O teste de
+  ativa, antes de cada chamada. Os globais recebem nomes distintos por módulo
+  e geração na `JITDylib` compartilhada; só os da geração publicada são
+  reiniciados. O teste de
   regressão executa `main` duas vezes na mesma sessão sem carregar a DLL do
   SDK. Os estáticos internos da DLL do SDK não são exportados nem reiniciados
   por esse caminho e continuam persistentes. A reutilização de uma sessão com

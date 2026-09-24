@@ -175,6 +175,28 @@ define i32 @main() {\n\
     assert_eq!(sessao.run_main().unwrap().exit_code, 0);
 }
 
+/// Bibliotecas diferentes podem usar o mesmo nome interno `@dfg_*` sem que
+/// suas células de dados se misturem na JITDylib compartilhada.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn estaticos_iguais_em_modulos_distintos_ficam_independentes() {
+    let ir = |funcao: &str| format!("@dfg_0_ok = internal global i64 0\n\
+define i64 @{funcao}() {{\n\
+  %anterior = load i64, ptr @dfg_0_ok\n\
+  %novo = add i64 %anterior, 1\n\
+  store i64 %novo, ptr @dfg_0_ok\n\
+  ret i64 %anterior\n}}\n");
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", &ir("df_fn_0")).expect("app");
+    sessao.add_reloadable_module("biblioteca", &ir("df_fn_1")).expect("biblioteca");
+    let app = sessao.stable_entry("df_fn_0").expect("entrada app");
+    let biblioteca = sessao.stable_entry("df_fn_1").expect("entrada biblioteca");
+    assert_eq!(app.call(&sessao).unwrap(), 0);
+    assert_eq!(biblioteca.call(&sessao).unwrap(), 0);
+    assert_eq!(app.call(&sessao).unwrap(), 1);
+    assert_eq!(biblioteca.call(&sessao).unwrap(), 1);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]
