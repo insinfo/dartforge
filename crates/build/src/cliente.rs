@@ -4,7 +4,7 @@ use crate::executor::{Disponibilidade, ErroExecutor, ExecutorDart, Nivel, Pedido
 use crate::grafo::AssetId;
 use crate::valor::{Mapa, Valor};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use dartforge_dfexec::{Canal, PROTOCOLO};
+use dartforge_dfexec::{Canal, CanalDeProcesso, PROTOCOLO};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -14,6 +14,15 @@ pub struct ClienteBuild<C: Canal> {
     iniciado: bool,
     carregado: bool,
     falha_de_preparo: Option<String>,
+}
+
+impl ClienteBuild<CanalDeProcesso> {
+    /// Inicia um processo compatível. O handshake e o carregamento ficam
+    /// para a primeira ação Dart; o motor deve construir este cliente sob
+    /// demanda para manter o processo quente só quando for necessário.
+    pub fn iniciar(comando: std::process::Command) -> Result<Self, String> {
+        CanalDeProcesso::iniciar(comando).map(Self::novo)
+    }
 }
 
 impl<C: Canal> ClienteBuild<C> {
