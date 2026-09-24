@@ -55,6 +55,19 @@ no grupo sem aumento de falsos positivos. A nova rodada combinada do HEAD
 `60336d7` é [CI 36008167645](https://github.com/insinfo/dartforge/actions/runs/36008167645)
 e [Pesado 36008167704](https://github.com/insinfo/dartforge/actions/runs/36008167704).
 
+No ramo `ci/native-sdk-is-selector` (`9d29894`), a
+[CI 36044895512](https://github.com/insinfo/dartforge/actions/runs/36044895512)
+e o [Pesado 36044895476](https://github.com/insinfo/dartforge/actions/runs/36044895476)
+passaram. O nativo com SDK da fonte foi de **179/223** para **183/223**,
+igual no JIT (0 divergências JIT × AOT, `--gc-stress` sem regressão):
+`206_enum_factory` (name/index implícitos de enum), `139_string_tostring`
+e `134_object_identical` (toString padrão de genérica com argumentos) e
+`53_enums_membros` (values implícito + aresta enum → `Enum` do SDK).
+O grupo "chamada de membro sem implementação compilada" caiu de 6 para 3
+(`57_nosuchmethod`, `216_poda_nosuchmethod`, `223_nosuchmethod_argumentos`,
+os encaminhadores noSuchMethod); os maiores grupos agora são geradores
+(6), `RegExp` da fonte (5) e instanciação de tipo genérico (3).
+
 Integração em `ci/integracao-ssd`: ajustes de caminhos, seleção do LLVM 22 no
 runner, correção de símbolos estáveis e da RTI entre módulos, regressões de
 hot reload, navegação e hover LSP, limpeza do executor de macros e avanço do
