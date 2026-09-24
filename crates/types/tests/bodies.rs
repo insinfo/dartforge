@@ -423,6 +423,57 @@ fn acesso_estatico_a_membros_de_instancia_da_extensao_do_oraculo() {
 }
 
 #[test]
+fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    let positivos = [
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_invocation.dart")), "m"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_reference.dart")), "m"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_5eff7611.dart")), "t"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_618b8c7e.dart")), "f"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_baf43dcf.dart")), "f"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_dfc9b0ea.dart")), "f"),
+    ];
+    for (fonte, nome) in positivos {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
+        assert_eq!(encontrados.len(), 1, "{nome}: {diags:?}");
+        let d = encontrados[0];
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], nome);
+        assert_eq!(d.span.start as usize, fonte.rfind(&format!(".{nome}")).unwrap() + 1);
+        // A ponte de paridade traduz este template interno para a mensagem
+        // inglesa do oráculo; o teste de types verifica código e argumento.
+        assert_eq!(d.message, format!("{}: '{nome}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template));
+        assert!(!diags.iter().any(|outro| outro.span == d.span
+            && outro.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
+    }
+    for fonte in [
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_method.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_24220736.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_d7df5494.dart")),
+        // Oráculo Dart 3.13.4: construtor nomeado e método de instância
+        // homônimos coexistem; `A.named` é tear-off do construtor.
+        "class A { A.named(); void named() {} } var tearoff = A.named;",
+    ] {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        assert!(!diags.iter().any(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)), "{diags:?}");
+    }
+}
+
+#[test]
 fn sobreposicao_explicita_sem_metodo_usa_codigo_de_extensao() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
