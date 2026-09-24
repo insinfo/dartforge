@@ -384,6 +384,12 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
     // Seletores do texto que são membros podados de classes instanciadas,
     // por espécie: leitura cura getter/método, escrita cura setter. Uma
     // leitura nunca ressuscita um setter — é a precisão que o mundo apura.
+    // A cura é por (tipo, seletor): se o nome só vive restrito aos cones de
+    // outras classes, a poda aqui é o desenho da restrição pelo receptor —
+    // e o modo stub (`--verificar-stub`, saída 97) denuncia se ela estiver
+    // errada na execução. Só volta como raiz irrestrita o que o mundo diz
+    // viver em toda parte (lacuna: devia estar vivo e não está) ou o que
+    // ninguém registrou (uso que a análise não viu).
     let mut sel_l: HashSet<String> = HashSet::new();
     let mut sel_e: HashSet<String> = HashSet::new();
     for (_, t) in modulos {
@@ -412,8 +418,16 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
             } else {
                 sel_l.contains(base) || sel_l.contains(js.as_str())
             };
-            if usado {
-                novos.insert(if escrita { format!("{base}_=") } else { base.to_string() });
+            if !usado {
+                continue;
+            }
+            let nome = if escrita { format!("{base}_=") } else { base.to_string() };
+            // Cura por (tipo, seletor): o membro devia estar vivo no cone da
+            // classe, ou ninguém registrou o nome (uso que a análise não
+            // viu) — lacuna, volta como raiz irrestrita. Nome só restrito
+            // aos cones de outras classes é poda de desenho, não cura.
+            if mundo.seletor_vivo_para(program, &nome, ClassId(i as u32)) || !mundo.tem_restricao(&nome) {
+                novos.insert(nome);
             }
         }
     }

@@ -46,7 +46,9 @@ impl Vivos for Adaptador<'_> {
         }
     }
     fn seletor(&self, nome: &str) -> bool {
-        self.stub || self.mundo.seletor(nome)
+        // Encaminhadores de `noSuchMethod`: basta o nome viver de algum jeito
+        // (irrestrito ou restrito a qualquer cone) — emitir a mais é só bytes.
+        self.stub || self.mundo.seletor(nome) || self.mundo.tem_restricao(nome)
     }
     fn seletor_escrita(&self, nome_base: &str) -> bool {
         // A escrita vive pela chave do setter no `instance_members`.
