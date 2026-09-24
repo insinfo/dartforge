@@ -100,7 +100,7 @@ fn inicio_de_ident(b: &[u8], i: usize) -> bool {
 /// (`"core|List<core|int>"`), o índice de constante (`C[42]`, `CT.C42`) e o
 /// identificador simples (que casa com os `var` de topo do arquivo, como as
 /// aplicações de mixin `EventTarget_ListBase$36`).
-fn referencias(t: &str, fora: &mut Vec<String>) {
+fn referencias(t: &str, fora: &mut Vec<String>, modulo_usuario: bool) {
     let b = t.as_bytes();
     let mut i = 0usize;
     while i < b.len() {
@@ -121,6 +121,10 @@ fn referencias(t: &str, fora: &mut Vec<String>) {
             let membro = &t[fim + 1..fim2];
             if e_lib(nome) {
                 fora.push(format!("{nome}.{membro}"));
+            } else if modulo_usuario && matches!(nome, "html" | "svg") {
+                // O DDC exporta `html$ as html` e `svg$ as svg`. A emissão
+                // do usuário cita o alias; o mundo do SDK usa o nome local.
+                fora.push(format!("{}.{membro}", ns_da_receita(nome)));
             } else {
                 fora.push(nome.to_string());
             }
@@ -129,7 +133,7 @@ fn referencias(t: &str, fora: &mut Vec<String>) {
                 fora.push(format!("C#{}", &membro[1..]));
             }
             avanco = fim2;
-        } else if fim < b.len() && b[fim] == b'[' && e_lib(nome) {
+        } else if fim < b.len() && b[fim] == b'[' && (e_lib(nome) || (modulo_usuario && matches!(nome, "html" | "svg"))) {
             // `lib['A|b']` — membro de extensão, cujo nome tem `|`.
             let mut j = fim + 1;
             if j < b.len() && (b[j] == b'\'' || b[j] == b'"') {
@@ -139,7 +143,7 @@ fn referencias(t: &str, fora: &mut Vec<String>) {
                 while j < b.len() && b[j] != aspa {
                     j += 1;
                 }
-                fora.push(format!("{nome}.{}", &t[ini..j]));
+                fora.push(format!("{}.{}", ns_da_receita(nome), &t[ini..j]));
                 avanco = j + 1;
             } else {
                 fora.push(nome.to_string());
@@ -755,10 +759,10 @@ fn classificar(src: &str, por_membro: bool) -> (Vec<Fatia>, Vec<String>) {
 pub fn raizes_do_usuario(modulos: &[Modulo]) -> Vec<String> {
     let mut v = Vec::new();
     for m in modulos {
-        referencias(&m.corpo, &mut v);
+        referencias(&m.corpo, &mut v, true);
         seletores(&m.corpo, &mut v);
         for ns in &m.namespaces {
-            referencias(ns, &mut v);
+            referencias(ns, &mut v, true);
         }
     }
     // O bundle chama `main` no fim, e o `dart_sdk.js` precisa dos seus próprios
@@ -860,6 +864,7 @@ pub fn seletores_dinamicos(src: &str) -> Vec<String> {
 
 /// Poda o `dart_sdk.js`: devolve o texto podado, o total de unidades e as vivas.
 pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, usize) {
+    let aliases = crate::bundle::aliases_exportados(src);
     let (fatias, raizes_do_runtime) = classificar(src, por_membro);
     let mut simbolos = Simbolos::default();
     let mut unidades: Vec<Unidade> = Vec::with_capacity(fatias.len());
@@ -868,7 +873,7 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
     for f in &fatias {
         let t = &src[f.ini..f.fim];
         buf_refs.clear();
-        referencias(t, &mut buf_refs);
+        referencias(t, &mut buf_refs, false);
         buf_sels.clear();
         if por_membro {
             seletores(t, &mut buf_sels);
@@ -894,7 +899,11 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
         }
         unidades.push(u);
     }
-    let raizes: Vec<u32> = raizes.iter().chain(raizes_do_runtime.iter()).map(|r| simbolos.interna(r)).collect();
+    let raizes: Vec<u32> = raizes.iter().chain(raizes_do_runtime.iter())
+        // As variáveis locais exportadas sob outro nome precisam existir
+        // mesmo quando o programa só cita o alias da biblioteca.
+        .chain(aliases.iter().map(|(original, _)| original))
+        .map(|r| simbolos.interna(r)).collect();
     let viva = alcance::resolver(&unidades, &raizes, simbolos.total());
     let vivas = viva.iter().filter(|v| **v).count();
 
@@ -982,6 +991,9 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
         }
         out.push_str(t);
     }
+    for (original, alias) in aliases {
+        out.push_str(&format!("var {alias} = {original};\n"));
+    }
     (out, fatias.len(), vivas)
 }
 
@@ -992,7 +1004,7 @@ mod testes {
     #[test]
     fn referencia_receita_rti() {
         let mut v = Vec::new();
-        referencias("eval(u, \"core|List<core|int>\", true)", &mut v);
+        referencias("eval(u, \"core|List<core|int>\", true)", &mut v, false);
         assert!(v.contains(&"core.List".to_string()), "{v:?}");
         assert!(v.contains(&"core.int".to_string()), "{v:?}");
     }
@@ -1000,14 +1012,27 @@ mod testes {
     #[test]
     fn referencia_html_com_cifrao() {
         let mut v = Vec::new();
-        referencias("\"html|Element\"", &mut v);
+        referencias("\"html|Element\"", &mut v, false);
         assert!(v.contains(&"html$.Element".to_string()), "{v:?}");
+    }
+
+    #[test]
+    fn alias_do_sdk_em_modulo_usuario_aponta_para_o_nome_local() {
+        let mut v = Vec::new();
+        referencias("html.Element; svg['SvgElement'];", &mut v, true);
+        assert!(v.contains(&"html$.Element".to_string()), "{v:?}");
+        assert!(v.contains(&"svg$.SvgElement".to_string()), "{v:?}");
+        let src = "var html$ = Object.create(dart.library);\nexport { html$ as html };\nhtml$.Element = class Element {};\n";
+        let (out, _, _) = podar(src, &["html$.Element".into()], false);
+        assert!(out.contains("var html$ ="), "{out}");
+        assert!(out.contains("var html = html$;"), "{out}");
+        assert!(out.contains("html$.Element ="), "{out}");
     }
 
     #[test]
     fn referencia_constante_e_membro_com_barra() {
         let mut v = Vec::new();
-        referencias("C[42] + CT.C7 + async['FutureRecord2|get#wait']", &mut v);
+        referencias("C[42] + CT.C7 + async['FutureRecord2|get#wait']", &mut v, false);
         assert!(v.contains(&"C#42".to_string()), "{v:?}");
         assert!(v.contains(&"C#7".to_string()), "{v:?}");
         assert!(v.contains(&"async.FutureRecord2|get#wait".to_string()), "{v:?}");
@@ -1016,7 +1041,7 @@ mod testes {
     #[test]
     fn nao_confunde_campo_com_biblioteca() {
         let mut v = Vec::new();
-        referencias("this.core = opts.io;", &mut v);
+        referencias("this.core = opts.io;", &mut v, false);
         assert!(!v.contains(&"core.x".to_string()));
         assert!(v.contains(&"this".to_string()));
     }
