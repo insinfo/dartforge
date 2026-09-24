@@ -11,10 +11,13 @@
 //!   vivo e um motor novo dão o mesmo estado.
 use dartforge_build::consulta::SemBanco;
 use dartforge_build::grafo::AssetId;
+use dartforge_build::executor::{Disponibilidade, ErroExecutor, ExecutorDart, PedidoAcao, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep};
+use dartforge_build::motor::Origem;
 use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 fn raiz_do_corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/builders")
@@ -58,6 +61,45 @@ fn motor(dir: &Path, trabalhadores: usize) -> Result<Motor, String> {
     let mut m = Motor::novo(dir, &cfg, opcoes)?;
     m.atualizar(&Contexto { banco: &SemBanco, programa: None }, &[], Demanda::Tudo)?;
     Ok(m)
+}
+
+struct DartFalso { preparos: Arc<AtomicUsize>, chamadas: Arc<AtomicUsize> }
+
+impl ExecutorDart for DartFalso {
+    fn disponibilidade(&self) -> Disponibilidade { Disponibilidade::Disponivel }
+    fn preparar(&mut self, _: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
+        self.preparos.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    fn executar(&mut self, p: &PedidoAcao, s: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
+        self.chamadas.fetch_add(1, Ordering::SeqCst);
+        let _ = s.ler(&p.entrada);
+        for id in &p.saidas_permitidas {
+            let bytes: Arc<[u8]> = format!("{}:{}\n", p.chave, p.entrada.texto()).into_bytes().into();
+            s.escrever(id, bytes).map_err(|e| ErroExecutor(format!("saída recusada: {}", e.0.texto())))?;
+        }
+        Ok(ResultadoAcao::default())
+    }
+    fn encerrar(&mut self) {}
+}
+
+#[test]
+#[ignore = "exige `dart pub get` em corpus/builders/cadeia_configuracao"]
+fn executor_dart_injetado_roda_e_reusa_acoes() {
+    let dir = raiz_do_corpus().join("cadeia_configuracao");
+    let cfg = cfg_de(&dir).expect("package_config.json");
+    let mut m = Motor::novo(&dir, &cfg, OpcoesMotor::default()).unwrap();
+    let preparos = Arc::new(AtomicUsize::new(0));
+    let chamadas = Arc::new(AtomicUsize::new(0));
+    m.definir_executor_dart(Box::new(DartFalso { preparos: preparos.clone(), chamadas: chamadas.clone() }));
+    let ctx = Contexto { banco: &SemBanco, programa: None };
+    m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
+    let feitas = chamadas.load(Ordering::SeqCst);
+    assert!(feitas > 0, "o executor Dart disponível não recebeu nenhuma ação");
+    assert!(m.grafo.acoes.iter().enumerate().any(|(i, _)| m.registro(i).is_some_and(|r| r.origem == Origem::Dart)));
+    m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
+    assert_eq!(chamadas.load(Ordering::SeqCst), feitas, "ação limpa foi reexecutada");
+    assert_eq!(preparos.load(Ordering::SeqCst), 1, "script de builders recompilado na sessão");
 }
 
 fn resumo(linhas: &[String]) {

@@ -6,9 +6,12 @@ ecossistema (serviço `build.*`) e, depois, macros (serviço `macro.*`).
 Um protocolo e um executor para os dois (regra governante, PLANO.md,
 item 2). O hospedeiro agora tem `ServicoAcao`, a implementação de
 `ServicoBuildStep` que limita leituras ao grafo, registra consultas e só
-permite escrever saídas declaradas da ação. O transporte `build.*` e o
-executor Dart ainda não estão ligados ao motor: `ExecutorDart` continua
-`Indisponivel` por padrão. O executor virá do backend nativo auto-hospedado
+permite escrever saídas declaradas da ação. O motor agora invoca um
+`ExecutorDart` injetado nas ações sem gerador nativo verificado, prepara o
+script uma vez por sessão e publica as saídas após o corte por digest. Um
+executor falso do corpus verifica esse caminho de ponta a ponta. O cliente
+de transporte `build.*` e o processo Dart real ainda faltam;
+`ExecutorDart` continua `Indisponivel` por padrão. O processo virá do backend nativo auto-hospedado
 (sem Node e sem a VM oficial no produto).
 
 ## 1. Transporte e enquadramento

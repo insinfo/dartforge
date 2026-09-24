@@ -196,7 +196,7 @@ pub struct ServicoAcao<'a> {
     pub grafo: &'a Grafo,
     pub pacotes: &'a GrafoPacotes,
     pub acao: usize,
-    pub memoria: &'a BTreeMap<AssetId, Arc<[u8]>>,
+    pub memoria: &'a dyn Fn(&AssetId) -> Option<Arc<[u8]>>,
     pub escritas: BTreeMap<AssetId, Arc<[u8]>>,
     pub consultas: Vec<(Consulta, Option<Digest>)>,
     pub logs: Vec<(Nivel, String)>,
@@ -207,7 +207,7 @@ impl<'a> ServicoAcao<'a> {
         grafo: &'a Grafo,
         pacotes: &'a GrafoPacotes,
         acao: usize,
-        memoria: &'a BTreeMap<AssetId, Arc<[u8]>>,
+        memoria: &'a dyn Fn(&AssetId) -> Option<Arc<[u8]>>,
     ) -> Self {
         Self { grafo, pacotes, acao, memoria, escritas: BTreeMap::new(), consultas: Vec::new(), logs: Vec::new() }
     }
@@ -230,7 +230,7 @@ impl<'a> ServicoAcao<'a> {
             if g.fase > fase || (g.fase == fase && g.acao != self.acao) {
                 return None;
             }
-            return if g.fase == fase { self.escritas.get(id).cloned() } else { self.memoria.get(id).cloned() };
+            return if g.fase == fase { self.escritas.get(id).cloned() } else { (self.memoria)(id) };
         }
         if !self.grafo.tem_fonte(id) {
             return None;
@@ -246,7 +246,7 @@ impl<'a> ServicoAcao<'a> {
             } else if g.fase == fase {
                 g.acao == self.acao && self.escritas.contains_key(id)
             } else {
-                self.memoria.contains_key(id)
+                (self.memoria)(id).is_some()
             };
         }
         self.grafo.tem_fonte(id) && self.caminho(id).is_some_and(|p| p.is_file())
@@ -383,8 +383,10 @@ mod testes_servico {
             grafo.gerados.insert(id.clone(), NoGerado { acao, fase, oculto: false });
         }
         grafo.gerados.insert(escape.clone(), NoGerado { acao: 1, fase: 1, oculto: false });
-        let memoria = [(primeiro.clone(), Arc::from(&b"prior"[..])), (futuro.clone(), Arc::from(&b"future"[..]))].into();
-        let mut s = ServicoAcao::novo(&grafo, &pacotes, 1, &memoria);
+        let memoria: BTreeMap<AssetId, Arc<[u8]>> =
+            [(primeiro.clone(), Arc::from(&b"prior"[..])), (futuro.clone(), Arc::from(&b"future"[..]))].into();
+        let ler_memoria = |id: &AssetId| memoria.get(id).cloned();
+        let mut s = ServicoAcao::novo(&grafo, &pacotes, 1, &ler_memoria);
         assert_eq!(s.ler(&fonte).as_deref(), Some(&b"source"[..]));
         assert_eq!(s.ler(&primeiro).as_deref(), Some(&b"prior"[..]));
         assert!(!s.can_read(&segundo));

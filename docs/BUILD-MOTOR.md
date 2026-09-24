@@ -147,9 +147,10 @@ Por ação, na ordem, o primeiro que aceita:
 
 1. **Nativo** (`GeradorNativo`, Rust, lê o banco semântico): há gerador,
    a versão do lock está no `imita` do descritor, e ele não recusou.
-2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): hoje só existe a
-   implementação `Indisponivel(motivo)`. A implementação virá do executor
-   nativo auto-hospedado, compartilhado com as macros.
+2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): o motor já chama um
+   executor injetado e serve `BuildStep` com visibilidade, consultas e saídas
+   permitidas. O padrão ainda é `Indisponivel(motivo)`; o cliente `build.*`
+   virá do executor nativo auto-hospedado, compartilhado com as macros.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
