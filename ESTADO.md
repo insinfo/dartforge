@@ -94,6 +94,19 @@ que a rodada anterior. O mesmo Pesado mediu o nativo em **146/223** e
 JIT × AOT em **223/223 saídas idênticas**; o caso 104 ainda falha nos dois
 perfis antes da correção de passagem de variáveis de cases compartilhados.
 
+A rodada `ci/analyzer-enum-invocacao` ([CI 36041568829](https://github.com/insinfo/dartforge/actions/runs/36041568829)
+e [Pesado 36041568846](https://github.com/insinfo/dartforge/actions/runs/36041568846),
+os dois verdes) levou `invalid_reference_to_generative_enum_constructor` a
+**16/20** acertos no corpus, **0 FP** e 4 FN, todos alvos de redirecionamento
+(`= E`, `= E.nomeado`, passo seguinte): cobertos `E()`, `new E()` e `const E()`
+no intervalo do oráculo, com factories e `: this(...)` travados como negativos
+em teste dirigido. A rodada intermediária
+([Pesado 36038318228](https://github.com/insinfo/dartforge/actions/runs/36038318228))
+acusou 3 FP em `const E.foo()` sem alvo (outro código), corrigidos antes do
+verde. Placar geral: **5.959/26.133 (22,8%)** na posição exata, 5.670 mensagens
+iguais, 4.393 falsos positivos, 19.706 falsos negativos, 468 posições erradas,
+determinismo em 1/4/8. O código segue fora de `verificados.txt` (falta 100%).
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
