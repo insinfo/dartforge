@@ -399,7 +399,7 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
             if mundo.funcao(f) || func.abstract_ {
                 continue;
             }
-            // A chave carrega a espécie (`foo=` é escrita); `==` não termina
+            // A chave carrega a espécie (`foo_=` é escrita); `==` não termina
             // em `_=`, então o corte é seguro.
             let k = interner.resolve(chave);
             let (base, escrita) = match k.strip_suffix("_=") {
@@ -413,7 +413,7 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
                 sel_l.contains(base) || sel_l.contains(js.as_str())
             };
             if usado {
-                novos.insert(if escrita { format!("{base}=") } else { base.to_string() });
+                novos.insert(if escrita { format!("{base}_=") } else { base.to_string() });
             }
         }
     }

@@ -49,7 +49,8 @@ impl Vivos for Adaptador<'_> {
         self.stub || self.mundo.seletor(nome)
     }
     fn seletor_escrita(&self, nome_base: &str) -> bool {
-        self.stub || self.mundo.seletor(&format!("{nome_base}="))
+        // A escrita vive pela chave do setter no `instance_members`.
+        self.stub || self.mundo.seletor(&format!("{nome_base}_="))
     }
     fn tearoff_ctor(&self, f: FunctionElementId) -> bool {
         self.stub || self.mundo.tearoff_de_construtor(f)

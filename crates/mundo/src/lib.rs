@@ -17,10 +17,10 @@
 //! * seletor **por nome**, sem restrição pelo tipo do receptor: a inferência
 //!   ainda tem lacunas e o emissor tem busca própria de membros, então casar
 //!   por tipo seria podar pelo palpite de uma das duas partes;
-//! * seletor **por espécie**: leitura/chamada (`foo`) e escrita (`foo=`) são
-//!   seletores distintos, como as chaves do `instance_members`. Nomes vindos
-//!   de fora do programa (o runtime chamando por string) valem para as duas
-//!   espécies; usos no programa registram a espécie exata;
+//! * seletor **por espécie**: leitura/chamada (`foo`) e escrita (`foo_=`)
+//!   são seletores distintos, como as chaves do `instance_members`. Nomes
+//!   vindos de fora do programa (o runtime chamando por string) valem para
+//!   as duas espécies; usos no programa registram a espécie exata;
 //! * operadores, membros de `Object` e `call` vivem em toda classe
 //!   instanciada, e também os membros que implementam um supertipo do SDK
 //!   (o runtime pré-compilado chama por esses nomes sem que o programa veja);
@@ -296,7 +296,7 @@ pub(crate) struct Motor<'a> {
     itens: usize,
     extensoes_prontas: bool,
     /// O alvo de um `Assign` simples sendo percorrido: o membro mais externo
-    /// dele é escrita (`foo=`), não leitura. Consumido (e zerado) pelo braço
+    /// dele é escrita (`foo_=`), não leitura. Consumido (e zerado) pelo braço
     /// `Property`/`Identifier`; o resto do alvo continua sendo leitura.
     pub(crate) alvo_de_escrita: Option<dartforge_frontend::ast::ExprId>,
 }
@@ -401,9 +401,9 @@ impl<'a> Motor<'a> {
 
     pub(crate) fn novo_seletor(&mut self, nome: &str) {
         // Leitura e chamada (`x.foo`, `x.foo()`) valem para o getter e o
-        // método; a escrita (`x.foo = v`) registra `foo=` à parte. Sem
-        // sufixo não há atendimento entre espécies: um `foo` lido nunca
-        // mantém um `set foo` vivo.
+        // método; a escrita (`x.foo = v`) registra `foo_=` à parte (a chave
+        // do setter no `instance_members`). Sem sufixo não há atendimento
+        // entre espécies: um `foo` lido nunca mantém um `set foo` vivo.
         if self.sel.contains(nome) {
             return;
         }
@@ -416,26 +416,27 @@ impl<'a> Motor<'a> {
     }
 
     /// Nome chamado por fora do programa (`dart.dsend`/`dput` no runtime):
-    /// pode ser leitura ou escrita, então vale para as duas espécies.
+    /// pode ser leitura ou escrita, então vale para as duas espécies (a de
+    /// escrita é a chave `nome_=` do `instance_members`).
     pub(crate) fn novo_seletor_externo(&mut self, nome: &str) {
         self.novo_seletor(nome);
         if !nome.ends_with('=') {
-            self.novo_seletor(&format!("{nome}="));
+            self.novo_seletor(&format!("{nome}_="));
         }
     }
 
     /// A chave do seletor de um membro de instância: `foo` para leitura e
-    /// chamada, `foo=` para escrita — a mesma chave do `instance_members`.
+    /// chamada, `foo_=` para escrita — a mesma chave do `instance_members`.
     pub(crate) fn chave_membro_instancia(&self, f: FunctionElementId) -> String {
         let func = self.e.program.function(f);
         let nome = self.nome(func.name);
         if func.kind == FunctionKind::Setter {
-            return format!("{nome}=");
+            return format!("{nome}_=");
         }
         if func.kind == FunctionKind::ImplicitAccessor {
             if let Some(v) = func.variable {
                 if self.e.program.variable(v).setter == Some(f) {
-                    return format!("{nome}=");
+                    return format!("{nome}_=");
                 }
             }
         }
@@ -677,7 +678,7 @@ impl<'a> Motor<'a> {
 
     /// Membros de instância de `k` (já instanciada): vivos se a chave é
     /// seletor vivo ou de protocolo; senão, pendentes pela chave (`foo` e
-    /// `foo=` têm pendências separadas).
+    /// `foo_=` têm pendências separadas).
     fn processar_membros(&mut self, k: ClassId, so_pendentes: bool) {
         let p = self.e.program;
         let class = p.class(k);
@@ -706,7 +707,7 @@ impl<'a> Motor<'a> {
 
     /// Regra (i) do contrato: a implementação, na cadeia de `c`, de todo
     /// membro de instância declarado num supertipo do SDK de `c`. O casamento
-    /// é pela chave (`foo=` casa com `set foo`), como nos pendentes.
+    /// é pela chave (`foo_=` casa com `set foo`), como nos pendentes.
     fn aplicar_protocolo(&mut self, c: ClassId) {
         let p = self.e.program;
         let mut vistos: HashSet<ClassId> = HashSet::new();

@@ -829,7 +829,7 @@ pub fn seletores_dinamicos(src: &str) -> Vec<String> {
 }
 
 /// Como [`seletores_dinamicos`], separado por espécie: `dput`/`dputRepl`
-/// escrevem (`foo`, que o verificador casa com `foo=`), o resto
+/// escrevem (`foo`, que o verificador casa com `foo_=`), o resto
 /// (`dsend`, `dload`, `bind`…) lê ou chama.
 pub fn seletores_dinamicos_por_especie(src: &str) -> (Vec<String>, Vec<String>) {
     let b = src.as_bytes();

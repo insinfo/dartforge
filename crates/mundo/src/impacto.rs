@@ -353,8 +353,9 @@ fn alvo_for_in(m: &mut Motor<'_>, ctx: &Contexto, t: &ForInTarget) {
 }
 
 /// Um uso de escrita fora do `Assign` simples (`+=`, `++`, alvo de
-/// `for-in`): registra a espécie de escrita sem suprimir a leitura, que o
-/// percurso normal registra em seguida.
+/// `for-in`): registra a espécie de escrita (`nome_=`, a chave do
+/// `instance_members`) sem suprimir a leitura, que o percurso normal
+/// registra em seguida.
 fn escrita_no_alvo(m: &mut Motor<'_>, ctx: &Contexto, alvo: ExprId) {
     let e = m.e;
     let ast = &e.program.unit(ctx.unidade).ast;
@@ -363,7 +364,7 @@ fn escrita_no_alvo(m: &mut Motor<'_>, ctx: &Contexto, alvo: ExprId) {
         ExprKind::Identifier(n) => e.interner.resolve(n.sym),
         _ => return,
     };
-    m.novo_seletor(&format!("{nome}="));
+    m.novo_seletor(&format!("{nome}_="));
 }
 
 fn for_init(m: &mut Motor<'_>, ctx: &Contexto, i: &ForInit) {
@@ -730,11 +731,12 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
         }
         ExprKind::Identifier(n) => {
             // `nome` solto pode ser `this.nome` implícito. No alvo de um
-            // `Assign` simples é escrita (`nome=`); senão, leitura.
+            // `Assign` simples é escrita (`nome_=`, a chave do setter no
+            // `instance_members`); senão, leitura.
             if m.alvo_de_escrita == Some(id) {
                 m.alvo_de_escrita = None;
                 let s = e.interner.resolve(n.sym);
-                m.novo_seletor(&format!("{s}="));
+                m.novo_seletor(&format!("{s}_="));
             } else {
                 let s = e.interner.resolve(n.sym);
                 m.novo_seletor(s);
@@ -767,13 +769,14 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
         }
         ExprKind::FunctionExpression(f) => percorrer_funcao(m, ctx, *f),
         ExprKind::Property { target, name, .. } => {
-            // No alvo de um `Assign` simples é escrita (`nome=`); senão, é
-            // leitura ou chamada. O receptor continua sendo leitura, e o
-            // `Resolved` (que já distingue getter de setter) continua valendo.
+            // No alvo de um `Assign` simples é escrita (`nome_=`, a chave do
+            // setter no `instance_members`); senão, é leitura ou chamada. O
+            // receptor continua sendo leitura, e o `Resolved` (que já
+            // distingue getter de setter) continua valendo.
             if m.alvo_de_escrita == Some(id) {
                 m.alvo_de_escrita = None;
                 let s = e.interner.resolve(name.sym);
-                m.novo_seletor(&format!("{s}="));
+                m.novo_seletor(&format!("{s}_="));
             } else {
                 let s = e.interner.resolve(name.sym);
                 m.novo_seletor(s);

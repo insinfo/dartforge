@@ -263,8 +263,8 @@ só **fiscaliza** (abaixo).
 por nome, com espécie de seletor:
 
 * um membro de instância vive se a classe é **instanciada** e a sua chave é
-  **seletor vivo** — `foo` para leitura e chamada, `foo=` para escrita, as
-  mesmas chaves do `instance_members` (o setter mora em `foo_=`);
+  **seletor vivo** — `foo` para leitura e chamada, `foo_=` para escrita, as
+  mesmas chaves do `instance_members`;
 * a escrita exata vem do alvo do `Assign` simples (`=` puro), desembrulhado
   de parênteses; composto (`+=`), `++`/`--` e alvo de `for-in` registram as
   duas espécies; o `Resolved` já distingue getter de setter onde existe;
