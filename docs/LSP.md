@@ -89,11 +89,15 @@ mantém cópias das versões já substituídas. O resultado é sempre
 
 `textDocument/definition` navega do literal de URI em `import`, `export`,
 `part`, `part of` e `import augment` para um **arquivo relativo existente**.
-A posição de entrada é UTF-16; a resposta `Location` aponta para o início do
-arquivo. URIs `dart:`/`package:` e nomes de código aguardam resolução de
-bibliotecas e elementos. A regra de ativação segue a navegação de diretivas
-do analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo
-quando o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
+Também navega de uma anotação de tipo sem prefixo (`Caixa x`) para uma única
+declaração de tipo homônima no mesmo arquivo. Para esse segundo caso, só
+responde quando não há diretivas que tragam outros nomes nem parâmetro de
+tipo homônimo em qualquer escopo da unidade; assim evita apontar para uma
+classe sombreada. A posição de entrada e o intervalo de destino são UTF-16.
+URIs `dart:`/`package:` e demais nomes aguardam resolução de bibliotecas e
+elementos. A regra de ativação do literal segue a navegação de diretivas do
+analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
+o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
 --locked`.
 
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,

@@ -338,13 +338,25 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let offset = self.documentos.linhas(u)?
                         .offset_de_posicao(&texto, p.linha, p.coluna);
-                    let destino = self.analisador.definicao(u, &texto, offset)?;
-                    Some(json!({
-                        "uri": destino,
-                        "range": {
+                    let (destino, selecao) = self.analisador.definicao(u, &texto, offset)?;
+                    let range = selecao.map_or_else(
+                        || json!({
                             "start": {"line": 0, "character": 0},
                             "end": {"line": 0, "character": 0},
+                        }),
+                        |s| {
+                            let tabela = self.documentos.linhas(u).expect("documento aberto");
+                            let (l0, c0) = tabela.posicao_de_offset(&texto, s.start);
+                            let (l1, c1) = tabela.posicao_de_offset(&texto, s.end);
+                            json!({
+                                "start": {"line": l0, "character": c0},
+                                "end": {"line": l1, "character": c1},
+                            })
                         },
+                    );
+                    Some(json!({
+                        "uri": destino,
+                        "range": range,
                     }))
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
