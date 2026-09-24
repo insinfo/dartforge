@@ -36,6 +36,12 @@ argumento dinâmico incorreto
 No motor de build, o cliente `dfexec/1` agora responde pedidos de `BuildStep`
 inválidos com erro pelo canal e mantém a ação viva para o builder tratar a
 exceção. A medição combinada desses commits ainda está pendente.
+O analyzer isolado alcançou **5.880/26.133** diagnósticos exatos, 5.591
+mensagens iguais, 4.320 falsos positivos, 19.785 falsos negativos e 468
+posições erradas, determinístico em 1/4/8 trabalhadores
+([Pesado 36013697965](https://github.com/insinfo/dartforge/actions/runs/36013697965));
+esse é o placar da base isolada do commit de construtores, não a soma com as
+outras mudanças integradas.
 
 No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
 serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente
