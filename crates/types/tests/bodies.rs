@@ -504,6 +504,9 @@ fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_method.dart")),
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_24220736.dart")),
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_d7df5494.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")),
         // Oráculo Dart 3.13.4: construtor nomeado e método de instância
         // homônimos coexistem; `A.named` é tear-off do construtor.
         "class A { A.named(); void named() {} } var tearoff = A.named;",

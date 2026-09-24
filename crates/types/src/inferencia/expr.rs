@@ -915,10 +915,14 @@ fn avisar_acesso_estatico_a_instancia(inf: &mut BodyInferrer<'_>, cx: &Corpo, cl
 /// `C.nome` / `C.new` como valor: tipo de função do construtor (genérico
 /// sobre os parâmetros da classe se não instanciado).
 fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name) -> TypeId {
+    let instancia_explicita = match &ast(inf, cx).expr(e).kind {
+        ExprKind::Property { target, .. } => matches!(&ast(inf, cx).expr(*target).kind, ExprKind::TypeArguments { .. }),
+        _ => false,
+    };
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
     let Some(f) = inf.construtor_de(c, chave) else {
-        if avisar_acesso_estatico_a_instancia(inf, cx, c, name, false) {
+        if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, c, name, false) {
             return inf.core.dynamic_;
         }
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
@@ -1703,7 +1707,8 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
             }
             None => {
                 if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
-                    if inf.membro_estatico(*c, name.sym, false).is_none()
+                    let instancia_explicita = matches!(&ast(inf, cx).expr(target).kind, ExprKind::TypeArguments { .. });
+                    if !instancia_explicita && inf.membro_estatico(*c, name.sym, false).is_none()
                         && avisar_acesso_estatico_a_instancia(inf, cx, *c, name, true)
                     { return inf.core.dynamic_; }
                 }
