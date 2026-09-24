@@ -102,7 +102,14 @@ confirmou `210_constantes_de_ambiente` e **152/223**. A rodada combinada
 [35982589082](https://github.com/insinfo/dartforge/actions/runs/35982589082)
 mediu **157/223**: o seletor genérico liberou seis casos, inclusive
 `104_sealed_exaustivo`, mas `69_list_de_lists_e_matriz` regrediu no
-`fold<int>` após `expand`; a correção dessa regressão está pendente.
+`fold<int>` após `expand`; a rodada seguinte corrigiu essa regressão.
+O RTI da lista concreta e das fábricas redirecionadas foi validado na
+[CI 35986485976](https://github.com/insinfo/dartforge/actions/runs/35986485976)
+e na [suíte nativa 35986493960](https://github.com/insinfo/dartforge/actions/runs/35986493960):
+**160/223**, sem regressões contra a rodada de 157. `69_list_de_lists_e_matriz`
+voltou a passar, junto com `138_collection_hashmap_ordenado` e
+`199_antigo_reified18`; `41_classes_ctor_nomeado` e `64_map_ordem_insercao`
+permaneceram verdes após reificar tear-offs de construtor e `MapEntry<K,V>`.
 
 Os quatro diagnósticos adicionais de membros somente para leitura passaram
 na [CI 35981633280](https://github.com/insinfo/dartforge/actions/runs/35981633280)
