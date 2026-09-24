@@ -374,6 +374,7 @@ mod testes_servico {
         assert!(s.escrever(&futuro, Arc::from(&b"bad"[..])).is_err());
         s.escrever(&segundo, Arc::from(&b"own"[..])).unwrap();
         assert_eq!(s.ler(&segundo).as_deref(), Some(&b"own"[..]));
+        assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);
         assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Existe(_)) && d.is_none()));
     }
 }
