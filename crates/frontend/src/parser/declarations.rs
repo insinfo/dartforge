@@ -1384,7 +1384,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) {
             let type_params = self.parse_type_parameters_opt()?;
             let parameters = self.parse_formal_parameters()?;
+            let inicio_corpo = self.pos;
             let (modifier, body) = self.parse_function_body()?;
+            self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body);
             let id = self.ast.push_function(Function {
                 span: self.span_from(start),
                 external: mods.external,
@@ -1434,7 +1436,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 (name, Some(self.parse_formal_parameters()?))
             }
         };
+        let inicio_corpo = self.pos;
         let (modifier, body) = self.parse_function_body()?;
+        self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body);
         Ok(self.ast.push_function(Function {
             span: self.span_from(start),
             external: mods.external,
@@ -1689,7 +1693,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                 }
             }
-            self.parse_function_body()?.1
+            let inicio_corpo = self.pos;
+            let body = self.parse_function_body()?.1;
+            self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body);
+            body
         };
         Ok(MemberKind::Constructor(Constructor {
             external: mods.external,
@@ -1780,6 +1787,33 @@ impl<'s, 'i> Parser<'s, 'i> {
     // -----------------------------------------------------------------------
     // Corpos de função
     // -----------------------------------------------------------------------
+
+    /// `_checkForExternalMethodWithBody` / `_validateConstructorBodyAllowed`
+    /// do analyzer: o erro fica no `{` do bloco ou no `=>`, nunca no nome.
+    /// O intervalo desde `inicio` começa antes do modificador `async` e só
+    /// inclui tokens desta função, então o primeiro delimitador é o corpo.
+    fn conferir_corpo_externo(&mut self, external: bool, factory: bool, inicio: usize, body: &FunctionBody) {
+        if !external {
+            return;
+        }
+        let delimitador = match body {
+            FunctionBody::Block(_) => Op::LBrace,
+            FunctionBody::Expression(_) => Op::Arrow,
+            FunctionBody::Empty | FunctionBody::Native(_) => return,
+        };
+        let span = self.tokens[inicio..self.pos]
+            .iter()
+            .find(|t| t.kind == Kind::Op(delimitador))
+            .map(|t| t.span);
+        if let Some(span) = span {
+            let codigo = if factory {
+                codigos::parser::EXTERNAL_FACTORY_WITH_BODY
+            } else {
+                codigos::parser::EXTERNAL_METHOD_WITH_BODY
+            };
+            self.erro_em(codigo, span, &[]);
+        }
+    }
 
     /// `async`/`async*`/`sync*` opcional seguido de `{...}`, `=> e;`, `;` ou
     /// `native ...;`. Ajusta `in_async`/`in_generator` durante o corpo.
@@ -1884,6 +1918,59 @@ mod tests {
 
     fn member<'a>(out: &'a Parsed, class: &crate::ast::ClassDecl, i: usize) -> &'a MemberKind {
         &out.ast.member(class.members[i]).kind
+    }
+
+    #[test]
+    fn corpo_externo_marca_abertura_do_bloco_ou_seta_com_codigo_oficial() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (src, token, codigo) in [
+            ("external int f() => 1;", "=>", c::EXTERNAL_METHOD_WITH_BODY),
+            ("class C { external C() {} }", "{}", c::EXTERNAL_METHOD_WITH_BODY),
+            ("class C { external factory C.x() => C(); }", "=>", c::EXTERNAL_FACTORY_WITH_BODY),
+            ("class C { external factory C.x() {} }", "{}", c::EXTERNAL_FACTORY_WITH_BODY),
+            ("class C { external int get v => 1; }", "=>", c::EXTERNAL_METHOD_WITH_BODY),
+        ] {
+            let mut names = Interner::new();
+            let out = parse(src, &mut names);
+            let inicio = src.find(token).unwrap();
+            let fim = inicio + if token == "{}" { 1 } else { 2 };
+            assert!(out.diagnostics.iter().any(|d|
+                d.code == Some(codigo) && d.span.start == inicio && d.span.end == fim
+            ), "{src}: {:?}", out.diagnostics);
+            assert_eq!(out.diagnostics.len(), 1, "{src}: {:?}", out.diagnostics);
+        }
+        let mut names = Interner::new();
+        let out = parse("external int f(); class C { external factory C.x(); }", &mut names);
+        assert!(!out.diagnostics.iter().any(|d| matches!(d.code,
+            Some(c::EXTERNAL_METHOD_WITH_BODY | c::EXTERNAL_FACTORY_WITH_BODY))));
+    }
+
+    #[test]
+    fn corpo_externo_bate_com_duas_amostras_do_oraculo_gravado() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (src, codigo, inicio, mensagem, correcao) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_0c2b43e4.dart")),
+                c::EXTERNAL_METHOD_WITH_BODY,
+                25,
+                "An external or native method can't have a body.",
+                None,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_42cae48d.dart")),
+                c::EXTERNAL_FACTORY_WITH_BODY,
+                39,
+                "External factories can't have a body.",
+                Some("Try removing the body of the factory, or removing the keyword 'external'."),
+            ),
+        ] {
+            let mut names = Interner::new();
+            let out = parse(src, &mut names);
+            assert!(out.diagnostics.iter().any(|d|
+                d.code == Some(codigo) && d.span.start == inicio && d.span.end == inicio + 2
+                    && d.message == mensagem && d.correcao().as_deref() == correcao
+            ), "{src}: {:?}", out.diagnostics);
+        }
     }
 
     // -- Independentes dos outros módulos -----------------------------------
