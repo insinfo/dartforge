@@ -19,7 +19,16 @@ pub(super) fn do_documento(texto: &str, features: LibraryFeatures) -> Vec<Value>
         let (nome, kind, membros) = match &decl.kind {
             DeclKind::Class(c) => (Some(c.name), 5, Some(c.members.as_slice())),
             DeclKind::Mixin(m) => (Some(m.name), 5, Some(m.members.as_slice())),
-            DeclKind::Enum(e) => (Some(e.name), 10, Some(e.members.as_slice())),
+            DeclKind::Enum(e) => {
+                let mut filhos = e.constants.iter().map(|c| {
+                    simbolo(texto, &linhas, &nomes, c.name, c.span, 22, Vec::new())
+                }).collect::<Vec<_>>();
+                filhos.extend(simbolos_membros(
+                    texto, &linhas, &nomes, &parsed.ast, &e.members,
+                ));
+                saida.push(simbolo(texto, &linhas, &nomes, e.name, decl.span, 10, filhos));
+                continue;
+            }
             DeclKind::Extension(e) => (e.name, 5, Some(e.members.as_slice())),
             DeclKind::ExtensionType(e) => (Some(e.name), 5, Some(e.members.as_slice())),
             DeclKind::Typedef(t) => (Some(t.name), 5, None),

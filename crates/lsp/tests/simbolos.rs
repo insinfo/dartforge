@@ -81,3 +81,29 @@ fn cliente_sem_suporte_hierarquico_recebe_simbolos_planos() {
     assert_eq!(simbolos[1]["containerName"], "C");
     assert!(simbolos[1].get("children").is_none());
 }
+
+#[test]
+fn enum_inclui_constantes_e_membros() {
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "capabilities":{"textDocument":{"documentSymbol":{
+            "hierarchicalDocumentSymbolSupport":true
+        }}}
+    }}));
+    servidor.bombear();
+    let uri = "file:///enum.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"enum Cor { azul, verde; String get texto => name; }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":2,"method":"textDocument/documentSymbol",
+        "params":{"textDocument":{"uri":uri}}}));
+    let resposta = servidor.bombear();
+    let filhos = resposta[0]["result"][0]["children"].as_array().unwrap();
+    assert_eq!(filhos.len(), 3);
+    assert_eq!(filhos[0]["name"], "azul");
+    assert_eq!(filhos[0]["kind"], 22);
+    assert_eq!(filhos[1]["name"], "verde");
+    assert_eq!(filhos[2]["name"], "texto");
+}
