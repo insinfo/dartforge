@@ -276,19 +276,18 @@ impl ServicoBuildStep for ServicoAcao<'_> {
 
     fn find_assets(&mut self, glob: &str) -> Vec<AssetId> {
         let Ok(padrao) = crate::glob::Glob::novo(glob) else { return Vec::new() };
+        let Some(pacote) = self.grafo.acoes.get(self.acao).map(|a| a.entrada.pacote.clone()) else { return Vec::new() };
         let mut ids: Vec<_> = self.grafo.fontes.iter().flat_map(|(p, cs)| cs.iter().map(|c| AssetId { pacote: p.clone(), caminho: c.clone() }))
             .chain(self.grafo.gerados.keys().cloned())
-            .filter(|id| padrao.casa(&id.caminho)).collect();
+            .filter(|id| id.pacote == pacote && padrao.casa(&id.caminho)).collect();
         ids.sort();
         ids.dedup();
         ids.retain(|id| self.can_read(id));
         // Uma listagem vazia também depende da estrutura dos diretórios.
-        for no in &self.pacotes.nos {
-            if !no.raiz.as_os_str().is_empty() {
-                let disco = crate::grafo::listar(&no.raiz, std::slice::from_ref(&padrao));
-                self.consultas.push((Consulta::Glob { dir: no.raiz.clone(), padrao: glob.to_string() },
-                    Some(digest_bytes(disco.into_iter().collect::<Vec<_>>().join("\n").as_bytes()))));
-            }
+        if let Some(no) = self.pacotes.no(&pacote) {
+            let disco = crate::grafo::listar(&no.raiz, std::slice::from_ref(&padrao));
+            self.consultas.push((Consulta::Glob { dir: no.raiz.clone(), padrao: glob.to_string() },
+                Some(digest_bytes(disco.into_iter().collect::<Vec<_>>().join("\n").as_bytes()))));
         }
         ids
     }
@@ -359,21 +358,28 @@ mod testes_servico {
     fn visibilidade_de_fases_e_saida_da_propria_acao() {
         let dir = tempfile::tempdir().unwrap();
         let pacotes = GrafoPacotes {
-            nos: vec![No { nome: "p".into(), raiz: dir.path().to_path_buf(), tipo: TipoDependencia::Path, e_raiz: true, deps: vec![] }],
+            nos: vec![
+                No { nome: "p".into(), raiz: dir.path().join("p"), tipo: TipoDependencia::Path, e_raiz: true, deps: vec![] },
+                No { nome: "q".into(), raiz: dir.path().join("q"), tipo: TipoDependencia::Path, e_raiz: false, deps: vec![] },
+            ],
             raiz: 0,
-            por_nome: [("p".into(), 0)].into(),
+            por_nome: [("p".into(), 0), ("q".into(), 1)].into(),
             lock: Default::default(),
             dir_raiz: dir.path().to_path_buf(),
         };
         let fonte = AssetId::novo("p", "lib/a.dart");
         let primeiro = AssetId::novo("p", "lib/a.g.dart");
+        let estrangeiro = AssetId::novo("q", "lib/outro.dart");
         let segundo = AssetId::novo("p", "lib/a.h.dart");
         let futuro = AssetId::novo("p", "lib/a.i.dart");
         let escape = AssetId::novo("p", "lib/../escape.dart");
-        std::fs::create_dir(dir.path().join("lib")).unwrap();
-        std::fs::write(dir.path().join("lib/a.dart"), b"source").unwrap();
+        std::fs::create_dir_all(dir.path().join("p/lib")).unwrap();
+        std::fs::create_dir_all(dir.path().join("q/lib")).unwrap();
+        std::fs::write(dir.path().join("p/lib/a.dart"), b"source").unwrap();
+        std::fs::write(dir.path().join("q/lib/outro.dart"), b"foreign").unwrap();
         let mut grafo = Grafo::default();
         grafo.fontes.entry("p".into()).or_default().insert("lib/a.dart".into());
+        grafo.fontes.entry("q".into()).or_default().insert("lib/outro.dart".into());
         grafo.acoes = vec![
             Acao { fase: 0, entrada: fonte.clone(), saidas: vec![primeiro.clone()] },
             Acao { fase: 1, entrada: primeiro.clone(), saidas: vec![segundo.clone(), escape.clone()] },
@@ -396,6 +402,7 @@ mod testes_servico {
         s.escrever(&segundo, Arc::from(&b"own"[..])).unwrap();
         assert_eq!(s.ler(&segundo).as_deref(), Some(&b"own"[..]));
         assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);
+        assert!(!s.find_assets("lib/**").contains(&estrangeiro), "findAssets fica no pacote da entrada, como build 2.4.2");
         assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Existe(_)) && d.is_none()));
     }
 }
