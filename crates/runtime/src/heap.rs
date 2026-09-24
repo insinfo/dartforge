@@ -743,6 +743,9 @@ pub struct Heap {
     /// um slot reutilizado herdaria a marca "imutável" ou "em iteração" de
     /// outro objeto.
     pub imutaveis: std::collections::HashSet<i64>,
+    /// Campos `late` já escritos, por handle e índice físico. A marca fica
+    /// fora do valor: zero e null são atribuições válidas do programa.
+    pub campos_late_inicializados: std::collections::HashSet<(i64, i64)>,
     /// Listas de tamanho fixo (`_List` do SDK da fonte, P5c).
     pub fixas: std::collections::HashSet<i64>,
     /// `_GrowableList` criada por `_withData(data)` (P5c): o vetor tem os
@@ -780,6 +783,7 @@ impl Heap {
             caixas_bool: [0, 0],
             raizes_do_runtime: [0, 0],
             imutaveis: std::collections::HashSet::new(),
+            campos_late_inicializados: std::collections::HashSet::new(),
             fixas: std::collections::HashSet::new(),
             pendentes: std::collections::HashMap::new(),
             iteracoes_ativas: std::collections::HashSet::new(),
@@ -1504,6 +1508,7 @@ impl Heap {
             smi::e_handle(*h) && *h > 0 && marks.get(Self::indice_de(*h)).copied().unwrap_or(false)
         };
         self.imutaveis.retain(|h| vivo(h));
+        self.campos_late_inicializados.retain(|(h, _)| vivo(h));
         self.fixas.retain(|h| vivo(h));
         self.pendentes.retain(|h, _| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
@@ -1992,12 +1997,15 @@ mod raizes_do_runtime {
         let lista = heap.create_list(Vec::new());
         heap.imutaveis.insert(lista);
         heap.iteracoes_ativas.insert(lista);
+        heap.campos_late_inicializados.insert((lista, 0));
         heap.collect();
         assert!(heap.imutaveis.is_empty());
         assert!(heap.iteracoes_ativas.is_empty());
+        assert!(heap.campos_late_inicializados.is_empty());
         let nova = heap.create_list(Vec::new());
         assert_eq!(nova, lista, "o slot é reutilizado");
         assert!(!heap.imutaveis.contains(&nova));
+        assert!(!heap.campos_late_inicializados.contains(&(nova, 0)));
     }
 }
 

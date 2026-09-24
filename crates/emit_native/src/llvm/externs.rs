@@ -119,6 +119,14 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i8 @dartforge_late_field_initialized(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_late_field_mark_initialized(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_object_class(i64)",
         efeitos: CONSERVADOR,
     },

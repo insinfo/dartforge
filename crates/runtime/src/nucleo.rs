@@ -232,6 +232,20 @@ pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {
 pub extern "C" fn dartforge_object_set(handle: i64, index: i64, bits: i64, is_ref: u8) {
     HEAP.with(|heap| heap.borrow_mut().set(handle, index, bits, is_ref != 0));
 }
+
+/// Estado de um campo `late` sem inicializador. O bit é independente dos
+/// bits do campo: `0`, `false` e `null` podem ser valores já atribuídos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_initialized(handle: i64, index: i64) -> u8 {
+    HEAP.with(|heap| u8::from(heap.borrow().campos_late_inicializados.contains(&(handle, index))))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_mark_initialized(handle: i64, index: i64) {
+    HEAP.with(|heap| {
+        heap.borrow_mut().campos_late_inicializados.insert((handle, index));
+    });
+}
 /// Consulta identidade nominal para despacho virtual gerado pelo LLVM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_class(handle: i64) -> i64 {
@@ -450,4 +464,3 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
         heap.allocate(Value::Record(items))
     })
 }
-
