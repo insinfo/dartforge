@@ -3,3 +3,8 @@
 # dele no corpus/diagnosticos e 0 falso positivo nos três projetos reais
 # (`dartforge-paridade placar` e `dartforge-paridade projetos`). O placar
 # reprova um código listado que divergir no corpus. Sintaxe é publicada sempre.
+
+# 2026-09-23: 100% no corpus (placar8) e 0 FP nos três projetos reais.
+enum_constant_same_name_as_enclosing
+enum_with_name_values
+values_declaration_in_enum

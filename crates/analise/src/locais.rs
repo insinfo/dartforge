@@ -48,6 +48,8 @@ struct Local {
     lido: bool,
     /// Declaração por padrão a que pertence (todas ou nenhuma).
     grupo: Option<usize>,
+    /// Mesma variável que outra (padrões compartilhados).
+    alias: Option<usize>,
 }
 
 struct Visita<'a> {
@@ -60,6 +62,8 @@ struct Visita<'a> {
     grupos: usize,
     /// Dentro de um padrão refutável.
     refutavel: bool,
+    /// Início (índice em `locais`) de uma região de padrões compartilhados.
+    regiao_compartilhada: Option<usize>,
 }
 
 impl<'a> Visita<'a> {
@@ -76,7 +80,7 @@ impl<'a> Visita<'a> {
             return;
         }
         let i = self.locais.len();
-        self.locais.push(Local { nome: n.sym, span: n.span, especie, lido: false, grupo });
+        self.locais.push(Local { nome: n.sym, span: n.span, especie, lido: false, grupo, alias: None });
         if let Some(e) = self.escopos.last_mut() {
             e.push(i);
         }
@@ -88,8 +92,15 @@ impl<'a> Visita<'a> {
 
     /// Referência ao identificador `n`: `leitura` diz se lê o valor. Função
     /// local conta como usada por qualquer referência.
+    fn raiz(&self, mut i: usize) -> usize {
+        while let Some(a) = self.locais[i].alias {
+            i = a;
+        }
+        i
+    }
+
     fn referir(&mut self, n: ast::Name, leitura: bool) {
-        if let Some(i) = self.achar(n.sym) {
+        if let Some(i) = self.achar(n.sym).map(|i| self.raiz(i)) {
             let l = &mut self.locais[i];
             if leitura || l.especie == Especie::Funcao {
                 l.lido = true;
@@ -248,7 +259,7 @@ impl<'a> Visita<'a> {
                     self.expr(*c);
                 }
                 for u in updates.iter() {
-                    self.expr_ctx(*u, true);
+                    self.expr(*u);
                 }
                 self.elemento(body);
                 self.sair();
@@ -273,50 +284,114 @@ impl<'a> Visita<'a> {
         self.refutavel = antes;
     }
 
-    /// Padrão que declara variáveis (`var (a, b) = e`, `case`, `if-case`).
+    /// Padrão que declara variáveis (`var (a, b) = e`, `case`, `if-case`):
+    /// primeiro as variáveis, depois as expressões constantes — `== b && var b`
+    /// já se refere ao `b` do próprio padrão (`referenced_before_declaration`).
     fn padrao_declarado(&mut self, p: PatternId, grupo: Option<usize>) {
+        self.declarar_do_padrao(p, grupo);
+        self.ler_do_padrao(p);
+    }
+
+    /// Declara uma variável de padrão; numa região compartilhada (os dois
+    /// lados de `||`, os `case` que dividem um corpo), o mesmo nome já
+    /// declarado nela é a **mesma** variável (`JoinPatternVariableElement`).
+    fn declarar_de_padrao(&mut self, n: ast::Name, grupo: Option<usize>) {
+        if let Some(regiao) = self.regiao_compartilhada {
+            if let Some(i) = self.achar(n.sym).filter(|&i| i >= regiao) {
+                let raiz = self.raiz(i);
+                if self.curinga && self.interner.resolve(n.sym) == "_" {
+                    return;
+                }
+                self.locais.push(Local { nome: n.sym, span: n.span, especie: Especie::Variavel, lido: false, grupo, alias: Some(raiz) });
+                return;
+            }
+        }
+        self.declarar(n, Especie::Variavel, grupo);
+    }
+
+    fn declarar_do_padrao(&mut self, p: PatternId, grupo: Option<usize>) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
-            // Num padrão refutável (`case`), o identificador solto é uma
-            // constante (referência); `var x`, `final x` e `T x` declaram.
+            PatternKind::Variable { name, final_, var_, ty } => {
+                // Num padrão refutável, o identificador solto é constante.
+                if !(self.refutavel && !*final_ && !*var_ && ty.is_none()) {
+                    self.declarar_de_padrao(*name, grupo);
+                }
+            }
+            PatternKind::Or(a, b) => {
+                let antes = self.regiao_compartilhada;
+                self.regiao_compartilhada = Some(antes.unwrap_or(self.locais.len()));
+                self.declarar_do_padrao(*a, grupo);
+                self.declarar_do_padrao(*b, grupo);
+                self.regiao_compartilhada = antes;
+            }
+            PatternKind::And(a, b) => {
+                self.declarar_do_padrao(*a, grupo);
+                self.declarar_do_padrao(*b, grupo);
+            }
+            PatternKind::NullCheck(a) | PatternKind::NullAssert(a) | PatternKind::Parenthesized(a) => {
+                self.declarar_do_padrao(*a, grupo)
+            }
+            PatternKind::Cast { pattern, .. } => self.declarar_do_padrao(*pattern, grupo),
+            PatternKind::List { elements, .. } => {
+                for e in elements.iter() {
+                    if let ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) = e {
+                        self.declarar_do_padrao(*x, grupo);
+                    }
+                }
+            }
+            PatternKind::Map { entries, .. } => {
+                for e in entries.iter() {
+                    self.declarar_do_padrao(e.value, grupo);
+                }
+            }
+            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
+                for f in fields.iter() {
+                    self.declarar_do_padrao(f.pattern, grupo);
+                }
+            }
+            PatternKind::Wildcard { .. } | PatternKind::Constant(_) | PatternKind::Relational { .. } => {}
+        }
+    }
+
+    fn ler_do_padrao(&mut self, p: PatternId) {
+        let ast = self.ast;
+        match &ast.pattern(p).kind {
             PatternKind::Variable { name, final_, var_, ty } => {
                 if self.refutavel && !*final_ && !*var_ && ty.is_none() {
                     self.referir(*name, true)
-                } else {
-                    self.declarar(*name, Especie::Variavel, grupo)
                 }
             }
             PatternKind::Constant(x) | PatternKind::Relational { value: x, .. } => self.expr(*x),
             PatternKind::Or(a, b) | PatternKind::And(a, b) => {
-                self.padrao_declarado(*a, grupo);
-                self.padrao_declarado(*b, grupo);
+                self.ler_do_padrao(*a);
+                self.ler_do_padrao(*b);
             }
             PatternKind::NullCheck(a) | PatternKind::NullAssert(a) | PatternKind::Parenthesized(a) => {
-                self.padrao_declarado(*a, grupo)
+                self.ler_do_padrao(*a)
             }
-            PatternKind::Cast { pattern, .. } => self.padrao_declarado(*pattern, grupo),
+            PatternKind::Cast { pattern, .. } => self.ler_do_padrao(*pattern),
             PatternKind::List { elements, .. } => {
                 for e in elements.iter() {
                     if let ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) = e {
-                        self.padrao_declarado(*x, grupo);
+                        self.ler_do_padrao(*x);
                     }
                 }
             }
             PatternKind::Map { entries, .. } => {
                 for e in entries.iter() {
                     self.expr(e.key);
-                    self.padrao_declarado(e.value, grupo);
+                    self.ler_do_padrao(e.value);
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
                 for f in fields.iter() {
-                    self.padrao_declarado(f.pattern, grupo);
+                    self.ler_do_padrao(f.pattern);
                 }
             }
             PatternKind::Wildcard { .. } => {}
         }
     }
-
     /// Padrão de atribuição: as variáveis são escritas, não declaradas.
     fn padrao_de_atribuicao(&mut self, p: PatternId) {
         let ast = self.ast;
@@ -358,7 +433,7 @@ impl<'a> Visita<'a> {
     fn for_init(&mut self, init: Option<&ForInit>) {
         match init {
             Some(ForInit::Variables(vl)) => self.variaveis(vl),
-            Some(ForInit::Expression(x)) => self.expr_ctx(*x, true),
+            Some(ForInit::Expression(x)) => self.expr(*x),
             None => {}
         }
     }
@@ -515,7 +590,7 @@ impl<'a> Visita<'a> {
                     self.expr(*c);
                 }
                 for u in updates.iter() {
-                    self.expr_ctx(*u, true);
+                    self.expr(*u);
                 }
                 self.stmt(*body);
                 self.sair();
@@ -533,17 +608,29 @@ impl<'a> Visita<'a> {
             }
             StmtKind::Switch { value, cases } => {
                 self.expr(*value);
-                for c in cases.iter() {
+                // `case A: case B: corpo` — os casos sem corpo dividem o do
+                // seguinte, e as variáveis de mesmo nome são uma só.
+                let mut i = 0;
+                while i < cases.len() {
+                    let mut j = i;
+                    while j + 1 < cases.len() && cases[j].body.is_empty() {
+                        j += 1;
+                    }
                     self.entrar();
-                    if let Some(p) = c.pattern {
-                        self.padrao_de_caso(p);
+                    let antes = self.regiao_compartilhada;
+                    self.regiao_compartilhada = Some(self.locais.len());
+                    for c in &cases[i..=j] {
+                        if let Some(p) = c.pattern {
+                            self.padrao_de_caso(p);
+                        }
+                        if let Some(g) = c.guard {
+                            self.expr(g);
+                        }
                     }
-                    if let Some(g) = c.guard {
-                        self.expr(g);
-                    }
-                    self.comandos(&c.body, c.span.start);
-
+                    self.regiao_compartilhada = antes;
+                    self.comandos(&cases[j].body, cases[j].span.start);
                     self.sair();
+                    i = j + 1;
                 }
             }
             StmtKind::Return(x) => {
@@ -655,7 +742,7 @@ impl<'a> Visita<'a> {
 /// Locais não usados de uma unidade.
 pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
     let ast = u.ast;
-    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false };
+    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.funcao(*f, true),
@@ -681,18 +768,20 @@ pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Dia
             DeclKind::Typedef(_) => {}
         }
     }
+    // Lida é a variável cuja raiz (a declaração que ela compartilha) foi lida.
+    let lidos: Vec<bool> = (0..v.locais.len()).map(|i| v.locais[v.raiz(i)].lido).collect();
     let mut grupos_lidos = std::collections::HashSet::new();
-    for l in &v.locais {
-        if let (Some(g), true) = (l.grupo, l.lido) {
+    for (i, l) in v.locais.iter().enumerate() {
+        if let (Some(g), true) = (l.grupo, lidos[i]) {
             grupos_lidos.insert(g);
         }
     }
     let mut out = Vec::new();
-    for l in &v.locais {
+    for (i, l) in v.locais.iter().enumerate() {
         let nome = interner.resolve(l.nome);
         // `_isNamedWildcard`: só `_`s (com o recurso, só `_`, que nem declara).
         let so_sublinhados = nome.bytes().all(|b| b == b'_') && !(curinga && nome.len() > 1);
-        if l.lido || so_sublinhados || l.grupo.is_some_and(|g| grupos_lidos.contains(&g)) {
+        if lidos[i] || so_sublinhados || l.grupo.is_some_and(|g| grupos_lidos.contains(&g)) {
             continue;
         }
         match l.especie {
@@ -728,6 +817,13 @@ mod testes {
         let nomes: Vec<&str> = r.iter().map(|x| x.1.as_str()).collect();
         assert_eq!(nomes, vec!["l", "b", "c", "e", "j", "k", "x"], "{r:?}");
         assert_eq!(r[0].0, "unused_element");
+    }
+
+    #[test]
+    fn padroes_compartilhados_e_atualizacao_de_for() {
+        let f = "void f(Object? x) {\n  if (x case [var a || var a]) { print(a); }\n  switch (x) {\n    case (0, int y):\n    case (1, final int y):\n      print(y);\n  }\n  if (x case == b && var b) {}\n  for (int i = 0; i < 3; i++) {}\n}\n";
+        let r = rodar(f);
+        assert_eq!(r, vec![], "{r:?}");
     }
 
     #[test]
