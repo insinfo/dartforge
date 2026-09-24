@@ -35,6 +35,12 @@ mediu **125/223** no job AOT com SDK da fonte (98 casos ainda falham); o
 workflow geral foi cancelado pelo push seguinte após esse artefato sair. A rodada
 ainda não continha a correção do getter que sobrescreve campo herdado nem
 as correções seguintes de `Object` em enums e `_Type`.
+Com o despacho de getters herdados, `Object`/`_Type`/enums e a RTI estrutural
+de records, o job AOT com SDK da fonte do
+[Pesado 35978288847](https://github.com/insinfo/dartforge/actions/runs/35978288847)
+mediu **146/223** (77 falhas). `46_classes_getters_setters`,
+`52_enums_basico`, `61_list_metodos`, `100_records_basico`, `112_typedef`,
+`129_comparable_sort` e `198_antigo_records19` passaram nessa rodada.
 
 O analisador integrado passou em [CI 35970218894](https://github.com/insinfo/dartforge/actions/runs/35970218894)
 e [Pesado 35970218770](https://github.com/insinfo/dartforge/actions/runs/35970218770):
