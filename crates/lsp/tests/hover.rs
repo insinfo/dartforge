@@ -116,3 +116,38 @@ fn funcao_local_homonima_impede_hover_de_topo() {
         "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":coluna}}}));
     assert_eq!(servidor.bombear()[0]["result"], Value::Null);
 }
+
+#[test]
+fn hover_de_funcao_com_dois_posicionais_tipados() {
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "capabilities":{"textDocument":{"hover":{"contentFormat":["markdown"]}}}
+    }}));
+    servidor.bombear();
+    let uri = "file:///funcao-parametros.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"int soma(int a, int b) => a + b;\nvoid main() { print(soma(1, 2)); }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":2,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":21}}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"]["contents"], json!({
+        "kind":"markdown","value":"```dart\nint soma(int a, int b)\n```"
+    }));
+}
+
+#[test]
+fn hover_recusa_assinatura_opcional_que_precisa_formatacao_completa() {
+    let mut servidor = Servidor::new();
+    let uri = "file:///funcao-opcional.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"int soma([int a = 1]) => a;\nvoid main() { print(soma()); }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":21}}}));
+    assert_eq!(servidor.bombear()[0]["result"], Value::Null);
+}
