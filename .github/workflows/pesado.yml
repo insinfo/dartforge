@@ -449,6 +449,9 @@ jobs:
       - name: Aridade de closure lança NoSuchMethodError da fonte
         shell: pwsh
         run: cargo test --locked --release -p dartforge-emit-native --test contrato aridade_closure_lanca_no_such_method_error_da_fonte -- --ignored --nocapture
+      - name: Getter estático de função executa com ordem correta
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato getter_estatico_que_retorna_funcao_e_chamado_como_valor -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).

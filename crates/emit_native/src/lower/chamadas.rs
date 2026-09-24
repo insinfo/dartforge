@@ -244,6 +244,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if crate::lower::funcao_do_usuario(self.ctx, fid)
                         && self.ctx.program.functions[fid].static_
                     {
+                        if self.ctx.program.functions[fid].kind
+                            == dartforge_elements::model::FunctionKind::Getter
+                        {
+                            // `C.g(args)` lê `g` primeiro e chama a função
+                            // devolvida. Os argumentos não pertencem ao getter.
+                            let callee = self.chamar_direto(fid, None, Vec::new());
+                            let avaliados = self.avaliar_args(ast, &arguments.args);
+                            return self.chamar_valor_funcao(callee, &avaliados);
+                        }
                         let avaliados = self.avaliar_args(ast, &arguments.args);
                         let args = self.casar_args(fid, &avaliados);
                         self.armar_tupla(fid, expr_id, arguments);
@@ -279,6 +288,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 if let Some(&f) = classe.static_members.get(&method_name.sym) {
                     let fid = f.0 as usize;
+                    if self.ctx.program.functions[fid].kind
+                        == dartforge_elements::model::FunctionKind::Getter
+                    {
+                        let callee = self.chamar_direto(fid, None, Vec::new());
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        return self.chamar_valor_funcao(callee, &avaliados);
+                    }
                     let avaliados = self.avaliar_args(ast, &arguments.args);
                     let args = self.casar_args(fid, &avaliados);
                     return self.chamar_direto(fid, None, args);
