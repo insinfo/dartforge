@@ -958,14 +958,21 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         );
         texto.terminate(Terminator::Return(Some(valor)));
         texto.finalizar(module);
-        module.tabelas_de_metodos.push((
-            CLASSE_TIPO as u32,
-            "df.mt.$tipo".to_string(),
-            vec![
-                ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
-                ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
-            ],
-        ));
+        let mut metodos = vec![
+            ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
+            ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
+        ];
+        // `_Type` é criado pelo runtime, fora da hierarquia de elementos do
+        // programa. Ele ainda herda os membros de `Object`, incluindo o
+        // getter privado usado por `identityHashCode(Object)` no hashSeed.
+        if ctx.sdk_da_fonte && let Some(objeto) = ctx.core.object_class {
+            for (seletor, simbolo) in super::sdk_fonte::tabela_de_metodos(ctx, objeto) {
+                if !metodos.iter().any(|(existente, _)| *existente == seletor) {
+                    metodos.push((seletor, simbolo));
+                }
+            }
+        }
+        module.tabelas_de_metodos.push((CLASSE_TIPO as u32, "df.mt.$tipo".to_string(), metodos));
         module.classes.push(ClassDef {
             id: CLASSE_TIPO as u32,
             name: "_Type".to_string(),
