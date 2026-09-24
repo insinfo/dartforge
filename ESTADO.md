@@ -142,6 +142,14 @@ após os diagnósticos de atribuição e construtores, o analyzer alcançou
 com relatório idêntico em 1/4/8 trabalhadores. As correções posteriores
 de `Enum.index` e setter de extensão explícita ainda não fazem parte
 desse placar combinado.
+Na integração `7d5e370`, a [CI 35989394377](https://github.com/insinfo/dartforge/actions/runs/35989394377)
+e o [Pesado 35989394369](https://github.com/insinfo/dartforge/actions/runs/35989394369)
+passaram: **5.832/26.133** diagnósticos exatos, 5.543 mensagens iguais,
+4.338 falsos positivos, 19.832 falsos negativos e 469 posições erradas,
+com determinismo em 1/4/8 trabalhadores. O nativo com SDK da fonte manteve
+**160/223**, sem mudança de estado em nenhum caso frente à rodada anterior.
+O builder executou as quatro aplicações do fixture e emitiu o resultado
+estruturado da fase de declarações; a augmentation final ainda não existe.
 
 ## Fechamento do dia 2026-09-23
 
