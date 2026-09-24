@@ -896,12 +896,28 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
     }
 }
 
+/// Somente membros declarados na própria classe; a busca herdada requer
+/// resolver substituições e precedência antes de diagnosticar.
+fn avisar_acesso_estatico_a_instancia(inf: &mut BodyInferrer<'_>, classe: ClassId, name: ast::Name, escrita: bool) -> bool {
+    let membros = &inf.program.class(classe).instance_members;
+    let encontrado = membros.contains_key(&name.sym)
+        || (escrita && inf.chave_setter(name.sym).is_some_and(|chave| membros.contains_key(&chave)));
+    if encontrado {
+        let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+        inf.aviso(msg, name.span);
+    }
+    encontrado
+}
+
 /// `C.nome` / `C.new` como valor: tipo de função do construtor (genérico
 /// sobre os parâmetros da classe se não instanciado).
 fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name) -> TypeId {
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
     let Some(f) = inf.construtor_de(c, chave) else {
+        if avisar_acesso_estatico_a_instancia(inf, c, name, false) {
+            return inf.core.dynamic_;
+        }
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
@@ -1683,6 +1699,11 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                 m.tipo
             }
             None => {
+                if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
+                    if inf.membro_estatico(*c, name.sym, false).is_none()
+                        && avisar_acesso_estatico_a_instancia(inf, *c, name, true)
+                    { return inf.core.dynamic_; }
+                }
                 if let RefTipo::Extensao(x) = rt {
                     if inf.membro_de_extensao_explicita(x, &[], name.sym, true).is_some() {
                         let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
