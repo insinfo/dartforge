@@ -123,16 +123,17 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     Ok(())
 }
 
-/// Carimbo dos fontes Dart sob `raiz`: nomes, instantes de modificação e
-/// tamanhos em ordem estável. Muda quando um arquivo muda, entra, sai ou é
-/// renomeado, mesmo que a soma de tamanhos e datas continue igual.
+/// Carimbo dos fontes Dart sob `raiz` e da configuração de pacotes usada pelo
+/// carregador: nomes, instantes de modificação e tamanhos em ordem estável.
+/// Muda quando um arquivo muda, entra, sai ou é renomeado, mesmo que a soma
+/// de tamanhos e datas continue igual.
 ///
 /// É deliberadamente simples: o R0 recompila o programa inteiro a cada
 /// mudança, então saber **qual** arquivo mudou não serve para nada ainda. A
 /// raiz é o diretório da entrada; `.dart_tool`, `build` e diretórios ocultos
-/// ficam de fora.
+/// ficam fora da varredura de fontes. `package_config.json` é observado à parte.
 #[cfg(feature = "jit")]
-fn carimbo(raiz: &Path) -> (u64, usize) {
+fn carimbo(raiz: &Path, packages: Option<&Path>) -> (u64, usize) {
     use std::hash::{Hash, Hasher};
 
     fn andar(dir: &Path, fontes: &mut Vec<(PathBuf, u128, u64)>) {
@@ -163,6 +164,18 @@ fn carimbo(raiz: &Path) -> (u64, usize) {
     fontes.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     fontes.hash(&mut hash);
+    let config = packages.map(Path::to_path_buf)
+        .or_else(|| dartforge_elements::config::PackageConfig::discover(raiz));
+    config.hash(&mut hash);
+    if let Some(config) = config {
+        let estado = std::fs::metadata(&config).ok().map(|meta| {
+            let modificado = meta.modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos());
+            (modificado, meta.len())
+        });
+        estado.hash(&mut hash);
+    }
     (hash.finish(), fontes.len())
 }
 
@@ -239,7 +252,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
     let mut fim_informado = false;
     let mut ultimo = None;
     loop {
-        let agora = carimbo(&raiz);
+        let agora = carimbo(&raiz, packages.as_deref());
         if ultimo != Some(agora) {
             ultimo = Some(agora);
             let inicio = std::time::Instant::now();
