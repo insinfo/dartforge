@@ -304,6 +304,33 @@ fn getter_de_extensao_sem_setter() {
 }
 
 #[test]
+fn campo_final_sem_setter_e_late_final_atribuivel() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; class A { final int x = 0; late final int y; late final int z = 0; static final int s = 0; static const int c = 0; void f() { x = 0; x += 0; ++x; x++; s = 0; z = 1; c = 1; y = 1; } } void g(A a) { a.x = 0; a.x += 0; ++a.x; a.x++; a.z = 1; a.y = 1; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    assert_eq!(finais.len(), 11, "{diags:?}");
+    for d in finais {
+        let trecho = &fonte[d.span.start as usize..d.span.end as usize];
+        assert!(trecho == "x" || trecho == "s" || trecho == "z", "{diags:?}");
+        assert!(d.message.contains(&format!("'{trecho}'")), "{diags:?}");
+    }
+    let constantes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
+    assert_eq!(constantes.len(), 1, "{diags:?}");
+    assert_eq!(&fonte[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
+    assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
