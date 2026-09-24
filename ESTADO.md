@@ -166,6 +166,16 @@ o relatório foi idêntico com 1, 4 e 8 trabalhadores. Esse placar inclui
 `Enum.index` e o setter de extensão explícita, mas ainda não inclui os
 commits posteriores de campos não nulos, métodos estáticos em extensões e
 definições completas de macros.
+Na integração `25ea825`, a [CI 35995133386](https://github.com/insinfo/dartforge/actions/runs/35995133386)
+e o [Pesado 35995133542](https://github.com/insinfo/dartforge/actions/runs/35995133542)
+passaram. O analyzer alcançou **5.867/26.133** diagnósticos exatos
+(22,5%), 5.578 mensagens iguais, 4.321 falsos positivos, 19.798 falsos
+negativos e 468 posições erradas, com determinismo em 1/4/8 trabalhadores.
+São +32 exatos e -13 falsos positivos frente a `06eac49`. O nativo com
+SDK da fonte manteve **161/223**, sem mudança de status em nenhum dos 223
+programas, e JS desenvolvimento/produção passaram. O corpus de macros
+permaneceu **6/7**: `410_json_codable` ainda estava em `PENDENTES` nessa
+revisão, apesar de o builder já materializar a augmentation do fixture.
 
 ## Fechamento do dia 2026-09-23
 
