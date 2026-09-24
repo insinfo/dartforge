@@ -96,6 +96,10 @@ jobs:
             Pop-Location
           }
           Write-Host "$($casos.Count) casos com package_config.json"
+      - name: descoberta de macros pelo build_runner
+        if: success() || failure()
+        shell: pwsh
+        run: ./scripts/testar-macros-builder.ps1
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-

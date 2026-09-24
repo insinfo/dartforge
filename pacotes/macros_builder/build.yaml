@@ -1,0 +1,10 @@
+# A descoberta e uma etapa intermediaria: so projetos que a habilitam
+# explicitamente recebem o manifesto. A emissao .macro.dart sera ativada
+# depois da paridade byte a byte com o CFE.
+builders:
+  macroDiscovery:
+    import: "package:dartforge_macros_builder/macros_builder.dart"
+    builder_factories: ["macroDiscoveryBuilder"]
+    build_extensions: {".dart": [".macro_uses.json"]}
+    auto_apply: none
+    build_to: source

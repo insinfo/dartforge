@@ -1,0 +1,10 @@
+name: corpus_macros_discovery
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  json: 0.20.4
+dev_dependencies:
+  build_runner: 2.4.15
+  dartforge_macros_builder:
+    path: ../../../pacotes/macros_builder

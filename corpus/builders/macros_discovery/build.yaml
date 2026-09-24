@@ -1,0 +1,5 @@
+targets:
+  $default:
+    builders:
+      dartforge_macros_builder:macroDiscovery:
+        enabled: true
