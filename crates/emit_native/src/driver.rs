@@ -16,8 +16,19 @@ pub struct NativeDriverOptions {
 impl Default for NativeDriverOptions {
     fn default() -> Self {
         Self {
-            clang: std::env::var_os("DARTFORGE_CLANG")
-                .map_or_else(|| PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe"), PathBuf::from),
+            clang: std::env::var_os("DARTFORGE_CLANG").map_or_else(
+                || {
+                    let ssd = PathBuf::from(
+                        "E:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc/bin/clang.exe",
+                    );
+                    if ssd.is_file() {
+                        ssd
+                    } else {
+                        PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe")
+                    }
+                },
+                PathBuf::from,
+            ),
             optimize: false,
             timings: false,
         }

@@ -8,7 +8,7 @@
 # ele enquanto o runtime for o `dart_sdk.js` do DDC.
 param(
   [string[]]$Programas = @(),
-  [string]$Sdk = "C:/tools/dartsdk-3.6.2",
+  [string]$Sdk = "E:/DartSDKs/3.6.2",
   [string]$Saida = ""
 )
 $ErrorActionPreference = "Stop"

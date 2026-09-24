@@ -5,7 +5,7 @@
 # O harness diferencial gera também o do SDK de oráculo 3.13 em
 # runtime/ddc/<versão>/ (docs/VERSOES-LINGUAGEM.md §5): a coluna DDC de cada
 # programa liga o dart_sdk.js do SDK que o compilou.
-param([string]$Sdk = "C:/tools/dartsdk-3.6.2", [string]$Saida = "")
+param([string]$Sdk = "E:/DartSDKs/3.6.2", [string]$Saida = "")
 $ErrorActionPreference = "Stop"
 $saida = if ($Saida) { $Saida } else { Join-Path $PSScriptRoot "../runtime/ddc" }
 New-Item -ItemType Directory -Force $saida | Out-Null

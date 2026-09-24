@@ -10,7 +10,7 @@ type Resultado = Result<(), Box<dyn std::error::Error>>;
 
 #[cfg(not(feature = "nativo"))]
 fn desabilitado(comando: &str) -> Resultado {
-    Err(format!("`dartforge {comando}` exige o backend nativo: compile com `cargo build -p dartforge-cli --features nativo` (precisa do LLVM em D:/LLVM/22.1.8)").into())
+    Err(format!("`dartforge {comando}` exige o backend nativo: compile com `cargo build -p dartforge-cli --features nativo` (configure DARTFORGE_CLANG para o LLVM 22)").into())
 }
 
 #[cfg(not(feature = "nativo"))]
@@ -225,4 +225,3 @@ fn emitir_ir_nativo(
     }
     Ok(())
 }
-

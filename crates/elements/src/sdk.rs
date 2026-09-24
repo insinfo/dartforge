@@ -255,8 +255,8 @@ impl SdkLayout {
         self.libraries.get(name)
     }
 
-    /// Localiza o `lib/` do SDK: `DARTFORGE_SDK_LIB`, `DART_SDK/lib`, ou o
-    /// `dart` no `PATH` (`<bin>/../lib`).
+    /// Localiza o `lib/` do SDK: `DARTFORGE_SDK_LIB`, `DART_SDK/lib`, a cópia
+    /// no SSD, ou o `dart` no `PATH` (`<bin>/../lib`).
     pub fn discover() -> Option<PathBuf> {
         if let Ok(explicit) = std::env::var("DARTFORGE_SDK_LIB") {
             let path = PathBuf::from(explicit);
@@ -269,6 +269,10 @@ impl SdkLayout {
             if path.join("libraries.json").exists() {
                 return Some(path);
             }
+        }
+        let ssd = PathBuf::from("E:/DartSDKs/3.6.2/lib");
+        if ssd.join("libraries.json").is_file() {
+            return Some(ssd);
         }
         let path_var = std::env::var_os("PATH")?;
         for dir in std::env::split_paths(&path_var) {

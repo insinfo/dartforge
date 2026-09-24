@@ -257,8 +257,7 @@ pub fn compilar_com(
 
     // 4. Clang e Ligação
     let driver_opts = driver::NativeDriverOptions {
-        clang: std::env::var_os("DARTFORGE_CLANG")
-            .map_or_else(|| PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe"), PathBuf::from),
+        clang: driver::NativeDriverOptions::default().clang,
         optimize: options.optimize,
         timings: options.timings,
     };

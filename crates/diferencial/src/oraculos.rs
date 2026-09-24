@@ -107,7 +107,7 @@ impl Ambiente {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap_or_else(|_| PathBuf::from("."))
         };
         let raiz = sem_prefixo_verbatim(raiz);
-        let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("C:/tools/dartsdk-3.6.2"));
+        let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("E:/DartSDKs/3.6.2"));
         let dart_sdk_js = raiz.join("runtime/ddc/dart_sdk.js");
         gerar_dart_sdk_js(&raiz, &sdk, &dart_sdk_js);
         let mut sdks: Vec<SdkOraculo> = SdkOraculo::detectar(sdk.clone(), dart_sdk_js.clone(), true).into_iter().collect();
@@ -116,7 +116,7 @@ impl Ambiente {
         // que configurar — nunca comparados contra o SDK errado.
         let sdk_313 = std::env::var("DARTFORGE_DART_SDK_3_13")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("D:/DartSDKs/3.13.4/dart-sdk"));
+            .unwrap_or_else(|_| PathBuf::from("E:/DartSDKs/3.13.4/dart-sdk"));
         if let Some(mut s) = SdkOraculo::detectar(sdk_313.clone(), PathBuf::new(), false) {
             s.dart_sdk_js = raiz.join("runtime/ddc").join(&s.nome).join("dart_sdk.js");
             gerar_dart_sdk_js(&raiz, &sdk_313, &s.dart_sdk_js);
@@ -135,7 +135,7 @@ impl Ambiente {
             candidatos.into_iter().find(|p| p.is_file())
         });
         let mut path_extra = Vec::new();
-        for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"D:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
+        for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"E:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
             let bin = PathBuf::from(prefixo).join("bin");
             if bin.join("LLVM-C.dll").is_file() {
                 path_extra.push(bin);

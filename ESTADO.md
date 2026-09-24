@@ -1,5 +1,28 @@
 # Estado do DartForge — 2026-09-22
 
+## Migração para SSD — 2026-09-24
+
+O trabalho continua em `E:/MyRustProjects/dartforge`, no ramo
+`ssd/nativo-sdk-fonte` criado a partir do WIP nativo `70ec1e4`. A cópia com
+`robocopy /MT:16` levou o código e o histórico Git, sem `target*`, `dist`,
+`references`, worktrees e demais artefatos ignorados; quatro arquivos
+`package_config.json` versionados foram restaurados depois da cópia.
+`E:/DartSDKs` contém o LLVM 22.1.8 e os SDKs Dart 3.6.2, 3.13.4 e 3.14 dev;
+`E:/Rust` contém o Rust 1.98.1 e o cache Cargo. `scripts/env.ps1` seleciona
+essas cópias por padrão, respeitando as variáveis de ambiente explícitas.
+
+Verificações no SSD: `cargo check --locked --offline --workspace` passou;
+`cargo test --locked --offline -p dartforge-emit-native --lib` passou (24
+testes, cinco medições ignoradas); `cargo test --locked --offline -p
+dartforge-jit --lib` passou (11 testes, três ignorados), e o teste isolado
+`reload::tests::ciclo_completo_com_ir_direto` passou com `LLVM-C.dll` no
+`PATH`. O teste diferencial nativo isolado `01_print` passou contra a VM
+(1/1), exercendo Clang, link e execução em `E:`. O placar do corpus nativo
+com SDK da fonte ainda precisa ser medido no CI, conforme a regra de testes
+pesados.
+O fechamento geral mais recente permanece em `main:ESTADO.md`; abaixo está
+o histórico detalhado preservado deste ramo.
+
 O que **funciona hoje, verificado por execução**, e o que **falta**, nesta
 ordem. Tudo aqui é medido; nada é estimativa salvo onde está escrito
 "estimado". Os números são do `main` deste commit, na máquina do
@@ -989,7 +1012,7 @@ diretório; sem ele, `$CARGO_TARGET_DIR/native_cache`. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
 
-**Regra dos temporários: no D:, nunca no C:.** O C: tem pouco espaço e o
+**Regra dos temporários: no SSD E:, nunca no C:.** O C: tem pouco espaço e o
 `%TEMP%` chegou a 10,5 GB de sobras. Temporários grandes vão para
 `target/tmp-*` ou `target/scratch-*` do repositório (os scripts de
 navegador, `medir-lsp.ps1`, `verificar-poda-js.ps1` e `ci.ps1 -Placar`

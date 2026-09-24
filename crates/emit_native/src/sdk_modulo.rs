@@ -637,8 +637,7 @@ mod testes {
             }
         }
         if std::env::var("DARTFORGE_SDK_COMPILAR").is_ok_and(|v| v == "1") {
-            let clang = std::env::var_os("DARTFORGE_CLANG")
-                .map_or_else(|| PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe"), PathBuf::from);
+            let clang = crate::driver::NativeDriverOptions::default().clang;
             let s = sdk_compilado(Path::new(SDK), &clang).unwrap();
             println!("dll: {:?} (frio: {:?})", s.dll, s.frio);
         }

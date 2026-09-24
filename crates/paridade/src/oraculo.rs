@@ -51,8 +51,8 @@ impl SdkOraculo {
     /// Onde o SDK está nesta máquina (`DARTFORGE_ORACULO_3_6`/`_3_13` mudam).
     pub fn raiz(self) -> PathBuf {
         let (var, padrao) = match self {
-            SdkOraculo::V362 => ("DARTFORGE_ORACULO_3_6", "C:/tools/dartsdk-3.6.2"),
-            SdkOraculo::V3134 => ("DARTFORGE_ORACULO_3_13", "D:/DartSDKs/3.13.4/dart-sdk"),
+            SdkOraculo::V362 => ("DARTFORGE_ORACULO_3_6", "E:/DartSDKs/3.6.2"),
+            SdkOraculo::V3134 => ("DARTFORGE_ORACULO_3_13", "E:/DartSDKs/3.13.4/dart-sdk"),
         };
         std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(padrao))
     }
