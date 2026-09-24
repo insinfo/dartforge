@@ -13,11 +13,12 @@ pub struct ClienteBuild<C: Canal> {
     proximo: u64,
     iniciado: bool,
     carregado: bool,
+    falha_de_preparo: Option<String>,
 }
 
 impl<C: Canal> ClienteBuild<C> {
     pub fn novo(canal: C) -> Self {
-        Self { canal, proximo: 1, iniciado: false, carregado: false }
+        Self { canal, proximo: 1, iniciado: false, carregado: false, falha_de_preparo: None }
     }
 
     pub fn canal(&self) -> &C { &self.canal }
@@ -117,17 +118,25 @@ impl ServicoBuildStep for SemServico {
 }
 
 impl<C: Canal> ExecutorDart for ClienteBuild<C> {
-    fn disponibilidade(&self) -> Disponibilidade { Disponibilidade::Disponivel }
+    fn disponibilidade(&self) -> Disponibilidade {
+        self.falha_de_preparo.as_ref().map_or(Disponibilidade::Disponivel,
+            |e| Disponibilidade::Indisponivel(e.clone()))
+    }
 
     fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
-        if !self.iniciado { self.handshake()?; }
-        let id = self.id();
-        let aplicacoes: Vec<_> = script.aplicacoes.iter().map(|(chave, import, fabricas)|
-            json!({"chave":chave,"import":import,"fabricas":fabricas})).collect();
-        self.canal.enviar(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":aplicacoes,"chave_de_cache":script.chave_de_cache}})).map_err(ErroExecutor)?;
-        self.receber(id, "build.carregado", &mut SemServico)?;
-        self.carregado = true;
-        Ok(())
+        if let Some(erro) = &self.falha_de_preparo { return Err(ErroExecutor(erro.clone())); }
+        let resultado: Result<(), ErroExecutor> = (|| {
+            if !self.iniciado { self.handshake()?; }
+            let id = self.id();
+            let aplicacoes: Vec<_> = script.aplicacoes.iter().map(|(chave, import, fabricas)|
+                json!({"chave":chave,"import":import,"fabricas":fabricas})).collect();
+            self.canal.enviar(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":aplicacoes,"chave_de_cache":script.chave_de_cache}})).map_err(ErroExecutor)?;
+            self.receber(id, "build.carregado", &mut SemServico)?;
+            self.carregado = true;
+            Ok(())
+        })();
+        if let Err(e) = &resultado { self.falha_de_preparo = Some(e.0.clone()); }
+        resultado
     }
 
     fn executar(&mut self, p: &PedidoAcao, servico: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
@@ -158,6 +167,7 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
             let _ = self.canal.receber();
             self.iniciado = false;
             self.carregado = false;
+            self.falha_de_preparo = None;
         }
     }
 }
@@ -249,6 +259,7 @@ mod testes {
             let canal = CanalFalso { recebidas: [resposta].into(), enviadas: Arc::new(Mutex::new(Vec::new())) };
             let mut cliente = ClienteBuild::novo(canal);
             assert!(cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).is_err());
+            assert!(matches!(cliente.disponibilidade(), Disponibilidade::Indisponivel(_)));
         }
     }
 }
