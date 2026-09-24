@@ -83,7 +83,16 @@ Limites registrados:
   0.20.4 publicado) não compila no 3.13.4: as anotações precisam vir de um
   pacote sem `macro` para o arquivo materializado servir lá.
 
-## 4. O builder (esboço; próxima rodada)
+## 4. O builder (em andamento)
+
+O pacote `dartforge_macros_builder` já oferece uma primeira etapa opt-in:
+o `build_runner` resolve as anotações pelo element model do analyzer e grava
+`x.macro_uses.json`. Um caso derivado de `410_json_codable` identifica 4 aplicações.
+A montagem dos resultados estruturados também existe em Dart
+(`pacotes/macros/lib/src/executor/montagem.dart`): a reprodução dos 8
+`macro.resultado` de `sessao.dfexec` produz os mesmos 3266 caracteres da
+augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
+execução da macro pelo builder.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

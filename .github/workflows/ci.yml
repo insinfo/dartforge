@@ -110,6 +110,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'pub get da API de macros falhou' }
             dart run test/montagem.dart
             if ($LASTEXITCODE -ne 0) { throw 'montagem Dart das augmentations falhou' }
+            dart run test/montagem_cfe.dart
+            if ($LASTEXITCODE -ne 0) { throw 'montagem Dart divergiu do CFE' }
           }
           finally { Pop-Location }
       - name: test (ignorados que o runner satisfaz)
