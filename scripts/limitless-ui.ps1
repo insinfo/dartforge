@@ -4,6 +4,8 @@
 #
 #   pwsh scripts/limitless-ui.ps1 -Preparar          # pub get + build_runner (+ release)
 #   pwsh scripts/limitless-ui.ps1 -Montar            # compile-js + monta work/lui/out
+#   pwsh scripts/limitless-ui.ps1 -Preparar -Producao # gerados, sem build oficial
+#   pwsh scripts/limitless-ui.ps1 -Montar -Producao   # jsprod + work/lui/out-producao
 #   pwsh scripts/limitless-ui.ps1 -Servir oficial    # serve example/build na 8081
 #   pwsh scripts/limitless-ui.ps1 -Servir dartforge  # serve work/lui/out na 8081
 #   pwsh scripts/limitless-ui.ps1 -E2e               # roda ui_test/e2e contra a 8081
@@ -13,38 +15,54 @@
 param(
   [switch]$Preparar,
   [switch]$Montar,
+  [switch]$Producao,
   [string]$Servir = "",
   [switch]$E2e,
   [string]$Testes = "ui_test/e2e",
   [int]$Porta = 8081,
-  [string]$Raiz = "D:/Projects/dartforge/references/limitless_ui"
+  [string]$Raiz = ""
 )
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+if (-not $Raiz) { $Raiz = Join-Path $repo "references/limitless_ui" }
+$Raiz = (Resolve-Path $Raiz).Path
 $exemplo = Join-Path $Raiz "example"
-$saida = Join-Path $repo "work/lui/out"
+$saida = Join-Path $repo $(if ($Producao) { "work/lui/out-producao" } else { "work/lui/out" })
 $env:DARTFORGE_CACHE_DIR = Join-Path $repo "work/lui/cache"
 
 if ($Preparar) {
   Push-Location $Raiz
-  try { dart pub get } finally { Pop-Location }
+  try { dart pub get; if ($LASTEXITCODE -ne 0) { throw "pub get falhou no pacote" } } finally { Pop-Location }
   Push-Location $exemplo
   try {
     dart pub get
+    if ($LASTEXITCODE -ne 0) { throw "pub get falhou no exemplo" }
     dart run build_runner build --delete-conflicting-outputs
-    dart run build_runner build --release --output web:build --delete-conflicting-outputs
+    if ($LASTEXITCODE -ne 0) { throw "geração falhou" }
+    if (-not $Producao) {
+      dart run build_runner build --release --output web:build --delete-conflicting-outputs
+      if ($LASTEXITCODE -ne 0) { throw "build oficial falhou" }
+    }
   } finally { Pop-Location }
 }
 
 if ($Montar) {
   New-Item -ItemType Directory -Force $saida | Out-Null
-  & (Join-Path $repo "target/release/dartforge.exe") compile-js `
-    (Join-Path $exemplo "web/main.dart") -o $saida `
-    --packages (Join-Path $exemplo ".dart_tool/package_config.json")
-  if ($LASTEXITCODE -ne 0) { throw "compile-js falhou" }
+  if ($Producao) {
+    & (Join-Path $repo "target/release/dartforge-jsprod.exe") `
+      (Join-Path $exemplo "web/main.dart") -o (Join-Path $saida "main.dart.js") `
+      --packages (Join-Path $exemplo ".dart_tool/package_config.json") `
+      --dart-sdk-js (Join-Path $repo "runtime/ddc/dart_sdk.js")
+    if ($LASTEXITCODE -ne 0) { throw "dartforge-jsprod falhou" }
+  } else {
+    & (Join-Path $repo "target/release/dartforge.exe") compile-js `
+      (Join-Path $exemplo "web/main.dart") -o $saida `
+      --packages (Join-Path $exemplo ".dart_tool/package_config.json")
+    if ($LASTEXITCODE -ne 0) { throw "compile-js falhou" }
+  }
 
-  # `index.html`: troca o `main.dart.js` do dart2js pelo módulo ES6 emitido e
-  # injeta o coletor de erros (`window.__erros`), lido depois pelo e2e.
+  # `index.html`: injeta o coletor de erros (`window.__erros`), lido depois
+  # pelo e2e. Desenvolvimento usa main.mjs; produção mantém main.dart.js.
   $html = Get-Content (Join-Path $exemplo "web/index.html") -Raw
   $coletor = @'
 <script>
@@ -54,8 +72,14 @@ window.addEventListener("unhandledrejection", function (ev) { var r = ev.reason;
 var __log = console.error; console.error = function () { window.__erros.push("console.error: " + Array.from(arguments).map(String).join(" ")); __log.apply(console, arguments); };
 </script>
 '@
-  $html = $html -replace '<script[^>]*src="main\.dart\.js"[^>]*>\s*</script>', ''
-  $html = $html -replace '</head>', ($coletor + "`n<script type=`"module`" src=`"main.mjs`"></script>`n</head>")
+  if ($Producao) {
+    # O bundle é um script clássico autoexecutável: mantém o mesmo carregamento
+    # `defer` do build oficial e instala o coletor antes dele.
+    $html = $html -replace '<script[^>]*src="main\.dart\.js"[^>]*>\s*</script>', ($coletor + "`n<script defer src=`"main.dart.js`"></script>")
+  } else {
+    $html = $html -replace '<script[^>]*src="main\.dart\.js"[^>]*>\s*</script>', ''
+    $html = $html -replace '</head>', ($coletor + "`n<script type=`"module`" src=`"main.mjs`"></script>`n</head>")
+  }
   Set-Content (Join-Path $saida "index.html") $html -Encoding UTF8
 
   # Estáticos do projeto e o `style.css` que o sass_builder gera do `style.scss`.
@@ -86,5 +110,8 @@ if ($E2e) {
     }
   }
   Push-Location $Raiz
-  try { dart test $Testes -j 1 --reporter expanded } finally { Pop-Location }
+  try {
+    dart test $Testes -j 1 --reporter expanded
+    if ($LASTEXITCODE -ne 0) { throw "suíte e2e falhou (código $LASTEXITCODE)" }
+  } finally { Pop-Location }
 }
