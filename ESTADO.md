@@ -51,6 +51,18 @@ No corpus, `external_method_with_body` ficou 31/31,
 operadores ficou 137/141, também sem falsos positivos; quatro casos com
 construtor primário ainda dependem de recuperação do parser.
 
+A [rodada Pesado 35975036788](https://github.com/insinfo/dartforge/actions/runs/35975036788)
+do diagnóstico de enum sem constantes, após
+[CI 35975036834](https://github.com/insinfo/dartforge/actions/runs/35975036834)
+verde, mediu **5.567/26.133 (21,3%)**: 5.278 mensagens iguais, 4.369
+falsos positivos, 20.048 falsos negativos e 518 posições erradas, com
+determinismo em 1/4/8 trabalhadores. `enum_without_constants` passou de
+0/126 para 2/126, sem falsos positivos. O corpus acusa, em parte dos casos
+restantes, enum vazio onde o texto atual contém constantes explícitas (por
+exemplo `enum E(int x) { v(0); ... }`); o relatório marca os grupos 3.6.2
+como oráculo desatualizado. Regravar e auditar esse oráculo é necessário
+antes de usar os 124 casos restantes como defeitos da implementação.
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
