@@ -205,9 +205,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `410_json_codable` — pacote com `@JsonCodable`, `@JsonEncodable` e
   `@JsonDecodable` (aninhado, anulável, `List`/`Set`/`Map`, `DateTime`,
   `bool`, `num`); `esperado/modelos.augmentation.dart` é o texto do CFE 3.6.2
-  e `esperado/sessao.dfexec` a sessão gravada do protocolo. Está em
-  `PENDENTES` até o executor nativo existir (o `compile-js` dá o erro de
-  executor indisponível na anotação).
+  e `esperado/sessao.dfexec` a sessão gravada do protocolo. O job de macros
+  executa a fonte original nos oráculos e uma cópia com `.macro.dart`
+  materializado pelo `build_runner` nos backends DartForge.
 
 ## 8. Placar (medido nesta rodada)
 
@@ -220,8 +220,8 @@ dos identificadores é local. As declarações `augment` que os builders da fase
   materialização, teste `vm_executa_a_macro_e_bate_com_o_cfe`) e pela sessão
   gravada sem executor (teste `sessao_gravada_reproduz_o_texto_do_cfe`) — e
   no teste unitário da montagem (`montagem::testes`, o `Usuario` do 402);
-* materialização: o `410` materializado compila no `dartforge compile-js` sem
-  executor e imprime o mesmo que a VM 3.6.2 com as macros
+* materialização: o `410` materializado compila no `dartforge compile-js` e
+  no `dartforge-jsprod` sem executor e imprime o mesmo que a VM 3.6.2 com as macros
   (MACROS-COMPATIBILIDADE.md §3);
 * custo zero: `sem_macro_nao_abre_sessao` (0 sessões, 0 recargas, executor
   nunca tocado).
