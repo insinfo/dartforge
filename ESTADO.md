@@ -186,6 +186,18 @@ com a augmentation materializada pelo builder. Isso valida o consumo do
 arquivo gerado, mas ainda não comprova execução automática da anotação no
 fluxo normal do compilador; o caso independente `411_pedido_independente`
 foi acrescentado depois dessa integração para testar esse caminho.
+Na integração `b72b4fb`, a [CI 35999991755](https://github.com/insinfo/dartforge/actions/runs/35999991755)
+e o [Pesado 35999991786](https://github.com/insinfo/dartforge/actions/runs/35999991786)
+passaram. O caso independente `411_pedido_independente` elevou macros a
+**8/8** em JS desenvolvimento e produção: a anotação original executa pelo
+executor provisório na VM e a augmentation fica em memória. O SDK da fonte
+manteve **161/223**, JS desenvolvimento/produção **223/223**, e o analyzer
+alcançou **5.870/26.133** diagnósticos exatos, 5.581 mensagens iguais,
+4.319 falsos positivos, 19.795 falsos negativos e 468 posições erradas,
+com determinismo em 1/4/8 trabalhadores. A CLI ganhou recarga R1 opcional
+com preservação de heap e estáticos; a execução de `main` ainda se repete.
+O executor nativo de macros, a recarga de SDK da fonte integrada e a
+compatibilidade completa continuam pendentes.
 
 ## Fechamento do dia 2026-09-23
 
