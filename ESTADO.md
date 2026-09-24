@@ -110,6 +110,14 @@ e no [Pesado 35981633118](https://github.com/insinfo/dartforge/actions/runs/3598
 **5.768/26.133 (22,1%)** exatos, 5.479 mensagens iguais, 4.354 falsos
 positivos, 19.896 falsos negativos, 469 posições erradas e determinismo em
 1/4/8 trabalhadores. Ante 5.700: +68 acertos e -24 falsos positivos.
+As regras de inicialização de campos `final` e atribuição a método passaram
+na [CI 35983725221](https://github.com/insinfo/dartforge/actions/runs/35983725221);
+o [Pesado 35983725139](https://github.com/insinfo/dartforge/actions/runs/35983725139)
+mediu **5.793/26.133 (22,2%)** exatos, 5.504 mensagens iguais, 4.352 falsos
+positivos, 19.871 falsos negativos, 469 posições erradas e determinismo em
+1/4/8 trabalhadores. São +25 acertos exatos e -2 falsos positivos. O próprio
+relatório marca grupos do oráculo como desatualizados; esse placar é uma medida
+de paridade com a versão gravada, não um certificado de correção total.
 
 ## Fechamento do dia 2026-09-23
 
