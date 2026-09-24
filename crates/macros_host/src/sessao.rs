@@ -303,7 +303,8 @@ fn alvo_e_modelo(v: &Vista<'_>, t: &mut Tabela, alvo: &Alvo) -> Result<(Value, V
         Alvo::Declaracao(c) => {
             let d = v.declaracao_json(t, c).ok_or_else(|| format!("alvo {} não suportado ou não encontrado", c.nome()))?;
             let lib = match c {
-                Chave::Tipo { lib, .. } | Chave::Metodo { lib, .. } | Chave::Campo { lib, .. } | Chave::Construtor { lib, .. } => lib,
+                Chave::Tipo { lib, .. } | Chave::Metodo { lib, .. } | Chave::Campo { lib, .. } | Chave::Construtor { lib, .. }
+                | Chave::FuncaoDeTopo { lib, .. } => lib,
                 _ => return Err(format!("alvo {} ainda não suportado", c.nome())),
             };
             let lib_id = v.biblioteca_por_uri(lib).ok_or_else(|| format!("biblioteca {lib} não encontrada"))?;
