@@ -118,14 +118,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `(params) => e`, `(params) { … }` ou o valor de uma função local.
     pub fn lower_closure(&mut self, ast: &ast::Ast, fid: FunctionId, span: Span) -> Operand {
         let f = ast.function(fid);
-        if f.modifier != AsyncModifier::None {
-            return self.nao_suportado(
-                match f.modifier {
-                    AsyncModifier::Async => "closure async",
-                    _ => "closure geradora",
-                },
-                span,
-            );
+        if !matches!(f.modifier, AsyncModifier::None | AsyncModifier::Async) {
+            return self.nao_suportado("closure geradora", span);
         }
         // Variáveis livres que são locais visíveis aqui.
         let (livres, _) = captura::livres(self.ctx, self.unit_id, ast, fid);
@@ -162,6 +156,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, l.ty);
         }
+        // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
+        // função genérica em volta: a tupla vai no fim do ambiente).
+        b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
+        b.classe_por_tupla = self.classe_por_tupla;
+        if self.classe_por_tupla {
+            // Numa fábrica não há `this`, mas `T` é o da classe.
+            b.enclosing_class = self.enclosing_class;
+        }
+        if self.tupla_de_tipos.is_some() {
+            let t = b.emit(
+                Instruction::EnvGet {
+                    env: env_b.clone(),
+                    index: base + capturas.len(),
+                },
+                Type::I64,
+            );
+            b.tupla_de_tipos = Some(t);
+        }
         let params = f.parameters.as_deref().unwrap_or(&[]);
         b.preparar_capturas(
             ast,
@@ -181,13 +193,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 b.declarar_variavel(n.sym, n.span.start as usize, Type::Ref, Operand::Val(vid));
             }
         }
-        match &f.body {
-            FunctionBody::Block(s) => b.lower_stmt(ast, *s),
-            FunctionBody::Expression(e) => {
-                let r = b.lower_expr(ast, *e);
-                b.terminate(Terminator::Return(Some(r)));
+        if f.modifier == AsyncModifier::Async {
+            // P6: closure `async` — o corpo vira máquina de estados.
+            b.lower_corpo_async(ast, params, &f.body, span, None);
+        } else {
+            match &f.body {
+                FunctionBody::Block(s) => b.lower_stmt(ast, *s),
+                FunctionBody::Expression(e) => {
+                    let r = b.lower_expr(ast, *e);
+                    b.terminate(Terminator::Return(Some(r)));
+                }
+                _ => {}
             }
-            _ => {}
         }
         self.absorver(b);
 
@@ -233,6 +250,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             valores.push(v);
         }
+        if let Some(t) = self.tupla_de_tipos.clone() {
+            valores.push(t);
+        }
         let env = self.emit(Instruction::AllocEnv { values: valores }, Type::Ref);
         self.emit(
             Instruction::AllocClosure {
@@ -267,6 +287,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Null),
         );
         let clo = self.lower_closure(ast, fid, span);
+        self.definir_rti_de_closure(clo.clone(), ast, fid, None);
         self.gravar_local(nome.sym, clo);
     }
 
@@ -503,12 +524,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorver(e);
         }
-        self.emit(
+        let t = self.emit(
             Instruction::TearOff {
                 code_symbol: simbolo_ent,
             },
             Type::Ref,
-        )
+        );
+        // RTI: a assinatura da função (`f is R Function(P)`).
+        self.definir_rti_de_tearoff(t.clone(), fid, None);
+        t
     }
 
     /// Tear-off de método de instância: closure nova com o receptor no
@@ -551,14 +575,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.absorver(e);
         }
         let recv = self.coagir(recv, Type::Ref);
-        let env = self.emit(Instruction::AllocEnv { values: vec![recv] }, Type::Ref);
-        self.emit(
+        let env = self.emit(Instruction::AllocEnv { values: vec![recv.clone()] }, Type::Ref);
+        let c = self.emit(
             Instruction::AllocClosure {
                 code_symbol: simbolo_ent,
                 env,
             },
             Type::Ref,
-        )
+        );
+        self.definir_rti_de_tearoff(c.clone(), fid, Some(recv));
+        c
     }
 
     /// O que um nome sem resolução (corpo de closure) é pelo escopo léxico,

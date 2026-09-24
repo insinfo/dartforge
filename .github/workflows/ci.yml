@@ -79,7 +79,8 @@ jobs:
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
       # Os corpora do motor de build (corpus/builders, oráculo do build_runner
-      # oficial) e do ngdart precisam do package_config.json de cada caso:
+      # oficial), das macros (corpus/macros, o package:json) e do ngdart
+      # precisam do package_config.json de cada caso:
       # `pub get` com o lock commitado (versões fixadas). Os testes
       # #[ignore] do crates/build (plano, placar, determinismo, incremental,
       # transparência do ngdart) rodam no passo seguinte.
@@ -87,7 +88,7 @@ jobs:
         if: success() || failure()
         shell: pwsh
         run: |
-          $casos = @(Get-ChildItem corpus/builders -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart)
+          $casos = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart)
           foreach ($c in $casos) {
             Push-Location $c.FullName
             dart pub get --enforce-lockfile | Out-Null

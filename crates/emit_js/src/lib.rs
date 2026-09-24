@@ -13,6 +13,10 @@ pub mod module;
 pub mod pattern;
 pub mod ty;
 
+/// Opções de linguagem (`--versao-linguagem`, `--enable-experiment`) de quem chama
+/// [`compilar_com`]; ver `docs/VERSOES-LINGUAGEM.md`.
+pub use dartforge_elements::sdk::Linguagem;
+
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
@@ -197,7 +201,7 @@ pub fn compilar(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<Emitido, String> {
-    compilar_com_relatorio(entrada, sdk_lib, packages).map(|(e, _)| e)
+    compilar_com_relatorio(entrada, sdk_lib, packages, &Default::default()).map(|(e, _)| e)
 }
 
 /// Como [`compilar`], devolvendo também o [`Relatorio`] de tempos por fase.
@@ -239,8 +243,9 @@ pub fn compilar_com_relatorio(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
 ) -> Result<(Emitido, Relatorio), String> {
-    compilar_com_relatorio_e_gerador(entrada, sdk_lib, packages, None)
+    compilar_com_relatorio_e_gerador(entrada, sdk_lib, packages, linguagem, None)
 }
 
 /// Quem produz as fontes geradas (o motor de build, `crates/build`) a partir
@@ -255,9 +260,10 @@ pub fn compilar_com_relatorio_e_gerador(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
     gerador: Option<Gerador<'_>>,
 ) -> Result<(Emitido, Relatorio), String> {
-    let (emitido, mut rel) = compilar_com_gerador(entrada, sdk_lib, packages, gerador, |a| {
+    let (emitido, mut rel) = compilar_com_gerador(entrada, sdk_lib, packages, linguagem, gerador, |a| {
         emitir_programa(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
             .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     })?;
@@ -272,9 +278,10 @@ pub fn compilar_com<R>(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
     fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
-    compilar_com_gerador(entrada, sdk_lib, packages, None, fim)
+    compilar_com_gerador(entrada, sdk_lib, packages, linguagem, None, fim)
 }
 
 /// Como [`compilar_com`], com o gerador de fontes (o motor de build).
@@ -282,6 +289,7 @@ pub fn compilar_com_gerador<R>(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
     gerador: Option<Gerador<'_>>,
     fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
@@ -293,7 +301,8 @@ pub fn compilar_com_gerador<R>(
         Some(p) => p.to_path_buf(),
         None => SdkLayout::discover().unwrap_or_else(|| std::path::PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
-    let sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
+    let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
+    linguagem.aplicar(&mut sdk);
     rel.fase("layout do SDK", t);
     // Cache do SDK analisado (`target/dartforge/sdk-<hash>.bin`); a primeira
     // compilação o constrói. `DARTFORGE_SDK_CACHE=0` desliga.
@@ -363,6 +372,7 @@ pub fn compilar_com_gerador<R>(
             for c in v.iter().filter(|c| c.contains("limitless")).take(3) { eprintln!("  L {c}"); }
         }
     }
+    let gerados_das_macros = gerados.clone();
     let (program, elements_diags) = dartforge_elements::load::load_lenient_gerados(
         entrada,
         &sdk,
@@ -388,6 +398,34 @@ pub fn compilar_com_gerador<R>(
         }
         return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
     }
+    // Macros (docs/MACROS-PROTOCOLO.md): só se o programa declara alguma
+    // classe `macro` — senão nem o hospedeiro é consultado (custo zero). O
+    // executor do produto é o nativo, ainda indisponível: uma aplicação vira
+    // erro claro na anotação (ou roda `dartforge macros --materializar`).
+    let program = if dartforge_macros_host::tem_macros(&program) {
+        let t = Instant::now();
+        let mut executor = dartforge_macros_host::executor::Indisponivel::default();
+        let mut carregar = |i: &mut Interner, g| {
+            dartforge_elements::load::load_lenient_gerados(entrada, &sdk, packages, i, None, None, g)
+        };
+        match dartforge_macros_host::aplicar(program, &mut interner, gerados_das_macros, &mut carregar, &mut executor) {
+            Ok(s) => {
+                for a in &s.avisos {
+                    eprintln!("aviso: {a}");
+                }
+                rel.fase("macros", t);
+                s.program
+            }
+            Err(ds) => {
+                for d in &ds {
+                    eprintln!("erro: {d}");
+                }
+                return Err(format!("{} erro(s) nas macros", ds.len()));
+            }
+        }
+    } else {
+        program
+    };
     let t = Instant::now();
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
@@ -397,6 +435,19 @@ pub fn compilar_com_gerador<R>(
     let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     rel.fase("inferência de corpos", t);
+    // Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md
+    // §3) abortam como os de carga; o resto de `types` é aviso.
+    let erros: Vec<&dartforge_diagnostics::Diagnostic> = outline_diags
+        .iter()
+        .chain(body_diags.iter())
+        .filter(|d| dartforge_types::codes::e_erro_de_linguagem(&d.message))
+        .collect();
+    if !erros.is_empty() {
+        for d in &erros {
+            eprintln!("erro: {d}");
+        }
+        return Err(format!("{} erro(s) de linguagem", erros.len()));
+    }
     rel.avisos_outline = outline_diags.len();
     rel.avisos_corpos = body_diags.len();
     let avisos = outline_diags.len() + body_diags.len();

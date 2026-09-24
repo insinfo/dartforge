@@ -1,0 +1,9 @@
+# Programas que ainda falham no DartForge por recurso não implementado
+# (docs/MACROS-PROTOCOLO.md §3): podem falhar sem reprovar o job `macros`; um
+# programa daqui que passa reprova, para a lista só encolher.
+
+# Aplicação de macro: o executor do produto é o nativo (D4), que ainda não
+# compila a API de macros. O compile-js dá o erro de executor indisponível na
+# anotação. O texto da augmentation já sai igual ao do CFE pelo hospedeiro
+# (crates/macros_host/tests/json_codable.rs).
+410_json_codable

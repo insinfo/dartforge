@@ -49,6 +49,10 @@ const FRAGMENTOS: &[&str] = &[
     // δ (P5c): tabelas de métodos e busca por seletor do SDK da fonte.
     "seletores",
     "nativos_listas",
+    // P6: o laço de eventos (microtarefas e timers).
+    "eventos",
+    // RTI: tipos em tempo de execução.
+    "tipos",
 ];
 
 fn main() {

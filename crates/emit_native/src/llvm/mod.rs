@@ -1147,8 +1147,15 @@ impl<'a> LlvmEmitter<'a> {
                 self.externos.insert(r.clone(), format!("declare void @{r}()"));
             }
             writeln!(self.out, "  call void @df.registrar.programa()").unwrap();
+            // RTI e laço de eventos, como na entrada de sempre (abaixo).
+            if let Some(iniciar) = &self.module.iniciar_rti {
+                writeln!(self.out, "  call void @{iniciar}()").unwrap();
+            }
             if let Some(entry) = &self.module.entry_symbol {
                 writeln!(self.out, "  call void @{entry}()").unwrap();
+            }
+            if let Some(chamar) = &self.module.chamar_dart {
+                writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             // O runtime e o SDK moram na DLL do SDK da fonte: o `main` do
@@ -1180,8 +1187,16 @@ impl<'a> LlvmEmitter<'a> {
             ).unwrap();
         }
 
+        // RTI: o universo de tipos (classes citadas e regras de supertipo).
+        if let Some(iniciar) = &self.module.iniciar_rti {
+            writeln!(self.out, "  call void @{iniciar}()").unwrap();
+        }
         if let Some(entry) = &self.module.entry_symbol {
             writeln!(self.out, "  call void @{entry}()").unwrap();
+        }
+        // P6: microtarefas e timers depois do `main` (runtime, `eventos.rs`).
+        if let Some(chamar) = &self.module.chamar_dart {
+            writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
         }
         writeln!(self.out, "  ret void").unwrap();
         writeln!(self.out, "}}\n").unwrap();
@@ -1194,7 +1209,7 @@ impl<'a> LlvmEmitter<'a> {
     /// divergente faria a coercao trabalhar com a informacao errada. O tipo
     /// registrado so vale onde o emissor o usa (Load, Phi, Alloca e as
     /// instrucoes ainda nao expandidas).
-    fn tipo_do_resultado(inst: &Instruction, registrado: Type) -> Type {
+    pub(crate) fn tipo_do_resultado(inst: &Instruction, registrado: Type) -> Type {
         match inst {
             Instruction::Const(Constant::Bool(_)) => Type::I1,
             Instruction::Const(Constant::Double(_)) => Type::F64,

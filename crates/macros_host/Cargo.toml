@@ -1,0 +1,20 @@
+[package]
+name = "dartforge-macros-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Hospedeiro das macros do DartForge: detecção das aplicações, ordem e fases, o modelo e as consultas servidos do elements, a montagem da biblioteca de augmentation e o serviço macro.* do dfexec/1 (docs/MACROS-PROTOCOLO.md)."
+
+[lints]
+workspace = true
+
+[dependencies]
+dartforge-diagnostics = { path = "../diagnostics" }
+dartforge-elements = { path = "../elements" }
+dartforge-frontend = { path = "../frontend" }
+dartforge-intern = { path = "../intern" }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

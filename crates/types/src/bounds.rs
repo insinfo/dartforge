@@ -484,10 +484,18 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         Type::Interface { class: c2, args: a2, .. } | Type::ExtensionType { decl: c2, args: a2, .. },
     ) = (&ty1, &ty2)
     {
-        let ambos_iface = matches!(ty1, Type::Interface { .. }) && matches!(ty2, Type::Interface { .. });
-        if c1 == c2 && a1.len() == a2.len() && ambos_iface {
+        // Mesma declaração (classe ou tipo de extensão, R-UP-w §4.2.4 passo
+        // 3): argumento a argumento.
+        let ext1 = matches!(ty1, Type::ExtensionType { .. });
+        let ext2 = matches!(ty2, Type::ExtensionType { .. });
+        if c1 == c2 && a1.len() == a2.len() && ext1 == ext2 {
             let args: Vec<TypeId> = a1.iter().zip(a2.iter()).map(|(x, y)| up_depth(*x, *y, env, depth + 1)).collect();
-            return env.table.intern(Type::Interface { class: *c1, args: args.into_boxed_slice(), nullable: false });
+            let args = args.into_boxed_slice();
+            return if ext1 {
+                env.table.intern(Type::ExtensionType { decl: *c1, args, nullable: false })
+            } else {
+                env.table.intern(Type::Interface { class: *c1, args, nullable: false })
+            };
         }
         return interface_lub(t1, t2, env);
     }
@@ -498,28 +506,34 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
 /// superinterfaces comuns (instanciadas igualmente), a de maior profundidade
 /// que seja única nessa profundidade.
 fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
+    // `_addSuperinterfaces` do analyzer: o próprio tipo, os supertipos
+    // (classes e tipos de extensão), `Object` quando há classe na cadeia e
+    // sempre `Object?` (fim de toda cadeia; tipo de extensão o acrescenta
+    // direto).
     let supers = |t: TypeId, env: &mut SubtypeEnv| -> Vec<TypeId> {
         let (class, args) = match env.table.get(t) {
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (*class, args.clone()),
             _ => return vec![],
         };
-        let mut out = vec![];
-        if matches!(env.table.get(t), Type::Interface { .. }) {
-            out.push(t);
-        }
-        let Some(data) = env.hierarchy.get(class) else { return out };
-        let mapa: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(args.iter().copied()).collect();
-        let lista = data.all_supertypes.clone();
-        for s in lista {
-            let si = crate::ops::substitute(s, &mapa, env.table);
-            if matches!(env.table.get(si), Type::Interface { .. }) {
-                out.push(si);
+        let mut out = vec![t];
+        if let Some(data) = env.hierarchy.get(class) {
+            let mapa: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(args.iter().copied()).collect();
+            let lista = data.all_supertypes.clone();
+            for s in lista {
+                let si = crate::ops::substitute(s, &mapa, env.table);
+                // `Object` entra abaixo só se houver classe na cadeia (a
+                // hierarquia o põe também sobre tipo de extensão).
+                if si != env.core.object && matches!(env.table.get(si), Type::Interface { .. } | Type::ExtensionType { .. }) && !out.contains(&si) {
+                    out.push(si);
+                }
             }
         }
-        if let Some(o) = env.core.object_class {
-            if !out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { class, .. } if *class == o)) {
-                out.push(env.core.object);
-            }
+        let tem_classe = out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { .. }));
+        if tem_classe && !out.contains(&env.core.object) {
+            out.push(env.core.object);
+        }
+        if !out.contains(&env.core.object_nullable) {
+            out.push(env.core.object_nullable);
         }
         out
     };
@@ -528,15 +542,18 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
     let comuns: Vec<TypeId> = s1.into_iter().filter(|x| s2.contains(x)).collect();
     let mut por_prof: HashMap<u32, Vec<TypeId>> = HashMap::new();
     for c in comuns {
-        let d = match env.table.get(c) {
-            Type::Interface { class, .. } => {
-                if Some(*class) == env.core.object_class {
-                    0
-                } else {
-                    env.hierarchy.get(*class).map(|d| d.depth).unwrap_or(0)
+        // Profundidade: `Object?` 0, `Object` 1, os demais a da hierarquia + 1
+        // (tipo de extensão sem `implements` = 1, como no analyzer).
+        let d = if c == env.core.object_nullable {
+            0
+        } else {
+            match env.table.get(c) {
+                Type::Interface { class, .. } if Some(*class) == env.core.object_class => 1,
+                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                    env.hierarchy.get(*class).map(|d| d.depth).unwrap_or(0) + 1
                 }
+                _ => 0,
             }
-            _ => 0,
         };
         let v = por_prof.entry(d).or_default();
         if !v.contains(&c) {

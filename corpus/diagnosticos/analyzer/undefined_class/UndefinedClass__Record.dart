@@ -1,0 +1,1 @@
+void f(Record r) {}

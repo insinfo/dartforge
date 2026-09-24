@@ -1,0 +1,4 @@
+final dynamic a = 0;
+var v = const <int, int>{if (1 > 0) 0: 0 else 0: a};
+//                                               ^
+// [diag.nonConstantMapValue] The values in a const map literal must be constant.

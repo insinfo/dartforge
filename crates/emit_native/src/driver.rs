@@ -70,7 +70,7 @@ pub fn compile_and_link(
     } else {
         None
     };
-    // Com o SDK da fonte há dois perfis (docs/NATIVO-PLANO.md §7.7):
+    // Com o SDK da fonte há dois perfis (docs/NATIVO-PLANO.md §7.9):
     // * desenvolvimento e teste: o runtime e o SDK moram na DLL em cache, e o
     //   executável liga só o objeto do programa e a biblioteca de importação
     //   (ligação rápida; a DLL vai ao lado do executável);

@@ -205,7 +205,7 @@ pub struct JitSession {
     poisoned: Option<String>,
     /// Identidade da sessão, para que uma [`StableEntry`] não cruze sessões.
     id: u64,
-    /// SDK da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.7): os nomes que a DLL
+    /// SDK da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.9): os nomes que a DLL
     /// do SDK exporta (runtime e bibliotecas), publicados na sessão no lugar
     /// do runtime deste processo. Vazio no caminho de sempre.
     externos_do_sdk: std::collections::HashSet<String>,

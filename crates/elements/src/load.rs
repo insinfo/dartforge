@@ -5,6 +5,7 @@ use crate::outline;
 use crate::sdk::SdkLayout;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DirectiveKind};
+use dartforge_frontend::{Feature, LanguageVersion, LibraryFeatures};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -13,8 +14,12 @@ use url::Url;
 /// Representação intermediária desvinculada de empréstimos para processar diretivas.
 enum DirectiveAction {
     Library(Vec<SymbolId>),
+    /// `part 'uri'` ou, com `augmentation`, `import augment 'uri'` (forma
+    /// 3.6 das bibliotecas de augmentation): a unidade apontada pertence a
+    /// esta biblioteca.
     Part {
         uri: String,
+        augmentation: bool,
     },
     Import {
         uri: String,
@@ -146,7 +151,7 @@ pub fn load_lenient_gerados(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk: true,
-            language_version: None,
+            features: LibraryFeatures::piso(),
         });
         uri_to_library.insert(core_uri, core_id);
         program.core = Some(core_id);
@@ -182,7 +187,7 @@ pub fn load_lenient_gerados(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk,
-            language_version: None,
+            features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
         });
         uri_to_library.insert(entry_uri.clone(), lib_id);
         queue.push_back(lib_id);
@@ -258,6 +263,7 @@ pub fn load_lenient_gerados(
                         unit: u.unit,
                         library: lib_id,
                         role: u.role,
+                        features: LibraryFeatures::piso(),
                     });
                     program.libraries[lib_id.0 as usize].units.push(unit_id);
                 }
@@ -269,6 +275,7 @@ pub fn load_lenient_gerados(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
+                    Versao::Sdk,
                     interner,
                     &mut program,
                     &mut diagnostics,
@@ -290,6 +297,7 @@ pub fn load_lenient_gerados(
                         &patch_uri,
                         lib_id,
                         UnitRole::Patch,
+                        Versao::Sdk,
                         interner,
                         &mut program,
                         &mut diagnostics,
@@ -316,6 +324,7 @@ pub fn load_lenient_gerados(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
+                    Versao::Biblioteca { config: &package_config, corrente: sdk.versao_corrente, experimentos: &sdk.experimentos },
                     interner,
                     &mut program,
                     &mut diagnostics,
@@ -337,7 +346,26 @@ pub fn load_lenient_gerados(
         let t_dir = std::time::Instant::now();
         let (leitura_antes, parse_antes) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
-        while unit_idx < program.libraries[lib_id.0 as usize].units.len() {
+        // A augmentation que o hospedeiro de macros montou para esta
+        // biblioteca (em memória, `<nome>.macro.dart` ao lado dela) entra
+        // por último, depois de todas as partes — como as bibliotecas de
+        // augmentation que o CFE cria para a saída das macros. Só é
+        // consultada quando há fontes geradas (custo zero sem macros).
+        let mut macro_anexada = false;
+        loop {
+            if unit_idx >= program.libraries[lib_id.0 as usize].units.len() {
+                if macro_anexada {
+                    break;
+                }
+                macro_anexada = true;
+                match anexar_augmentation_de_macro(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
+                    Some(uid) => {
+                        program.libraries[lib_id.0 as usize].units.push(uid);
+                        continue;
+                    }
+                    None => break,
+                }
+            }
             let unit_id = program.libraries[lib_id.0 as usize].units[unit_idx];
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
@@ -351,6 +379,11 @@ pub fn load_lenient_gerados(
                 UnitRole::Part
             };
 
+            // As unidades incluídas por esta (`part`, `import augment`) entram
+            // logo depois dela, na ordem das diretivas: `Library::units` fica
+            // na pré-ordem da árvore de partes, que é a ordem de aplicação
+            // das augmentations (spec de augmentations, "Application order").
+            let mut incluidas = 0usize;
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
                 .directives
@@ -363,7 +396,11 @@ pub fn load_lenient_gerados(
                     }
                     DirectiveKind::Part { uri } => {
                         let s = string_lit_value(uri)?;
-                        Some((dir_idx, DirectiveAction::Part { uri: s }))
+                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: false }))
+                    }
+                    DirectiveKind::ImportAugment { uri } => {
+                        let s = string_lit_value(uri)?;
+                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: true }))
                     }
                     DirectiveKind::Import {
                         uri,
@@ -410,7 +447,7 @@ pub fn load_lenient_gerados(
                             program.libraries[lib_id.0 as usize].name = Some(syms);
                         }
                     }
-                    DirectiveAction::Part { uri } => {
+                    DirectiveAction::Part { uri, augmentation } => {
                         if libs_do_cache.contains(&lib_id) {
                             // Partes já vieram do cache, verificadas ao construí-lo.
                             continue;
@@ -428,12 +465,20 @@ pub fn load_lenient_gerados(
                                 (p, u)
                             }
                         };
+                        let da_biblioteca = program.libraries[lib_id.0 as usize].features;
+                        let versao_da_parte = if program.libraries[lib_id.0 as usize].is_sdk {
+                            Versao::Sdk
+                        } else {
+                            Versao::Parte { da_biblioteca, config: &package_config, corrente: sdk.versao_corrente }
+                        };
 
+                        let papel = if augmentation { UnitRole::Augmentation } else { papel_das_partes };
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            papel_das_partes,
+                            papel,
+                            versao_da_parte,
                             interner,
                             &mut program,
                             &mut diagnostics,
@@ -442,8 +487,20 @@ pub fn load_lenient_gerados(
                         );
 
                         if let Some(p_uid) = part_unit {
-                            verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
-                            program.libraries[lib_id.0 as usize].units.push(p_uid);
+                            if augmentation {
+                                verify_augment_library(&program, p_uid, unit_path.as_deref(), &mut diagnostics);
+                            } else {
+                                verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
+                            }
+                            // O SDK fica na ordem de descoberta de sempre (a
+                            // mesma do cache do SDK): lá não há augmentation.
+                            let libr = &mut program.libraries[lib_id.0 as usize];
+                            if libr.is_sdk {
+                                libr.units.push(p_uid);
+                            } else {
+                                libr.units.insert(unit_idx + incluidas, p_uid);
+                                incluidas += 1;
+                            }
                         }
                     }
                     DirectiveAction::Import {
@@ -669,11 +726,111 @@ pub(crate) fn normalizar(p: &Path) -> PathBuf {
     out
 }
 
+/// De onde vem a versão de linguagem de uma unidade
+/// (`docs/VERSOES-LINGUAGEM.md` §2). Resolvida uma vez por unidade, antes do
+/// parse, a partir da fonte já lida (o marcador) e do `package_config`.
+#[derive(Clone, Copy)]
+enum Versao<'c> {
+    /// Biblioteca, patch ou parte do SDK: sempre o piso (D1).
+    Sdk,
+    /// Unidade principal de uma biblioteca do usuário ou de pacote.
+    Biblioteca { config: &'c PackageConfig, corrente: LanguageVersion, experimentos: &'c [Feature] },
+    /// Parte: analisada com os recursos da biblioteca; a versão da própria
+    /// parte (marcador ou pacote) tem de ser a mesma, senão é erro
+    /// (`LanguageVersionMismatchInPart`).
+    Parte { da_biblioteca: LibraryFeatures, config: &'c PackageConfig, corrente: LanguageVersion },
+}
+
+/// Os recursos de uma unidade e os diagnósticos da escolha da versão.
+fn features_da_unidade(
+    fonte: &str,
+    uri: &str,
+    path: &Path,
+    versao: Versao<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> LibraryFeatures {
+    match versao {
+        Versao::Sdk => LibraryFeatures::piso(),
+        Versao::Biblioteca { config, corrente, experimentos } => {
+            let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
+            LibraryFeatures::para_biblioteca(marcador.map(|m| m.0), padrao, corrente, experimentos)
+        }
+        Versao::Parte { da_biblioteca, config, corrente } => {
+            let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
+            let propria = marcador.map_or(padrao, |m| m.0);
+            if propria != da_biblioteca.versao() {
+                let span = marcador.map_or(Span { start: 0, end: 0 }, |m| m.1);
+                diagnostics.push(Diagnostic::new(
+                    format!(
+                        "{}:{}: a parte está na versão de linguagem {propria}, mas a biblioteca dela está na {}: uma parte tem de ter a versão da sua biblioteca",
+                        path.display(),
+                        span.start,
+                        da_biblioteca.versao()
+                    ),
+                    span,
+                ));
+            }
+            da_biblioteca
+        }
+    }
+}
+
+/// A versão padrão da unidade (a do pacote, ou a corrente fora de pacote) e
+/// o marcador `// @dart = x.y` válido, com o seu intervalo. Marcador acima da
+/// corrente ou abaixo de 2.12 é erro e fica de fora, como no CFE
+/// (`LanguageVersionTooHighExplicit`/`TooLowExplicit`).
+fn versao_propria(
+    fonte: &str,
+    uri: &str,
+    path: &Path,
+    config: &PackageConfig,
+    corrente: LanguageVersion,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> (LanguageVersion, Option<(LanguageVersion, Span)>) {
+    let mut erro = |msg: String, span: Span| {
+        diagnostics.push(Diagnostic::new(format!("{}:{}: {msg}", path.display(), span.start), span));
+    };
+    let zero = Span { start: 0, end: 0 };
+    let padrao = match config.pacote_da_biblioteca(uri, Some(path)) {
+        Some(p) => {
+            if let Some(t) = &p.language_version_invalida {
+                erro(format!("o languageVersion '{t}' do pacote '{}' no package_config.json não é uma versão x.y", p.name), zero);
+            }
+            match p.language_version {
+                Some(v) if v > corrente => {
+                    erro(format!("o pacote '{}' está na versão de linguagem {v}, acima da suportada ({corrente})", p.name), zero);
+                    corrente
+                }
+                Some(v) => v,
+                None => corrente,
+            }
+        }
+        None => corrente,
+    };
+    let marcador = dartforge_frontend::features::marcador_versao(fonte).and_then(|(v, span)| {
+        if v > corrente {
+            erro(format!("a versão de linguagem {v} do marcador está acima da suportada ({corrente})"), span);
+            None
+        } else if v < LanguageVersion::MINIMA {
+            erro(
+                format!("a versão de linguagem {v} do marcador está abaixo da mínima ({}, null safety)", LanguageVersion::MINIMA),
+                span,
+            );
+            None
+        } else {
+            Some((v, span))
+        }
+    });
+    (padrao, marcador)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn load_unit(
     path: &Path,
     uri: &str,
     lib_id: LibraryId,
     role: UnitRole,
+    versao: Versao<'_>,
     interner: &mut Interner,
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
@@ -682,12 +839,21 @@ fn load_unit(
 ) -> Option<UnitId> {
     // Sessão residente: unidade já analisada entra direto (o que mudou já foi
     // invalidado pelo dono do cache; a carga não consulta o disco por isso).
+    // A versão é recalculada da fonte guardada (o marcador) e do
+    // `package_config` de agora: se o `languageVersion` do pacote mudou, a
+    // unidade é analisada de novo.
     let mut unidades = unidades;
     if let Some(cache) = unidades.as_deref_mut() {
         let tirada = cache.tirar(path);
         if let Some(mut u) = tirada {
-            let ok = crate::unidades::serve(&u, uri, role);
+            let mut diags_versao = Vec::new();
+            let features = features_da_unidade(&u.source, uri, path, versao, &mut diags_versao);
+            let ok = crate::unidades::serve(&u, uri, role) && u.features == features;
             if ok {
+                diagnostics.extend(diags_versao);
+                if role == UnitRole::Library {
+                    program.libraries[lib_id.0 as usize].features = features;
+                }
                 u.library = lib_id;
                 let unit_id = UnitId(program.units.len() as u32);
                 program.units.push(u);
@@ -722,8 +888,12 @@ fn load_unit(
         cache.anotar_marca(path);
     }
 
+    let features = features_da_unidade(&source, uri, path, versao, diagnostics);
+    if role == UnitRole::Library {
+        program.libraries[lib_id.0 as usize].features = features;
+    }
     let t = std::time::Instant::now();
-    let parsed = dartforge_frontend::parser::parse_lexed(&source, tokens, interner);
+    let parsed = dartforge_frontend::parser::parse_lexed_com(&source, tokens, interner, features);
     program.tempos.parse += t.elapsed();
     for mut d in parsed.diagnostics {
         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);
@@ -739,6 +909,7 @@ fn load_unit(
         unit: parsed.unit,
         library: lib_id,
         role,
+        features,
     });
 
     Some(unit_id)
@@ -766,7 +937,7 @@ fn get_or_create_library(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk,
-            language_version: None,
+            features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
         });
         uri_to_library.insert(canonical_uri.to_string(), lib_id);
         queue.push_back(lib_id);
@@ -932,6 +1103,82 @@ fn evaluate_configuration(
         return supported;
     }
     false
+}
+
+/// O caminho da augmentation de macro de uma biblioteca: `x.macro.dart` ao
+/// lado de `x.dart` (o mesmo nome da materialização,
+/// docs/MACROS-COMPATIBILIDADE.md).
+pub fn caminho_da_augmentation_de_macro(biblioteca: &Path) -> PathBuf {
+    let stem = biblioteca.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    biblioteca.with_file_name(format!("{stem}.macro.dart"))
+}
+
+/// Carrega a augmentation de macro de `lib`, se a geração em memória tiver
+/// uma (e a biblioteca ainda não a incluir por `import augment`/`part`).
+fn anexar_augmentation_de_macro(
+    program: &mut Program,
+    lib_id: LibraryId,
+    package_config: &PackageConfig,
+    corrente: LanguageVersion,
+    interner: &mut Interner,
+    diagnostics: &mut Vec<Diagnostic>,
+    prefetch: &mut Prefetch,
+) -> Option<UnitId> {
+    let gerados = package_config.gerados.as_ref().filter(|g| !g.vazia())?;
+    let lib = &program.libraries[lib_id.0 as usize];
+    if lib.is_sdk {
+        return None;
+    }
+    let principal = program.units[lib.units.first()?.0 as usize].path.clone()?;
+    let caminho = caminho_da_augmentation_de_macro(&principal);
+    if !gerados.contem(&caminho) {
+        return None;
+    }
+    let chave = crate::gerado::chave(&caminho);
+    if lib.units.iter().any(|u| program.units[u.0 as usize].path.as_deref().map(crate::gerado::chave).as_ref() == Some(&chave)) {
+        return None;
+    }
+    let uri = canonical_file_uri(&caminho, package_config);
+    let versao = Versao::Parte { da_biblioteca: lib.features, config: package_config, corrente };
+    let lido = prefetch.tirar(&caminho);
+    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, versao, interner, program, diagnostics, lido, None)?;
+    Some(uid)
+}
+
+/// A unidade de `import augment 'x'` tem de começar por `augment library 'y'`
+/// com `y` apontando para quem a importou (a regra do par `part`/`part of`).
+fn verify_augment_library(
+    program: &Program,
+    aug_unit_id: UnitId,
+    quem_importa: Option<&Path>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let unidade = &program.units[aug_unit_id.0 as usize];
+    let cabecalho = unidade.unit.directives.iter().find_map(|d| match &d.kind {
+        DirectiveKind::AugmentLibrary { uri } => Some((d.span, uri)),
+        _ => None,
+    });
+    let Some((span, uri)) = cabecalho else {
+        diagnostics.push(Diagnostic::new(
+            format!("a biblioteca de augmentation '{}' não começa por 'augment library'", unidade.uri),
+            Span { start: 0, end: 0 },
+        ));
+        return;
+    };
+    let (Some(alvo), Some(caminho), Some(importador)) = (string_lit_value(uri), &unidade.path, quem_importa) else {
+        return;
+    };
+    let esperado = normalizar(&caminho.parent().unwrap_or(Path::new(".")).join(&alvo));
+    if esperado != normalizar(importador) {
+        diagnostics.push(Diagnostic::new(
+            format!(
+                "'augment library' aponta para '{}', mas quem importa a augmentation é '{}'",
+                esperado.display(),
+                importador.display()
+            ),
+            span,
+        ));
+    }
 }
 
 fn verify_part_of(

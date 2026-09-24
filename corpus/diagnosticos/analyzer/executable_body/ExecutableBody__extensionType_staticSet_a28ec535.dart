@@ -1,0 +1,4 @@
+extension type E(int i) {
+  static set foo(int _);
+  augment static set foo(int _) {}
+}

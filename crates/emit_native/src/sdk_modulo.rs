@@ -657,7 +657,7 @@ mod testes {
             .spawn(move || {
 
                 let otimizar = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: true, optimize: otimizar };
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: true, optimize: otimizar, versao_linguagem: None };
                 crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
             })
             .unwrap()
@@ -674,7 +674,7 @@ mod testes {
 
     /// Perfil de produção com o SDK da fonte: UM executável autocontido. O
     /// `.exe` é copiado sozinho para uma pasta vazia e roda sem nenhuma DLL
-    /// do DartForge (docs/NATIVO-PLANO.md §7.7).
+    /// do DartForge (docs/NATIVO-PLANO.md §7.9).
     #[test]
     #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
     fn producao_e_um_executavel_autocontido() {
@@ -694,7 +694,7 @@ mod testes {
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true };
+                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None };
                 crate::compilar_com(&e2, &x2, &opcoes, true)
             })
             .unwrap()

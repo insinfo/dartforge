@@ -4,6 +4,7 @@ pub mod cache;
 pub mod cache_objeto;
 pub mod context;
 pub mod driver;
+pub mod fonte;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
@@ -26,6 +27,9 @@ pub struct CompileOptions<'a> {
     pub packages: Option<&'a Path>,
     pub timings: bool,
     pub optimize: bool,
+    /// Versão de linguagem corrente (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
+    /// `None` = a da ferramenta (3.13).
+    pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
 }
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
@@ -118,17 +122,20 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
         None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
 
-    // SDK da fonte (P5c, `DARTFORGE_SDK_DA_FONTE=1`): a seção `vm` com a
-    // sobreposição `sdk_nativo/`, e as bibliotecas da fonte ligadas como
-    // objetos em cache (`sdk_modulo::sdk_compilado`).
-    let sdk = if da_fonte {
-        sdk_modulo::carregar_sdk_nativo(&sdk_dir)?
-    } else {
-        SdkLayout::load(&sdk_dir, "vm").map_err(|e| format!("falha ao carregar SDK VM: {e}"))?
-    };
+    // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): o `dart:async` que
+    // o programa compila da fonte (P6) é o dela; com o SDK da fonte (P5c,
+    // `da_fonte`), todas as bibliotecas de `BIBLIOTECAS_DA_FONTE` também,
+    // ligadas como objetos em cache (`sdk_modulo::sdk_compilado`). `mut`: a
+    // versão de linguagem corrente pode vir de `--versao-linguagem` (Dart
+    // moderno, P2).
+    let mut sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
+        .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
+    if let Some(v) = options.versao_linguagem {
+        sdk.versao_corrente = v;
+    }
 
     let mut interner = Interner::new();
-    let (program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
+    let (mut program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
     if let Some((primeiro, resto)) = elements_diags.split_first() {
         let mut msg = format!("erro ao carregar o programa: {primeiro}");
         for d in resto {
@@ -136,14 +143,42 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
         }
         return Err(msg);
     }
+    // P6: as bibliotecas do SDK que este programa compila da fonte deixam de
+    // ser "do SDK" nesta cópia do programa (`fonte.rs`).
+    // Com o SDK da fonte (P5c) elas já são módulos à parte, em cache, e o
+    // programa não as baixa de novo.
+    let usadas = fonte::bibliotecas_da_fonte(&program, &interner);
+    let usa_dart_async = !usadas.is_empty();
+    let mut bibliotecas_da_fonte = if da_fonte { Vec::new() } else { usadas };
+    for l in &bibliotecas_da_fonte {
+        program.libraries[l.0 as usize].is_sdk = false;
+    }
+    if !bibliotecas_da_fonte.is_empty() {
+        bibliotecas_da_fonte.extend(fonte::separar_partes_do_core(&mut program));
+    }
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
-    let (mut outline, _outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, _body_diags) =
+    let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    // Erros de linguagem dos recursos 3.7–3.13 abortam (docs/VERSOES-LINGUAGEM.md §3);
+    // o resto de `types` é aviso e não aparece aqui.
+    let mut erros = outline_diags
+        .iter()
+        .chain(body_diags.iter())
+        .filter(|d| dartforge_types::codes::e_erro_de_linguagem(&d.message));
+    if let Some(primeiro) = erros.next() {
+        let mut msg = format!("erro: {primeiro}");
+        for d in erros {
+            msg.push_str(&format!("\nerro: {d}"));
+        }
+        return Err(msg);
+    }
 
-    let ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
+    ctx.usa_dart_async = usa_dart_async;
     let ctx = if da_fonte { ctx.com_sdk_da_fonte() } else { ctx };
     let front_duration = t_front.elapsed();
 
@@ -253,7 +288,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -300,7 +335,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  var f = #a;\n  var g = #b;\n  print(1);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))
@@ -359,6 +394,40 @@ mod testes {
         }
         assert!(sa.is_subset(&sb), "símbolos de A que sumiram em B: {:?}", sa.difference(&sb).collect::<Vec<_>>());
         assert_eq!(ia, ia2, "o mesmo programa em outro diretório dá o mesmo IR");
+    }
+
+    /// P6 e a regra de custo zero: só o programa que usa `dart:async` compila
+    /// o `dart:async` da fonte e liga o laço de eventos; o que não usa não
+    /// tem nada disso no IR.
+    #[test]
+    fn dart_async_da_fonte_so_para_quem_usa() {
+        if !Path::new(SDK).join("libraries.json").is_file() {
+            eprintln!("SDK ausente em {SDK}; teste pulado");
+            return;
+        }
+        let emitir_fonte = |fonte: &'static str| {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn(move || {
+                    let dir = tempfile::tempdir().unwrap();
+                    let entrada = dir.path().join("main.dart");
+                    std::fs::write(&entrada, fonte).unwrap();
+                    emitir(&entrada)
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        let sincrono = emitir_fonte("void main() { print(1); }\n");
+        assert!(!sincrono.texto.contains("call void @dartforge_laco_de_eventos"));
+        assert!(!sincrono.texto.contains("@df.dart$3aasync"));
+        assert_eq!(sincrono.bytes_sdk, 0);
+
+        let assincrono = emitir_fonte("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
+        assert!(assincrono.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
+        assert!(assincrono.texto.contains("define i64 @df.main$2edart..f$async("), "o corpo da máquina de estados");
+        assert!(assincrono.texto.contains("@df.dart$3aasync.._asyncAwait("));
+        assert!(assincrono.bytes_sdk > 0);
     }
 
     #[test]

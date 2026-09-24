@@ -96,9 +96,10 @@ pub fn compilar(
     packages: Option<&std::path::Path>,
     dart_sdk_js: &std::path::Path,
     op: Opcoes,
+    linguagem: &dartforge_elements::sdk::Linguagem,
 ) -> Result<Producao, String> {
     let sdk_texto = std::fs::read_to_string(dart_sdk_js).map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
-    let ((emitido, rel), _) = dartforge_emit_js::compilar_com(entrada, sdk_lib, packages, |a| emitir_com_mundo(a, &sdk_texto, op))?;
+    let ((emitido, rel), _) = dartforge_emit_js::compilar_com(entrada, sdk_lib, packages, linguagem, |a| emitir_com_mundo(a, &sdk_texto, op))?;
     let mut p = montar(&emitido, &sdk_texto, op);
     p.mundo = rel;
     Ok(p)

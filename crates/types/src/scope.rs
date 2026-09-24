@@ -76,6 +76,9 @@ pub struct LocalVarInfo {
     pub is_const: bool,
     pub is_late: bool,
     pub declaration_offset: usize,
+    /// `false` num curinga (Dart 3.7): o local existe (tem `LocalId`, o
+    /// inicializador roda), mas o nome `_` não o encontra.
+    pub ligada: bool,
 }
 
 /// Metadados de um parâmetro formal no escopo léxico.
@@ -110,6 +113,9 @@ pub struct ScopeStack {
     pub is_static_context: bool,
     /// Próximo ID a ser atribuído para variável local.
     pub next_local_id: u32,
+    /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): local e
+    /// parâmetro com esse nome não ligam nome.
+    pub curinga: Option<SymbolId>,
 }
 
 impl ScopeStack {
@@ -127,6 +133,7 @@ impl ScopeStack {
             enclosing_extension,
             is_static_context,
             next_local_id: 0,
+            curinga: None,
         }
     }
 
@@ -162,6 +169,7 @@ impl ScopeStack {
             is_const,
             is_late,
             declaration_offset,
+            ligada: self.curinga != Some(name),
         };
         if let Some(block) = self.blocks.last_mut() {
             block.locals.push(info);
@@ -172,7 +180,7 @@ impl ScopeStack {
     /// Busca uma variável local pelo nome no bloco atual.
     pub fn find_local_in_current_block(&mut self, name: SymbolId) -> Option<&mut LocalVarInfo> {
         if let Some(block) = self.blocks.last_mut() {
-            block.locals.iter_mut().find(|l| l.name == name)
+            block.locals.iter_mut().find(|l| l.ligada && l.name == name)
         } else {
             None
         }
@@ -180,6 +188,9 @@ impl ScopeStack {
 
     /// Adiciona um parâmetro formal ao escopo.
     pub fn add_parameter(&mut self, index: u32, name: SymbolId, ty: TypeId, is_final: bool) {
+        if self.curinga == Some(name) {
+            return;
+        }
         self.parameters.push(ParamInfo {
             index,
             name,
@@ -225,7 +236,7 @@ impl ScopeStack {
         // 1. Variáveis locais (do bloco mais interno para o mais externo)
         for block in self.blocks.iter().rev() {
             for local in block.locals.iter().rev() {
-                if local.name == name {
+                if local.ligada && local.name == name {
                     // Valida regra: variável local só é visível após sua declaração
                     if span.start < local.declaration_offset {
                         diagnostics.push(Diagnostic::new(

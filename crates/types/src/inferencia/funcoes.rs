@@ -95,7 +95,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let estatico_salvo = cx.estatico;
             cx.estatico = true;
             for init in ctor.initializers.iter() {
-                inicializador(inf, &mut cx, fe.class, init);
+                inicializador(inf, &mut cx, fe.class, init, &ctor.parameters);
             }
             cx.tipo_this = this_salvo;
             cx.estatico = estatico_salvo;
@@ -124,7 +124,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
 }
 
 /// Um inicializador de construtor.
-fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, init: &ast::Initializer) {
+fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, init: &ast::Initializer, params: &[ast::Parameter]) {
     let u = inf.core.unknown;
     match init {
         ast::Initializer::Field { name, value, .. } => {
@@ -142,7 +142,7 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
                 let Type::Interface { class: sc, args, .. } = inf.table.get(sup).clone() else { return None };
                 Some((sc, args))
             });
-            chamar_construtor_de(inf, cx, alvo, *constructor, arguments);
+            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, params);
         }
         ast::Initializer::Redirect { constructor, arguments, .. } => {
             let alvo = classe.map(|c| {
@@ -150,7 +150,7 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
                 let args: Vec<TypeId> = ps.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
                 (c, args.into_boxed_slice())
             });
-            chamar_construtor_de(inf, cx, alvo, *constructor, arguments);
+            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, &[]);
         }
         ast::Initializer::Assert { condition, message, .. } => {
             expr::condicao_verificada(inf, cx, *condition);
@@ -162,7 +162,9 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
 }
 
 /// `super(...)`/`this(...)`: invoca o construtor da classe instanciada.
-fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option<(ClassId, Box<[TypeId]>)>, nome: Option<ast::Name>, args: &ast::Arguments) {
+/// Os parâmetros `super.x` do construtor corrente são argumentos
+/// implícitos (posicionais depois dos explícitos; nomeados pelo nome).
+fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option<(ClassId, Box<[TypeId]>)>, nome: Option<ast::Name>, args: &ast::Arguments, params: &[ast::Parameter]) {
     let u = inf.core.unknown;
     let chave = nome.map(|n| n.sym).or(inf.sym.vazio);
     let f = alvo.as_ref().and_then(|(c, _)| chave.and_then(|k| inf.program.class(*c).constructors.get(&k).copied()));
@@ -176,6 +178,7 @@ fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option
             } else {
                 sig
             };
+            let sig = sem_parametros_super(inf, sig, args, params);
             super::chamadas::invocar(inf, cx, sig, args, u, None);
         }
         _ => {
@@ -184,6 +187,27 @@ fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option
             }
         }
     }
+}
+
+/// Tira da assinatura do super construtor os parâmetros que os `super.x`
+/// do construtor corrente já passam.
+fn sem_parametros_super(inf: &mut BodyInferrer<'_>, sig: TypeId, args: &ast::Arguments, params: &[ast::Parameter]) -> TypeId {
+    let k = params.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
+    let nomeados: Vec<_> = params.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+    if k == 0 && nomeados.is_empty() {
+        return sig;
+    }
+    let Type::Function { type_params, ret, positional, optional, named, nullable } = inf.table.get(sig).clone() else { return sig };
+    let explicitos = args.args.iter().filter(|a| a.name.is_none()).count();
+    let mut todos: Vec<(TypeId, bool)> = positional.iter().map(|&t| (t, true)).chain(optional.iter().map(|&t| (t, false))).collect();
+    let fim = (explicitos + k).min(todos.len());
+    if explicitos < fim {
+        todos.drain(explicitos..fim);
+    }
+    let positional: Box<[TypeId]> = todos.iter().filter(|x| x.1).map(|x| x.0).collect();
+    let optional: Box<[TypeId]> = todos.iter().filter(|x| !x.1).map(|x| x.0).collect();
+    let named: Box<[_]> = named.iter().copied().filter(|(n, _, _)| !nomeados.contains(n)).collect();
+    inf.table.intern(Type::Function { type_params, ret, positional, optional, named, nullable })
 }
 
 /// Infere um corpo (bloco ou expressão) com o retorno já no contexto.
@@ -300,7 +324,9 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     if cx.escritos_no_corpo.is_none() {
         let a = &inf.program.unit(cx.unit).ast;
         cx.escritos_no_corpo = Some(match cx.raiz {
-            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_funcao(inf, cx.unit, a.function(f)),
+            // O membro inteiro, inclusive escritas nos próprios parâmetros
+            // (R-FLU-07 regra 2; `base ??= const {}` e depois a closure).
+            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &a.function(f).body),
             super::corpo::Raiz::Construtor(m) => match &a.member(m).kind {
                 ast::MemberKind::Constructor(c) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &c.body),
                 _ => Vec::new(),
@@ -565,7 +591,7 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                                 Some(k.type_args.iter().map(|&t| inf.tipo_de_anotacao(&cx, t)).collect())
                             };
                             let u = inf.core.unknown;
-                            super::chamadas::construir(inf, &mut cx, None, c, f, explicitos, args, u);
+                            super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
                         } else {
                             for x in args.args.iter() {
                                 inferir_livre(inf, &mut cx, x.value);
@@ -641,7 +667,7 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
             } else {
                 Some(m.type_args.iter().map(|&t| inf.tipo_de_anotacao(&cx, t)).collect())
             };
-            super::chamadas::construir(inf, &mut cx, None, c, f, explicitos, args, u);
+            super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
             return;
         }
     }

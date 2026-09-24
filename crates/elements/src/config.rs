@@ -1,6 +1,7 @@
 //! Leitura de `.dart_tool/package_config.json` v2 e resolução de URIs `package:`.
 use std::collections::HashMap;
 use crate::gerado::Geracao;
+use dartforge_frontend::LanguageVersion;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
@@ -11,7 +12,13 @@ pub struct PackageInfo {
     pub name: String,
     pub root_uri: Url,
     pub package_uri: Url,
-    pub language_version: Option<(u8, u8)>,
+    /// `languageVersion` do pacote: a versão padrão das bibliotecas dele
+    /// (`docs/VERSOES-LINGUAGEM.md`). `None` quando a entrada não traz.
+    pub language_version: Option<LanguageVersion>,
+    /// O texto do `languageVersion` quando ele existe mas não é `x.y`: é
+    /// erro de compilação para as bibliotecas do pacote (o CFE diz
+    /// `LanguageVersionInvalidInDotPackages`).
+    pub language_version_invalida: Option<String>,
 }
 
 /// Mapeamento de pacotes para seus diretórios e versões de linguagem.
@@ -25,6 +32,10 @@ pub struct PackageConfig {
     /// `package:x/…` acontece milhares de vezes por programa e
     /// `canonicalize` custa uma chamada ao sistema cada.
     pub package_dirs: Vec<(String, PathBuf)>,
+    /// `(nome, diretório do rootUri canônico)`, do mais longo para o mais
+    /// curto: diz a que pacote pertence um arquivo fora de `lib/` (`bin/`,
+    /// `test/`), para a versão de linguagem padrão dele.
+    pub root_dirs: Vec<(String, PathBuf)>,
     /// `<projeto>/.dart_tool/build/generated`, canônico e sem `\?\`, quando
     /// existe: raiz dos arquivos gerados pelo `build_runner`, mapeados para
     /// `package:<pacote>/<rel>` em `canonical_file_uri`.
@@ -46,6 +57,22 @@ pub fn sem_verbatim(p: PathBuf) -> PathBuf {
 }
 
 impl PackageConfig {
+    /// O pacote a que pertence a biblioteca de URI `uri` (arquivo em `path`),
+    /// pela regra de `accepted/2.8/language-versioning`: `package:x/…`
+    /// pertence a `x`; um arquivo pertence ao pacote cuja raiz (`rootUri`) o
+    /// contém, a mais interna quando há aninhamento.
+    pub fn pacote_da_biblioteca(&self, uri: &str, path: Option<&Path>) -> Option<&PackageInfo> {
+        if let Some(resto) = uri.strip_prefix("package:") {
+            let nome = resto.split('/').next().unwrap_or("");
+            return self.packages.get(nome);
+        }
+        let path = path?;
+        self.root_dirs
+            .iter()
+            .find(|(_, dir)| path.starts_with(dir))
+            .and_then(|(nome, _)| self.packages.get(nome))
+    }
+
     /// Caminho de um arquivo gerado pelo build_runner, quando existe:
     /// `<projeto>/.dart_tool/build/generated/<pacote>/lib/<rel>` (o projeto é o
     /// dono do `package_config.json` lido).
@@ -136,15 +163,10 @@ impl PackageConfig {
                 .join(&normalized_pkg)
                 .map_err(|e| format!("packageUri inválida em '{name}': {e}"))?;
 
-            let language_version = entry
-                .get("languageVersion")
-                .and_then(|v| v.as_str())
-                .and_then(|ver| {
-                    let mut parts = ver.split('.');
-                    let major = parts.next()?.parse::<u8>().ok()?;
-                    let minor = parts.next()?.parse::<u8>().ok()?;
-                    Some((major, minor))
-                });
+            let texto_versao = entry.get("languageVersion").and_then(|v| v.as_str());
+            let language_version = texto_versao.and_then(LanguageVersion::parse);
+            let language_version_invalida =
+                texto_versao.filter(|_| language_version.is_none()).map(str::to_string);
 
             packages.insert(
                 name.to_string(),
@@ -153,9 +175,20 @@ impl PackageConfig {
                     root_uri,
                     package_uri,
                     language_version,
+                    language_version_invalida,
                 },
             );
         }
+
+        let mut root_dirs: Vec<(String, PathBuf)> = packages
+            .values()
+            .filter_map(|pkg| {
+                let dir = pkg.root_uri.to_file_path().ok()?;
+                let dir = sem_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
+                Some((pkg.name.clone(), dir))
+            })
+            .collect();
+        root_dirs.sort_by(|a, b| b.1.as_os_str().len().cmp(&a.1.as_os_str().len()).then(a.0.cmp(&b.0)));
 
         let mut package_dirs: Vec<(String, PathBuf)> = packages
             .values()
@@ -174,6 +207,7 @@ impl PackageConfig {
             origin: Some(path.to_path_buf()),
             packages,
             package_dirs,
+            root_dirs,
             generated_root,
             gerados: None,
         })

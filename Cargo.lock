@@ -115,6 +115,8 @@ dependencies = [
  "dartforge-emit-native",
  "dartforge-intern",
  "dartforge-jit",
+ "dartforge-macros-host",
+ "dartforge-paridade",
  "serde_json",
 ]
 
@@ -139,6 +141,7 @@ name = "dartforge-diagnostics"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -146,6 +149,7 @@ name = "dartforge-diferencial"
 version = "0.1.0"
 dependencies = [
  "dartforge-emit-native",
+ "dartforge-frontend",
 ]
 
 [[package]]
@@ -171,6 +175,7 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
+ "dartforge-macros-host",
  "dartforge-types",
  "tempfile",
 ]
@@ -245,11 +250,24 @@ name = "dartforge-lsp"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
+ "dartforge-elements",
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "dartforge-macros-host"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-elements",
+ "dartforge-frontend",
+ "dartforge-intern",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -261,6 +279,20 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-intern",
  "dartforge-types",
+]
+
+[[package]]
+name = "dartforge-paridade"
+version = "0.1.0"
+dependencies = [
+ "dartforge-diagnostics",
+ "dartforge-elements",
+ "dartforge-frontend",
+ "dartforge-instrument",
+ "dartforge-intern",
+ "dartforge-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

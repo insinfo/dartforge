@@ -1,0 +1,13 @@
+# Programas de recursos ainda não implementados no DartForge
+# (docs/VERSOES-LINGUAGEM.md §5): podem falhar sem reprovar o job `moderno`;
+# um programa daqui que passa reprova, para a lista só encolher.
+
+# Membros de extension type (Dart 3.3) não funcionam no emit_js: `Id(21).dobro`
+# sai `21.dobro`. É lacuna anterior à 3.7, fora desta rodada; o construtor
+# primário de extension type em si (3.13) é o de sempre.
+347_primarios_extension_type
+
+# Inferência e fluxo 3.7–3.13 (P6): passaram ao dono de crates/types.
+350_inferencia_bounds
+351_fluxo_solido
+352_fluxo_solido_versao_38

@@ -316,11 +316,6 @@ pub extern "C" fn dartforge_nativo_Object_haveSameRuntimeType(a: i64, b: i64) ->
     u8::from(dartforge_value_class(a) == dartforge_value_class(b))
 }
 
-/// `_trySetStackTrace(error, stackTrace)`: o rastro dos erros da fonte fica
-/// para depois (o `Error.stackTrace` devolve null).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Error_trySetStackTrace(_erro: i64, _rastro: i64) {}
-
 /// `makeListFixedLength(list)`: uma `_List` com os mesmos elementos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Internal_makeListFixedLength(lista: i64) -> i64 {

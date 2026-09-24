@@ -13,6 +13,7 @@
 //! nós vivem em arenas indexadas por `u32` ([`ast::Ast`]), identificadores são
 //! [`dartforge_intern::SymbolId`], e nenhum nó empresta da fonte.
 pub mod ast;
+pub mod features;
 pub mod lexer;
 pub mod parser;
 pub mod text;
@@ -20,4 +21,5 @@ pub mod token;
 
 pub use dartforge_diagnostics::{Diagnostic, Span};
 pub use dartforge_intern::{Interner, SymbolId};
+pub use features::{Feature, LanguageVersion, LibraryFeatures};
 pub use text::DartStr;

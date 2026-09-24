@@ -1,6 +1,8 @@
 //! Interface de linha de comando do compilador DartForge.
 use std::{env, fs, path::PathBuf, process::ExitCode};
+mod analisar;
 mod jit;
+mod macros;
 mod motor;
 mod nativo;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,7 +14,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
-       dartforge run|reload <input.dart> ...  (compile com --features jit)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
+       dartforge run|reload <input.dart> ...  (compile com --features jit)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n       dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );
         return Ok(());
     }
@@ -29,6 +31,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "compile-js" {
         return run_compile_js(&args[1..]);
     }
+    if args[0] == "macros" {
+        return macros::run(&args[1..]);
+    }
     if args[0] == "run" {
         return jit::run(&args[1..]);
     }
@@ -43,6 +48,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Converte o resultado do comando em mensagem e código de saída do processo.
 fn main() -> ExitCode {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == "analyze") {
+        return match analisar::run(&args[1..]) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(64)
+            }
+        };
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -54,19 +69,24 @@ fn main() -> ExitCode {
 
 /// `compile-js`: pipeline inteiro e escrita dos módulos ES no diretório dado.
 fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings]";
+    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--versao-linguagem x.y] [--enable-experiment=a,b]";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
-    let mut it = args.iter();
+    let mut linguagem = dartforge_emit_js::Linguagem::default();
+    let textos: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let mut it = textos.iter().map(String::as_str);
     while let Some(a) = it.next() {
-        match a.to_str() {
-            Some("-o") => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--timings") => timings = true,
+        if linguagem.ler_opcao(a, &mut it)? {
+            continue;
+        }
+        match a {
+            "-o" => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            "--sdk" => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            "--packages" => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
+            "--timings" => timings = true,
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
@@ -96,7 +116,7 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
                 }
             };
             let gerador: Option<dartforge_emit_js::Gerador<'_>> = motor.as_ref().map(|_| &gerar as _);
-            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), gerador)?;
+            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), &linguagem, gerador)?;
             Ok((e, r, rel_motor.into_inner()))
         })
         .map_err(|e| e.to_string())?

@@ -121,7 +121,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         tipo_final(inf, forma, &finais)
     };
     if const_ {
-        validar_colecao_const(inf, cx.unit, e);
+        validar_colecao_const(inf, cx, e);
     }
     t
 }
@@ -226,7 +226,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 Some(p) => {
                     let t = inferir_livre(inf, cx, *condition);
                     cx.empurrar_escopo();
-                    let r = super::padroes::caso(inf, cx, *p, t, *guard);
+                    let r = super::padroes::caso(inf, cx, *p, t, *guard, Some(*condition));
                     r
                 }
                 None => expr::condicao_verificada(inf, cx, *condition),
@@ -280,7 +280,8 @@ fn reborrow_visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionE
 }
 
 /// Diagnósticos de coleções `const` (chaves/elementos repetidos, não constantes).
-pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, unit: dartforge_elements::model::UnitId, e: ExprId) {
+pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
+    let unit = cx.unit;
     let a = &inf.program.unit(unit).ast;
     let mut subs = Vec::new();
     {
@@ -338,10 +339,19 @@ pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, unit: dartforge_
         }
         drop(av);
         for (m, s) in diags {
+            // O avaliador não sabe tudo (constantes referidas, operadores de
+            // tipos do SDK): "não constante" só quando a expressão de fato
+            // não é constante (especificação, "Constants").
+            if m == CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template {
+                let alvo = a.exprs.iter().position(|x| x.span == s).map(|i| ExprId(i as u32));
+                if alvo.is_some_and(|x| inf.e_constante(cx, x)) {
+                    continue;
+                }
+            }
             inf.aviso(m, s);
         }
     }
     for s in subs {
-        validar_colecao_const(inf, unit, s);
+        validar_colecao_const(inf, cx, s);
     }
 }

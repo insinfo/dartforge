@@ -3,6 +3,7 @@
 //! O contrato entre este lowering, o emissor e o runtime está em
 //! `docs/NATIVO-PLANO.md` §6 (R, E, N, G).
 
+pub mod async_sm;
 pub mod atribuicao;
 pub mod captura;
 pub mod cascata;
@@ -12,8 +13,10 @@ pub mod comandos;
 pub mod constantes;
 pub mod despacho;
 pub mod enums;
+pub mod erros_do_runtime;
 pub mod expressoes;
 pub mod extensoes;
+pub mod externos;
 pub mod fn_builder;
 pub mod heranca;
 pub mod literais;
@@ -22,6 +25,7 @@ pub mod membros;
 pub mod operadores;
 pub mod padroes;
 pub mod registros;
+pub mod rti;
 pub mod sdk_fonte;
 pub mod sdk_por_nome;
 pub mod verificador;
@@ -306,6 +310,22 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     module
 }
 
+/// P6: os símbolos das funções da fonte que têm corpo — um `external` cujo
+/// patch o carregador não ligou (`patched_by` vazio, NATIVO-PEDIDOS) tem o
+/// mesmo símbolo do membro do patch, e quem vale é o patch. Calculado uma vez
+/// por contexto.
+fn com_corpo_da_fonte<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<String> {
+    ctx.com_corpo_da_fonte.get_or_init(|| {
+        ctx.program
+            .functions
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| ctx.da_fonte.contains(&f.library) && membros::tem_corpo(ctx, *i))
+            .map(|(i, _)| simbolo_de(ctx, i))
+            .collect()
+    })
+}
+
 /// Baixa uma função (de topo, método, construtor) para o módulo.
 pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
     let func_elem = &ctx.program.functions[f_idx];
@@ -324,6 +344,27 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 let ast = &ctx.program.unit(unit).ast;
                 let ast_func = ast.function(function);
                 if matches!(ast_func.body, FunctionBody::Empty | FunctionBody::Native(_)) {
+                    // P6: `external` de biblioteca da fonte com native — o
+                    // corpo é a chamada ao runtime (`externos.rs`).
+                    if func_elem.external
+                        && func_elem.patched_by.is_none()
+                        && ctx.da_fonte.contains(&func_elem.library)
+                        && !com_corpo_da_fonte(ctx).contains(&symbol)
+                    {
+                        let ret_ty = ctx
+                            .outline
+                            .functions
+                            .get(f_idx)
+                            .map_or(Type::Void, |d| ctx.to_hir_type(d.return_type));
+                        let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
+                        let e_instancia = func_elem.class.is_some() && !func_elem.static_;
+                        builder.declarar_parametros(f_idx, e_instancia);
+                        if !builder.lower_externo(f_idx, ast_func.span) {
+                            builder.nao_suportado(&format!("external `{name}` sem native"), ast_func.span);
+                            builder.terminate(Terminator::Return(None));
+                        }
+                        builder.finalizar(module);
+                    }
                     // Abstrato ou externo: não há corpo a compilar.
                     return;
                 }
@@ -379,16 +420,39 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 if is_instance_member {
                     builder.enclosing_class = func_elem.class;
                 }
+                // RTI: a função genérica recebe a tupla dos argumentos de
+                // tipo no último parâmetro (`M<i>` das receitas).
+                if builder.funcao_generica(f_idx) {
+                    let t = builder.add_param("$tipos".to_string(), Type::I64);
+                    builder.tupla_de_tipos = Some(Operand::Val(t));
+                    builder.params_de_tipo_da_funcao = ast_func.type_params.iter().map(|p| p.name.sym).collect();
+                }
 
-                match &ast_func.body {
-                    FunctionBody::Block(stmt_id) => {
-                        builder.lower_stmt(ast, *stmt_id);
+                match ast_func.modifier {
+                    // P6: o corpo `async` vira máquina de estados (`async_sm.rs`).
+                    dartforge_frontend::ast::AsyncModifier::Async => {
+                        builder.lower_corpo_async(
+                            ast,
+                            ast_func.parameters.as_deref().unwrap_or(&[]),
+                            &ast_func.body,
+                            ast_func.span,
+                            ctx.outline.functions.get(f_idx).map(|d| d.return_type),
+                        );
                     }
-                    FunctionBody::Expression(expr_id) => {
-                        let ret_op = builder.lower_expr(ast, *expr_id);
-                        builder.terminate(Terminator::Return(Some(ret_op)));
+                    dartforge_frontend::ast::AsyncModifier::None => match &ast_func.body {
+                        FunctionBody::Block(stmt_id) => {
+                            builder.lower_stmt(ast, *stmt_id);
+                        }
+                        FunctionBody::Expression(expr_id) => {
+                            let ret_op = builder.lower_expr(ast, *expr_id);
+                            builder.terminate(Terminator::Return(Some(ret_op)));
+                        }
+                        _ => {}
+                    },
+                    _ => {
+                        builder.nao_suportado("gerador (sync*/async*)", ast_func.span);
+                        builder.terminate(Terminator::Return(None));
                     }
-                    _ => {}
                 }
                 builder.finalizar(module);
             }
@@ -409,6 +473,14 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                         },
                     );
                     builder.declarar_parametros(f_idx, false);
+                    // RTI: a fábrica de classe genérica recebe os argumentos
+                    // de tipo da classe na tupla (não há `this`).
+                    builder.enclosing_class = Some(cid);
+                    if builder.classe_generica(cid) {
+                        let t = builder.add_param("$tipos".to_string(), Type::I64);
+                        builder.tupla_de_tipos = Some(Operand::Val(t));
+                        builder.classe_por_tupla = true;
+                    }
                     if let Some(r) = &ctor.redirect {
                         // `factory C(…) = D.nome;` (P4): os parâmetros passam
                         // como estão (posicionais em ordem, nomeados pelo
@@ -535,6 +607,36 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
     module.functions.retain(|f| vistos.insert(f.symbol.clone()));
     let mut vistos = std::collections::HashSet::new();
     module.globais.retain(|g| vistos.insert(g.2.clone()));
+
+    // P6: o laço de eventos (quem usa `dart:async`): a classe do quadro das
+    // funções `async` e a função que o runtime usa para chamar uma closure
+    // (o único ponto em que o runtime chama Dart, `eventos.rs`).
+    if ctx.usa_dart_async
+        && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
+    {
+        module.classes.push(ClassDef {
+            id: async_sm::ID_QUADRO_ASYNC,
+            name: "_AsyncFrame".to_string(),
+            field_count: 0,
+            vtable: Vec::new(),
+            to_string_symbol: None,
+        });
+        let simbolo = "dartforge_chamar_dart0".to_string();
+        let mut b = fn_builder::FnBuilder::new(ctx, u, simbolo.clone(), "chamar".to_string(), Type::Ref);
+        let clo = Operand::Val(b.add_param("closure".to_string(), Type::Ref));
+        let r = b.chamar_valor_funcao(clo, &[]);
+        b.terminate(Terminator::Return(Some(r)));
+        b.finalizar(&mut module);
+        module.chamar_dart = Some(simbolo);
+    }
+
+    // P6: as bibliotecas da fonte entram inteiras; fica o que o programa
+    // alcança (`fonte.rs`).
+    if !ctx.da_fonte.is_empty() {
+        crate::fonte::podar(&mut module);
+    }
+    // RTI: o universo de tipos das receitas que ficaram (`rti.rs`).
+    rti::registrar_universo(ctx, &mut module);
 
     // E3: o verificador roda sobre o módulo pronto; problema aqui é bug do
     // compilador, e o módulo não é emitido.

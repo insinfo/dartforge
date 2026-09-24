@@ -168,7 +168,7 @@ fn main() {
     let primeiro = vivos[0] as f64 / MB;
     let ultimo = *vivos.last().unwrap() as f64 / MB;
     println!(
-        "vivos após 1ª edição {primeiro:.2} MB → após {edicoes}ª {ultimo:.2} MB (crescimento {:+.2} MB); pico {:.2} MB; média {:.0} ms/edição; vivos após a primeira compilação {:.2} MB",
+        "vivos após 1ª edição {primeiro:.2} MB → após {edicoes}ª {ultimo:.2} MB (crescimento {:+.2} MB); pico {:.2} MB; média {:.2} ms/edição; vivos após a primeira compilação {:.2} MB",
         ultimo - primeiro,
         dartforge_instrument::peak_bytes() as f64 / MB,
         soma_ms / edicoes as f64,

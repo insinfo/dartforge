@@ -1,0 +1,2 @@
+/// {@canonicalFor String}
+class C {}

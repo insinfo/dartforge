@@ -177,6 +177,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) {
         let padrao = ast.pattern(p);
         let span = padrao.span;
+        // `<int>[…]`/`<K, V>{…}`: o valor tem de ser `List<int>`/`Map<K, V>`
+        // (RTI); depois, o casamento dos elementos é o de sempre.
+        if let PatternKind::List { type_args, .. } | PatternKind::Map { type_args, .. } = &padrao.kind
+            && !type_args.is_empty()
+        {
+            let classe = match &padrao.kind {
+                PatternKind::List { .. } => self.ctx.core.list_class,
+                _ => self.ctx.core.map_class,
+            };
+            let mut r = super::rti::Receita { texto: String::new(), variaveis: false };
+            let mut ok = classe.is_some();
+            if let Some(c) = classe {
+                r.texto.push_str(&format!("C{}<", self.ctx.id_rti(c)));
+                for (i, a) in type_args.iter().enumerate() {
+                    if i > 0 {
+                        r.texto.push(',');
+                    }
+                    match self.receita_da_anotacao(ast.ty(*a)) {
+                        Some(x) => {
+                            r.texto.push_str(&x.texto);
+                            r.variaveis |= x.variaveis;
+                        }
+                        None => ok = false,
+                    }
+                }
+                r.texto.push('>');
+            }
+            if !ok {
+                self.nao_suportado("padrão de coleção com argumento de tipo não resolvido", span);
+                return;
+            }
+            let t = self.rti_da_receita(&r);
+            let v = self.coagir(valor.clone(), Type::Ref);
+            let e = self.testar_rti(v, t);
+            self.exigir(e, falha);
+        }
         match &padrao.kind {
             PatternKind::Wildcard { ty } => {
                 if let Some(t) = ty {
@@ -303,12 +339,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let v = self.coagir(valor.clone(), Type::Ref);
                 self.checar_tipo_ou_lancar(ast.ty(*ty), v);
                 self.casar(ast, *pattern, valor, falha, ligacao, ligados, origem);
-            }
-            PatternKind::List { type_args, .. } | PatternKind::Map { type_args, .. } if !type_args.is_empty() => {
-                // `<int>[…]`: o tipo do elemento em tempo de execução (RTI)
-                // ainda não existe.
-                let _ = (valor, falha, ligados, origem, ligacao);
-                self.nao_suportado("padrão de coleção com argumento de tipo (RTI)", span);
             }
             PatternKind::List { elements, .. } if self.ctx.sdk_da_fonte => {
                 self.casar_lista_fonte(ast, elements, valor, falha, ligacao, ligados, origem);

@@ -91,6 +91,22 @@ pub struct FnEmitter<'m, 'a> {
     pub interop_args: bool,
     /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
     pub case_labels: Vec<(String, String, String)>,
+    /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): local,
+    /// parâmetro e parâmetro de tipo com esse nome não ligam nome.
+    pub curinga: Option<SymbolId>,
+    /// Nome JS dos parâmetros `this._`/`super._` curinga, pelo início do
+    /// nome na fonte: o construtor ainda os usa para inicializar o campo e
+    /// encaminhar ao super.
+    pub parametros_curinga: HashMap<usize, String>,
+    /// A biblioteca tem atalhos de ponto (Dart 3.10).
+    pub atalhos: bool,
+    /// Contexto (*shorthand context*) de cada atalho de ponto na raiz de uma
+    /// cadeia de seletores em emissão: registrado pelo nó mais externo da
+    /// cadeia, e desfeito quando ele termina.
+    pub contextos_atalho: HashMap<ExprId, Option<Ty>>,
+    /// Profundidade de emissão especulativa (`type_of`): erros de linguagem
+    /// só contam fora dela.
+    pub especulando: u32,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -131,6 +147,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             in_const: false,
             interop_args: false,
             case_labels: Vec::new(),
+            curinga: ctx
+                .program
+                .library(lib)
+                .features
+                .tem(dartforge_frontend::Feature::WildcardVariables)
+                .then(|| ctx.sym("_"))
+                .flatten(),
+            parametros_curinga: HashMap::new(),
+            atalhos: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
+            contextos_atalho: HashMap::new(),
+            especulando: 0,
         }
     }
 
@@ -163,6 +190,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Declara uma local e devolve o nome JS (com renomeação de sombreamento
     /// entre escopos irmãos evitada: JS `let` tem escopo de bloco também).
     pub fn declare(&mut self, sym: SymbolId, ty: Ty) -> String {
+        if self.curinga == Some(sym) {
+            // Curinga (Dart 3.7): um nome JS novo, que ninguém lê, e nada no
+            // escopo — ler `_` continua achando o que estiver fora.
+            return self.nome_curinga();
+        }
         let base = js::ident(self.name(sym));
         let in_use = |s: &Self, n: &str| s.scopes.iter().any(|sc| sc.values().any(|l| l.js == n));
         let mut js = base.clone();
@@ -174,6 +206,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false, late_final: false });
         js
     }
+    /// Nome JS de um curinga: `t$wN`. O prefixo `t$` é reservado aos
+    /// temporários (`js::ident` acrescenta `$` a nomes de usuário que começam
+    /// com ele) e os temporários são `t$` seguido de dígitos, então não há
+    /// colisão; o contador não volta atrás dentro do emissor.
+    pub fn nome_curinga(&mut self) -> String {
+        let n = format!("t$w{}", self.unique);
+        self.unique += 1;
+        n
+    }
+
+    /// Nome JS de um parâmetro de tipo de função genérica: `<_>` numa
+    /// biblioteca com curingas não liga nome e dois deles não podem ter o
+    /// mesmo nome de parâmetro JS.
+    pub fn nome_js_parametro_de_tipo(&mut self, nome: &str) -> String {
+        if nome == "_" && self.curinga.is_some() {
+            self.nome_curinga()
+        } else {
+            js::ident(nome)
+        }
+    }
+
+    /// Nome JS do parâmetro `n` (`this.x`, `super.x`) já declarado: o do
+    /// escopo, ou o guardado para um curinga.
+    pub fn js_do_parametro(&self, n: ast::Name) -> String {
+        if let Some(j) = self.parametros_curinga.get(&n.span.start) {
+            return j.clone();
+        }
+        self.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or_else(|| js::ident(self.name(n.sym)))
+    }
+
     pub fn declare_js(&mut self, sym: SymbolId, js: String, ty: Ty) {
         self.scopes.last_mut().expect("escopo").insert(sym, Local { js, ty, lazy_init: None, late_check: false, late_final: false });
     }
@@ -527,7 +589,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
                 ast::ParameterKind::Named => {
-                    named.push((p.name.map(|n| self.name(n.sym).to_string()).unwrap_or_default(), t, p.required))
+                    named.push((p.nome_externo().map(|n| self.name(n.sym).to_string()).unwrap_or_default(), t, p.required))
                 }
             }
         }
@@ -821,13 +883,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut oi = 0;
         for p in params {
             let Some(name) = p.name else { continue };
+            // Nome externo (a chave em `opts`): o público de um nomeado
+            // privado da 3.12; o local continua `name`.
+            let externo = p.nome_externo().unwrap_or(name);
             let mut ty = if p.ty.is_none() && p.function_parameters.is_none() {
                 match p.kind {
                     ast::ParameterKind::Required => pos_expected.get(pi).cloned().unwrap_or(Ty::Dynamic),
                     ast::ParameterKind::Optional => opt_expected.get(oi).cloned().unwrap_or(Ty::Dynamic),
                     ast::ParameterKind::Named => named_expected
                         .iter()
-                        .find(|(n, _, _)| n == self.name(name.sym))
+                        .find(|(n, _, _)| n == self.name(externo.sym))
                         .map(|(_, t, _)| t.clone())
                         .unwrap_or(Ty::Dynamic),
                 }
@@ -844,16 +909,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
             }
+            let jsn = self.declare(name.sym, ty.clone());
+            if self.curinga == Some(name.sym) && (p.this_ || p.super_) {
+                // `this._`/`super._` curinga: não liga nome, mas o construtor
+                // ainda inicializa o campo/encaminha com o valor.
+                self.parametros_curinga.insert(name.span.start, jsn.clone());
+            }
             match p.kind {
                 ast::ParameterKind::Required => {
                     pi += 1;
-                    let jsn = self.declare(name.sym, ty);
                     nomes.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
                     js_params.push(jsn);
                 }
                 ast::ParameterKind::Optional => {
                     oi += 1;
-                    let jsn = self.declare(name.sym, ty.clone());
                     let saved_const = self.in_const;
                     self.in_const = true;
                     let def = match p.default_value {
@@ -866,7 +935,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 ast::ParameterKind::Named => {
                     has_named = true;
-                    let jsn = self.declare(name.sym, ty.clone());
                     let saved_const = self.in_const;
                     self.in_const = true;
                     let def = match p.default_value {
@@ -874,7 +942,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         None => "null".to_string(),
                     };
                     self.in_const = saved_const;
-                    let key = self.name(name.sym);
+                    // A `Invocation` do `noSuchMethod` vê o nome externo.
+                    let key = self.name(externo.sym);
                     nomes.push((p.kind, key.to_string(), jsn.clone()));
                     prologue.push_str(&format!(
                         "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
@@ -906,7 +975,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             FunctionBody::Expression(e) => {
                 let expected = self.ret_ty.clone();
-                let (js, ty) = self.emit_expr(*e, Some(&expected));
+                // Atalho de ponto (3.10) num `=> e` de função `async`: o
+                // contexto do valor é `FutureOr<T>`, que denota o que `T`
+                // denota (o `return` já desembrulha o `Future`).
+                let futuro = match (&self.async_kind, &expected) {
+                    (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => {
+                        Some(Ty::FutureOr { arg: Box::new(args[0].clone()), nullable: false })
+                    }
+                    (AsyncKind::Async, Ty::FutureOr { .. }) => Some(expected.clone()),
+                    _ => None,
+                };
+                let (js, ty) = match futuro {
+                    Some(ctx) => self.com_contexto_de_atalho(*e, &ctx, |s| s.emit_expr(*e, Some(&expected))),
+                    None => self.emit_expr(*e, Some(&expected)),
+                };
                 self.returns.push(ty);
                 if matches!(self.async_kind, AsyncKind::None | AsyncKind::Async) {
                     if self.ret_ty == Ty::Void && !self.is_closure_body {
@@ -1339,7 +1421,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
             let p = self.ctx.fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
-            scope_params.push((p.id, js::ident(&p.name)));
+            let jsn = self.nome_js_parametro_de_tipo(&p.name);
+            scope_params.push((p.id, jsn));
             tps.push(p);
         }
         let saved = self.fn_type_params.clone();

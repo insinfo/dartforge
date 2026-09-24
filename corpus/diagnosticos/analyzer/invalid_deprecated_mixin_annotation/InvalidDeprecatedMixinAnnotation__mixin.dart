@@ -1,0 +1,3 @@
+@Deprecated.mixin()
+// [diag.invalidDeprecatedMixinAnnotation][column 2][length 16] The annotation '@Deprecated.mixin' can only be applied to classes.
+mixin M {}

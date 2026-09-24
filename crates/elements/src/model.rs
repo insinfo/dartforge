@@ -9,6 +9,7 @@
 //! Regras de memória (docs/FRONTEND-ARQUITETURA.md §2): tudo em `Vec` indexado
 //! por id `u32`; nomes são [`SymbolId`]; nós da árvore são referenciados por
 //! `(UnitId, id na arena)`, nunca copiados.
+use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_intern::SymbolId;
 use std::collections::{BTreeMap, HashMap};
@@ -84,6 +85,15 @@ pub struct Program {
     pub core: Option<LibraryId>,
     /// Biblioteca da entrada do programa (a que declara `main`), quando há.
     pub entry: Option<LibraryId>,
+    /// As declarações `augment class`/`augment mixin` de cada classe, na
+    /// ordem de aplicação (docs/AUGMENTATIONS.md). Vazio num programa sem
+    /// augmentations.
+    pub augmentacoes: HashMap<ClassId, Vec<DeclRef>>,
+    /// As classes declaradas com `macro` (experimento `macros`), anotadas na
+    /// mesma passada que cria os elementos. Vazio ⇒ nenhuma anotação pode ser
+    /// aplicação de macro, e o hospedeiro de macros nem é consultado
+    /// (regra de custo zero, docs/MACROS-PROTOCOLO.md §2).
+    pub classes_macro: Vec<ClassId>,
 }
 
 /// Papel de um arquivo dentro da sua biblioteca.
@@ -95,6 +105,12 @@ pub enum UnitRole {
     Part,
     /// Patch file do SDK (`libraries.json`), fundido na biblioteca de origem.
     Patch,
+    /// Biblioteca de augmentation da forma 3.6 (`import augment 'x'` +
+    /// `augment library 'y'`): pertence à biblioteca, como uma parte, e as
+    /// suas declarações `augment` se fundem nas da biblioteca
+    /// (docs/AUGMENTATIONS.md). Na forma atual da spec a augmentation vive
+    /// numa [`UnitRole::Part`] comum.
+    Augmentation,
 }
 
 /// Um arquivo `.dart` já analisado sintaticamente.
@@ -108,6 +124,9 @@ pub struct Unit {
     pub unit: CompilationUnit,
     pub library: LibraryId,
     pub role: UnitRole,
+    /// Recursos com que a unidade foi analisada (os da biblioteca). A sessão
+    /// residente só reaproveita a unidade se continuarem os mesmos.
+    pub features: LibraryFeatures,
 }
 
 /// Importação já resolvida para uma biblioteca do programa.
@@ -216,8 +235,11 @@ pub struct Library {
     pub prefixes: HashMap<SymbolId, Namespace>,
     /// Biblioteca do SDK (`dart:`), que pode usar `JS()`, `@patch`, `native`.
     pub is_sdk: bool,
-    /// Versão de linguagem `// @dart = x.y`, quando declarada.
-    pub language_version: Option<(u8, u8)>,
+    /// Versão de linguagem e recursos ligados (`docs/VERSOES-LINGUAGEM.md`):
+    /// o marcador `// @dart = x.y`, senão o `languageVersion` do pacote,
+    /// senão a versão corrente; `dart:*` no piso 3.6. Resolvida uma vez, na
+    /// carga, antes do parse.
+    pub features: LibraryFeatures,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -425,6 +447,30 @@ impl Program {
     }
     pub fn variable(&self, id: VariableId) -> &VariableElement {
         &self.variables[id.0 as usize]
+    }
+
+    /// Os membros sintáticos de uma classe: os da declaração introdutória
+    /// seguidos dos de cada augmentation, na ordem de aplicação, cada um com
+    /// a sua unidade. Um membro cuja declaração foi completada por outra da
+    /// cadeia continua na lista; quem emite pega o elemento efetivo pelo mapa
+    /// de membros e pula o membro cujo elemento não é o efetivo.
+    pub fn membros_da_classe(&self, id: ClassId) -> Vec<(UnitId, MemberId)> {
+        let class = self.class(id);
+        let Some(decl) = class.decl else { return Vec::new() };
+        let mut out = Vec::new();
+        let decls = std::iter::once(decl).chain(self.augmentacoes.get(&id).into_iter().flatten().copied());
+        for d in decls {
+            let ast = &self.unit(d.unit).ast;
+            let membros: &[MemberId] = match &ast.decl(d.decl).kind {
+                ast::DeclKind::Class(c) => &c.members,
+                ast::DeclKind::Mixin(m) => &m.members,
+                ast::DeclKind::Enum(e) => &e.members,
+                ast::DeclKind::ExtensionType(e) => &e.members,
+                _ => &[],
+            };
+            out.extend(membros.iter().map(|&m| (d.unit, m)));
+        }
+        out
     }
 
     /// Resolve um nome de topo no escopo de uma biblioteca (sem prefixo).

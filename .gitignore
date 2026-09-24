@@ -22,6 +22,8 @@ editors/vscode/package-lock.json
 # SDK compilado pelo DDC: gerado por scripts/gerar-dart-sdk.ps1
 runtime/ddc/dart_sdk.js
 runtime/ddc/dart_sdk.js.map
+# o dart_sdk.js do SDK de oráculo 3.13 (crates/diferencial), por versão
+runtime/ddc/*/
 
 # worktrees de subagentes
 .claude/worktrees/
@@ -31,3 +33,8 @@ runtime/ddc/dart_sdk.js.map
 # scripts/corpus-ngdart.ps1.
 /corpus/ngdart/.dart_tool/
 /corpus/ngdart/.packages
+
+# Corpus de paridade: o package_config de cada grupo é escrito pelo harness.
+/corpus/diagnosticos/*/.dart_tool/
+# corpus de macros: o package_config do pub get tem caminhos da máquina (o pub-cache)
+/corpus/macros/*/.dart_tool/

@@ -22,7 +22,74 @@ Alvos reais usados como critério:
 | Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
-| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 712 avisos e 136 de 634.368 expressões divergentes, `frontend` 767 avisos e 183 de 1.259.011; SDK da fonte (nativo) 275 diagnósticos (ver §2.1) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 15 avisos e 31 de 634.368 expressões divergentes, `frontend` 28 avisos (17 deles em templates gerados, que o analyzer também acusa) e 56 de 1.259.011; SDK da fonte (nativo) 18 diagnósticos, os mesmos do analyzer; corpus de conformidade 83/95 programas iguais ao oráculo (ver §2.1) |
+| Versão de linguagem por biblioteca e recursos 3.7–3.13 | **3.7–3.13 de sintaxe completos**; inferência e fluxo 3.7–3.13 (P6) pendentes | ver §1.1.1 |
+
+### 1.1.1 Dart 3.7–3.13 — `docs/VERSOES-LINGUAGEM.md`
+
+3.6.2 é o **piso**, não o teto. Cada biblioteca tem a sua versão de
+linguagem (marcador `// @dart = x.y` > `languageVersion` do pacote > a
+corrente, **3.13**), resolvida uma vez no carregamento e consultada como bits
+(`LibraryFeatures`); `dart:*` fica no piso (D1). O harness tem **dois SDKs de
+oráculo** (3.6.2 e 3.13.4, cada um com o seu `dartdevc` e o seu
+`dart_sdk.js`); os programas dizem a versão que exigem (`// requer-dart:`).
+
+| recurso | versão | `corpus/moderno` (VM e DDC 3.13.4; dev e produção) |
+| --- | --- | --- |
+| curingas `_` | 3.7 | 300–303 passam (1 negativo; `// @dart=3.6` volta a ligar `_`) |
+| elementos null-aware | 3.8 | 310–311 passam (1 negativo); chave nula não avalia o valor |
+| nomeados privados `{this._x}` | 3.12 | 320–323 passam (3 negativos) |
+| atalhos de ponto | 3.10 | 330–332 passam (2 negativos) |
+| construtores primários, `new`/`factory`, corpo `;`, `var`/`final` | 3.13 | 340–346, 348–349 passam (4 negativos); 347 pendente (membros de extension type, lacuna da 3.3) |
+| inferência por bounds, fluxo sólido, gerador | 3.7–3.10 | 350–352 **pendentes** (P6, com o dono de `types`) |
+
+Placar no CI (Pesado 35904470774 e CI 35904470762, `ci/moderno` em 5a68e2d, os dois verdes): **22/26** em desenvolvimento
+e em produção, **26/26** DDC×VM, 12 negativos recusados na mesma linha que o
+CFE; os 4 que faltam estão em `corpus/moderno/PENDENTES`. Na mesma rodada:
+`corpus/js` 223/223 em desenvolvimento e produção, determinismo idêntico
+(produção e IR do nativo), nativo e JIT 82/223 (os do `main`) e o portão
+**custo zero verde** — nada regrediu. O `corpus/js` compilado na 3.6 dá **JS idêntico
+byte a byte** ao da base (222/222), e o parser continua aceitando 426/426 do
+SDK e 1.969/1.969 do pub (cada pacote na versão do seu pubspec). Nenhum
+recurso precisou de runtime novo. O nativo não roda o `corpus/moderno`:
+curinga liga nome, entrada de mapa null-aware é recusada e atalho de ponto só sai quando é
+construção. Macros e augmentations: contratos em `docs/MACROS-PROTOCOLO.md`
+e `docs/AUGMENTATIONS.md` (executor nativo auto-hospedado), sem código.
+
+Custo para projeto 3.6 (regra governante): o portão `custo zero (tempo)` do
+Pesado passou (corpus JS 9.318 → 9.208 ms, edição de corpo 32 → 32 ms); no A/B
+local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
+`corpus/js`, 11.783 ms × 11.806 ms (+0,2%). Números e método em
+`docs/VERSOES-LINGUAGEM.md` §7.
+
+### 1.1.2 Augmentations e macros — `docs/AUGMENTATIONS.md`, `docs/MACROS-PROTOCOLO.md`
+
+* **Augmentations** (P7): `augment` em classe, mixin, membros e funções de
+  topo; bibliotecas de augmentation da forma 3.6 (`import augment` +
+  `augment library`, experimento `macros`) e *parts* com imports da forma
+  atual (`augmentations,enhanced-parts`); a fusão no outline generaliza o
+  `@patch` do SDK (`elements/src/augmentation.rs`) e o `emit_js` emite a
+  classe com os membros da cadeia. `corpus/macros/400–405`: **6/6** em
+  desenvolvimento e produção, 6/6 DDC×VM (3.6.2 e 3.13.4), CI verde (Pesado
+  35918855910, CI 35918855886). Divergências medidas dos dois CFEs em
+  AUGMENTATIONS.md §4.
+* **API de macros reescrita** (`pacotes/macros`, pacote `macros`, Dart puro):
+  a superfície do `package:macros` 0.1.3-main.0 e o lado do executor
+  (modelo, introspecção, builders com o texto do CFE, serviço `macro.*`). O
+  `json.dart` do `package:json` 0.20.4, sem mudança, analisa contra ela com
+  zero problemas no analyzer 3.6.2.
+* **Hospedeiro** (`crates/macros_host`): detecção com custo zero, ordem do
+  CFE, as três fases com recarga, modelo e consultas, montagem byte a byte,
+  o serviço `macro.*` do `dfexec/1`, `Indisponivel` no produto.
+  `dartforge macros --materializar` grava a augmentation
+  (docs/MACROS-COMPATIBILIDADE.md). Placar em MACROS-PROTOCOLO.md §8.
+* **Espera o executor nativo**: executar macros no `compile-js` (hoje: erro
+  claro na anotação; `410_json_codable` em `corpus/macros/PENDENTES`).
+* CI da rodada (`ci/macros` em ab2ad4a, os dois verdes): Pesado 35931208832
+  (`macros` 6/7 dev e produção + 1 pendente, 7/7 DDC×VM; `corpus/js`
+  223/223; `moderno` 22/26 como no `main`; custo zero verde) e CI 35931208819
+  (inclusive `vm_executa_a_macro_e_bate_com_o_cfe` e
+  `sessao_gravada_reproduz_o_texto_do_cfe` nos ignorados).
 
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
@@ -160,12 +227,80 @@ parser novo, `DocumentStore` como dono por documento. Extensão VS Code
 mensagens: **DartForge pico 21,3 MiB / platô 19,0 MiB; `dart
 language-server` pico 640,5 MiB / platô 633,7 MiB**.
 
+**Diagnósticos com paridade (plano A1/A2) — `crates/diagnostics`,
+`crates/paridade`, `dartforge analyze`.** O `Diagnostic` tem código,
+severidade e argumentos; a mensagem de um diagnóstico com código é o molde
+oficial em inglês renderizado como o `formatList` do analyzer. A tabela
+(`diagnostics/src/codigos_g.rs`) é gerada do `analyzer-6.11.0` da cache do
+pub: 1.030 códigos — 542 `CompileTimeErrorCode`, 7 `StaticWarningCode`,
+144 `WarningCode`, 8 `HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12
+`ScannerErrorCode`, 4 `TodoCode`. `dartforge analyze [--format=json]` emite o
+mesmo JSON v1 do `dart analyze` (offset UTF-16, ordem do dartdev, códigos de
+saída 3/2/0) e publica pela regra do plano §2.3: sintaxe sempre, semântica só
+os códigos de `crates/paridade/verificados.txt` — **vazia hoje**.
+
+* **Aceite de A2**: dados código, argumentos e intervalo, a sonda de 7 erros
+  sai **byte a byte** igual ao JSON gravado do SDK 3.6.2
+  (`crates/paridade/tests/sonda.rs`). Pela análise de hoje (inferência pela
+  especificação, main 27c31d0), 3 dos 7 batem em posição e mensagem:
+  `non_bool_condition`, `not_assigned_potentially_non_nullable_local_variable`
+  e `argument_type_not_assignable`. Os outros 4 dependem do pedido T1 a
+  `types`: `undefined_function` sai como `undefined_identifier`;
+  `return_of_invalid_type` cobre o comando inteiro, e não a expressão;
+  `unchecked_use_of_nullable_value` não existe; e `unused_local_variable` é
+  do A3. Há 1 falso positivo.
+* **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
+  9.441 arquivos em 5 grupos — `tests/language` (1.180), trechos de
+  `pkg/analyzer/test/src/diagnostics` (8.253), os de `@dart` 3.7+ com o
+  oráculo 3.13.4 (7) e a sonda — e 26.133 diagnósticos do oráculo.
+  **1.935 na posição exata (7,4%), 1.731 com mensagem igual**; posição
+  errada 1.638; FP 2.696; FN 22.560. Antes da inferência reescrita o placar
+  era 1.268 (4,9%) e FP 4.660.
+  * Códigos com 100%: `illegal_character` e `unnecessary_cast`, de 593 com
+    casos.
+  * FN maiores: `unused_local_variable` 2.315 (A3), `duplicate_definition`
+    1.317, `expected_executable` 1.240, `type_argument_not_matching_bounds`
+    1.175 e `missing_const_final_var_or_type` 912. Dos 1.724
+    `expected_token`, a recuperação do parser difere da do fasta.
+  * FP maiores: `expected_token` 410, `undefined_identifier` 377,
+    `undefined_method` 368, `undefined_class` 359 e `undefined_getter` 202.
+  * 2 pânicos isolados: `part/self_test.dart` esgota a memória, e um caso de
+    `recursive_interface_inheritance` não termina. Cada lote roda num
+    processo filho com teto de memória e de tempo.
+  * 290 atribuições ambíguas: `types` ainda não diz a unidade do
+    diagnóstico.
+* **Projetos reais**: o oráculo 3.6.2 dá **0** no `new_sali/core` (36 s),
+  no `new_sali/frontend` (24 s) e no `limitless_ui` (233 s). O nosso lado
+  tem, internamente, **53, 29 e 216** diagnósticos, todos falsos positivos
+  (antes da inferência reescrita: 3.746, 3.029 e 2.045). Por código:
+  `undefined_identifier` 127, `uri_has_not_been_generated` 70,
+  `const_initialized_with_non_constant_value` 47,
+  `missing_required_argument` 34 e `argument_type_not_assignable` 13.
+  **Publicados pela regra: 0.** Nenhum chega ao editor.
+* **Mutações** dos três projetos: 45 mutantes (`nome`, `import`, `tipo`,
+  `!` e `await`), com o oráculo regravado sobre cada um. Oráculo 190;
+  **acertos 75**; posição errada 9; FP 58; FN 106.* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
+  não roda `dart analyze`), com o relatório idêntico em 1, 4 e 8
+  trabalhadores (`determinismo`).
 ### 1.5 Backend nativo — `crates/emit_native` (feature `nativo`)
 
 Trilha nova → HIR própria → LLVM IR → Clang → executável, com o runtime
 Rust (GC por tracing). `dartforge compile-native` (compile com
 `cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
+
+**Rodada 2, P6 + RTI: corpus nativo 91/223 (Pesado 35904857766, CI
+35904857783), JIT 91/223 sem divergência, os 91 também sob `--gc-stress`
+(job novo do `pesado.yml`, que reprova se um programa só falha com
+estresse).** `async`/`await` como máquina de estados com o quadro no heap,
+sobre o `dart:async` **compilado da fonte** (com `dart:_internal` e a
+`Duration`; só para quem usa `dart:async`), laço de eventos no runtime
+(microtarefas antes de timers, timers na ordem da VM); tipos em tempo de
+execução no desenho do dart2js (receitas, universo canônico, regras de
+supertipo; `is`/`as`/padrões genéricos, o cast inteiro, `Type`); `super`
+dentro de mixin. Um defeito do carregador corrigido: a parte de um arquivo
+de patch do SDK era carregada como parte comum. Detalhes em
+`docs/NATIVO-PLANO.md` §7.7–§7.8. Antes disto:
 
 **Rodada 2, P1–P4 (α): corpus nativo 81/223 (Pesado 35871381320), JIT
 81/223 com zero divergências JIT × AOT; os 81 passam também sob
@@ -550,9 +685,11 @@ arquivo oficial correspondente serve de teste byte a byte.
 1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0
    diagnósticos nos projetos: todo aviso nosso é falso positivo). Medido
    em 2026-09-23 com o oráculo (`tools/oraculo_tipos`, método em
-   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **712** avisos,
-   `frontend` 57.883 → **767**; divergências de tipo estático por
-   expressão 137.428 → 136 (core) e 316.756 → 183 (frontend). Os
+   `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **15** avisos,
+   `frontend` 57.883 → **28** (17 em templates gerados, legítimos);
+   divergências de tipo estático por expressão 137.428 → 31 (core) e
+   316.756 → 56 (frontend); corpus `corpus/inferencia` 83/95 programas
+   iguais ao oráculo (teste no CI). Os
    grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
    O contrato é `docs/INFERENCIA-ESPECIFICACAO.md` (regras do analyzer
    6.11 com arquivo:linha, e o que muda até 3.14), com o corpus de
@@ -616,6 +753,25 @@ otimização a mais.
 Falta tudo além de diagnósticos: hover, ir para definição, referências,
 completion, rename, code actions — e a semântica (`crates/types`) por trás
 do `trait Analisador`, que hoje só tem a implementação sintática.
+
+Diagnósticos semânticos (plano A1/A2 feitos; ver §1.4): a lista de
+verificados está vazia. Nenhum código semântico tem 100% no corpus com 0 FP
+nos projetos, então o editor só recebe sintaxe. O caminho até lá:
+
+1. **T1 em `types`**: emitir `code`/`args` (hoje a `paridade/src/ponte.rs`
+   reconhece os moldes em português) e dizer a unidade de cada diagnóstico
+   (hoje uma passada de inferência por biblioteca e casamento de intervalo:
+   290 atribuições ambíguas no corpus), e acertar posição e argumentos
+   (`undefined_function`, `return_of_invalid_type_from_*`).
+2. **Parser com `ParserErrorCode`** (métrica separada, não bloqueia):
+   a recuperação difere da do fasta em `expected_token`.
+3. **A3** (warnings: `unused_local_variable` 2.315 FN, `unused_import`,
+   `unused_element`, `dead_code`) e o `ErrorVerifier` (`duplicate_definition`,
+   `type_argument_not_matching_bounds`...).
+4. Os FP dos projetos reais: 298 internos (53 + 29 + 216). O portão dos
+   códigos que dependem de tipo é o oráculo de tipos de `types`
+   (`examples/comparar_tipos`): um código desses só entra na lista quando as
+   divergências de tipo nas bibliotecas do corpus zerarem.
 
 ### 2.5 Backend nativo
 
@@ -740,6 +896,7 @@ gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
 | nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
 | determinismo (produção) | `determinismo --producao --trabalhadores 1,4,8` | idêntico | 7,5 min (7 min) |
 | determinismo (nativo, IR) | `determinismo --nativo --trabalhadores 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
+| moderno (3.7–3.13) | `--corpus corpus/moderno --producao --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
 | **rodada inteira** | | | **9,8 min** |
 
 **Critério de cada job.** JS desenvolvimento e produção: código de saída do

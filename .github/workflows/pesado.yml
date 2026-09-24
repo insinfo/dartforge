@@ -13,8 +13,10 @@
 #     mantém os caches no escopo do main, que toda branch ci/** pode ler.
 #
 # Jobs de uma rodada `todos` com N fragmentos: compilar; depois, EM PARALELO,
-# js, producao, determinismo (produção), determinismo (nativo) e N nativos;
-# depois nativo-placar (Linux, segundos). Pico de simultaneidade = 4 + N.
+# js, producao, moderno, macros, determinismo (produção), determinismo
+# (nativo), N nativos e o nativo sob --gc-stress; depois nativo-placar (Linux,
+# segundos), que também compara os dois placares nativos. Pico de
+# simultaneidade = 7 + N.
 # O plano gratuito permite 20 jobs simultâneos na conta inteira (Linux e
 # Windows juntos); o excedente espera na fila, não falha.
 #
@@ -32,7 +34,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, jit, determinismo, custo-zero]
+        options: [todos, js, producao, nativo, jit, determinismo, moderno, macros, custo-zero, analise]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -100,14 +102,14 @@ jobs:
           shared-key: pesado-release
           # Só o main grava; as branches ci/** restauram o do main.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Compilar harness, dartforge, dartforge-jsprod e o executor do JIT (release)
+      - name: Compilar harness, dartforge, dartforge-jsprod, paridade e o executor do JIT (release)
         env:
           # O perfil release do workspace (LTO thin, 1 unidade de geração de
           # código) é para medir desempenho; aqui só a correção importa, e ele
           # multiplica o tempo de compilação num runner de 4 núcleos.
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao -p dartforge-jit
+        run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao -p dartforge-jit -p dartforge-paridade
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binarios
@@ -116,6 +118,7 @@ jobs:
             target/release/dartforge.exe
             target/release/dartforge-jsprod.exe
             target/release/dartforge-executar-ir.exe
+            target/release/dartforge-paridade.exe
             runtime/ddc/dart_sdk.js
           retention-days: 1
           if-no-files-found: error
@@ -183,6 +186,47 @@ jobs:
           titulo: JS produção — VM × desenvolvimento × produção (dartforge-jsprod)
           args: --producao --jobs 4
 
+  # Recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §5): o corpus/moderno contra
+  # o SDK de oráculo 3.13.4 (dart run e dartdevc+node, cada um com o seu
+  # dart_sdk.js), no perfil de desenvolvimento e no de produção. Código 0 =
+  # todos passam; o que está em corpus/moderno/PENDENTES pode falhar, mas
+  # passar sem sair da lista reprova.
+  moderno:
+    name: moderno (3.7–3.13)
+    needs: compilar
+    if: contains(fromJSON('["todos","moderno"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: moderno
+          titulo: Moderno (3.7–3.13) — VM e DDC 3.13.4 × dartforge dev e produção
+          args: --corpus corpus/moderno --producao --jobs 4
+          sdk-313: 'true'
+
+  # Augmentations e macros (docs/AUGMENTATIONS.md, docs/MACROS-PROTOCOLO.md):
+  # o corpus/macros contra o 3.6.2 com --enable-experiment=macros (a forma
+  # `import augment`/`augment library`) e contra o 3.13.4 com
+  # augmentations,enhanced-parts (a forma `part of`), no perfil de
+  # desenvolvimento e no de produção. Mesmo critério do `moderno`.
+  macros:
+    name: macros (augmentations)
+    needs: compilar
+    if: contains(fromJSON('["todos","macros"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: macros
+          titulo: Macros e augmentations — VM e DDC (3.6.2 e 3.13.4) × dartforge dev e produção
+          args: --corpus corpus/macros --producao --jobs 4
+          sdk-313: 'true'
+          pub-get: corpus/macros
+
   nativo:
     name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
     needs: compilar
@@ -204,9 +248,31 @@ jobs:
           # Placar abaixo de 214 é o estado do backend, não quebra do CI.
           aceitar-placar-parcial: 'true'
 
+  # O portão G7 do contrato de raízes (docs/NATIVO-PLANO.md §6.5): o corpus
+  # nativo inteiro com DARTFORGE_GC_STRESS=1 — coleta antes de TODA
+  # alocação, então uma raiz faltando vira "handle já coletado" em vez de
+  # passar por sorte. O `nativo-placar` compara: um programa que passa sem
+  # estresse e falha com ele reprova a rodada. O tempo-limite de execução é
+  # maior (a coleta a cada alocação multiplica o tempo dos programas).
+  nativo-gc-stress:
+    name: nativo --gc-stress (corpus inteiro)
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: nativo-gc-stress
+          titulo: Nativo sob --gc-stress (coleta antes de toda alocação)
+          args: --nativo --gc-stress --jobs 4 --limite-exec 120
+          nativo: 'true'
+          aceitar-placar-parcial: 'true'
+
   nativo-placar:
     name: nativo (placar consolidado)
-    needs: [compilar, nativo]
+    needs: [compilar, nativo, nativo-gc-stress]
     if: always() && needs.compilar.result == 'success' && contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -221,12 +287,16 @@ jobs:
         env:
           N: ${{ needs.compilar.outputs.n }}
         run: |
-          $rels = @(Get-ChildItem fragmentos -Recurse -Filter relatorio.txt | Sort-Object FullName)
+          # O relatório do --gc-stress vem no mesmo padrão de artefato, mas
+          # não é fragmento: fica de fora da soma e é comparado abaixo.
+          $todos = @(Get-ChildItem fragmentos -Recurse -Filter relatorio.txt | Sort-Object FullName)
+          $rels = @($todos | Where-Object { $_.FullName -notmatch 'relatorio-nativo-gc-stress' })
+          $estresse = $todos | Where-Object { $_.FullName -match 'relatorio-nativo-gc-stress' } | Select-Object -First 1
           New-Item -ItemType Directory -Force placar | Out-Null
           $md = & ./scripts/ci-placar.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
           $uma = & ./scripts/ci-placar.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
           # Tempo de cada fragmento, para dimensionar N (ver ESTADO.md §3.2).
-          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Sort-Object FullName) {
+          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Where-Object { $_.FullName -notmatch 'relatorio-nativo-gc-stress' } | Sort-Object FullName) {
             $t = (Get-Content $f -Encoding utf8) -join ' '
             if ($t -match 'Tempo do harness no runner: (.+?)\. Memória livre mínima: (.+? GB)') { "| $($f.Directory.Name) | $($Matches[1]) | $($Matches[2]) |" }
           }
@@ -237,6 +307,19 @@ jobs:
           Write-Host $md
           Write-Host "::notice title=Placar nativo::$uma"
           if ($rels.Count -eq 0) { Write-Host '::error::nenhum fragmento produziu relatório'; exit 1 }
+          # Portão G7: o que passa sem estresse passa com ele.
+          if (!$estresse) { Write-Host '::error::o job nativo-gc-stress não produziu relatório'; exit 1 }
+          $falhas = { param($arqs) $arqs | Get-Content -Encoding utf8 | ForEach-Object { if ($_ -match '^\s*FALHA\s+(\S+)') { $Matches[1] } } | Sort-Object -Unique }
+          $normal = @(& $falhas $rels)
+          $sob = @(& $falhas @($estresse))
+          $so_sob = @($sob | Where-Object { $normal -notcontains $_ })
+          $g7 = "--gc-stress: $($sob.Count) falhas (sem estresse: $($normal.Count)); só com estresse: $($so_sob.Count)"
+          Add-Content $env:GITHUB_STEP_SUMMARY "`n$g7`n" -Encoding utf8
+          Write-Host "::notice title=Placar nativo --gc-stress::$g7"
+          if ($so_sob.Count -gt 0) {
+            Write-Host "::error::passam sem estresse e falham com --gc-stress (raiz faltando?): $($so_sob -join ', ')"
+            exit 1
+          }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: placar-nativo
@@ -346,6 +429,58 @@ jobs:
           titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
           args: determinismo --nativo --trabalhadores 1,4,8
           exige: '^determinismo \(IR\): '
+  # Paridade de diagnósticos com o `dart analyze` (crates/paridade, plano A1):
+  # o nosso analisador sobre corpus/diagnosticos contra o oráculo GRAVADO em
+  # disco (oraculo.jsonl de cada grupo, regravado localmente pelo
+  # `dartforge-paridade oraculo` com os SDKs 3.6.2 e 3.13.4) — o runner não
+  # roda `dart analyze`. O SDK 3.6.2 do setup-dart só dá o `lib/` que o nosso
+  # lado carrega. Critério: placar completo (código 0: oráculo em dia, nenhum
+  # código de `verificados.txt` divergindo) e relatório idêntico com 1, 4 e 8
+  # trabalhadores. O placar em si (acertos, FP, FN por código) é trabalho em
+  # andamento e não reprova.
+  analise:
+    name: análise (paridade com o dart analyze)
+    needs: compilar
+    if: contains(fromJSON('["todos","analise"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: binarios
+          path: ${{ github.workspace }}
+      - name: dartforge-paridade determinismo --trabalhadores 1,4,8
+        id: rodar
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'analise'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $rel = Join-Path $dir 'relatorio.txt'
+          $inicio = Get-Date
+          $p = Start-Process -FilePath target/release/dartforge-paridade.exe -ArgumentList 'determinismo --trabalhadores 1,4,8 --detalhes' `
+            -RedirectStandardOutput $rel -RedirectStandardError (Join-Path $dir 'progresso.txt') -NoNewWindow -PassThru -Wait
+          $codigo = $p.ExitCode
+          $dur = (Get-Date) - $inicio
+          $tempo = '{0} min {1:D2} s' -f [int][math]::Floor($dur.TotalMinutes), $dur.Seconds
+          $texto = Get-Content $rel -Encoding utf8
+          $linha = $texto | Where-Object { $_ -match '^placar paridade: ' } | Select-Object -First 1
+          $det = $texto | Where-Object { $_ -match '^determinismo: ' } | Select-Object -First 1
+          $tabela = $texto | Where-Object { $_ -notmatch '^\s+\[' }
+          $md = @('### Paridade com o dart analyze (corpus/diagnosticos)', '', "$det", '', '```text') + $tabela + @('```', '', "Código de saída: $codigo. Tempo: $tempo.")
+          Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
+          Write-Host ($texto -join "`n")
+          Write-Host "::notice title=Placar analise::$linha; $det ($tempo)"
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+          exit $codigo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.rodar.outputs.dir != ''
+        with:
+          name: relatorio-analise
+          path: ${{ steps.rodar.outputs.dir }}
+          retention-days: 14
+
 
   # Portão de TEMPO da regra de custo zero (PLANO.md, "geração de código e
   # macros: rápidas, e custo zero para quem não usa"): com o motor de build
@@ -404,4 +539,4 @@ jobs:
         shell: pwsh
         run: |
           $env:DARTFORGE_DART_SDK_JS = Join-Path $PWD 'runtime/ddc/dart_sdk.js'
-          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.03
+          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.10

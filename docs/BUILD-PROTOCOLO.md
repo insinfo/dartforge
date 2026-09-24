@@ -74,5 +74,10 @@ diagnóstico, e o próximo pedido inicia um executor novo.
 
 ## 5. Serviço `macro.*`
 
-Reservado. O hospedeiro de macros usa o mesmo enquadramento, handshake e
-executor, com as fases de macro no lugar do `build.executar`.
+Definido em [`MACROS-PROTOCOLO.md`](MACROS-PROTOCOLO.md) §5 e implementado
+dos dois lados (`crates/macros_host/src/{protocolo,executor}.rs` e
+`pacotes/macros/lib/src/executor/servico.dart`): o mesmo enquadramento e o
+mesmo handshake daqui, com `"servicos": ["macro"]` e as mensagens
+`macro.instanciar`/`macro.executar`/`macro.consulta`/`macro.resposta` no
+lugar do `build.*`. Um executor que ofereça os dois serviços atende ao motor
+de build e às macros no mesmo processo.

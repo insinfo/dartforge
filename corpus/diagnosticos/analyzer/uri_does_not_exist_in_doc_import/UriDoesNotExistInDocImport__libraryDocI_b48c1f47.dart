@@ -1,0 +1,2 @@
+/// @docImport 'dart:math';
+library;

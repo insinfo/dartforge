@@ -72,11 +72,11 @@ impl<'a> ConstantEvaluator<'a> {
         match &expr.kind {
             ast::ExprKind::Int(span) => {
                 let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
-                text.trim().parse::<i64>().ok().map(ConstValue::Int)
+                inteiro_literal(text).map(ConstValue::Int)
             }
             ast::ExprKind::Double(span) => {
                 let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
-                text.trim().parse::<f64>().ok().map(ConstValue::Double)
+                text.trim().replace('_', "").parse::<f64>().ok().map(ConstValue::Double)
             }
             ast::ExprKind::Bool(b) => Some(ConstValue::Bool(*b)),
             ast::ExprKind::Null => Some(ConstValue::Null),
@@ -357,4 +357,15 @@ impl<'a> ConstantEvaluator<'a> {
 
         None
     }
+}
+
+/// Valor de um literal inteiro: decimal ou hexadecimal (`0x`), com
+/// separadores de dígitos (`1_000`, Dart 3.6); hexadecimal entre 2^63 e
+/// 2^64 dá a volta em complemento de dois, como na VM.
+pub fn inteiro_literal(texto: &str) -> Option<i64> {
+    let t: String = texto.trim().chars().filter(|c| *c != '_').collect();
+    if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        return u64::from_str_radix(h, 16).ok().map(|v| v as i64);
+    }
+    t.parse::<i64>().ok()
 }

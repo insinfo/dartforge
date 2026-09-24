@@ -1,0 +1,2 @@
+@Deprecated.subclass()
+mixin M {}

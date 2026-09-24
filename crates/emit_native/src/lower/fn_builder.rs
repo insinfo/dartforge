@@ -91,6 +91,22 @@ pub struct FnBuilder<'a, 'c> {
     /// Esta função é um adaptador da tabela de métodos (`sdk_fonte.rs`): o
     /// membro que ele adapta é chamado direto, nunca pelo seletor de novo.
     pub em_adaptador: bool,
+    // --- P6 (async, `async_sm.rs`) ---
+    /// Corpo de uma função `async` em curso: o quadro, as retomadas.
+    pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
+    // --- RTI (`rti.rs`) ---
+    /// Os parâmetros de tipo da função corrente (`M<i>`), pelo nome.
+    pub params_de_tipo_da_funcao: Vec<SymbolId>,
+    /// Os parâmetros de tipo da classe vêm na tupla (fábrica de classe
+    /// genérica: não há `this`).
+    pub classe_por_tupla: bool,
+    /// A tupla de argumentos de tipo da função corrente (`I64`), se há.
+    pub tupla_de_tipos: Option<Operand>,
+    /// O tipo estático da criação que `instanciar` vai baixar (`C<T…>`).
+    pub tipo_da_criacao: Option<dartforge_types::table::TypeId>,
+    /// A tupla de argumentos de tipo da chamada genérica corrente, que
+    /// `chamar_direto` acrescenta quando o alvo tem parâmetros de tipo.
+    pub tupla_armada: Option<Operand>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -189,6 +205,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             padrao_refutavel: false,
             cast_so_pela_classe: false,
             em_adaptador: false,
+            async_estado: None,
+            params_de_tipo_da_funcao: Vec::new(),
+            classe_por_tupla: false,
+            tupla_de_tipos: None,
+            tipo_da_criacao: None,
+            tupla_armada: None,
         }
     }
 
@@ -239,7 +261,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
     pub fn finalizar(self, module: &mut Module) {
-        module.erros.extend(self.erros);
+        // P6: o diagnóstico de uma função da fonte só vale se a poda a
+        // mantiver (`fonte::podar`).
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        if self.ctx.da_fonte.contains(&lib) && crate::fonte::simbolo_do_sdk(&self.func.symbol) {
+            if !self.erros.is_empty() {
+                module.erros_da_fonte.push((self.func.symbol.clone(), self.erros));
+            }
+        } else {
+            module.erros.extend(self.erros);
+        }
         module.globais.extend(self.globais_extras);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
@@ -250,6 +281,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// erros não gera código.
     pub fn nao_suportado(&mut self, oque: &str, span: dartforge_diagnostics::Span) -> Operand {
         let unit = self.ctx.program.unit(self.unit_id);
+        // P6: no código do SDK compilado da fonte (mundo aberto: a poda é
+        // conservadora — o `toString` de toda classe, todo alvo de um
+        // despacho), o construto que falta vira `UnsupportedError` em tempo
+        // de execução, com o mesmo texto: o programa que não passa por ali
+        // compila, e o que passa falha alto, nunca em silêncio.
+        if self.ctx.da_fonte.contains(&unit.library) {
+            // `DARTFORGE_FONTE_NAO_SUPORTADO=1`: lista, na compilação, cada
+            // construto que virou `UnsupportedError` no código da fonte.
+            if std::env::var_os("DARTFORGE_FONTE_NAO_SUPORTADO").is_some() {
+                eprintln!("fonte não suportado em {}: {oque}", self.func.symbol);
+            }
+            if !self.is_terminated() {
+                let msg = format!("{}{oque}", crate::PREFIXO_NAO_SUPORTADO);
+                let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
+                let e = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_unsupported_error_new".to_string(),
+                        args: vec![(m, Type::Ref)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                self.emit_throw_op(e);
+            }
+            return Operand::Constant(Constant::Null);
+        }
         let fonte = &unit.source;
         let ini = span.start.min(fonte.len());
         let antes = &fonte[..ini];
@@ -481,6 +538,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn terminate(&mut self, term: Terminator) {
         if self.is_terminated() {
+            return;
+        }
+        // P6: o `return` de um corpo `async` completa o `Future`
+        // (`_asyncReturn`); a suspensão e o tratador do topo são crus.
+        if let Terminator::Return(r) = &term
+            && self.async_estado.as_ref().is_some_and(|e| !e.retorno_cru)
+        {
+            let r = r.clone();
+            self.retorno_async(r);
             return;
         }
         // R4: o valor devolvido na representação do retorno da função.
@@ -786,22 +852,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.testar_tipo_fonte(ast_ty, op.clone()) {
             return r;
         }
-        let ast::TypeKind::Named { name, args } = &ast_ty.kind else {
+        // `x is List<int>`, `x is T`, `x is FutureOr<T>`, tipo de função ou
+        // de record: pelo RTI (`rti.rs`). O teste pela classe abaixo só vale
+        // para a classe sem argumentos de tipo (ou com argumentos triviais).
+        if self.anotacao_precisa_rti(ast_ty) {
+            return match self.receita_da_anotacao(ast_ty) {
+                Some(r) => {
+                    let t = self.rti_da_receita(&r);
+                    self.testar_rti(op, t)
+                }
+                None => self.nao_suportado("teste de tipo com nome não resolvido", ast_ty.span),
+            };
+        }
+        let ast::TypeKind::Named { name, .. } = &ast_ty.kind else {
             return self.nao_suportado("teste de tipo estrutural", ast_ty.span);
         };
-        // `x is List<int>`: os argumentos de tipo em tempo de execução (RTI)
-        // ainda não existem — responder pela classe só daria a resposta
-        // errada. Argumentos triviais (`dynamic`, `Object?`) não mudam nada.
-        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
-        let trivial = |t: &ast::TypeAnnotation| match &t.kind {
-            ast::TypeKind::Named { name, args } if args.is_empty() => name
-                .last()
-                .is_some_and(|n| matches!(self.ctx.symbol_name(n.sym), "dynamic") || (self.ctx.symbol_name(n.sym) == "Object" && t.nullable)),
-            _ => false,
-        };
-        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) && !self.cast_so_pela_classe {
-            return self.nao_suportado("teste de tipo genérico (RTI)", ast_ty.span);
-        }
         let Some(ultimo) = name.last() else {
             return self.nao_suportado("teste de tipo", ast_ty.span);
         };
@@ -893,12 +958,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`.
     pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) {
-        // `as List<int>`: até a RTI, o cast confere só a classe — num
-        // programa correto ele nunca falha; o que se perde é o `TypeError`
-        // de um cast errado nos argumentos de tipo.
-        let salvo = std::mem::replace(&mut self.cast_so_pela_classe, true);
+        // `as List<int>`, `as T`…: o cast inteiro pelo RTI, com a mensagem
+        // da VM ("type 'S' is not a subtype of type 'T' in type cast").
+        if self.anotacao_precisa_rti(ast_ty) {
+            match self.receita_da_anotacao(ast_ty) {
+                Some(r) => {
+                    let t = self.rti_da_receita(&r);
+                    self.cast_rti(op, t);
+                }
+                None => {
+                    self.nao_suportado("cast com nome não resolvido", ast_ty.span);
+                }
+            }
+            return;
+        }
         let ok = self.testar_tipo(ast_ty, op);
-        self.cast_so_pela_classe = salvo;
         let ok = self.para_bool(ok);
         let fail_b = self.new_block();
         let pass_b = self.new_block();

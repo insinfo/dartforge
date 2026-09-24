@@ -37,7 +37,7 @@ impl TestHarness {
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk: true,
-            language_version: None,
+            features: dartforge_frontend::LibraryFeatures::piso(),
         };
 
         // Registrar classes fundamentais no program
@@ -119,7 +119,7 @@ impl TestHarness {
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             is_sdk: true,
-            language_version: None,
+            features: dartforge_frontend::LibraryFeatures::piso(),
         };
 
         let fut_cid = ClassId(program.classes.len() as u32);

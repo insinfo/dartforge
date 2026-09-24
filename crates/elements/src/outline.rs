@@ -26,11 +26,11 @@ fn has_patch_annotation(metadata: &[ast::Annotation], interner: &Interner) -> bo
 }
 
 /// Pools de elementos mutáveis separados de units e libraries para satisfazer o borrow checker.
-struct ElementPools<'a> {
-    classes: &'a mut Vec<ClassElement>,
-    extensions: &'a mut Vec<ExtensionElement>,
-    functions: &'a mut Vec<FunctionElement>,
-    variables: &'a mut Vec<VariableElement>,
+pub(crate) struct ElementPools<'a> {
+    pub(crate) classes: &'a mut Vec<ClassElement>,
+    pub(crate) extensions: &'a mut Vec<ExtensionElement>,
+    pub(crate) functions: &'a mut Vec<FunctionElement>,
+    pub(crate) variables: &'a mut Vec<VariableElement>,
 }
 
 /// Constrói o outline completo do programa: declarações, membros, namespaces e supertipos.
@@ -65,6 +65,8 @@ pub fn build_outline(
             variables: &mut program.variables,
         };
 
+        let mut cadeias: Vec<(ClassId, DeclRef)> = Vec::new();
+        let mut classes_macro: Vec<ClassId> = Vec::new();
         for unit_id in unit_ids {
             let role = program.units[unit_id.0 as usize].role;
             let decl_ids = program.units[unit_id.0 as usize].unit.declarations.clone();
@@ -72,6 +74,22 @@ pub fn build_outline(
 
             for decl_id in decl_ids {
                 let decl = ast.decl(decl_id);
+                // `augment`: liga-se à declaração de mesmo nome que veio antes
+                // (docs/AUGMENTATIONS.md). As unidades estão na ordem de
+                // aplicação (pré-ordem da árvore de partes, `load.rs`).
+                if decl.augment && role != UnitRole::Patch {
+                    let mut fusao = crate::augmentation::Fusao {
+                        units: &program.units,
+                        library: &mut program.libraries[lib_idx],
+                        lib_id,
+                        empty_sym,
+                        interner,
+                        diagnostics,
+                        cadeias: &mut cadeias,
+                    };
+                    crate::augmentation::aplicar(&mut fusao, &mut pools, unit_id, decl_id);
+                    continue;
+                }
                 let is_patch =
                     role == UnitRole::Patch && has_patch_annotation(&decl.metadata, interner);
 
@@ -106,6 +124,9 @@ pub fn build_outline(
                             let class_id = create_class_element(
                                 &mut pools, ast, lib_id, unit_id, decl_id, c, empty_sym, interner,
                             );
+                            if c.modifiers.macro_ {
+                                classes_macro.push(class_id);
+                            }
                             let entry = program.libraries[lib_idx]
                                 .declared
                                 .entry(class_name)
@@ -323,6 +344,10 @@ pub fn build_outline(
                 }
             }
         }
+        for (c, d) in cadeias {
+            program.augmentacoes.entry(c).or_default().push(d);
+        }
+        program.classes_macro.append(&mut classes_macro);
     }
 
     // -----------------------------------------------------------------------
@@ -977,7 +1002,7 @@ fn extract_type_params(
 }
 
 /// Extrai métodos, construtores e campos de uma classe/mixin/enum.
-fn extract_members(
+pub(crate) fn extract_members(
     pools: &mut ElementPools,
     ast: &dartforge_frontend::ast::Ast,
     elem: &mut ClassElement,
@@ -1255,62 +1280,40 @@ fn merge_class_patch(
                 }
                 constructors.insert(ctor_sym, fn_id);
             }
-            MemberKind::Field(vars) => {
-                // Campos declarados numa `@patch class` (o `StringBuffer` e o
-                // `Error` da VM guardam estado em campos do patch): entram na
-                // classe como os da declaração original, com os acessores
-                // implícitos.
-                for (idx, var) in vars.variables.iter().enumerate() {
-                    let var_id = VariableId(pools.variables.len() as u32);
-                    let var_sym = var.name.sym;
-                    let acessor = |pools: &mut ElementPools| {
-                        let id = FunctionElementId(pools.functions.len() as u32);
-                        pools.functions.push(FunctionElement {
-                            name: var_sym,
-                            library: lib_id,
-                            class: Some(class_id),
-                            extension: None,
-                            kind: FunctionKind::ImplicitAccessor,
-                            static_: vars.static_,
-                            abstract_: vars.abstract_,
-                            external: vars.external,
-                            const_: vars.const_,
-                            factory: false,
-                            node: FunctionRef::None,
-                            variable: Some(var_id),
-                            patched_by: None,
-                        });
-                        id
-                    };
-                    let getter_id = acessor(pools);
-                    let setter_id = (!vars.final_ && !vars.const_).then(|| acessor(pools));
-                    pools.variables.push(VariableElement {
-                        name: var_sym,
-                        library: lib_id,
-                        class: Some(class_id),
-                        extension: None,
-                        static_: vars.static_,
-                        final_: vars.final_,
-                        const_: vars.const_,
-                        late: vars.late,
-                        external: vars.external,
-                        node: VariableRef::Field {
-                            unit: unit_id,
-                            member: mid,
-                            index: idx,
-                        },
-                        getter: Some(getter_id),
-                        setter: setter_id,
-                    });
-                    let setter_key = interner.intern(&format!("{}_=", interner.resolve(var_sym)));
-                    let classe = &mut pools.classes[class_id.0 as usize];
-                    classe.fields.push(var_id);
-                    let mapa = if vars.static_ { &mut classe.static_members } else { &mut classe.instance_members };
-                    mapa.insert(var_sym, getter_id);
-                    if let Some(sid) = setter_id {
-                        mapa.insert(setter_key, sid);
-                    }
-                }
+            MemberKind::Field(_) => {
+                // Campos declarados no patch (`final int _value;` do
+                // `DateTime` da VM): entram na classe de origem como os da
+                // declaração, pelo mesmo caminho.
+                let idx = class_id.0 as usize;
+                let c = &mut pools.classes[idx];
+                let mut tmp = ClassElement {
+                    name: c.name,
+                    library: c.library,
+                    decl: c.decl,
+                    kind: c.kind,
+                    modifiers: c.modifiers,
+                    type_params: Vec::new(),
+                    supertype: None,
+                    mixins: Vec::new(),
+                    interfaces: Vec::new(),
+                    on: Vec::new(),
+                    supertype_class: None,
+                    mixin_classes: Vec::new(),
+                    interface_classes: Vec::new(),
+                    on_classes: Vec::new(),
+                    instance_members: std::mem::take(&mut c.instance_members),
+                    static_members: std::mem::take(&mut c.static_members),
+                    constructors: std::mem::take(&mut c.constructors),
+                    fields: std::mem::take(&mut c.fields),
+                    enum_constants: Vec::new(),
+                    representation: None,
+                };
+                extract_members(pools, ast, &mut tmp, class_id, unit_id, &[mid], empty_sym, interner);
+                let c = &mut pools.classes[idx];
+                c.instance_members = tmp.instance_members;
+                c.static_members = tmp.static_members;
+                c.constructors = tmp.constructors;
+                c.fields = tmp.fields;
             }
         }
     }

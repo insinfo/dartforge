@@ -1,17 +1,23 @@
-name: Dart SDK 3.6.2
+name: Dart SDK 3.6.2 (e 3.13.4)
 description: >
   Instala o SDK Dart 3.6.2 (dart-lang/setup-dart) e exporta o caminho dele nas
   variáveis que o projeto lê: DARTFORGE_DART_SDK (harness diferencial),
   DARTFORGE_SDK_LIB e DART_SDK (SdkLayout::discover, testes).
   Com gerar-dart-sdk-js, gera runtime/ddc/dart_sdk.js (fora do git).
+  Com sdk-313, instala também o SDK 3.13.4 — o oráculo dos recursos 3.7–3.13
+  (docs/VERSOES-LINGUAGEM.md §5) — e exporta DARTFORGE_DART_SDK_3_13.
 
-# Sem cache: o setup-dart baixa o zip do SDK de storage.googleapis.com em
-# poucos segundos, e a versão é fixa — um cache só trocaria um download por
-# outro.
+# O 3.6.2 vem sem cache: o setup-dart baixa o zip do SDK de
+# storage.googleapis.com em poucos segundos, e a versão é fixa. O 3.13.4 vem
+# por zip, fora do PATH (o `dart` do PATH continua o 3.6.2, que é o piso), e
+# com cache pela versão.
 
 inputs:
   gerar-dart-sdk-js:
     description: Gerar runtime/ddc/dart_sdk.js com scripts/gerar-dart-sdk.ps1
+    default: 'false'
+  sdk-313:
+    description: Instalar também o SDK 3.13.4 e exportar DARTFORGE_DART_SDK_3_13
     default: 'false'
 
 runs:
@@ -42,3 +48,29 @@ runs:
       if: inputs.gerar-dart-sdk-js == 'true'
       shell: pwsh
       run: pwsh scripts/gerar-dart-sdk.ps1 -Sdk $env:DARTFORGE_DART_SDK
+
+    - name: SDK 3.13.4 (cache)
+      if: inputs.sdk-313 == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ runner.temp }}/dart-3.13.4
+        key: dart-sdk-3.13.4-${{ runner.os }}
+
+    - name: SDK 3.13.4 (zip)
+      if: inputs.sdk-313 == 'true'
+      shell: pwsh
+      run: |
+        $dir = Join-Path $env:RUNNER_TEMP 'dart-3.13.4'
+        $sdk = Join-Path $dir 'dart-sdk'
+        if (!(Test-Path (Join-Path $sdk 'version'))) {
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP 'dart-3.13.4.zip'
+          Invoke-WebRequest -Uri 'https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.4/sdk/dartsdk-windows-x64-release.zip' -OutFile $zip
+          Expand-Archive $zip -DestinationPath $dir
+          Remove-Item $zip
+        }
+        $versao = (Get-Content (Join-Path $sdk 'version')).Trim()
+        if ($versao -ne '3.13.4') { throw "SDK 3.13.4 esperado em $sdk, veio $versao" }
+        & (Join-Path $sdk 'bin/dart.exe') --version
+        "DARTFORGE_DART_SDK_3_13=$sdk" >> $env:GITHUB_ENV
+        Write-Host "SDK Dart 3.13.4 em $sdk"

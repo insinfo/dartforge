@@ -473,6 +473,9 @@ impl<'x, 'a> Percurso<'x, 'a> {
             | ExprKind::Null
             | ExprKind::Symbol(_)
             | ExprKind::CascadeTarget
+            // `.id` (3.10) nomeia um membro estático da declaração do
+            // contexto: não lê local.
+            | ExprKind::DotShorthand { .. }
             | ExprKind::Rethrow => {}
             ExprKind::String(s) => {
                 for p in s.parts.iter() {

@@ -411,7 +411,7 @@ void main() {
 /// Emite o LLVM IR de um arquivo Dart pela trilha nova (`emitir_ir`), o mesmo
 /// texto que o driver AOT entrega ao Clang.
 fn emitir_ir(entrada: &Path) -> String {
-    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false };
+    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None };
     dartforge_emit_native::emitir_ir(entrada, &opcoes)
         .unwrap_or_else(|erro| panic!("o programa de teste não emitiu IR: {erro}"))
         .texto

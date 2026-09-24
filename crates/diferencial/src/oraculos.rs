@@ -1,20 +1,74 @@
 //! Os três executores: `dart run` (semântica), `dartdevc` + Node (contrato) e o DartForge.
+//!
+//! Há **dois SDKs de oráculo** (`docs/VERSOES-LINGUAGEM.md` §5): o 3.6.2, o
+//! piso, que é o oráculo do `corpus/js`, e o 3.13.4, o dos recursos novos
+//! (`corpus/moderno`). Cada programa vai para o menor SDK cuja versão cobre o
+//! `// requer-dart:` dele; a coluna DDC usa o `dartdevc` **desse** SDK ligado
+//! ao `dart_sdk.js` **dele**. O DartForge continua ligando o `dart_sdk.js`
+//! 3.6.2 (D1) e recebe `--versao-linguagem` igual à versão exigida.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use dartforge_frontend::LanguageVersion;
+
 use crate::corpus::Programa;
 use crate::processo::{Saida, executar, executar_com_ambiente, executar_com_path};
+
+/// Um SDK Dart usado como oráculo.
+#[derive(Debug, Clone)]
+pub struct SdkOraculo {
+    /// A versão de linguagem corrente do SDK (3.6, 3.13).
+    pub versao: LanguageVersion,
+    /// A versão inteira, do arquivo `version` (`3.13.4`).
+    pub nome: String,
+    /// Raiz do SDK (a pasta com `bin/` e `lib/`).
+    pub raiz: PathBuf,
+    /// O `dart_sdk.js` gerado pelo `dartdevc` deste SDK.
+    pub dart_sdk_js: PathBuf,
+    /// O SDK do piso (3.6.2): os rótulos do cache dele não levam a versão,
+    /// para o cache que o CI já tem continuar valendo.
+    pub principal: bool,
+}
+
+impl SdkOraculo {
+    /// Lê a versão de `<raiz>/version`; `None` se não é um SDK.
+    pub fn detectar(raiz: PathBuf, dart_sdk_js: PathBuf, principal: bool) -> Option<SdkOraculo> {
+        let nome = std::fs::read_to_string(raiz.join("version")).ok()?.trim().to_string();
+        let mut partes = nome.split('.');
+        let versao = LanguageVersion::new(partes.next()?.parse().ok()?, partes.next()?.parse().ok()?);
+        Some(SdkOraculo { versao, nome, raiz, dart_sdk_js, principal })
+    }
+
+    /// O executável `dart` do SDK; `dart` do `PATH` se o SDK não o tem.
+    pub fn dart(&self) -> String {
+        let exe = self.raiz.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
+        if exe.is_file() { exe.to_string_lossy().into_owned() } else { "dart".to_string() }
+    }
+
+    fn dartdevc_snapshot(&self) -> PathBuf {
+        self.raiz.join("bin/snapshots/dartdevc.dart.snapshot")
+    }
+
+    /// Rótulo de um executor no cache: o do piso não muda (`dart-ea`), o dos
+    /// outros leva a versão (`dart-ea-3.13.4`).
+    fn rotulo(&self, executor: &str) -> String {
+        if self.principal { executor.to_string() } else { format!("{executor}-{}", self.nome) }
+    }
+}
 
 /// Onde estão as ferramentas. Construído uma vez por execução do harness.
 #[derive(Debug, Clone)]
 pub struct Ambiente {
     /// Raiz do repositório (pai de `crates/`).
     pub raiz: PathBuf,
-    /// Raiz do SDK Dart (`C:/tools/dartsdk-3.6.2`); `DARTFORGE_DART_SDK` sobrepõe.
+    /// Raiz do SDK Dart do piso (`C:/tools/dartsdk-3.6.2`); `DARTFORGE_DART_SDK` sobrepõe.
     pub sdk: PathBuf,
-    /// `runtime/ddc/dart_sdk.js`.
+    /// `runtime/ddc/dart_sdk.js` (o do piso, que é também o que o DartForge liga).
     pub dart_sdk_js: PathBuf,
+    /// Os SDKs de oráculo, do menor para o maior: o piso e, se configurado,
+    /// o 3.13 (`DARTFORGE_DART_SDK_3_13`, padrão `D:/DartSDKs/3.13.4/dart-sdk`).
+    pub sdks: Vec<SdkOraculo>,
     /// Binário `dartforge` quando já compilado (`DARTFORGE_BIN` sobrepõe).
     pub dartforge_bin: Option<PathBuf>,
     /// `target/diferencial/`.
@@ -55,13 +109,20 @@ impl Ambiente {
         let raiz = sem_prefixo_verbatim(raiz);
         let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("C:/tools/dartsdk-3.6.2"));
         let dart_sdk_js = raiz.join("runtime/ddc/dart_sdk.js");
-        if !dart_sdk_js.is_file() {
-            eprintln!("runtime/ddc/dart_sdk.js ausente; gerando com scripts/gerar-dart-sdk.ps1…");
-            let s = executar("pwsh", &[raiz.join("scripts/gerar-dart-sdk.ps1").to_string_lossy().into_owned()], &raiz, Duration::from_secs(300));
-            if s.codigo != 0 {
-                eprintln!("falhou: {}", s.stderr);
-            }
+        gerar_dart_sdk_js(&raiz, &sdk, &dart_sdk_js);
+        let mut sdks: Vec<SdkOraculo> = SdkOraculo::detectar(sdk.clone(), dart_sdk_js.clone(), true).into_iter().collect();
+        // O segundo oráculo: o SDK dos recursos novos. Sem ele os programas
+        // que o exigem saem como falha do harness, com a mensagem dizendo o
+        // que configurar — nunca comparados contra o SDK errado.
+        let sdk_313 = std::env::var("DARTFORGE_DART_SDK_3_13")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("D:/DartSDKs/3.13.4/dart-sdk"));
+        if let Some(mut s) = SdkOraculo::detectar(sdk_313.clone(), PathBuf::new(), false) {
+            s.dart_sdk_js = raiz.join("runtime/ddc").join(&s.nome).join("dart_sdk.js");
+            gerar_dart_sdk_js(&raiz, &sdk_313, &s.dart_sdk_js);
+            sdks.push(s);
         }
+        sdks.sort_by_key(|s| s.versao);
         let target = std::env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| raiz.join("target"));
         let dartforge_bin = std::env::var("DARTFORGE_BIN").ok().map(PathBuf::from).or_else(|| {
             let exe = if cfg!(windows) { "dartforge.exe" } else { "dartforge" };
@@ -87,6 +148,7 @@ impl Ambiente {
             raiz,
             sdk,
             dart_sdk_js,
+            sdks,
             dartforge_bin,
             usar_cache: true,
             limite: Duration::from_secs(120),
@@ -95,13 +157,42 @@ impl Ambiente {
         }
     }
 
-    fn dartdevc_snapshot(&self) -> PathBuf {
-        self.sdk.join("bin/snapshots/dartdevc.dart.snapshot")
+    /// O oráculo de um programa: o menor SDK cuja versão cobre o
+    /// `// requer-dart:` dele (e o marcador `// @dart=`, que o SDK também tem
+    /// de aceitar). `Err` diz o que falta configurar.
+    pub fn oraculo(&self, programa: &Programa) -> Result<&SdkOraculo, String> {
+        let exigida = programa.marcador.map_or(programa.requer, |m| m.max(programa.requer));
+        self.sdks.iter().find(|s| s.versao >= exigida).ok_or_else(|| {
+            format!(
+                "nenhum SDK de oráculo com versão ≥ {exigida} (configurados: {}); defina DARTFORGE_DART_SDK_3_13",
+                self.sdks.iter().map(|s| s.nome.as_str()).collect::<Vec<_>>().join(", ")
+            )
+        })
     }
 
     /// Diretório de saída de um programa para um executor (`ddc`, `forge`, `contrato`).
     pub fn dir_saida(&self, executor: &str, programa: &Programa) -> PathBuf {
         self.trabalho.join(executor).join(&programa.nome)
+    }
+}
+
+/// Gera `destino` (o `dart_sdk.js` do `sdk`) com `scripts/gerar-dart-sdk.ps1`
+/// se ele ainda não existe.
+fn gerar_dart_sdk_js(raiz: &Path, sdk: &Path, destino: &Path) {
+    if destino.is_file() || !sdk.join("version").is_file() {
+        return;
+    }
+    eprintln!("{} ausente; gerando com scripts/gerar-dart-sdk.ps1…", destino.display());
+    let args = vec![
+        raiz.join("scripts/gerar-dart-sdk.ps1").to_string_lossy().into_owned(),
+        "-Sdk".into(),
+        sdk.to_string_lossy().into_owned(),
+        "-Saida".into(),
+        destino.parent().unwrap_or(raiz).to_string_lossy().into_owned(),
+    ];
+    let s = executar("pwsh", &args, raiz, Duration::from_secs(300));
+    if s.codigo != 0 {
+        eprintln!("falhou: {}", s.stderr);
     }
 }
 
@@ -156,34 +247,115 @@ fn cache_gravar(amb: &Ambiente, executor: &str, chave: &str, s: &Saida) {
 
 // ---------------------------------------------------------------- dart run
 
-/// Oráculo de semântica: `dart run --enable-asserts arquivo` no diretório do arquivo.
+/// `--enable-experiment=a,b` do cabeçalho, se houver.
+fn arg_experimentos(programa: &Programa) -> Option<String> {
+    (!programa.experimentos.is_empty()).then(|| format!("--enable-experiment={}", programa.experimentos.join(",")))
+}
+
+/// Oráculo de semântica: `dart run --enable-asserts arquivo` no diretório do arquivo,
+/// com o `dart` do SDK de oráculo do programa ([`Ambiente::oraculo`]).
 /// Asserts ligados porque o DDC (e o modo de desenvolvimento do DartForge) os liga.
 pub fn oraculo_dart(amb: &Ambiente, programa: &Programa) -> Saida {
+    let sdk = match amb.oraculo(programa) {
+        Ok(s) => s,
+        Err(e) => return Saida::erro(e),
+    };
+    let rotulo = sdk.rotulo("dart-ea");
     let chave = chave_cache(programa);
-    if let Some(s) = cache_ler(amb, "dart-ea", &chave) {
-        return s;
+    let s = match cache_ler(amb, &rotulo, &chave) {
+        Some(s) => s,
+        None => {
+            let nome = programa.entrada.file_name().unwrap().to_string_lossy().into_owned();
+            let mut args: Vec<String> = vec!["run".into(), "--enable-asserts".into()];
+            args.extend(arg_experimentos(programa));
+            args.push(nome);
+            let mut s = executar(&sdk.dart(), &args, programa.diretorio(), amb.limite);
+            // A VM 3.13 no Windows escreve o `print` com `\r\n` (a 3.6.2 e o
+            // Node escrevem `\n`): o fim de linha do console não é semântica
+            // do programa.
+            if !sdk.principal {
+                s.stdout = s.stdout.replace("\r\n", "\n");
+            }
+            cache_gravar(amb, &rotulo, &chave, &s);
+            s
+        }
+    };
+    if programa.erro_compilacao && s.codigo == 254 {
+        return recusa(linha_do_erro_cfe(&s));
     }
-    let nome = programa.entrada.file_name().unwrap().to_string_lossy().into_owned();
-    let s = executar("dart", &["run".into(), "--enable-asserts".into(), nome], programa.diretorio(), amb.limite);
-    cache_gravar(amb, "dart-ea", &chave, &s);
     s
+}
+
+// ---------------------------------------------------------------- programas negativos
+
+/// A saída comparável de um executor que **recusou** um programa negativo
+/// (`// erro-de-compilacao`): a linha do primeiro erro que ele apontou.
+/// Código 0, para o relatório não confundir recusa esperada com oráculo
+/// quebrado; o que se compara é o texto.
+pub fn recusa(linha: Option<usize>) -> Saida {
+    let stdout = match linha {
+        Some(l) => format!("erro de compilação na linha {l}\n"),
+        None => "erro de compilação (linha não identificada)\n".to_string(),
+    };
+    Saida { stdout, stderr: String::new(), codigo: 0 }
+}
+
+/// A linha do primeiro `arquivo.dart:L:C: Error:` que o CFE (VM ou `dartdevc`)
+/// imprimiu, em stdout ou stderr.
+pub fn linha_do_erro_cfe(s: &Saida) -> Option<usize> {
+    s.stderr.lines().chain(s.stdout.lines()).find_map(|l| {
+        let (antes, _) = l.split_once(": Error:")?;
+        let pos = antes.rfind(".dart:")?;
+        let mut campos = antes[pos + ".dart:".len()..].split(':');
+        let linha: usize = campos.next()?.parse().ok()?;
+        campos.next()?.parse::<usize>().ok()?;
+        Some(linha)
+    })
+}
+
+/// A linha do primeiro erro do DartForge: os diagnósticos terminam em
+/// `at bytes S..E` (deslocamento na fonte); a linha é contada na entrada.
+pub fn linha_do_erro_forge(texto: &str, fonte: &str) -> Option<usize> {
+    // Só as linhas de erro: os avisos de tipos (`aviso: … at bytes …`) também
+    // trazem deslocamento, e podem ser de outra unidade.
+    let inicio: usize = texto.lines().filter(|l| l.trim_start().starts_with("erro")).find_map(|l| {
+        let (_, resto) = l.rsplit_once(" at bytes ")?;
+        resto.split("..").next()?.trim().parse().ok()
+    })?;
+    let inicio = inicio.min(fonte.len());
+    Some(fonte.as_bytes()[..inicio].iter().filter(|b| **b == b'\n').count() + 1)
+}
+
+/// Para um programa negativo: o DartForge recusou (código ≠ 0 na
+/// compilação) → [`recusa`] com a linha dele; aceitou → a saída como está,
+/// que não bate com a recusa da VM.
+fn normalizar_recusa_forge(programa: &Programa, compilacao: &Saida) -> Option<Saida> {
+    if !programa.erro_compilacao || compilacao.codigo == 0 {
+        return None;
+    }
+    let fonte = std::fs::read_to_string(&programa.entrada).unwrap_or_default();
+    let texto = format!("{}\n{}", compilacao.stderr, compilacao.stdout);
+    Some(recusa(linha_do_erro_forge(&texto, &fonte)))
 }
 
 // ---------------------------------------------------------------- dartdevc + node
 
-/// Compila o programa com o `dartdevc` (`--modules=es6`) em `dir/<nome>.js` e devolve o JS
-/// já apontando para o `dart_sdk.js` do repositório. `Err` traz a saída do compilador.
+/// Compila o programa com o `dartdevc` (`--modules=es6`) do seu SDK de oráculo
+/// em `dir/<nome>.js` e devolve o JS já apontando para o `dart_sdk.js` desse
+/// SDK. `Err` traz a saída do compilador.
 pub fn compilar_ddc(amb: &Ambiente, programa: &Programa, dir: &Path) -> Result<String, Saida> {
+    let sdk = amb.oraculo(programa).map_err(Saida::erro)?;
     let _ = std::fs::create_dir_all(dir);
     let js = dir.join(format!("{}.js", programa.nome));
     // `dartdevc` já segue os imports relativos; só a entrada é passada. O cwd é o
     // diretório do programa para o nome do módulo ser o nome do arquivo.
     let mut args = vec![
-        amb.dartdevc_snapshot().to_string_lossy().into_owned(),
+        sdk.dartdevc_snapshot().to_string_lossy().into_owned(),
         "--modules=es6".into(),
         "-o".into(),
         js.to_string_lossy().into_owned(),
     ];
+    args.extend(arg_experimentos(programa));
     // Programas com `package:` trazem o seu `.dart_tool/package_config.json` (o `dart run` o
     // encontra sozinho; o `dartdevc` precisa do `--packages`).
     let pacotes = programa.diretorio().join(".dart_tool/package_config.json");
@@ -191,12 +363,12 @@ pub fn compilar_ddc(amb: &Ambiente, programa: &Programa, dir: &Path) -> Result<S
         args.push(format!("--packages={}", pacotes.to_string_lossy()));
     }
     args.push(programa.entrada.file_name().unwrap().to_string_lossy().into_owned());
-    let s = executar("dart", &args, programa.diretorio(), amb.limite);
+    let s = executar(&sdk.dart(), &args, programa.diretorio(), amb.limite);
     if s.codigo != 0 {
         return Err(s);
     }
     let texto = std::fs::read_to_string(&js).map_err(|e| Saida::erro(format!("ler {}: {e}", js.display())))?;
-    let url = url_arquivo(&amb.dart_sdk_js);
+    let url = url_arquivo(&sdk.dart_sdk_js);
     let texto = texto.replace("from 'dart_sdk.js'", &format!("from '{url}'"));
     std::fs::write(&js, &texto).map_err(|e| Saida::erro(format!("escrever {}: {e}", js.display())))?;
     Ok(texto)
@@ -234,11 +406,17 @@ pub fn executar_node(amb: &Ambiente, dir: &Path) -> Saida {
 
 /// Oráculo do contrato: `dartdevc` + Node. Cache por hash do conteúdo.
 pub fn oraculo_ddc(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
+    let rotulo = match amb.oraculo(programa) {
+        Ok(sdk) => sdk.rotulo("ddc"),
+        Err(e) => return Saida::erro(e),
+    };
     let chave = chave_cache(programa);
-    if let Some(s) = cache_ler(amb, "ddc", &chave) {
+    if let Some(s) = cache_ler(amb, &rotulo, &chave) {
         return s;
     }
     let s = match compilar_ddc(amb, programa, dir) {
+        // Programa negativo: o `dartdevc` recusou, como devia.
+        Err(s) if programa.erro_compilacao && s.codigo > 0 => recusa(linha_do_erro_cfe(&s)),
         Err(s) => s,
         Ok(js) => match nome_exportado(&js) {
             None => Saida::erro("dartdevc: linha `export { … }` não encontrada"),
@@ -250,11 +428,30 @@ pub fn oraculo_ddc(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
             }
         },
     };
-    cache_gravar(amb, "ddc", &chave, &s);
+    cache_gravar(amb, &rotulo, &chave, &s);
     s
 }
 
 // ---------------------------------------------------------------- dartforge
+
+/// A versão corrente com que o DartForge compila o programa: a do SDK de
+/// oráculo dele (é a versão que a VM dá a um arquivo sem marcador); sem
+/// oráculo, a exigida pelo cabeçalho.
+pub fn versao_do_programa(amb: &Ambiente, programa: &Programa) -> LanguageVersion {
+    amb.oraculo(programa).map_or_else(|_| versao_exigida(programa), |s| s.versao)
+}
+
+/// `// requer-dart:` e o marcador `// @dart=`, o maior dos dois.
+pub fn versao_exigida(programa: &Programa) -> LanguageVersion {
+    programa.marcador.map_or(programa.requer, |m| m.max(programa.requer))
+}
+
+/// `--versao-linguagem x.y` e, se houver, `--enable-experiment=…` para o DartForge.
+fn args_de_linguagem(amb: &Ambiente, programa: &Programa) -> Vec<String> {
+    let mut a = vec!["--versao-linguagem".to_string(), versao_do_programa(amb, programa).to_string()];
+    a.extend(arg_experimentos(programa));
+    a
+}
 
 /// O DartForge: `dartforge compile-js arquivo -o dir` e depois `node dir/main.mjs`.
 /// Sem cache: o emissor muda o tempo todo.
@@ -262,22 +459,28 @@ pub fn dartforge(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
     let _ = std::fs::create_dir_all(dir);
     let entrada = programa.entrada.to_string_lossy().into_owned();
     let saida = dir.to_string_lossy().into_owned();
+    let mut args: Vec<String> = vec!["compile-js".into(), entrada, "-o".into(), saida];
+    args.extend(args_de_linguagem(amb, programa));
     let s = match &amb.dartforge_bin {
         Some(bin) => executar_com_path(
             &bin.to_string_lossy(),
-            &["compile-js".into(), entrada, "-o".into(), saida],
+            &args,
+
             programa.diretorio(),
             amb.limite,
             &amb.path_extra,
         ),
         None => executar_com_path(
             "cargo",
-            &["run".into(), "-q".into(), "-p".into(), "dartforge-cli".into(), "--".into(), "compile-js".into(), entrada, "-o".into(), saida],
+            &[vec!["run".into(), "-q".into(), "-p".into(), "dartforge-cli".into(), "--".into()], args].concat(),
             &amb.raiz,
             Duration::from_secs(1800),
             &amb.path_extra,
         ),
     };
+    if let Some(r) = normalizar_recusa_forge(programa, &s) {
+        return r;
+    }
     if s.codigo != 0 {
         let primeira = s.primeira_linha_stderr().to_string();
         let primeira = if primeira.is_empty() { s.stdout.lines().next().unwrap_or("").to_string() } else { primeira };
@@ -298,6 +501,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
 
     let entrada = programa.entrada.clone();
     let saida = saida_exe.clone();
+    let versao = versao_do_programa(amb, programa);
     let comp_res = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
@@ -306,6 +510,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
                 packages: None,
                 timings: false,
                 optimize: false,
+                versao_linguagem: Some(versao),
             };
             dartforge_emit_native::compilar(&entrada, &saida, &options)
         })
@@ -313,6 +518,10 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
         .and_then(|h| h.join().map_err(|_| "a thread de compilação abortou".to_string()))
         .and_then(|r| r);
 
+    if let (true, Err(e)) = (programa.erro_compilacao, &comp_res) {
+        let fonte = std::fs::read_to_string(&programa.entrada).unwrap_or_default();
+        return recusa(linha_do_erro_forge(e, &fonte));
+    }
     if let Err(e) = comp_res {
         let primeira = e.lines().next().unwrap_or("").to_string();
         return Saida {
@@ -346,6 +555,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
 /// execução), para ser comparado como qualquer outro resultado.
 pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
     let entrada = programa.entrada.clone();
+    let versao = versao_exigida(programa);
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
@@ -354,6 +564,7 @@ pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
                 packages: None,
                 timings: false,
                 optimize: false,
+                versao_linguagem: Some(versao),
             };
             dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
         })
@@ -394,6 +605,7 @@ pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Sa
         .map(PathBuf::from)
         .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.is_file()));
     let mut args = vec![entrada, "-o".into(), saida_s];
+    args.extend(args_de_linguagem(amb, programa));
     let pacotes = programa.diretorio().join(".dart_tool/package_config.json");
     if pacotes.is_file() {
         args.push("--packages".into());
@@ -407,6 +619,9 @@ pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Sa
             executar_com_path("cargo", &a, &amb.raiz, Duration::from_secs(1800), &amb.path_extra)
         }
     };
+    if let Some(r) = normalizar_recusa_forge(programa, &s) {
+        return r;
+    }
     if s.codigo != 0 {
         let primeira = s.primeira_linha_stderr().to_string();
         let primeira = if primeira.is_empty() { s.stdout.lines().next().unwrap_or("").to_string() } else { primeira };
@@ -441,6 +656,19 @@ mod testes {
     fn url() {
         assert_eq!(url_arquivo(Path::new(r"D:\x\dart_sdk.js")), "file:///D:/x/dart_sdk.js");
         assert_eq!(url_arquivo(Path::new("/tmp/dart_sdk.js")), "file:///tmp/dart_sdk.js");
+    }
+
+    #[test]
+    fn linhas_dos_erros() {
+        let vm = Saida { stdout: String::new(), stderr: "x.dart:7:9: Error: Undefined name '_'.\n  print(_);\n".into(), codigo: 254 };
+        assert_eq!(linha_do_erro_cfe(&vm), Some(7));
+        let ddc = Saida { stdout: "org-dartlang-app:/x.dart:12:3: Error: y\n".into(), stderr: String::new(), codigo: 1 };
+        assert_eq!(linha_do_erro_cfe(&ddc), Some(12));
+        assert_eq!(linha_do_erro_cfe(&Saida { stdout: "nada".into(), stderr: String::new(), codigo: 1 }), None);
+        let fonte = "a\nbb\nccc\n";
+        assert_eq!(linha_do_erro_forge("erro: C:\\x.dart:5: z at bytes 5..6\n", fonte), Some(3));
+        assert_eq!(linha_do_erro_forge("erro: z at bytes 0..1", fonte), Some(1));
+        assert_eq!(recusa(Some(3)).stdout, "erro de compilação na linha 3\n");
     }
 }
 

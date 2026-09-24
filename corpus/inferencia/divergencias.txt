@@ -1,0 +1,41 @@
+# Divergências e avisos conhecidos do corpus/inferencia contra o oráculo
+# (catraca de crates/types/tests/corpus_inferencia.rs; só encolhe).
+# programas iguais ao oráculo: 83/95; expressões comparadas: 2433; divergentes: 35; avisos: 3
+01_contexto/ctx11_override.dart:461:2	List	nós=List<dynamic>	oráculo=List<double>
+01_contexto/ctx11_override.dart:490:32	List	nós=List<dynamic>	oráculo=List<Object>
+01_contexto/ctx11_override.dart:512:9	Property	nós=dynamic	oráculo=List<double>
+01_contexto/ctx12_bang_contexto.dart:103:3	Call	nós=dynamic	oráculo=int?
+01_contexto/ctx12_bang_contexto.dart:103:4	Unary	nós=dynamic	oráculo=int
+01_contexto/ctx12_bang_contexto.dart:130:3	Call	nós=dynamic	oráculo=List<num>?
+01_contexto/ctx12_bang_contexto.dart:130:4	Unary	nós=dynamic	oráculo=List<num>
+02_genericos/gen13_limites_dependentes.dart:235:3	Call	nós=A<dynamic, num>	oráculo=A<num, num>
+02_genericos/gen13_limites_dependentes.dart:255:3	Call	nós=O<dynamic>	oráculo=O<Object?>
+02_genericos/gen13_limites_dependentes.dart:279:2	List	nós=List<A<dynamic, num>>	oráculo=List<A<num, num>>
+02_genericos/gen13_limites_dependentes.dart:292:1	Identifier	nós=A<dynamic, num>	oráculo=A<num, num>
+02_genericos/gen13_limites_dependentes.dart:295:1	Identifier	nós=O<dynamic>	oráculo=O<Object?>
+02_genericos/gen13_limites_dependentes.dart:298:1	Identifier	nós=List<A<dynamic, num>>	oráculo=List<A<num, num>>
+02_genericos/gen14_horizontal_cadeia.dart:249:49	Call	nós=dynamic	oráculo=bool
+02_genericos/gen14_horizontal_cadeia.dart:251:22	FunctionExpression	nós=dynamic Function(Object?)	oráculo=bool Function(int)
+02_genericos/gen14_horizontal_cadeia.dart:258:15	Property	nós=dynamic	oráculo=bool
+02_genericos/gen14_horizontal_cadeia.dart:258:8	Parenthesized	nós=Object?	oráculo=int
+02_genericos/gen14_horizontal_cadeia.dart:264:1	Identifier	nós=Object?	oráculo=int
+02_genericos/gen14_horizontal_cadeia.dart:308:1	Identifier	nós=dynamic	oráculo=bool
+02_genericos/gen14_horizontal_cadeia.dart:aviso:270	O getter '{0}' não está definido para o tipo '{1}'.: getter 'isEven' não definido para o tipo 'Object?'
+03_literais/lit03_conjunto_mapa.dart:269:6	SetOrMap	nós=Map<dynamic, dynamic>	oráculo=Set<int>
+03_literais/lit03_conjunto_mapa.dart:401:1	Identifier	nós=Map<dynamic, dynamic>	oráculo=Set<int>
+05_closures/clo04_geradores.dart:239:11	FunctionExpression	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()
+05_closures/clo04_geradores.dart:267:39	FunctionExpression	nós=Iterable<int> Function()	oráculo=Iterable<int?> Function()
+05_closures/clo04_geradores.dart:434:1	Identifier	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()
+05_closures/clo04_geradores.dart:437:1	Identifier	nós=Iterable<int> Function()	oráculo=Iterable<int?> Function()
+06_fluxo/flu16_se_nulo_atribuicao.dart:163:16	List	nós=List<int?>	oráculo=List<int>
+06_fluxo/flu16_se_nulo_atribuicao.dart:177:1	Identifier	nós=int?	oráculo=int
+06_fluxo/flu20_finally_factor_cadeia.dart:273:1	Identifier	nós=Object	oráculo=int
+06_fluxo/flu20_finally_factor_cadeia.dart:340:1	Identifier	nós=Null	oráculo=Never?
+07_membros/mem01_interface.dart:433:3	Property	nós=num	oráculo=int
+07_membros/mem03_dynamic_never.dart:314:9	Property	nós=Never	oráculo=InvalidType
+07_membros/mem11_call_generico.dart:239:6	Call	nós=dynamic	oráculo=int
+07_membros/mem11_call_generico.dart:287:6	List	nós=List<dynamic>	oráculo=List<Object>
+07_membros/mem11_call_generico.dart:288:1	Identifier	nós=dynamic	oráculo=int
+09_null_safety/nul01_bang.dart:190:1	Identifier	nós=void Function<T, U>(int?, List<int>?, T?, T, U)	oráculo=void Function<T, U extends Object?>(int?, List<int>?, T?, T, U)
+09_null_safety/nul01_bang.dart:aviso:156	O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.
+09_null_safety/nul01_bang.dart:aviso:166	O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.

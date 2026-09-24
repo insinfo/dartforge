@@ -1,0 +1,1 @@
+external void foo();

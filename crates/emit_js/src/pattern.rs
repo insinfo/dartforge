@@ -68,7 +68,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_equals(&c, &cty, &v, vty).code
             }
             PatternKind::Relational { op, value } => {
-                let (c, cty) = self.emit_expr(*value, None);
+                // `== .x` / `!= .x` (3.10): o atalho usa o tipo do valor casado.
+                let (c, cty) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+                    let casado = vty.clone();
+                    self.com_contexto_de_atalho(*value, &casado, |s| s.emit_expr(*value, None))
+                } else {
+                    self.emit_expr(*value, None)
+                };
                 match op {
                     BinaryOp::Eq => self.emit_equals(&v, vty, &c, &cty).code,
                     BinaryOp::NotEq => format!("!{}", self.emit_equals(&v, vty, &c, &cty).paren().code),

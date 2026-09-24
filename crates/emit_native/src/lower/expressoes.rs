@@ -877,7 +877,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::List { elements, .. }
                 if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_))) =>
             {
-                self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span)
+                let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span);
+                self.rti_do_literal(l, expr_id)
             }
             // SDK da fonte: mapas e conjuntos são o `_Map`/`_Set` da fonte.
             ExprKind::SetOrMap { elements, .. } if self.ctx.sdk_da_fonte => {
@@ -889,7 +890,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_literal_de_colecao(ast, tipo, elements, expr.span)
             }
             ExprKind::SetOrMap { elements, .. } if self.literal_e_conjunto(expr_id, elements) => {
-                self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span)
+                let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span);
+                self.rti_do_literal(l, expr_id)
             }
             ExprKind::SetOrMap { elements, .. }
                 if !elements.iter().all(|e| {
@@ -903,7 +905,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     )
                 }) =>
             {
-                self.lower_literal_de_colecao(ast, super::literais::Colecao::Mapa, elements, expr.span)
+                let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Mapa, elements, expr.span);
+                self.rti_do_literal(l, expr_id)
             }
             ExprKind::List { elements, .. } => {
                 let mut elem_ops = Vec::new();
@@ -914,7 +917,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         elem_ops.push((op, tag));
                     }
                 }
-                self.emit(Instruction::AllocList { elements: elem_ops }, Type::Ref)
+                let l = self.emit(Instruction::AllocList { elements: elem_ops }, Type::Ref);
+                // RTI: `<int>[…]` é `List<int>` (o tipo do literal).
+                if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
+                    self.definir_rti_se_generico(l.clone(), t);
+                }
+                l
             }
             ExprKind::SetOrMap { elements, .. } => {
                 let mut entries = Vec::new();
@@ -927,11 +935,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         entries.push(((kop, ktag), (vop, vtag)));
                     }
                 }
-                self.emit(Instruction::AllocMap { entries }, Type::Ref)
+                let m = self.emit(Instruction::AllocMap { entries }, Type::Ref);
+                if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
+                    self.definir_rti_se_generico(m.clone(), t);
+                }
+                m
             }
             ExprKind::InstanceCreation { arguments, .. } => {
                 match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
                     Some(Resolved::Constructor(fid)) => {
+                        self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
                         self.instanciar(ast, fid, &arguments.args, expr.span)
                     }
                     _ => self.nao_suportado("instanciação não resolvida", expr.span),
@@ -963,7 +976,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 super::atribuicao::Rhs::Expr(*value),
                 expr.span,
             ),
-            ExprKind::FunctionExpression(fid) => self.lower_closure(ast, *fid, expr.span),
+            ExprKind::FunctionExpression(fid) => {
+                let c = self.lower_closure(ast, *fid, expr.span);
+                // RTI: a assinatura da closure (`f is R Function(P)`).
+                self.definir_rti_de_closure(c.clone(), ast, *fid, Some(expr_id));
+                c
+            }
             ExprKind::Switch { value, cases } => self.lower_switch_expressao(ast, expr_id, *value, cases),
             ExprKind::Cascade {
                 target,
@@ -979,6 +997,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.casar_irrefutavel(ast, *pattern, v.clone(), super::padroes::Ligacao::Atribuir, *value);
                 v
             }
+            ExprKind::Await(inner) => self.lower_await(ast, *inner, expr.span),
             ExprKind::This => match self.this_param.clone() {
                 Some(t) => t,
                 None => self.nao_suportado("`this` fora de membro de instância", expr.span),

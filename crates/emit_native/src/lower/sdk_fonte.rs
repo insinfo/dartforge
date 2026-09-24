@@ -250,10 +250,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // classe; o `is` com argumentos continua diagnóstico.
         let no_sdk = self.ctx.program.library(self.ctx.program.unit(self.unit_id).library).is_sdk;
         let so_classe = self.cast_so_pela_classe || no_sdk;
+        // O que a classe não responde (variável de tipo, tipo de função ou de
+        // record) num `is` do código do SDK: recusado. A RTI (`rti.rs`) não
+        // vale ali — a entrada uniforme da tabela de métodos não leva a tupla
+        // dos argumentos de tipo, e o `T` de um método genérico chamado pelo
+        // seletor seria `dynamic` (um `whereType<int>` deixaria passar tudo).
+        let sem_classe = |b: &mut Self| -> Option<Operand> {
+            if b.cast_so_pela_classe {
+                Some(Operand::Constant(Constant::Bool(true)))
+            } else if no_sdk {
+                Some(b.nao_suportado("teste de tipo sem classe no código do SDK (RTI pelo seletor)", ast_ty.span))
+            } else {
+                None
+            }
+        };
         let dartforge_frontend::ast::TypeKind::Named { name, args } = &ast_ty.kind else {
             // Tipo de função/record num cast: confere só... nada (a classe
-            // de uma função é `_Closure`); o `is` estrutural fica diagnóstico.
-            return self.cast_so_pela_classe.then_some(Operand::Constant(Constant::Bool(true)));
+            // de uma função é `_Closure`).
+            return sem_classe(self);
         };
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
         let trivial = |t: &dartforge_frontend::ast::TypeAnnotation| match &t.kind {
@@ -300,7 +314,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => None,
         });
         let Some(id) = cid.and_then(|c| self.ctx.id_de_classe(c)) else {
-            return self.cast_so_pela_classe.then_some(Operand::Constant(Constant::Bool(true)));
+            return sem_classe(self);
         };
         let _ = so_classe;
         let zero = Operand::Constant(Constant::Int(0));

@@ -13,11 +13,9 @@
 //! que a contêm são cascata). As causas são agrupadas pelo nó nosso, pelo nó
 //! do analyzer e pela forma da diferença.
 
-use std::collections::{BTreeMap, HashMap};
+use dartforge_types::despejo::{comparar_bloco, forma, Bloco};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-
-/// Linhas de um arquivo: `(offset, comprimento) -> [(nó, tipo)]`.
-type Bloco = BTreeMap<(usize, usize), Vec<(String, String)>>;
 
 struct Leitor {
     linhas: std::io::Lines<BufReader<std::fs::File>>,
@@ -68,36 +66,6 @@ impl Leitor {
     }
 }
 
-fn sem_args(s: &str) -> &str {
-    let s = match s.find('<') {
-        Some(i) => &s[..i],
-        None => s,
-    };
-    s.trim_end_matches('?')
-}
-
-fn forma(nosso: &str, oraculo: &str) -> &'static str {
-    if nosso == "?" {
-        return "não visitada";
-    }
-    if nosso == "dynamic" {
-        return "nós dynamic";
-    }
-    if oraculo == "dynamic" {
-        return "oráculo dynamic";
-    }
-    if nosso.trim_end_matches('?') == oraculo.trim_end_matches('?') {
-        return "nulabilidade";
-    }
-    if sem_args(nosso) == sem_args(oraculo) {
-        return "argumentos de tipo";
-    }
-    if oraculo.contains("Function") || nosso.contains("Function") {
-        return "tipo de função";
-    }
-    "outro tipo"
-}
-
 struct Grupo {
     total: usize,
     exemplos: Vec<String>,
@@ -133,46 +101,19 @@ fn main() {
             Some((a, b)) if *a == arquivo => b,
             _ => continue,
         };
-        // Divergências do arquivo: (ini, fim, nó, nosso, nó do oráculo, oráculo).
-        let mut div: Vec<(usize, usize, String, String, String, String)> = Vec::new();
-        for (&(ini, comp), nossos) in &b_nosso {
-            let Some(orcs) = b_oraculo.get(&(ini, comp)) else { continue };
-            let orcs: Vec<&(String, String)> = orcs.iter().filter(|o| o.1 != "-").collect();
-            if orcs.is_empty() {
-                continue;
-            }
-            for (no, tipo) in nossos {
-                comparadas += 1;
-                if orcs.iter().any(|o| &o.1 == tipo) {
-                    iguais += 1;
-                    continue;
-                }
-                div.push((ini, ini + comp, no.clone(), tipo.clone(), orcs[0].0.clone(), orcs[0].1.clone()));
-            }
-        }
-        divergentes += div.len();
-        if div.is_empty() {
+        let c = comparar_bloco(&b_nosso, b_oraculo);
+        comparadas += c.comparadas;
+        iguais += c.iguais;
+        divergentes += c.divergencias.len();
+        if c.divergencias.is_empty() {
             continue;
         }
-        div.sort_by(|a, b| (a.0, std::cmp::Reverse(a.1)).cmp(&(b.0, std::cmp::Reverse(b.1))));
         let mut fonte: Option<Vec<u16>> = None;
-        for i in 0..div.len() {
-            let (ini, fim) = (div[i].0, div[i].1);
-            let mut contida = false;
-            for d in &div[i + 1..] {
-                if d.0 >= fim {
-                    break;
-                }
-                if d.1 <= fim && (d.0, d.1) != (ini, fim) {
-                    contida = true;
-                    break;
-                }
-            }
-            if contida {
-                continue;
-            }
+        for i in c.causas() {
+            let d = &c.divergencias[i];
+            let (ini, fim) = (d.ini, d.fim);
             ncausas += 1;
-            let (_, _, no, t, ono, ot) = &div[i];
+            let (no, t, ono, ot) = (&d.no, &d.nosso, &d.no_oraculo, &d.oraculo);
             let chave = format!("{no} [{ono}] {}", forma(t, ot));
             let g = grupos.entry(chave).or_insert(Grupo { total: 0, exemplos: Vec::new() });
             g.total += 1;

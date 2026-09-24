@@ -9,7 +9,25 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `f(…)`, `o.m(…)`, `o?.m(…)`, `C(…)`, `C.m(…)`.
+    ///
+    /// RTI: a tupla de argumentos de tipo de uma chamada genérica
+    /// (`tupla_armada`) vale só para a chamada desta expressão; a de fora
+    /// volta ao fim (uma chamada nos argumentos arma a sua).
     pub(super) fn lower_chamada(
+        &mut self,
+        ast: &ast::Ast,
+        expr_id: ExprId,
+        expr: &ast::Expr,
+        target: &ExprId,
+        arguments: &ast::Arguments,
+    ) -> Operand {
+        let salvo = self.tupla_armada.take();
+        let r = self.lower_chamada_interno(ast, expr_id, expr, target, arguments);
+        self.tupla_armada = salvo;
+        r
+    }
+
+    fn lower_chamada_interno(
         &mut self,
         ast: &ast::Ast,
         expr_id: ExprId,
@@ -69,6 +87,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.chamar_valor_funcao(v, &avaliados);
                     }
                     let args = self.casar_args(fid, &avaliados);
+                    self.armar_tupla(fid, expr_id, arguments);
                     return self.chamar_direto(fid, None, args);
                 }
                 Some(Resolved::Element(dartforge_elements::model::Element::Function(f)))
@@ -101,6 +120,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let avaliados = self.avaliar_args(ast, &arguments.args);
                     if self.ctx.program.functions[fid].static_ {
                         let args = self.casar_args(fid, &avaliados);
+                        self.armar_tupla(fid, expr_id, arguments);
                         return self.chamar_direto(fid, None, args);
                     }
                     let Some(this) = self.this_param.clone() else {
@@ -109,6 +129,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             expr.span,
                         );
                     };
+                    self.armar_tupla(fid, expr_id, arguments);
                     return self.chamar_membro(this, fid, &avaliados, expr.span);
                 }
                 Some(Resolved::Element(dartforge_elements::model::Element::Class(c)))
@@ -141,6 +162,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(Resolved::Constructor(fid)) =
             self.ctx.get_resolved(self.unit_id, expr_id).cloned()
         {
+            self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
             return self.instanciar(ast, fid, &arguments.args, expr.span);
         }
 
@@ -192,6 +214,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ))
             );
             if alvo_e_classe {
+                // `C.nome(…)` que é construtor nomeado (a resolução ficou no
+                // alvo, não na chamada).
+                if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                    self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
+                    && !matches!(resolved_alvo, Some(Resolved::Member { .. }))
+                    && let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&method_name.sym)
+                {
+                    self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+                    return self.instanciar(ast, f, &arguments.args, expr.span);
+                }
+                // Sem resolução do membro (a inferência não resolveu o
+                // acesso): o estático da classe pelo nome.
+                let resolved_alvo = resolved_alvo.or_else(|| {
+                    let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                        self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
+                    else {
+                        return None;
+                    };
+                    let f = *self.ctx.program.classes[c.0 as usize].static_members.get(&method_name.sym)?;
+                    Some(Resolved::Member { class: c, member: MemberRef::Function(f), via_super: false })
+                });
                 if let Some(Resolved::Member {
                     member: MemberRef::Function(f),
                     ..
@@ -203,7 +246,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     {
                         let avaliados = self.avaliar_args(ast, &arguments.args);
                         let args = self.casar_args(fid, &avaliados);
+                        self.armar_tupla(fid, expr_id, arguments);
                         return self.chamar_direto(fid, None, args);
+                    }
+                }
+                // `Error.throwWithStackTrace`, `ArgumentError.checkNotNull`…
+                // das classes de erro do runtime (`erros_do_runtime.rs`),
+                // pelo membro estático da classe com esse nome.
+                if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                    self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
+                    && let Some(&f) = self.ctx.program.classes[c.0 as usize].static_members.get(&method_name.sym)
+                {
+                    let avaliados = self.avaliar_args(ast, &arguments.args);
+                    if let Some(op) = self.estatico_de_erro_do_runtime(f.0 as usize, &avaliados, expr.span) {
+                        return op;
                     }
                 }
                 return self.nao_suportado(&format!("chamada estática `{m_name}`"), expr.span);
@@ -280,6 +336,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.chamar_valor_funcao(v, &avaliados);
                     }
                     let avaliados = self.avaliar_args(ast, &arguments.args);
+                    self.armar_tupla(f.0 as usize, expr_id, arguments);
                     return self.chamar_membro(recv_op, f.0 as usize, &avaliados, expr.span);
                 }
             }

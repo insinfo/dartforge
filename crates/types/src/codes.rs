@@ -186,3 +186,39 @@ pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
     "dead_code",
     "Código inalcançável (dead code).",
 );
+
+// Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §3).
+//
+// Os diagnósticos de `types` são avisos, porque a inferência ainda tem
+// lacunas; estes não: são o que o CFE recusa nos recursos novos e o que um
+// programa negativo do corpus precisa ver recusado. A mensagem começa com
+// [`ERRO_DE_LINGUAGEM`], e quem compila (`compile-js`, `dartforge-jsprod`,
+// nativo) aborta como aborta nos erros de carga.
+
+/// Prefixo das mensagens de erro de linguagem.
+pub const ERRO_DE_LINGUAGEM: &str = "erro de linguagem: ";
+
+/// A mensagem é de um erro de linguagem (e não de um aviso de tipos)?
+pub fn e_erro_de_linguagem(mensagem: &str) -> bool {
+    mensagem.starts_with(ERRO_DE_LINGUAGEM)
+}
+
+pub const WILDCARD_NAO_LIGA: DiagnosticCode = DiagnosticCode::new(
+    "undefined_identifier",
+    "nenhum '_' visível: numa biblioteca 3.7+, local e parâmetro chamados '_' são curingas e não ligam nome",
+);
+
+pub const DOT_SHORTHAND_SEM_CONTEXTO: DiagnosticCode = DiagnosticCode::new(
+    "dot_shorthand_missing_context",
+    "o atalho de ponto '.{0}' precisa de um tipo de contexto que denote uma classe, mixin, enum ou extension type",
+);
+
+pub const DOT_SHORTHAND_SEM_MEMBRO: DiagnosticCode = DiagnosticCode::new(
+    "dot_shorthand_undefined_member",
+    "'{1}' não tem membro estático nem construtor '{0}' para o atalho de ponto",
+);
+
+pub const CONSTRUTOR_PRIMARIO: DiagnosticCode = DiagnosticCode::new(
+    "primary_constructor",
+    "construtor primário: {0}",
+);

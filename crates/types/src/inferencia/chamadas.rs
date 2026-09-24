@@ -12,7 +12,7 @@ use crate::constraints::{instanciar_funcao, GenericInferrer};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId, TypeParamId};
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Element, FunctionElementId};
+use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
 use std::collections::HashMap;
 
@@ -122,6 +122,27 @@ pub(crate) fn invocar(
         return (inf.core.dynamic_, f);
     };
     let u = inf.core.unknown;
+    // Chamada genérica cujos parâmetros de tipo estão em escopo (a função
+    // chamando a si mesma, `_mergeSort(elements, keyOf, …)` dentro de
+    // `_mergeSort<E, K>`): os argumentos mencionam os mesmos parâmetros que
+    // a inferência resolve; renomeia para parâmetros novos, como a
+    // instanciação da especificação (R-GEN-04: variáveis frescas).
+    if !type_params.is_empty()
+        && type_params.iter().any(|&p| {
+            let n = inf.table.param(p).name;
+            matches!(cx.buscar(n), Some(super::corpo::Nome::TipoParam(q)) if q == p)
+        })
+    {
+        let novos = inf.parametros_novos(&type_params);
+        let tipos: Vec<TypeId> = novos.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let mapa = inf.mapa(&type_params, &tipos);
+        let ret = inf.subst(ret, &mapa);
+        let positional: Box<[TypeId]> = positional.iter().map(|&t| inf.subst(t, &mapa)).collect();
+        let optional: Box<[TypeId]> = optional.iter().map(|&t| inf.subst(t, &mapa)).collect();
+        let named: Box<[_]> = named.iter().map(|&(n, t, r)| (n, inf.subst(t, &mapa), r)).collect();
+        let f2 = inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable: false });
+        return invocar(inf, cx, f2, args, ctx, explicitos);
+    }
     // Argumentos de tipo explícitos: instancia e segue como não genérica.
     if !type_params.is_empty() {
         if let Some(ex) = explicitos {
@@ -275,6 +296,31 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         return (t, false);
     }
     let u = inf.core.unknown;
+    // `E(x)` / `E<T>(x)`: sobreposição explícita de extensão (R-EXT-02).
+    if let Some(RefTipo::Extensao(x)) = referencia_a_tipo(inf, cx, target)
+        && args.args.len() == 1
+        && args.args[0].name.is_none()
+    {
+        let dados = inf.outline.extensions[x.0 as usize].clone();
+        let ext_args = match &explicitos {
+            Some(ex) if ex.len() == dados.type_params.len() => Some(ex.clone()),
+            _ => None,
+        };
+        let ctx_arg = match &ext_args {
+            Some(ex) => {
+                let mapa = inf.mapa(&dados.type_params, ex);
+                inf.subst(dados.on, &mapa)
+            }
+            None => u,
+        };
+        let t = inferir(inf, cx, args.args[0].value, ctx_arg);
+        let ext_args = match ext_args {
+            Some(ex) => ex,
+            None => inf.extensao_aplicavel(x, t).unwrap_or_else(|| inf.instanciar_para_limites(&dados.type_params)),
+        };
+        cx.sobreposicoes.insert(e, (x, ext_args));
+        return (t, false);
+    }
     match &a.expr(target).kind {
         ExprKind::Property { target: recv, name, null_aware } => {
             let (recv, name, null_aware) = (*recv, *name, *null_aware);
@@ -302,7 +348,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
-            match inf.buscar_membro(cx.lib, r_ty, name.sym, false) {
+            match expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, target, m.resolved.clone());
                     registrar(inf, cx, target, m.tipo);
@@ -390,13 +436,13 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
 }
 
 /// Se `target` (alvo de uma chamada) nomeia um construtor: `(classe, construtor, args explícitos)`.
-fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -> Option<(ClassId, FunctionElementId, Option<Vec<TypeId>>)> {
+fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -> Option<(ClassId, Option<FunctionElementId>, Option<Vec<TypeId>>)> {
     let vazio = inf.sym.vazio?;
     let tipo_args = |inf: &mut BodyInferrer<'_>, cx: &Corpo, rt: &RefTipo| -> (ClassId, Option<Vec<TypeId>>) {
         match rt {
             RefTipo::Classe(c, Some(ts)) => (*c, Some(ts.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect())),
             RefTipo::Classe(c, None) => (*c, None),
-            RefTipo::Alias(c, args) => (*c, if args.is_empty() { None } else { Some(args.clone()) }),
+            RefTipo::Alias(c, args, _) => (*c, args.clone()),
             RefTipo::Extensao(_) => unreachable!(),
         }
     };
@@ -405,7 +451,7 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
             return None;
         }
         let (c, args) = tipo_args(inf, cx, &rt);
-        let &f = inf.program.class(c).constructors.get(&vazio)?;
+        let f = inf.construtor_ou_primario(c, vazio)?;
         registrar_referencia(inf, cx, target);
         return Some((c, f, args));
     }
@@ -418,9 +464,13 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
         }
         let (c, args) = tipo_args(inf, cx, &rt);
         let chave = if Some(name.sym) == inf.sym.new_ { vazio } else { name.sym };
-        let &f = inf.program.class(c).constructors.get(&chave)?;
+        let f = inf.construtor_ou_primario(c, chave)?;
         registrar_referencia(inf, cx, recv);
-        resolver(inf, cx, target, Resolved::Constructor(f));
+        if let Some(f) = f
+            && inf.program.function(f).class == Some(c)
+        {
+            resolver(inf, cx, target, Resolved::Constructor(f));
+        }
         return Some((c, f, args));
     }
     None
@@ -460,6 +510,83 @@ impl<'a> BodyInferrer<'a> {
     /// Parâmetros novos (por classe) para inferir os argumentos de tipo de
     /// construtores: os da classe podem estar em escopo no ponto da chamada
     /// (`C(x)` dentro de `C<T>`), e não podem ser confundidos.
+    /// Construtor `nome` de `c`. Aplicação de mixin (`class A = B with M;`)
+    /// tem os construtores generativos da superclasse encaminhados
+    /// (especificação, "Mixin Application").
+    pub(crate) fn construtor_de(&self, c: ClassId, nome: dartforge_intern::SymbolId) -> Option<FunctionElementId> {
+        let cl = self.program.class(c);
+        if let Some(&f) = cl.constructors.get(&nome) {
+            return Some(f);
+        }
+        if cl.kind != ClassKind::MixinApplication {
+            return None;
+        }
+        let f = self.construtor_de(cl.supertype_class?, nome)?;
+        (!self.program.function(f).factory).then_some(f)
+    }
+
+    /// Construtor `nome` de `c`, ou `Some(None)` para o construtor primário
+    /// de um tipo de extensão (`extension type Id(int v)`, R-EXT-04), que o
+    /// modelo de elementos não cria.
+    pub(crate) fn construtor_ou_primario(&self, c: ClassId, nome: dartforge_intern::SymbolId) -> Option<Option<FunctionElementId>> {
+        if let Some(f) = self.construtor_de(c, nome) {
+            return Some(Some(f));
+        }
+        let cl = self.program.class(c);
+        if cl.kind != ClassKind::ExtensionType {
+            return None;
+        }
+        let d = cl.decl?;
+        match &self.program.unit(d.unit).ast.decl(d.decl).kind {
+            ast::DeclKind::ExtensionType(et) if et.constructor.map(|n| n.sym).or(self.sym.vazio) == Some(nome) => Some(None),
+            _ => None,
+        }
+    }
+
+    /// `(Representação) -> E<parâmetros>`: o construtor primário.
+    pub(crate) fn assinatura_primario(&mut self, c: ClassId) -> TypeId {
+        let rep = self.program.class(c).representation;
+        let t = rep
+            .and_then(|v| self.outline.variables[v.0 as usize].declared_type)
+            .unwrap_or(self.core.dynamic_);
+        let this = self.tipo_this_classe(c);
+        self.table.intern(Type::Function {
+            type_params: Box::new([]),
+            ret: this,
+            positional: Box::new([t]),
+            optional: Box::new([]),
+            named: Box::new([]),
+            nullable: false,
+        })
+    }
+
+    /// Assinatura do construtor `f` vista de `c` (encaminhado quando `f` é
+    /// da superclasse de uma aplicação de mixin): tipos pelos argumentos do
+    /// supertipo e retorno `c<parâmetros>`.
+    pub(crate) fn assinatura_construtor(&mut self, c: ClassId, f: FunctionElementId) -> TypeId {
+        let sig = self.outline.functions[f.0 as usize].signature;
+        if self.program.function(f).class == Some(c) {
+            return sig;
+        }
+        let Some(sup) = self.outline.classes[c.0 as usize].supertype else { return sig };
+        let Type::Interface { class: sc, args, .. } = self.table.get(sup).clone() else { return sig };
+        let s = self.assinatura_construtor(sc, f);
+        let params = self.outline.classes[sc.0 as usize].type_params.clone();
+        let s = if params.len() == args.len() {
+            let mapa = self.mapa(&params, &args);
+            self.subst(s, &mapa)
+        } else {
+            s
+        };
+        let this = self.tipo_this_classe(c);
+        match self.table.get(s).clone() {
+            Type::Function { type_params, positional, optional, named, nullable, .. } => {
+                self.table.intern(Type::Function { type_params, ret: this, positional, optional, named, nullable })
+            }
+            _ => s,
+        }
+    }
+
     fn parametros_de_construtor(&mut self, c: ClassId) -> (Vec<TypeParamId>, Vec<TypeParamId>) {
         let originais = self.outline.classes[c.0 as usize].type_params.to_vec();
         let novos = self.parametros_novos(&originais);
@@ -475,15 +602,25 @@ pub(crate) fn construir(
     cx: &mut Corpo,
     e: Option<ExprId>,
     c: ClassId,
-    f: FunctionElementId,
+    f: Option<FunctionElementId>,
     explicitos: Option<Vec<TypeId>>,
     args: &ast::Arguments,
     ctx: TypeId,
 ) -> TypeId {
-    if let Some(e) = e {
-        resolver(inf, cx, e, Resolved::Constructor(f));
-    }
-    let sig = inf.outline.functions[f.0 as usize].signature;
+    // Construtor encaminhado de aplicação de mixin: sem resolução (o
+    // elemento é o da superclasse). `None`: construtor primário de tipo de
+    // extensão (R-EXT-04), sem elemento.
+    let sig = match f {
+        Some(f) => {
+            if let Some(e) = e
+                && inf.program.function(f).class == Some(c)
+            {
+                resolver(inf, cx, e, Resolved::Constructor(f));
+            }
+            inf.assinatura_construtor(c, f)
+        }
+        None => inf.assinatura_primario(c),
+    };
     let (originais, novos) = inf.parametros_de_construtor(c);
     if originais.is_empty() {
         let (r, _) = invocar(inf, cx, sig, args, ctx, None);
@@ -566,7 +703,7 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         Some(n) if Some(n.sym) != inf.sym.new_ => Some(n.sym),
         _ => inf.sym.vazio,
     };
-    let Some(&f) = chave.and_then(|k| inf.program.class(c).constructors.get(&k)) else {
+    let Some(f) = chave.and_then(|k| inf.construtor_ou_primario(c, k)) else {
         for x in args.args.iter() {
             inferir_livre(inf, cx, x.value);
         }

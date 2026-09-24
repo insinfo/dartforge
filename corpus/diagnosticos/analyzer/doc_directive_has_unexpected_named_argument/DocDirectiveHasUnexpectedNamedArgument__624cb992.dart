@@ -1,0 +1,2 @@
+/// {@macro name}
+class C {}
