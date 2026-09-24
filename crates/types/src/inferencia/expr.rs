@@ -1223,6 +1223,16 @@ fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: 
     }
 }
 
+fn avisar_getter_sem_setter(inf: &mut BodyInferrer<'_>, nome: ast::Name, classe: ClassId) {
+    let msg = format!(
+        "{}: '{}' na classe '{}'",
+        ASSIGNMENT_TO_FINAL_NO_SETTER.template,
+        inf.interner.resolve(nome.sym),
+        inf.interner.resolve(inf.program.class(classe).name)
+    );
+    inf.aviso(msg, nome.span);
+}
+
 /// Para `x op= e` / `x++`: lê o alvo, devolvendo `(tipo lido, tipo de escrita, local)`.
 fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) -> (TypeId, TypeId, Option<LocalId>) {
     let a = ast(inf, cx);
@@ -1300,6 +1310,7 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, alvo, r);
             let fe = inf.program.function(f);
+            let getter_de_classe = if fe.kind == FunctionKind::Getter { fe.class } else { None };
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
                 if (ve.final_ || ve.const_) && ve.setter.is_none() {
@@ -1318,6 +1329,9 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     }
                 }
             }
+            if let Some(classe) = getter_de_classe {
+                avisar_getter_sem_setter(inf, n, classe);
+            }
             inf.tipo_do_membro_declarado(f, true).0
         }
         RefNome::ThisImplicito => {
@@ -1328,6 +1342,18 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     m.tipo
                 }
                 Busca::Ausente => {
+                    if let Busca::Achado(getter) = inf.buscar_membro(cx.lib, this, n.sym, false) {
+                        if let Some(f) = getter.funcao {
+                            let fe = inf.program.function(f);
+                            if fe.kind == FunctionKind::Getter {
+                                if let Some(classe) = fe.class {
+                                    avisar_getter_sem_setter(inf, n, classe);
+                                    resolver(inf, cx, alvo, getter.resolved);
+                                    return getter.tipo;
+                                }
+                            }
+                        }
+                    }
                     let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
                     inf.aviso(msg, n.span);
                     inf.core.dynamic_
@@ -1502,13 +1528,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                     let fe = inf.program.function(f);
                     if fe.kind == FunctionKind::Getter {
                         if let Some(classe) = fe.class {
-                            let msg = format!(
-                                "{}: '{}' na classe '{}'",
-                                ASSIGNMENT_TO_FINAL_NO_SETTER.template,
-                                inf.interner.resolve(name.sym),
-                                inf.interner.resolve(inf.program.class(classe).name)
-                            );
-                            inf.aviso(msg, name.span);
+                            avisar_getter_sem_setter(inf, name, classe);
                             resolver(inf, cx, alvo, getter.resolved);
                             return getter.tipo;
                         }
