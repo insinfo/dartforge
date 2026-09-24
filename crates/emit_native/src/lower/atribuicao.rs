@@ -192,6 +192,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 else {
                     let n = self.ctx.symbol_name(name.sym).to_string();
                     if self.receptor_dinamico(*recv) {
+                        if self.ctx.sdk_da_fonte {
+                            // Em SDK da fonte, até um setter inexistente passa
+                            // pelo seletor: o runtime produz NoSuchMethodError.
+                            // O RHS é avaliado depois do receptor, como em Dart.
+                            let recv_op = self.lower_expr(ast, *recv);
+                            let cur = composto.then(|| self.chamar_por_nome(
+                                recv_op.clone(), super::sdk_fonte::Tipo::Ler, &n, &[],
+                            ));
+                            let v = self.combinar(ast, op, cur, value);
+                            self.chamar_por_nome(
+                                recv_op, super::sdk_fonte::Tipo::Gravar, &n,
+                                &[(None, v.clone())],
+                            );
+                            return v;
+                        }
                         // Receptor sem tipo útil: campo/setter pela classe
                         // dinâmica.
                         let alvos = self.alvos_de_escrita(&n);
@@ -224,6 +239,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 span,
                             );
                         }
+                        // Mundo fechado sem setter com esse nome. Ainda é uma
+                        // expressão válida: avaliar receptor e valor, então
+                        // lançar NoSuchMethodError em tempo de execução.
+                        self.lower_expr(ast, *recv);
+                        if composto {
+                            return self.lancar_nsm(&n);
+                        }
+                        self.lower_rhs(ast, value, Type::Ref);
+                        return self.lancar_nsm(&format!("{n}="));
                     }
                     return self.nao_suportado(&format!("atribuição a `{n}`"), span);
                 };
