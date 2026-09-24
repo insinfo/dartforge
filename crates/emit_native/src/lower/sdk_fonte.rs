@@ -927,6 +927,60 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 tabela.retain(|(s, _)| s != "c:toString");
                 tabela.push(("c:toString".to_string(), simbolo));
             }
+            // O layout gerado para enums guarda `_Enum._name` no campo 1.
+            // Extensões do SDK (byName/asNameMap) leem esse campo pelo
+            // seletor privado de dart:core, inclusive em enums do usuário.
+            if super::enums::e_enum(ctx, cid)
+                && let Some(decl) = classe.decl
+            {
+                let simbolo = format!(
+                    "df.{}.{}.$enumName$g",
+                    crate::context::escapar(&ctx.nome_da_biblioteca(classe.library)),
+                    crate::context::escapar(ctx.symbol_name(classe.name))
+                );
+                let mut b = FnBuilder::new(ctx, decl.unit, simbolo.clone(), "_name".to_string(), Type::Ref);
+                let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+                b.add_param("args".to_string(), Type::Ptr);
+                b.add_param("desc".to_string(), Type::Ptr);
+                let nome = b.emit(Instruction::CallRuntime {
+                    name: "dartforge_object_get".to_string(),
+                    args: vec![
+                        (this, Type::Ref),
+                        (Operand::Constant(Constant::Int(1)), Type::I64),
+                    ],
+                    ret_ty: Type::Ref,
+                }, Type::Ref);
+                b.terminate(Terminator::Return(Some(nome)));
+                b.finalizar(module);
+                tabela.retain(|(s, _)| s != "g:_name@dart:core");
+                tabela.push(("g:_name@dart:core".to_string(), simbolo));
+            }
+            // Um enum sem override recebe `Enum.nome` do emissor. A tabela
+            // por seletor deve usar esse mesmo corpo, inclusive quando o
+            // valor é impresso por `List.toString` da fonte.
+            if super::enums::e_enum(ctx, cid)
+                && module.classes.iter().any(|c| c.id == id && c.to_string_symbol.is_none())
+                && let Some(decl) = classe.decl
+            {
+                let base = format!(
+                    "df.{}.{}.toString",
+                    crate::context::escapar(&ctx.nome_da_biblioteca(classe.library)),
+                    crate::context::escapar(ctx.symbol_name(classe.name))
+                );
+                let simbolo = format!("{base}$c");
+                let mut b = FnBuilder::new(ctx, decl.unit, simbolo.clone(), "toString".to_string(), Type::Ref);
+                let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+                b.add_param("args".to_string(), Type::Ptr);
+                b.add_param("desc".to_string(), Type::Ptr);
+                let texto = b.emit_call_with_check(
+                    Instruction::CallStatic { symbol: base, args: vec![this], ret_ty: Type::Ref },
+                    Type::Ref,
+                );
+                b.terminate(Terminator::Return(Some(texto)));
+                b.finalizar(module);
+                tabela.retain(|(s, _)| s != "c:toString");
+                tabela.push(("c:toString".to_string(), simbolo));
+            }
             module.tabelas_de_metodos.push((id, simbolo_de_tabela(ctx, cid), tabela));
         }
     }
