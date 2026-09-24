@@ -471,6 +471,16 @@ fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
         assert!(!diags.iter().any(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)), "{diags:?}");
     }
+    // Um nome privado de outra biblioteca não é membro acessível da classe.
+    fs::write(tmp.path().join("lib.dart"), "class A { void _m() {} }").unwrap();
+    fs::write(&main_dart, "import 'lib.dart'; void f() { A._m(); }").unwrap();
+    let mut interner = Interner::new();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    assert!(!diags.iter().any(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)), "{diags:?}");
 }
 
 #[test]
