@@ -508,6 +508,31 @@ fn escrita_em_metodo_de_instancia_pelo_tipo_e_setter_indefinido() {
 }
 
 #[test]
+fn new_ausente_apos_tipo_instanciado_preserva_diagnostico_de_construtor() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/constructor/unnamed_new_error_test.dart"));
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    for (expr, codigo) in [
+        ("NoUnnamed.new();", NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT),
+        ("NoUnnamed<int>.new();", NEW_WITH_UNDEFINED_CONSTRUCTOR),
+    ] {
+        let offset = fonte.find(expr).unwrap() + expr.find(".new").unwrap() + 1;
+        let no_alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(no_alvo.len(), 1, "{expr}: {diags:?}");
+        assert!(no_alvo[0].message.starts_with(codigo.template), "{expr}: {diags:?}");
+        assert_eq!(no_alvo[0].span.end as usize, offset + 3);
+    }
+}
+
+#[test]
 fn membro_de_instancia_em_instanciacao_explicita_tem_codigo_e_span_proprios() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

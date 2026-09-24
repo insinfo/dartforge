@@ -953,6 +953,19 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
     let Some(f) = inf.construtor_de(c, chave) else {
+        // `C<T>.new` ainda é uma referência ao construtor sem nome. A
+        // ausência dele tem diagnóstico no token `new`, mesmo quando o
+        // receptor foi instanciado explicitamente.
+        if diagnosticar_ausencia && Some(name.sym) == inf.sym.new_ {
+            let classe = inf.interner.resolve(inf.program.class(c).name);
+            let msg = if instancia_explicita {
+                format!("{}: '{classe}', 'new'", NEW_WITH_UNDEFINED_CONSTRUCTOR.template)
+            } else {
+                format!("{}: '{classe}'", NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT.template)
+            };
+            inf.aviso(msg, name.span);
+            return inf.core.dynamic_;
+        }
         if instancia_explicita && avisar_instanciacao_de_classe(inf, cx, e, c, name, false) {
             return inf.core.dynamic_;
         }
