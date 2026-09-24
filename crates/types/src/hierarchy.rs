@@ -230,8 +230,18 @@ fn compute_class_hierarchy(
                 parent_subst.insert(p, a);
             }
 
-            // Propaga os supertipos transitivos do pai
-            for (&ancestor_class, &ancestor_ty) in parent_data.supertypes.iter() {
+            // Propaga os supertipos transitivos do pai. A ordem é por
+            // `ClassId`: iterar o mapa direto herdaria a semente do hash
+            // (ordem diferente a cada emissão no mesmo processo) e, com
+            // diamante genérico (duas rotas ao mesmo ancestral com
+            // instanciações diferentes), o `first-wins` abaixo escolheria
+            // outra ligação — o LLVM IR mudava com o número de
+            // trabalhadores (determinismo do nativo). Em conflito o
+            // vencedor é arbitrário mas estável, como o "resto por
+            // `ClassId`" de `supertipos_ordenados` (`scope.rs`).
+            let mut herdados: Vec<(&ClassId, &TypeId)> = parent_data.supertypes.iter().collect();
+            herdados.sort_by_key(|(c, _)| c.0);
+            for (&ancestor_class, &ancestor_ty) in herdados {
                 if let std::collections::hash_map::Entry::Vacant(e) =
                     supertypes_map.entry(ancestor_class)
                 {
