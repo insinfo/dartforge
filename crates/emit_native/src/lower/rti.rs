@@ -496,8 +496,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O tipo da receita, como `I64`, no ambiente corrente.
     pub fn rti_da_receita(&mut self, r: &Receita) -> Operand {
         let h = hash_receita(&r.texto);
-        let getter = format!("df.rti.{h}");
-        let global = format!("dfr.{h}");
+        // A mesma receita pode surgir no programa e em várias bibliotecas do
+        // SDK. Cada biblioteca possui seu próprio cache preguiçoso; nomes
+        // distintos evitam definições múltiplas na ligação ThinLTO.
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let dono = crate::context::escapar(&self.ctx.nome_da_biblioteca(lib));
+        let getter = format!("df.rti.{h}.{dono}");
+        let global = format!("dfr.{h}.{dono}");
         if !self.entradas_feitas.contains(&getter) {
             self.entradas_feitas.insert(getter.clone());
             let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "rti".to_string(), Type::I64);
@@ -882,6 +887,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// regras de supertipo (o fecho: os supertipos das citadas também), as
 /// formas do runtime. Vazio quando o programa não usa receita nenhuma.
 pub fn registrar_universo(ctx: &Context, module: &mut Module) {
+    // O universo é global ao executável; os objetos do SDK só fornecem as
+    // receitas que usam. A entrada do programa registra o universo completo.
+    if module.biblioteca_sdk {
+        return;
+    }
     let mut receitas: Vec<String> = Vec::new();
     let mut usa_rti = false;
     for f in &module.functions {
@@ -896,7 +906,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
             }
         }
     }
-    if receitas.is_empty() && !usa_rti {
+    if receitas.is_empty() && !usa_rti && !module.modo_sdk {
         return;
     }
     // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e o `toString`.

@@ -172,6 +172,7 @@ pub fn lower_program(ctx: &Context) -> Module {
     });
 
     module.modo_sdk = ctx.sdk_da_fonte;
+    module.biblioteca_sdk = ctx.biblioteca_sdk;
     if ctx.sdk_da_fonte {
         // As classes de erro são as do SDK da fonte (P5c).
         return lower_classes_e_funcoes(ctx, module);

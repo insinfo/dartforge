@@ -31,6 +31,8 @@ pub struct Context<'a> {
     /// [`crate::sdk_modulo::BIBLIOTECAS_DA_FONTE`] têm corpo compilado e
     /// classes com id, como as do programa.
     pub sdk_da_fonte: bool,
+    /// Este contexto baixa uma biblioteca do SDK em um objeto separado.
+    pub biblioteca_sdk: bool,
     /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
     /// com `sdk_da_fonte`, também as do SDK da fonte).
     pub compiladas: Vec<bool>,
@@ -113,6 +115,7 @@ impl<'a> Context<'a> {
             formas_de_record: Vec::new(),
             raiz,
             sdk_da_fonte: false,
+            biblioteca_sdk: false,
             compiladas: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             no_modulo: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             da_fonte: std::collections::HashSet::new(),
@@ -196,6 +199,7 @@ impl<'a> Context<'a> {
     /// O módulo de uma biblioteca do SDK da fonte (P5c): só ela é baixada
     /// aqui; o programa e as outras bibliotecas ficam de fora.
     pub fn so_a_biblioteca(mut self, lib: LibraryId) -> Self {
+        self.biblioteca_sdk = true;
         self.no_modulo = vec![false; self.program.libraries.len()];
         self.no_modulo[lib.0 as usize] = true;
         self
@@ -429,4 +433,3 @@ impl<'a> Context<'a> {
         self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
     }
 }
-
