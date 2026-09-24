@@ -980,9 +980,13 @@ otimização a mais.
 
 ### 2.4 LSP
 
-Falta tudo além de diagnósticos: hover, ir para definição, referências,
-completion, rename, code actions — e a semântica (`crates/types`) por trás
-do `trait Analisador`, que hoje só tem a implementação sintática.
+Além dos diagnósticos, já existem símbolos de documento e workspace, hover
+e definição conservadores para nomes do mesmo arquivo e URIs relativas
+(`docs/LSP.md`). Faltam referências entre arquivos, completion, rename,
+code actions e a resolução semântica de imports e tipos pelo `trait Analisador`.
+As versões de linguagem em cache são descartadas ao fechar ou reabrir o
+documento; o teste dirigido cobre mudança do `package_config.json` entre
+as duas aberturas.
 
 Diagnósticos (ver §1.4): o editor recebe a sintaxe e 3 códigos
 verificados. O caminho até os demais:
