@@ -861,6 +861,11 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
                 m.tipo
             }
             None => {
+                if inf.program.extension(x).instance_members.contains_key(&name.sym) {
+                    let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+                    inf.aviso(msg, name.span);
+                    return inf.core.dynamic_;
+                }
                 let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
                 let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extensao);
                 inf.aviso(msg, name.span);
@@ -1645,6 +1650,13 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                 m.tipo
             }
             None => {
+                if let RefTipo::Extensao(x) = rt {
+                    if inf.membro_de_extensao_explicita(x, &[], name.sym, true).is_some() {
+                        let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+                        inf.aviso(msg, name.span);
+                        return inf.core.dynamic_;
+                    }
+                }
                 let getter = match rt {
                     RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, false),
                     RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, false),

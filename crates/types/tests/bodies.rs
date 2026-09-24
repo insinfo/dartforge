@@ -375,6 +375,33 @@ fn getter_estatico_ausente_em_extensao_do_oraculo() {
 }
 
 #[test]
+fn acesso_estatico_a_membros_de_instancia_da_extensao_do_oraculo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    for (fonte, nome) in [
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_getter.dart")), "g"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_method.dart")), "m"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_setter.dart")), "s"),
+    ] {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
+        assert_eq!(encontrados.len(), 1, "{nome}: {diags:?}");
+        let d = encontrados[0];
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], nome);
+        assert_eq!(d.span.start as usize, fonte.find(&format!("E.{nome}")).unwrap() + 2);
+        assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)
+            || d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)), "{diags:?}");
+    }
+}
+
+#[test]
 fn sobreposicao_explicita_sem_metodo_usa_codigo_de_extensao() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

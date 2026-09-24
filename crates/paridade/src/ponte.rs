@@ -69,6 +69,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::UNDEFINED_EXTENSION_SETTER,
         c::UNDEFINED_EXTENSION_GETTER,
         c::UNDEFINED_EXTENSION_METHOD,
+        c::STATIC_ACCESS_TO_INSTANCE_MEMBER,
         c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
         c::UNDEFINED_EXTENSION_OPERATOR,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
@@ -292,6 +293,17 @@ mod testes {
         assert_eq!(c.code, Some(codigos::compile_time_error::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER));
         assert_eq!(c.message, "An extension override can't be used to access a static member from an extension.");
         assert_eq!((c.span.start, c.span.end), (7, 12));
+    }
+
+    #[test]
+    fn membro_de_instancia_em_acesso_estatico_a_extensao() {
+        let d = Diagnostic::new(
+            format!("{}: 'g'", dartforge_types::codes::STATIC_ACCESS_TO_INSTANCE_MEMBER.template),
+            Span { start: 7, end: 8 },
+        );
+        let c = codificar_tipos(&d, "g");
+        assert_eq!(c.code, Some(codigos::compile_time_error::STATIC_ACCESS_TO_INSTANCE_MEMBER));
+        assert_eq!(c.message, "Instance member 'g' can't be accessed using static access.");
     }
 
     #[test]

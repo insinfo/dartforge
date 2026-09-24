@@ -62,6 +62,11 @@ pub const UNDEFINED_EXTENSION_METHOD: DiagnosticCode = DiagnosticCode::new(
     "Método de extensão não encontrado",
 );
 
+pub const STATIC_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "static_access_to_instance_member",
+    "Acesso estático a membro de instância",
+);
+
 pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
     "invocation_of_extension_without_call",
     "Invocação de extensão sem call",

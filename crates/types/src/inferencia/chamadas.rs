@@ -336,6 +336,14 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if let Some(rt) = referencia_a_tipo(inf, cx, recv) {
                 if let RefTipo::Extensao(x) = rt {
                     if inf.membro_estatico_de_extensao(x, name.sym, false).is_none() {
+                        if inf.program.extension(x).instance_members.contains_key(&name.sym) {
+                            let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+                            inf.aviso(msg, name.span);
+                            for arg in args.args.iter() {
+                                inferir_livre(inf, cx, arg.value);
+                            }
+                            return (inf.core.dynamic_, false);
+                        }
                         let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
                         let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extensao);
                         inf.aviso(msg, name.span);
