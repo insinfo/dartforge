@@ -885,7 +885,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 } else {
                     super::literais::Colecao::Mapa
                 };
-                self.lower_literal_de_colecao(ast, tipo, elements, expr.span)
+                let colecao = self.lower_literal_de_colecao(ast, tipo, elements, expr.span);
+                self.rti_do_literal(colecao, expr_id)
             }
             ExprKind::SetOrMap { elements, .. } if self.literal_e_conjunto(expr_id, elements) => {
                 let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span);
