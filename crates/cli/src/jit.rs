@@ -123,41 +123,46 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     Ok(())
 }
 
-/// Carimbo dos fontes Dart sob `raiz`: soma dos instantes de modificação e dos
-/// tamanhos, e a contagem. Muda quando um arquivo muda, entra ou sai.
+/// Carimbo dos fontes Dart sob `raiz`: nomes, instantes de modificação e
+/// tamanhos em ordem estável. Muda quando um arquivo muda, entra, sai ou é
+/// renomeado, mesmo que a soma de tamanhos e datas continue igual.
 ///
 /// É deliberadamente simples: o R0 recompila o programa inteiro a cada
 /// mudança, então saber **qual** arquivo mudou não serve para nada ainda. A
 /// raiz é o diretório da entrada; `.dart_tool`, `build` e diretórios ocultos
 /// ficam de fora.
 #[cfg(feature = "jit")]
-fn carimbo(raiz: &Path) -> (u128, u64, usize) {
-    fn andar(dir: &Path, acc: &mut (u128, u64, usize)) {
+fn carimbo(raiz: &Path) -> (u64, usize) {
+    use std::hash::{Hash, Hasher};
+
+    fn andar(dir: &Path, fontes: &mut Vec<(PathBuf, u128, u64)>) {
         let Ok(entradas) = std::fs::read_dir(dir) else { return };
         for e in entradas.flatten() {
             let caminho = e.path();
             let nome = e.file_name();
             let nome = nome.to_string_lossy();
-            let Ok(meta) = e.metadata() else { continue };
-            if meta.is_dir() {
+            let Ok(tipo) = e.file_type() else { continue };
+            if tipo.is_dir() {
                 if !nome.starts_with('.') && nome != "build" {
-                    andar(&caminho, acc);
+                    andar(&caminho, fontes);
                 }
-            } else if nome.ends_with(".dart") {
+            } else if tipo.is_file() && nome.ends_with(".dart") {
+                let Ok(meta) = e.metadata() else { continue };
                 let t = meta
                     .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map_or(0, |d| d.as_nanos());
-                acc.0 = acc.0.wrapping_add(t);
-                acc.1 = acc.1.wrapping_add(meta.len());
-                acc.2 += 1;
+                fontes.push((caminho, t, meta.len()));
             }
         }
     }
-    let mut acc = (0, 0, 0);
-    andar(raiz, &mut acc);
-    acc
+    let mut fontes = Vec::new();
+    andar(raiz, &mut fontes);
+    fontes.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    fontes.hash(&mut hash);
+    (hash.finish(), fontes.len())
 }
 
 /// Diretório das gerações de IR do `reload`, apagado em qualquer saída que
