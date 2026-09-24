@@ -433,7 +433,7 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (span, descricao, tipo) = self.analisador.hover(u, &texto, offset)?;
+                    let (span, descricao, tipo) = self.analisador.hover_em(&self.documentos, u, offset)?;
                     let (l0, c0) = tabela.posicao_de_offset(&texto, span.start);
                     let (l1, c1) = tabela.posicao_de_offset(&texto, span.end);
                     let conteudo = if self.hover_markdown {

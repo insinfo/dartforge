@@ -114,8 +114,7 @@ pela regra conservadora da definição acima: `class C`, `enum E`, `mixin M`
 ou `extension type X`, quando não genérico. Usa Markdown se o cliente o
 anuncia; caso contrário devolve texto simples. O intervalo cobre apenas o
 nome sob o cursor. Tipos genéricos e typedefs aguardam a formatação de
-assinatura do modelo de elementos, e referências importadas aguardam
-resolução semântica. Para uma variável de topo única com tipo primitivo
+assinatura do modelo de elementos. Para uma variável de topo única com tipo primitivo
 escrito (`int`, `double`, `num`, `bool`, `String`, `Object`, `dynamic`), mostra
 `tipo nome` e `Type: tipo`, como a descrição do `VariableElement` no analyzer.
 Nomes locais homônimos desligam esse hover até existir resolução por escopo.
@@ -126,7 +125,12 @@ primitivo escrito mostram `tipo get nome` e `Type: tipo`, seguindo o formato
 dos testes de hover do servidor Dart. A navegação para a declaração funciona
 mesmo quando a assinatura não pode ser mostrada; nesses casos o hover fica
 vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
-aguardam a formatação completa da assinatura.
+aguardam a formatação completa da assinatura. Entre documentos abertos, o
+hover resolve como a definição (só import relativo simples, sem prefixo,
+`show`/`hide`, `export`, `part`, `dart:`/`package:`) e formata a descrição a
+partir do documento dono, com as mesmas regras do hover local; o intervalo
+continua no arquivo do cursor. Dono não-aberto, símbolo ambíguo ou
+assinatura sem formato fiel devolvem hover vazio (null), nunca texto errado.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
 `textDocument/references` devolve a declaração primeiro e depois os usos em

@@ -243,8 +243,15 @@ pub trait Analisador {
         None
     }
 
-    /// Referências conservadoras no próprio documento: declaração primeiro,
-    /// depois os usos, todos como spans em bytes UTF-8.
+    /// Hover entre os documentos abertos: resolve como a definição e formata
+    /// a descrição a partir do documento dono. O padrão delega ao próprio
+    /// documento. `None` é "não sei" (hover vazio), nunca texto errado.
+    fn hover_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+        let texto = documentos.get(uri)?;
+        self.hover(uri, texto, offset)
+    }
+
+    /// Referências conservadoras no próprio documento: declaração primeiro,    /// depois os usos, todos como spans em bytes UTF-8.
     ///
     /// Só responde nos mesmos casos seguros de [`Analisador::definicao`]
     /// (tipo, variável, função ou getter de topo únicos, sem imports nem
@@ -392,5 +399,9 @@ impl Analisador for AnalisadorSintatico {
 
     fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, dartforge_diagnostics::Span)>> {
         navegacao::referencias_em(documentos, uri, offset, self)
+    }
+
+    fn hover_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+        navegacao::hover_em(documentos, uri, offset, self)
     }
 }
