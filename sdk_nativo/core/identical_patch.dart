@@ -31,5 +31,13 @@ Object _dartforgeErroDeFaixa(int valor, int minimo, int maximo, String? nome) =>
 @pragma("vm:entry-point")
 Object _dartforgeErroDeEstado(String mensagem) => new StateError(mensagem);
 
+// A chamada de uma closure com aridade incompatível precisa lançar a classe
+// real do SDK; o id sintético 1012 do runtime não participa do despacho de
+// métodos nem do grafo de subtipos da biblioteca compilada da fonte.
+@pragma("vm:entry-point")
+Object _dartforgeErroDeChamada(String nome) =>
+    new NoSuchMethodError.withInvocation(
+        null, new Invocation.method(new Symbol(nome), const []));
+
 @pragma("vm:entry-point")
 Object _dartforgeRastroVazio() => StackTrace.empty;

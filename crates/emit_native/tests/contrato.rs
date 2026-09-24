@@ -67,6 +67,33 @@ fn literal_symbol_usa_classe_do_sdk_e_constante_canonica() {
     assert!(ir.contains("@dartforge_object_new"), "Symbol não alocado como objeto do SDK");
 }
 
+/// O erro de aridade de uma closure deve ser a classe real do SDK e ter um
+/// `toString` utilizável pelo programa; o texto detalhado da VM ainda varia
+/// conforme o nome e a assinatura da função.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn aridade_closure_lanca_no_such_method_error_da_fonte() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("arity_nsm.dart");
+    let exe = dir.path().join("arity_nsm.exe");
+    std::fs::write(&entrada, include_str!("fixtures/arity_nsm.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None,
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"), "true\ntrue\n");
+}
+
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]

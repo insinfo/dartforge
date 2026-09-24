@@ -204,7 +204,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("List_slice"),
     runtime("Mint_bitLength"),
     runtime("Mint_bitNegate"),
-    pendente("NoSuchMethodError_existingMethodSignature"),
+    runtime("NoSuchMethodError_existingMethodSignature"),
     runtime("Object_equals"),
     runtime("Object_getHash"),
     runtime("Object_haveSameRuntimeType"),

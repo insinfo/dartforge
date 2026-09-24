@@ -443,6 +443,9 @@ jobs:
           args: --nativo --jobs 4
           nativo: 'true'
           aceitar-placar-parcial: 'true'
+      - name: Aridade de closure lança NoSuchMethodError da fonte
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato aridade_closure_lanca_no_such_method_error_da_fonte -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).
