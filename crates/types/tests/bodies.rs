@@ -616,6 +616,46 @@ fn operador_binario_em_override_do_oraculo() {
 }
 
 #[test]
+fn operadores_de_indice_em_override_do_oraculo() {
+    let casos: &[(&str, &[&str])] = &[
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasGetter.dart")), &[]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasNone.dart")), &["[]"]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasSetter.dart")), &["[]"]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSe_517d7597.dart")), &["[]"]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSe_eb3ada23.dart")), &["[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSet_hasBoth.dart")), &[]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSet_hasNone.dart")), &["[]", "[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasGetter.dart")), &["[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasNone.dart")), &["[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasSetter.dart")), &[]),
+    ];
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    for (fonte, esperados) in casos {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let mut encontrados: Vec<_> = diags.iter()
+            .filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template))
+            .map(|d| {
+                let operador = if d.message.contains("'[]='") { "[]=" } else { "[]" };
+                (operador, d.span.start, d.span.end)
+            })
+            .collect();
+        encontrados.sort();
+        let inicio = fonte.find("[0]").unwrap();
+        let mut esperado: Vec<_> = esperados.iter().map(|nome| (*nome, inicio, inicio + 3)).collect();
+        esperado.sort();
+        assert_eq!(encontrados, esperado, "{diags:?}");
+    }
+}
+
+#[test]
 fn campo_final_sem_setter_e_late_final_atribuivel() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
