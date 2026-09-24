@@ -384,7 +384,14 @@ pub extern "C" fn dartforge_nativo_DartForge_double_truncate(this: f64) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_modulo(this: f64, outro: f64) -> f64 {
     let r = this % outro;
-    if r < 0.0 { r + outro.abs() } else { r }
+    if r < 0.0 {
+        r + outro.abs()
+    } else if r == 0.0 {
+        // A VM normaliza -0.0 para +0.0 no módulo; remainder preserva o sinal.
+        0.0
+    } else {
+        r
+    }
 }
 
 /// `_Double._remainder(other)`: o resto com o sinal do dividendo.
@@ -624,5 +631,20 @@ mod testes_runtime_type {
         assert_eq!(tipo_numero, dartforge_nativo_Object_runtimeType(dartforge_box_int(9)));
         assert_ne!(tipo_numero, dartforge_nativo_Object_runtimeType(texto));
         assert_eq!(tipo_numero, dartforge_rti_objeto_tipo(dartforge_rti_do_valor(numero)));
+    }
+}
+
+#[cfg(test)]
+mod testes_modulo_double {
+    use super::dartforge_nativo_DartForge_double_modulo as modulo;
+
+    #[test]
+    fn segue_sinais_e_zero_da_vm() {
+        assert_eq!(modulo(-7.5, 2.0), 0.5);
+        assert_eq!(modulo(-7.5, -2.0), 0.5);
+        assert_eq!(modulo(7.5, -2.0), 1.5);
+        assert_eq!(modulo(-7.5, f64::INFINITY), f64::INFINITY);
+        assert_eq!(modulo(-0.0, 2.0).to_bits(), 0.0f64.to_bits());
+        assert!(modulo(7.5, 0.0).is_nan());
     }
 }

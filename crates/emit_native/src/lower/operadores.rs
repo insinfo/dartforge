@@ -290,6 +290,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 BinaryOp::Sub => self.emit(Instruction::FSub(a, b), Type::F64),
                 BinaryOp::Mul => self.emit(Instruction::FMul(a, b), Type::F64),
                 BinaryOp::Div => self.emit(Instruction::FDiv(a, b), Type::F64),
+                BinaryOp::Rem => self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_nativo_DartForge_double_modulo".to_string(),
+                        args: vec![(a, Type::F64), (b, Type::F64)],
+                        ret_ty: Type::F64,
+                    },
+                    Type::F64,
+                ),
                 BinaryOp::TruncDiv => {
                     let q = self.emit(Instruction::FDiv(a, b), Type::F64);
                     self.emit(Instruction::DoubleToInt(q), Type::I64)
@@ -309,7 +317,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::Sub => self.emit(Instruction::Sub(lop, rop), Type::I64),
             BinaryOp::Mul => self.emit(Instruction::Mul(lop, rop), Type::I64),
             BinaryOp::TruncDiv => self.emit_trunc_div(lop, rop),
-            BinaryOp::Rem => self.emit(Instruction::SRem(lop, rop), Type::I64),
+            BinaryOp::Rem => self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_nativo_Integer_moduloFromInteger".to_string(),
+                    args: vec![(rop, Type::I64), (lop, Type::I64)],
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            ),
             BinaryOp::Shl => self.emit(Instruction::Shl(lop, rop), Type::I64),
             BinaryOp::Shr => self.emit(Instruction::AShr(lop, rop), Type::I64),
             BinaryOp::UShr => self.emit(Instruction::LShr(lop, rop), Type::I64),
