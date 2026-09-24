@@ -653,6 +653,16 @@ fn operadores_de_indice_em_override_do_oraculo() {
         esperado.sort();
         assert_eq!(encontrados, esperado, "{diags:?}");
     }
+    let fonte = "class A {} extension E on A {} void f(A a) { E(a) /* [ */ [0]; }";
+    let mut interner = Interner::new();
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let operador = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
+    assert_eq!(operador.span.start, fonte.rfind("[0]").unwrap());
 }
 
 #[test]
