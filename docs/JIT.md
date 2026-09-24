@@ -364,7 +364,8 @@ geração vem do tracker, que é o que o LLVM oferece para isso.
 
 1. **Preparar**, sem tocar no que está executando: analisar o IR novo, ler a
    impressão digital do contrato e compará-la com a da versão viva, conferir que
-   toda referência externa é resolvível, versionar as implementações e entregar o
+   toda referência externa é resolvível (inclusive pelas exportações da DLL do
+   SDK da fonte carregada nesta sessão), versionar as implementações e entregar o
    módulo à `LLJIT` sob um tracker novo.
 2. **Publicar**: materializar as implementações (aqui é onde o código nativo é
    gerado e ligado em memória) e **só então** escrever os novos ponteiros nas

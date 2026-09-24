@@ -62,7 +62,7 @@
 //!
 //! Gerações antigas **não são liberadas**. Ver [`JitSession::hot_reload`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -478,7 +478,7 @@ impl JitSession {
                 .filter(|(index, module)| !module.removed && Some(*index) != plain)
                 .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str())),
         );
-        check_references(&references, &known, &self.reloadables).map_err(|message| JitError {
+        check_references(&references, &known, &self.reloadables, &self.externos_do_sdk).map_err(|message| JitError {
             stage: "contract",
             message,
         })?;
@@ -846,9 +846,11 @@ fn check_references(
     references: &[String],
     defined: &[&str],
     reloadables: &[Reloadable],
+    externos_do_sdk: &HashSet<String>,
 ) -> Result<(), String> {
     for reference in references {
         if ffi::is_known_external(reference)
+            || externos_do_sdk.contains(reference)
             || defined.contains(&reference.as_str())
             || reloadables
                 .iter()
@@ -858,7 +860,8 @@ fn check_references(
         }
         return Err(format!(
             "o código novo chama {reference}, que esta sessão não define; \
-             o JIT publica apenas a tabela do runtime, a CRT listada e as entradas estáveis já criadas"
+             o JIT publica a tabela do runtime, a CRT listada, as exportações carregadas do SDK \
+             e as entradas estáveis já criadas"
         ));
     }
     Ok(())
@@ -987,6 +990,7 @@ mod tests {
             &["dartforge_print_i64".to_owned(), "minha_ffi".to_owned()],
             &["df_fn_0"],
             &[],
+            &HashSet::new(),
         )
         .unwrap_err();
         assert!(erro.contains("minha_ffi"), "{erro}");
@@ -994,10 +998,20 @@ mod tests {
             check_references(
                 &["dartforge_print_i64".to_owned(), "df_fn_0".to_owned()],
                 &["df_fn_0"],
-                &[]
+                &[],
+                &HashSet::new(),
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn references_accept_exports_of_the_sdk_loaded_in_this_session() {
+        let mut externos = HashSet::new();
+        externos.insert("df.sdk_teste".to_owned());
+        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &externos).is_ok());
+        let erro = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &externos).unwrap_err();
+        assert!(erro.contains("df.sdk_ausente"), "{erro}");
     }
 
     /// Ciclo completo sobre IR direto, sem passar pelo front-end Dart.
