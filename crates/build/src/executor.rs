@@ -236,6 +236,20 @@ impl<'a> ServicoAcao<'a> {
         std::fs::read(self.caminho(id)?).ok().map(Arc::from)
     }
 
+    fn disponivel(&self, id: &AssetId) -> bool {
+        let Some(fase) = self.grafo.acoes.get(self.acao).map(|a| a.fase) else { return false };
+        if let Some(g) = self.grafo.gerados.get(id) {
+            return if g.fase > fase {
+                false
+            } else if g.fase == fase {
+                g.acao == self.acao && self.escritas.contains_key(id)
+            } else {
+                self.memoria.contains_key(id)
+            };
+        }
+        self.grafo.tem_fonte(id) && self.caminho(id).is_some_and(|p| p.is_file())
+    }
+
     fn registrar(&mut self, id: &AssetId, existe: bool, bytes: Option<&[u8]>) {
         if let Some(p) = self.caminho(id) {
             let c = if existe { Consulta::Existe(p) } else { Consulta::Arquivo(p) };
@@ -247,9 +261,9 @@ impl<'a> ServicoAcao<'a> {
 
 impl ServicoBuildStep for ServicoAcao<'_> {
     fn can_read(&mut self, id: &AssetId) -> bool {
-        let b = self.bytes(id);
-        self.registrar(id, true, b.as_deref());
-        b.is_some()
+        let sim = self.disponivel(id);
+        self.registrar(id, true, sim.then_some(&[]));
+        sim
     }
 
     fn ler(&mut self, id: &AssetId) -> Option<Arc<[u8]>> {
