@@ -1096,6 +1096,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
+        // As factories `const` de ambiente são resolvidas pela CFE na
+        // compilação. A CLI nativa ainda não aceita `-D`, portanto nenhuma
+        // chave foi definida e vale o `defaultValue` especificado pelo SDK.
+        // Nunca chamamos o native da VM para essas factories.
+        if f.const_ && !super::funcao_do_usuario(self.ctx, fid) {
+            let nome = self.ctx.symbol_name(f.name);
+            let classe = if Some(cid) == self.ctx.core.bool_class {
+                Some("bool")
+            } else if Some(cid) == self.ctx.core.int_class {
+                Some("int")
+            } else if Some(cid) == self.ctx.core.string_class {
+                Some("String")
+            } else {
+                None
+            };
+            if classe == Some("bool") && nome == "hasEnvironment" {
+                return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1);
+            }
+            if nome == "fromEnvironment" {
+                if let Some(classe) = classe {
+                    if let Some(valor) = args.iter().find(|a| {
+                        a.name.as_ref().is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")
+                    }) {
+                        return self.lower_em_contexto_const(ast, valor.value);
+                    }
+                    return match classe {
+                        "bool" => self.emit(Instruction::Const(Constant::Bool(false)), Type::I1),
+                        "int" => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
+                        _ => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
+                    };
+                }
+            }
+        }
         // RTI: o tipo estático da criação (`C<T…>`), gravado por quem chama.
         let tipo = self.tipo_da_criacao.take();
         if !super::funcao_do_usuario(self.ctx, fid) {
