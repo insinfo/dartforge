@@ -148,7 +148,9 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         })).map_err(ErroExecutor)?;
         let resposta = self.receber(id, "build.resultado", servico)?;
         let mut saidas = Vec::new();
-        for saida in resposta.get("saidas").and_then(Value::as_array).into_iter().flatten() {
+        let lista = resposta.get("saidas").and_then(Value::as_array)
+            .ok_or_else(|| ErroExecutor("build.resultado sem lista de saídas".into()))?;
+        for saida in lista {
             let asset = saida.get("asset").and_then(Value::as_str).and_then(AssetId::de_texto)
                 .ok_or_else(|| ErroExecutor("resultado com AssetId inválido".into()))?;
             let bytes = saida.get("bytes_base64").and_then(Value::as_str)
@@ -158,7 +160,9 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         let logs = resposta.get("logs").and_then(Value::as_array).into_iter().flatten().map(|log|
             (log.get("nivel").and_then(Value::as_str).unwrap_or("info").to_string(),
              log.get("mensagem").and_then(Value::as_str).unwrap_or("").to_string())).collect();
-        Ok(ResultadoAcao { saidas, logs, falhou: resposta.get("falhou").and_then(Value::as_bool).unwrap_or(false) })
+        let falhou = resposta.get("falhou").and_then(Value::as_bool)
+            .ok_or_else(|| ErroExecutor("build.resultado sem indicador falhou".into()))?;
+        Ok(ResultadoAcao { saidas, logs, falhou })
     }
 
     fn encerrar(&mut self) {
@@ -261,5 +265,23 @@ mod testes {
             assert!(cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).is_err());
             assert!(matches!(cliente.disponibilidade(), Disponibilidade::Indisponivel(_)));
         }
+    }
+
+    #[test]
+    fn resultado_build_incompleto_nao_vira_sucesso() {
+        let canal = CanalFalso {
+            recebidas: [
+                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
+                json!({"t":"build.carregado","id":1}),
+                json!({"t":"build.resultado","id":2,"falhou":false}),
+            ].into(),
+            enviadas: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut cliente = ClienteBuild::novo(canal);
+        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
+        let pedido = PedidoAcao { fase: 0, chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(),
+            raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: Vec::new() };
+        let mut servico = ServicoFalso { escritas: Vec::new() };
+        assert!(cliente.executar(&pedido, &mut servico).is_err());
     }
 }
