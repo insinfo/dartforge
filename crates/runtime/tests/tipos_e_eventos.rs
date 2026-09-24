@@ -22,6 +22,20 @@ fn numa_thread(f: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new().stack_size(16 << 20).spawn(f).unwrap().join().unwrap();
 }
 
+#[test]
+fn campo_late_distingue_valor_zero_de_ausencia_de_escrita() {
+    numa_thread(|| {
+        let primeiro = dartforge_object_new(1, 1);
+        let segundo = dartforge_object_new(1, 1);
+        assert_eq!(dartforge_late_field_initialized(primeiro, 0), 0);
+        dartforge_object_set(primeiro, 0, 0, 0);
+        dartforge_late_field_mark_initialized(primeiro, 0);
+        assert_eq!(dartforge_late_field_initialized(primeiro, 0), 1);
+        assert_eq!(dartforge_object_get(primeiro, 0), 0);
+        assert_eq!(dartforge_late_field_initialized(segundo, 0), 0);
+    });
+}
+
 /// Subtipagem (especificação, "Subtypes"): classes com argumentos pelas
 /// regras de supertipo, anuláveis, `FutureOr`, funções (parâmetros
 /// contravariantes), e a avaliação de uma receita com `P<i>` no tipo de

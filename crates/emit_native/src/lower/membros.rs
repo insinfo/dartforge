@@ -305,6 +305,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             },
         };
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        let late_sem_init = var.late && self.variable_initializer_em(vid).is_none();
+        let late_final = late_sem_init && var.final_;
+        let nome = self.ctx.symbol_name(var.name).to_string();
+        if late_final {
+            let ja_inicializado = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_initialized".to_string(),
+                    args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let ja_inicializado = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ja_inicializado, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_gravar = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: ja_inicializado,
+                then_block: b_erro,
+                else_block: b_gravar,
+            });
+            self.set_block(b_erro);
+            self.lancar_erro_late(&nome, 1);
+            self.set_block(b_gravar);
+        }
         let repr = self.repr_do_campo(vid);
         let val = self.coagir(val, repr);
         let (bits, is_ref) = self.para_bits(val);
@@ -312,8 +340,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Instruction::CallRuntime {
                 name: "dartforge_object_set".to_string(),
                 args: vec![
-                    (obj, Type::Ref),
-                    (idx, Type::I64),
+                    (obj.clone(), Type::Ref),
+                    (idx.clone(), Type::I64),
                     (bits, Type::I64),
                     (
                         Operand::Constant(Constant::Int(i64::from(is_ref))),
@@ -324,6 +352,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
+        if late_sem_init {
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_mark_initialized".to_string(),
+                    args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
     }
 
     /// Campo de instância pelo nome, na própria classe (alvo de `this.x` e
@@ -676,6 +714,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let dartforge_elements::model::VariableRef::Field { unit, .. } = var.node else {
             return atual;
         };
+        if self.variable_initializer_em(vid).is_none() {
+            let idx = match self.indice_campo(vid) {
+                Some(i) => Operand::Constant(Constant::Int(i as i64)),
+                None => match self.indice_dinamico(obj.clone(), vid, span) {
+                    Some(i) => i,
+                    None => return self.nao_suportado("campo late fora do layout", span),
+                },
+            };
+            let inicializado = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_initialized".to_string(),
+                    args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let vazio = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, inicializado, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_ler = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: vazio, then_block: b_erro, else_block: b_ler });
+            self.set_block(b_erro);
+            let nome = self.ctx.symbol_name(var.name).to_string();
+            self.lancar_erro_late(&nome, 0);
+            self.set_block(b_ler);
+            return atual;
+        }
         let Some(init) = self.variable_initializer_em(vid) else {
             return atual;
         };
