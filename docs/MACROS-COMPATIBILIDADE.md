@@ -157,7 +157,10 @@ somente a URI do pacote do fixture. O builder opt-in grava `modelos.macro.dart`
 com cabeçalho relativo `augment library 'modelos.dart';`, mas só se as duas
 fases terminarem sem erro. O `build_runner` concluiu 8 ações e 9 saídas no
 fixture, sem realimentar o `.macro.dart` como entrada. O consumo pelo DartForge
-ainda precisa de CI dirigida.
+é verificado no job pesado de macros: o builder materializa o caso 410,
+`compile-js` carrega o arquivo por `import augment`, e o Node precisa imprimir
+as mesmas linhas que a VM oficial com macro no fonte original. A fonte do
+fixture é restaurada depois da prova; o oráculo original não é alterado.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
