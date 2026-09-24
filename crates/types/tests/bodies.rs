@@ -540,6 +540,7 @@ fn referencia_a_construtor_gerador_de_enum_nao_e_construtor_ausente() {
     for (fonte, expr, sufixo) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_f77bae06.dart")), "E.new", ";"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_24430155.dart")), "E.named", ";"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_3e9c8dca.dart")), "E.named", "();"),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, fonte).unwrap();

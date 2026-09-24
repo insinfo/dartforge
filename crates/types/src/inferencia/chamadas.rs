@@ -292,6 +292,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     let explicitos = argumentos_de_tipo(inf, cx, args);
     // Construtor sem `new`.
     if let Some((c, f, targs)) = alvo_construtor(inf, cx, target) {
+        if inf.program.class(c).kind == ClassKind::Enum
+            && f.is_some_and(|f| !inf.program.function(f).factory)
+        {
+            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), a.expr(target).span);
+            for arg in args.args.iter() {
+                inferir_livre(inf, cx, arg.value);
+            }
+            return (inf.core.dynamic_, false);
+        }
         let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
         return (t, false);
     }
