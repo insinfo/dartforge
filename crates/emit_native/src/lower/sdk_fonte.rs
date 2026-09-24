@@ -31,6 +31,7 @@ use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, FunctionKind, LibraryId, VariableId};
 use dartforge_frontend::ast::ParameterKind;
+use dartforge_types::table::{Type as DartType, TypeParamOwner};
 
 /// O que o seletor faz com o membro.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -744,6 +745,23 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
                 };
                 let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
                 let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coagir(v, r)).collect();
+                // A VM confere os parâmetros covariantes na entrada do método,
+                // antes de executar `add`/`[]=`. `List<int>` acessada por uma
+                // referência `List<num>` conserva o argumento reificado `int`:
+                // permitir `2.5` aqui e conferir só em `_setIndexed` já teria
+                // alterado o tamanho da lista antes de lançar.
+                if ctx.program.library(f.library).is_sdk {
+                    b.this_param = Some(recv.clone());
+                    b.enclosing_class = f.class;
+                    for (p, v) in ctx.outline.functions[fid].parameters.iter().zip(&vals) {
+                        if let DartType::TypeParameter { param, .. } = ctx.table.get(p.ty)
+                            && matches!(ctx.table.param(*param).owner, TypeParamOwner::Class(c) if Some(c) == f.class)
+                        {
+                            let tipo = b.rti_de_tipo(p.ty);
+                            b.cast_rti(v.clone(), tipo);
+                        }
+                    }
+                }
                 if b.funcao_generica(fid) {
                     let npos = b.emit(
                         Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) },

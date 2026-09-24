@@ -783,19 +783,20 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     if !smi::e_handle(obj) {
         return;
     }
-    // O lowering de um literal usa o tipo estático `List<E>`, mas o objeto
-    // do heap é `_GrowableList<E>` (ou `_List<E>` quando fixo). Métodos do
-    // SDK nessas classes avaliam `P0` sobre a classe concreta; conservar
-    // apenas `List<E>` perderia E em chamadas como `lista.toList()`.
-    let classe_lista = HEAP.with(|h| matches!(h.borrow().get(obj), Value::List(_)))
-        .then(|| cid_do_runtime(obj))
-        .flatten();
-    let tipo = if let Some(classe) = classe_lista {
+    // O lowering dos literais reifica `List<E>`, `Map<K,V>` ou `Set<E>`, mas
+    // os objetos pertencem às classes concretas do SDK. Os métodos dessas
+    // classes (e de seus mixins) avaliam `P<i>` a partir do receptor.
+    let classe_concreta = HEAP.with(|h| match h.borrow().get(obj) {
+        Value::Object { class_id, .. } => Some(*class_id),
+        _ => cid_do_runtime(obj),
+    });
+    let tipo = if let Some(classe) = classe_concreta {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
-            match u.tipo(tipo) {
-                Tipo::Interface(c, args) if *c == u.rt.list => {
-                    let args = args.clone();
+            match u.tipo(tipo).clone() {
+                Tipo::Interface(c, args) if c != classe && [u.rt.list, u.rt.map, u.rt.set].contains(&c)
+                    && u.como_supertipo(classe, &args, c).as_deref() == Some(args.as_slice()) =>
+                {
                     u.internar(Tipo::Interface(classe, args))
                 }
                 _ => tipo,
@@ -910,7 +911,14 @@ pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(&s))))
 }
 
-/// `TypeError` com a mensagem (o layout do runtime: mensagem e rastro).
+/// `TypeError` com a mensagem. No SDK da fonte, a exceção precisa ser a classe
+/// `_TypeError` real para `e is TypeError` e o despacho de `toString`.
 fn dartforge_type_error_com_mensagem(mensagem: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeTipo") {
+        // SAFETY: o helper registrado pelo `dart:core` recebe String e
+        // devolve a instância concreta de `_TypeError`.
+        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[mensagem], || g(mensagem));
+    }
     alocar_erro_com_rastro(1011, vec![(mensagem, true)])
 }

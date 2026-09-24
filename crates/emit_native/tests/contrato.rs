@@ -175,6 +175,33 @@ fn getter_de_interface_despacha_campo_e_getter() {
                "r2: bip r2\nloro: currupaco\n");
 }
 
+/// O argumento reificado da coleção, e não o tipo da referência covariante,
+/// protege a mutação antes de alterar List, Map ou Set.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("covariant_collection_write.dart");
+    let exe = dir.path().join("covariant_collection_write.exe");
+    std::fs::write(&entrada, include_str!("fixtures/covariant_collection_write.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "true\n[1]\ntrue\n{a: 1}\ntrue\n{1}\n");
+}
+
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]
