@@ -17,14 +17,16 @@ e testes pequenos; o corpus e o link de produção rodam no GitHub Actions.
 Na rodada de validação, [CI 35965411301](https://github.com/insinfo/dartforge/actions/runs/35965411301)
 e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225)
 passaram. O executável autocontido em produção passou após a correção dos
-símbolos RTI; SDK da fonte: **108/223** tanto AOT quanto JIT. O corpus padrão
+símbolos RTI; após canonizar literais de string, [Pesado 35967809393](https://github.com/insinfo/dartforge/actions/runs/35967809393)
+mediu SDK da fonte: **109/223** tanto AOT quanto JIT. O corpus padrão
 segue **91/223**, JS desenvolvimento/produção **223/223**, Dart moderno
 **22/26**, macros **6/7**, com determinismo em 1/4/8 trabalhadores. P5c/P5d
-ainda não está completo: 115 casos do corpus do SDK da fonte falham.
+ainda não está completo: 114 casos do corpus do SDK da fonte falham.
 
-O analisador nesta branch mede apenas **1.445/26.133 (5,5%)** diagnósticos do
-oráculo na posição exata; as melhorias de `wip/paridade` ainda precisam ser
-integradas. O teste de navegador do bundle de produção continua vermelho no
+O analisador integrado passou em [CI 35967061037](https://github.com/insinfo/dartforge/actions/runs/35967061037)
+e [Pesado 35967060973](https://github.com/insinfo/dartforge/actions/runs/35967060973):
+**5.343/26.133 (20,4%)** diagnósticos na posição exata, ante 1.445/26.133
+antes do merge, com relatório idêntico em 1/4/8 trabalhadores. O teste de navegador do bundle de produção continua vermelho no
 bootstrap do `limitless_ui`; a poda de getters calculados do SDK está em
 correção separada.
 
@@ -68,7 +70,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
 
 | ramo | frente | estado no fim do dia | primeiro passo amanhã |
 | --- | --- | --- | --- |
-| `wip/paridade` (d558f16) | analisador em Rust (A1–A2 → L1) | acerto exato **5.647/26.133 (21,6%, era 7,4%)**; `unused_local_variable` 2.231/2.315, `duplicate_definition` 723/1.317, `unused_import` 112/153, `expected_token` 786/1.724; 3 códigos de enum publicados (100%, sem falso positivo); projetos reais 0/15/183 internos, nenhum publicado. CI 35941746401 verde; Pesado 35941746311 rodava no fechamento | confirmar o Pesado; parser recusar sintaxe 3.7+ em biblioteca 3.6 e recuperar erro como o parser oficial (um erro por token ruim) |
+| `wip/paridade` (integrada por `ci/paridade-integracao`) | analisador em Rust (A1–A2 → L1) | acerto exato **5.343/26.133 (20,4%)**; `unused_local_variable` 2.231/2.315, `duplicate_definition` 783/1.317, `unused_import` 112/153, `expected_token` 421/1.724. CI 35967061037 e Pesado 35967060973 verdes; determinismo 1/4/8 | corrigir os falsos positivos e negativos restantes; recuperação sintática e checagens de tipo |
 | `wip/inferencia` (de9b68b) | inferência (lacunas restantes) | b485cdf verde nos dois workflows (CI 35941571461, Pesado 35941571357). Avisos no `new_sali`: core **5**, frontend **19**, todos também dados pelo analyzer (17 em templates gerados, 6 `dead_code` já com `ignore`, 1 cast desnecessário por promoção de campo); divergências core **22**, frontend **45**; corpus **89/95**; sonda 6/7 (falta `unused_local_variable`) | `git merge main`; lacuna L03 (inferência horizontal em fases de dependência, gen14); depois L05, L20, L21, L28; `unused_local_variable` (sonda 7/7) e P6 |
 | `wip/nativo-sdk-fonte` (70ec1e4) | nativo P5c/P5d (SDK compilado da fonte) | merge do `main` concluído (13 conflitos: async/RTI, Dart moderno, macros), compila; testes de emit_native, runtime e elements passam local. Último verde: Pesado 35930483005 — padrão 82/223, SDK da fonte 84/223 (108/223 local antes do merge). Rodada atual vermelha: o link de produção autocontido pega o lld do LLVM 20 do runner, que não lê bitcode do LLVM 22 | ligar a produção com o `lld-link` explícito do LLVM do `DARTFORGE_CLANG` (`-fuse-ld=` com caminho), push em `ci/nativo-d2`, conferir padrão 91/223 e o primeiro placar do SDK da fonte pós-merge |
 
@@ -78,7 +80,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
    * Terminar P5c/P5d, o SDK compilado da fonte: DLL em cache no desenvolvimento, executável único estático com ThinLTO em produção.
    * Depois: extension types, `sync*`/`async*` restantes e isolates.
 2. **Inferência**: integrar o `wip/inferencia` (divergências 22/45, corpus 89/95; no `main` ainda 31/56 e 83/95) e fechar o resto; P6 (inferência e fluxo 3.7–3.10, `corpus/moderno` 350–352).
-3. **Analisador e LSP em Rust**: subir de 21,6% para a paridade.
+3. **Analisador e LSP em Rust**: subir de 20,4% para a paridade.
    * Primeiro a sintaxe (recuperação de erro igual à do parser oficial), depois os códigos de tipo.
    * Só publicar um código com 100% no corpus e zero falso positivo nos projetos reais.
    * Mensagens em inglês idênticas às do SDK.
@@ -395,12 +397,13 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
 * **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
   9.441 arquivos e 26.133 diagnósticos do oráculo, 376 s com 2
   trabalhadores.
-  * **5.647 na posição exata (21,6%), 5.358 com mensagem igual.** No começo
-    da rodada eram 1.935 (7,4%). Posição errada 538; FP 3.923; FN 19.948.
+  * **5.343 na posição exata (20,4%), 5.054 com mensagem igual**, medidos
+    pelo Pesado 35967060973. Antes da integração eram 1.445 (5,5%).
+    Posição errada 518; FP 4.369; FN 20.272.
   * `unused_local_variable` 2.231/2.315 (FP 9);
-    `duplicate_definition` 723/1.317 (FP 69; quase todo o resto é sintaxe de
+    `duplicate_definition` 783/1.317 (quase todo o resto é sintaxe de
     augmentation e construtor primário, que o 3.6.2 analisa de outro jeito);
-    `expected_token` 786/1.724; `values_declaration_in_enum` 13/13;
+    `expected_token` 421/1.724; `values_declaration_in_enum` 13/13;
     `conflicting_static_and_instance` 39/266 (os 227 que faltam dependem da
     interface herdada).
   * FN maiores: `expected_executable` 1.236 e
