@@ -332,6 +332,14 @@ pub enum PerfilDoSdk {
     Producao,
 }
 
+/// A DLL do SDK da fonte (perfil de desenvolvimento) para o SDK instalado e
+/// o Clang de sempre: é o que o JIT carrega (`crates/jit`, `DARTFORGE_SDK_DLL`).
+pub fn dll_do_sdk_da_fonte() -> Result<PathBuf, String> {
+    let dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+    let clang = crate::driver::NativeDriverOptions::default().clang;
+    Ok(sdk_compilado(&dir, &clang)?.dll)
+}
+
 /// Os objetos do SDK da fonte: do cache (`<cache nativo>/sdk/<chave>/`), ou
 /// compilados agora — uma vez por conteúdo, as bibliotecas em paralelo.
 pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, String> {

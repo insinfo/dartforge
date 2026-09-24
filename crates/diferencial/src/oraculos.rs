@@ -505,7 +505,23 @@ pub fn dartforge_jit(amb: &Ambiente, programa: &Programa, dir: &Path, com_aot: b
     let limite = amb.limite_nativo + FOLGA_GERACAO_JIT;
     let inicio = std::time::Instant::now();
     // `--gc-stress` vale para os dois perfis, como no `--nativo`.
-    let ambiente: &[(&str, &str)] = if amb.gc_stress { &[("DARTFORGE_GC_STRESS", "1")] } else { &[] };
+    let mut ambiente_v: Vec<(&str, String)> = Vec::new();
+    if amb.gc_stress {
+        ambiente_v.push(("DARTFORGE_GC_STRESS", "1".to_string()));
+    }
+    // Programa com o SDK da fonte (P5c/P5d): o executor carrega a DLL do SDK
+    // compilado (a mesma que o AOT importa).
+    if ir.contains("declare void @df.registrar.") {
+        match dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte() {
+            Ok(dll) => ambiente_v.push(("DARTFORGE_SDK_DLL", dll.to_string_lossy().into_owned())),
+            Err(e) => {
+                let saida = Saida { stdout: String::new(), stderr: format!("[compile-native] SDK da fonte: {e}"), codigo: 1 };
+                return (saida, ExecucaoJit { com_ir: true, tempo: Duration::ZERO, execucao: None, aot: None });
+            }
+        }
+    }
+    let ambiente_ref: Vec<(&str, &str)> = ambiente_v.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let ambiente: &[(&str, &str)] = &ambiente_ref;
     let mut jit = executar_com_ambiente(
         &executor.to_string_lossy(),
         &[ll.to_string_lossy().into_owned(), "--timings".to_string()],

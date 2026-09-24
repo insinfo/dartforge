@@ -265,6 +265,20 @@ jobs:
           args: --nativo --jobs 4
           nativo: 'true'
           aceitar-placar-parcial: 'true'
+      # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
+      # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
+      # nativo do portão de custo (comparar com o job `jit`).
+      - uses: ./.github/actions/harness
+        env:
+          DARTFORGE_CACHE_OBJ: '0'
+        with:
+          nome: sdk-fonte-jit
+          titulo: JIT × AOT com o SDK da fonte
+          args: --jit-aot --jobs 1
+          nativo: 'true'
+          jit: 'true'
+          aceitar-placar-parcial: 'true'
+          exige: '^JIT × AOT: '
       - name: Produção autocontida (um .exe, sem DLL do DartForge)
         shell: pwsh
         env:

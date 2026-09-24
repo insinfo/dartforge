@@ -190,3 +190,23 @@ com a chave `x_=` do setter). Nada muda para quem não usa patch de classe com
 campo; os testes de `dartforge-elements` passam. O teste
 `sobreposicao_do_nativo_troca_os_patches_e_carrega` (`sdk.rs`, de δ) conta as
 trocas novas da sobreposição (`print_patch.dart`, `string_buffer_patch.dart`).
+
+## δ (P5d) → ζ (P8, `crates/jit`): o JIT com o SDK da fonte (feito, registro)
+
+**Por quê:** a troca (P5d) põe o SDK da fonte no caminho padrão, e o perfil
+de desenvolvimento (JIT) tem de rodar o mesmo IR. Com o SDK da fonte o IR do
+programa referencia os símbolos do SDK e do runtime que moram na DLL em cache
+(`dfsdk_<chave>.dll`, com `exportados.def` ao lado), e o `main` do programa
+chama `dartforge_iniciar` dessa DLL.
+
+**O que o δ fez (mínimo):** `JitSession::new_com_sdk(dll, usados)` carrega a
+DLL (`LoadLibraryW`) e publica na sessão só os nomes que o IR declara
+(`GetProcAddress`), no lugar do runtime deste processo — duas cópias do estado
+do runtime não conversariam; `run_main` executa o `main` numa thread nova;
+`run_ir` escolhe pelo IR (`declare void @df.registrar.`) e lê a DLL de
+`DARTFORGE_SDK_DLL`, que o harness (`oraculos.rs`) põe no ambiente do
+executor; as globais `[2 x i64]` (o cache de um ponto de chamada por seletor)
+são zeradas entre execuções como as outras. Medido (debug): hello world pelo
+JIT com o SDK da fonte em 55 ms (lookup 8,5 ms; publicar os ~11 mil nomes
+da DLL levava 7 s, por isso só os usados). Para P8: a sessão persistente pode
+carregar a mesma DLL uma vez e reaproveitar.

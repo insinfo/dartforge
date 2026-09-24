@@ -205,6 +205,10 @@ pub struct JitSession {
     poisoned: Option<String>,
     /// Identidade da sessão, para que uma [`StableEntry`] não cruze sessões.
     id: u64,
+    /// SDK da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.7): os nomes que a DLL
+    /// do SDK exporta (runtime e bibliotecas), publicados na sessão no lugar
+    /// do runtime deste processo. Vazio no caminho de sempre.
+    externos_do_sdk: std::collections::HashSet<String>,
     lljit: ffi::Lljit,
 }
 
@@ -256,8 +260,43 @@ impl JitSession {
             reloadables: Vec::new(),
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            externos_do_sdk: std::collections::HashSet::new(),
             lljit,
         })
+    }
+
+    /// Uma sessão para um programa com o SDK da fonte: o runtime e as
+    /// bibliotecas do SDK vêm da DLL do SDK compilado (`dll`, com o
+    /// `exportados.def` ao lado), carregada neste processo — o runtime deste
+    /// processo não é publicado (duas cópias do estado do runtime não
+    /// conversariam). O programa roda pelo `main` que o emissor escreve
+    /// ([`run_ir`]).
+    pub fn new_com_sdk(dll: &std::path::Path, usados: &[String]) -> Result<Self, JitError> {
+        let lljit = ffi::Lljit::new()
+            .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
+        let nomes = lljit
+            .define_symbols_from_dll(dll, usados)
+            .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
+        Ok(Self {
+            modules: Vec::new(),
+            reloadables: Vec::new(),
+            poisoned: None,
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            externos_do_sdk: nomes.into_iter().collect(),
+            lljit,
+        })
+    }
+
+    /// Executa o `main` do programa com o SDK da fonte (que chama
+    /// `dartforge_iniciar` da DLL): o código de saída é o dele.
+    pub fn run_main(&self) -> Result<EntryReport, JitError> {
+        let started = Instant::now();
+        let (lookup, exit_code, execute) = self
+            .lljit
+            .run_main(PROGRAM_STACK_BYTES)
+            .map_err(|detail| JitError::new("execute", "a execução do programa falhou", detail))?;
+        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
     /// Versão da `LLVM-C.dll` carregada neste processo, `(major, minor, patch)`.
@@ -345,6 +384,7 @@ impl JitSession {
         let defined = self.defined_names();
         if let Some(unknown) = parsed.declarations().into_iter().find(|reference| {
             !ffi::is_known_external(reference)
+                && !self.externos_do_sdk.contains(reference.as_str())
                 && !defined.contains(&reference.as_str())
                 && !signatures.iter().any(|s| &s.name == reference)
         }) {
@@ -622,10 +662,30 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
-    let mut session = JitSession::new()?;
+    // Programa com o SDK da fonte (a entrada chama o registro das bibliotecas
+    // do SDK): a sessão carrega a DLL do SDK que `DARTFORGE_SDK_DLL` indica.
+    let com_sdk = ir.contains("declare void @df.registrar.");
+    let mut session = if com_sdk {
+        let dll = std::env::var_os("DARTFORGE_SDK_DLL").ok_or_else(|| {
+            JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
+        })?;
+        // Só os nomes que o IR declara (a DLL exporta dezenas de milhares).
+        let usados: Vec<String> = ir
+            .lines()
+            .filter_map(|l| {
+                let r = l.strip_prefix("declare ")?;
+                let i = r.find('@')? + 1;
+                let f = r[i..].find('(')? + i;
+                Some(r[i..f].to_string())
+            })
+            .collect();
+        JitSession::new_com_sdk(std::path::Path::new(&dll), &usados)?
+    } else {
+        JitSession::new()?
+    };
     let session_time = phase.elapsed();
     let module = session.add_ir_module("dartforge", ir)?;
-    let entry = session.run_entry()?;
+    let entry = if com_sdk { session.run_main()? } else { session.run_entry()? };
     drop(session);
     Ok(JitReport {
         session: session_time,

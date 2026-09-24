@@ -989,6 +989,78 @@ impl Drop for Lljit {
     }
 }
 
+// ─── SDK da fonte (DLL) ────────────────────────────────────────────────────
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn LoadLibraryW(nome: *const u16) -> *mut std::ffi::c_void;
+    fn GetProcAddress(modulo: *mut std::ffi::c_void, nome: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+}
+
+impl Lljit {
+    /// Carrega a DLL do SDK da fonte e publica na sessão o endereço de cada
+    /// nome que ela exporta (a lista é o `exportados.def` ao lado dela).
+    /// Devolve os nomes.
+    ///
+    /// # Erros
+    /// DLL ou lista ausente, ou um nome da lista que a DLL não exporta.
+    pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, usados: &[String]) -> Result<Vec<String>, String> {
+        use std::os::windows::ffi::OsStrExt;
+        let def = dll.with_file_name("exportados.def");
+        let texto = std::fs::read_to_string(&def).map_err(|e| format!("{}: {e}", def.display()))?;
+        let nomes: Vec<String> = texto
+            .lines()
+            .skip_while(|l| l.trim() != "EXPORTS")
+            .skip(1)
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && usados.contains(l))
+            .collect();
+        let largo: Vec<u16> = dll.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `largo` é um caminho terminado em zero; a DLL fica carregada
+        // até o fim do processo (nunca é descarregada).
+        let modulo = unsafe { LoadLibraryW(largo.as_ptr()) };
+        if modulo.is_null() {
+            return Err(format!("LoadLibraryW falhou para {}", dll.display()));
+        }
+        let mut pares = Vec::with_capacity(nomes.len());
+        for n in &nomes {
+            let c = CString::new(n.as_str()).map_err(|_| format!("nome com byte nulo: {n}"))?;
+            // SAFETY: `modulo` é o handle carregado acima e `c` termina em zero.
+            let p = unsafe { GetProcAddress(modulo, c.as_ptr()) };
+            if p.is_null() {
+                return Err(format!("a DLL do SDK não exporta {n}"));
+            }
+            pares.push((c, p as u64));
+        }
+        let emprestados: Vec<(&CStr, u64)> = pares.iter().map(|(n, a)| (n.as_c_str(), *a)).collect();
+        self.define_absolute(&emprestados, exported_callable())?;
+        self.define_absolute(&crt_data_symbols(), exported_data())?;
+        Ok(nomes)
+    }
+
+    /// Resolve o `main` do programa (SDK da fonte) e o executa numa thread
+    /// nova com pilha de `stack_bytes`; o código é o que ele devolve.
+    pub(crate) fn run_main(&self, stack_bytes: usize) -> Result<(Duration, i32, Duration), String> {
+        let phase = Instant::now();
+        let address = usize::try_from(self.lookup("main")?).map_err(|_| "endereço do main".to_owned())?;
+        let lookup = phase.elapsed();
+        let (code, execute) = std::thread::scope(|scope| {
+            let handle = std::thread::Builder::new()
+                .stack_size(stack_bytes)
+                .spawn_scoped(scope, move || {
+                    let started = Instant::now();
+                    // SAFETY: `address` veio de `LLVMOrcLLJITLookup(main)`, que o
+                    // emissor escreve com a assinatura C `i32(void)`.
+                    let code = unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(address)() };
+                    (code, started.elapsed())
+                })
+                .map_err(|erro| format!("não foi possível criar a thread do programa: {erro}"))?;
+            handle.join().map_err(|_| "a thread do programa terminou em pânico".to_owned())
+        })?;
+        Ok((lookup, code, execute))
+    }
+}
+
 // ─── Runtime ───────────────────────────────────────────────────────────────
 //
 // O runtime são os fragmentos de `crates/runtime/src`, a mesma fonte que o AOT
@@ -1136,6 +1208,9 @@ impl ParsedModule {
                         "i16" => 2,
                         "i32" | "float" => 4,
                         "i64" | "double" | "ptr" => 8,
+                        // O cache de um ponto de chamada por seletor (SDK da
+                        // fonte, `llvm/seletores.rs`): dois `i64`.
+                        "[2 x i64]" => 16,
                         outro => {
                             return Err(format!(
                                 "a global mutável @{name} tem tipo {outro}, que a sessão não sabe reiniciar"
