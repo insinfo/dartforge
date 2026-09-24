@@ -202,6 +202,9 @@ jobs:
           ref: 9e381736413e635e4d616046fbe82997ccf66a08
           path: references/limitless_ui
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
       - uses: ./.github/actions/dart
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -230,6 +233,8 @@ jobs:
               } catch { Start-Sleep -Seconds 1 }
             }
             if (-not $pronto) { throw 'servidor da galeria não iniciou' }
+            node scripts/sondar-limitless-ui.mjs 'http://127.0.0.1:8081/'
+            if ($LASTEXITCODE -ne 0) { throw 'startup da galeria falhou; veja o diagnóstico CDP acima' }
             pwsh scripts/limitless-ui.ps1 -E2e -Producao
             if ($LASTEXITCODE -ne 0) { throw "E2E falhou (código $LASTEXITCODE)" }
           } finally {
