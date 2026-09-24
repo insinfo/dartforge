@@ -597,7 +597,14 @@ fn implementado(ctx: &Context, fid: usize) -> bool {
 pub fn tabela_de_metodos(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     let mut vistos = std::collections::HashSet::new();
     let mut saida = Vec::new();
-    for c in linearizacao(ctx, cid) {
+    let mut cadeia = linearizacao(ctx, cid);
+    // A hierarquia de certos elementos sintéticos (notadamente enums) não
+    // inclui `Object` em `supertype_class`. Seus membros continuam herdando
+    // `Object.==`, `hashCode` e os outros acessores na semântica Dart.
+    if let Some(objeto) = ctx.core.object_class && !cadeia.contains(&objeto) {
+        cadeia.push(objeto);
+    }
+    for c in cadeia {
         let classe = &ctx.program.classes[c.0 as usize];
         let mut membros: Vec<(&str, usize)> = classe
             .instance_members
