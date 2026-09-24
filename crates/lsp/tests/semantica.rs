@@ -2,6 +2,7 @@ use dartforge_elements::sdk::SdkLayout;
 use dartforge_lsp::{Analisador, AnalisadorSemantico, Servidor};
 use serde_json::{Value, json};
 use std::{fs, path::Path};
+use std::time::Instant;
 
 #[global_allocator]
 static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
@@ -50,15 +51,29 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     assert_eq!(definicao["range"]["end"], json!({"line":1,"character":10}));
     let hover = requisitar(&mut servidor, 3, "textDocument/hover", &uri, 10);
     assert_eq!(hover["contents"], "int answer\nType: int");
+    // Vários buffers abertos exercitam a geração conjunta sem arquivo em
+    // disco. O custo transitório pode subir, mas o estado vivo deve estabilizar.
+    let corpo = format!("// {}\n", ".".repeat(16 * 1024));
+    for n in 0..24 {
+        let outro = url::Url::from_file_path(raiz.join(format!("aberto_{n}.dart"))).unwrap().to_string();
+        servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":outro,"languageId":"dart","version":1,"text":corpo}
+        }}));
+        servidor.bombear();
+    }
     for id in 10..20 {
         assert_ne!(requisitar(&mut servidor, id, "textDocument/hover", &uri, 10), Value::Null);
     }
     let vivos_antes = dartforge_instrument::live_bytes();
+    let inicio = Instant::now();
     for id in 20..60 {
         assert_ne!(requisitar(&mut servidor, id, "textDocument/hover", &uri, 10), Value::Null);
     }
+    let latencia_media = inicio.elapsed() / 40;
     let crescimento = dartforge_instrument::live_bytes().saturating_sub(vivos_antes);
+    println!("LSP semântico: 25 buffers (~384 KiB extra), 40 hovers, média {latencia_media:?}, crescimento vivo {crescimento} bytes");
     assert!(crescimento < 256 * 1024, "consultas retiveram {crescimento} bytes");
+    assert!(latencia_media.as_millis() < 200, "hover médio em 25 buffers: {latencia_media:?}");
     // O importado também está aberto e ainda não foi salvo. A posição e o
     // tipo vêm da versão em memória, não da versão antiga no disco.
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
