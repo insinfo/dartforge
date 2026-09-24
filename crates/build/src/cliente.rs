@@ -85,6 +85,7 @@ impl<C: Canal> ClienteBuild<C> {
                 s.log(nivel, m.get("mensagem").and_then(Value::as_str).unwrap_or(""));
             }
             "build.resolver" => resposta["erro"] = json!("indisponivel"),
+            t if t.starts_with("build.resolver.") => resposta["erro"] = json!("indisponivel"),
             _ => return Err(ErroExecutor(format!("consulta desconhecida: {tipo}"))),
         }
         Ok(resposta)

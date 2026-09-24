@@ -75,6 +75,9 @@ candidatos gerados ainda ausentes; uma nova saída em memória invalida a ação
 | `log {nivel, mensagem}` | `log.*` | — |
 | `resolver.* {...}` | `BuildStep.resolver` | Fase 3 (BUILD-RUST.md): servido pelo banco semântico; enquanto não existe, o hospedeiro responde `indisponivel` e o analyzer roda dentro do executor |
 
+No canal, os nomes da primeira coluna usam o prefixo `build.` (por exemplo,
+`build.ler` e `build.resposta`), e cada pedido recebe o mesmo `id` na resposta.
+
 Legibilidade das respostas segue o `build_impl.dart:443-463` (§3 de
 `docs/BUILD-MOTOR.md`).
 
