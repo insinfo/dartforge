@@ -25,7 +25,8 @@ pub fn estatico_contra_super(programa: &Program, lib: LibraryId, nomes: &Interne
             };
             for declarado in declarados {
                 let nome = nomes.resolve(declarado.sym);
-                let setter = nomes.lookup(&format!("{nome}="));
+                // O outline indexa setters pela chave interna `nome_=`.
+                let setter = nomes.lookup(&format!("{nome}_="));
                 if classe.instance_members.contains_key(&declarado.sym)
                     || setter.is_some_and(|s| classe.instance_members.contains_key(&s))
                 { continue; }
@@ -106,6 +107,38 @@ mod testes {
         assert_eq!(diags.len(), 2, "{diags:?}");
         assert!(diags.iter().all(|(_, d)| d.message.contains("A.foo")), "{diags:?}");
         assert!(diags.iter().all(|(_, d)| &fonte[d.span.start as usize..d.span.end as usize] == "foo"));
+        fs::remove_dir_all(&raiz).unwrap();
+    }
+
+    #[test]
+    fn dez_casos_de_superclasse_do_corpus_oficial() {
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/heranca-corpus-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&raiz);
+        fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object { String toString() => ''; int get runtimeType => 0; } class String extends Object {} class int extends Object {}").unwrap();
+        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let corpus = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../corpus/diagnosticos/analyzer/conflicting_static_and_instance");
+        let mut fontes: Vec<_> = fs::read_dir(corpus).unwrap().flatten()
+            .map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().contains("__inSu_"))).collect();
+        fontes.sort();
+        assert_eq!(fontes.len(), 10);
+        let entrada = raiz.join("main.dart");
+        for arquivo in fontes {
+            let fonte = fs::read_to_string(&arquivo).unwrap();
+            fs::write(&entrada, &fonte).unwrap();
+            let mut nomes = Interner::new();
+            let (programa, _) = load_lenient(&entrada, &sdk, None, &mut nomes);
+            let diags = estatico_contra_super(&programa, programa.entry.unwrap(), &nomes);
+            assert_eq!(diags.len(), 1, "{}: {diags:?}", arquivo.display());
+            let d = &diags[0].1;
+            let esperado = fonte.lines().find_map(|l| l.split_once("[diag.conflictingStaticAndInstance] ").map(|(_, m)| m)).unwrap();
+            assert_eq!(d.code, Some(c::CONFLICTING_STATIC_AND_INSTANCE));
+            assert_eq!(d.message, esperado, "{}", arquivo.display());
+            assert!(matches!(&fonte[d.span.start as usize..d.span.end as usize], "foo" | "toString" | "runtimeType"));
+        }
         fs::remove_dir_all(&raiz).unwrap();
     }
 }
