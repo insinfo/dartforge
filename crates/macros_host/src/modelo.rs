@@ -461,6 +461,20 @@ impl<'p> Vista<'p> {
                     "setter": ast.kind == ast::FunctionKind::Setter,
                     "retorno": retorno, "posicionais": pos, "nomeados": nom, "tparams": []}))
             }
+            Chave::VariavelDeTopo { lib, nome } => {
+                let lid = self.biblioteca_por_uri(lib)?;
+                let sym = self.interner.lookup(nome)?;
+                let Element::Variable(id) = self.program.library(lid).declared.get(&sym)?.getter? else { return None };
+                let v = self.program.variable(id);
+                let VariableRef::TopLevel { unit, decl, index } = v.node else { return None };
+                let DeclKind::Variables(lista) = &self.program.unit(unit).ast.decl(decl).kind else { return None };
+                let item = lista.variables.get(index)?;
+                let biblioteca = self.biblioteca_json(t, lid);
+                let tipo = self.tipo(t, unit, lista.ty, &Vec::new(), || Omitido { dono: c.clone(), lugar: "tipo".into() });
+                Some(json!({"k": "variavel", "ident": self.ident(t, c.clone()), "lib": biblioteca,
+                    "const": v.const_, "external": v.external, "final": v.final_, "late": v.late,
+                    "inicializador": item.initializer.is_some(), "tipo": tipo}))
+            }
             Chave::Metodo { lib, dono, .. } | Chave::Construtor { lib, dono, .. } | Chave::Campo { lib, dono, .. } => {
                 let cid = self.classe(&Chave::Tipo { lib: lib.clone(), nome: dono.clone() })?;
                 let tipo = match c {

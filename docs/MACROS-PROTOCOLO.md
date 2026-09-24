@@ -222,6 +222,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `414_funcao_topo` — macro em função de topo (`FunctionDeclarationsMacro`),
   exercitando o modelo da função e declaração nova na biblioteca. O programa
   chama a função gerada e a augmentation é comparada byte a byte ao CFE.
+* `415_variavel_topo` — macro em variável de topo (`VariableDeclarationsMacro`),
+  exercitando o modelo da variável e uma função gerada que acessa seu valor.
+  O programa chama essa função e o texto é comparado byte a byte ao CFE.
 
 ## 8. Placar (medido nesta rodada)
 
