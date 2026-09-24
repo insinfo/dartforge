@@ -48,3 +48,34 @@ fn uri_de_pacote_nao_produz_destino_inventado() {
         "params":{"textDocument":{"uri":uri},"position":{"line":0,"character":10}}}));
     assert_eq!(servidor.bombear()[0]["result"], Value::Null);
 }
+
+#[test]
+fn tipo_local_unico_navega_para_o_nome_declarado() {
+    let mut servidor = Servidor::new();
+    let uri = "file:///tipo-local.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"class Caixa {}\nCaixa criar(Caixa valor) => valor;"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/definition",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":2}}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"]["uri"], uri);
+    assert_eq!(resposta[0]["result"]["range"]["start"], json!({"line":0,"character":6}));
+    assert_eq!(resposta[0]["result"]["range"]["end"], json!({"line":0,"character":11}));
+}
+
+#[test]
+fn tipo_homonimo_de_parametro_generico_nao_navega_para_classe() {
+    let mut servidor = Servidor::new();
+    let uri = "file:///sombra.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"class Caixa {}\nvoid f<Caixa>(Caixa x) {}"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/definition",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":15}}}));
+    assert_eq!(servidor.bombear()[0]["result"], Value::Null);
+}
