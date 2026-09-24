@@ -367,6 +367,15 @@ geração vem do tracker, que é o que o LLVM oferece para isso.
    toda referência externa é resolvível (inclusive pelas exportações da DLL do
    SDK da fonte carregada nesta sessão), versionar as implementações e entregar o
    módulo à `LLJIT` sob um tracker novo.
+
+   Na sessão com SDK da fonte, só os exports usados pela primeira geração são
+   publicados na abertura. Se uma recarga introduz outro membro exportado,
+   o JIT consulta `exportados.def` e publica somente esse nome antes de ligar
+   a geração nova; um nome ausente recusa a recarga na etapa `contract`.
+   Os exports adicionais já publicados permanecem na sessão mesmo se uma fase
+   posterior falhar, mas nenhuma entrada estável muda antes de a geração nova
+   estar ligada.
+
 2. **Publicar**: materializar as implementações (aqui é onde o código nativo é
    gerado e ligado em memória) e **só então** escrever os novos ponteiros nas
    células.
@@ -377,10 +386,11 @@ A garantia que importa: **uma falha de análise, de contrato ou de ligação nã
 destrói a versão que está funcionando**. Falha na fase 1 devolve `Err` sem ter
 tocado em nada. Falha na materialização descarrega a geração recém-adicionada —
 remoção demonstravelmente segura, porque nenhuma célula aponta para ela e nada
-pode tê-la chamado — e a versão anterior continua publicada, bit a bit.
+pode tê-la chamado — e as entradas da versão anterior continuam apontando para
+os mesmos corpos.
 
 `crates/jit/tests/hot_reload.rs::falha_de_recarga_nao_destroi_a_versao_boa` cobre
-as três falhas (Dart que não compila, IR inválido, referência não resolvível) e
+IR inválido e referência não resolvível, e
 exige que a versão boa continue executando e que uma recarga válida ainda
 funcione depois delas.
 

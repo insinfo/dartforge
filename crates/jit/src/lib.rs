@@ -209,6 +209,9 @@ pub struct JitSession {
     /// do SDK exporta (runtime e bibliotecas), publicados na sessão no lugar
     /// do runtime deste processo. Vazio no caminho de sempre.
     externos_do_sdk: std::collections::HashSet<String>,
+    /// DLL usada pela sessão, para publicar exports que uma recarga passar a
+    /// referenciar. Ausente quando o runtime vem deste processo.
+    sdk_dll: Option<std::path::PathBuf>,
     lljit: ffi::Lljit,
 }
 
@@ -226,6 +229,16 @@ struct Module {
 }
 
 impl JitSession {
+    /// Na sessão com DLL, só os nomes efetivamente publicados da DLL contam
+    /// como runtime. O conjunto `RUNTIME_SYMBOLS` pertence à sessão embutida.
+    fn is_known_external(&self, name: &str) -> bool {
+        if self.sdk_dll.is_some() {
+            CRT_SYMBOLS.contains(&name) || name.starts_with("llvm.")
+        } else {
+            ffi::is_known_external(name)
+        }
+    }
+
     /// Abre uma `LLJIT` para o host e publica os símbolos do runtime nativo.
     ///
     /// Os símbolos vêm de [`RUNTIME_SYMBOLS`] e são registrados como endereços
@@ -261,6 +274,7 @@ impl JitSession {
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             externos_do_sdk: std::collections::HashSet::new(),
+            sdk_dll: None,
             lljit,
         })
     }
@@ -275,7 +289,7 @@ impl JitSession {
         let lljit = ffi::Lljit::new()
             .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
         let nomes = lljit
-            .define_symbols_from_dll(dll, usados)
+            .define_symbols_from_dll(dll, usados, true)
             .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
         Ok(Self {
@@ -284,6 +298,7 @@ impl JitSession {
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             externos_do_sdk: nomes.into_iter().collect(),
+            sdk_dll: Some(dll.to_path_buf()),
             lljit,
         })
     }
@@ -383,7 +398,7 @@ impl JitSession {
         let signatures = parsed.signatures();
         let defined = self.defined_names();
         if let Some(unknown) = parsed.declarations().into_iter().find(|reference| {
-            !ffi::is_known_external(reference)
+            !self.is_known_external(reference)
                 && !self.externos_do_sdk.contains(reference.as_str())
                 && !defined.contains(&reference.as_str())
                 && !signatures.iter().any(|s| &s.name == reference)
@@ -447,7 +462,7 @@ impl JitSession {
         self.check_target_strings(&parts.target.0, &parts.target.1)?;
         let defined = self.defined_names();
         if let Some(unknown) = parts.declarations.iter().find(|reference| {
-            !ffi::is_known_external(reference)
+            !self.is_known_external(reference)
                 && !self.externos_do_sdk.contains(reference.as_str())
                 && !defined.contains(&String::as_str(reference))
                 && !parts.signatures.iter().any(|s| &s.name == *reference)

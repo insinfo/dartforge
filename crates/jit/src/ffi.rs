@@ -998,23 +998,30 @@ unsafe extern "system" {
 }
 
 impl Lljit {
+    /// Nomes pedidos que constam da lista de exportações da DLL do SDK.
+    /// A lista é consultada antes da publicação de uma geração nova, para que
+    /// uma referência desconhecida recuse a recarga sem mudar os ponteiros.
+    pub(crate) fn exported_symbols_in_dll(dll: &std::path::Path, usados: &[String]) -> Result<Vec<String>, String> {
+        let def = dll.with_file_name("exportados.def");
+        let texto = std::fs::read_to_string(&def).map_err(|e| format!("{}: {e}", def.display()))?;
+        Ok(texto
+            .lines()
+            .skip_while(|l| l.trim() != "EXPORTS")
+            .skip(1)
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && usados.contains(l))
+            .collect())
+    }
+
     /// Carrega a DLL do SDK da fonte e publica na sessão o endereço de cada
     /// nome que ela exporta (a lista é o `exportados.def` ao lado dela).
     /// Devolve os nomes.
     ///
     /// # Erros
     /// DLL ou lista ausente, ou um nome da lista que a DLL não exporta.
-    pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, usados: &[String]) -> Result<Vec<String>, String> {
+    pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, usados: &[String], publicar_crt: bool) -> Result<Vec<String>, String> {
         use std::os::windows::ffi::OsStrExt;
-        let def = dll.with_file_name("exportados.def");
-        let texto = std::fs::read_to_string(&def).map_err(|e| format!("{}: {e}", def.display()))?;
-        let nomes: Vec<String> = texto
-            .lines()
-            .skip_while(|l| l.trim() != "EXPORTS")
-            .skip(1)
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty() && usados.contains(l))
-            .collect();
+        let nomes = Self::exported_symbols_in_dll(dll, usados)?;
         let largo: Vec<u16> = dll.as_os_str().encode_wide().chain(Some(0)).collect();
         // SAFETY: `largo` é um caminho terminado em zero; a DLL fica carregada
         // até o fim do processo (nunca é descarregada).
@@ -1034,7 +1041,9 @@ impl Lljit {
         }
         let emprestados: Vec<(&CStr, u64)> = pares.iter().map(|(n, a)| (n.as_c_str(), *a)).collect();
         self.define_absolute(&emprestados, exported_callable())?;
-        self.define_absolute(&crt_data_symbols(), exported_data())?;
+        if publicar_crt {
+            self.define_absolute(&crt_data_symbols(), exported_data())?;
+        }
         Ok(nomes)
     }
 

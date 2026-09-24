@@ -478,10 +478,39 @@ impl JitSession {
                 .filter(|(index, module)| !module.removed && Some(*index) != plain)
                 .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str())),
         );
-        check_references(&references, &known, &self.reloadables, &self.externos_do_sdk).map_err(|message| JitError {
+        // A geração inicial só publica os exports que usava. Uma edição pode
+        // chamar outro membro do SDK: conferir a lista da DLL antes de mudar
+        // qualquer célula, e publicar somente os novos nomes.
+        let novos_sdk = if let Some(dll) = &self.sdk_dll {
+            let mut pedidos: Vec<String> = references
+                .iter()
+                .filter(|reference| {
+                    !self.is_known_external(reference)
+                        && !self.externos_do_sdk.contains(*reference)
+                        && !known.contains(&reference.as_str())
+                        && !self.reloadables.iter().any(|m| m.entries.contains_key(*reference))
+                })
+                .cloned()
+                .collect();
+            pedidos.sort();
+            pedidos.dedup();
+            ffi::Lljit::exported_symbols_in_dll(dll, &pedidos)
+                .map_err(|detail| JitError::new("sdk", "não foi possível ler as exportações do SDK", detail))?
+        } else {
+            Vec::new()
+        };
+        let mut externos = self.externos_do_sdk.clone();
+        externos.extend(novos_sdk.iter().cloned());
+        check_references(&references, &known, &self.reloadables, &externos, self.sdk_dll.is_none()).map_err(|message| JitError {
             stage: "contract",
             message,
         })?;
+        if !novos_sdk.is_empty() {
+            let dll = self.sdk_dll.as_ref().expect("novos exports exigem DLL do SDK");
+            let publicados = self.lljit.define_symbols_from_dll(dll, &novos_sdk, false)
+                .map_err(|detail| JitError::new("sdk", "não foi possível publicar novos exports do SDK", detail))?;
+            self.externos_do_sdk.extend(publicados);
+        }
         let contract = phase.elapsed();
 
         let generation = existing.map_or(1, |index| self.reloadables[index].generation + 1);
@@ -847,9 +876,12 @@ fn check_references(
     defined: &[&str],
     reloadables: &[Reloadable],
     externos_do_sdk: &HashSet<String>,
+    runtime_embutido: bool,
 ) -> Result<(), String> {
     for reference in references {
-        if ffi::is_known_external(reference)
+        if (runtime_embutido && ffi::is_known_external(reference))
+            || crate::CRT_SYMBOLS.contains(&reference.as_str())
+            || reference.starts_with("llvm.")
             || externos_do_sdk.contains(reference)
             || defined.contains(&reference.as_str())
             || reloadables
@@ -991,6 +1023,7 @@ mod tests {
             &["df_fn_0"],
             &[],
             &HashSet::new(),
+            true,
         )
         .unwrap_err();
         assert!(erro.contains("minha_ffi"), "{erro}");
@@ -1000,6 +1033,7 @@ mod tests {
                 &["df_fn_0"],
                 &[],
                 &HashSet::new(),
+                true,
             )
             .is_ok()
         );
@@ -1009,9 +1043,11 @@ mod tests {
     fn references_accept_exports_of_the_sdk_loaded_in_this_session() {
         let mut externos = HashSet::new();
         externos.insert("df.sdk_teste".to_owned());
-        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &externos).is_ok());
-        let erro = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &externos).unwrap_err();
+        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &externos, false).is_ok());
+        let erro = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &externos, false).unwrap_err();
         assert!(erro.contains("df.sdk_ausente"), "{erro}");
+        let erro = check_references(&["dartforge_object_new".to_owned()], &[], &[], &externos, false).unwrap_err();
+        assert!(erro.contains("dartforge_object_new"), "{erro}");
     }
 
     /// Ciclo completo sobre IR direto, sem passar pelo front-end Dart.

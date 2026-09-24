@@ -72,3 +72,48 @@ define i64 @df_fn_1(i64 %h) {{
     assert_eq!(somar.call_with(&sessao, contador).unwrap(), 13);
     assert_eq!(somar.call_with(&sessao, contador).unwrap(), 23);
 }
+
+/// Uma edição que passa a usar outro export da DLL publica esse nome antes
+/// de materializar a geração nova. Nome ausente não toca a versão em execução.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn recarga_publica_novo_externo_da_dll() {
+    struct Diretorio(std::path::PathBuf);
+    impl Drop for Diretorio {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+    // A cópia fica no target da worktree (E: na máquina do proprietário),
+    // nunca no TEMP do C:. kernel32 oferece dois exports sem compilar o SDK.
+    let dir = Diretorio(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("tmp-jit-sdk-export-{}", std::process::id())));
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let origem = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
+        .join("System32/kernel32.dll");
+    let dll = dir.0.join("kernel32.dll");
+    std::fs::copy(&origem, &dll).expect("cópia de kernel32 no target da worktree");
+    std::fs::write(dir.0.join("exportados.def"), "EXPORTS\nGetTickCount\nGetCurrentProcessId\n")
+        .unwrap();
+
+    let ir = |nome: &str, retorno_fixo: bool| format!("\
+declare i32 @{nome}()
+define i64 @df_fn_0() {{
+  %valor = call i32 @{nome}()
+  %largo = zext i32 %valor to i64
+  {}
+}}
+", if retorno_fixo { "ret i64 1" } else { "ret i64 %largo" });
+    let mut sessao = JitSession::new_com_sdk(&dll, &["GetTickCount".to_owned()]).unwrap();
+    sessao.add_reloadable_module("app", &ir("GetTickCount", true)).unwrap();
+    let entrada = sessao.stable_entry("df_fn_0").unwrap();
+    assert_eq!(entrada.call(&sessao).unwrap(), 1);
+
+    let erro = sessao.hot_reload("app", &ir("GetMissingExport", false)).unwrap_err();
+    assert_eq!(erro.stage, "contract");
+    assert_eq!(sessao.generation("app"), Some(1));
+    assert_eq!(entrada.call(&sessao).unwrap(), 1);
+
+    sessao.hot_reload("app", &ir("GetCurrentProcessId", false)).unwrap();
+    assert_eq!(sessao.generation("app"), Some(2));
+    assert_eq!(entrada.call(&sessao).unwrap(), i64::from(std::process::id()));
+}
