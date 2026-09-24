@@ -26,6 +26,17 @@ iguais, 4.313 falsos positivos, 19.720 falsos negativos e 468 posições
 erradas, determinístico em 1/4/8 trabalhadores. Essa é a última medição
 combinada concluída; commits mais recentes estão em nova rodada de CI.
 
+Depois dessa medição, gates isolados confirmaram macros **18/18** em JS de
+desenvolvimento e produção, com a augmentation do caso 421 idêntica ao CFE
+([Pesado 36013877707](https://github.com/insinfo/dartforge/actions/runs/36013877707)).
+O nativo com SDK da fonte chegou a **168/223** após os casos 67 e 95, sem
+regressões no placar isolado; o caso 95 passou também no teste dirigido de
+argumento dinâmico incorreto
+([Pesado 36014381691](https://github.com/insinfo/dartforge/actions/runs/36014381691)).
+No motor de build, o cliente `dfexec/1` agora responde pedidos de `BuildStep`
+inválidos com erro pelo canal e mantém a ação viva para o builder tratar a
+exceção. A medição combinada desses commits ainda está pendente.
+
 No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
 serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente
 para o protocolo `build.*` sobre o canal `dfexec/1`. O processo Dart que
