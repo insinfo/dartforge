@@ -748,6 +748,32 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     HEAP.with(|h| h.borrow_mut().set_metadado(obj, tipo + 1));
 }
 
+/// Grava o tipo estrutural de um record com campos nomeados. Os campos do
+/// objeto já foram preenchidos em ordem canônica (posicionais, depois nomes
+/// ordenados); os tipos vêm dos valores reais, como exige `Record.runtimeType`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64) {
+    let npos = usize::try_from(npos).expect("número de campos posicionais inválido");
+    let nomes = HEAP.with(|h| h.borrow().texto(nomes).para_string());
+    let campos = HEAP.with(|h| {
+        let h = h.borrow();
+        let Value::Object { fields, .. } = h.get(obj) else { panic!("record nomeado esperado") };
+        fields.clone()
+    });
+    let nomes: Vec<&str> = nomes.split(',').collect();
+    assert_eq!(campos.len(), npos + nomes.len(), "forma do record nomeado");
+    let tipo = RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let mut campos: Vec<i64> = campos.into_iter().map(|(bits, is_ref)| {
+            assert!(is_ref, "campo de record sem referência");
+            tipo_do_valor(&mut u, TaggedValue::reference(bits))
+        }).collect();
+        let nomeados = nomes.into_iter().zip(campos.drain(npos..)).map(|(n, t)| (n.to_string(), t)).collect();
+        u.internar(Tipo::Registro { pos: campos, nomeados })
+    });
+    dartforge_rti_definir(obj, tipo);
+}
+
 /// O tipo de um valor `Ref`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_do_valor(v: i64) -> i64 {

@@ -88,6 +88,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
         }
+        if self.ctx.sdk_da_fonte {
+            let nomes = self.emit(Instruction::Const(Constant::String(nomes.join(","))), Type::Ref);
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_rti_registro_nomeado".to_string(),
+                    args: vec![
+                        (obj.clone(), Type::Ref),
+                        (Operand::Constant(Constant::Int(positional.len() as i64)), Type::I64),
+                        (nomes, Type::Ref),
+                    ],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
         obj
     }
 
@@ -154,8 +169,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             casos.push((id, b));
             blocos.push((b, i));
         }
+        // `dartforge_value_class` devolve o CID de `_Record` registrado pelo
+        // SDK da fonte; o runtime legado usa -7 para a mesma representação.
+        let id_record = self.ctx.classe_do_sdk("core", "_Record")
+            .and_then(|cid| self.ctx.id_de_classe(cid))
+            .map_or(-7, i64::from);
         let b_runtime = self.new_block();
-        casos.push((-7, b_runtime));
+        casos.push((id_record, b_runtime));
         self.terminate(Terminator::Switch {
             val: cls,
             default: b_padrao,

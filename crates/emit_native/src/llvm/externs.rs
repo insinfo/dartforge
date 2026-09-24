@@ -823,6 +823,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_rti_registro_nomeado(i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_rti_do_valor(i64)",
         efeitos: CONSERVADOR,
     },
