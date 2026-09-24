@@ -103,7 +103,10 @@ gravado do CFE, depois de trocar apenas a URI do pacote do fixture.
 Com esse modelo, `@JsonCodable` executa a fase de declarações no mesmo isolate
 e devolve o resultado estruturado idêntico ao da sessão CFE (3 consultas ao
 hospedeiro). As respostas dessas consultas ainda vêm da sessão gravada no
-teste; o builder precisa respondê-las pelo analyzer antes de gerar o arquivo.
+primeiro teste. O caso de integração resolve as 3 consultas
+`resolverIdentificador` pela sessão do analyzer e reproduz a mesma fase sem
+respostas gravadas. As demais consultas da fase de definições ainda precisam
+de implementação antes de gerar o arquivo.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

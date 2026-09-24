@@ -5,6 +5,12 @@ environment:
 dependencies:
   json: 0.20.4
 dev_dependencies:
+  analyzer: 7.3.0
   build_runner: 2.4.15
   dartforge_macros_builder:
     path: ../../../pacotes/macros_builder
+  macros:
+    path: ../../../pacotes/macros
+dependency_overrides:
+  macros:
+    path: ../../../pacotes/macros
