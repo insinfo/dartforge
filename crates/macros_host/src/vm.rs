@@ -57,9 +57,21 @@ pub fn bootstrap(apps: &[Aplicacao]) -> String {
         s.push_str(&format!("  '{m}': {{\n"));
         for c in construtores {
             let tearoff = if c.is_empty() { format!("m{i}.{classe}.new") } else { format!("m{i}.{classe}.{c}") };
-            s.push_str(&format!(
-                "    '{c}': (p, n) => Function.apply({tearoff}, p, {{for (final e in n.entries) Symbol(e.key): e.value}}),\n"
-            ));
+            let sem_argumentos = apps.iter().filter(|a| a.macro_ == *m && a.construtor == *c)
+                .all(|a| {
+                    a.argumentos.get("posicionais").and_then(Value::as_array).is_some_and(Vec::is_empty)
+                        && a.argumentos.get("nomeados").and_then(Value::as_object).is_some_and(|n| n.is_empty())
+                });
+            if sem_argumentos {
+                // A fábrica é usada apenas como @Macro(): invocar o
+                // construtor diretamente preserva defaults sem depender de
+                // Function.apply, Symbol ou Map.entries no executor nativo.
+                s.push_str(&format!("    '{c}': (_, _) => {tearoff}(),\n"));
+            } else {
+                s.push_str(&format!(
+                    "    '{c}': (p, n) => Function.apply({tearoff}, p, {{for (final e in n.entries) Symbol(e.key): e.value}}),\n"
+                ));
+            }
         }
         s.push_str("  },\n");
     }
