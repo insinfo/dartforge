@@ -107,3 +107,43 @@ fn enum_inclui_constantes_e_membros() {
     assert_eq!(filhos[1]["name"], "verde");
     assert_eq!(filhos[2]["name"], "texto");
 }
+
+#[test]
+fn busca_workspace_usa_apenas_revisoes_abertas_e_ordem_estavel() {
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}));
+    let inicio = servidor.bombear();
+    assert_eq!(inicio[0]["result"]["capabilities"]["workspaceSymbolProvider"], true);
+    for (uri, texto) in [
+        ("file:///z.dart", "class Caixa { void carregar() {} }"),
+        ("file:///a.dart", "void carregarDados() {}"),
+    ] {
+        servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":texto}
+        }}));
+        servidor.bombear();
+    }
+    let buscar = |id: i32| json!({"jsonrpc":"2.0","id":id,"method":"workspace/symbol",
+        "params":{"query":"ZZZ"}});
+    // Consulta sem resultados e caixa indiferente.
+    servidor.receber(buscar(2));
+    assert!(servidor.bombear()[0]["result"].as_array().unwrap().is_empty());
+    servidor.receber(json!({"jsonrpc":"2.0","id":3,"method":"workspace/symbol",
+        "params":{"query":"CAR"}}));
+    let resposta = servidor.bombear();
+    let itens = resposta[0]["result"].as_array().unwrap();
+    assert_eq!(itens.len(), 2);
+    assert_eq!(itens[0]["name"], "carregarDados");
+    assert_eq!(itens[0]["location"]["uri"], "file:///a.dart");
+    assert_eq!(itens[1]["name"], "carregar");
+    assert_eq!(itens[1]["containerName"], "Caixa");
+
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
+        "textDocument":{"uri":"file:///a.dart"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":4,"method":"workspace/symbol",
+        "params":{"query":"car"}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"].as_array().unwrap().len(), 1);
+}
