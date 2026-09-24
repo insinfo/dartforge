@@ -890,8 +890,12 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   (145 `.template.dart` e 6 `.css.shim.dart` nativos), e as contagens de
   saídas esperadas iguais às do `.dart_tool/build/generated` (773
   `.template.dart`, 192 `.css`, 192 `.css.map`, 202 `.css.shim.dart`, 202
-  `.css.dart`). O Sass nativo é **não verificado** (porta de igualdade: só
-  mede, publica o apoio): 7 de 181 `.css` sairiam iguais.
+  `.css.dart`). Na medição inicial, Sass nativo era **não verificado** e só
+  7 de 181 `.css` sairiam iguais. Depois, o subconjunto `compressed` sem
+  `sourceMaps` foi habilitado para publicação: 114 CSS do `new_sali` haviam
+  sido conferidos byte a byte, e a [CI 36004370714](https://github.com/insinfo/dartforge/actions/runs/36004370714)
+  confirmou o pedido sob demanda sem apoio no disco. `expanded`, mapas de
+  fonte e sintaxe Sass fora do subconjunto continuam no apoio.
 * **`compile-js` do `new_sali/frontend` com o motor** (padrão quando há
   `build_runner`; o `emit_js` não depende mais do `gerador_ng`): 575 módulos,
   **574 byte a byte iguais** aos do `DARTFORGE_GERADOS=ng` de antes (579
@@ -918,6 +922,11 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   funde as bibliotecas (3–13 s nesta máquina, com ou sem motor); sem o motor,
   a mesma sessão leva 0,42–0,47 s fora a escrita numa edição de corpo.
   `@Input` novo num filho não foi medido (só faz sentido no estágio B).
+  Um primeiro corte do estágio B passou na [CI 36004370714](https://github.com/insinfo/dartforge/actions/runs/36004370714):
+  HTML e CSS direto conhecidos regeneram somente os componentes que os
+  consultaram; o teste incremental compara a sessão viva com uma geração do
+  zero após editar ambos. Ainda falta a invalidação fina de Dart e de
+  recursos SCSS encadeados para cumprir a meta de latência geral.
 * **Custo zero** (regra governante, PLANO.md): portão estrutural
   `crates/dev/tests/custo_zero.rs` verde — num projeto sem `build_runner`,
   nenhum motor construído (`instancias() == 0`), relatório sem motor e a
