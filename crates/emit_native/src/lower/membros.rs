@@ -1566,7 +1566,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I8,
         );
         let pronto = self.emit(
-            Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+            Instruction::ICmp(ICmpOp::Eq, ok.clone(), Operand::Constant(Constant::Int(1))),
             Type::I1,
         );
         let b_ler = self.new_block();
@@ -1586,12 +1586,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.terminate(Terminator::Return(Some(v)));
         self.set_block(b_init);
-        // A bandeira sobe antes do inicializador: é assim que a VM trata a
-        // leitura reentrante (e a nossa não recursa para sempre).
+        let reentrante = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, ok, Operand::Constant(Constant::Int(2))),
+            Type::I1,
+        );
+        let b_pilha = self.new_block();
+        let b_avaliar = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: reentrante,
+            then_block: b_pilha,
+            else_block: b_avaliar,
+        });
+        self.set_block(b_pilha);
+        let erro = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_stack_overflow_error_new".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(erro);
+        self.set_block(b_avaliar);
+        // 0 = não iniciado; 2 = avaliando; 1 = pronto. A leitura reentrante
+        // produz `StackOverflowError` do SDK sem expandir a pilha nativa.
         self.emit(
             Instruction::StoreGlobal {
                 simbolo: bandeira,
-                val: Operand::Constant(Constant::Int(1)),
+                val: Operand::Constant(Constant::Int(2)),
                 ty: Type::I8,
                 raiz: None,
             },
@@ -1629,6 +1651,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 val: v.clone(),
                 ty: repr,
                 raiz,
+            },
+            Type::Void,
+        );
+        self.emit(
+            Instruction::StoreGlobal {
+                simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),
+                val: Operand::Constant(Constant::Int(1)),
+                ty: Type::I8,
+                raiz: None,
             },
             Type::Void,
         );
