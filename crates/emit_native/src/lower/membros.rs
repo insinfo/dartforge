@@ -378,7 +378,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !self.ctx.biblioteca_compilada(lib_do_membro) {
                 return None;
             }
-            return (self.ctx.biblioteca_compilada(classe.library)).then_some((*class, *member));
+            // A resolução de `o.x = v` pode apontar para o getter `x`.
+            // Nesse caso a escrita precisa procurar a entrada distinta
+            // `x_=` (ou o setter implícito de um campo) na hierarquia.
+            let e_getter = matches!(member, MemberRef::Function(f)
+                if self.ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
+                    && self.ctx.program.functions[f.0 as usize].variable.is_none());
+            if !(setter && e_getter) {
+                return (self.ctx.biblioteca_compilada(classe.library)).then_some((*class, *member));
+            }
         }
         let cid = self.classe_do_usuario_de(recv)?;
         for c in crate::lower::membros::linearizacao(self.ctx, cid) {
@@ -393,7 +401,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             if setter {
-                let nome_setter = format!("{}=", self.ctx.symbol_name(nome));
+                let nome_setter = format!("{}_=", self.ctx.symbol_name(nome));
                 if let Some(s) = self.ctx.interner.lookup(&nome_setter)
                     && let Some(&f) = classe.instance_members.get(&s)
                 {
