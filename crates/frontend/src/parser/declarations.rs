@@ -71,6 +71,7 @@ struct Modifiers {
     external_span: Option<Span>,
     static_: bool,
     abstract_: bool,
+    abstract_span: Option<Span>,
     covariant: bool,
     late: bool,
     final_: bool,
@@ -1281,7 +1282,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                         m.external_span = Some(self.span());
                     }
                     "static" => m.static_ = true,
-                    "abstract" => m.abstract_ = true,
+                    "abstract" => {
+                        m.abstract_ = true;
+                        m.abstract_span = Some(self.span());
+                    }
                     "covariant" => m.covariant = true,
                     "late" => m.late = true,
                     _ => break,
@@ -1542,7 +1546,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
-                FunctionOrVariables::Variables(list) => MemberKind::Field(list),
+                FunctionOrVariables::Variables(list) => {
+                    // Fasta `AstBuilder._endClassFields`: a restrição deixa de
+                    // valer com o experimento de augmentations.
+                    if mods.static_ && !self.features.tem(Feature::Augmentations) {
+                        if let Some(span) = mods.abstract_span {
+                            self.diagnostics.push(Diagnostic::com_codigo(
+                                codigos::parser::ABSTRACT_STATIC_FIELD,
+                                span,
+                                std::iter::empty::<&str>(),
+                            ));
+                        }
+                    }
+                    MemberKind::Field(list)
+                }
             }
         };
         Ok(self.ast.push_member(Member {
@@ -1991,6 +2008,27 @@ mod tests {
                 && d.span.start == 43 && d.span.end == 51
                 && d.message == "An external or native method can't have a body."
         ), "{out:?}");
+    }
+
+    #[test]
+    fn campo_abstract_static_sem_augmentations_aponta_para_abstract() {
+        use crate::features::{Feature, LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/executable_body/ExecutableBody__class_staticField_abstr_5d2b9f54.dart"));
+        let span = fonte.find("abstract int foo").unwrap();
+        let mut nomes = Interner::new();
+        let sem_recurso = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert!(sem_recurso.diagnostics.iter().any(|d|
+            d.code == Some(c::ABSTRACT_STATIC_FIELD)
+                && d.span.start == span && d.span.end == span + "abstract".len()
+                && d.message == "Static fields can't be declared 'abstract'."
+                && d.correcao().as_deref() == Some("Try removing the 'abstract' or 'static' keyword.")
+        ), "{:?}", sem_recurso.diagnostics);
+
+        let com_recurso = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[Feature::Augmentations]));
+        assert!(!com_recurso.diagnostics.iter().any(|d| d.code == Some(c::ABSTRACT_STATIC_FIELD)));
     }
 
     // -- Independentes dos outros módulos -----------------------------------
