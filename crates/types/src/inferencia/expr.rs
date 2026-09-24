@@ -862,7 +862,12 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
                 resolver(inf, cx, e, m.resolved.clone());
                 m.tipo
             }
-            None => inf.core.dynamic_,
+            None => {
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extensao);
+                inf.aviso(msg, name.span);
+                inf.core.dynamic_
+            }
         },
         RefTipo::Classe(c, targs) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
