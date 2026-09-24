@@ -97,6 +97,33 @@ fn cinco_recargas_preservam_entrada_estavel() {
     }
 }
 
+/// A promoção recusa uma função nova com o nome já definido por outro módulo
+/// antes de descarregar o programa antigo. A entrada anterior continua viva.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn colisao_com_outro_modulo_nao_destroi_promocao() {
+    let antigo = "declare void @dartforge_print_i64(i64)\n\
+define void @dartforge_entry() {\n\
+  call void @dartforge_print_i64(i64 7)\n\
+  ret void\n}\n";
+    let novo = "declare void @dartforge_print_i64(i64)\n\
+define void @dartforge_entry() {\n\
+  call void @dartforge_print_i64(i64 8)\n\
+  ret void\n}\n\
+define i64 @df_fn_1() { ret i64 1 }\n";
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_ir_module("app", antigo).expect("programa antigo");
+    sessao.add_ir_module("biblioteca", "define i64 @df_fn_1() { ret i64 2 }\n")
+        .expect("outra definição residente");
+    assert_eq!(sessao.run_entry_capturing().unwrap().0, "7\n");
+
+    let erro = sessao.hot_reload("app", novo).unwrap_err();
+    assert_eq!(erro.stage, "contract");
+    assert!(erro.message.contains("df_fn_1"), "{erro}");
+    assert_eq!(sessao.run_entry_capturing().unwrap().0, "7\n");
+    assert_eq!(sessao.generation("app"), None);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]

@@ -441,6 +441,26 @@ impl JitSession {
         let references = parsed.declarations();
         let existing = self.reloadables.iter().position(|m| m.name == name);
         let plain = self.plain_module_index(name, existing.is_some());
+        // Um símbolo de outro módulo já ocupa o nome que viraria trampolim.
+        // Detectar a colisão aqui é obrigatório na promoção: depois que o
+        // módulo simples é removido, uma falha ao publicar o trampolim deixa
+        // a sessão envenenada e destrói a versão que ainda funcionava.
+        let ocupados: HashSet<&str> = self.modules.iter().enumerate()
+            .filter(|(index, module)| !module.removed && Some(*index) != plain)
+            .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str()))
+            .chain(self.reloadables.iter().enumerate()
+                .filter(|(index, _)| Some(*index) != existing)
+                .flat_map(|(_, module)| module.entries.keys().map(String::as_str)))
+            .collect();
+        if let Some(colisao) = signatures.iter().find(|s| ocupados.contains(s.name.as_str())) {
+            return Err(JitError {
+                stage: "contract",
+                message: format!(
+                    "a função {} já pertence a outro módulo da sessão; a recarga não pode publicar uma segunda entrada com esse nome",
+                    colisao.name
+                ),
+            });
+        }
         let previous: Vec<FunctionSignature> = match (existing, plain) {
             // Só as entradas que alguma geração de fato implementou entram na
             // comparação; uma entrada órfã (célula publicada, implementação
