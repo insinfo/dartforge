@@ -4,7 +4,7 @@
 use crate::Unidade;
 use dartforge_diagnostics::codigos::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
-use dartforge_frontend::ast::{DeclKind, Initializer, MemberKind, VariableList};
+use dartforge_frontend::ast::{Ast, DeclKind, Initializer, MemberKind, TypeId, TypeKind, VariableList};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
@@ -22,9 +22,48 @@ fn final_sem_inicializador(v: &VariableList, nomes: &Interner, out: &mut Vec<(us
     }
 }
 
+/// Evidência sintática suficiente de não anulabilidade. Tipos importados,
+/// aliases e parâmetros de tipo ficam para a fase semântica; supô-los aqui
+/// poderia criar falsos positivos (`typedef T = int?`, por exemplo).
+fn tipo_certo_nao_nulo(ast: &Ast, id: TypeId, nomes: &Interner, aliases: &HashSet<SymbolId>) -> bool {
+    let ty = ast.ty(id);
+    if ty.nullable { return false; }
+    match &ty.kind {
+        TypeKind::Function { .. } | TypeKind::Record { .. } => true,
+        TypeKind::Named { name, .. } if name.len() == 1 && !aliases.contains(&name[0].sym) => matches!(
+            nomes.resolve(name[0].sym),
+            "Object" | "Never" | "num" | "int" | "double" | "bool" | "String"
+                | "List" | "Map" | "Set" | "Iterable" | "Iterator" | "Future" | "Stream"
+        ),
+        _ => false,
+    }
+}
+
+fn instancia_nao_final_nao_nula(v: &VariableList, ast: &Ast, nomes: &Interner, aliases: &HashSet<SymbolId>, out: &mut Vec<(usize, Diagnostic)>, unidade: usize, enum_index: bool) {
+    if v.static_ || v.final_ || v.const_ || v.late || v.external || v.abstract_ {
+        return;
+    }
+    let Some(tipo) = v.ty else { return };
+    if !tipo_certo_nao_nulo(ast, tipo, nomes, aliases) { return; }
+    for var in v.variables.iter().filter(|var| var.initializer.is_none()) {
+        if enum_index && nomes.resolve(var.name.sym) == "index" { continue; }
+        out.push((unidade, Diagnostic::com_codigo(
+            c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD,
+            var.name.span,
+            [nomes.resolve(var.name.sym)],
+        )));
+    }
+}
+
 /// Uma classe com construtor gerador explícito delega a verificação dos seus
 /// campos de instância ao `ConstructorFieldsVerifier`; factories não a fazem.
 pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diagnostic)> {
+    let aliases: HashSet<_> = unidades.iter().flat_map(|u| u.unit.declarations.iter().filter_map(|&id| {
+        match &u.ast.decl(id).kind {
+            DeclKind::Typedef(x) => Some(x.name.sym),
+            _ => None,
+        }
+    })).collect();
     // `unidades` contém uma biblioteca e suas partes. As declarações
     // aumentadas da mesma classe podem estar em unidades diferentes.
     let mut com_gerador = HashSet::<(bool, SymbolId)>::new();
@@ -91,6 +130,20 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                         if v.static_ || !membros.1 {
                             let enum_index = !v.static_ && matches!(&unidade.ast.decl(id).kind, DeclKind::Enum(_));
                             final_sem_inicializador(v, nomes, &mut out, i, enum_index);
+                            if !membros.1 {
+                                let valido = match &unidade.ast.decl(id).kind {
+                                    DeclKind::Class(x) => !x.extends.is_some_and(|t| {
+                                        if let TypeKind::Named { name, .. } = &unidade.ast.ty(t).kind {
+                                            name.last().is_some_and(|n| matches!(nomes.resolve(n.sym), "Struct" | "Union"))
+                                        } else { false }
+                                    }),
+                                    DeclKind::Enum(_) | DeclKind::Mixin(_) => true,
+                                    _ => false,
+                                };
+                                if valido {
+                                    instancia_nao_final_nao_nula(v, unidade.ast, nomes, &aliases, &mut out, i, enum_index);
+                                }
+                            }
                         }
                     }
                     MemberKind::Constructor(k) if !k.factory && !k.external && k.redirect.is_none() => {
@@ -253,5 +306,27 @@ mod testes {
         assert_eq!(testar("enum E { v; static final int index; }"), vec![(
             "index".into(), "The final variable 'index' must be initialized.".into(),
         )]);
+    }
+
+    #[test]
+    fn campos_de_instancia_nao_finais_nao_nulos_do_oraculo() {
+        for fonte in [
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_87a3792e.dart")),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__mixin_instanceF_fa8a8f5a.dart")),
+        ] {
+            assert_eq!(testar(fonte), vec![(
+                "v".into(), "Non-nullable instance field 'v' must be initialized.".into(),
+            )]);
+            let mut nomes = Interner::new();
+            let parsed = parse(fonte, &mut nomes);
+            let achados = finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte }], &nomes);
+            assert_eq!(achados[0].1.code, Some(c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD));
+            assert_eq!((achados[0].1.span.start, achados[0].1.span.end), (16, 17));
+            assert_eq!(achados[0].1.code.unwrap().info().correcao, Some("Try adding an initializer expression, or a generative constructor that initializes it, or mark it 'late'."));
+        }
+        assert_eq!(testar("class A { int x; Object? y; late int z; factory A() => throw 0; }"), vec![(
+            "x".into(), "Non-nullable instance field 'x' must be initialized.".into(),
+        )]);
+        assert!(testar("class A { int x; A(this.x); }").is_empty());
     }
 }
