@@ -125,4 +125,21 @@ void main() {
   print(contado);
   print(contado);
   print(chamadas);
+
+  late final int capturado;
+  int lerCapturado() => capturado;
+  void gravarCapturado(int valor) { capturado = valor; }
+  try {
+    print(lerCapturado());
+  } catch (e) {
+    print(e);
+  }
+  gravarCapturado(0);
+  print(lerCapturado());
+  try {
+    gravarCapturado(2);
+  } catch (e) {
+    print(e);
+  }
+  print(lerCapturado());
 }

@@ -193,7 +193,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let de_fora = b.ler_posicao(quadro.clone(), Q_AMBIENTE, Type::Ref);
             for (sym, l) in &capturas {
                 if let Modo::Ambiente { indice, celula, .. } = l.modo {
-                    b.ligar_ambiente(*sym, de_fora.clone(), indice, celula, l.ty);
+                    b.ligar_ambiente(*sym, de_fora.clone(), indice, celula, l.ty, l.late.as_ref());
                 }
             }
         }

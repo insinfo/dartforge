@@ -154,7 +154,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 l.modo,
                 Modo::Celula(_) | Modo::Ambiente { celula: true, .. }
             );
-            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, l.ty);
+            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, l.ty, l.late.as_ref());
         }
         // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
         // função genérica em volta: a tupla vai no fim do ambiente).

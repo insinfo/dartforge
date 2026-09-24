@@ -123,9 +123,10 @@ purgada pelo GC. A marca não depende dos bits do valor, pois `0`, `false` e
 na pilha; seu inicializador roda na primeira leitura e uma escrita anterior
 cancela essa avaliação. Os erros usam `LateError` do SDK da fonte.
 
-Locais `late` capturados ainda seguem o caminho anterior de `Cell`, sem a
-marca de inicialização compartilhada. A captura de inicializador preguiçoso
-também precisa transportar o ambiente da declaração. Campos `late` com
+Locais `late` capturados sem inicializador compartilham o estado pela `Cell`
+da variável; uma entrada de índice `-1` na tabela lateral acompanha a vida
+do handle e é purgada pelo GC. A captura de inicializador preguiçoso ainda
+precisa transportar o ambiente da declaração. Campos `late` com
 inicializador já inicializam na leitura, mas a recursão do próprio
 inicializador ainda precisa de um corpo separado para não expandir o AST
 recursivamente durante o lowering. Estes casos seguem pendentes.

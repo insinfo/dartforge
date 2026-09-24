@@ -165,6 +165,11 @@ impl<'x, 'a> Percurso<'x, 'a> {
                 self.expr(i);
             }
             self.declarar(v.name);
+            // Mesmo sem escrita explícita, a marca de inicialização de um
+            // `late` sem initializer deve ser compartilhada com a closure.
+            if lista.late && v.initializer.is_none() {
+                self.atribuidas.insert(v.name.span.start as usize);
+            }
         }
     }
 
