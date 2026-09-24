@@ -1,4 +1,26 @@
-# Estado do DartForge — 2026-09-23
+# Estado do DartForge — 2026-09-24
+
+## Continuação no SSD (2026-09-24)
+
+O checkout de trabalho está em `E:\MyRustProjects\dartforge`. A cópia do
+repositório no D: foi feita sem as pastas ignoradas pelo `.gitignore` e sem os
+worktrees antigos de `.claude`; o histórico e os arquivos rastreados foram
+preservados. As toolchains ficam em `E:\DartSDKs` e `E:\Rust`, e as compilações
+locais usam `TEMP`/`TMP` em E:.
+
+Integração em `ci/integracao-ssd`: ajustes de caminhos, seleção do LLVM 22 no
+runner, correção de símbolos estáveis e da RTI entre módulos, regressões de
+hot reload, navegação e hover LSP, limpeza do executor de macros e avanço do
+motor nativo de Sass. O teste local foi limitado a `cargo check` direcionado
+e testes pequenos; o corpus e o link de produção rodam no GitHub Actions.
+
+Na última rodada completa antes da correção de RTI, o CI de produção falhou
+na ligação ThinLTO por símbolos RTI duplicados. A rodada de validação da
+correção é [CI 35965411301](https://github.com/insinfo/dartforge/actions/runs/35965411301)
+e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225).
+Não considerar P5c/P5d concluído antes do teste do executável autocontido e
+do placar do SDK da fonte. O teste de navegador do bundle de produção ainda
+encontrou erro durante o bootstrap do `limitless_ui`; a investigação continua.
 
 ## Fechamento do dia 2026-09-23
 
