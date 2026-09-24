@@ -146,8 +146,9 @@ fn carimbo(raiz: &Path) -> (u64, usize) {
                 if !nome.starts_with('.') && nome != "build" {
                     andar(&caminho, fontes);
                 }
-            } else if tipo.is_file() && nome.ends_with(".dart") {
+            } else if nome.ends_with(".dart") {
                 let Ok(meta) = e.metadata() else { continue };
+                if !meta.is_file() { continue }
                 let t = meta
                     .modified()
                     .ok()
