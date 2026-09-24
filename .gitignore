@@ -40,5 +40,7 @@ runtime/ddc/*/
 /corpus/macros/*/.dart_tool/
 /pacotes/macros/.dart_tool/
 /pacotes/macros/pubspec.lock
+/pacotes/macros_builder/.dart_tool/
+/pacotes/macros_builder/pubspec.lock
 # Relatório local de espaço em disco do C: (da máquina, não do projeto)
 /RELATORIO-DISCO-C.md

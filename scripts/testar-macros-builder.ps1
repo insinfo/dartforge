@@ -15,6 +15,8 @@ try {
     if ($manifesto.versao -ne 1 -or ($nomes -join '|') -ne ($esperados -join '|')) {
         throw "manifesto diferente: $(Get-Content -LiteralPath $saida -Raw -Encoding utf8)"
     }
+    dart run check_model.dart
+    if ($LASTEXITCODE -ne 0) { throw 'modelo do analyzer diferente do pedido CFE' }
     Write-Host "descoberta de macros: $($nomes.Count)/$($esperados.Count) aplicações resolvidas"
 }
 finally {

@@ -95,8 +95,11 @@ augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
 execução da macro pelo builder.
 Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
 `pacotes/macros`, reproduz os 8 resultados da sessão CFE. O builder ainda
-precisa construir o modelo semântico a partir do `Resolver` e registrar as
+precisa completar o modelo semântico a partir do `Resolver` e registrar as
 fábricas de macro do projeto para chamar esse executor sem a sessão gravada.
+O adaptador do builder já serializa classes simples e campos no formato de
+`macro.executar`; o modelo de `Endereco` bate estruturalmente com o pedido
+gravado do CFE, depois de trocar apenas a URI do pacote do fixture.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
