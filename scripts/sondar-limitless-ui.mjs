@@ -71,7 +71,22 @@ async function sondar() {
       returnByValue: true,
     });
     const state = result.result.value;
-    console.log(JSON.stringify({ state, diagnostics: diagnostics.slice(0, 30) }, null, 2));
+    let clickProbe;
+    if (process.env.SONDA_CLICK) {
+      const selector = JSON.stringify(process.env.SONDA_CLICK);
+      const before = await send('Runtime.evaluate', {
+        expression: `({trigger:document.querySelector(${selector})?.outerHTML.slice(0,300), paineis:document.querySelectorAll('[data-label^="li_select_item_"]').length})`,
+        returnByValue: true,
+      });
+      await send('Runtime.evaluate', { expression: `document.querySelector(${selector})?.click()` });
+      await sleep(1200);
+      const after = await send('Runtime.evaluate', {
+        expression: `({paineis:document.querySelectorAll('[data-label^="li_select_item_"]').length, expandidos:[...document.querySelectorAll('[data-label="li_select_toggle"]')].map(x=>x.getAttribute('aria-expanded')), opcoesVisiveis:[...document.querySelectorAll('[data-label^="li_select_item_"]')].filter(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(x).visibility!=='hidden'}).length})`,
+        returnByValue: true,
+      });
+      clickProbe = { before: before.result.value, after: after.result.value };
+    }
+    console.log(JSON.stringify({ state, clickProbe, diagnostics: diagnostics.slice(0, 30) }, null, 2));
     if (!state.montados || state.erros.length || diagnostics.length) process.exitCode = 1;
   } finally {
     ws.close();

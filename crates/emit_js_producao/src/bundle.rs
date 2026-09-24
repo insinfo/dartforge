@@ -198,6 +198,12 @@ pub fn montar(sdk: &str, modulos: &[Modulo], entrada: &str, preambulo: &str) -> 
     if !sdk.ends_with('\n') {
         out.push('\n');
     }
+    // `dart:html` declara o resultado nativo de querySelectorAll como
+    // `List<Node>`. No navegador ele é um NodeList, que não tem os métodos
+    // simbolizados de List (`every`, `firstWhere` etc.). A ponte do DDC para
+    // JSArray torna esses métodos disponíveis no protótipo nativo antes de
+    // executar o código do usuário; Node/servidores não têm NodeList.
+    out.push_str("if (typeof NodeList !== 'undefined' && !NodeList.prototype[dartx.every]) dart.registerExtension('NodeList', _interceptors.JSArray);\n");
     // Namespaces de todas as bibliotecas, no topo: é o que substitui os
     // `import`/`export` entre módulos.
     let mut vistos = HashSet::new();
@@ -240,6 +246,15 @@ mod testes {
         assert!(!out.contains("export {"));
         assert!(out.contains("var html = html$;\n"));
         assert!(out.contains("var svg = svg$;\n"));
+    }
+
+    #[test]
+    fn node_list_recebe_metodos_de_lista_antes_do_usuario() {
+        let m = separar("main.js", "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n");
+        let js = montar("var dart = {};\n", &[m], "L$main", "");
+        let ponte = js.find("dart.registerExtension('NodeList', _interceptors.JSArray)").unwrap();
+        let main = js.find("L$main.main = function").unwrap();
+        assert!(ponte < main);
     }
 
     #[test]
