@@ -14,6 +14,7 @@ use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_elements::model::Element;
 use dartforge_frontend::ast::{self, CollectionElement, CreationKeyword, ExprId, ExprKind, UnaryOp};
+use dartforge_types::table::{Type as DartType, TypeId};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -79,7 +80,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 let var = &self.ctx.program.variables[vid.0 as usize];
                 let enum_ = matches!(var.node, dartforge_elements::model::VariableRef::EnumConstant { .. });
-                (var.const_ || enum_).then(|| format!("g:{}", vid.0))
+                if !(var.const_ || enum_) {
+                    return None;
+                }
+                let biblioteca = self.ctx.nome_da_biblioteca(var.library);
+                let dono = if let Some(cid) = var.class {
+                    format!(".{}", self.ctx.symbol_name(self.ctx.program.class(cid).name))
+                } else if let Some(eid) = var.extension {
+                    let nome = self.ctx.program.extension(eid).name?;
+                    format!(".{}", self.ctx.symbol_name(nome))
+                } else {
+                    String::new()
+                };
+                Some(format!("g:{:?}", (biblioteca, dono, self.ctx.symbol_name(var.name))))
             }
             ExprKind::InstanceCreation { keyword, arguments, .. } => {
                 let em_const = em_const || *keyword == Some(CreationKeyword::Const);
@@ -106,7 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let CollectionElement::Expression(x) = el else { return None };
                     partes.push(self.chave_constante(ast, *x, true)?);
                 }
-                Some(format!("l{}:[{}]", self.tipo_na_chave(e), partes.join(",")))
+                Some(format!("l{}:[{}]", self.tipo_na_chave(e)?, partes.join(",")))
             }
             ExprKind::SetOrMap { const_, elements, .. } => {
                 if !(em_const || *const_) {
@@ -133,7 +146,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => return None,
                     }
                 }
-                Some(format!("{}{}:{{{}}}", if conjunto { "c" } else { "m" }, self.tipo_na_chave(e), partes.join(",")))
+                Some(format!("{}{}:{{{}}}", if conjunto { "c" } else { "m" }, self.tipo_na_chave(e)?, partes.join(",")))
             }
             ExprKind::Record { positional, named, .. } if em_const => {
                 let mut partes = Vec::new();
@@ -156,10 +169,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// O tipo estático na chave (`const <int>[]` e `const <String>[]` são
     /// constantes diferentes).
-    fn tipo_na_chave(&self, e: ExprId) -> String {
+    fn tipo_na_chave(&self, e: ExprId) -> Option<String> {
         self.ctx
             .get_type(self.unit_id, e)
-            .map_or_else(String::new, |t| format!("<{}>", t.0))
+            .map_or_else(|| Some(String::new()), |t| self.tipo_estavel(t).map(|s| format!("<{s}>")))
+    }
+
+    /// Identidade estrutural do tipo, sem `TypeId`/`ClassId`/`SymbolId`, cuja
+    /// numeração depende da ordem de carga e de internação dos arquivos.
+    /// Se o tipo depende de um parâmetro genérico, a expressão não recebe
+    /// getter canônico até haver uma identidade independente da instância.
+    fn tipo_estavel(&self, t: TypeId) -> Option<String> {
+        let partes = |xs: &[TypeId]| -> Option<Vec<String>> {
+            xs.iter().map(|&x| self.tipo_estavel(x)).collect()
+        };
+        match self.ctx.table.get(t) {
+            DartType::Dynamic => Some("dynamic".into()),
+            DartType::Void => Some("void".into()),
+            DartType::Never => Some("Never".into()),
+            DartType::Null => Some("Null".into()),
+            DartType::Interface { class, args, nullable }
+            | DartType::ExtensionType { decl: class, args, nullable } => {
+                let c = self.ctx.program.class(*class);
+                let lib = self.ctx.nome_da_biblioteca(c.library);
+                Some(format!("{lib:?}.{}<{}>{nullable}", self.ctx.symbol_name(c.name), partes(args)?.join(",")))
+            }
+            DartType::FutureOr { arg, nullable } => Some(format!("FutureOr<{}>{nullable}", self.tipo_estavel(*arg)?)),
+            DartType::Record { positional, named, nullable } => {
+                let mut campos: Vec<_> = named
+                    .iter()
+                    .map(|(n, t)| Some((self.ctx.symbol_name(*n).to_owned(), self.tipo_estavel(*t)?)))
+                    .collect::<Option<_>>()?;
+                campos.sort();
+                Some(format!("record({};{:?}){nullable}", partes(positional)?.join(","), campos))
+            }
+            DartType::Function { type_params, ret, positional, optional, named, nullable } if type_params.is_empty() => {
+                let mut campos: Vec<_> = named
+                    .iter()
+                    .map(|(n, t, req)| Some((self.ctx.symbol_name(*n).to_owned(), self.tipo_estavel(*t)?, req)))
+                    .collect::<Option<_>>()?;
+                campos.sort();
+                Some(format!(
+                    "fn({};{};{:?})->{}{nullable}",
+                    partes(positional)?.join(","), partes(optional)?.join(","), campos, self.tipo_estavel(*ret)?
+                ))
+            }
+            DartType::Function { .. } | DartType::TypeParameter { .. } | DartType::Intersection { .. } => None,
+        }
     }
 
     fn chave_de_criacao(&self, ast: &ast::Ast, fid: usize, arguments: &ast::Arguments) -> Option<String> {
