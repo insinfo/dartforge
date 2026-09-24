@@ -8,11 +8,12 @@ use dartforge_frontend::ast::{DeclKind, Initializer, MemberKind, VariableList};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-fn final_sem_inicializador(v: &VariableList, nomes: &Interner, out: &mut Vec<(usize, Diagnostic)>, unidade: usize) {
+fn final_sem_inicializador(v: &VariableList, nomes: &Interner, out: &mut Vec<(usize, Diagnostic)>, unidade: usize, enum_index: bool) {
     if !v.final_ || v.const_ || v.late || v.external || v.abstract_ {
         return;
     }
     for var in v.variables.iter().filter(|var| var.initializer.is_none()) {
+        if enum_index && nomes.resolve(var.name.sym) == "index" { continue; }
         out.push((unidade, Diagnostic::com_codigo(
             c::FINAL_NOT_INITIALIZED,
             var.name.span,
@@ -44,6 +45,10 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                 if let MemberKind::Field(v) = &unidade.ast.member(m).kind {
                     if v.static_ { continue; }
                     for var in &v.variables {
+                        // O membro `Enum.index` implícito não participa da
+                        // checagem de inicialização, mesmo que o usuário
+                        // declare outro `index` (erro próprio de enum).
+                        if chave.0 && nomes.resolve(var.name.sym) == "index" { continue; }
                         campos.entry(chave).or_default().push((
                             var.name.sym,
                             v.final_ && !v.const_ && !v.late && !v.external && !v.abstract_ && var.initializer.is_none(),
@@ -70,7 +75,7 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
         for &id in &unidade.unit.declarations {
             let membros = match &unidade.ast.decl(id).kind {
                 DeclKind::Variables(v) => {
-                    final_sem_inicializador(v, nomes, &mut out, i);
+                    final_sem_inicializador(v, nomes, &mut out, i, false);
                     continue;
                 }
                 DeclKind::Class(x) => (&x.members, com_gerador.contains(&(false, x.name.sym))),
@@ -84,7 +89,8 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                 match &unidade.ast.member(m).kind {
                     MemberKind::Field(v) => {
                         if v.static_ || !membros.1 {
-                            final_sem_inicializador(v, nomes, &mut out, i);
+                            let enum_index = !v.static_ && matches!(&unidade.ast.decl(id).kind, DeclKind::Enum(_));
+                            final_sem_inicializador(v, nomes, &mut out, i, enum_index);
                         }
                     }
                     MemberKind::Constructor(k) if !k.factory && !k.external && k.redirect.is_none() => {
@@ -237,5 +243,15 @@ mod testes {
             assert_eq!(d.span.end, offset + 1, "{achados:?}");
             assert_eq!(d.message, mensagem, "{achados:?}");
         }
+    }
+
+    #[test]
+    fn index_de_enum_usa_diagnostico_proprio() {
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/illegal_concrete_enum_member_declaration/IllegalConcreteEnumMemberDeclarationEnu_9000f3c7.dart"));
+        assert!(testar(fonte).is_empty());
+        assert!(testar("enum E { v; final int index; }").is_empty());
+        assert_eq!(testar("enum E { v; static final int index; }"), vec![(
+            "index".into(), "The final variable 'index' must be initialized.".into(),
+        )]);
     }
 }
