@@ -63,7 +63,7 @@ impl AnalisadorSemantico {
         let elemento = binding.getter?;
         let biblioteca = match elemento {
             Element::Variable(id) => programa.variable(id).library,
-            Element::Function(id) if programa.function(id).kind == FunctionKind::Function => programa.function(id).library,
+            Element::Function(id) if matches!(programa.function(id).kind, FunctionKind::Function | FunctionKind::Getter) => programa.function(id).library,
             _ => return None,
         };
         if biblioteca == u.library { return None; }
@@ -123,6 +123,13 @@ impl AnalisadorSemantico {
                 if !matches!(&ast.ty(retorno_escrito).kind, TypeKind::Void)
                     && navegacao::tipo_primitivo(ast, &nomes, retorno_escrito).is_none()
                 { return None; }
+                let dados = &outline.functions[id.0 as usize];
+                let retorno = tabela.format(dados.return_type, &nomes, &programa);
+                let nome = nomes.resolve(programa.function(id).name);
+                if programa.function(id).kind == FunctionKind::Getter {
+                    if declaracao.parameters.is_some() { return None; }
+                    return Some((referencia, format!("{retorno} get {nome}"), Some(retorno)));
+                }
                 let parametros_escritos = declaracao.parameters.as_ref()?;
                 if parametros_escritos.len() > 2 { return None; }
                 for p in parametros_escritos.iter() {
@@ -132,7 +139,6 @@ impl AnalisadorSemantico {
                         || navegacao::tipo_primitivo(ast, &nomes, p.ty?).is_none()
                     { return None; }
                 }
-                let dados = &outline.functions[id.0 as usize];
                 if dados.parameters.len() != parametros_escritos.len() { return None; }
                 let mut params = Vec::new();
                 for p in dados.parameters.iter() {
@@ -140,8 +146,6 @@ impl AnalisadorSemantico {
                     let nome = nomes.resolve(p.name?);
                     params.push(format!("{} {nome}", tabela.format(p.ty, &nomes, &programa)));
                 }
-                let retorno = tabela.format(dados.return_type, &nomes, &programa);
-                let nome = nomes.resolve(programa.function(id).name);
                 Some((referencia, format!("{retorno} {nome}({})", params.join(", ")), None))
             }
             _ => None,

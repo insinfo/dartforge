@@ -158,5 +158,19 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 85, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
     assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9), Value::Null);
+
+    let biblioteca_getter = raiz.join("getter.dart");
+    let entrada_getter = raiz.join("main_getter.dart");
+    fs::write(&biblioteca_getter, "int get resposta => 42;\n").unwrap();
+    fs::write(&entrada_getter, "import 'getter.dart';\nvar y = resposta;\n").unwrap();
+    let uri_getter = url::Url::from_file_path(&entrada_getter).unwrap().to_string();
+    assert_eq!(requisitar(&mut servidor, 87, "textDocument/definition", &uri_getter, 9), Value::Null);
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri_getter,"languageId":"dart","version":1,
+            "text":"import 'getter.dart';\nvar y = resposta;\n"}
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 88, "textDocument/definition", &uri_getter, 9)["range"]["start"], json!({"line":0,"character":8}));
+    assert_eq!(requisitar(&mut servidor, 89, "textDocument/hover", &uri_getter, 9)["contents"], "int get resposta\nType: int");
     fs::remove_dir_all(&raiz).unwrap();
 }
