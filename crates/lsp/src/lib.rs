@@ -242,6 +242,9 @@ pub trait Analisador {
     fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         None
     }
+
+    /// Descarta estado associado ao documento quando ele sai do editor.
+    fn documento_fechado(&mut self, _uri: &str) {}
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -353,5 +356,13 @@ impl Analisador for AnalisadorSintatico {
             navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?, tipo.tipo_estatico)),
             navegacao::Alvo::Arquivo(_) => None,
         }
+    }
+
+    fn documento_fechado(&mut self, uri: &str) {
+        self.padroes.remove(uri);
+        // A configuração pode ter mudado enquanto o arquivo estava fechado.
+        // A próxima análise a carrega novamente; nada do projeto fechado fica
+        // retido indefinidamente na sessão do servidor.
+        self.configs.clear();
     }
 }

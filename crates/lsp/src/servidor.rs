@@ -231,6 +231,9 @@ impl<A: Analisador> Servidor<A> {
                 let uri = doc.get("uri")?.as_str()?;
                 let versao = doc.get("version")?.as_i64()? as i32;
                 let texto = doc.get("text")?.as_str()?;
+                if self.documentos.get(uri).is_some() {
+                    self.analisador.documento_fechado(uri);
+                }
                 self.documentos
                     .open(uri.to_string(), versao, texto.to_string());
                 Some(self.publicar(uri))
@@ -248,7 +251,9 @@ impl<A: Analisador> Servidor<A> {
             "textDocument/didClose" => {
                 let params = mensagem.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
-                self.documentos.close(uri);
+                if self.documentos.close(uri) {
+                    self.analisador.documento_fechado(uri);
+                }
                 Some(publicacao_vazia(uri))
             }
             _ => {
