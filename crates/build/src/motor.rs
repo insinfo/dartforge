@@ -779,6 +779,11 @@ impl Motor {
                 else { format!("{}: {detalhes}", pedido.chave) });
         }
         for (id, bytes) in resultado.saidas {
+            if let Some(ja_escritos) = servico.escritas.get(&id) {
+                if ja_escritos.as_ref() != bytes.as_ref() {
+                    return Err(format!("builder Dart retornou bytes diferentes para {} após escrever via BuildStep", id.texto()));
+                }
+            }
             servico.escrever(&id, bytes).map_err(|e| format!("builder Dart escreveu saída não permitida: {}", e.0.texto()))?;
         }
         let saidas = acao.saidas.iter().map(|id| (id.clone(), servico.escritas.get(id).cloned())).collect();
