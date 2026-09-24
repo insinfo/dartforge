@@ -820,8 +820,21 @@ pub fn raizes_do_usuario(modulos: &[Modulo]) -> Vec<String> {
 /// programa o cite. O arquivo inteiro, não só o que sobrevive à poda: é
 /// conservador e não cria dependência circular entre os dois mundos.
 pub fn seletores_dinamicos(src: &str) -> Vec<String> {
+    let (leituras, escritas) = seletores_dinamicos_por_especie(src);
+    let mut todos = leituras;
+    todos.extend(escritas);
+    todos.sort();
+    todos.dedup();
+    todos
+}
+
+/// Como [`seletores_dinamicos`], separado por espécie: `dput`/`dputRepl`
+/// escrevem (`foo`, que o verificador casa com `foo=`), o resto
+/// (`dsend`, `dload`, `bind`…) lê ou chama.
+pub fn seletores_dinamicos_por_especie(src: &str) -> (Vec<String>, Vec<String>) {
     let b = src.as_bytes();
-    let mut out: Vec<String> = Vec::new();
+    let mut leituras: Vec<String> = Vec::new();
+    let mut escritas: Vec<String> = Vec::new();
     // Uma passada só: cada `(` olha o identificador que o precede (7 MB em
     // poucos milissegundos; nove `match_indices` custavam dezenas).
     let e_id = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
@@ -830,9 +843,10 @@ pub fn seletores_dinamicos(src: &str) -> Vec<String> {
         while i > 0 && e_id(b[i - 1]) {
             i -= 1;
         }
-        let pos_arg = match &src[i..p] {
-            "dsend" | "dload" | "dput" | "bind" | "dsendRepl" | "dloadRepl" | "dputRepl" => 1usize,
-            "dgsend" | "dgsendRepl" => 2,
+        let (pos_arg, escrita) = match &src[i..p] {
+            "dput" | "dputRepl" => (1usize, true),
+            "dsend" | "dload" | "bind" | "dsendRepl" | "dloadRepl" => (1usize, false),
+            "dgsend" | "dgsendRepl" => (2, false),
             _ => continue,
         };
         {
@@ -879,14 +893,20 @@ pub fn seletores_dinamicos(src: &str) -> Vec<String> {
                 }
                 let s = &src[ini..k];
                 if !s.is_empty() && s.len() < 64 && e_nome_de_seletor(s) {
-                    out.push(s.to_string());
+                    if escrita {
+                        escritas.push(s.to_string());
+                    } else {
+                        leituras.push(s.to_string());
+                    }
                 }
             }
         }
     }
-    out.sort();
-    out.dedup();
-    out
+    leituras.sort();
+    leituras.dedup();
+    escritas.sort();
+    escritas.dedup();
+    (leituras, escritas)
 }
 
 /// Poda o `dart_sdk.js`: devolve o texto podado, o total de unidades e as vivas.

@@ -48,6 +48,9 @@ impl Vivos for Adaptador<'_> {
     fn seletor(&self, nome: &str) -> bool {
         self.stub || self.mundo.seletor(nome)
     }
+    fn seletor_escrita(&self, nome_base: &str) -> bool {
+        self.stub || self.mundo.seletor(&format!("{nome_base}="))
+    }
     fn tearoff_ctor(&self, f: FunctionElementId) -> bool {
         self.stub || self.mundo.tearoff_de_construtor(f)
     }
