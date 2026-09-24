@@ -81,11 +81,11 @@ fn e_lib(nome: &str) -> bool {
     LIBS.contains(&nome)
 }
 
-/// Tabelas de símbolos que o DDC emite como `S`, `S$0`, `S$1` etc.
+/// Tabelas de símbolos que o DDC emite como `S`, `S$`, `S$0`, `S$1` etc.
 /// Cada entrada pode ser podada separadamente; o prefixo sozinho não basta
 /// para manter uma chave privada usada por um getter vivo.
 fn e_tabela_simbolos(nome: &str) -> bool {
-    nome == "S" || nome.strip_prefix("S$").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    nome == "S" || nome == "S$" || nome.strip_prefix("S$").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn ident_em(b: &[u8], i: usize) -> usize {
@@ -354,7 +354,7 @@ fn nome_do_membro(t: &str) -> Option<String> {
             // No DDC `get [S.$head]()` e `get [S$2.$console]()` usam um
             // alias de símbolos. O seletor é o campo do alias, não `S`.
             let prefixo = &t[j..fim];
-            if (prefixo == "S" || prefixo.strip_prefix("S$").is_some_and(|x| !x.is_empty() && x.bytes().all(|c| c.is_ascii_digit())))
+            if e_tabela_simbolos(prefixo)
                 && b.get(fim) == Some(&b'.') && fim + 1 < b.len()
             {
                 let inicio = fim + 1 + usize::from(b[fim + 1] == b'$');
@@ -1068,9 +1068,10 @@ mod testes {
     #[test]
     fn referencia_entrada_privada_da_tabela_de_simbolos() {
         let mut refs = Vec::new();
-        referencias("this[S$1._head$1] + this[S.$head]", &mut refs, false);
+        referencias("this[S$1._head$1] + this[S.$head] + this[S$._private]", &mut refs, false);
         assert!(refs.contains(&"S$1._head$1".to_string()), "{refs:?}");
         assert!(refs.contains(&"S.$head".to_string()), "{refs:?}");
+        assert!(refs.contains(&"S$._private".to_string()), "{refs:?}");
 
         let src = concat!(
             "var html$ = Object.create(dart.library);\n",
