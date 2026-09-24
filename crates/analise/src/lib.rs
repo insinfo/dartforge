@@ -6,8 +6,11 @@
 //! * [`locais`]: variáveis e funções locais não usadas (`UnusedLocalElementsVerifier`).
 //! * [`duplicatas`]: `DuplicateDefinitionVerifier` e
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
+//! * [`externos`]: inicializadores de campos e variáveis `external`
+//!   (`ErrorVerifier`).
 
 pub mod duplicatas;
+pub mod externos;
 pub mod importacoes;
 pub mod locais;
 pub mod publicacao;

@@ -325,7 +325,8 @@ impl Analisador for AnalisadorSintatico {
         let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga)
             .into_iter()
             .map(|(_, d)| d)
-            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga));
+            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga))
+            .chain(dartforge_analise::externos::inicializadores(unidade));
         saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));
         saida
     }
