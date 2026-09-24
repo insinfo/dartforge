@@ -969,8 +969,8 @@ pub(crate) fn membro_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
 }
 
 /// Símbolo do operador binário.
-fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
-    let s = match op {
+fn texto_operador(op: BinaryOp) -> Option<&'static str> {
+    Some(match op {
         BinaryOp::Add => "+",
         BinaryOp::Sub => "-",
         BinaryOp::Mul => "*",
@@ -989,8 +989,11 @@ fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
         BinaryOp::GtEq => ">=",
         BinaryOp::Eq | BinaryOp::NotEq => "==",
         _ => return None,
-    };
-    inf.interner.lookup(s)
+    })
+}
+
+fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
+    inf.interner.lookup(texto_operador(op)?)
 }
 
 /// Invocação de um operador de um argumento (`a + b`, `a[i]`): busca o
@@ -1006,32 +1009,12 @@ pub(crate) fn operador_binario(
     span: dartforge_diagnostics::Span,
     no: Option<ExprId>,
 ) -> (TypeId, Option<Membro>) {
-    let u = inf.core.unknown;
     let Some(op) = op else {
         inferir_livre(inf, cx, arg);
         return (inf.core.dynamic_, None);
     };
     match inf.buscar_membro(cx.lib, recv, op, false) {
-        Busca::Achado(m) => {
-            if let Some(n) = no {
-                resolver(inf, cx, n, m.resolved.clone());
-            }
-            let (param, ret) = match inf.table.get(m.tipo).clone() {
-                Type::Function { positional, optional, ret, .. } => (positional.first().or(optional.first()).copied(), ret),
-                _ => (None, inf.core.dynamic_),
-            };
-            let ctx_arg = match param {
-                Some(p) => contexto_numerico(inf, recv, &m, op, ctx, p),
-                None => u,
-            };
-            let ta = inferir(inf, cx, arg, ctx_arg);
-            if let Some(p) = param {
-                let sp = inf.span_expr(cx.unit, arg);
-                inf.verificar_atribuivel(ta, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
-            }
-            let t = refinar_numerico(inf, recv, &m, op, &[ta], ret);
-            (t, Some(m))
-        }
+        Busca::Achado(m) => operador_binario_com_membro(inf, cx, recv, op, arg, ctx, no, m),
         Busca::Dinamico => {
             inferir_livre(inf, cx, arg);
             (inf.core.dynamic_, None)
@@ -1052,6 +1035,30 @@ pub(crate) fn operador_binario(
             (inf.core.dynamic_, None)
         }
     }
+}
+
+fn operador_binario_com_membro(
+    inf: &mut BodyInferrer<'_>, cx: &mut Corpo, recv: TypeId, op: SymbolId,
+    arg: ExprId, ctx: TypeId, no: Option<ExprId>, m: Membro,
+) -> (TypeId, Option<Membro>) {
+    if let Some(n) = no {
+        resolver(inf, cx, n, m.resolved.clone());
+    }
+    let (param, ret) = match inf.table.get(m.tipo).clone() {
+        Type::Function { positional, optional, ret, .. } => (positional.first().or(optional.first()).copied(), ret),
+        _ => (None, inf.core.dynamic_),
+    };
+    let ctx_arg = match param {
+        Some(p) => contexto_numerico(inf, recv, &m, op, ctx, p),
+        None => inf.core.unknown,
+    };
+    let ta = inferir(inf, cx, arg, ctx_arg);
+    if let Some(p) = param {
+        let sp = inf.span_expr(cx.unit, arg);
+        inf.verificar_atribuivel(ta, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+    }
+    let t = refinar_numerico(inf, recv, &m, op, &[ta], ret);
+    (t, Some(m))
 }
 
 fn e_numerico_refinavel(inf: &BodyInferrer<'_>, m: &Membro, op: SymbolId) -> bool {
@@ -1153,6 +1160,39 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
                 registrar(inf, cx, left, this);
             }
             let sym = simbolo_operador(inf, op);
+            if let Some((x, args)) = cx.sobreposicoes.get(&left).cloned()
+                && let Some(texto) = texto_operador(op)
+            {
+                if let Some((s, m)) = sym.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false).map(|m| (s, m))) {
+                    return operador_binario_com_membro(inf, cx, l, s, right, ctx, Some(e), m).0;
+                }
+                let inicio = inf.span_expr(cx.unit, left).end;
+                let fim = inf.span_expr(cx.unit, right).start;
+                let trecho = inf.program.unit(cx.unit).source.get(inicio..fim).unwrap_or("");
+                let bytes = trecho.as_bytes();
+                let mut pos = 0;
+                while pos < bytes.len() {
+                    if bytes[pos].is_ascii_whitespace() {
+                        pos += 1;
+                    } else if bytes.get(pos..pos + 2) == Some(b"/*") {
+                        pos += 2;
+                        while pos + 1 < bytes.len() && &bytes[pos..pos + 2] != b"*/" { pos += 1; }
+                        pos = (pos + 2).min(bytes.len());
+                    } else if bytes.get(pos..pos + 2) == Some(b"//") {
+                        while pos < bytes.len() && bytes[pos] != b'\n' { pos += 1; }
+                    } else {
+                        break;
+                    }
+                }
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, texto, extensao);
+                if trecho.get(pos..).is_some_and(|resto| resto.starts_with(texto)) {
+                    let offset = inicio + pos;
+                    inf.aviso(msg, dartforge_diagnostics::Span { start: offset, end: offset + texto.len() });
+                }
+                inferir_livre(inf, cx, right);
+                return inf.core.dynamic_;
+            }
             let (t, _) = operador_binario(inf, cx, l, sym, right, ctx, span, Some(e));
             t
         }
