@@ -12,7 +12,10 @@
 //!
 //! 1. todo **nome** de membro escrito (`x.nome`, `nome` solto, seção de
 //!    cascata, campo de padrão de objeto) vira seletor, qualquer que seja a
-//!    resolução — é o que torna o mundo independente da inferência;
+//!    resolução — é o que torna o mundo independente da inferência —, com o
+//!    **cone do receptor** quando o tipo estático dele é conhecido (`x: T`
+//!    mantém o membro só nas classes subtipo de `T`; `nome` solto usa a
+//!    classe envolvente; receptor dinâmico/desconhecido continua irrestrito);
 //! 2. o `Resolved` dos `BodyTypes`, para os usos estáticos;
 //! 3. a resolução do nome no escopo (`Program::lookup`), para quando o
 //!    `Resolved` falta ou diverge do que o emissor resolveria.
@@ -352,10 +355,56 @@ fn alvo_for_in(m: &mut Motor<'_>, ctx: &Contexto, t: &ForInTarget) {
     }
 }
 
+/// A classe do tipo estático do `receptor`, quando conhecida e nominal.
+/// `None` é receptor dinâmico ou desconhecido: o seletor continua irrestrito
+/// (nunca se poda por falta de informação).
+fn classe_do_receptor(m: &Motor<'_>, ctx: &Contexto, receptor: ExprId) -> Option<ClassId> {
+    let u = m.e.bodies.units.get(ctx.unidade.0 as usize)?;
+    m.classe_do_tipo(u.get_type(receptor)?)
+}
+
+/// O cone do receptor de um uso de membro (`x.nome`, `nome` solto):
+///
+/// * `x.nome` com alvo estático (`C.nome`, `p.nome`) não é despacho em
+///   instância — irrestrito, como antes;
+/// * `x.nome` com `x: T` conhecido restringe ao cone de `T`;
+/// * `nome` solto é `this.nome` implícito: o cone é a classe envolvente
+///   (método de topo e estático não têm `this`, então `ctx.classe` é `None`
+///   e o seletor continua irrestrito).
+fn receptor_do_uso(m: &Motor<'_>, ctx: &Contexto, id: ExprId) -> Option<ClassId> {
+    let ast = &m.e.program.unit(ctx.unidade).ast;
+    match &ast.expr(id).kind {
+        ExprKind::Property { target, .. } => {
+            if alvo_estatico(m, ctx, *target).is_some() {
+                return None;
+            }
+            // `super.s()` executa a implementação da superclasse, mas o tipo
+            // estático do receptor `super` é a classe atual (`tipo_this`):
+            // restringir pelo tipo podaria a superclasse em execução. O cone
+            // é a classe onde o membro resolveu (despacho estático).
+            if matches!(&ast.expr(*target).kind, ExprKind::Super) {
+                return m
+                    .e
+                    .bodies
+                    .units
+                    .get(ctx.unidade.0 as usize)
+                    .and_then(|u| u.get_resolved(id))
+                    .and_then(|r| match r {
+                        Resolved::Member { class, .. } => Some(*class),
+                        _ => None,
+                    });
+            }
+            classe_do_receptor(m, ctx, *target)
+        }
+        ExprKind::Identifier(_) => ctx.classe,
+        _ => None,
+    }
+}
+
 /// Um uso de escrita fora do `Assign` simples (`+=`, `++`, alvo de
 /// `for-in`): registra a espécie de escrita (`nome_=`, a chave do
 /// `instance_members`) sem suprimir a leitura, que o percurso normal
-/// registra em seguida.
+/// registra em seguida. O cone é o do alvo, pela mesma regra do uso.
 fn escrita_no_alvo(m: &mut Motor<'_>, ctx: &Contexto, alvo: ExprId) {
     let e = m.e;
     let ast = &e.program.unit(ctx.unidade).ast;
@@ -364,7 +413,8 @@ fn escrita_no_alvo(m: &mut Motor<'_>, ctx: &Contexto, alvo: ExprId) {
         ExprKind::Identifier(n) => e.interner.resolve(n.sym),
         _ => return,
     };
-    m.novo_seletor(&format!("{nome}_="));
+    let receptor = receptor_do_uso(m, ctx, alvo);
+    m.novo_seletor_com_receptor(&format!("{nome}_="), receptor);
 }
 
 fn for_init(m: &mut Motor<'_>, ctx: &Contexto, i: &ForInit) {
@@ -616,12 +666,12 @@ fn elemento(m: &mut Motor<'_>, ctx: &Contexto, el: &CollectionElement) {
     }
 }
 
-fn aplicar_resolved(m: &mut Motor<'_>, r: &Resolved) {
+fn aplicar_resolved(m: &mut Motor<'_>, r: &Resolved, receptor: Option<ClassId>) {
     match r {
         Resolved::Element(el) => m.usar_elemento(*el),
         Resolved::Member { member, .. } => match member {
-            MemberRef::Function(f) => m.usar_funcao(*f),
-            MemberRef::Variable(v) => m.usar_variavel(*v),
+            MemberRef::Function(f) => m.usar_funcao_com_receptor(*f, receptor),
+            MemberRef::Variable(v) => m.usar_variavel_com_receptor(*v, receptor),
         },
         Resolved::ExtensionMember { member, .. } => m.usar_funcao(*member),
         Resolved::Constructor(f) => m.usar_construtor(*f, false),
@@ -710,13 +760,17 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
     let e = m.e;
     let p = e.program;
     let ast = &p.unit(ctx.unidade).ast;
+    // O cone do receptor, quando o uso é despacho em instância com tipo
+    // estático conhecido: vale para o `Resolved` (que não carrega o tipo do
+    // receptor) e para o nome escrito (que independe da resolução).
+    let receptor = receptor_do_uso(m, ctx, id);
     if let Some(u) = e.bodies.units.get(ctx.unidade.0 as usize) {
         if let Some(t) = u.get_type(id) {
             m.tipo_de(t);
         }
         if let Some(r) = u.get_resolved(id) {
             let r = r.clone();
-            aplicar_resolved(m, &r);
+            aplicar_resolved(m, &r, receptor);
         }
     }
     match &ast.expr(id).kind {
@@ -732,14 +786,15 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
         ExprKind::Identifier(n) => {
             // `nome` solto pode ser `this.nome` implícito. No alvo de um
             // `Assign` simples é escrita (`nome_=`, a chave do setter no
-            // `instance_members`); senão, leitura.
+            // `instance_members`); senão, leitura. O cone é o da classe
+            // envolvente (`receptor`, acima).
             if m.alvo_de_escrita == Some(id) {
                 m.alvo_de_escrita = None;
                 let s = e.interner.resolve(n.sym);
-                m.novo_seletor(&format!("{s}_="));
+                m.novo_seletor_com_receptor(&format!("{s}_="), receptor);
             } else {
                 let s = e.interner.resolve(n.sym);
-                m.novo_seletor(s);
+                m.novo_seletor_com_receptor(s, receptor);
             }
             m.usar_nome(ctx, n.sym);
         }
@@ -772,14 +827,16 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             // No alvo de um `Assign` simples é escrita (`nome_=`, a chave do
             // setter no `instance_members`); senão, é leitura ou chamada. O
             // receptor continua sendo leitura, e o `Resolved` (que já
-            // distingue getter de setter) continua valendo.
+            // distingue getter de setter) continua valendo. O cone é o do
+            // receptor (`receptor`, acima); acesso estático (`C.nome`) já
+            // voltou `None` por lá.
             if m.alvo_de_escrita == Some(id) {
                 m.alvo_de_escrita = None;
                 let s = e.interner.resolve(name.sym);
-                m.novo_seletor(&format!("{s}_="));
+                m.novo_seletor_com_receptor(&format!("{s}_="), receptor);
             } else {
                 let s = e.interner.resolve(name.sym);
-                m.novo_seletor(s);
+                m.novo_seletor_com_receptor(s, receptor);
             }
             if let Some(a) = alvo_estatico(m, ctx, *target) {
                 membro_estatico(m, ctx, a, name.sym);
