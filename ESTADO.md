@@ -156,6 +156,16 @@ publicou **161/223** no SDK da fonte, sem regressões frente aos 160 casos
 verdes anteriores. `56_late` passou após inicialização preguiçosa de locais,
 globais e campos; os casos 34 e 94 permaneceram verdes. Capturas `late`
 continuam no caminho anterior, com limitação documentada em `docs/NATIVO.md`.
+Na integração `06eac49`, a [CI 35991837079](https://github.com/insinfo/dartforge/actions/runs/35991837079)
+e o [Pesado 35991837078](https://github.com/insinfo/dartforge/actions/runs/35991837078)
+passaram. O SDK da fonte confirmou **161/223** casos nativos, com `56_late`
+recuperado e sem regressões frente à rodada anterior. O analyzer mediu
+**5.835/26.133** diagnósticos na posição exata, 5.546 mensagens iguais,
+4.334 falsos positivos, 19.829 falsos negativos e 469 posições erradas;
+o relatório foi idêntico com 1, 4 e 8 trabalhadores. Esse placar inclui
+`Enum.index` e o setter de extensão explícita, mas ainda não inclui os
+commits posteriores de campos não nulos, métodos estáticos em extensões e
+definições completas de macros.
 
 ## Fechamento do dia 2026-09-23
 
