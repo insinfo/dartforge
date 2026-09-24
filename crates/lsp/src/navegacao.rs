@@ -155,14 +155,14 @@ fn variavel_topo(
     Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico })
 }
 
-fn referencia_expr(ast: &dartforge_frontend::ast::Ast, offset: usize) -> Option<Name> {
+pub(super) fn referencia_expr(ast: &dartforge_frontend::ast::Ast, offset: usize) -> Option<Name> {
     ast.exprs.iter().find_map(|e| {
         let ExprKind::Identifier(n) = &e.kind else { return None };
         (n.span.start <= offset && offset < n.span.end).then_some(*n)
     })
 }
 
-fn sombreado(ast: &dartforge_frontend::ast::Ast, chave: dartforge_intern::SymbolId) -> bool {
+pub(super) fn sombreado(ast: &dartforge_frontend::ast::Ast, chave: dartforge_intern::SymbolId) -> bool {
     ast.functions.iter().any(|f| f.parameters.as_ref().is_some_and(|ps| ps.iter().any(|p| p.name.is_some_and(|n| n.sym == chave))))
         || ast.members.iter().any(|m| match &m.kind {
             MemberKind::Field(v) => v.variables.iter().any(|x| x.name.sym == chave),

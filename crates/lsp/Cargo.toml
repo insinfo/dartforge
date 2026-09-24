@@ -12,6 +12,7 @@ dartforge-analise = { path = "../analise" }
 dartforge-elements = { path = "../elements" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
+dartforge-types = { path = "../types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"

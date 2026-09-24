@@ -106,8 +106,8 @@ Referências de expressão a uma variável de topo única também navegam quando
 nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
 O mesmo vale para uma função de topo única; uma função local homônima impede
 a navegação até haver resolução por escopo.
-URIs `dart:` e nomes importados aguardam resolução de bibliotecas e
-elementos. A regra de ativação do literal segue a navegação de diretivas do
+URIs `dart:` e os demais nomes importados aguardam cobertura de navegação.
+A regra de ativação do literal segue a navegação de diretivas do
 analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
 o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
 --locked`.
@@ -132,6 +132,22 @@ vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
 aguardam a formatação completa da assinatura.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
+O binário também carrega o SDK descoberto por `SdkLayout::discover` e resolve
+variáveis de topo **importadas sem prefixo** em `definition` e `hover`.
+`elements` escolhe o vínculo no namespace da biblioteca, e `types` resolve a
+anotação explícita para o hover (`int resposta`, `Type: int`). A referência
+precisa ser uma expressão identificadora, sem declaração local ou parâmetro
+homônimo em qualquer escopo da unidade. Vínculos ambíguos, aliases, getters,
+tipos inferidos de inicializador e imports com prefixo ainda não geram esse
+resultado. Sem SDK, permanecem as respostas sintáticas anteriores. Cada
+requisição carrega o texto vigente do editor por geração em memória;
+`Program`, `Interner`, AST e `TypeTable` são descartados ao responder.
+Nesta primeira etapa, dependências importadas são lidas do disco; edições
+simultâneas ainda abertas nelas aguardam uma geração conjunta do workspace.
+`didChange` antigo e `didClose` preservam as garantias de versão. O intervalo
+de definição em outro arquivo é convertido com as linhas **desse arquivo**.
+Teste: `cargo test -p dartforge-lsp --test semantica --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -139,10 +155,10 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: completion, definição de variáveis/funções locais e nomes importados, referências,
+Explicitamente fora deste brief: completion, definição de variáveis/funções locais e demais nomes importados, referências,
 rename, code actions, formatação e `diagnosticProvider` por
-requisição (o servidor empurra diagnósticos; não atende pull). Semântica
-(nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
+requisição (o servidor empurra diagnósticos; não atende pull). Diagnósticos
+semânticos (nomes não resolvidos, erros de tipo) chegam depois via `crates/types`,
 pela costura `trait Analisador { fn diagnosticar(&mut self, uri, texto) }`
 — o transporte não muda.
 

@@ -357,9 +357,18 @@ impl<A: Analisador> Servidor<A> {
                             "end": {"line": 0, "character": 0},
                         }),
                         |s| {
-                            let tabela = self.documentos.linhas(u).expect("documento aberto");
-                            let (l0, c0) = tabela.posicao_de_offset(&texto, s.start);
-                            let (l1, c1) = tabela.posicao_de_offset(&texto, s.end);
+                            let externo = (destino != u).then(|| {
+                                let caminho = url::Url::parse(&destino).ok()?.to_file_path().ok()?;
+                                let fonte = std::fs::read_to_string(caminho).ok()?;
+                                let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
+                                Some((fonte, tabela))
+                            }).flatten();
+                            let (fonte, tabela) = match externo.as_ref() {
+                                Some((fonte, tabela)) => (fonte.as_str(), tabela),
+                                None => (&*texto, self.documentos.linhas(u).expect("documento aberto")),
+                            };
+                            let (l0, c0) = tabela.posicao_de_offset(fonte, s.start);
+                            let (l1, c1) = tabela.posicao_de_offset(fonte, s.end);
                             json!({
                                 "start": {"line": l0, "character": c0},
                                 "end": {"line": l1, "character": c1},
