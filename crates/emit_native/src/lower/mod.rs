@@ -499,6 +499,14 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                                     .then_some(sym);
                                     avaliados.push((nome, v));
                                 }
+                                // `factory C<T>(…) = C<T>._` deve entregar os
+                                // parâmetros reificados ao construtor alvo.
+                                // Sem isso, `MapEntry<K,V>` nasce como
+                                // `MapEntry<dynamic,dynamic>` mesmo quando a
+                                // fábrica recebeu `L<K,V>` pela ABI.
+                                if ctx.program.functions[t.0 as usize].class == Some(cid) {
+                                    builder.tipo_da_criacao = Some(ctx.outline.functions[f_idx].return_type);
+                                }
                                 let r = builder.instanciar_avaliados(t, &avaliados, span);
                                 builder.terminate(Terminator::Return(Some(r)));
                             }

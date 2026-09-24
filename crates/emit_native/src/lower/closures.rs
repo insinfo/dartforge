@@ -658,11 +658,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorver(e);
         }
-        self.emit(
+        let t = self.emit(
             Instruction::TearOff {
                 code_symbol: simbolo_ent,
             },
             Type::Ref,
-        )
+        );
+        // O construtor também é uma função reificada. Sem a assinatura, o
+        // `current as E` do ListIterator rejeita um tear-off guardado em
+        // `List<C Function()>` quando E passa a ser propagado pelo SDK.
+        self.definir_rti_de_tearoff(t.clone(), fid, None);
+        t
     }
 }
