@@ -82,6 +82,21 @@ async function sondar() {
       returnByValue: true,
     });
     const state = result.result.value;
+    let clickProbe;
+    if (process.env.SONDA_CLICK) {
+      const selector = JSON.stringify(process.env.SONDA_CLICK);
+      const before = await send('Runtime.evaluate', {
+        expression: `({trigger:document.querySelector(${selector})?.outerHTML.slice(0,300), paineis:document.querySelectorAll('[data-label^="li_select_item_"]').length})`,
+        returnByValue: true,
+      });
+      await send('Runtime.evaluate', { expression: `document.querySelector(${selector})?.click()` });
+      await sleep(1200);
+      const after = await send('Runtime.evaluate', {
+        expression: `({paineis:document.querySelectorAll('[data-label^="li_select_item_"]').length, expandidos:[...document.querySelectorAll('[data-label="li_select_toggle"]')].map(x=>x.getAttribute('aria-expanded')), opcoesVisiveis:[...document.querySelectorAll('[data-label^="li_select_item_"]')].filter(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(x).visibility!=='hidden'}).length})`,
+        returnByValue: true,
+      });
+      clickProbe = { before: before.result.value, after: after.result.value };
+    }
     const stack = [...diagnostics, ...(state.erros || [])].join('\n');
     const appendFrame = stack.split('\n').find((frame) => frame.includes('_appendStyles') && frame.includes('main.dart.js:'));
     const line = /main\.dart\.js:(\d+)/.exec(appendFrame || stack);
@@ -91,7 +106,7 @@ async function sondar() {
       const n = Number(line[1]);
       source = lines.slice(Math.max(0, n - 6), n + 5).map((t, i) => `${Math.max(0, n - 6) + i + 1}: ${t}`);
     }
-    console.log(JSON.stringify({ state, diagnostics: diagnostics.slice(0, 30), pausas, source }, null, 2));
+    console.log(JSON.stringify({ state, clickProbe, diagnostics: diagnostics.slice(0, 30), pausas, source }, null, 2));
     if (!state.montados || state.erros.length || diagnostics.length) process.exitCode = 1;
   } finally {
     ws.close();
