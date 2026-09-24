@@ -297,6 +297,9 @@ jobs:
       - name: Macro na definição de função (CFE byte a byte)
         shell: pwsh
         run: ./scripts/testar-macros-416.ps1
+      - name: Macro na definição de método (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-418.ps1
 
   macros-aot-sonda:
     name: sonda AOT do executor de macros
