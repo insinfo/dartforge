@@ -1223,6 +1223,10 @@ fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: 
     }
 }
 
+fn avisar_escrita_em_metodo(inf: &mut BodyInferrer<'_>, nome: ast::Name) {
+    inf.aviso(ASSIGNMENT_TO_METHOD.template.to_string(), nome.span);
+}
+
 /// Diagnóstico quando a recuperação de uma escrita encontra apenas o getter.
 /// O getter explícito é uma propriedade sem setter; o getter implícito é um
 /// campo `final` ou `const`. `late final` sem inicializador ainda aceita escrita.
@@ -1344,6 +1348,10 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, alvo, r);
             let fe = inf.program.function(f);
+            if fe.kind == FunctionKind::Function && fe.class.is_some() {
+                avisar_escrita_em_metodo(inf, n);
+                return inf.outline.functions[f.0 as usize].signature;
+            }
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
                 if (ve.final_ || ve.const_) && ve.setter.is_none() {
@@ -1555,6 +1563,14 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     }
     let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
+    // Um método da interface da classe prevalece sobre setter de extensão homônimo.
+    if let Some(m) = inf.membro_de_interface(recv, name.sym, false) {
+        if m.metodo && m.funcao.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
+            avisar_escrita_em_metodo(inf, name);
+            resolver(inf, cx, alvo, m.resolved);
+            return m.tipo;
+        }
+    }
     match inf.buscar_membro(cx.lib, recv, name.sym, true) {
         Busca::Achado(m) => {
             resolver(inf, cx, alvo, m.resolved.clone());

@@ -47,6 +47,11 @@ pub const ASSIGNMENT_TO_FINAL_NO_SETTER: DiagnosticCode = DiagnosticCode::new(
     "Não há setter para '{0}' na classe '{1}'.",
 );
 
+pub const ASSIGNMENT_TO_METHOD: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_method",
+    "Não é possível atribuir um valor a um método.",
+);
+
 pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_const",
     "Variáveis constantes não podem receber nova atribuição.",

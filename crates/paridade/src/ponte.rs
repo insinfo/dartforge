@@ -66,6 +66,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::ASSIGNMENT_TO_FINAL_LOCAL,
         c::ASSIGNMENT_TO_FINAL,
         c::ASSIGNMENT_TO_FINAL_NO_SETTER,
+        c::ASSIGNMENT_TO_METHOD,
         c::ASSIGNMENT_TO_CONST,
         c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
         c::DEFINITELY_UNASSIGNED_VARIABLE,
@@ -219,6 +220,17 @@ mod testes {
         let c = codificar_tipos(&d, "x");
         assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL_NO_SETTER));
         assert_eq!(c.message, "There isn't a setter named 'x' in class 'A'.");
+    }
+
+    #[test]
+    fn escrita_em_metodo_tem_codigo_oficial() {
+        let d = Diagnostic::new(
+            dartforge_types::codes::ASSIGNMENT_TO_METHOD.template,
+            Span { start: 2, end: 5 },
+        );
+        let c = codificar_tipos(&d, "foo");
+        assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_METHOD));
+        assert_eq!(c.message, "Methods can't be assigned a value.");
     }
 
     #[test]
