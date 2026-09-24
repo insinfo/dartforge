@@ -176,6 +176,16 @@ SDK da fonte manteve **161/223**, sem mudança de status em nenhum dos 223
 programas, e JS desenvolvimento/produção passaram. O corpus de macros
 permaneceu **6/7**: `410_json_codable` ainda estava em `PENDENTES` nessa
 revisão, apesar de o builder já materializar a augmentation do fixture.
+Na integração `301d1e5`, a [CI 35997168053](https://github.com/insinfo/dartforge/actions/runs/35997168053)
+e o [Pesado 35997168127](https://github.com/insinfo/dartforge/actions/runs/35997168127)
+passaram. O SDK da fonte manteve **161/223**, com os mesmos 223 estados da
+rodada anterior; a paridade do analyzer manteve **5.867/26.133** e o
+determinismo em 1/4/8 trabalhadores. Macros subiram para **7/7** em JS
+desenvolvimento e produção: `410_json_codable` usa a entrada Forge preparada
+com a augmentation materializada pelo builder. Isso valida o consumo do
+arquivo gerado, mas ainda não comprova execução automática da anotação no
+fluxo normal do compilador; o caso independente `411_pedido_independente`
+foi acrescentado depois dessa integração para testar esse caminho.
 
 ## Fechamento do dia 2026-09-23
 
