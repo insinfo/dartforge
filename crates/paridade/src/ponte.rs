@@ -68,6 +68,8 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::ASSIGNMENT_TO_FINAL_NO_SETTER,
         c::ASSIGNMENT_TO_METHOD,
         c::ASSIGNMENT_TO_CONST,
+        c::ASSIGNMENT_TO_TYPE,
+        c::ASSIGNMENT_TO_FUNCTION,
         c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
         c::DEFINITELY_UNASSIGNED_VARIABLE,
         c::UNDEFINED_IDENTIFIER,
@@ -209,6 +211,19 @@ mod testes {
         let final_ = codificar_tipos(&final_, "x");
         assert_eq!(final_.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL));
         assert_eq!(final_.message, "'x' can't be used as a setter because it's final.");
+    }
+
+    #[test]
+    fn atribuicao_a_tipo_e_funcao_traduz_mensagens_oficiais() {
+        let span = Span { start: 4, end: 5 };
+        for (molde, codigo, mensagem) in [
+            (dartforge_types::codes::ASSIGNMENT_TO_TYPE.template, codigos::compile_time_error::ASSIGNMENT_TO_TYPE, "Types can't be assigned a value."),
+            (dartforge_types::codes::ASSIGNMENT_TO_FUNCTION.template, codigos::compile_time_error::ASSIGNMENT_TO_FUNCTION, "Functions can't be assigned a value."),
+        ] {
+            let c = codificar_tipos(&Diagnostic::new(molde, span), "C");
+            assert_eq!(c.code, Some(codigo));
+            assert_eq!(c.message, mensagem);
+        }
     }
 
     #[test]

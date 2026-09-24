@@ -70,6 +70,8 @@ fn ast<'p>(inf: &BodyInferrer<'p>, cx: &Corpo) -> &'p ast::Ast {
 pub(crate) enum RefNome {
     Local(LocalId),
     TipoParam(crate::table::TypeParamId),
+    /// Pseudotipo embutido, sem elemento no namespace da biblioteca.
+    TipoDinamico,
     Elemento(Element),
     /// Membro declarado no corpo da classe/extensão envolvente.
     MembroLexico(dartforge_elements::model::FunctionElementId, bool),
@@ -121,6 +123,9 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
     }
     if inf.program.library(cx.lib).prefixes.contains_key(&nome) {
         return RefNome::Prefixo;
+    }
+    if inf.interner.resolve(nome) == "dynamic" {
+        return RefNome::TipoDinamico;
     }
     if cx.tipo_this.is_some() && !cx.estatico {
         return RefNome::ThisImplicito;
@@ -300,6 +305,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             resolver(inf, cx, e, Resolved::TypeParameter(p));
             inf.core.type_
         }
+        RefNome::TipoDinamico => inf.core.type_,
         RefNome::Elemento(el) => {
             resolver(inf, cx, e, Resolved::Element(el));
             ler_elemento(inf, el)
@@ -1338,11 +1344,23 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                             inf.aviso(msg, n.span);
                             inf.outline.functions[f.0 as usize].return_type
                         }
+                        (FunctionKind::Function, _) => {
+                            inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);
+                            inf.core.dynamic_
+                        }
                         _ => inf.core.dynamic_,
                     }
                 }
+                Element::Class(_) | Element::Typedef(_) => {
+                    inf.aviso(ASSIGNMENT_TO_TYPE.template.to_string(), n.span);
+                    inf.core.dynamic_
+                }
                 _ => inf.core.dynamic_,
             }
+        }
+        RefNome::TipoParam(_) | RefNome::TipoDinamico => {
+            inf.aviso(ASSIGNMENT_TO_TYPE.template.to_string(), n.span);
+            inf.core.dynamic_
         }
         RefNome::MembroLexico(f, estatico) => {
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
