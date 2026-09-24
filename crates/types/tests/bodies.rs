@@ -375,6 +375,27 @@ fn getter_estatico_ausente_em_extensao_do_oraculo() {
 }
 
 #[test]
+fn setter_estatico_ausente_em_extensao_do_oraculo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_setter/UndefinedExtensionSetter__static_undefined.dart"));
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
+    assert_eq!(encontrados.len(), 1, "{diags:?}");
+    let d = encontrados[0];
+    assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo");
+    assert_eq!(d.span.start as usize, fonte.find("E.foo").unwrap() + 2);
+    assert!(d.message.contains("'foo' em 'E'"));
+}
+
+#[test]
 fn acesso_estatico_a_membros_de_instancia_da_extensao_do_oraculo() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

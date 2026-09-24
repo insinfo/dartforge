@@ -1661,6 +1661,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                     RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, false),
                     RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, false),
                 };
+                let getter_ausente = getter.is_none();
                 if let Some(getter) = getter {
                     if let Some(f) = getter.funcao {
                         if avisar_membro_sem_setter(inf, name, f) {
@@ -1668,6 +1669,11 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                             return getter.tipo;
                         }
                     }
+                }
+                if getter_ausente && let RefTipo::Extensao(x) = rt {
+                    let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                    let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extensao);
+                    inf.aviso(msg, name.span);
                 }
                 inf.core.dynamic_
             }
