@@ -75,6 +75,14 @@ exemplo `enum E(int x) { v(0); ... }`); o relatório marca os grupos 3.6.2
 como oráculo desatualizado. Regravar e auditar esse oráculo é necessário
 antes de usar os 124 casos restantes como defeitos da implementação.
 
+Com os diagnósticos de construtores `const` e o intervalo corrigido de
+atribuição a variável local `final`, [CI 35978288844](https://github.com/insinfo/dartforge/actions/runs/35978288844)
+e [Pesado 35978288847](https://github.com/insinfo/dartforge/actions/runs/35978288847)
+passaram: **5.656/26.133 (21,6%)** na posição exata, 5.367 mensagens iguais,
+4.371 falsos positivos, 20.008 falsos negativos, 469 posições erradas e
+determinismo em 1/4/8 trabalhadores. `const_factory` está 15/15 sem falso
+positivo; `assignment_to_final_local` está 49/60 com 4 posições erradas.
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
