@@ -150,6 +150,12 @@ com determinismo em 1/4/8 trabalhadores. O nativo com SDK da fonte manteve
 **160/223**, sem mudança de estado em nenhum caso frente à rodada anterior.
 O builder executou as quatro aplicações do fixture e emitiu o resultado
 estruturado da fase de declarações; a augmentation final ainda não existe.
+No ramo isolado `ci/native-late`, a [CI 35990678510](https://github.com/insinfo/dartforge/actions/runs/35990678510)
+passou e o [Pesado dirigido 35990678930](https://github.com/insinfo/dartforge/actions/runs/35990678930)
+publicou **161/223** no SDK da fonte, sem regressões frente aos 160 casos
+verdes anteriores. `56_late` passou após inicialização preguiçosa de locais,
+globais e campos; os casos 34 e 94 permaneceram verdes. Capturas `late`
+continuam no caminho anterior, com limitação documentada em `docs/NATIVO.md`.
 
 ## Fechamento do dia 2026-09-23
 
