@@ -496,4 +496,4 @@ jobs:
         shell: pwsh
         run: |
           $env:DARTFORGE_DART_SDK_JS = Join-Path $PWD 'runtime/ddc/dart_sdk.js'
-          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.03
+          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.10

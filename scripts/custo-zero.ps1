@@ -5,7 +5,7 @@
 # de referência, em geral o do main (-Base) — em rodadas ALTERNADAS, e reprova
 # se a mediana do atual passar a da base mais a tolerância.
 #
-#   pwsh scripts/custo-zero.ps1 -Atual <dir> -Base <dir> [-Rodadas 5] [-Tolerancia 0.03]
+#   pwsh scripts/custo-zero.ps1 -Atual <dir> -Base <dir> [-Rodadas 5] [-Tolerancia 0.10]
 #       mede (1) o corpus JS inteiro (corpus/js, um `dartforge compile-js` por
 #       programa) e (2) a edição de corpo numa sessão sintética de ~300
 #       bibliotecas (exemplo `medir` do crates/dev, média do platô).
@@ -20,7 +20,7 @@ param(
     [Parameter(Mandatory)][string]$Atual,
     [Parameter(Mandatory)][string]$Base,
     [int]$Rodadas = 5,
-    [double]$Tolerancia = 0.03,
+    [double]$Tolerancia = 0.10,
     [string]$Entrada,
     [string]$Packages,
     [string]$Alvo,

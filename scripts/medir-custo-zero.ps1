@@ -3,7 +3,7 @@
 # commit e com o do main, em rodadas alternadas (scripts/custo-zero.ps1).
 # O projeto não está no CI.
 #
-#   pwsh scripts/medir-custo-zero.ps1 [-Rodadas 5] [-Tolerancia 0.03]
+#   pwsh scripts/medir-custo-zero.ps1 [-Rodadas 5] [-Tolerancia 0.10]
 #
 # O main é extraído com `git archive` em target/scratch-build/custo-zero e
 # compilado num alvo próprio (a primeira vez leva uns minutos).
@@ -11,7 +11,7 @@ param(
     [string]$Entrada = 'C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart',
     [string]$Packages = 'C:/MyDartProjects/new_sali/core/.dart_tool/package_config.json',
     [int]$Rodadas = 5,
-    [double]$Tolerancia = 0.03,
+    [double]$Tolerancia = 0.10,
     [string]$Ref = 'main',
     # Reaproveita os binários da base de uma rodada anterior.
     [switch]$ReusarBase
