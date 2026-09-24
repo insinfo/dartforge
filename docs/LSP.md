@@ -94,6 +94,9 @@ mantém cópias das versões já substituídas. O resultado é sempre
 
 `textDocument/definition` navega do literal de URI em `import`, `export`,
 `part`, `part of` e `import augment` para um **arquivo relativo existente**.
+Também resolve literais `package:` pelo `package_config.json` descoberto a
+partir do arquivo aberto, somente se o pacote estiver mapeado e o destino
+existir. Não usa o fallback de pacotes de referência do compilador.
 Também navega de uma anotação de tipo sem prefixo (`Caixa x`) para uma única
 declaração de tipo homônima no mesmo arquivo. Para esse segundo caso, só
 responde quando não há diretivas que tragam outros nomes nem parâmetro de
@@ -103,7 +106,7 @@ Referências de expressão a uma variável de topo única também navegam quando
 nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
 O mesmo vale para uma função de topo única; uma função local homônima impede
 a navegação até haver resolução por escopo.
-URIs `dart:`/`package:` e demais nomes aguardam resolução de bibliotecas e
+URIs `dart:` e nomes importados aguardam resolução de bibliotecas e
 elementos. A regra de ativação do literal segue a navegação de diretivas do
 analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
 o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao

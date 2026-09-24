@@ -50,6 +50,41 @@ fn uri_de_pacote_nao_produz_destino_inventado() {
 }
 
 #[test]
+fn uri_de_pacote_mapeado_navega_so_para_arquivo_existente() {
+    let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-agent/lsp-pacote-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&raiz);
+    std::fs::create_dir_all(raiz.join(".dart_tool")).unwrap();
+    std::fs::create_dir_all(raiz.join("lib")).unwrap();
+    std::fs::write(
+        raiz.join(".dart_tool/package_config.json"),
+        r#"{"configVersion":2,"packages":[{"name":"app","rootUri":"../","packageUri":"lib/"}]}"#,
+    ).unwrap();
+    let origem = raiz.join("lib/origem.dart");
+    let alvo = raiz.join("lib/alvo.dart");
+    let fonte = "import 'package:app/alvo.dart';";
+    std::fs::write(&origem, fonte).unwrap();
+    std::fs::write(&alvo, "class Alvo {}").unwrap();
+    let uri = url::Url::from_file_path(&origem).unwrap().to_string();
+    let alvo_uri = url::Url::from_file_path(std::fs::canonicalize(&alvo).unwrap()).unwrap().to_string();
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":fonte}
+    }}));
+    servidor.bombear();
+    let definir = |servidor: &mut Servidor, id, coluna| {
+        servidor.receber(json!({"jsonrpc":"2.0","id":id,"method":"textDocument/definition",
+            "params":{"textDocument":{"uri":uri},"position":{"line":0,"character":coluna}}}));
+        servidor.bombear()[0]["result"].clone()
+    };
+    assert_eq!(definir(&mut servidor, 1, 16)["uri"], alvo_uri);
+    assert_eq!(definir(&mut servidor, 2, 6), Value::Null);
+    std::fs::remove_file(&alvo).unwrap();
+    assert_eq!(definir(&mut servidor, 3, 16), Value::Null);
+    let _ = std::fs::remove_dir_all(&raiz);
+}
+
+#[test]
 fn tipo_local_unico_navega_para_o_nome_declarado() {
     let mut servidor = Servidor::new();
     let uri = "file:///tipo-local.dart";

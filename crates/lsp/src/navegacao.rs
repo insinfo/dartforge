@@ -1,4 +1,4 @@
-//! Navegação segura de diretivas com URI relativa.
+//! Navegação segura de diretivas com URI relativa ou de pacote.
 //! O analyzer original registra a região do literal em `ImportDirective`,
 //! `ExportDirective` e `PartDirective` quando o destino existe.
 
@@ -6,6 +6,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{DeclKind, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind};
 use dartforge_frontend::LibraryFeatures;
 use dartforge_intern::Interner;
+use dartforge_elements::config::PackageConfig;
 use url::Url;
 
 pub(super) enum Alvo {
@@ -20,9 +21,9 @@ pub(super) struct TipoLocal {
     pub tipo_estatico: Option<String>,
 }
 
-/// Destino para um literal de URI relativa ou tipo único do próprio arquivo.
-/// Bibliotecas `dart:` e `package:` exigem resolução de SDK/pacotes e ficam
-/// para a costura semântica; caminho inexistente não gera navegação falsa.
+/// Destino para um literal de URI relativa/de pacote ou tipo único do próprio
+/// arquivo. Bibliotecas `dart:` exigem o mapeamento do SDK; caminho inexistente
+/// não gera navegação falsa.
 pub(super) fn destino(
     uri_atual: &str,
     texto: &str,
@@ -260,16 +261,27 @@ fn funcao_topo(
 fn resolver(base: &Url, literal: &StringLit) -> Option<String> {
     let valor = literal.constant_value()?;
     let caminho = valor.as_str()?;
-    // `Url::join` resolveria `package:` como outra scheme; nunca anunciar uma
-    // localização com semântica diferente da resolução Dart do projeto.
-    if caminho.starts_with("dart:") || caminho.starts_with("package:") {
+    if caminho.starts_with("dart:") {
         return None;
     }
-    let resolvida = base.join(caminho).ok()?;
-    if resolvida.scheme() != "file" || resolvida.query().is_some() || resolvida.fragment().is_some() {
-        return None;
-    }
-    let destino = resolvida.to_file_path().ok()?;
+    let destino = if caminho.starts_with("package:") {
+        let uri = Url::parse(caminho).ok()?;
+        if uri.query().is_some() || uri.fragment().is_some() { return None; }
+        let origem = base.to_file_path().ok()?;
+        let config = PackageConfig::discover(&origem)?;
+        let config = PackageConfig::load(&config).ok()?;
+        let nome = caminho.strip_prefix("package:")?.split('/').next()?;
+        // O resolver de compilação tem fallback para `references/pub`; no LSP
+        // a navegação deve seguir apenas o mapeamento do projeto aberto.
+        if !config.packages.contains_key(nome) { return None; }
+        config.resolve_package_uri(caminho).ok()?
+    } else {
+        let resolvida = base.join(caminho).ok()?;
+        if resolvida.scheme() != "file" || resolvida.query().is_some() || resolvida.fragment().is_some() {
+            return None;
+        }
+        resolvida.to_file_path().ok()?
+    };
     if !destino.is_file() {
         return None;
     }
