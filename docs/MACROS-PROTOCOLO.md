@@ -237,6 +237,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `419_definicao_construtor` — `ConstructorDefinitionMacro` substitui o
   corpo de construtor já completo; o estado final do objeto é comparado nos
   executores e a augmentation, byte a byte com o CFE 3.6.2.
+* `420_fase_tipos` — `ClassTypesMacro` declara uma classe nova na fase 1; a
+  biblioteca usa o tipo gerado, e o hospedeiro compara o texto integral com
+  o CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
