@@ -1719,6 +1719,22 @@ impl<'s, 'i> Parser<'s, 'i> {
             let inicio_corpo = self.pos;
             let body = self.parse_function_body()?.1;
             self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body, None);
+            if mods.const_ && !factory {
+                let delimitador = match body {
+                    FunctionBody::Block(_) => Some(Op::LBrace),
+                    FunctionBody::Expression(_) => Some(Op::Arrow),
+                    FunctionBody::Empty | FunctionBody::Native(_) => None,
+                };
+                if let Some(op) = delimitador {
+                    if let Some(span) = self.tokens[inicio_corpo..self.pos]
+                        .iter()
+                        .find(|t| t.kind == Kind::Op(op))
+                        .map(|t| t.span)
+                    {
+                        self.erro_em(codigos::parser::CONST_CONSTRUCTOR_WITH_BODY, span, &[]);
+                    }
+                }
+            }
             body
         };
         Ok(MemberKind::Constructor(Constructor {
@@ -2029,6 +2045,41 @@ mod tests {
 
         let com_recurso = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[Feature::Augmentations]));
         assert!(!com_recurso.diagnostics.iter().any(|d| d.code == Some(c::ABSTRACT_STATIC_FIELD)));
+    }
+
+    #[test]
+    fn corpo_de_construtor_const_aponta_para_delimitador_como_analyzer() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (fonte, inicio, fim) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_482771f3.dart")),
+                41,
+                43,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_4a7cd473.dart")),
+                50,
+                52,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_79e52946.dart")),
+                50,
+                51,
+            ),
+        ] {
+            let mut nomes = Interner::new();
+            let parsed = parse(fonte, &mut nomes);
+            assert!(parsed.diagnostics.iter().any(|d|
+                d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)
+                    && d.span.start == inicio && d.span.end == fim
+                    && d.message == "Const constructors can't have a body."
+                    && d.correcao().as_deref() == Some("Try removing either the 'const' keyword or the body.")
+            ), "{fonte}: {:?}", parsed.diagnostics);
+        }
+
+        let mut nomes = Interner::new();
+        let parsed = parse("class C { const C(); const factory C.x() => C(); }", &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)));
     }
 
     // -- Independentes dos outros módulos -----------------------------------
