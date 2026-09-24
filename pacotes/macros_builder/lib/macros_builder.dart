@@ -34,8 +34,9 @@ Builder macroDeclarationsBuilder(
 
 final class _HospedeiroAnalyzer implements Hospedeiro {
   final ConsultasDefinicoes consultas;
-  _HospedeiroAnalyzer(ResolvedorIdentificadores resolvedor)
-      : consultas = ConsultasDefinicoes(resolvedor);
+  _HospedeiroAnalyzer(ResolvedorIdentificadores resolvedor,
+      [Map<int, Map<String, Object?>>? membrosPorId])
+      : consultas = ConsultasDefinicoes(resolvedor, membrosPorId);
 
   @override
   Future<Object?> consultar(String tipo, Map<String, Object?> args) =>
@@ -112,6 +113,7 @@ final class _MacroDeclarationsBuilder implements Builder {
         step.inputId.changeExtension('.macro_declarations.txt'), parcial);
     final modelosDeDefinicao = <Map<String, Object?>>[];
     final resultadosDeDefinicao = <Map<String, Object?>>[];
+    final membrosDisponiveis = <int, Map<String, Object?>>{};
     for (final (classe, execucao, macro) in execucoes) {
       final gerados = await membrosGerados(parcial, classe, execucao, tabela);
       final alvo = Map<String, Object?>.from(execucao['alvo'] as Map);
@@ -122,12 +124,14 @@ final class _MacroDeclarationsBuilder implements Builder {
       daClasse.addAll(gerados);
       membros['$id'] = daClasse;
       modelo['membros'] = membros;
+      membrosDisponiveis[id] = daClasse;
       modelosDeDefinicao.add({
         'alvo': classe.name,
         'execucao': {'alvo': alvo, 'modelo': modelo},
       });
       final hospedeiro = _HospedeiroAnalyzer(
-          ResolvedorIdentificadores(classe, execucao, tabela));
+          ResolvedorIdentificadores(classe, execucao, tabela),
+          membrosDisponiveis);
       final modeloDeDefinicao = Modelo(hospedeiro)..receber(modelo);
       final alvoDeDefinicao = modeloDeDefinicao.declaracao(alvo);
       final resultadoDef = await executarFase(macro, Fase.definicoes,

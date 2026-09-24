@@ -137,7 +137,12 @@ O hospedeiro Dart já atende `resolverIdentificador`, `resolver`,
 `Endereco` correspondem ao CFE depois de desconsiderar IDs de sessão.
 O `build_runner` também executa a fase de definições de `Endereco` no mesmo
 isolate; seu `macro.resultado` corresponde ao CFE depois da mesma
-normalização. `Usuario` ainda requer a consulta de membros de `Endereco`.
+normalização. O hospedeiro responde `membros` de classes já processadas; as
+quatro aplicações agora terminam a fase de definições sem diagnósticos no
+fixture reduzido. Os resultados de `Endereco`, `SoSaida` e `SoEntrada`
+coincidem estruturalmente com o CFE depois de remover IDs de sessão;
+`Usuario` tem menos campos no fixture e requer o corpus completo para essa
+comparação.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

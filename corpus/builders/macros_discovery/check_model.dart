@@ -50,6 +50,14 @@ Object? semIds(Object? valor) {
   return valor;
 }
 
+Object? semIdDoAlvo(Object? resultado) {
+  final mapa = Map<String, Object?>.from(resultado as Map);
+  mapa['tipos'] = [
+    for (final par in mapa['tipos'] as List) [0, (par as List)[1]],
+  ];
+  return semIds(mapa);
+}
+
 bool igual(Object? a, Object? b) {
   if (a is List && b is List) {
     return a.length == b.length &&
@@ -252,14 +260,33 @@ Future<void> main() async {
     }
     final definicoes = jsonDecode(
         File('lib/modelos.macro_definitions.json').readAsStringSync()) as Map;
-    final resultadoDef = (definicoes['resultados'] as List)
-        .singleWhere((r) => r['alvo'] == 'Endereco') as Map;
-    final resultadoCfeDef = sessao
-        .map((linha) => jsonDecode(linha.substring(2)) as Map)
-        .singleWhere((m) => m['t'] == 'macro.resultado' && m['id'] == 8);
-    if (!igual(semIds(resultadoDef['resultado']),
-        semIds(resultadoCfeDef['resultado']))) {
-      throw StateError('fase de definições de Endereco divergiu do CFE');
+    final resultadosDef = definicoes['resultados'] as List;
+    if (definicoes['versao'] != 1 || resultadosDef.length != 4) {
+      throw StateError('fase de definições não executou as quatro aplicações');
+    }
+    for (final item in resultadosDef) {
+      final resultado = (item as Map)['resultado'] as Map;
+      if (resultado['excecao'] != null ||
+          (resultado['diagnosticos'] as List).isNotEmpty ||
+          (resultado['tipos'] as List).isEmpty) {
+        throw StateError('fase de definições de ${item['alvo']} incompleta');
+      }
+    }
+    for (final caso in <(String, int)>[
+      ('Endereco', 8),
+      ('SoSaida', 10),
+      ('SoEntrada', 11),
+    ]) {
+      final (alvo, idCfe) = caso;
+      final resultadoDef =
+          resultadosDef.singleWhere((r) => r['alvo'] == alvo) as Map;
+      final resultadoCfeDef = sessao
+          .map((linha) => jsonDecode(linha.substring(2)) as Map)
+          .singleWhere((m) => m['t'] == 'macro.resultado' && m['id'] == idCfe);
+      if (!igual(semIdDoAlvo(resultadoDef['resultado']),
+          semIdDoAlvo(resultadoCfeDef['resultado']))) {
+        throw StateError('fase de definições de $alvo divergiu do CFE');
+      }
     }
     final peloBuilder =
         geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
@@ -283,7 +310,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; modelo, $respostasDef consultas e resultado de definições de Endereco iguais ao CFE; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; modelo, $respostasDef consultas e 3 resultados de definições iguais ao CFE; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }

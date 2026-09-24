@@ -29,22 +29,38 @@ final class _TipoEstatico {
 
 final class ConsultasDefinicoes {
   final ResolvedorIdentificadores resolvedor;
+  final Map<int, Map<String, Object?>> membrosPorId;
   TabelaIdentificadores get tabela => resolvedor.tabela;
   final estaticos = <_TipoEstatico>[];
 
-  ConsultasDefinicoes(this.resolvedor);
+  ConsultasDefinicoes(this.resolvedor,
+      [Map<int, Map<String, Object?>>? membrosPorId])
+      : membrosPorId = membrosPorId ?? {};
 
   Future<Object?> consultar(String tipo, Map<String, Object?> args) async =>
       switch (tipo) {
         'resolverIdentificador' => await resolvedor.resolver(
             args['uri'] as String, args['nome'] as String),
         'declaracao' => declaracao(args['ident'] as int),
+        'membros' => _membros(args['dono'] as int, args['tipo'] as String),
         'resolver' => _estaticoJson(
             _lerEstatico(Map<String, Object?>.from(args['tipo'] as Map))),
         'ehExatamente' =>
           _estatico(args['a'] as int).igual(_estatico(args['b'] as int)),
         _ => throw UnsupportedError('consulta $tipo ainda não implementada'),
       };
+
+  List<Object?> _membros(int dono, String tipo) {
+    final classe = membrosPorId[dono];
+    if (classe == null) {
+      throw UnsupportedError('membros de $dono ainda não disponíveis');
+    }
+    final membros = classe[tipo];
+    if (membros is! List) {
+      throw UnsupportedError('categoria de membros $tipo não coberta');
+    }
+    return List<Object?>.from(membros);
+  }
 
   _TipoEstatico _lerEstatico(Map<String, Object?> j) {
     if (j['t'] != 'nomeado') {
