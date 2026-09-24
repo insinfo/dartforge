@@ -122,7 +122,14 @@ final class _MacroDeclarationsBuilder implements Builder {
       final modelo = Map<String, Object?>.from(execucao['modelo'] as Map);
       final membros = Map<String, Object?>.from(modelo['membros'] as Map);
       final daClasse = Map<String, Object?>.from(membros['$id'] as Map);
-      daClasse.addAll(gerados);
+      daClasse['metodos'] = [
+        ...daClasse['metodos'] as List,
+        ...gerados['metodos'] as List,
+      ];
+      daClasse['construtores'] = [
+        ...daClasse['construtores'] as List,
+        ...gerados['construtores'] as List,
+      ];
       membros['$id'] = daClasse;
       modelo['membros'] = membros;
       membrosDisponiveis[id] = daClasse;

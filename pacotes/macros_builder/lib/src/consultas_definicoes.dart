@@ -157,6 +157,24 @@ final class ConsultasDefinicoes {
   }
 
   Map<String, Object?> _tipoDoAnalyzer(DartType tipo) {
+    if (tipo is TypeParameterType) {
+      final parametro = tipo.element;
+      final dono = parametro.enclosingElement3;
+      if (dono is! ClassElement) {
+        throw UnsupportedError('parâmetro de tipo sem classe: $parametro');
+      }
+      final uri = dono.librarySource.uri.toString();
+      return {
+        't': 'nomeado',
+        'ident': {
+          'id': tabela.idGerado('tparam:$uri#${dono.name}.${parametro.name}'),
+          'nome': parametro.name,
+        },
+        'args': <Object?>[],
+        if (tipo.nullabilitySuffix == NullabilitySuffix.question)
+          'anulavel': true,
+      };
+    }
     if (tipo is! InterfaceType) {
       throw UnsupportedError('tipo de declaração ainda não coberto: $tipo');
     }

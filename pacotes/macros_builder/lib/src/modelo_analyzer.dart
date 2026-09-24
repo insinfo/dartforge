@@ -19,7 +19,6 @@ Map<String, Object?> modeloDaClasse(ClassElement classe,
           (classe.supertype!.element.name != 'Object' ||
               classe.supertype!.element.librarySource.uri.toString() !=
                   'dart:core')) ||
-      classe.constructors.any((c) => !c.isSynthetic) ||
       classe.methods.isNotEmpty) {
     throw UnsupportedError(
         'modelo inicial cobre classes sem herança, parâmetros de tipo ou membros executáveis');
@@ -71,6 +70,50 @@ Map<String, Object?> modeloDaClasse(ClassElement classe,
       'static': campo.isStatic,
     });
   }
+  final construtores = <Map<String, Object?>>[];
+  for (final ctor in classe.constructors.where((c) => !c.isSynthetic)) {
+    if (ctor.isFactory || ctor.isExternal || ctor.parameters.any((p) =>
+        !p.isInitializingFormal || p.isNamed || p.hasDefaultValue)) {
+      throw UnsupportedError('construtor fora do modelo inicial: $ctor');
+    }
+    final chave = '$uri#${classe.name}.${ctor.name}';
+    final retornoOmitido = tabela.omitido('construtor:$chave:retorno');
+    final posicionais = <Map<String, Object?>>[];
+    for (final parametro in ctor.parameters) {
+      posicionais.add({
+        'k': 'parametro',
+        'ident': {
+          'id': tabela.idGerado('parametro:$chave:${parametro.name}'),
+          'nome': parametro.name,
+        },
+        'lib': biblioteca,
+        'tipo': {
+          't': 'omitido',
+          'chave': tabela.omitido('parametro:$chave:${parametro.name}:tipo'),
+        },
+        'nomeado': false,
+        'obrigatorio': parametro.isRequired,
+        'estilo': 'this',
+      });
+    }
+    construtores.add({
+      'k': 'construtor',
+      'ident': {
+        'id': tabela.idGerado('construtor:$chave'),
+        'nome': ctor.name,
+      },
+      'lib': biblioteca,
+      'dono': identificador,
+      'corpo': true,
+      'external': false,
+      'const': ctor.isConst,
+      'factory': false,
+      'retorno': {'t': 'omitido', 'chave': retornoOmitido},
+      'posicionais': posicionais,
+      'nomeados': <Object?>[],
+      'tparams': <Object?>[],
+    });
+  }
   return {
     'alvo': {
       'k': 'classe',
@@ -93,7 +136,7 @@ Map<String, Object?> modeloDaClasse(ClassElement classe,
       'membros': {
         '${identificador['id']}': {
           'campos': campos,
-          'construtores': <Object?>[],
+          'construtores': construtores,
           'metodos': <Object?>[]
         },
       },

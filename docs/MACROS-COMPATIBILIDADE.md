@@ -147,6 +147,13 @@ O builder também monta `modelos.macro_complete.txt` com as duas fases. Os
 blocos completos de `Endereco`, `SoSaida` e `SoEntrada` são comparados byte a
 byte com o CFE. A saída continua `.txt` até a validação integral de `Usuario`
 com o corpus completo e da URI da biblioteca materializada.
+O fixture foi alinhado ao fonte original de `410_json_codable` (dez campos de
+`Usuario` e o construtor com `this.valor`). O modelo semântico inclui esse
+construtor e parâmetros de tipo de interfaces do SDK. As quatro aplicações
+agora produzem resultados de definições estruturalmente iguais ao CFE; a
+augmentation inteira tem 3266 caracteres idênticos byte a byte após trocar
+somente a URI do pacote do fixture. A publicação como `.macro.dart` e o teste
+de consumo pelo compilador seguem pendentes.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

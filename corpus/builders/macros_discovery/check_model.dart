@@ -226,6 +226,11 @@ Future<void> main() async {
         throw StateError('montagem completa de $alvo difere do CFE');
       }
     }
+    if (completo.replaceAll('package:corpus_macros_discovery/modelos.dart',
+            'package:caso_json/modelos.dart') !=
+        augmentationCfe) {
+      throw StateError('augmentation completa difere byte a byte do CFE');
+    }
     final modelosDeDefinicao = jsonDecode(
             File('lib/modelos.macro_definitions_model.json').readAsStringSync())
         as Map;
@@ -290,6 +295,7 @@ Future<void> main() async {
     }
     for (final caso in <(String, int)>[
       ('Endereco', 8),
+      ('Usuario', 9),
       ('SoSaida', 10),
       ('SoEntrada', 11),
     ]) {
@@ -326,7 +332,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; modelo, $respostasDef consultas e 3 resultados de definições iguais ao CFE; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; augmentation inteira byte a byte e 4 resultados de definições iguais ao CFE; $respostasDef consultas de Endereco; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }
