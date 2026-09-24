@@ -100,6 +100,18 @@ jobs:
         if: success() || failure()
         shell: pwsh
         run: ./scripts/testar-macros-builder.ps1
+      - name: montagem Dart das augmentations
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          Push-Location pacotes/macros
+          try {
+            dart pub get
+            if ($LASTEXITCODE -ne 0) { throw 'pub get da API de macros falhou' }
+            dart run test/montagem.dart
+            if ($LASTEXITCODE -ne 0) { throw 'montagem Dart das augmentations falhou' }
+          }
+          finally { Pop-Location }
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-
