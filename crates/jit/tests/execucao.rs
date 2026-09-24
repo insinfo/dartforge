@@ -467,3 +467,31 @@ fn jit_e_aot_concordam_no_mesmo_ir() {
         assert_eq!(jit.codigo, Some(0), "{rotulo}: {jit:?}");
     }
 }
+
+/// Casos consecutivos que rotulam o mesmo corpo devem entregar as ligações
+/// do padrão vencedor, inclusive quando o corpo captura a variável.
+#[test]
+#[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
+fn cases_compartilhados_entregam_variaveis_ao_corpo() {
+    let fonte = r#"
+sealed class Expr {}
+class A extends Expr { final int x; A(this.x); }
+class B extends Expr { final int x; B(this.x); }
+int Function() ler(Expr e) {
+  switch (e) {
+    case A(:final x):
+    case B(:final x):
+      return () => x;
+  }
+}
+void main() {
+  print(ler(A(3))());
+  print(ler(B(7))());
+}
+"#;
+    let (jit, aot) = executar_nos_dois_perfis("cases-compartilhados", fonte);
+    assert_eq!(jit.stdout, "3\n7\n", "{jit:?}");
+    assert_eq!(jit.stdout, aot.stdout, "JIT {jit:?}\nAOT {aot:?}");
+    assert_eq!(jit.codigo, Some(0), "{jit:?}");
+    assert_eq!(jit.codigo, aot.codigo, "JIT {jit:?}\nAOT {aot:?}");
+}

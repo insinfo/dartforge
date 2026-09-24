@@ -15,6 +15,7 @@
 //! atribuição por padrão, `for-in` com padrão) estão no fim.
 
 use super::fn_builder::FnBuilder;
+use super::locais::Modo;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
@@ -661,6 +662,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.break_targets.push(saida);
         // Testes, em ordem; as variáveis de cada caso vivem no escopo dele.
         let mut escopos_dos_casos = Vec::with_capacity(cases.len());
+        let mut sucessos = Vec::with_capacity(cases.len());
         for c in cases.iter() {
             let proximo = self.new_block();
             self.abrir_escopo();
@@ -675,15 +677,54 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.exigir(ok, proximo);
             }
             let corpo_i = corpos[escopos_dos_casos.len()];
-            self.terminate(Terminator::Branch(corpo_i));
+            let passagem = if c.body.is_empty() && escopos_dos_casos.len() + 1 < cases.len() {
+                Some(self.new_block())
+            } else {
+                None
+            };
+            self.terminate(Terminator::Branch(passagem.unwrap_or(corpo_i)));
+            sucessos.push(passagem);
             escopos_dos_casos.push(self.escopos.pop().expect("escopo do caso"));
             self.set_block(proximo);
         }
         // Nenhum caso casou: sai.
         self.terminate(Terminator::Branch(saida));
+        // `case A(:final x): case B(:final x): corpo` tem um único `x`
+        // observável no corpo. Cada teste acima criou um local próprio; antes
+        // de saltar ao corpo, o caso anterior copia seus valores para os
+        // locais do último case que o rotula. Sem isso, o corpo lê `alloca`
+        // não inicializado quando o primeiro padrão casa.
+        for i in 0..cases.len() {
+            let Some(passagem) = sucessos[i] else { continue };
+            let Some(j) = (i + 1..cases.len()).find(|&j| corpos[j] == corpos[i] && !cases[j].body.is_empty()) else {
+                self.set_block(passagem);
+                self.terminate(Terminator::Branch(corpos[i]));
+                continue;
+            };
+            self.set_block(passagem);
+            let mut nomes: Vec<_> = escopos_dos_casos[i].keys().copied().collect();
+            nomes.sort_by_key(|&sym| self.ctx.symbol_name(sym).to_string());
+            for nome in nomes {
+                let Some(destino) = escopos_dos_casos[j].get(&nome) else { continue };
+                let valor = self.ler_local(&escopos_dos_casos[i][&nome]);
+                let valor = self.coagir(valor, destino.ty);
+                match &destino.modo {
+                    Modo::Memoria(ptr) => {
+                        self.emit(Instruction::Store { ptr: ptr.clone(), val: valor }, Type::Void);
+                    }
+                    Modo::Celula(ptr) => {
+                        // O último case não executou seu declarador neste
+                        // caminho: crie a célula que o corpo capturado usa.
+                        let celula = self.emit(Instruction::AllocCell { value: valor }, Type::Ref);
+                        self.emit(Instruction::Store { ptr: ptr.clone(), val: celula }, Type::Void);
+                    }
+                    Modo::Valor(_) | Modo::Ambiente { .. } => unreachable!("variável declarada por case"),
+                }
+            }
+            self.terminate(Terminator::Branch(corpos[i]));
+        }
         // Os corpos. O escopo de um corpo compartilhado é o do último caso
-        // que o rotula (as variáveis de padrão em casos compartilhados têm
-        // de ser as mesmas; aqui cada caso declarou as suas nos testes).
+        // que o rotula; os casos anteriores escreveram nesses mesmos locais.
         let mut feitos = HashSet::new();
         for (i, c) in cases.iter().enumerate() {
             if c.body.is_empty() || !feitos.insert(corpos[i]) {
@@ -845,4 +886,3 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(segue);
     }
 }
-
