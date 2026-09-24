@@ -1,6 +1,30 @@
 # Runtime gerenciado AOT
 
-O heap é um tracing GC preciso, não geracional e sem compactação: coleta por marcação iterativa e varredura, inclusive ciclos sem raízes. Handles i64 positivos identificam slots, 0 é null. A lista livre reutiliza slots; handles mortos não podem ser usados (não há contador de geração). A implementação não oferece ABI multithread nem isolamento entre runtimes.
+O heap é um tracing GC preciso, não geracional e sem compactação: coleta por marcação iterativa e varredura, inclusive ciclos sem raízes. Um valor em posição `Ref` é `0` (null), **par** (handle do heap: `(índice + 1) << 1`) ou **ímpar** (`Smi`: `int` pequeno `(v << 1) | 1`, que não aloca, não é raiz e o coletor nunca segue; fora da faixa vira `Value::BoxedInt`). A lista livre reutiliza slots; handles mortos não podem ser usados (não há contador de geração). A implementação não oferece ABI multithread nem isolamento entre runtimes. As strings têm semântica de unidades UTF-16 (formas de um e de dois bytes, como a VM), não UTF-8.
+
+## O que falta implementar (2026-09-23)
+
+O coletor atual é correto para o que cobre (raízes explícitas, tracing preciso, ciclos, `Smi`, teto de heap, modo estresse no CI), mas ainda é o mínimo. Em ordem de prioridade:
+
+**Correção — a semântica do Dart exige**
+
+1. **Referências fracas**: `WeakReference` e `Expando` (este com *ephemerons*: a chave morta libera o valor). Hoje não existem no heap.
+2. **Finalizadores**: `Finalizer` roda o callback como evento (a especificação permite nunca rodar, e hoje nunca roda); `NativeFinalizer` tem garantias de execução das quais o `dart:ffi` depende.
+3. **Heap por isolado** (decisão em `docs/NATIVO-PLANO.md` §7.1, pela especificação §6.3): hoje há um heap global por processo, com estado em `thread_local!`, sem isolamento nem várias threads. O `package:analyzer`, os builders e o executor de macros precisam de isolados.
+
+**Desempenho**
+
+4. **Geração jovem** (*scavenger*, como a VM): a maioria dos objetos Dart morre jovem; hoje toda coleta percorre o heap inteiro. Exige barreira de escrita.
+5. **Compactação / mover objetos**: o heap fragmenta e nunca devolve memória — a varredura visita o máximo histórico de slots e a capacidade não encolhe.
+6. **Acesso e alocação**: cada leitura de campo passa pela tabela de handles (indireção + checagem de limites) dentro de um `RefCell`; não há alocação por *bump pointer*. Seguro, mas lento no caminho quente.
+7. **Custo das raízes** (passo 6 de `docs/NATIVO-PLANO.md`): hoje um `set_root` por valor `Ref` definido. Planejado: enraizar só o que está vivo num ponto de coleta; raiz como `store` num quadro na pilha (a estratégia `shadow-stack` do LLVM, não statepoints — ver `docs/PESQUISA-LLVM-DART-AOT.md`); a tabela de efeitos dos externs (`crates/emit_native/src/llvm/externs.rs`) para dispensar raízes em chamadas que não alocam.
+8. **Pausas proporcionais ao heap**: não há marcação incremental nem concorrente (relevante para interface a 60 fps).
+
+**Medição**
+
+9. **Nenhuma comparação com a VM oficial** (tempo de alocação, pausas, memória residente); os números abaixo são microbenchmarks internos. Metodologia a seguir: `docs/PESQUISA-LLVM-DART-AOT.md` §7.
+
+Ordem proposta: 1–2 (o SDK compilado da fonte já os exercita), 3, 9 (decidir o resto por número), 6–7, depois 4, 5 e 8. Alternativa futura de gerenciamento, fora da trilha: `docs/EXPERIMENTO-ARC.md`.
 
 Cada função emitida que registra referências abre um frame para parâmetros e resultados SSA. Funções sem referências omitem push/pop do GC, evitando esse custo em recursão puramente escalar. As raízes permanecem até seu retorno, portanto temporários de loops podem permanecer vivos durante a função inteira. Esta retenção conservadora de duração não transforma escalares em raízes: o tracing de campos usa tags exatas. Pop não coleta; o chamador registra imediatamente a referência retornada antes de alocar novamente. Campos int?/bool? usam slots escalares de presença/payload; referências usam um slot com is_ref=1.
 
@@ -14,7 +38,7 @@ A coleta automática ocorre antes de alocar, após um limiar de 256 alocações 
 - Strings são UTF-8 e imutáveis. Concatenação exige operandos não nulos; igualdade e impressão aceitam handle zero. Não há normalização Unicode.
 - O único acesso inseguro à memória é a leitura da constante UTF-8 estrangeira em string_new. O emissor garante região legível de len bytes; ponteiro pode ser ignorado para len=0. As demais operações de heap são Rust seguro e validam os índices. Quebrar o contrato causa falha explícita, não execução de Dart com comportamento definido.
 
-O driver embarca heap.rs e os fragmentos do runtime (nucleo.rs, gc_raizes.rs, excecoes.rs, saida.rs, strings.rs, colecoes.rs, closures.rs, na ordem de FRAGMENTOS em build.rs) em um único arquivo standalone. O workspace testa o mesmo módulo heap.rs com unsafe proibido. Não há dependência de Dart VM, GC Dart, arena que apenas cresce ou runtime Swift.
+O driver embarca heap.rs e os fragmentos do runtime (a lista e a ordem estão só em `FRAGMENTOS`, em build.rs — fonte única também para o módulo `abi` do JIT e a tabela de símbolos) em um único arquivo standalone. O workspace testa o mesmo módulo heap.rs com unsafe proibido. Não há dependência de Dart VM, GC Dart, arena que apenas cresce ou runtime Swift.
 
 ## Referências consultadas
 
