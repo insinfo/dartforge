@@ -231,6 +231,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `417_aug_substitui_corpo` — `import augment` manual sob `macros` substitui
   corpo já completo, também aceito pelo CFE 3.6.2; protege a semântica da
   fase 3 além do nome `<biblioteca>.macro.dart`.
+* `418_definicao_metodo` — `MethodDefinitionMacro` substitui o corpo de um
+  método de instância na fase 3; VM, JS dev e JS produção executam o novo
+  corpo, com augmentation comparada integralmente ao CFE.
 
 ## 8. Placar (medido nesta rodada)
 
