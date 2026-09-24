@@ -332,6 +332,25 @@ impl Motor {
             let k = chave(program.unit(unidade).path.as_deref().expect("próprio tem caminho"));
             analise.arquivos.get_mut(&k).expect("próprio").diags.push(cod);
         }
+
+        // 5. Imports não usados, depois de tudo (a supressão olha os
+        // diagnósticos da biblioteca).
+        for lib in &libs_proprias {
+            let chaves: Vec<PathBuf> =
+                program.library(*lib).units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(chave)).collect();
+            let ja: Vec<Diagnostic> = chaves
+                .iter()
+                .filter_map(|k| analise.arquivos.get(k))
+                .flat_map(|a| a.diags.iter().cloned())
+                .collect();
+            for (u, d) in dartforge_analise::importacoes::nao_usados(&program, *lib, &interner, &ja) {
+                if let Some(p) = &program.unit(u).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
+        }
         analise
     }
 

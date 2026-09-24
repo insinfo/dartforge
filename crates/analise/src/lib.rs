@@ -8,6 +8,7 @@
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
 
 pub mod duplicatas;
+pub mod importacoes;
 pub mod locais;
 pub mod publicacao;
 

@@ -94,6 +94,7 @@ name = "dartforge-analise"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
+ "dartforge-elements",
  "dartforge-frontend",
  "dartforge-intern",
 ]

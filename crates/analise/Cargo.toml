@@ -12,3 +12,4 @@ workspace = true
 dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-intern = { path = "../intern" }
 dartforge-frontend = { path = "../frontend" }
+dartforge-elements = { path = "../elements" }
