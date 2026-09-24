@@ -247,6 +247,36 @@ define i64 @df_fn_2() { ret i64 99 }\n";
     assert_eq!(proximo.call(&sessao).unwrap(), 22);
 }
 
+/// O emissor atual nomeia globais como `dfg.<biblioteca>.<classe>.<campo>`;
+/// a IR antiga usava `dfg_`. O valor e o indicador precisam atravessar a
+/// recarga usando os nomes que o compilador realmente publica.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn recarga_preserva_globais_com_nome_do_emissor_atual() {
+    let ir = |passo: i64| format!("@dfg.app.C.contador = internal global i64 0\n\
+@dfg.app.C.contador$ok = internal global i8 0\n\
+define i64 @df_fn_0() {{\n\
+  %anterior = load i64, ptr @dfg.app.C.contador\n\
+  %novo = add i64 %anterior, {passo}\n\
+  store i64 %novo, ptr @dfg.app.C.contador\n\
+  store i8 1, ptr @dfg.app.C.contador$ok\n\
+  ret i64 %novo\n}}\n\
+define i64 @df_fn_1() {{\n\
+  %ok = load i8, ptr @dfg.app.C.contador$ok\n\
+  %valor = zext i8 %ok to i64\n\
+  ret i64 %valor\n}}\n");
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", &ir(1)).expect("geração 1");
+    let avancar = sessao.stable_entry("df_fn_0").expect("avançar");
+    let inicializado = sessao.stable_entry("df_fn_1").expect("indicador");
+    assert_eq!(avancar.call(&sessao).unwrap(), 1);
+    assert_eq!(avancar.call(&sessao).unwrap(), 2);
+    assert_eq!(inicializado.call(&sessao).unwrap(), 1);
+    sessao.hot_reload("app", &ir(10)).expect("geração 2");
+    assert_eq!(inicializado.call(&sessao).unwrap(), 1);
+    assert_eq!(avancar.call(&sessao).unwrap(), 12);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]

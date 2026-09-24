@@ -875,7 +875,7 @@ impl JitSession {
 
 /// Somente estado do programa atravessa gerações; caches do código não.
 fn static_do_programa(name: &str) -> bool {
-    name.starts_with("dfg_") || name == "df_statics"
+    name.starts_with("dfg.") || name.starts_with("dfg_") || name == "df_statics"
 }
 
 /// Compara a impressão digital do contrato entre a versão viva e a nova.
