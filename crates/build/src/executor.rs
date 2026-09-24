@@ -122,7 +122,7 @@ pub(crate) fn digest_de(
         }
         Consulta::GlobAtivos { dir, candidatos, .. } => {
             let lista = candidatos.iter().filter_map(|(rel, gerado)| {
-                let caminho = dir.join(rel);
+                let caminho = dartforge_elements::gerado::chave(&dir.join(rel));
                 (if *gerado { memoria(&caminho).is_some() } else { caminho.is_file() }).then_some(rel.as_str())
             }).collect::<Vec<_>>();
             Some(digest_bytes(lista.join("\n").as_bytes()))
