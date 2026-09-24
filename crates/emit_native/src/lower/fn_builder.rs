@@ -1051,26 +1051,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Operador de uma atribuição composta (`a op= b`).
     pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand) -> Operand {
-        // Local `int?` promovido: o valor corrente é `Ref`, o outro lado diz
-        // o escalar.
+        // O valor corrente em `Ref` pode ser `String`, um número anulável ou
+        // outro objeto. O tipo do operando direito não prova que ele seja
+        // numérico (`s *= 2`); o despacho dinâmico trata esses casos.
         let (tl, tr) = (self.operand_type(&lop), self.operand_type(&rop));
-        let lop = if tl == Type::Ref && matches!(tr, Type::I64 | Type::F64) {
-            self.coagir(lop, tr)
-        } else {
-            lop
-        };
         let rop = if tr == Type::Ref && matches!(tl, Type::I64 | Type::F64) {
             self.coagir(rop, tl)
         } else {
             rop
         };
-        let texto =
-            self.operand_type(&lop) == Type::Ref && matches!(op, BinaryOp::Add | BinaryOp::Mul);
         self.operar(
             op,
             lop,
             rop,
-            texto,
+            false,
             dartforge_diagnostics::Span { start: 0, end: 0 },
         )
     }
