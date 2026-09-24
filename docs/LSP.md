@@ -114,9 +114,14 @@ resolução semântica. Para uma variável de topo única com tipo primitivo
 escrito (`int`, `double`, `num`, `bool`, `String`, `Object`, `dynamic`), mostra
 `tipo nome` e `Type: tipo`, como a descrição do `VariableElement` no analyzer.
 Nomes locais homônimos desligam esse hover até existir resolução por escopo.
-Funções de topo sem parâmetros e com retorno primitivo/`void` escrito recebem
-hover com assinatura `tipo nome()`; funções genéricas, com parâmetros ou
-retorno inferido aguardam a formatação completa da assinatura.
+Funções de topo com até dois parâmetros posicionais obrigatórios, todos com
+tipos primitivos escritos, e retorno primitivo/`void` escrito recebem hover
+com assinatura `tipo nome(tipo parâmetro, ...)`. Getters de topo com retorno
+primitivo escrito mostram `tipo get nome` e `Type: tipo`, seguindo o formato
+dos testes de hover do servidor Dart. A navegação para a declaração funciona
+mesmo quando a assinatura não pode ser mostrada; nesses casos o hover fica
+vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
+aguardam a formatação completa da assinatura.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,

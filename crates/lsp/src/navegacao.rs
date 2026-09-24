@@ -224,12 +224,9 @@ fn funcao_topo(
     if encontrados.len() != 1 { return None; }
     let (declaracao, funcao) = encontrados[0];
     let descricao = (|| {
-        if funcao.kind != FunctionKind::Function || !funcao.type_params.is_empty() {
+        if !funcao.type_params.is_empty() {
             return None;
         }
-        let parametros = funcao.parameters.as_ref()?;
-        // Com 3+ parâmetros, o analyzer muda para layout multilinha.
-        if parametros.len() > 2 { return None; }
         let retorno = funcao.return_type.and_then(|t| {
             if matches!(&ast.ty(t).kind, TypeKind::Void) {
                 Some("void".to_string())
@@ -237,6 +234,13 @@ fn funcao_topo(
                 tipo_primitivo(ast, nomes, t)
             }
         })?;
+        if funcao.kind == FunctionKind::Getter {
+            return funcao.parameters.is_none().then(|| (format!("{retorno} get {}", nomes.resolve(chave)), Some(retorno)));
+        }
+        if funcao.kind != FunctionKind::Function { return None; }
+        let parametros = funcao.parameters.as_ref()?;
+        // Com 3+ parâmetros, o analyzer muda para layout multilinha.
+        if parametros.len() > 2 { return None; }
         let mut descricoes = Vec::new();
         for p in parametros.iter() {
             if p.kind != ParameterKind::Required || p.covariant || p.final_ || p.var_ || p.const_
@@ -247,9 +251,10 @@ fn funcao_topo(
             let nome = nomes.resolve(p.name?.sym);
             descricoes.push(format!("{tipo} {nome}"));
         }
-        Some(format!("{retorno} {}({})", nomes.resolve(chave), descricoes.join(", ")))
+        Some((format!("{retorno} {}({})", nomes.resolve(chave), descricoes.join(", ")), None))
     })();
-    Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico: None })
+    let (descricao, tipo_estatico) = descricao.map_or((None, None), |(d, t)| (Some(d), t));
+    Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico })
 }
 
 fn resolver(base: &Url, literal: &StringLit) -> Option<String> {
