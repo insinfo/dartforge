@@ -110,9 +110,9 @@ de implementação antes de gerar o arquivo.
 
 O builder aceita um registro explícito de fábricas Dart do projeto
 (`macroDeclarationsBuilder`). O fixture `corpus/builders/macros_registry`
-registra `JsonCodable` no bootstrap do `build_runner`; o resultado da fase de
+registra as três macros de `package:json` no bootstrap do `build_runner`; o resultado da fase de
 declarações de `Endereco` é emitido em `modelos.macro_declarations.json` e
-comparado integralmente com o `macro.resultado` do CFE. Duas aplicações são
+comparado integralmente com o `macro.resultado` do CFE. Quatro aplicações são
 executadas no mesmo isolate do builder. A fábrica recebe a anotação resolvida
 para poder ler argumentos; o registro distingue construtores nomeados. Esta
 etapa ainda é opt-in e não materializa `.macro.dart`.

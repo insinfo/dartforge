@@ -117,8 +117,21 @@ Future<void> main() async {
     final declaracoes = jsonDecode(
         File('lib/modelos.macro_declarations.json').readAsStringSync()) as Map;
     final geradas = declaracoes['resultados'] as List;
-    if (declaracoes['versao'] != 1 || geradas.length != 2)
-      throw StateError('builder não executou as duas macros registradas');
+    if (declaracoes['versao'] != 1 || geradas.length != 4)
+      throw StateError('builder não executou as quatro aplicações registradas');
+    final geradosPorAlvo = {
+      for (final item in geradas) (item as Map)['alvo']: item,
+    };
+    for (final alvo in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
+      final item = geradosPorAlvo[alvo] as Map?;
+      if (item == null) throw StateError('resultado ausente para $alvo');
+      final resultadoDaMacro = item['resultado'] as Map;
+      if (resultadoDaMacro['excecao'] != null ||
+          (resultadoDaMacro['diagnosticos'] as List).isNotEmpty ||
+          (resultadoDaMacro['tipos'] as List).isEmpty) {
+        throw StateError('macro de $alvo não gerou declarações válidas');
+      }
+    }
     final peloBuilder =
         geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
     if (peloBuilder['macro'] != 'package:json/json.dart#JsonCodable' ||
@@ -141,7 +154,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou 2 aplicações; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou 4 aplicações; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }
