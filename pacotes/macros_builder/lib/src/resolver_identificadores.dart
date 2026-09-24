@@ -54,7 +54,11 @@ final class ResolvedorIdentificadores {
     final resultado = await classe.library.session.getLibraryByUri(uri);
     if (resultado is! LibraryElementResult)
       throw StateError('biblioteca $uri não resolvida pelo analyzer');
-    final elemento = resultado.element.exportNamespace.get(nome);
+    // O CFE da 1ª geração procura declarações da própria biblioteca;
+    // reexportações não participam de `resolveIdentifier`.
+    final locais =
+        resultado.element.topLevelElements.where((e) => e.name == nome);
+    final elemento = locais.isEmpty ? null : locais.first;
     if (elemento == null) throw StateError('$uri não exporta $nome');
     final chave = _chave(elemento);
     final id = ids.putIfAbsent(chave, () => _proximo++);

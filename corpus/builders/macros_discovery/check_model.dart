@@ -114,8 +114,23 @@ Future<void> main() async {
             (m) => m['t'] == 'macro.resultado' && m['id'] == 4)['resultado'];
     if (!igual(resultado, esperadoResultado))
       throw StateError('fase de declarações divergiu do CFE');
+    const uriReexportada = 'package:corpus_macros_discovery/reexportado.dart';
+    final bibliotecaReexportada =
+        await classe.library.session.getLibraryByUri(uriReexportada);
+    if (bibliotecaReexportada is! LibraryElementResult ||
+        bibliotecaReexportada.element.exportNamespace.get('Random') == null) {
+      throw StateError('fixture de reexportação não expõe Random');
+    }
+    var rejeitouReexportacao = false;
+    try {
+      await resolvedor.resolver(uriReexportada, 'Random');
+    } on StateError {
+      rejeitouReexportacao = true;
+    }
+    if (!rejeitouReexportacao)
+      throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE, via analyzer');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }
