@@ -7,3 +7,5 @@ environment:
 dependencies:
   analyzer: 7.3.0
   build: 2.4.2
+  macros:
+    path: ../macros

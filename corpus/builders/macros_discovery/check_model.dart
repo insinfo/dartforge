@@ -114,6 +114,17 @@ Future<void> main() async {
             (m) => m['t'] == 'macro.resultado' && m['id'] == 4)['resultado'];
     if (!igual(resultado, esperadoResultado))
       throw StateError('fase de declarações divergiu do CFE');
+    final declaracoes = jsonDecode(
+        File('lib/modelos.macro_declarations.json').readAsStringSync()) as Map;
+    final geradas = declaracoes['resultados'] as List;
+    if (declaracoes['versao'] != 1 || geradas.length != 2)
+      throw StateError('builder não executou as duas macros registradas');
+    final peloBuilder =
+        geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
+    if (peloBuilder['macro'] != 'package:json/json.dart#JsonCodable' ||
+        !igual(peloBuilder['resultado'], esperadoResultado)) {
+      throw StateError('resultado do build_runner divergiu do CFE');
+    }
     const uriReexportada = 'package:corpus_macros_discovery/reexportado.dart';
     final bibliotecaReexportada =
         await classe.library.session.getLibraryByUri(uriReexportada);
@@ -130,7 +141,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou 2 aplicações; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }

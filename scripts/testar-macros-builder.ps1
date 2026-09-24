@@ -9,6 +9,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'build_runner do corpus de macros falhou' }
     $saida = Join-Path $caso 'lib/modelos.macro_uses.json'
     if (-not (Test-Path -LiteralPath $saida)) { throw 'manifesto de macros ausente' }
+    $declaracoes = Join-Path $caso 'lib/modelos.macro_declarations.json'
+    if (-not (Test-Path -LiteralPath $declaracoes)) { throw 'resultado da fase de declaracoes ausente' }
     $manifesto = Get-Content -LiteralPath $saida -Raw -Encoding utf8 | ConvertFrom-Json
     $nomes = @($manifesto.aplicacoes | ForEach-Object { "$($_.alvo):$($_.classe)" })
     $esperados = @('Endereco:JsonCodable', 'Usuario:JsonCodable', 'SoSaida:JsonEncodable', 'SoEntrada:JsonDecodable')

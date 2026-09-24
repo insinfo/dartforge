@@ -1,0 +1,12 @@
+name: corpus_macros_registry
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  build: 2.4.2
+  dartforge_macros_builder:
+    path: ../../../pacotes/macros_builder
+  json: 0.20.4
+dependency_overrides:
+  macros:
+    path: ../../../pacotes/macros

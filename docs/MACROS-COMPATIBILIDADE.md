@@ -95,8 +95,8 @@ augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
 execução da macro pelo builder.
 Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
 `pacotes/macros`, reproduz os 8 resultados da sessão CFE. O builder ainda
-precisa completar o modelo semântico a partir do `Resolver` e registrar as
-fábricas de macro do projeto para chamar esse executor sem a sessão gravada.
+precisa completar o modelo semântico a partir do `Resolver` para as fases
+restantes.
 O adaptador do builder já serializa classes simples e campos no formato de
 `macro.executar`; o modelo de `Endereco` bate estruturalmente com o pedido
 gravado do CFE, depois de trocar apenas a URI do pacote do fixture.
@@ -107,6 +107,15 @@ primeiro teste. O caso de integração resolve as 3 consultas
 `resolverIdentificador` pela sessão do analyzer e reproduz a mesma fase sem
 respostas gravadas. As demais consultas da fase de definições ainda precisam
 de implementação antes de gerar o arquivo.
+
+O builder aceita um registro explícito de fábricas Dart do projeto
+(`macroDeclarationsBuilder`). O fixture `corpus/builders/macros_registry`
+registra `JsonCodable` no bootstrap do `build_runner`; o resultado da fase de
+declarações de `Endereco` é emitido em `modelos.macro_declarations.json` e
+comparado integralmente com o `macro.resultado` do CFE. Duas aplicações são
+executadas no mesmo isolate do builder. A fábrica recebe a anotação resolvida
+para poder ler argumentos; o registro distingue construtores nomeados. Esta
+etapa ainda é opt-in e não materializa `.macro.dart`.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
