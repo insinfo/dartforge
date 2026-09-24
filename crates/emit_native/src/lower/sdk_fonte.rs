@@ -289,8 +289,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         let dartforge_frontend::ast::TypeKind::Named { name, args } = &ast_ty.kind else {
-            // Tipo de função/record num cast: confere só... nada (a classe
-            // de uma função é `_Closure`).
+            // `Iterable.generate<E>` testa `_id is E Function(int)` antes de
+            // aceitar o gerador implícito. A RTI representa a assinatura e
+            // substitui `E` pela tupla da factory do SDK.
+            if let Some(receita) = self.receita_da_anotacao(ast_ty) {
+                let tipo = self.rti_da_receita(&receita);
+                return Some(self.testar_rti(op, tipo));
+            }
             return sem_classe(self);
         };
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;

@@ -228,6 +228,33 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
     assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"), "foobar\ntrue\nfoo\n");
 }
 
+/// `Iterable.generate<E>` usa `id is E Function(int)` para decidir se o
+/// gerador implícito de inteiros pode atender a `E`.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn iterable_generate_testa_assinatura_generica_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("iterable_generate_function_rti.dart");
+    let exe = dir.path().join("iterable_generate_function_rti.exe");
+    std::fs::write(&entrada, include_str!("fixtures/iterable_generate_function_rti.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "[0, 1, 2]\ntrue\n[v0, v1]\n");
+}
+
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]
