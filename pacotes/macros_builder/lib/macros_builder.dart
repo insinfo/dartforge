@@ -22,13 +22,15 @@ final class _MacroDiscoveryBuilder implements Builder {
     final library = await step.resolver.libraryFor(step.inputId);
     final aplicacoes = <Map<String, String>>[];
     for (final alvo in library.topLevelElements) {
+      final nome = alvo.name;
+      if (nome == null) continue;
       for (final anotacao in alvo.metadata) {
         final elemento = anotacao.element;
         if (elemento is! ConstructorElement) continue;
         final classe = elemento.enclosingElement3;
         if (classe is! ClassElement || !_eMacro(classe)) continue;
         aplicacoes.add({
-          'alvo': alvo.name,
+          'alvo': nome,
           'biblioteca': classe.librarySource.uri.toString(),
           'classe': classe.name,
           'construtor': elemento.name,
