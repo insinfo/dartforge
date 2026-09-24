@@ -68,6 +68,17 @@ O grupo "chamada de membro sem implementação compilada" caiu de 6 para 3
 os encaminhadores noSuchMethod); os maiores grupos agora são geradores
 (6), `RegExp` da fonte (5) e instanciação de tipo genérico (3).
 
+No ramo `ci/native-sdk-is-selector` (`47f843b`), a
+[CI 36048526413](https://github.com/insinfo/dartforge/actions/runs/36048526413)
+e o [Pesado 36048526434](https://github.com/insinfo/dartforge/actions/runs/36048526434)
+passaram. O nativo com SDK da fonte manteve **183/223**, igual no JIT
+(223/223 saídas idênticas JIT × AOT, 0 divergentes; `--gc-stress` sem
+regressão): o encaminhador estático de método só com posicionais
+(`Invocation.method` + `noSuchMethod` em linha) passa na fixture
+`nsm_encaminhador_metodo_no_sdk`, mas os 3 do corpus seguem bloqueados —
+`216_poda_nosuchmethod` ainda exige os encaminhadores de getter/setter, e
+`57`/`223` exigem nomeados/genéricos mais o miss dinâmico do seletor.
+
 Integração em `ci/integracao-ssd`: ajustes de caminhos, seleção do LLVM 22 no
 runner, correção de símbolos estáveis e da RTI entre módulos, regressões de
 hot reload, navegação e hover LSP, limpeza do executor de macros e avanço do
