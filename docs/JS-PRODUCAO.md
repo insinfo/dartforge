@@ -785,7 +785,20 @@ No `limitless_ui/example` (ngdart, 482 módulos) o ganho é pequeno:
 nome (19 mil nomes vivos) um membro de nome comum vive em toda classe
 instanciada. Fechar isso é a restrição pelo tipo do receptor (§2), que
 depende de fechar as lacunas de inferência. A suíte e2e com o bundle de
-produção ainda não foi rodada.
+produção foi executada no GitHub Actions em 24/09/2026: **26/26 testes
+Puppeteer passaram** ([rodada 35971652262](https://github.com/insinfo/dartforge/actions/runs/35971652262)).
+O navegador montou a galeria sem exceções e a suíte exercitou seleção,
+pickers, overlays e a tabela com zoom de 110%.
+
+Essa validação expôs quatro ligações que o corpus pequeno não exercitava:
+os aliases exportados `html$ as html` e `svg$ as svg` precisam continuar
+disponíveis no bundle; getters do SDK declarados como `get [S.$head]()`
+precisam casar com o seletor `head`; referências a entradas privadas das
+tabelas `S`, `S$`, `S$0` etc. precisam manter a entrada inteira, e não só
+o prefixo da tabela; e o `NodeList` nativo de `querySelectorAll` precisa
+receber os métodos simbolizados de `List` que o DDC usa em `dart:html`
+(`every`, `firstWhere` etc.). O perfil de produção instala essa ponte
+depois do SDK e antes dos módulos do programa.
 
 ## 6.1 O que já está implementado
 
