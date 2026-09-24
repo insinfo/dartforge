@@ -40,6 +40,9 @@ inputs:
   sdk-313:
     description: Instalar também o SDK de oráculo 3.13.4 (corpus/moderno)
     default: 'false'
+  pub-get:
+    description: Diretório cujos subdiretórios com pubspec.lock recebem `dart pub get --enforce-lockfile` antes do harness (corpus/macros)
+    default: ''
 
 runs:
   using: composite
@@ -67,6 +70,21 @@ runs:
       with:
         path: target/diferencial/cache
         key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
+
+    - name: pub get (${{ inputs.pub-get }})
+      if: inputs.pub-get != ''
+      shell: pwsh
+      env:
+        RAIZ: ${{ inputs.pub-get }}
+      run: |
+        $casos = @(Get-ChildItem $env:RAIZ -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') })
+        foreach ($c in $casos) {
+          Push-Location $c.FullName
+          dart pub get --enforce-lockfile | Out-Null
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pub get falhou em $($c.Name)" }
+          Pop-Location
+        }
+        Write-Host "$($casos.Count) casos com package_config.json"
 
     - name: dartforge-diferencial ${{ inputs.args }}
       id: rodar

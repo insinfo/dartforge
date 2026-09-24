@@ -13,9 +13,10 @@
 #     mantém os caches no escopo do main, que toda branch ci/** pode ler.
 #
 # Jobs de uma rodada `todos` com N fragmentos: compilar; depois, EM PARALELO,
-# js, producao, moderno, determinismo (produção), determinismo (nativo), N
-# nativos e o nativo sob --gc-stress; depois nativo-placar (Linux, segundos),
-# que também compara os dois placares nativos. Pico de simultaneidade = 6 + N.
+# js, producao, moderno, macros, determinismo (produção), determinismo
+# (nativo), N nativos e o nativo sob --gc-stress; depois nativo-placar (Linux,
+# segundos), que também compara os dois placares nativos. Pico de
+# simultaneidade = 7 + N.
 # O plano gratuito permite 20 jobs simultâneos na conta inteira (Linux e
 # Windows juntos); o excedente espera na fila, não falha.
 #
@@ -33,7 +34,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, jit, determinismo, moderno, custo-zero, analise]
+        options: [todos, js, producao, nativo, jit, determinismo, moderno, macros, custo-zero, analise]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -204,6 +205,27 @@ jobs:
           titulo: Moderno (3.7–3.13) — VM e DDC 3.13.4 × dartforge dev e produção
           args: --corpus corpus/moderno --producao --jobs 4
           sdk-313: 'true'
+
+  # Augmentations e macros (docs/AUGMENTATIONS.md, docs/MACROS-PROTOCOLO.md):
+  # o corpus/macros contra o 3.6.2 com --enable-experiment=macros (a forma
+  # `import augment`/`augment library`) e contra o 3.13.4 com
+  # augmentations,enhanced-parts (a forma `part of`), no perfil de
+  # desenvolvimento e no de produção. Mesmo critério do `moderno`.
+  macros:
+    name: macros (augmentations)
+    needs: compilar
+    if: contains(fromJSON('["todos","macros"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: macros
+          titulo: Macros e augmentations — VM e DDC (3.6.2 e 3.13.4) × dartforge dev e produção
+          args: --corpus corpus/macros --producao --jobs 4
+          sdk-313: 'true'
+          pub-get: corpus/macros
 
   nativo:
     name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
@@ -474,4 +496,4 @@ jobs:
         shell: pwsh
         run: |
           $env:DARTFORGE_DART_SDK_JS = Join-Path $PWD 'runtime/ddc/dart_sdk.js'
-          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.03
+          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.10

@@ -62,6 +62,35 @@ local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
 `corpus/js`, 11.783 ms × 11.806 ms (+0,2%). Números e método em
 `docs/VERSOES-LINGUAGEM.md` §7.
 
+### 1.1.2 Augmentations e macros — `docs/AUGMENTATIONS.md`, `docs/MACROS-PROTOCOLO.md`
+
+* **Augmentations** (P7): `augment` em classe, mixin, membros e funções de
+  topo; bibliotecas de augmentation da forma 3.6 (`import augment` +
+  `augment library`, experimento `macros`) e *parts* com imports da forma
+  atual (`augmentations,enhanced-parts`); a fusão no outline generaliza o
+  `@patch` do SDK (`elements/src/augmentation.rs`) e o `emit_js` emite a
+  classe com os membros da cadeia. `corpus/macros/400–405`: **6/6** em
+  desenvolvimento e produção, 6/6 DDC×VM (3.6.2 e 3.13.4), CI verde (Pesado
+  35918855910, CI 35918855886). Divergências medidas dos dois CFEs em
+  AUGMENTATIONS.md §4.
+* **API de macros reescrita** (`pacotes/macros`, pacote `macros`, Dart puro):
+  a superfície do `package:macros` 0.1.3-main.0 e o lado do executor
+  (modelo, introspecção, builders com o texto do CFE, serviço `macro.*`). O
+  `json.dart` do `package:json` 0.20.4, sem mudança, analisa contra ela com
+  zero problemas no analyzer 3.6.2.
+* **Hospedeiro** (`crates/macros_host`): detecção com custo zero, ordem do
+  CFE, as três fases com recarga, modelo e consultas, montagem byte a byte,
+  o serviço `macro.*` do `dfexec/1`, `Indisponivel` no produto.
+  `dartforge macros --materializar` grava a augmentation
+  (docs/MACROS-COMPATIBILIDADE.md). Placar em MACROS-PROTOCOLO.md §8.
+* **Espera o executor nativo**: executar macros no `compile-js` (hoje: erro
+  claro na anotação; `410_json_codable` em `corpus/macros/PENDENTES`).
+* CI da rodada (`ci/macros` em ab2ad4a, os dois verdes): Pesado 35931208832
+  (`macros` 6/7 dev e produção + 1 pendente, 7/7 DDC×VM; `corpus/js`
+  223/223; `moderno` 22/26 como no `main`; custo zero verde) e CI 35931208819
+  (inclusive `vm_executa_a_macro_e_bate_com_o_cfe` e
+  `sessao_gravada_reproduz_o_texto_do_cfe` nos ignorados).
+
 ### 1.2 Emissão JavaScript — `crates/emit_js`
 
 Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial

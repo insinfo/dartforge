@@ -196,6 +196,14 @@ pub enum DirectiveKind {
         uri: Option<StringLit>,
         name: Vec<Name>,
     },
+    /// `import augment 'uri';` — biblioteca de augmentation na forma do SDK
+    /// 3.6 (experimento `macros`, `working/augmentation-libraries` até a
+    /// v1.20): a unidade apontada pertence a esta biblioteca e aumenta as
+    /// declarações dela (docs/AUGMENTATIONS.md).
+    ImportAugment { uri: StringLit },
+    /// `augment library 'uri';` — o cabeçalho da unidade de augmentation, o
+    /// par de [`DirectiveKind::ImportAugment`] (como `part of` para `part`).
+    AugmentLibrary { uri: StringLit },
 }
 
 /// `if (dart.library.io == 'x') 'uri'`
@@ -222,6 +230,10 @@ pub struct Decl {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: DeclKind,
+    /// `augment` (experimentos `augmentations`/`macros`): a declaração aumenta
+    /// a declaração de mesmo nome que vem antes dela na biblioteca
+    /// (docs/AUGMENTATIONS.md), em vez de introduzir um nome.
+    pub augment: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -248,6 +260,10 @@ pub struct ClassModifiers {
     pub sealed: bool,
     /// `mixin class`
     pub mixin: bool,
+    /// `macro class` (experimento `macros`): a classe é uma macro, e uma
+    /// anotação que resolve para um construtor dela é uma aplicação de macro
+    /// (docs/MACROS-PROTOCOLO.md).
+    pub macro_: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -377,6 +393,9 @@ pub struct Member {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: MemberKind,
+    /// `augment`: o membro aumenta o membro de mesmo nome que vem antes dele
+    /// na cadeia da classe (docs/AUGMENTATIONS.md).
+    pub augment: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

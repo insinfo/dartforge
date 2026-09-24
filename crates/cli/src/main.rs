@@ -2,6 +2,7 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 mod analisar;
 mod jit;
+mod macros;
 mod motor;
 mod nativo;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,7 +14,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
-       dartforge run|reload <input.dart> ...  (compile com --features jit)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
+       dartforge run|reload <input.dart> ...  (compile com --features jit)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n       dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );
         return Ok(());
     }
@@ -29,6 +30,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args[0] == "compile-js" {
         return run_compile_js(&args[1..]);
+    }
+    if args[0] == "macros" {
+        return macros::run(&args[1..]);
     }
     if args[0] == "run" {
         return jit::run(&args[1..]);
