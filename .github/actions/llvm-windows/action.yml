@@ -9,11 +9,12 @@ description: >
 # emite LLVM IR TEXTUAL, e o formato textual muda entre versões — um Clang de
 # outra versão pode recusar (ou aceitar diferente) o que o nosso emissor gera.
 #
-# Por padrão só o clang.exe é guardado: é o que o backend nativo usa (IR ->
-# objeto -> ligação pelo link.exe do MSVC) e o que os testes nativos chamam.
+# O Clang e o lld-link precisam ser da mesma versão para ThinLTO do SDK da
+# fonte: o bitcode 22 é recusado pelo lld-link 20 presente no runner.
 # Extrai-se `bin/clang*.exe` porque o pacote pode guardar os executáveis
 # irmãos como hardlinks de um deles, e extrair um hardlink sem o alvo falha;
-# os irmãos (~100 MB cada) são apagados em seguida.
+# os irmãos do Clang (~100 MB cada) são apagados em seguida. Os executáveis
+# irmãos do lld são mantidos porque lld-link pode ser um hardlink de lld.exe.
 #
 # `desenvolvimento` acrescenta só o recorte mínimo do JIT (crates/jit, ORCv2),
 # medido localmente em ~73 MB. São cinco peças:
@@ -41,7 +42,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: C:\llvm-22.1.8
-        key: llvm-22.1.8-windows-x64-${{ inputs.desenvolvimento == 'true' && 'dev-v1' || 'clang-v2' }}
+        key: llvm-22.1.8-windows-x64-${{ inputs.desenvolvimento == 'true' && 'dev-v2' || 'clang-v3' }}
 
     - name: Baixar e extrair o LLVM 22.1.8
       if: steps.cache.outputs.cache-hit != 'true'
@@ -58,7 +59,7 @@ runs:
         curl -fsSL --retry 3 -o "$pacote" "$url"
         echo "download: $((SECONDS - inicio)) s"
         mkdir -p /c/llvm-22.1.8
-        padroes=("$raiz/bin/clang*.exe")
+        padroes=("$raiz/bin/clang*.exe" "$raiz/bin/lld*.exe" "$raiz/bin/ld.lld.exe" "$raiz/bin/ld64.lld.exe")
         if [ "$DESENVOLVIMENTO" = "true" ]; then
           padroes+=("$raiz/bin/llvm-config.exe" "$raiz/bin/LLVM-C.dll" "$raiz/lib/LLVM-C.lib"
                     "$raiz/include/llvm-c/*" "$raiz/include/llvm/Config/*")
@@ -84,6 +85,9 @@ runs:
         $versao = & "$raiz\bin\clang.exe" --version | Select-Object -First 1
         Write-Host $versao
         if ($versao -notmatch '22\.1\.8') { throw "Clang inesperado: $versao" }
+        $ligador = & "$raiz\bin\lld-link.exe" --version | Select-Object -First 1
+        Write-Host $ligador
+        if ($ligador -notmatch '22\.1\.8') { throw "lld-link inesperado: $ligador" }
         "DARTFORGE_CLANG=$raiz\bin\clang.exe" >> $env:GITHUB_ENV
         "$raiz\bin" >> $env:GITHUB_PATH
         if ($env:DESENVOLVIMENTO -eq 'true') {
