@@ -328,6 +328,28 @@ fn sobreposicao_explicita_de_extensao_sem_setter() {
 }
 
 #[test]
+fn sobreposicao_explicita_de_extensao_rejeita_membros_estaticos() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; extension E on String { static String get empty => ''; static void set empty(String s) {} } void f() { E('a').empty; E('a').empty = 'b'; E('a').empty += 'b'; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let estaticos: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
+    assert_eq!(estaticos.len(), 3, "{diags:?}");
+    for d in estaticos {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "empty", "{diags:?}");
+    }
+    assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)), "{diags:?}");
+}
+
+#[test]
 fn campo_final_sem_setter_e_late_final_atribuivel() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

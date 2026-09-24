@@ -67,6 +67,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::ASSIGNMENT_TO_FINAL,
         c::ASSIGNMENT_TO_FINAL_NO_SETTER,
         c::UNDEFINED_EXTENSION_SETTER,
+        c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
         c::ASSIGNMENT_TO_CONST,
         c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
         c::DEFINITELY_UNASSIGNED_VARIABLE,
@@ -231,6 +232,18 @@ mod testes {
         let c = codificar_tipos(&d, "foo");
         assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_SETTER));
         assert_eq!(c.message, "The setter 'foo' isn't defined for the extension 'E'.");
+    }
+
+    #[test]
+    fn membro_estatico_em_sobreposicao_de_extensao() {
+        let d = Diagnostic::new(
+            dartforge_types::codes::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template,
+            Span { start: 7, end: 12 },
+        );
+        let c = codificar_tipos(&d, "empty");
+        assert_eq!(c.code, Some(codigos::compile_time_error::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER));
+        assert_eq!(c.message, "An extension override can't be used to access a static member from an extension.");
+        assert_eq!((c.span.start, c.span.end), (7, 12));
     }
 
     #[test]
