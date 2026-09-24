@@ -443,6 +443,24 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         }
         _ => {
             let t = inferir(inf, cx, target, u);
+            if let Some((x, ext_args)) = cx.sobreposicoes.get(&target).cloned()
+                && let Some(call) = inf.sym.call
+            {
+                if let Some(m) = inf.membro_de_extensao_explicita(x, &ext_args, call, false) {
+                    let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
+                    return (r, false);
+                }
+                if let Some(m) = inf.membro_estatico_de_extensao(x, call, false) {
+                    // `E(valor)()` usa a lista de argumentos como localização
+                    // do erro, conforme o analyzer oficial.
+                    inf.aviso(
+                        EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(),
+                        args.span,
+                    );
+                    let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
+                    return (r, false);
+                }
+            }
             let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
             (r, false)
         }
