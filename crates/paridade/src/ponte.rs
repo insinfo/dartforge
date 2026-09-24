@@ -41,8 +41,10 @@ const APELIDOS: &[(&str, &str)] = &[
 
 /// Nomes relatados que vários `uniqueName` compartilham: qual variante a
 /// ponte usa quando o emissor não diz o contexto.
-const VARIANTES: &[(&str, &str)] =
-    &[("return_of_invalid_type", "CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION")];
+const VARIANTES: &[(&str, &str)] = &[
+    ("return_of_invalid_type", "CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION"),
+    ("class_instantiation_access_to_instance_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER"),
+];
 
 fn por_nome(nome: &str) -> Option<Codigo> {
     let nome = APELIDOS.iter().find(|(a, _)| *a == nome).map(|(_, b)| *b).unwrap_or(nome);
@@ -70,6 +72,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::UNDEFINED_EXTENSION_GETTER,
         c::UNDEFINED_EXTENSION_METHOD,
         c::STATIC_ACCESS_TO_INSTANCE_MEMBER,
+        c::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER,
         c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
         c::UNDEFINED_EXTENSION_OPERATOR,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
@@ -304,6 +307,18 @@ mod testes {
         let c = codificar_tipos(&d, "g");
         assert_eq!(c.code, Some(codigos::compile_time_error::STATIC_ACCESS_TO_INSTANCE_MEMBER));
         assert_eq!(c.message, "Instance member 'g' can't be accessed using static access.");
+    }
+
+    #[test]
+    fn membro_de_instancia_em_instanciacao_de_classe() {
+        let d = Diagnostic::new(
+            format!("{}: 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template),
+            Span { start: 7, end: 15 },
+        );
+        let c = codificar_tipos(&d, "A<int>.i");
+        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER));
+        assert_eq!(c.message, "The instance member 'i' can't be accessed on a class instantiation.");
+        assert_eq!((c.span.start, c.span.end), (7, 15));
     }
 
     #[test]

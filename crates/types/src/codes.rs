@@ -67,6 +67,11 @@ pub const STATIC_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new
     "Acesso estático a membro de instância",
 );
 
+pub const CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "class_instantiation_access_to_instance_member",
+    "Membro de instância em instanciação de classe",
+);
+
 pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
     "invocation_of_extension_without_call",
     "Invocação de extensão sem call",
