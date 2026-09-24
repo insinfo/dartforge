@@ -13,6 +13,7 @@
 
 pub mod servidor;
 mod navegacao;
+mod semantica;
 mod simbolos;
 pub mod transporte;
 pub mod utf16;
@@ -22,6 +23,7 @@ use std::collections::HashMap;
 use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
+pub use semantica::AnalisadorSemantico;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).

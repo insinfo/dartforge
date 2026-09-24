@@ -11,7 +11,7 @@
 //! `Mutex`. O servidor nunca envia requisições, então não há resposta a
 //! tratar nem correlação de ids no caminho de volta.
 
-use dartforge_lsp::Servidor;
+use dartforge_lsp::{AnalisadorSemantico, Servidor};
 use dartforge_lsp::transporte::{escrever_mensagem, ler_mensagem};
 use serde_json::Value;
 use std::io::{self, BufReader};
@@ -55,7 +55,7 @@ fn servir_stdio() -> i32 {
     std::thread::spawn(move || ler_tudo(tx));
 
     let saida = Arc::new(Mutex::new(io::stdout()));
-    let mut servidor = Servidor::new();
+    let mut servidor = Servidor::com_analisador(AnalisadorSemantico::descobrir());
     let mut fechou = false;
     loop {
         if !servidor.tem_pendente() && !fechou {

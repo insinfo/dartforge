@@ -265,6 +265,7 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
+ "dartforge-types",
  "serde",
  "serde_json",
  "url",
