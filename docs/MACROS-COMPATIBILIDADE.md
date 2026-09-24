@@ -116,6 +116,11 @@ comparado integralmente com o `macro.resultado` do CFE. Quatro aplicações são
 executadas no mesmo isolate do builder. A fábrica recebe a anotação resolvida
 para poder ler argumentos; o registro distingue construtores nomeados. Esta
 etapa ainda é opt-in e não materializa `.macro.dart`.
+As aplicações da mesma biblioteca agora compartilham uma tabela de IDs
+semânticos: classes distintas não colidem e `Map`, `String` e `Object` mantêm
+o ID entre as quatro execuções. Os IDs das duas primeiras classes seguem o
+oráculo CFE (1 para `Endereco`, 8 para `Usuario` neste corpus). A tabela é
+pré-requisito para fundir os resultados na augmentation parcial.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

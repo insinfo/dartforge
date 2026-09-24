@@ -6,19 +6,23 @@ import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 
+import 'tabela_identificadores.dart';
+
 final class ResolvedorIdentificadores {
   final ClassElement classe;
-  final ids = <String, int>{};
-  int _proximo = 1;
+  final TabelaIdentificadores tabela;
 
-  ResolvedorIdentificadores(this.classe, Map<String, Object?> execucao) {
+  ResolvedorIdentificadores(this.classe, Map<String, Object?> execucao,
+      [TabelaIdentificadores? tabelaCompartilhada])
+      : tabela = tabelaCompartilhada ?? TabelaIdentificadores() {
     final alvo = Map<String, Object?>.from(execucao['alvo'] as Map);
     final ident = Map<String, Object?>.from(alvo['ident'] as Map);
     _registrar(classe, ident['id'] as int);
     final modelo = Map<String, Object?>.from(execucao['modelo'] as Map);
     final membros = Map<String, Object?>.from(modelo['membros'] as Map);
+    final idAlvo = ident['id'] as int;
     final campos =
-        Map<String, Object?>.from(membros['1'] as Map)['campos'] as List;
+        Map<String, Object?>.from(membros['$idAlvo'] as Map)['campos'] as List;
     final elementos =
         classe.fields.where((campo) => !campo.isSynthetic).toList();
     if (campos.length != elementos.length)
@@ -32,8 +36,7 @@ final class ResolvedorIdentificadores {
   }
 
   void _registrar(Element elemento, int id) {
-    ids[_chave(elemento)] = id;
-    if (id >= _proximo) _proximo = id + 1;
+    tabela.vincular(elemento, id);
   }
 
   void _registrarTipo(DartType tipo, Map<String, Object?> j) {
@@ -60,16 +63,7 @@ final class ResolvedorIdentificadores {
         resultado.element.topLevelElements.where((e) => e.name == nome);
     final elemento = locais.isEmpty ? null : locais.first;
     if (elemento == null) throw StateError('$uri não exporta $nome');
-    final chave = _chave(elemento);
-    final id = ids.putIfAbsent(chave, () => _proximo++);
+    final id = tabela.id(elemento);
     return {'id': id, 'nome': elemento.name};
-  }
-
-  String _chave(Element elemento) {
-    final uri = elemento.librarySource?.uri;
-    final nome = elemento.name;
-    if (uri == null || nome == null)
-      throw StateError('elemento sem URI ou nome');
-    return '$uri#$nome';
   }
 }

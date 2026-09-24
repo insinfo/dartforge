@@ -122,8 +122,27 @@ Future<void> main() async {
     final geradosPorAlvo = {
       for (final item in geradas) (item as Map)['alvo']: item,
     };
+    final idsDosAlvos = <int>{};
+    final idsDoCore = <String, int>{};
+    void conferirIds(Object? valor) {
+      if (valor is List) {
+        for (final item in valor) conferirIds(item);
+      } else if (valor is Map) {
+        if (valor['i'] is int && valor['n'] is String) {
+          final nome = valor['n'] as String;
+          if (const {'Map', 'String', 'Object'}.contains(nome)) {
+            final anterior =
+                idsDoCore.putIfAbsent(nome, () => valor['i'] as int);
+            if (anterior != valor['i'])
+              throw StateError('id de dart:core mudou entre aplicações: $nome');
+          }
+        }
+        for (final item in valor.values) conferirIds(item);
+      }
+    }
+
     for (final alvo in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
-      final item = geradosPorAlvo[alvo] as Map?;
+      final item = geradosPorAlvo[alvo];
       if (item == null) throw StateError('resultado ausente para $alvo');
       final resultadoDaMacro = item['resultado'] as Map;
       if (resultadoDaMacro['excecao'] != null ||
@@ -131,6 +150,17 @@ Future<void> main() async {
           (resultadoDaMacro['tipos'] as List).isEmpty) {
         throw StateError('macro de $alvo não gerou declarações válidas');
       }
+      final tipos = resultadoDaMacro['tipos'] as List;
+      final id = (tipos.single as List).first as int;
+      if (!idsDosAlvos.add(id))
+        throw StateError('duas classes compartilham o identificador $id');
+      conferirIds(resultadoDaMacro);
+    }
+    if (idsDoCore.length != 3 ||
+        (geradosPorAlvo['Endereco'] as Map)['resultado']['tipos'][0][0] != 1 ||
+        (geradosPorAlvo['Usuario'] as Map)['resultado']['tipos'][0][0] != 8) {
+      throw StateError(
+          'tabela de ids divergiu das duas primeiras aplicações do CFE');
     }
     final peloBuilder =
         geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;

@@ -17,6 +17,7 @@ import 'package:macros/src/executor/resultado.dart';
 
 import 'src/modelo_analyzer.dart';
 import 'src/resolver_identificadores.dart';
+import 'src/tabela_identificadores.dart';
 
 Builder macroDiscoveryBuilder(BuilderOptions _) => _MacroDiscoveryBuilder();
 
@@ -53,6 +54,7 @@ final class _MacroDeclarationsBuilder implements Builder {
   @override
   Future<void> build(BuildStep step) async {
     final library = await step.resolver.libraryFor(step.inputId);
+    final tabela = TabelaIdentificadores();
     final resultados = <Map<String, Object?>>[];
     for (final alvo in library.topLevelElements.whereType<ClassElement>()) {
       for (final anotacao in alvo.metadata) {
@@ -65,8 +67,8 @@ final class _MacroDeclarationsBuilder implements Builder {
             '${nomeConstrutor.isEmpty ? '' : '.$nomeConstrutor'}';
         final fabrica = fabricas[chave];
         if (fabrica == null) continue;
-        final execucao = modeloDaClasse(alvo);
-        final resolvedor = ResolvedorIdentificadores(alvo, execucao);
+        final execucao = modeloDaClasse(alvo, tabela);
+        final resolvedor = ResolvedorIdentificadores(alvo, execucao, tabela);
         final modelo = Modelo(_HospedeiroAnalyzer(resolvedor))
           ..receber(Map<String, Object?>.from(execucao['modelo'] as Map));
         final declaracao = modelo

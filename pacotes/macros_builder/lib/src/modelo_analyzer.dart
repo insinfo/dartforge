@@ -7,7 +7,11 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart';
 
-Map<String, Object?> modeloDaClasse(ClassElement classe) {
+import 'tabela_identificadores.dart';
+
+Map<String, Object?> modeloDaClasse(ClassElement classe,
+    [TabelaIdentificadores? tabelaCompartilhada]) {
+  final tabela = tabelaCompartilhada ?? TabelaIdentificadores();
   if (classe.typeParameters.isNotEmpty ||
       classe.interfaces.isNotEmpty ||
       classe.mixins.isNotEmpty ||
@@ -24,20 +28,20 @@ Map<String, Object?> modeloDaClasse(ClassElement classe) {
   final versao = classe.library.languageVersion.effective;
   final biblioteca = <String, Object?>{
     'k': 'biblioteca',
-    'id': 1,
+    'id': tabela.biblioteca(uri),
     'uri': uri,
     'versao': [versao.major, versao.minor]
   };
-  final identificador = <String, Object?>{'id': 1, 'nome': classe.name};
-  var proximoId = 2;
-  final tipos = <String, int>{};
+  final identificador = <String, Object?>{
+    'id': tabela.id(classe),
+    'nome': classe.name
+  };
 
   Map<String, Object?> tipo(DartType entrada) {
     if (entrada is! InterfaceType)
       throw UnsupportedError('tipo não interface: $entrada');
     final elemento = entrada.element;
-    final chave = '${elemento.librarySource.uri}#${elemento.name}';
-    final id = tipos.putIfAbsent(chave, () => proximoId++);
+    final id = tabela.id(elemento);
     final saida = <String, Object?>{
       't': 'nomeado',
       'ident': {'id': id, 'nome': elemento.name},
@@ -54,7 +58,7 @@ Map<String, Object?> modeloDaClasse(ClassElement classe) {
     final tipoDoCampo = tipo(campo.type);
     campos.add({
       'k': 'campo',
-      'ident': {'id': proximoId++, 'nome': nome},
+      'ident': {'id': tabela.id(campo), 'nome': nome},
       'lib': biblioteca,
       'dono': identificador,
       'tipo': tipoDoCampo,
@@ -87,7 +91,7 @@ Map<String, Object?> modeloDaClasse(ClassElement classe) {
     'modelo': {
       'bibliotecas': [biblioteca],
       'membros': {
-        '1': {
+        '${identificador['id']}': {
           'campos': campos,
           'construtores': <Object?>[],
           'metodos': <Object?>[]
