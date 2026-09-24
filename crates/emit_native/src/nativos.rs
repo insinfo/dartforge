@@ -154,7 +154,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("Error_throwWithStackTrace"),
     runtime("Error_trySetStackTrace"),
     pendente("FinalizerEntry_allocate"),
-    pendente("Function_apply"),
+    runtime("Function_apply"),
     runtime("GrowableList_allocate"),
     runtime("GrowableList_getCapacity"),
     runtime("GrowableList_getLength"),
