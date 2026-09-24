@@ -67,12 +67,19 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
     // `unidades` contém uma biblioteca e suas partes. As declarações
     // aumentadas da mesma classe podem estar em unidades diferentes.
     let mut com_gerador = HashSet::<(bool, SymbolId)>::new();
-    let mut campos = HashMap::<(bool, SymbolId), Vec<(SymbolId, bool)>>::new();
+    let mut campos = HashMap::<(bool, SymbolId), Vec<(SymbolId, bool, bool)>>::new();
     for unidade in unidades {
         for &id in &unidade.unit.declarations {
-            let (chave, membros) = match &unidade.ast.decl(id).kind {
-                DeclKind::Class(x) => ((false, x.name.sym), &x.members),
-                DeclKind::Enum(x) => ((true, x.name.sym), &x.members),
+            let (chave, membros, ffi) = match &unidade.ast.decl(id).kind {
+                DeclKind::Class(x) => {
+                    let ffi = x.extends.is_some_and(|t| {
+                        if let TypeKind::Named { name, .. } = &unidade.ast.ty(t).kind {
+                            name.last().is_some_and(|n| matches!(nomes.resolve(n.sym), "Struct" | "Union"))
+                        } else { false }
+                    });
+                    ((false, x.name.sym), &x.members, ffi)
+                }
+                DeclKind::Enum(x) => ((true, x.name.sym), &x.members, false),
                 _ => continue,
             };
             if membros.iter().any(|&m| {
@@ -91,6 +98,9 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                         campos.entry(chave).or_default().push((
                             var.name.sym,
                             v.final_ && !v.const_ && !v.late && !v.external && !v.abstract_ && var.initializer.is_none(),
+                            !ffi && !v.final_ && !v.const_ && !v.late && !v.external && !v.abstract_
+                                && var.initializer.is_none()
+                                && v.ty.is_some_and(|t| tipo_certo_nao_nulo(unidade.ast, t, nomes, &aliases)),
                         ));
                     }
                 }
@@ -101,11 +111,15 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
     // O verificador oficial ignora nomes de campos duplicados; o diagnóstico
     // de duplicata já é emitido por outro verificador.
     let mut pendentes = HashMap::<(bool, SymbolId), Vec<SymbolId>>::new();
+    let mut pendentes_nao_finais = HashMap::<(bool, SymbolId), Vec<SymbolId>>::new();
     for (chave, campos) in campos {
         let mut contagem = HashMap::<SymbolId, usize>::new();
-        for (nome, _) in &campos { *contagem.entry(*nome).or_default() += 1; }
-        pendentes.insert(chave, campos.into_iter().filter_map(|(nome, falta)| {
-            (falta && contagem[&nome] == 1).then_some(nome)
+        for (nome, _, _) in &campos { *contagem.entry(*nome).or_default() += 1; }
+        pendentes.insert(chave, campos.iter().filter_map(|(nome, falta, _)| {
+            (*falta && contagem[nome] == 1).then_some(*nome)
+        }).collect());
+        pendentes_nao_finais.insert(chave, campos.iter().filter_map(|(nome, _, falta)| {
+            (*falta && contagem[nome] == 1).then_some(*nome)
         }).collect());
     }
 
@@ -157,26 +171,39 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                         // parser, sem diagnóstico semântico de inicialização.
                         if primario == Some(m) { continue; }
                         if k.initializers.iter().any(|x| matches!(x, Initializer::Redirect { .. })) { continue; }
+                        let inicializado = |nome: &SymbolId| {
+                            k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == *nome))
+                                || k.initializers.iter().any(|x| matches!(x, Initializer::Field { name, .. } if name.sym == *nome))
+                        };
                         let mut faltantes = pendentes.get(&chave).cloned().unwrap_or_default();
-                        faltantes.retain(|nome| {
-                            !k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == *nome))
-                                && !k.initializers.iter().any(|x| matches!(x, Initializer::Field { name, .. } if name.sym == *nome))
-                        });
-                        if faltantes.is_empty() { continue; }
-                        let mut nomes_faltantes: Vec<_> = faltantes.iter().map(|s| nomes.resolve(*s).to_string()).collect();
-                        nomes_faltantes.sort();
-                        let codigo = match nomes_faltantes.len() {
-                            1 => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1,
-                            2 => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_2,
-                            _ => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_3_PLUS,
-                        };
-                        let argumentos = match nomes_faltantes.len() {
-                            1 | 2 => nomes_faltantes,
-                            n => vec![nomes_faltantes[0].clone(), nomes_faltantes[1].clone(), (n - 2).to_string()],
-                        };
+                        faltantes.retain(|nome| !inicializado(nome));
                         // O oráculo 3.6.2 marca só o nome da classe, inclusive
                         // em `A.named()`; o analyzer main estende até `.named`.
-                        out.push((i, Diagnostic::com_codigo(codigo, k.class_name.span, argumentos)));
+                        if !faltantes.is_empty() {
+                            let mut nomes_faltantes: Vec<_> = faltantes.iter().map(|s| nomes.resolve(*s).to_string()).collect();
+                            nomes_faltantes.sort();
+                            let codigo = match nomes_faltantes.len() {
+                                1 => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1,
+                                2 => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_2,
+                                _ => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_3_PLUS,
+                            };
+                            let argumentos = match nomes_faltantes.len() {
+                                1 | 2 => nomes_faltantes,
+                                n => vec![nomes_faltantes[0].clone(), nomes_faltantes[1].clone(), (n - 2).to_string()],
+                            };
+                            out.push((i, Diagnostic::com_codigo(codigo, k.class_name.span, argumentos)));
+                        }
+                        let mut nao_finais = pendentes_nao_finais.get(&chave).cloned().unwrap_or_default();
+                        nao_finais.retain(|nome| !inicializado(nome));
+                        let mut nomes_nao_finais: Vec<_> = nao_finais.iter().map(|s| nomes.resolve(*s).to_string()).collect();
+                        nomes_nao_finais.sort();
+                        for nome in nomes_nao_finais {
+                            out.push((i, Diagnostic::com_codigo(
+                                c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD_CONSTRUCTOR,
+                                k.class_name.span,
+                                [nome],
+                            )));
+                        }
                     }
                     _ => {}
                 }
@@ -328,5 +355,32 @@ mod testes {
             "x".into(), "Non-nullable instance field 'x' must be initialized.".into(),
         )]);
         assert!(testar("class A { int x; A(this.x); }").is_empty());
+    }
+
+    #[test]
+    fn construtores_com_campos_nao_finais_nao_nulos_do_oraculo() {
+        for (fonte, offset, campo) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_50a84c0d.dart")),
+                31,
+                "v2",
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_b270bd6f.dart")),
+                40,
+                "v",
+            ),
+        ] {
+            let mut nomes = Interner::new();
+            let parsed = parse(fonte, &mut nomes);
+            let achados = finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte }], &nomes);
+            assert_eq!(achados.len(), 1, "{achados:?}");
+            let d = &achados[0].1;
+            assert_eq!(d.code, Some(c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD_CONSTRUCTOR));
+            assert_eq!((d.span.start, d.span.end), (offset, offset + 1));
+            assert_eq!(d.message, format!("Non-nullable instance field '{campo}' must be initialized."));
+            assert_eq!(d.code.unwrap().info().correcao, Some("Try adding an initializer expression, or add a field initializer in this constructor, or mark it 'late'."));
+        }
+        assert!(testar("class A { int x; A(this.x); A.named() : x = 0; }").is_empty());
     }
 }
