@@ -14,13 +14,19 @@ hot reload, navegação e hover LSP, limpeza do executor de macros e avanço do
 motor nativo de Sass. O teste local foi limitado a `cargo check` direcionado
 e testes pequenos; o corpus e o link de produção rodam no GitHub Actions.
 
-Na última rodada completa antes da correção de RTI, o CI de produção falhou
-na ligação ThinLTO por símbolos RTI duplicados. A rodada de validação da
-correção é [CI 35965411301](https://github.com/insinfo/dartforge/actions/runs/35965411301)
-e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225).
-Não considerar P5c/P5d concluído antes do teste do executável autocontido e
-do placar do SDK da fonte. O teste de navegador do bundle de produção ainda
-encontrou erro durante o bootstrap do `limitless_ui`; a investigação continua.
+Na rodada de validação, [CI 35965411301](https://github.com/insinfo/dartforge/actions/runs/35965411301)
+e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225)
+passaram. O executável autocontido em produção passou após a correção dos
+símbolos RTI; SDK da fonte: **108/223** tanto AOT quanto JIT. O corpus padrão
+segue **91/223**, JS desenvolvimento/produção **223/223**, Dart moderno
+**22/26**, macros **6/7**, com determinismo em 1/4/8 trabalhadores. P5c/P5d
+ainda não está completo: 115 casos do corpus do SDK da fonte falham.
+
+O analisador nesta branch mede apenas **1.445/26.133 (5,5%)** diagnósticos do
+oráculo na posição exata; as melhorias de `wip/paridade` ainda precisam ser
+integradas. O teste de navegador do bundle de produção continua vermelho no
+bootstrap do `limitless_ui`; a poda de getters calculados do SDK está em
+correção separada.
 
 ## Fechamento do dia 2026-09-23
 
