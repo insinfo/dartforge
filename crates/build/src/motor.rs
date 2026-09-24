@@ -617,6 +617,11 @@ impl Motor {
                         let memoria = |p: &Path| self.memoria.get(p).cloned();
                         r.consultas.iter().filter(|(c, _)| afetada(c, &mudados, dart_mudou, &estruturais)).any(|(c, d)| {
                             rel.consultas_reavaliadas += 1;
+                            if let Consulta::GlobAtivos { dir, .. } = c {
+                                // O grafo pode ter ganhado um candidato que
+                                // não constava da consulta anterior.
+                                if estruturais.iter().any(|m| m.starts_with(dir)) { return true; }
+                            }
                             digest_de(c, ctx.banco, &memoria) != *d
                         })
                     }
