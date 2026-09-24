@@ -346,6 +346,9 @@ fn publicar_com_estado(
     if sessao.is_none() {
         *sessao = Some(dartforge_jit::JitSession::new_for_ir(&ir.texto)?);
     }
+    if sessao.as_ref().is_some_and(|atual| atual.usa_sdk_da_fonte() != dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto)) {
+        return Err("a edição mudou o perfil de runtime da sessão; reinicie dartforge reload".into());
+    }
     let primeira = sessao.as_ref().is_some_and(|atual| atual.retained_generations() == 0);
     let publicada = if primeira {
         sessao.as_mut().expect("sessão criada acima").add_reloadable_module("app", &ir.texto)
@@ -373,7 +376,7 @@ fn publicar_com_estado(
             relatorio.retained_generations
         );
     }
-    let execucao = if ir.texto.contains("declare void @df.registrar.") {
+    let execucao = if sessao.usa_sdk_da_fonte() {
         sessao.run_reloadable_main()?
     } else {
         sessao.run_reloadable_entry()?

@@ -66,6 +66,15 @@ use std::time::{Duration, Instant};
 /// `main` por engano recebe erro de símbolo ausente, não uma chamada errada.
 pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 
+/// Identifica o contrato do `main` emitido para o SDK da fonte. Uma simples
+/// declaração `df.registrar.*` também pode aparecer em IR que não chama o
+/// runtime da DLL; a decisão depende da chamada real a `dartforge_iniciar`.
+pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
+    let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
+    let iniciar = ir.lines().any(|line| line.contains("call i32 @dartforge_iniciar(ptr @dartforge_entry,"));
+    main && iniciar
+}
+
 /// Nomes do runtime nativo que a sessão publica para o código gerado.
 ///
 /// Gerado por `build.rs` a partir dos `#[unsafe(no_mangle)]` de
@@ -306,7 +315,7 @@ impl JitSession {
     /// Abre uma sessão com o runtime correto para o IR emitido. Programas com
     /// SDK da fonte usam `DARTFORGE_SDK_DLL` e só publicam os exports pedidos.
     pub fn new_for_ir(ir: &str) -> Result<Self, JitError> {
-        if !ir.contains("declare void @df.registrar.") {
+        if !ir_usa_sdk_da_fonte(ir) {
             return Self::new();
         }
         let dll = std::env::var_os("DARTFORGE_SDK_DLL").ok_or_else(|| {
@@ -322,6 +331,11 @@ impl JitSession {
             })
             .collect();
         Self::new_com_sdk(std::path::Path::new(&dll), &usados)
+    }
+
+    /// O runtime desta sessão vem da DLL do SDK da fonte.
+    pub fn usa_sdk_da_fonte(&self) -> bool {
+        self.sdk_dll.is_some()
     }
 
     /// Executa o `main` do programa com o SDK da fonte (que chama
@@ -747,11 +761,10 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
-    let com_sdk = ir.contains("declare void @df.registrar.");
     let mut session = JitSession::new_for_ir(ir)?;
     let session_time = phase.elapsed();
     let module = session.add_ir_module("dartforge", ir)?;
-    let entry = if com_sdk { session.run_main()? } else { session.run_entry()? };
+    let entry = if session.usa_sdk_da_fonte() { session.run_main()? } else { session.run_entry()? };
     drop(session);
     Ok(JitReport {
         session: session_time,
@@ -764,6 +777,14 @@ pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declaracao_de_registro_nao_muda_perfil_do_runtime() {
+        let sem_sdk = "declare void @df.registrar.fake()\ndefine void @dartforge_entry() { ret void }\n";
+        assert!(!ir_usa_sdk_da_fonte(sem_sdk));
+        let com_sdk = "declare void @df.registrar.core()\ndefine void @dartforge_entry() { ret void }\n\
+            define i32 @main() {\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+        assert!(ir_usa_sdk_da_fonte(com_sdk));
+    }
     /// A mensagem de erro identifica a etapa e preserva o texto do LLVM.
     #[test]
     fn error_display_keeps_stage_and_detail() {
