@@ -1,0 +1,2 @@
+# Só o DartForge usa a cópia com augmentation; a VM e o DDC usam main.dart.
+../../builders/macros_discovery/target/410-materializado/main.dart

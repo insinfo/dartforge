@@ -162,6 +162,12 @@ fixture, sem realimentar o `.macro.dart` como entrada. O consumo pelo DartForge
 Node precisa imprimir as mesmas linhas que a VM oficial com macro no fonte
 original. A fonte do
 fixture é restaurada depois da prova; o oráculo original não é alterado.
+Para incorporar o caso ao harness diferencial, o job prepara também uma cópia
+do fonte no fixture com `import augment`, e registra sua entrada em
+`dartforge-entrada.txt`. A VM e o DDC continuam executando `main.dart` e
+`lib/modelos.dart` originais; só DartForge usa a cópia. Antes da comparação, o
+arquivo materializado da cópia é conferido integralmente contra a augmentation
+do CFE, ajustando apenas as URIs da cópia.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

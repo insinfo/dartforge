@@ -457,7 +457,7 @@ fn args_de_linguagem(amb: &Ambiente, programa: &Programa) -> Vec<String> {
 /// Sem cache: o emissor muda o tempo todo.
 pub fn dartforge(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
     let _ = std::fs::create_dir_all(dir);
-    let entrada = programa.entrada.to_string_lossy().into_owned();
+    let entrada = programa.entrada_dartforge().to_string_lossy().into_owned();
     let saida = dir.to_string_lossy().into_owned();
     let mut args: Vec<String> = vec!["compile-js".into(), entrada, "-o".into(), saida];
     args.extend(args_de_linguagem(amb, programa));
@@ -466,7 +466,7 @@ pub fn dartforge(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
             &bin.to_string_lossy(),
             &args,
 
-            programa.diretorio(),
+            programa.diretorio_dartforge(),
             amb.limite,
             &amb.path_extra,
         ),
@@ -594,7 +594,7 @@ fn mensagem_de_panico(carga: &(dyn std::any::Any + Send)) -> String {
 /// desenvolvido é justamente este executor.
 pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
     let _ = std::fs::create_dir_all(dir);
-    let entrada = programa.entrada.to_string_lossy().into_owned();
+    let entrada = programa.entrada_dartforge().to_string_lossy().into_owned();
     let saida = dir.join("saida.js");
     let saida_s = saida.to_string_lossy().into_owned();
     let exe = if cfg!(windows) { "dartforge-jsprod.exe" } else { "dartforge-jsprod" };
@@ -606,13 +606,17 @@ pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Sa
         .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.is_file()));
     let mut args = vec![entrada, "-o".into(), saida_s];
     args.extend(args_de_linguagem(amb, programa));
-    let pacotes = programa.diretorio().join(".dart_tool/package_config.json");
+    let pacotes = programa.diretorio_dartforge()
+        .ancestors()
+        .map(|d| d.join(".dart_tool/package_config.json"))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| programa.diretorio_dartforge().join(".dart_tool/package_config.json"));
     if pacotes.is_file() {
         args.push("--packages".into());
         args.push(pacotes.to_string_lossy().into_owned());
     }
     let s = match &bin {
-        Some(b) => executar_com_path(&b.to_string_lossy(), &args, programa.diretorio(), amb.limite, &amb.path_extra),
+        Some(b) => executar_com_path(&b.to_string_lossy(), &args, programa.diretorio_dartforge(), amb.limite, &amb.path_extra),
         None => {
             let mut a: Vec<String> = vec!["run".into(), "-q".into(), "--release".into(), "-p".into(), "dartforge-emit-js-producao".into(), "--".into()];
             a.extend(args);

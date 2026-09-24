@@ -281,6 +281,7 @@ jobs:
           args: --corpus corpus/macros --producao --jobs 4
           sdk-313: 'true'
           pub-get: corpus/macros
+          preparar: ./scripts/preparar-macros-410.ps1
       - name: 410 materializado pelo build_runner
         shell: pwsh
         run: ./scripts/testar-macros-410-materializado.ps1
