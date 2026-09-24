@@ -183,7 +183,16 @@ fn sass_release_css_sob_demanda_sem_apoio() {
     let mut m = Motor::novo(&dir, &cfg, OpcoesMotor { release: true, ..Default::default() }).unwrap();
     let ctx = Contexto { banco: &SemBanco, programa: None };
     m.atualizar(&ctx, &[], Demanda::Carregador).unwrap();
-    let css = m.materializar(&ctx, &dir.join("web/principal.css")).expect("CSS nativo sob demanda");
+    let destino = dartforge_elements::gerado::chave(&dir.join("web/principal.css"));
+    assert!(
+        m.naturais.values().any(|p| p == &destino),
+        "CSS fora do grafo: {:?}",
+        m.naturais.iter().filter(|(id, _)| id.caminho.contains("principal")).collect::<Vec<_>>()
+    );
+    let css = m.materializar(&ctx, &destino).unwrap_or_else(|| {
+        let estado: Vec<_> = m.estado_canonico().lines().filter(|l| l.contains("principal.scss")).collect();
+        panic!("CSS nativo sob demanda: {estado:?}")
+    });
     assert_eq!(&*css, b".a{color:red}\n");
 }
 
