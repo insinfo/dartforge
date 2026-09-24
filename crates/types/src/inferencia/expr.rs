@@ -1221,7 +1221,9 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
 
 fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
     let l = cx.local(id);
-    if l.const_ {
+    if cx.funcoes_locais.contains(&id) {
+        inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), span);
+    } else if l.const_ {
         inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), span);
     } else if l.final_ && !l.late {
         let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
@@ -1445,16 +1447,21 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                         RefNome::Local(id) => {
                             resolver(inf, cx, alvo, Resolved::Local(id));
                             let l = cx.local(id).clone();
-                            if (l.final_ || l.const_) && (!l.late || cx.fluxo.atribuida(id)) && !cx.fluxo.nao_atribuida(id) {
-                                if l.const_ {
-                                    inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
-                                } else {
-                                    let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
-                                    inf.aviso(msg, n.span);
+                            if cx.funcoes_locais.contains(&id) {
+                                inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);
+                                (inf.core.dynamic_, inf.core.dynamic_, None)
+                            } else {
+                                if (l.final_ || l.const_) && (!l.late || cx.fluxo.atribuida(id)) && !cx.fluxo.nao_atribuida(id) {
+                                    if l.const_ {
+                                        inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
+                                    } else {
+                                        let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
+                                        inf.aviso(msg, n.span);
+                                    }
                                 }
+                                let atual = cx.fluxo.tipo_atual(id, l.tipo);
+                                (l.tipo, atual, Some(id))
                             }
-                            let atual = cx.fluxo.tipo_atual(id, l.tipo);
-                            (l.tipo, atual, Some(id))
                         }
                         _ => {
                             let t = tipo_de_escrita_nome(inf, cx, alvo, n);

@@ -9,7 +9,7 @@ use crate::table::{TypeId, TypeParamId};
 use dartforge_elements::model::{ClassId, ExtensionId, FunctionElementId, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Uma variável local (inclusive parâmetros, variáveis de padrão e funções locais).
 #[derive(Debug, Clone)]
@@ -61,6 +61,8 @@ pub(crate) struct Corpo {
     /// Sem `this` (membro estático, topo, construtor de fábrica...).
     pub estatico: bool,
     pub locais: Vec<Local>,
+    /// Declarações de funções locais (distintas de variáveis finais com tipo de função).
+    pub funcoes_locais: HashSet<LocalId>,
     pub escopos: Vec<Vec<(SymbolId, Nome)>>,
     pub fluxo: Fluxo,
     pub funcoes: Vec<CtxFuncao>,
@@ -136,6 +138,7 @@ impl Corpo {
             extensao,
             estatico,
             locais: Vec::new(),
+            funcoes_locais: HashSet::new(),
             escopos: vec![Vec::new()],
             fluxo: Fluxo::alcancavel(),
             funcoes: Vec::new(),
