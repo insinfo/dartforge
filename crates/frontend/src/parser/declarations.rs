@@ -8,10 +8,12 @@
 //!   erro por token: `expected_executable`); com progresso, o cursor é
 //!   sincronizado até a próxima fronteira plausível (`;` ou `}` no nível de
 //!   aninhamento em que a declaração começou, ou um token que inicia
-//!   declaração de topo). Uma classe ou enum sem corpo em biblioteca ≤3.6
-//!   (`class A(`, resto de sintaxe 3.13) registra o corpo ausente no token
-//!   anterior e continua no token corrente, sem engolir a declaração.
-//!   A recuperação de membros segue o mesmo desenho, um membro por vez.
+//!   declaração de topo). A recuperação de membros segue o mesmo desenho,
+//!   um membro por vez. Rejeitar sintaxe 3.13 em biblioteca ≤3.6 para imitar
+//!   o fasta 3.6.2 token a token é pendente: hoje vale o superconjunto com
+//!   `experiment_not_enabled` (ver `docs/VERSOES-LINGUAGEM.md` e
+//!   `tests/versoes.rs`), e o lookahead de declaração ainda recusa `]`/`}`
+//!   como continuação (`int? a]` vira `expected_token` no tipo, não no nome).
 //! * **Construtor × método.** `Nome(` é construtor quando `Nome` é o da
 //!   classe corrente (o nome é passado ao parser de membros); `Nome.x(` é
 //!   sempre construtor, porque métodos não têm nome pontuado; `factory` e
@@ -691,20 +693,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        // `class A(` sem o recurso (biblioteca ≤3.6): não há cabeçalho
-        // primário, e sim corpo ausente. O fasta relata `expected_class_body`
-        // no token anterior e continua no `(` — um `expected_executable` por
-        // token (ver `recover_top_level`) — em vez de engolir a declaração
-        // inteira num só erro. Só vale para `(`: o resto (`class A B`) mantém
-        // o caminho antigo, ainda sem oráculo medido.
-        let mut members = if !self.features.tem(Feature::PrimaryConstructors) && self.at_op(Op::LParen)
-        {
-            let anterior = self.tokens[self.pos - 1].span;
-            self.erro_em(codigos::parser::EXPECTED_CLASS_BODY, anterior, &[]);
-            Vec::new()
-        } else {
-            self.parse_class_body_ou_vazio(Some(name_text))?
-        };
+        let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
         let primary_constructor = self.elaborar_construtor_primario(
             name,
@@ -738,14 +727,6 @@ impl<'s, 'i> Parser<'s, 'i> {
             if let Some(c) = const_ {
                 return Err(self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER, c, &["const"]));
             }
-            return Ok(None);
-        }
-        // Sem o recurso (biblioteca ≤3.6), o cabeçalho primário não existe:
-        // o `(` ou `.` seguinte é o corpo ausente da declaração, e o fasta o
-        // relata ali (`expected_body` na classe, `missing_enum_body` no enum).
-        // Consumir aqui esconderia esses diagnósticos e os seguintes, um por
-        // token (`expected_executable`), atrás de um só `experiment_not_enabled`.
-        if !self.features.tem(Feature::PrimaryConstructors) {
             return Ok(None);
         }
         let comeco = self.span();
@@ -1052,25 +1033,6 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        // `enum E(` sem o recurso (biblioteca ≤3.6): o fasta relata
-        // `missing_enum_body` e `expected_executable` no `(` e continua depois
-        // dele, onde `tipo nome` volta a ser declaração (ver `parse_class`).
-        // A declaração parcial vazia mantém o `enum_without_constants` do
-        // verificador semântico, como no oráculo.
-        if !self.features.tem(Feature::PrimaryConstructors) && self.at_op(Op::LParen) {
-            self.erro(codigos::parser::MISSING_ENUM_BODY, &[]);
-            self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]);
-            self.advance();
-            return Ok(EnumDecl {
-                name,
-                type_params: type_params.into_boxed_slice(),
-                with: with.into_boxed_slice(),
-                implements: implements.into_boxed_slice(),
-                constants: Vec::new(),
-                members: Vec::new(),
-                primary_constructor: None,
-            });
-        }
         self.expect_op(Op::LBrace)?;
         let mut constants = Vec::new();
         while !self.at_op(Op::RBrace) && !self.at_op(Op::Semicolon) && !self.at_eof() {
@@ -2409,125 +2371,41 @@ mod tests {
         assert_eq!(out.unit.declarations.len(), 1);
     }
 
-    /// `class A(` em biblioteca ≤3.6 (resto de sintaxe 3.13): o fasta relata
-    /// o corpo ausente no token anterior e um `expected_executable` por token
-    /// solto, sem engolir a declaração — ver oráculo `unused_element/
-    /// UnusedElement__classPrivate_primaryCons_43fdcc49.dart`.
+    /// Token solto pula um: `[` não engole o resto (`int? a]` continua
+    /// declaração e falta `;` no tipo, o `var b` do fim sobrevive).
     #[test]
-    fn topo_fasta_classe_com_cabecalho_primario_em_3_6() {
-        use crate::features::{LanguageVersion, LibraryFeatures};
-        use crate::parser::parse_com;
+    fn topo_fasta_token_solto_pula_um() {
         use dartforge_diagnostics::codigos::parser as c;
 
-        let fonte = "class A([int? a]);\nclass _B([super.a]) extends A;\nvar b = _B();\n";
+        let fonte = "[int? a]);\nvar b = 0;\n";
         let mut nomes = Interner::new();
-        let piso = LibraryFeatures::new(LanguageVersion::PISO, &[]);
-        let out = parse_com(fonte, &mut nomes, piso);
-        let corpo = out
-            .diagnostics
-            .iter()
-            .find(|d| d.code == Some(c::EXPECTED_CLASS_BODY))
-            .expect("expected_class_body");
-        assert_eq!((corpo.span.start, corpo.span.end), (6, 7));
-        assert_eq!(
-            corpo.message,
-            "A class declaration must have a body, even if it is empty."
-        );
-        for (inicio, fim) in [(7, 8), (8, 9)] {
-            assert!(
-                out.diagnostics.iter().any(|d|
-                    d.code == Some(c::EXPECTED_EXECUTABLE)
-                        && d.span.start == inicio
-                        && d.span.end == fim),
-                "{fonte}: {:?}",
-                out.diagnostics
-            );
-        }
+        let out = parse(fonte, &mut nomes);
+        let primeiro = &out.diagnostics[0];
+        assert_eq!(primeiro.code, Some(c::EXPECTED_EXECUTABLE));
+        assert_eq!((primeiro.span.start, primeiro.span.end), (0, 1));
         assert!(
             out.diagnostics.iter().any(|d|
                 d.code == Some(c::EXPECTED_TOKEN)
-                    && d.span.start == 14
+                    && d.span.start == 1
+                    && d.span.end == 4
                     && d.message == "Expected to find ';'."),
             "{fonte}: {:?}",
             out.diagnostics
         );
-        assert!(
-            !out.diagnostics.iter().any(|d| d.code == Some(c::EXPERIMENT_NOT_ENABLED)),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(matches!(decl(&out, 0), DeclKind::Class(a) if text(&nomes, a.name) == "A" && a.members.is_empty()));
-        assert!(matches!(decl(&out, 1), DeclKind::Class(b) if text(&nomes, b.name) == "_B" && b.members.is_empty()));
-        // O `var b` do fim sobrevive; `extends A` pode virar uma declaração
-        // de variáveis espúria (o lookahead aceita `extends` como tipo —
-        // pendente, mesma família do `missing_const_final_var_or_type`).
-        let ultimo = out.unit.declarations.len() - 1;
-        assert!(matches!(decl(&out, ultimo), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
-
-        // Com o recurso ligado (3.13), a mesma fonte é limpa.
-        let limpo = parse(fonte, &mut nomes);
-        assert!(limpo.diagnostics.is_empty(), "{:?}", limpo.diagnostics);
-    }
-
-    /// `enum E(` em biblioteca ≤3.6: `missing_enum_body` e
-    /// `expected_executable` no `(`, continua depois dele — ver oráculo
-    /// `assert_in_redirecting_constructor/
-    /// AssertInRedirectingConstructor__enum_pr_bf07cd7e.dart`.
-    #[test]
-    fn topo_fasta_enum_com_cabecalho_primario_em_3_6() {
-        use crate::features::{LanguageVersion, LibraryFeatures};
-        use crate::parser::parse_com;
-        use dartforge_diagnostics::codigos::parser as c;
-
-        let fonte = "enum E(int x);\nvar b = 0;\n";
-        let mut nomes = Interner::new();
-        let piso = LibraryFeatures::new(LanguageVersion::PISO, &[]);
-        let out = parse_com(fonte, &mut nomes, piso);
-        assert!(
-            out.diagnostics.iter().any(|d|
-                d.code == Some(c::MISSING_ENUM_BODY)
-                    && d.span.start == 6
-                    && d.span.end == 7
-                    && d.message == "An enum definition must have a body with at least one constant name."),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(
-            out.diagnostics.iter().any(|d|
-                d.code == Some(c::EXPECTED_EXECUTABLE) && d.span.start == 6 && d.span.end == 7),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(
-            out.diagnostics.iter().any(|d|
-                d.code == Some(c::EXPECTED_TOKEN) && d.span.start == 11),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(
-            !out.diagnostics.iter().any(|d| d.code == Some(c::EXPERIMENT_NOT_ENABLED)),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(matches!(decl(&out, 0), DeclKind::Enum(e) if text(&nomes, e.name) == "E" && e.constants.is_empty()));
-        assert_eq!(out.unit.declarations.len(), 2);
-
-        let limpo = parse("enum E(int x) { v; }\n", &mut nomes);
-        assert!(limpo.diagnostics.is_empty(), "{:?}", limpo.diagnostics);
+        assert_eq!(out.diagnostics.len(), 4, "{fonte}: {:?}", out.diagnostics);
+        assert_eq!(out.unit.declarations.len(), 1);
+        assert!(matches!(decl(&out, 0), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
     }
 
     /// `(` sem tipo nem modificadores não abre declaração no topo: é
     /// `expected_executable`, não `missing_identifier`.
     #[test]
     fn topo_fasta_parentese_solto_nao_e_identificador() {
-        use crate::features::{LanguageVersion, LibraryFeatures};
-        use crate::parser::parse_com;
         use dartforge_diagnostics::codigos::parser as c;
 
         let fonte = "(42);\nvar b = 0;\n";
         let mut nomes = Interner::new();
-        let piso = LibraryFeatures::new(LanguageVersion::PISO, &[]);
-        let out = parse_com(fonte, &mut nomes, piso);
+        let out = parse(fonte, &mut nomes);
         let primeiro = &out.diagnostics[0];
         assert_eq!(primeiro.code, Some(c::EXPECTED_EXECUTABLE));
         assert_eq!((primeiro.span.start, primeiro.span.end), (0, 1));
