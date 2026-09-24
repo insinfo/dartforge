@@ -2,7 +2,7 @@
 //! achou no emissor nativo, cada um preso pelo IR que o contrato de
 //! representação produz (docs/NATIVO-PLANO.md §6). Sem Clang: só a emissão.
 
-use dartforge_emit_native::{CompileOptions, emitir_ir};
+use dartforge_emit_native::{CompileOptions, emitir_ir, emitir_ir_com};
 use std::path::Path;
 
 const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
@@ -44,6 +44,27 @@ fn main_de(fonte: &str) -> Option<String> {
     let ini = ir.find("define void @dart_main(").expect("dart_main");
     let fim = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
     Some(ir[ini..fim].to_string())
+}
+
+fn ir_de_fonte(fonte: &str) -> Option<String> {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
+    if !Path::new(&sdk).join("libraries.json").is_file() { return None; }
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("main.dart");
+    std::fs::write(&entrada, fonte).unwrap();
+    Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
+        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None };
+        emitir_ir_com(&entrada, &options, true).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
+    }).unwrap().join().unwrap())
+}
+
+#[test]
+fn literal_symbol_usa_classe_do_sdk_e_constante_canonica() {
+    let Some(ir) = ir_de_fonte("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
+    let main = ir.split("define void @dart_main(").nth(1).expect("main");
+    let main = main.split("\n}\n").next().expect("fim de main");
+    assert!(main.matches(".get()").count() >= 2, "literal não canonizado:\n{main}");
+    assert!(ir.contains("@dartforge_object_new"), "Symbol não alocado como objeto do SDK");
 }
 
 /// O getter separado impede que `late String x = x` expanda a própria AST

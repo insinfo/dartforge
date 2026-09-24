@@ -1291,6 +1291,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
+        // A factory `core.Symbol` redireciona para a classe concreta da
+        // biblioteca interna. O alvo é inequívoco e evita que a resolução
+        // da factory volte à própria declaração abstrata.
+        if self.ctx.sdk_da_fonte && Some(cid) == self.ctx.classe_do_sdk("core", "Symbol") {
+            if let Some(concreta) = self.ctx.classe_do_sdk("_internal", "Symbol")
+                && let Some(vazio) = self.ctx.interner.lookup("")
+                && let Some(&construtor) = self.ctx.program.classes[concreta.0 as usize].constructors.get(&vazio)
+            {
+                return self.instanciar_avaliados(construtor, avaliados, span);
+            }
+        }
         if !super::funcao_do_usuario(self.ctx, fid) {
             if let Some(op) = self.construtor_de_erro_do_runtime(fid, avaliados) {
                 return op;

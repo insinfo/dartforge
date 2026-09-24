@@ -282,6 +282,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Bool(b) => self.emit(Instruction::Const(Constant::Bool(*b)), Type::I1),
             ExprKind::Null => self.emit(Instruction::Const(Constant::Null), Type::Ref),
+            ExprKind::Symbol(names) => {
+                let name = self.nome_literal_simbolo(names);
+                let Some(class) = self.ctx.classe_do_sdk("_internal", "Symbol") else {
+                    return self.nao_suportado("literal de símbolo sem dart:_internal", expr.span);
+                };
+                let Some(empty) = self.ctx.interner.lookup("") else {
+                    return self.nao_suportado("construtor de Symbol ausente", expr.span);
+                };
+                let Some(&ctor) = self.ctx.program.classes[class.0 as usize].constructors.get(&empty) else {
+                    return self.nao_suportado("construtor de Symbol ausente", expr.span);
+                };
+                let text = self.emit(Instruction::Const(Constant::String(name)), Type::Ref);
+                self.instanciar_avaliados(ctor, &[(None, text)], expr.span)
+            }
             ExprKind::String(str_lit) => {
                 if let Some(text) = str_lit.constant_value() {
                     self.emit(Instruction::Const(Constant::StringWtf8(text.as_bytes().to_vec())), Type::Ref)
@@ -1028,7 +1042,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             outro => {
                 let oque = match outro {
                     ExprKind::Super => "`super` como valor",
-                    ExprKind::Symbol(_) => "literal de símbolo",
 
                     ExprKind::TypeArguments { .. } => "instanciação de tipo genérico",
 

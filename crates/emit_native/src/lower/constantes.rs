@@ -18,6 +18,18 @@ use dartforge_types::table::{Type as DartType, TypeId};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// Nome de um literal `#x`; nomes privados carregam a identidade da
+    /// biblioteca e usam sufixo hexadecimal, como o nome mangled da VM.
+    pub fn nome_literal_simbolo(&self, names: &[ast::Name]) -> String {
+        let mut name = names.iter().map(|n| self.ctx.symbol_name(n.sym)).collect::<Vec<_>>().join(".");
+        if name.starts_with('_') {
+            let lib = self.ctx.program.unit(self.unit_id).library;
+            let uri = &self.ctx.program.library(lib).uri;
+            name.push_str(&format!("@{:016x}", super::closures::hash_nome(uri) as u64));
+        }
+        name
+    }
+
     /// A chave estrutural da expressão constante `e` (`em_const`: dentro de
     /// um contexto constante, onde `C(…)` e `[…]` são implicitamente const).
     pub fn chave_constante(&self, ast: &ast::Ast, e: ExprId, em_const: bool) -> Option<String> {
@@ -39,6 +51,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Bool(b) => Some(format!("b:{b}")),
             ExprKind::Null => Some("n".to_string()),
+            ExprKind::Symbol(names) => {
+                let name = self.nome_literal_simbolo(names);
+                Some(format!("sym:{name:?}"))
+            }
             ExprKind::String(s) => {
                 let v = s.constant_value()?;
                 Some(format!("s:{:?}", String::from_utf8_lossy(v.as_bytes())))
@@ -222,6 +238,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !super::funcao_do_usuario(self.ctx, fid) {
             return None;
         }
+        if self.ctx.program.functions[fid].class == self.ctx.classe_do_sdk("core", "Symbol") {
+            let text = arguments.args.first().and_then(|a| match &ast.expr(a.value).kind {
+                ExprKind::String(s) => s.constant_value().map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned()),
+                _ => None,
+            })?;
+            return Some(format!("sym:{text:?}"));
+        }
         let mut pos = Vec::new();
         let mut nomeados = Vec::new();
         for a in arguments.args.iter() {
@@ -247,6 +270,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ctx_const = self.em_contexto_const;
         let explicita = match &ast.expr(e).kind {
             ExprKind::InstanceCreation { keyword, .. } => ctx_const || *keyword == Some(CreationKeyword::Const),
+            ExprKind::Symbol(_) => true,
             ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => ctx_const || *const_,
             ExprKind::Call { .. } | ExprKind::Record { .. } => ctx_const,
             _ => false,
