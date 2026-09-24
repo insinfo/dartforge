@@ -304,6 +304,27 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
         return (t, false);
     }
+    // `E()`: o sem nome implícito do enum não está na tabela de
+    // construtores (então `alvo_construtor` não o achou), mas existe e é
+    // gerador. Com nome explícito, o braço acima já resolveu (factory é
+    // legal, gerador acusa); aqui só falta o implícito.
+    if let Some(rt) = referencia_a_tipo(inf, cx, target)
+        && !matches!(rt, RefTipo::Extensao(_))
+    {
+        let c = match rt {
+            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => c,
+            RefTipo::Extensao(_) => unreachable!(),
+        };
+        if inf.program.class(c).kind == ClassKind::Enum
+            && inf.sym.vazio.is_some_and(|v| inf.construtor_de(c, v).is_none())
+        {
+            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), a.expr(target).span);
+            for arg in args.args.iter() {
+                inferir_livre(inf, cx, arg.value);
+            }
+            return (inf.core.dynamic_, false);
+        }
+    }
     let u = inf.core.unknown;
     // `E(x)` / `E<T>(x)`: sobreposição explícita de extensão (R-EXT-02).
     if let Some(RefTipo::Extensao(x)) = referencia_a_tipo(inf, cx, target)
@@ -781,7 +802,22 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         Some(n) if Some(n.sym) != inf.sym.new_ => Some(n.sym),
         _ => inf.sym.vazio,
     };
-    let Some(f) = chave.and_then(|k| inf.construtor_ou_primario(c, k)) else {
+    let f = chave.and_then(|k| inf.construtor_ou_primario(c, k));
+    // `new E()` / `const E()`: o construtor gerador do enum (ou o sem nome
+    // implícito) não instancia fora da criação de constantes. Factories
+    // seguem o caminho normal (`construir`). O intervalo é o nome do
+    // construtor, ou o da classe quando ele é implícito.
+    if inf.program.class(c).kind == ClassKind::Enum
+        && !f.is_some_and(|f| f.is_some_and(|f| inf.program.function(f).factory))
+    {
+        let span = constructor.map(|n| n.span).unwrap_or_else(|| name.last().map(|n| n.span).unwrap_or(a.expr(e).span));
+        inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), span);
+        for x in args.args.iter() {
+            inferir_livre(inf, cx, x.value);
+        }
+        return inf.core.dynamic_;
+    }
+    let Some(f) = f else {
         for x in args.args.iter() {
             inferir_livre(inf, cx, x.value);
         }
