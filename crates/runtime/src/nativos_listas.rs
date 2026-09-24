@@ -68,14 +68,18 @@ fn lista_len(this: i64) -> i64 {
 /// `_List(length)`: `length` nulls, tamanho fixo. O parâmetro não tem tipo
 /// na declaração (`external factory _List(length)`): chega como `Ref`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_List_allocate(length: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_List_allocate(length: i64, tupla: i64) -> i64 {
     let n = HEAP.with(|heap| heap.borrow().int_de_ref(length)).unwrap_or(0).max(0) as usize;
-    HEAP.with(|heap| {
+    let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let h = heap.allocate(Value::List(vec![TaggedValue::reference(0); n]));
         heap.fixas.insert(h);
         h
-    })
+    });
+    if let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+    }
+    h
 }
 
 /// `_List.length` / `_ImmutableList.length`.
@@ -146,15 +150,19 @@ pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, inicio: i64, quan
 /// como reserva (o `_setLength` seguinte os expõe, como na VM, onde a lista
 /// aponta para o `_List`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_GrowableList_allocate(dados: i64) -> i64 {
-    HEAP.with(|heap| {
+pub extern "C" fn dartforge_nativo_GrowableList_allocate(dados: i64, tupla: i64) -> i64 {
+    let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(dados) else { return 0 };
         let itens = itens.clone();
         let h = heap.allocate(Value::List(itens));
         heap.pendentes.insert(h, 0);
         h
-    })
+    });
+    if h != 0 && let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+    }
+    h
 }
 
 /// `_GrowableList._capacity`.
