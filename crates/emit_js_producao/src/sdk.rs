@@ -81,6 +81,13 @@ fn e_lib(nome: &str) -> bool {
     LIBS.contains(&nome)
 }
 
+/// Tabelas de símbolos que o DDC emite como `S`, `S$0`, `S$1` etc.
+/// Cada entrada pode ser podada separadamente; o prefixo sozinho não basta
+/// para manter uma chave privada usada por um getter vivo.
+fn e_tabela_simbolos(nome: &str) -> bool {
+    nome == "S" || nome.strip_prefix("S$").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn ident_em(b: &[u8], i: usize) -> usize {
     let mut j = i;
     while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$') {
@@ -119,7 +126,7 @@ fn referencias(t: &str, fora: &mut Vec<String>, modulo_usuario: bool) {
         if fim < b.len() && b[fim] == b'.' && fim + 1 < b.len() && inicio_de_ident(b, fim + 1) {
             let fim2 = ident_em(b, fim + 1);
             let membro = &t[fim + 1..fim2];
-            if e_lib(nome) {
+            if e_lib(nome) || e_tabela_simbolos(nome) {
                 fora.push(format!("{nome}.{membro}"));
             } else if modulo_usuario && matches!(nome, "html" | "svg") {
                 // O DDC exporta `html$ as html` e `svg$ as svg`. A emissão
@@ -1056,6 +1063,29 @@ mod testes {
         assert!(v.contains(&"C#42".to_string()), "{v:?}");
         assert!(v.contains(&"C#7".to_string()), "{v:?}");
         assert!(v.contains(&"async.FutureRecord2|get#wait".to_string()), "{v:?}");
+    }
+
+    #[test]
+    fn referencia_entrada_privada_da_tabela_de_simbolos() {
+        let mut refs = Vec::new();
+        referencias("this[S$1._head$1] + this[S.$head]", &mut refs, false);
+        assert!(refs.contains(&"S$1._head$1".to_string()), "{refs:?}");
+        assert!(refs.contains(&"S.$head".to_string()), "{refs:?}");
+
+        let src = concat!(
+            "var html$ = Object.create(dart.library);\n",
+            "var S$1 = {\n",
+            "  $other: dartx.other = Symbol('dartx.other'),\n",
+            "  _head$1: dart.privateName('html', '_head'),\n",
+            "  $unused: dartx.unused = Symbol('dartx.unused')\n",
+            "};\n",
+            "html$.Document = class Document {\n",
+            "  get [S$1._head$1]() { return this.head; }\n",
+            "};\n",
+        );
+        let (out, _, _) = podar(src, &["html$.Document".into()], true);
+        assert!(out.contains("_head$1: dart.privateName"), "{out}");
+        assert!(!out.contains("$unused: dartx.unused"), "{out}");
     }
 
     #[test]
