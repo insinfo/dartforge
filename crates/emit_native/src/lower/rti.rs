@@ -980,6 +980,12 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
             vtable: Vec::new(),
             to_string_symbol: Some(simbolo),
         });
+        // O objeto `Type` criado no runtime não tem um ClassElement do
+        // programa. A RTI conhece seu tipo, mas os testes nominais da fonte
+        // usam a tabela separada de `dartforge_is_subclass`.
+        if let Some(tipo) = classe_do_core(ctx, "Type").and_then(|c| ctx.id_de_classe(c)) {
+            module.subtyping_edges.push((CLASSE_TIPO as u32, tipo));
+        }
     }
     let mut citadas: BTreeSet<i64> = BTreeSet::new();
     for r in &receitas {
