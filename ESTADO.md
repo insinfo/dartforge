@@ -39,6 +39,18 @@ métodos de `List` do DDC, [JS de produção 35972736058](https://github.com/ins
 passou **223/223** e a galeria passou **26/26** no navegador
 ([E2E 35971652262](https://github.com/insinfo/dartforge/actions/runs/35971652262)).
 
+Os diagnósticos de corpo e inicializador `external`, campos `abstract` e
+aridade de operadores elevaram a paridade para **5.565/26.133 (21,3%)**
+na [rodada Pesado 35973737505](https://github.com/insinfo/dartforge/actions/runs/35973737505),
+após [CI 35973737483](https://github.com/insinfo/dartforge/actions/runs/35973737483)
+verde: 5.276 mensagens iguais, 4.369 falsos positivos, 20.050 falsos
+negativos e 518 posições erradas, com determinismo em 1/4/8 trabalhadores.
+No corpus, `external_method_with_body` ficou 31/31,
+`external_with_initializer` 27/27, `abstract_field_initializer` 6/6 e
+`abstract_static_field` 8/8; todos sem falsos positivos. A aridade de
+operadores ficou 137/141, também sem falsos positivos; quatro casos com
+construtor primário ainda dependem de recuperação do parser.
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
