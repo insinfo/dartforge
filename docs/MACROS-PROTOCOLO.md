@@ -216,6 +216,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
   `Function.apply` e o argumento posicional do protocolo no caminho direto
   de desenvolvimento e produção. A augmentation do hospedeiro é comparada
   byte a byte com a fonte extraída do kernel pelo CFE 3.6.2.
+* `413_argumentos_nomeados` — macro própria `@Etiquetas(prefixo: 'A')`,
+  exercitando argumento nomeado em desenvolvimento e produção. O texto
+  gerado pelo hospedeiro é comparado byte a byte com o CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
