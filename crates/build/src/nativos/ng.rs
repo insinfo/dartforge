@@ -197,12 +197,14 @@ fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
 
 impl NgEstagioA {
     fn tentar_html(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Option<SaidaNativa> {
-        let mut mudados = ctx.mudados.iter();
-        let html = mudados.next()?;
-        if mudados.next().is_some()
-            || !html.starts_with(&pedido.raiz_do_pacote)
-            || html.extension().is_none_or(|e| e != "html")
-        {
+        let html = ctx.mudados.iter().find(|p| {
+            p.starts_with(&pedido.raiz_do_pacote) && p.extension().is_some_and(|e| e == "html")
+        })?;
+        // O motor inclui a forma lexical e a forma canônica do mesmo evento;
+        // no Windows elas podem ter raízes distintas (links/nomes curtos).
+        // Só permitimos o atalho quando *todos* os eventos são esse arquivo.
+        let canon_html = std::fs::canonicalize(html).ok()?;
+        if ctx.mudados.iter().any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_html)) {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;
