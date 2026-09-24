@@ -78,11 +78,13 @@ async function sondar() {
     await send('Page.navigate', { url });
     await sleep(8000);
     const result = await send('Runtime.evaluate', {
-      expression: `({url:location.href, pronto:document.readyState, montados:document.querySelectorAll('.demo-page, .content').length, erros:window.__erros || [], titulo:document.title, corpo:(document.body?.innerText || '').slice(0, 500)})`,
+      expression: `({url:location.href, pronto:document.readyState, montados:document.querySelectorAll('.demo-page, .content').length, erros:window.__erros || [], titulo:document.title, corpo:(document.body?.innerText || '').slice(0, 500), head:!!document.head, sdkHead:(() => { try { return !!dart.global.document.head; } catch (e) { return String(e); } })(), htmlHead:(() => { try { return !!html.document.head; } catch (e) { return String(e); } })()})`,
       returnByValue: true,
     });
     const state = result.result.value;
-    const line = /main\.dart\.js:(\d+)/.exec(diagnostics[0] || state.erros[0] || '');
+    const stack = [...diagnostics, ...(state.erros || [])].join('\n');
+    const appendFrame = stack.split('\n').find((frame) => frame.includes('_appendStyles') && frame.includes('main.dart.js:'));
+    const line = /main\.dart\.js:(\d+)/.exec(appendFrame || stack);
     let source = [];
     if (line) {
       const lines = (await (await fetch(new URL('/main.dart.js', url))).text()).split('\n');
