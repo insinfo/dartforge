@@ -284,15 +284,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Null => self.emit(Instruction::Const(Constant::Null), Type::Ref),
             ExprKind::String(str_lit) => {
                 if let Some(text) = str_lit.constant_value() {
-                    let s = String::from_utf8_lossy(text.as_bytes()).to_string();
-                    self.emit(Instruction::Const(Constant::String(s)), Type::Ref)
+                    self.emit(Instruction::Const(Constant::StringWtf8(text.as_bytes().to_vec())), Type::Ref)
                 } else {
                     let mut current_str: Option<Operand> = None;
                     for part in &str_lit.parts {
                         let part_op = match part {
                             ast::StringPart::Text(t) => {
-                                let s = String::from_utf8_lossy(t.as_bytes()).to_string();
-                                self.emit(Instruction::Const(Constant::String(s)), Type::Ref)
+                                self.emit(Instruction::Const(Constant::StringWtf8(t.as_bytes().to_vec())), Type::Ref)
                             }
                             ast::StringPart::Interpolation(sub_expr) => {
                                 let raw_op = self.lower_expr(ast, *sub_expr);

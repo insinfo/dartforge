@@ -92,6 +92,11 @@ funções de topo.
 `Constant::String` guardar os bytes WTF-8 do literal, com o emissor gravando
 os bytes como estão.
 
+**Implementado no SSD (2026-09-24):** literais da AST usam
+`Constant::StringWtf8(Vec<u8>)`; textos criados pelo compilador continuam em
+`Constant::String`. O emissor deduplica ambos pelos bytes e grava o WTF-8 sem
+substituição. Um teste de IR cobre o surrogate isolado `U+D83D`.
+
 **Resposta (dono de `crates/elements`, e04c724):** a causa era o papel das
 unidades — os arquivos de patch da VM declaram partes (`async_patch.dart` →
 `part "timer_patch.dart"`, `core_patch.dart` → `part "bigint_patch.dart"`…),

@@ -113,7 +113,7 @@ impl LlvmEmitter<'_> {
         let modulo = self.module;
         let mut corpo = String::new();
         for class in &modulo.classes {
-            let idx = self.string_const_index(&class.name).unwrap_or(0);
+            let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
             writeln!(
                 corpo,
                 "  call void @dartforge_register_class_name(i64 {}, ptr @.str.{idx}, i64 {})",

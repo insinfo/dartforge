@@ -480,7 +480,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
-            Operand::Constant(Constant::String(_)) => Type::Ref,
+            Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
             Operand::Constant(Constant::Null) => Type::Ref,
         }
     }

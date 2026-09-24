@@ -30,6 +30,28 @@ fn corpo_de<'a>(ir: &'a str, symbol: &str) -> &'a str {
     &ir[ini..fim]
 }
 
+#[test]
+fn literal_wtf8_preserva_surrogate_isolado_no_ir() {
+    let f = funcao(
+        "literal_wtf8",
+        vec![],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(0),
+                Instruction::Const(Constant::StringWtf8(vec![0xED, 0xA0, 0xBD])),
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+        }],
+    );
+    let ir = emitir(f);
+    assert!(ir.contains("[3 x i8] c\"\\ED\\A0\\BD\""), "{ir}");
+    assert!(ir.contains("@dartforge_string_new(ptr @.str.0, i64 3)"), "{ir}");
+    assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate foi substituído: {ir}");
+}
+
 /// G1/G3: função com `Ref` abre o quadro, enraíza parâmetro e resultado de
 /// chamada, e fecha o quadro antes de TODO `ret` — inclusive o da saída
 /// por exceção.

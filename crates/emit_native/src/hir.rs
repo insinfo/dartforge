@@ -53,6 +53,8 @@ pub enum Constant {
     Double(f64),
     Bool(bool),
     String(String),
+    /// Bytes WTF-8 de um literal Dart; preserva surrogates isolados.
+    StringWtf8(Vec<u8>),
     Null,
 }
 
@@ -448,4 +450,3 @@ impl Module {
         id
     }
 }
-

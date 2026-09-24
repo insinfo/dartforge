@@ -11,7 +11,7 @@ use std::fmt::Write;
 pub struct LlvmEmitter<'a> {
     module: &'a Module,
     out: String,
-    string_constants: Vec<(String, usize)>,
+    string_constants: Vec<(Vec<u8>, usize)>,
     /// Tipo de cada valor da funcao sendo emitida, para coercao de operandos.
     tipos: std::collections::HashMap<ValueId, Type>,
     /// Contador dos temporarios de coercao (%c0, %c1, ...), por funcao.
@@ -130,19 +130,24 @@ impl<'a> LlvmEmitter<'a> {
         for func in &self.module.functions {
             for block in &func.blocks {
                 for (_, inst, _) in &block.instructions {
-                    if let Instruction::Const(Constant::String(s)) = inst {
-                        if !self.string_constants.iter().any(|(existing, _)| existing == s) {
+                    if let Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) = inst {
+                        let bytes: &[u8] = match inst {
+                            Instruction::Const(Constant::String(s)) => s.as_bytes(),
+                            Instruction::Const(Constant::StringWtf8(s)) => s,
+                            _ => unreachable!(),
+                        };
+                        if !self.string_constants.iter().any(|(existing, _)| existing == bytes) {
                             let idx = self.string_constants.len();
-                            self.string_constants.push((s.clone(), idx));
+                            self.string_constants.push((bytes.to_vec(), idx));
                         }
                     }
                 }
             }
         }
         for class in &self.module.classes {
-            if !self.string_constants.iter().any(|(existing, _)| existing == &class.name) {
+            if !self.string_constants.iter().any(|(existing, _)| existing == class.name.as_bytes()) {
                 let idx = self.string_constants.len();
-                self.string_constants.push((class.name.clone(), idx));
+                self.string_constants.push((class.name.as_bytes().to_vec(), idx));
             }
         }
     }
@@ -165,9 +170,9 @@ impl<'a> LlvmEmitter<'a> {
         if self.string_constants.is_empty() {
             return;
         }
-        self.out.push_str("; Constantes de string UTF-8\n");
+        self.out.push_str("; Constantes de string WTF-8\n");
         for (s, idx) in &self.string_constants {
-            let bytes = s.as_bytes();
+            let bytes = s.as_slice();
             let len = bytes.len();
             let mut escaped = String::new();
             for &b in bytes {
@@ -185,7 +190,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push('\n');
     }
 
-    fn string_const_index(&self, s: &str) -> Option<usize> {
+    fn string_const_index(&self, s: &[u8]) -> Option<usize> {
         self.string_constants.iter().find(|(existing, _)| existing == s).map(|(_, idx)| *idx)
     }
 
@@ -342,9 +347,14 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::Const(Constant::Null) => {
                         writeln!(self.out, "  %v{v} = add i64 0, 0").unwrap();
                     }
-                    Instruction::Const(Constant::String(s)) => {
-                        let idx = self.string_const_index(s).unwrap_or(0);
-                        let len = s.as_bytes().len();
+                    Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
+                        let bytes: &[u8] = match inst {
+                            Instruction::Const(Constant::String(s)) => s.as_bytes(),
+                            Instruction::Const(Constant::StringWtf8(s)) => s,
+                            _ => unreachable!(),
+                        };
+                        let idx = self.string_const_index(bytes).unwrap_or(0);
+                        let len = bytes.len();
                         writeln!(
                             self.out,
                             "  %v{v} = call i64 @dartforge_string_new(ptr @.str.{idx}, i64 {len})"
@@ -1170,7 +1180,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
         // Registra classes
         for class in &self.module.classes {
-            let idx = self.string_const_index(&class.name).unwrap_or(0);
+            let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
             let len = class.name.as_bytes().len();
             writeln!(
                 self.out,
@@ -1270,7 +1280,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
             Operand::Constant(Constant::Null) => Type::Ref,
-            Operand::Constant(Constant::String(_)) => Type::Ref,
+            Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
         }
     }
 
@@ -1295,7 +1305,7 @@ impl<'a> LlvmEmitter<'a> {
     fn constante_no_tipo(&self, op: &Operand, alvo: Type) -> Option<String> {
         let Operand::Constant(c) = op else { return None };
         let s = match (c, alvo) {
-            (Constant::String(_), _) => panic!("string deve ser carregada via Instruction::Const"),
+            (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string deve ser carregada via Instruction::Const"),
             (Constant::Int(n), Type::I1) => if *n != 0 { "true".to_string() } else { "false".to_string() },
             (Constant::Bool(b), Type::I1) => if *b { "true".to_string() } else { "false".to_string() },
             (Constant::Null, Type::I1) => "false".to_string(),
@@ -1403,10 +1413,9 @@ impl<'a> LlvmEmitter<'a> {
             }
             Operand::Constant(Constant::Bool(b)) => if *b { "true" } else { "false" }.to_string(),
             Operand::Constant(Constant::Null) => "0".to_string(),
-            Operand::Constant(Constant::String(_)) => {
+            Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => {
                 panic!("string deve ser carregada via Instruction::Const");
             }
         }
     }
 }
-
