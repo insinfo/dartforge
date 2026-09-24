@@ -898,7 +898,10 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
 
 /// Somente membros declarados na própria classe; a busca herdada requer
 /// resolver substituições e precedência antes de diagnosticar.
-fn avisar_acesso_estatico_a_instancia(inf: &mut BodyInferrer<'_>, classe: ClassId, name: ast::Name, escrita: bool) -> bool {
+fn avisar_acesso_estatico_a_instancia(inf: &mut BodyInferrer<'_>, cx: &Corpo, classe: ClassId, name: ast::Name, escrita: bool) -> bool {
+    if inf.interner.resolve(name.sym).starts_with('_') && inf.program.class(classe).library != cx.lib {
+        return false;
+    }
     let membros = &inf.program.class(classe).instance_members;
     let encontrado = membros.contains_key(&name.sym)
         || (escrita && inf.chave_setter(name.sym).is_some_and(|chave| membros.contains_key(&chave)));
@@ -915,7 +918,7 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
     let Some(f) = inf.construtor_de(c, chave) else {
-        if avisar_acesso_estatico_a_instancia(inf, c, name, false) {
+        if avisar_acesso_estatico_a_instancia(inf, cx, c, name, false) {
             return inf.core.dynamic_;
         }
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
@@ -1701,7 +1704,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
             None => {
                 if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
                     if inf.membro_estatico(*c, name.sym, false).is_none()
-                        && avisar_acesso_estatico_a_instancia(inf, *c, name, true)
+                        && avisar_acesso_estatico_a_instancia(inf, cx, *c, name, true)
                     { return inf.core.dynamic_; }
                 }
                 if let RefTipo::Extensao(x) = rt {
