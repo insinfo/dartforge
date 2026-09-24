@@ -62,6 +62,11 @@ pub const UNDEFINED_EXTENSION_METHOD: DiagnosticCode = DiagnosticCode::new(
     "Método de extensão não encontrado",
 );
 
+pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
+    "invocation_of_extension_without_call",
+    "Invocação de extensão sem call",
+);
+
 pub const EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "extension_override_access_to_static_member",
     "An extension override can't be used to access a static member from an extension.",

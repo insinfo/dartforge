@@ -69,6 +69,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::UNDEFINED_EXTENSION_SETTER,
         c::UNDEFINED_EXTENSION_GETTER,
         c::UNDEFINED_EXTENSION_METHOD,
+        c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
         c::ASSIGNMENT_TO_CONST,
         c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
@@ -256,6 +257,17 @@ mod testes {
         let c = codificar_tipos(&d, "m");
         assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_METHOD));
         assert_eq!(c.message, "The method 'm' isn't defined for the extension 'E'.");
+    }
+
+    #[test]
+    fn override_sem_call() {
+        let d = Diagnostic::new(
+            format!("{}: 'E'", dartforge_types::codes::INVOCATION_OF_EXTENSION_WITHOUT_CALL.template),
+            Span { start: 7, end: 11 },
+        );
+        let c = codificar_tipos(&d, "E(0)");
+        assert_eq!(c.code, Some(codigos::compile_time_error::INVOCATION_OF_EXTENSION_WITHOUT_CALL));
+        assert_eq!(c.message, "The extension 'E' doesn't define a 'call' method so the override can't be used in an invocation.");
     }
 
     #[test]

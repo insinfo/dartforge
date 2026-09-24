@@ -491,6 +491,24 @@ fn call_estatico_em_sobreposicao_de_extensao() {
 }
 
 #[test]
+fn override_sem_call_do_oraculo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invocation_of_extension_without_call/InvocationOfExtensionWithoutCall__insta_ae18bfa4.dart"));
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(INVOCATION_OF_EXTENSION_WITHOUT_CALL.template)).collect();
+    assert_eq!(ausentes.len(), 1, "{diags:?}");
+    assert_eq!(&fonte[ausentes[0].span.start as usize..ausentes[0].span.end as usize], "E(0)");
+}
+
+#[test]
 fn campo_final_sem_setter_e_late_final_atribuivel() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
