@@ -104,6 +104,13 @@ mediu **157/223**: o seletor genérico liberou seis casos, inclusive
 `104_sealed_exaustivo`, mas `69_list_de_lists_e_matriz` regrediu no
 `fold<int>` após `expand`; a correção dessa regressão está pendente.
 
+Os quatro diagnósticos adicionais de membros somente para leitura passaram
+na [CI 35981633280](https://github.com/insinfo/dartforge/actions/runs/35981633280)
+e no [Pesado 35981633118](https://github.com/insinfo/dartforge/actions/runs/35981633118):
+**5.768/26.133 (22,1%)** exatos, 5.479 mensagens iguais, 4.354 falsos
+positivos, 19.896 falsos negativos, 469 posições erradas e determinismo em
+1/4/8 trabalhadores. Ante 5.700: +68 acertos e -24 falsos positivos.
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
