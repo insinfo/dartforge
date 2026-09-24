@@ -158,6 +158,11 @@ pub fn simbolo_valor_global(ctx: &Context, vid: VariableId) -> String {
     format!("dfg.{}", caminho_da_variavel(ctx, vid))
 }
 
+/// Getter dedicado de um campo de instância `late` com inicializador.
+pub fn simbolo_getter_campo_late(ctx: &Context, vid: VariableId) -> String {
+    format!("df.late.{}", caminho_da_variavel(ctx, vid))
+}
+
 pub fn lower_program(ctx: &Context) -> Module {
     let mut module = Module::new();
 
@@ -562,6 +567,32 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
 }
 
 fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
+    // O inicializador não pode ser expandido em cada ponto de leitura: uma
+    // auto-referência deve chamar o getter em runtime e observar reentrância.
+    for (v_idx, v) in ctx.program.variables.iter().enumerate() {
+        let vid = VariableId(v_idx as u32);
+        let VariableRef::Field { unit, member, index } = v.node else { continue };
+        if !ctx.biblioteca_no_modulo(v.library) || !v.late || v.static_ || v.class.is_none() {
+            continue;
+        }
+        let MemberKind::Field(list) = &ctx.program.unit(unit).ast.member(member).kind else { continue };
+        if list.variables.get(index).and_then(|x| x.initializer).is_none() {
+            continue;
+        }
+        let mut b = fn_builder::FnBuilder::new(
+            ctx,
+            unit,
+            simbolo_getter_campo_late(ctx, vid),
+            ctx.symbol_name(v.name).to_string(),
+            Type::Ref,
+        );
+        let obj = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        b.this_param = Some(obj.clone());
+        b.enclosing_class = v.class;
+        b.lower_getter_campo_late(obj, vid, ctx.program.unit(unit).ast.member(member).span);
+        b.finalizar(&mut module);
+    }
+
     // 3. Variáveis de topo e campos estáticos do usuário: um getter
     // preguiçoso por global (N6).
     for (v_idx, v) in ctx.program.variables.iter().enumerate() {

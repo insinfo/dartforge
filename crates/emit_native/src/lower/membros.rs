@@ -352,7 +352,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        if late_sem_init {
+        if var.late {
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_late_field_mark_initialized".to_string(),
@@ -706,15 +706,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `super.campo` tem resolução lexical: preserva `late`, mas não pode
     /// voltar ao getter sobrescrito da classe dinâmica via seletor do SDK.
     pub fn ler_campo_com_late_direto(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
-        let atual = self.ler_campo(obj.clone(), vid, span);
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.late {
-            return atual;
+            return self.ler_campo(obj, vid, span);
         }
-        let dartforge_elements::model::VariableRef::Field { unit, .. } = var.node else {
-            return atual;
+        let dartforge_elements::model::VariableRef::Field { .. } = var.node else {
+            return self.ler_campo(obj, vid, span);
         };
-        if self.variable_initializer_em(vid).is_none() {
+        if self.variable_initializer_em(vid).is_some() {
+            return self.emit_call_with_check(
+                Instruction::CallStatic {
+                    symbol: super::simbolo_getter_campo_late(self.ctx, vid),
+                    args: vec![obj],
+                    ret_ty: self.repr_do_campo(vid),
+                },
+                self.repr_do_campo(vid),
+            );
+        }
+        let atual = self.ler_campo(obj.clone(), vid, span);
+        {
             let idx = match self.indice_campo(vid) {
                 Some(i) => Operand::Constant(Constant::Int(i as i64)),
                 None => match self.indice_dinamico(obj.clone(), vid, span) {
@@ -743,50 +753,106 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.set_block(b_ler);
             return atual;
         }
-        let Some(init) = self.variable_initializer_em(vid) else {
-            return atual;
+    }
+
+    /// Corpo único do getter de um campo `late` com inicializador. O estado
+    /// vive por objeto, inclusive quando o valor atribuído é `null`.
+    pub fn lower_getter_campo_late(&mut self, obj: Operand, vid: VariableId, span: Span) {
+        let Some(init) = self.variable_initializer_em(vid) else { unreachable!("getter late sem initializer") };
+        let dartforge_elements::model::VariableRef::Field { unit, .. } = self.ctx.program.variables[vid.0 as usize].node else {
+            unreachable!("getter late sem campo")
         };
-        let repr = self.repr_do_campo(vid);
-        if repr != Type::Ref {
-            // Sem valor sentinela para "não inicializado" num escalar.
-            return self.nao_suportado("campo late escalar com inicializador", span);
-        }
-        let e_nulo = self.emit(
-            Instruction::ICmp(
-                ICmpOp::Eq,
-                atual.clone(),
-                Operand::Constant(Constant::Int(0)),
-            ),
+        let idx = match self.indice_campo(vid) {
+            Some(i) => Operand::Constant(Constant::Int(i as i64)),
+            None => match self.indice_dinamico(obj.clone(), vid, span) {
+                Some(i) => i,
+                None => {
+                    self.nao_suportado("campo late fora do layout", span);
+                    self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+                    return;
+                }
+            },
+        };
+        let pronto = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_initialized".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        let pronto = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, pronto, Operand::Constant(Constant::Int(0))),
             Type::I1,
         );
-        let b_init = self.new_block();
-        let b_fim = self.new_block();
-        let origem = self.current_block;
-        self.terminate(Terminator::CondBranch {
-            cond: e_nulo,
-            then_block: b_init,
-            else_block: b_fim,
-        });
-        self.set_block(b_init);
-        // O inicializador roda com `this` = o objeto do campo (uma closure
-        // nele captura esse `this`, não o da função que leu o campo).
-        let this_salvo = self.this_param.replace(obj.clone());
-        let classe_salva = std::mem::replace(&mut self.enclosing_class, var.class);
-        let v = self.lower_expr_de(unit, init);
-        self.this_param = this_salvo;
-        self.enclosing_class = classe_salva;
-        self.gravar_campo(obj, vid, v.clone(), span);
-        let v = self.coagir(v, repr);
-        let fim_init = self.current_block;
-        self.terminate(Terminator::Branch(b_fim));
-        self.set_block(b_fim);
-        self.emit(
-            Instruction::Phi {
-                incoming: vec![(origem, atual), (fim_init, v)],
-                ty: repr,
+        let b_ler = self.new_block();
+        let b_verificar = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: pronto, then_block: b_ler, else_block: b_verificar });
+        self.set_block(b_ler);
+        let atual = self.ler_campo(obj.clone(), vid, span);
+        self.terminate(Terminator::Return(Some(atual)));
+
+        self.set_block(b_verificar);
+        let iniciando = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_initializing".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                ret_ty: Type::I8,
             },
-            repr,
-        )
+            Type::I8,
+        );
+        let iniciando = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, iniciando, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let b_pilha = self.new_block();
+        let b_avaliar = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: iniciando, then_block: b_pilha, else_block: b_avaliar });
+        self.set_block(b_pilha);
+        let erro = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_stack_overflow_error_new".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(erro);
+
+        self.set_block(b_avaliar);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_set_initializing".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I8)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        let b_falha = self.new_block();
+        self.exception_targets.push(b_falha);
+        let valor = self.lower_expr_de(unit, init);
+        self.exception_targets.pop();
+        let valor = self.coagir(valor, self.repr_do_campo(vid));
+        self.gravar_campo(obj.clone(), vid, valor.clone(), span);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_set_initializing".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I8)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Return(Some(valor)));
+        self.set_block(b_falha);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_set_initializing".to_string(),
+                args: vec![(obj, Type::Ref), (idx, Type::I64), (Operand::Constant(Constant::Int(0)), Type::I8)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
     }
 
     // ------------------------------------------------------------------

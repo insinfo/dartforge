@@ -1999,6 +1999,7 @@ mod raizes_do_runtime {
         heap.iteracoes_ativas.insert(lista);
         heap.campos_late_inicializados.insert((lista, 0));
         heap.campos_late_inicializados.insert((lista, -1));
+        heap.campos_late_inicializados.insert((lista, -2));
         heap.collect();
         assert!(heap.imutaveis.is_empty());
         assert!(heap.iteracoes_ativas.is_empty());
@@ -2008,6 +2009,7 @@ mod raizes_do_runtime {
         assert!(!heap.imutaveis.contains(&nova));
         assert!(!heap.campos_late_inicializados.contains(&(nova, 0)));
         assert!(!heap.campos_late_inicializados.contains(&(nova, -1)));
+        assert!(!heap.campos_late_inicializados.contains(&(nova, -2)));
     }
 }
 

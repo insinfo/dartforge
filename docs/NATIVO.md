@@ -126,10 +126,12 @@ cancela essa avaliação. Os erros usam `LateError` do SDK da fonte.
 Locais `late` capturados sem inicializador compartilham o estado pela `Cell`
 da variável; uma entrada de índice `-1` na tabela lateral acompanha a vida
 do handle e é purgada pelo GC. A captura de inicializador preguiçoso ainda
-precisa transportar o ambiente da declaração. Campos `late` com
-inicializador já inicializam na leitura, mas a recursão do próprio
-inicializador ainda precisa de um corpo separado para não expandir o AST
-recursivamente durante o lowering. Estes casos seguem pendentes.
+precisa transportar o ambiente da declaração. Campos `late` com inicializador
+usam um getter próprio por campo. A tabela lateral distingue o valor já
+inicializado (inclusive `null`) da avaliação em curso, por objeto e índice;
+a leitura reentrante produz `StackOverflowError` do SDK sem recursão no
+lowering. O índice `-(campo+2)` reserva a marca transitória sem colidir com
+`-1` dos locais capturados. O estado transitório também é purgado pelo GC.
 
 Um global com inicializador distingue três estados (`0` pendente, `2` em
 avaliação, `1` pronto). A leitura reentrante constrói `StackOverflowError`

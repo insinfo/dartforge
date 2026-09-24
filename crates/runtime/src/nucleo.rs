@@ -246,6 +246,26 @@ pub extern "C" fn dartforge_late_field_mark_initialized(handle: i64, index: i64)
         heap.borrow_mut().campos_late_inicializados.insert((handle, index));
     });
 }
+
+/// O índice `-(index+2)` da mesma tabela lateral representa uma avaliação
+/// em curso. `-1` fica reservado ao estado dos locais capturados em `Cell`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_initializing(handle: i64, index: i64) -> u8 {
+    HEAP.with(|heap| u8::from(heap.borrow().campos_late_inicializados.contains(&(handle, -index - 2))))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_set_initializing(handle: i64, index: i64, active: u8) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let key = (handle, -index - 2);
+        if active != 0 {
+            heap.campos_late_inicializados.insert(key);
+        } else {
+            heap.campos_late_inicializados.remove(&key);
+        }
+    });
+}
 /// Consulta identidade nominal para despacho virtual gerado pelo LLVM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_class(handle: i64) -> i64 {

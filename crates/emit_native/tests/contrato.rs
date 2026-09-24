@@ -7,10 +7,11 @@ use std::path::Path;
 
 const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
-/// O IR de `dart_main` do programa, ou `None` sem o SDK na máquina.
-fn main_de(fonte: &str) -> Option<String> {
-    if !Path::new(SDK).join("libraries.json").is_file() {
-        eprintln!("SDK ausente em {SDK}; teste pulado");
+/// O IR completo do programa, ou `None` sem o SDK na máquina.
+fn ir_de(fonte: &str) -> Option<String> {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
+    if !Path::new(&sdk).join("libraries.json").is_file() {
+        eprintln!("SDK ausente em {sdk}; teste pulado");
         return None;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -20,7 +21,7 @@ fn main_de(fonte: &str) -> Option<String> {
         .stack_size(64 << 20)
         .spawn(move || {
             let options = CompileOptions {
-                sdk: Some(Path::new(SDK)),
+                sdk: Some(Path::new(&sdk)),
                 packages: None,
                 timings: false,
                 optimize: false,
@@ -33,9 +34,25 @@ fn main_de(fonte: &str) -> Option<String> {
         .unwrap()
         .join()
         .unwrap();
+    Some(ir)
+}
+
+/// O IR de `dart_main` do programa, ou `None` sem o SDK na máquina.
+fn main_de(fonte: &str) -> Option<String> {
+    let ir = ir_de(fonte)?;
     let ini = ir.find("define void @dart_main(").expect("dart_main");
     let fim = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
     Some(ir[ini..fim].to_string())
+}
+
+/// O getter separado impede que `late String x = x` expanda a própria AST
+/// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
+#[test]
+fn campo_late_auto_referente_emite_getter_com_guarda() {
+    let Some(ir) = ir_de("class C { late String x = x; }\nvoid main() { print(C().x); }\n") else { return };
+    assert!(ir.contains("@dartforge_late_field_initializing"), "{ir}");
+    assert!(ir.contains("@dartforge_stack_overflow_error_new"), "{ir}");
+    assert!(ir.contains("@dartforge_late_field_mark_initialized"), "{ir}");
 }
 
 /// (1) `for` cuja variável é reatribuída no corpo: a variável mora num
