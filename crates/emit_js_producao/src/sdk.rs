@@ -198,7 +198,13 @@ fn seletores(t: &str, fora: &mut Vec<String>) {
         match b[i] {
             b'.' if i + 1 < b.len() && inicio_de_ident(b, i + 1) => {
                 let fim = ident_em(b, i + 1);
-                fora.push(format!("sel:{}", &t[i + 1..fim]));
+                let nome = &t[i + 1..fim];
+                fora.push(format!("sel:{nome}"));
+                // `S.$head` e `S$2.$console` citam os seletores Dart
+                // `head` e `console`. Preserva também o nome JS literal.
+                if nome.starts_with('$') && nome.len() > 1 {
+                    fora.push(format!("sel:{}", &nome[1..]));
+                }
                 i = fim;
             }
             b'[' if i + 1 < b.len() => {
@@ -338,6 +344,20 @@ fn nome_do_membro(t: &str) -> Option<String> {
         }
         if j < b.len() && inicio_de_ident(b, j) {
             let fim = ident_em(b, j);
+            // No DDC `get [S.$head]()` e `get [S$2.$console]()` usam um
+            // alias de símbolos. O seletor é o campo do alias, não `S`.
+            let prefixo = &t[j..fim];
+            if (prefixo == "S" || prefixo.strip_prefix("S$").is_some_and(|x| !x.is_empty() && x.bytes().all(|c| c.is_ascii_digit())))
+                && b.get(fim) == Some(&b'.') && fim + 1 < b.len()
+            {
+                let inicio = fim + 1 + usize::from(b[fim + 1] == b'$');
+                if inicio < b.len() && inicio_de_ident(b, inicio) {
+                    let fim_nome = ident_em(b, inicio);
+                    if b.get(fim_nome) == Some(&b']') {
+                        return Some(t[inicio..fim_nome].to_string());
+                    }
+                }
+            }
             return Some(t[j..fim].to_string());
         }
         return None;
@@ -1054,6 +1074,12 @@ mod testes {
         assert_eq!(nome_do_membro("  [_priv](a) {}").as_deref(), Some("_priv"));
         assert_eq!(nome_do_membro("  [$add](a) {}").as_deref(), Some("add"));
         assert_eq!(nome_do_membro("  ['A|b'](a) {}").as_deref(), Some("A|b"));
+        assert_eq!(nome_do_membro("  get [S.$head]() { return this.head; }").as_deref(), Some("head"));
+        assert_eq!(nome_do_membro("  get [S$2.$console]() { return x; }").as_deref(), Some("console"));
+        let mut refs = Vec::new();
+        seletores("document[S.$head]; window[S$2.$console];", &mut refs);
+        assert!(refs.contains(&"sel:head".to_string()), "{refs:?}");
+        assert!(refs.contains(&"sel:console".to_string()), "{refs:?}");
     }
 
     /// Regressão do defeito que fazia `dart.applyMixin(V, M);` ser lida como
