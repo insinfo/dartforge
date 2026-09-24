@@ -253,6 +253,13 @@ impl Motor {
                     }
                 }
             }
+            for (u, d) in dartforge_analise::heranca::estatico_contra_super(&program, *lib, &interner) {
+                if let Some(p) = &program.unit(u).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
         }
 
         // 4. Tipos.

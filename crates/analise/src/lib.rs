@@ -14,6 +14,7 @@
 pub mod duplicatas;
 pub mod enums;
 pub mod externos;
+pub mod heranca;
 pub mod importacoes;
 pub mod locais;
 pub mod operadores;
