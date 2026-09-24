@@ -948,10 +948,23 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let igual = igualdade.coagir(igual, Type::Ref);
         igualdade.terminate(Terminator::Return(Some(igual)));
         igualdade.finalizar(module);
+        let mut texto = FnBuilder::new(ctx, u, "df.$tipo.toString$c".to_string(), "toString".to_string(), Type::Ref);
+        let recv = Operand::Val(texto.add_param("this".to_string(), Type::Ref));
+        texto.add_param("args".to_string(), Type::Ptr);
+        texto.add_param("desc".to_string(), Type::Ptr);
+        let valor = texto.emit_call_with_check(
+            Instruction::CallStatic { symbol: simbolo.clone(), args: vec![recv], ret_ty: Type::Ref },
+            Type::Ref,
+        );
+        texto.terminate(Terminator::Return(Some(valor)));
+        texto.finalizar(module);
         module.tabelas_de_metodos.push((
             CLASSE_TIPO as u32,
             "df.mt.$tipo".to_string(),
-            vec![("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string())],
+            vec![
+                ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
+                ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
+            ],
         ));
         module.classes.push(ClassDef {
             id: CLASSE_TIPO as u32,
