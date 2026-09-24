@@ -381,7 +381,7 @@ fn reload_com_estado(
     let raiz = entrada.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let mut ultimo = None;
     loop {
-        let agora = carimbo(raiz);
+        let agora = carimbo(raiz, packages);
         if ultimo != Some(agora) {
             ultimo = Some(agora);
             match publicar_com_estado(&mut sessao, entrada, sdk, packages, timings) {
