@@ -237,6 +237,11 @@ pub trait Analisador {
     fn definicao(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         None
     }
+
+    /// Descrição sintática segura e intervalo da referência sob o cursor.
+    fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String)> {
+        None
+    }
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -334,7 +339,15 @@ impl Analisador for AnalisadorSintatico {
         let features = self.features(uri, texto);
         match navegacao::destino(uri, texto, features, offset)? {
             navegacao::Alvo::Arquivo(destino) => Some((destino, None)),
-            navegacao::Alvo::NomeLocal(span) => Some((uri.to_string(), Some(span))),
+            navegacao::Alvo::NomeLocal(tipo) => Some((uri.to_string(), Some(tipo.declaracao))),
+        }
+    }
+
+    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String)> {
+        let features = self.features(uri, texto);
+        match navegacao::destino(uri, texto, features, offset)? {
+            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?)),
+            navegacao::Alvo::Arquivo(_) => None,
         }
     }
 }

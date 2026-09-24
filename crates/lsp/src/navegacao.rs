@@ -10,7 +10,13 @@ use url::Url;
 
 pub(super) enum Alvo {
     Arquivo(String),
-    NomeLocal(Span),
+    NomeLocal(TipoLocal),
+}
+
+pub(super) struct TipoLocal {
+    pub declaracao: Span,
+    pub referencia: Span,
+    pub descricao: Option<String>,
 }
 
 /// Destino para um literal de URI relativa ou tipo único do próprio arquivo.
@@ -41,14 +47,15 @@ pub(super) fn destino(
             return resolver(&base, literal).map(Alvo::Arquivo);
         }
     }
-    tipo_local(&parsed.unit, &parsed.ast, offset).map(Alvo::NomeLocal)
+    tipo_local(&parsed.unit, &parsed.ast, &nomes, offset).map(Alvo::NomeLocal)
 }
 
 fn tipo_local(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
+    nomes: &Interner,
     offset: usize,
-) -> Option<Span> {
+) -> Option<TipoLocal> {
     // Imports/exports/parts podem trazer nomes que o AST de um arquivo só não
     // distingue. Até a resolução de biblioteca entrar no LSP, devolva vazio.
     if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. })) {
@@ -81,18 +88,23 @@ fn tipo_local(
         return None;
     }
     let mut encontrados = unit.declarations.iter().filter_map(|id| {
-        let nome = match &ast.decl(*id).kind {
-            DeclKind::Class(d) => d.name,
-            DeclKind::Mixin(d) => d.name,
-            DeclKind::Enum(d) => d.name,
-            DeclKind::ExtensionType(d) => d.name,
-            DeclKind::Typedef(d) => d.name,
+        let (nome, tipo, generico) = match &ast.decl(*id).kind {
+            DeclKind::Class(d) => (d.name, "class", !d.type_params.is_empty()),
+            DeclKind::Mixin(d) => (d.name, "mixin", !d.type_params.is_empty()),
+            DeclKind::Enum(d) => (d.name, "enum", !d.type_params.is_empty()),
+            DeclKind::ExtensionType(d) => (d.name, "extension type", !d.type_params.is_empty()),
+            DeclKind::Typedef(d) => (d.name, "typedef", true),
             _ => return None,
         };
-        (nome.sym == chave).then_some(nome.span)
+        (nome.sym == chave).then_some((nome.span, tipo, generico))
     });
     let unico = encontrados.next()?;
-    encontrados.next().is_none().then_some(unico)
+    if encontrados.next().is_some() { return None; }
+    Some(TipoLocal {
+        declaracao: unico.0,
+        referencia: referencia.span,
+        descricao: (!unico.2).then(|| format!("{} {}", unico.1, nomes.resolve(chave))),
+    })
 }
 
 fn resolver(base: &Url, literal: &StringLit) -> Option<String> {
