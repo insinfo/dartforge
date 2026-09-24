@@ -303,6 +303,9 @@ jobs:
       - name: Macro na definição de construtor (CFE byte a byte)
         shell: pwsh
         run: ./scripts/testar-macros-419.ps1
+      - name: Macro na fase de tipos (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-420.ps1
 
   macros-aot-sonda:
     name: sonda AOT do executor de macros
