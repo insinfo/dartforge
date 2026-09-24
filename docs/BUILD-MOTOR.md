@@ -157,9 +157,8 @@ Por ação, na ordem, o primeiro que aceita:
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
    `dev`/`serve`, **erro** com `dartforge build --estrito` (D-B5):
-   `<builder>: <saída> pode estar desatualizado — o DartForge ainda não
-   executa builders Dart (BUILD-RUST.md §3, Fase 1); rode
-   'dart run build_runner build'`.
+   `<builder>: <saída> pode estar desatualizado — <motivo da recusa ou falha>;
+   rode 'dart run build_runner build'`.
 4. **Nenhum**: a ação fica **pendente** com motivo; o placar conta.
 
 Recusa sempre tem motivo, e o placar é `iguais/pendentes/diferentes` com

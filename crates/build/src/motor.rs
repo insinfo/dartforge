@@ -676,9 +676,10 @@ impl Motor {
                         let loc = self.caminho_de_apoio(s, self.fases[fi].oculta);
                         if mais_nova(&entrada, &loc) && self.avisados.insert(loc.clone()) {
                             let msg = format!(
-                                "{}: {} pode estar desatualizado — o DartForge ainda não executa builders Dart (BUILD-RUST.md §3, Fase 1); rode 'dart run build_runner build'",
+                                "{}: {} pode estar desatualizado — {}; rode 'dart run build_runner build'",
                                 self.plano.aplicacoes[self.fases[fi].aplicacao].chave,
-                                s.texto()
+                                s.texto(),
+                                r.motivo.as_deref().unwrap_or("executor Dart não produziu saída atual")
                             );
                             if self.opcoes.estrito {
                                 return Err(msg);
