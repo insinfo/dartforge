@@ -3,7 +3,7 @@
 //! `ExportDirective` e `PartDirective` quando o destino existe.
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{DeclKind, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, StmtKind, StringLit, TypeKind};
+use dartforge_frontend::ast::{DeclKind, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind};
 use dartforge_frontend::LibraryFeatures;
 use dartforge_intern::Interner;
 use url::Url;
@@ -223,19 +223,32 @@ fn funcao_topo(
     }
     if encontrados.len() != 1 { return None; }
     let (declaracao, funcao) = encontrados[0];
-    let descricao = if funcao.kind == FunctionKind::Function
-        && funcao.type_params.is_empty()
-        && funcao.parameters.as_ref().is_some_and(|p| p.is_empty())
-    {
+    let descricao = (|| {
+        if funcao.kind != FunctionKind::Function || !funcao.type_params.is_empty() {
+            return None;
+        }
+        let parametros = funcao.parameters.as_ref()?;
+        // Com 3+ parâmetros, o analyzer muda para layout multilinha.
+        if parametros.len() > 2 { return None; }
         let retorno = funcao.return_type.and_then(|t| {
             if matches!(&ast.ty(t).kind, TypeKind::Void) {
                 Some("void".to_string())
             } else {
                 tipo_primitivo(ast, nomes, t)
             }
-        });
-        retorno.map(|t| format!("{t} {}()", nomes.resolve(chave)))
-    } else { None };
+        })?;
+        let mut descricoes = Vec::new();
+        for p in parametros.iter() {
+            if p.kind != ParameterKind::Required || p.covariant || p.final_ || p.var_ || p.const_
+                || p.this_ || p.super_ || p.default_value.is_some()
+                || !p.function_type_params.is_empty() || p.function_parameters.is_some()
+            { return None; }
+            let tipo = tipo_primitivo(ast, nomes, p.ty?)?;
+            let nome = nomes.resolve(p.name?.sym);
+            descricoes.push(format!("{tipo} {nome}"));
+        }
+        Some(format!("{retorno} {}({})", nomes.resolve(chave), descricoes.join(", ")))
+    })();
     Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico: None })
 }
 
