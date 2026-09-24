@@ -183,6 +183,7 @@ impl GeradorNativo for NgEstagioA {
                 .unwrap_or_else(|| "ngdart (estágio A) recusa".into());
             s.recusas.insert(p.clone(), m);
         }
+        s.unidades_geradas = placar.gerados;
         *self.cache.lock().map_err(|_| "ngdart: cache envenenado")? = Some(CacheNg {
             saida: clone_saida(&s),
             fontes_do_html,
@@ -193,7 +194,7 @@ impl GeradorNativo for NgEstagioA {
 }
 
 fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
-    SaidaNativa { saidas: s.saidas.clone(), recusas: s.recusas.clone() }
+    SaidaNativa { saidas: s.saidas.clone(), recusas: s.recusas.clone(), unidades_geradas: s.unidades_geradas }
 }
 
 impl NgEstagioA {
@@ -214,6 +215,7 @@ impl NgEstagioA {
         }
         let indice = cache.indice.as_ref()?;
         let mut novas = Vec::new();
+        let componentes = fontes.len();
         for fonte in fontes {
             let texto = std::fs::read_to_string(&fonte).ok()?;
             let mut nomes = dartforge_intern::Interner::new();
@@ -239,7 +241,9 @@ impl NgEstagioA {
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!("ngdart (estágio B): {} componente(s) para {}", cache.fontes_do_html[html].len(), html.display());
         }
-        Some(clone_saida(&cache.saida))
+        let mut saida = clone_saida(&cache.saida);
+        saida.unidades_geradas = componentes;
+        Some(saida)
     }
 }
 

@@ -93,6 +93,8 @@ pub struct RelMotor {
     pub consultas_reavaliadas: usize,
     pub saidas_alteradas: usize,
     pub nativas: usize,
+    /// Unidades efetivamente regeneradas dentro de um gerador por pacote.
+    pub unidades_nativas: usize,
     pub apoio: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
     pub tempo: Duration,
@@ -105,11 +107,12 @@ pub struct RelMotor {
 impl RelMotor {
     pub fn texto(&self) -> String {
         let mut s = format!(
-            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio), {} consultas reavaliadas, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
+            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio, {} unidades regeneradas), {} consultas reavaliadas, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
             self.acoes_verificadas,
             self.acoes_executadas,
             self.nativas,
             self.apoio,
+            self.unidades_nativas,
             self.consultas_reavaliadas,
             self.saidas_alteradas,
             self.tempo.as_secs_f64() * 1000.0,
@@ -144,6 +147,7 @@ struct RodadaPacote {
     saidas: BTreeMap<PathBuf, Arc<[u8]>>,
     recusas: BTreeMap<PathBuf, String>,
     erro: Option<String>,
+    unidades_geradas: usize,
 }
 
 pub struct Motor {
@@ -787,14 +791,17 @@ impl Motor {
                 saidas: s.saidas.into_iter().map(|(p, b)| (chave(&p), Arc::from(b))).collect(),
                 recusas: s.recusas.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
                 erro: None,
+                unidades_geradas: s.unidades_geradas,
             },
             Err(e) => RodadaPacote {
                 registro_consultas: consultas,
                 saidas: BTreeMap::new(),
                 recusas: BTreeMap::new(),
                 erro: Some(e),
+                unidades_geradas: 0,
             },
         };
+        rel.unidades_nativas += rodada.unidades_geradas;
         self.pacotes.insert(k, rodada);
         rel.tempo_nativo += t_gerar.elapsed();
         Ok(true)

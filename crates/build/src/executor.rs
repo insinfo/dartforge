@@ -39,6 +39,8 @@ pub struct PedidoNativo {
 pub struct SaidaNativa {
     pub saidas: BTreeMap<PathBuf, Vec<u8>>,
     pub recusas: BTreeMap<PathBuf, String>,
+    /// Arquivos que o gerador realmente regenerou nesta chamada.
+    pub unidades_geradas: usize,
 }
 
 /// Gerador em Rust que imita um builder do ecossistema byte a byte.

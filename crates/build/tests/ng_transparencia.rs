@@ -121,8 +121,11 @@ fn ng_incremental_igual_ao_do_zero() {
         atual.push_str(&texto);
         std::fs::write(&arq, &atual).unwrap();
         let (p, nomes) = programa(&raiz);
-        vivo.atualizar(&Contexto { banco: &SemBanco, programa: Some((&p, &nomes)) }, &[arq.clone()], Demanda::Tudo)
+        let atual = vivo.atualizar(&Contexto { banco: &SemBanco, programa: Some((&p, &nomes)) }, &[arq.clone()], Demanda::Tudo)
             .expect("atualizar");
+        if arq.extension().is_some_and(|e| e == "html") {
+            assert_eq!(atual.rel.unidades_nativas, 1, "a edição de um HTML deve regenerar só seu componente");
+        }
         let novo = motor(&raiz, &p, &nomes);
         assert_eq!(vivo.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());
     }
