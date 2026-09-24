@@ -68,6 +68,7 @@ enum Elaborando {
 #[derive(Debug, Default, Clone, Copy)]
 struct Modifiers {
     external: bool,
+    external_span: Option<Span>,
     static_: bool,
     abstract_: bool,
     covariant: bool,
@@ -566,7 +567,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             let fstart = self.span();
             let mods = self.parse_modifiers();
-            match self.parse_function_or_variables(mods, fstart)? {
+            match self.parse_function_or_variables(mods, fstart, mods.external_span)? {
                 FunctionOrVariables::Function(id) => DeclKind::Function(id),
                 FunctionOrVariables::Variables(list) => DeclKind::Variables(list),
             }
@@ -1275,7 +1276,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Kind::Keyword(Keyword::Const) => m.const_ = true,
                 Kind::Keyword(Keyword::Var) => m.var_ = true,
                 Kind::Ident if self.modifier_ok() => match self.text() {
-                    "external" => m.external = true,
+                    "external" => {
+                        m.external = true;
+                        m.external_span = Some(self.span());
+                    }
                     "static" => m.static_ = true,
                     "abstract" => m.abstract_ = true,
                     "covariant" => m.covariant = true,
@@ -1364,9 +1368,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         mods: Modifiers,
         start: Span,
+        external_topo: Option<Span>,
     ) -> PResult<FunctionOrVariables> {
         if let Some(kind) = self.accessor_follows() {
-            let id = self.parse_accessor(mods, start, None, kind)?;
+            let id = self.parse_accessor(mods, start, None, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         let ty = if mods.var_ {
@@ -1377,7 +1382,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if let Some(kind) = self.accessor_follows() {
-            let id = self.parse_accessor(mods, start, ty, kind)?;
+            let id = self.parse_accessor(mods, start, ty, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         let name = self.expect_identifier()?;
@@ -1386,7 +1391,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let parameters = self.parse_formal_parameters()?;
             let inicio_corpo = self.pos;
             let (modifier, body) = self.parse_function_body()?;
-            self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body);
+            self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
             let id = self.ast.push_function(Function {
                 span: self.span_from(start),
                 external: mods.external,
@@ -1423,6 +1428,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         start: Span,
         return_type: Option<TypeId>,
         kind: FunctionKind,
+        external_topo: Option<Span>,
     ) -> PResult<FunctionId> {
         self.advance();
         let (name, parameters) = match kind {
@@ -1438,7 +1444,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         let inicio_corpo = self.pos;
         let (modifier, body) = self.parse_function_body()?;
-        self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body);
+        self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
         Ok(self.ast.push_function(Function {
             span: self.span_from(start),
             external: mods.external,
@@ -1534,7 +1540,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.constructor_follows(class_name, mods) {
             self.parse_constructor(mods, false, class_name)?
         } else {
-            match self.parse_function_or_variables(mods, fstart)? {
+            match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
                 FunctionOrVariables::Variables(list) => MemberKind::Field(list),
             }
@@ -1695,7 +1701,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             let inicio_corpo = self.pos;
             let body = self.parse_function_body()?.1;
-            self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body);
+            self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body, None);
             body
         };
         Ok(MemberKind::Constructor(Constructor {
@@ -1788,11 +1794,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     // Corpos de função
     // -----------------------------------------------------------------------
 
-    /// `_checkForExternalMethodWithBody` / `_validateConstructorBodyAllowed`
-    /// do analyzer: o erro fica no `{` do bloco ou no `=>`, nunca no nome.
+    /// O parser oficial relata função de topo no token `external`, mas membro
+    /// e construtor no `{` do bloco ou no `=>` (`parseTopLevelMethod` e
+    /// `parseMethod`/`parseFactoryMethod` do fasta).
     /// O intervalo desde `inicio` começa antes do modificador `async` e só
     /// inclui tokens desta função, então o primeiro delimitador é o corpo.
-    fn conferir_corpo_externo(&mut self, external: bool, factory: bool, inicio: usize, body: &FunctionBody) {
+    fn conferir_corpo_externo(&mut self, external: bool, factory: bool, inicio: usize, body: &FunctionBody, external_topo: Option<Span>) {
         if !external {
             return;
         }
@@ -1805,7 +1812,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             .iter()
             .find(|t| t.kind == Kind::Op(delimitador))
             .map(|t| t.span);
-        if let Some(span) = span {
+        if let Some(span) = external_topo.or(span) {
             let codigo = if factory {
                 codigos::parser::EXTERNAL_FACTORY_WITH_BODY
             } else {
@@ -1924,7 +1931,7 @@ mod tests {
     fn corpo_externo_marca_abertura_do_bloco_ou_seta_com_codigo_oficial() {
         use dartforge_diagnostics::codigos::parser as c;
         for (src, token, codigo) in [
-            ("external int f() => 1;", "=>", c::EXTERNAL_METHOD_WITH_BODY),
+            ("external int f() => 1;", "external", c::EXTERNAL_METHOD_WITH_BODY),
             ("class C { external C() {} }", "{}", c::EXTERNAL_METHOD_WITH_BODY),
             ("class C { external factory C.x() => C(); }", "=>", c::EXTERNAL_FACTORY_WITH_BODY),
             ("class C { external factory C.x() {} }", "{}", c::EXTERNAL_FACTORY_WITH_BODY),
@@ -1933,7 +1940,7 @@ mod tests {
             let mut names = Interner::new();
             let out = parse(src, &mut names);
             let inicio = src.find(token).unwrap();
-            let fim = inicio + if token == "{}" { 1 } else { 2 };
+            let fim = inicio + if token == "{}" { 1 } else { token.len() };
             assert!(out.diagnostics.iter().any(|d|
                 d.code == Some(codigo) && d.span.start == inicio && d.span.end == fim
             ), "{src}: {:?}", out.diagnostics);
@@ -1971,6 +1978,19 @@ mod tests {
                     && d.message == mensagem && d.correcao().as_deref() == correcao
             ), "{src}: {:?}", out.diagnostics);
         }
+    }
+
+    #[test]
+    fn funcao_externa_de_topo_aponta_para_external_como_fasta() {
+        use dartforge_diagnostics::codigos::parser as c;
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/executable_body/ExecutableBody__topLevelFunction_extern_0464d54b.dart"));
+        let mut names = Interner::new();
+        let out = parse(fonte, &mut names);
+        assert!(out.diagnostics.iter().any(|d|
+            d.code == Some(c::EXTERNAL_METHOD_WITH_BODY)
+                && d.span.start == 43 && d.span.end == 51
+                && d.message == "An external or native method can't have a body."
+        ), "{out:?}");
     }
 
     // -- Independentes dos outros módulos -----------------------------------
