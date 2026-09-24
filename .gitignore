@@ -38,3 +38,5 @@ runtime/ddc/*/
 /corpus/diagnosticos/*/.dart_tool/
 # corpus de macros: o package_config do pub get tem caminhos da máquina (o pub-cache)
 /corpus/macros/*/.dart_tool/
+# Relatório local de espaço em disco do C: (da máquina, não do projeto)
+/RELATORIO-DISCO-C.md
