@@ -9,8 +9,10 @@
 //! * [`externos`]: inicializadores de campos e variáveis `external`
 //!   (`ErrorVerifier`).
 //! * [`operadores`]: aridade de métodos `operator` (`ErrorVerifier`).
+//! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
 
 pub mod duplicatas;
+pub mod enums;
 pub mod externos;
 pub mod importacoes;
 pub mod locais;

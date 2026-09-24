@@ -240,6 +240,7 @@ impl Motor {
                 .collect();
             let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
             let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga);
+            achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
             for (i, u) in unidades.iter().enumerate() {
                 achados.extend(dartforge_analise::locais::nao_usados(*u, &interner, curinga).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
