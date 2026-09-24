@@ -633,6 +633,26 @@ fn tipo_do_ref(u: &mut Universo, r: i64) -> i64 {
     tipo_do_valor(u, TaggedValue::reference(r))
 }
 
+/// Os natives `_List` e `_GrowableList` recebem a tupla dos argumentos de
+/// tipo do construtor como último parâmetro. Converte `L<E>` no tipo do
+/// objeto concreto (`_List<E>` ou `_GrowableList<E>`) que será guardado no
+/// metadado do slot do heap. A classe concreta preserva `P0` nos métodos do
+/// SDK declarados nessas classes, como `_GrowableList.toList`.
+pub(crate) fn tipo_lista_da_tupla(tupla: i64, classe_concreta: Option<i64>) -> Option<i64> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let classe = classe_concreta.unwrap_or(u.rt.list);
+        if classe == 0 {
+            return None;
+        }
+        let args = match u.tipo(tupla) {
+            Tipo::Tupla(args) => args.clone(),
+            _ => vec![T_DINAMICO],
+        };
+        Some(u.internar(Tipo::Interface(classe, args)))
+    })
+}
+
 // --- ABI do código gerado ------------------------------------------------
 
 /// Registra uma classe do universo: id RTI, nome (`String` do heap) e
@@ -745,6 +765,27 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     if !smi::e_handle(obj) {
         return;
     }
+    // O lowering de um literal usa o tipo estático `List<E>`, mas o objeto
+    // do heap é `_GrowableList<E>` (ou `_List<E>` quando fixo). Métodos do
+    // SDK nessas classes avaliam `P0` sobre a classe concreta; conservar
+    // apenas `List<E>` perderia E em chamadas como `lista.toList()`.
+    let classe_lista = HEAP.with(|h| matches!(h.borrow().get(obj), Value::List(_)))
+        .then(|| cid_do_runtime(obj))
+        .flatten();
+    let tipo = if let Some(classe) = classe_lista {
+        RTI.with(|u| {
+            let mut u = u.borrow_mut();
+            match u.tipo(tipo) {
+                Tipo::Interface(c, args) if *c == u.rt.list => {
+                    let args = args.clone();
+                    u.internar(Tipo::Interface(classe, args))
+                }
+                _ => tipo,
+            }
+        })
+    } else {
+        tipo
+    };
     HEAP.with(|h| h.borrow_mut().set_metadado(obj, tipo + 1));
 }
 
