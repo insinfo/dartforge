@@ -3,8 +3,8 @@
 //! `dfexec/1`, para gravar a augmentation num arquivo que o SDK oficial aceita
 //! com a flag experimental (docs/MACROS-COMPATIBILIDADE.md). É o caminho do
 //! builder para o `build_runner` e da compatibilidade com a toolchain
-//! oficial; **não** é o executor do produto (esse é o nativo, D4), e nada no
-//! compilador depende dele.
+//! oficial. O compilador JS também o usa provisoriamente para executar
+//! aplicações diretamente da fonte; o executor nativo D4 continua pendente.
 //!
 //! O hospedeiro gera o *bootstrap* (spec, "Macro execution"): um `main` que
 //! importa as bibliotecas das macros aplicadas e mapeia `uri#Classe` →

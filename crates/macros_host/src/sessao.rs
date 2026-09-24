@@ -145,6 +145,15 @@ fn gerar(
     Ok((textos, g))
 }
 
+/// Aplicações que ainda exigem execução; bibliotecas com augmentation
+/// materializada já têm seus membros no programa carregado.
+pub fn aplicacoes_pendentes(program: &Program, interner: &Interner) -> Vec<Aplicacao> {
+    detectar(&Vista { program, interner })
+        .into_iter()
+        .filter(|a| !ja_materializada(program, &a.biblioteca))
+        .collect()
+}
+
 /// Aplica as macros de `program` com `executor`. Sem aplicação, devolve o
 /// programa como veio — sem abrir sessão (custo zero). Com erro (executor
 /// indisponível, diagnóstico de erro de uma macro, texto que não compila),
@@ -159,10 +168,7 @@ pub fn aplicar(
     // Biblioteca que já inclui a augmentation materializada (`import augment
     // 'x.macro.dart'` ou `part`, gravada por `dartforge macros
     // --materializar`) não roda as macros de novo: como um `.g.dart` no disco.
-    let apps: Vec<Aplicacao> = detectar(&Vista { program: &program, interner })
-        .into_iter()
-        .filter(|a| !ja_materializada(&program, &a.biblioteca))
-        .collect();
+    let apps = aplicacoes_pendentes(&program, interner);
     if apps.is_empty() {
         return Ok(Saida { program, geracao: base, textos: Vec::new(), macros_executadas: 0, avisos: Vec::new() });
     }

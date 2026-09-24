@@ -255,6 +255,22 @@ pub type Gerador<'a> = &'a dyn Fn(
     &Interner,
 ) -> Result<std::sync::Arc<dartforge_elements::gerado::Geracao>, String>;
 
+/// Localiza a API Dart usada pelo executor de macros, sem consultá-la em
+/// programas que não aplicam macros.
+fn api_de_macros(entrada: &std::path::Path) -> Option<std::path::PathBuf> {
+    if let Some(p) = std::env::var_os("DARTFORGE_MACROS_API").map(std::path::PathBuf::from) {
+        return p.join("pubspec.yaml").is_file().then_some(p);
+    }
+    let bases = [std::env::current_exe().ok(), std::env::current_dir().ok(), Some(entrada.to_path_buf())];
+    for base in bases.into_iter().flatten() {
+        for dir in base.ancestors() {
+            let p = dir.join("pacotes/macros");
+            if p.join("pubspec.yaml").is_file() { return Some(p); }
+        }
+    }
+    None
+}
+
 /// Como [`compilar_com_relatorio`], com o gerador de fontes do projeto.
 pub fn compilar_com_relatorio_e_gerador(
     entrada: &std::path::Path,
@@ -399,16 +415,44 @@ pub fn compilar_com_gerador<R>(
         return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
     }
     // Macros (docs/MACROS-PROTOCOLO.md): só se o programa declara alguma
-    // classe `macro` — senão nem o hospedeiro é consultado (custo zero). O
-    // executor do produto é o nativo, ainda indisponível: uma aplicação vira
-    // erro claro na anotação (ou roda `dartforge macros --materializar`).
+    // classe `macro` — sem aplicação pendente não iniciamos executor. Enquanto
+    // o executor nativo não compila a API, a VM Dart executa a nossa API e o
+    // hospedeiro recarrega a augmentation diretamente da memória.
     let program = if dartforge_macros_host::tem_macros(&program) {
         let t = Instant::now();
-        let mut executor = dartforge_macros_host::executor::Indisponivel::default();
+        let pendentes = dartforge_macros_host::aplicacoes_pendentes(&program, &interner);
+        let mut vm = if pendentes.is_empty() {
+            None
+        } else {
+            let api = api_de_macros(entrada).ok_or(
+                "API de macros ausente: defina DARTFORGE_MACROS_API para pacotes/macros"
+            )?;
+            let dart = std::env::var_os("DARTFORGE_MACROS_DART")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    let exe = if cfg!(windows) { "dart.exe" } else { "dart" };
+                    let no_sdk = sdk.root.parent().unwrap_or(&sdk.root).join("bin").join(exe);
+                    if no_sdk.is_file() { no_sdk } else { std::path::PathBuf::from(exe) }
+                });
+            let cfg = dartforge_macros_host::vm::ConfigDaVm {
+                dart,
+                api,
+                trabalho: entrada.parent().unwrap_or(std::path::Path::new("."))
+                    .join(".dart_tool/dartforge/macros"),
+            };
+            let pacotes = packages.map(std::path::Path::to_path_buf)
+                .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada));
+            Some(dartforge_macros_host::vm::iniciar(&cfg, &pendentes, pacotes.as_deref())?)
+        };
+        let mut indisponivel = dartforge_macros_host::executor::Indisponivel::default();
+        let executor: &mut dyn dartforge_macros_host::executor::ExecutorMacros = match vm.as_mut() {
+            Some(vm) => vm,
+            None => &mut indisponivel,
+        };
         let mut carregar = |i: &mut Interner, g| {
             dartforge_elements::load::load_lenient_gerados(entrada, &sdk, packages, i, None, None, g)
         };
-        match dartforge_macros_host::aplicar(program, &mut interner, gerados_das_macros, &mut carregar, &mut executor) {
+        match dartforge_macros_host::aplicar(program, &mut interner, gerados_das_macros, &mut carregar, executor) {
             Ok(s) => {
                 for a in &s.avisos {
                     eprintln!("aviso: {a}");
