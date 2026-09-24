@@ -100,6 +100,14 @@ analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
 o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
 --locked`.
 
+`textDocument/hover` mostra a descrição sintática de um tipo local resolvido
+pela regra conservadora da definição acima: `class C`, `enum E`, `mixin M`
+ou `extension type X`, quando não genérico. Usa Markdown se o cliente o
+anuncia; caso contrário devolve texto simples. O intervalo cobre apenas o
+nome sob o cursor. Tipos genéricos e typedefs aguardam a formatação de
+assinatura do modelo de elementos, e referências importadas aguardam
+resolução semântica. Teste: `cargo test -p dartforge-lsp --test hover --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -107,7 +115,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: hover, completion, definição de nomes, referências,
+Explicitamente fora deste brief: completion, definição de variáveis/funções e nomes importados, referências,
 rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Semântica
 (nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
