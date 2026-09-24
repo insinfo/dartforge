@@ -282,12 +282,12 @@ jobs:
           sdk-313: 'true'
           pub-get: corpus/macros
           preparar: ./scripts/preparar-macros-410.ps1
-        - name: Macro com argumento posicional (CFE byte a byte)
-          shell: pwsh
-          run: ./scripts/testar-macros-412.ps1
-        - name: Macro com argumento nomeado (CFE byte a byte)
-          shell: pwsh
-          run: ./scripts/testar-macros-413.ps1
+      - name: Macro com argumento posicional (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-412.ps1
+      - name: Macro com argumento nomeado (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-413.ps1
 
   macros-aot-sonda:
     name: sonda AOT do executor de macros
