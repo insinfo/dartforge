@@ -1082,14 +1082,21 @@ impl Motor {
         let id = self.naturais.iter().find(|(_, n)| **n == k).map(|(id, _)| id.clone())?;
         let g = self.grafo.gerados.get(&id)?;
         if self.registros[g.acao].is_none() {
-            let r = self.apoio(g.acao, None);
+            let a = g.acao;
+            let fi = self.grafo.acoes[a].fase;
+            let r = match self.nativo_da_fase(fi) {
+                Some(n) if !self.nativos[n].por_pacote() => {
+                    self.nativo_por_acao(ctx, &HashSet::new(), n, a, None)
+                }
+                _ => self.apoio(a, None),
+            };
             for (s, c) in &r.saidas {
                 if let Some(c) = c {
                     self.memoria.insert(self.naturais[s].clone(), c.clone());
                 }
             }
-            let _ = ctx;
-            self.registros[g.acao] = Some(r);
+            self.registros[a] = Some(r);
+            self.publicar();
             self.recalcular_observados();
         }
         self.memoria.get(&k).cloned()

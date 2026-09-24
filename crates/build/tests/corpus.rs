@@ -169,6 +169,24 @@ fn copiar(de: &Path, para: &Path) {
     }
 }
 
+#[test]
+#[ignore = "exige `dart pub get` em corpus/builders/sass_builder_compressed"]
+fn sass_release_css_sob_demanda_sem_apoio() {
+    let origem = raiz_do_corpus().join("sass_builder_compressed");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("sass_builder_compressed");
+    copiar(&origem, &dir);
+    // Sem o apoio do build_runner: a resposta só pode vir do nativo.
+    let scss = dir.join("web/principal.scss");
+    std::fs::write(&scss, ".a { color: red; }\n").unwrap();
+    let cfg = cfg_de(&dir).expect("package_config.json");
+    let mut m = Motor::novo(&dir, &cfg, OpcoesMotor { release: true, ..Default::default() }).unwrap();
+    let ctx = Contexto { banco: &SemBanco, programa: None };
+    m.atualizar(&ctx, &[], Demanda::Carregador).unwrap();
+    let css = m.materializar(&ctx, &dir.join("web/principal.css")).expect("CSS nativo sob demanda");
+    assert_eq!(&*css, b".a{color:red}\n");
+}
+
 fn arquivos(dir: &Path, base: &Path, v: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap().flatten() {
         let p = e.path();

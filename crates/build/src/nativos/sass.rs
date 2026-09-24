@@ -1,11 +1,9 @@
 //! `sass_builder:sass_builder` pelo Sass do `gerador_ng`
 //! (`sass::compilar_com`, API pública).
 //!
-//! **Porta de igualdade**: o estilo `compressed` sem mapas tem medição byte a
-//! byte, mas o estilo `expanded` e o `.css.map` ainda não são suportados.
-//! Portanto este gerador permanece **não verificado**: o motor publica o
-//! apoio e só executa o nativo para medir (`--comparar`). Os módulos lidos
-//! por `@use`/`@import` são registrados como dependências da ação.
+//! **Porta de igualdade**: só o estilo `compressed` sem mapas, medido byte a
+//! byte, pode ser publicado. O estilo `expanded` e o `.css.map` continuam no
+//! apoio. Os módulos lidos por `@use`/`@import` são dependências da ação.
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use crate::valor::Valor;
@@ -27,7 +25,7 @@ impl GeradorNativo for SassNativo {
     }
 
     fn verificado(&self) -> bool {
-        false
+        true
     }
 
     fn gerar(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Result<SaidaNativa, String> {
@@ -60,8 +58,7 @@ impl GeradorNativo for SassNativo {
             for modulo in modulos {
                 ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(&modulo)));
             }
-            let mapas = a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true));
-            if mapas {
+            if a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true)) {
                 let base = nome.rsplit_once('.').map(|(b, _)| b).unwrap_or(nome);
                 saida.push_str(&format!("\n/*# sourceMappingURL={base}.css.map */\n"));
                 s.recusas.insert(a.entrada_natural.clone(), "sass: .css.map não gerado".into());
