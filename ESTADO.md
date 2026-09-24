@@ -24,7 +24,22 @@ desenvolvimento e produção passaram, e macros ficaram **15/15**. O analyzer
 atingiu **5.945/26.133** diagnósticos na posição exata, 5.656 mensagens
 iguais, 4.313 falsos positivos, 19.720 falsos negativos e 468 posições
 erradas, determinístico em 1/4/8 trabalhadores. Essa é a última medição
-combinada concluída; commits mais recentes estão em nova rodada de CI.
+combinada concluída daquela etapa.
+
+Na integração `3869bba`, a [CI 36013738458](https://github.com/insinfo/dartforge/actions/runs/36013738458)
+e o [Pesado 36013738501](https://github.com/insinfo/dartforge/actions/runs/36013738501)
+passaram. O nativo com SDK da fonte manteve **166/223**; JS de
+desenvolvimento e produção passaram, e macros chegaram a **17/17**. O
+analyzer atingiu **5.954/26.133** diagnósticos exatos, 5.665 mensagens
+iguais, 4.310 falsos positivos, 19.711 falsos negativos e 468 posições
+erradas, determinístico em 1/4/8 trabalhadores. Esse é o último placar
+combinado concluído; o HEAD posterior está em
+[CI 36016165004](https://github.com/insinfo/dartforge/actions/runs/36016165004) e
+[Pesado 36016164949](https://github.com/insinfo/dartforge/actions/runs/36016164949).
+O placar do analyzer compara o corpus legado congelado: o relatório assinala
+oráculos 3.6.2 desatualizados em grupos cujas fontes mudaram. Ele serve para
+detectar regressões entre commits, mas exige uma rodada controlada de
+regravação antes de afirmar paridade com o SDK 3.13 atual.
 
 Depois dessa medição, gates isolados confirmaram macros **18/18** em JS de
 desenvolvimento e produção, com a augmentation do caso 421 idêntica ao CFE
