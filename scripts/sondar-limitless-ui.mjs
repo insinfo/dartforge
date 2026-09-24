@@ -40,6 +40,7 @@ async function sondar() {
   await new Promise((ok, fail) => { ws.addEventListener('open', ok, { once: true }); ws.addEventListener('error', fail, { once: true }); });
   const pending = new Map();
   const diagnostics = [];
+  const pausas = [];
   let seq = 0;
   ws.addEventListener('message', ({ data }) => {
     const m = JSON.parse(data);
@@ -55,6 +56,15 @@ async function sondar() {
       diagnostics.push(`log: ${m.params.entry.text}`);
     } else if (m.method === 'Network.responseReceived' && m.params.response.status >= 400) {
       diagnostics.push(`HTTP ${m.params.response.status}: ${m.params.response.url}`);
+    } else if (m.method === 'Debugger.paused') {
+      if (pausas.length < 10) {
+        pausas.push({
+          reason: m.params.reason,
+          error: m.params.data?.description || m.params.data?.value || m.params.data,
+          at: m.params.callFrames?.[0]?.functionName,
+        });
+      }
+      void send('Debugger.resume');
     }
   });
   function send(method, params = {}) {
@@ -63,7 +73,8 @@ async function sondar() {
     return new Promise((ok, fail) => pending.set(id, { ok, fail }));
   }
   try {
-    await Promise.all(['Runtime.enable', 'Log.enable', 'Network.enable', 'Page.enable'].map((m) => send(m)));
+    await Promise.all(['Runtime.enable', 'Log.enable', 'Network.enable', 'Page.enable', 'Debugger.enable'].map((m) => send(m)));
+    await send('Debugger.setPauseOnExceptions', { state: 'all' });
     await send('Page.navigate', { url });
     await sleep(8000);
     const result = await send('Runtime.evaluate', {
@@ -71,7 +82,14 @@ async function sondar() {
       returnByValue: true,
     });
     const state = result.result.value;
-    console.log(JSON.stringify({ state, diagnostics: diagnostics.slice(0, 30) }, null, 2));
+    const line = /main\.dart\.js:(\d+)/.exec(diagnostics[0] || state.erros[0] || '');
+    let source = [];
+    if (line) {
+      const lines = (await (await fetch(new URL('/main.dart.js', url))).text()).split('\n');
+      const n = Number(line[1]);
+      source = lines.slice(Math.max(0, n - 6), n + 5).map((t, i) => `${Math.max(0, n - 6) + i + 1}: ${t}`);
+    }
+    console.log(JSON.stringify({ state, diagnostics: diagnostics.slice(0, 30), pausas, source }, null, 2));
     if (!state.montados || state.erros.length || diagnostics.length) process.exitCode = 1;
   } finally {
     ws.close();
