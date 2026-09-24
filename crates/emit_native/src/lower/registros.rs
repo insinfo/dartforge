@@ -347,6 +347,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(r)));
     }
 
+    /// Hash de uma forma de record: valores iguais precisam ter o mesmo hash
+    /// para que `_CompactLinkedHashSet` e `_CompactLinkedHashMap` encontrem o
+    /// segundo record. O valor numérico em si não faz parte da API de Dart.
+    pub fn lower_hash_de_forma(&mut self, k: usize) {
+        let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
+        let (npos, nomes) = &self.ctx.formas_de_record[k];
+        let mut hash = Operand::Constant(Constant::Int(i64::from(ID_BASE_DE_FORMA) + k as i64));
+        for i in 0..npos + nomes.len() {
+            let campo = self.campo_de_forma(this.clone(), i);
+            let codigo = self.chamar_por_nome(campo, super::sdk_fonte::Tipo::Ler, "hashCode", &[]);
+            let codigo = self.coagir(codigo, Type::I64);
+            let multiplicado = self.emit(
+                Instruction::Mul(hash, Operand::Constant(Constant::Int(31))),
+                Type::I64,
+            );
+            hash = self.emit(Instruction::Add(multiplicado, codigo), Type::I64);
+        }
+        self.terminate(Terminator::Return(Some(hash)));
+    }
+
     /// `r.f(args)` onde `f` é campo de alguma forma de record: nos records
     /// com o campo, lê e chama o valor; nos demais receptores, `padrao`.
     pub fn chamar_campo_de_registro(

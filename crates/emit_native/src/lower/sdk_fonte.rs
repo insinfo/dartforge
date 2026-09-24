@@ -1274,9 +1274,23 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         let r = b.coagir(r, Type::Ref);
         b.terminate(Terminator::Return(Some(r)));
         b.finalizar(module);
+        // hashCode$g: o hash acompanha a igualdade estrutural do record.
+        let mut b = FnBuilder::new(ctx, u, format!("{base}.hashCode$g"), "hashCode".to_string(), Type::Ref);
+        let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        b.add_param("args".to_string(), Type::Ptr);
+        b.add_param("desc".to_string(), Type::Ptr);
+        let r = b.emit_call_with_check(
+            Instruction::CallStatic { symbol: format!("{base}.hashCode"), args: vec![recv], ret_ty: Type::I64 },
+            Type::I64,
+        );
+        let r = b.coagir(r, Type::Ref);
+        b.terminate(Terminator::Return(Some(r)));
+        b.finalizar(module);
         let mut tabela: Vec<(String, String)> = vec![
             ("c:toString".to_string(), format!("{base}.toString$c")),
             ("c:==".to_string(), format!("{base}.$3d$3d$c")),
+            ("g:hashCode".to_string(), format!("{base}.hashCode$g")),
+            ("c:hashCode".to_string(), format!("{base}.hashCode$g")),
         ];
         for (s, f) in &objeto {
             if !tabela.iter().any(|(x, _)| x == s) {

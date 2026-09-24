@@ -666,6 +666,12 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo, "toString".to_string(), Type::Ref);
         builder.lower_to_string_de_forma(k);
         builder.finalizar(&mut module);
+        if ctx.sdk_da_fonte {
+            let simbolo_hash = format!("df.$registro.{k}.hashCode");
+            let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo_hash, "hashCode".to_string(), Type::I64);
+            builder.lower_hash_de_forma(k);
+            builder.finalizar(&mut module);
+        }
     }
     if !ctx.formas_de_record.is_empty()
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
