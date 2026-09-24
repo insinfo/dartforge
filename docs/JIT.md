@@ -379,12 +379,12 @@ geração vem do tracker, que é o que o LLVM oferece para isso.
    publicados na abertura. Se uma recarga introduz outro membro exportado,
    o JIT consulta `exportados.def` e publica somente esse nome antes de ligar
    a geração nova; um nome ausente recusa a recarga na etapa `contract`.
-  Os exports adicionais já publicados permanecem na sessão mesmo se uma fase
-  posterior falhar, mas nenhuma entrada estável muda antes de a geração nova
-  estar ligada.
-  Um trampolim órfão, criado por uma tentativa anterior que falhou na ligação,
-  não satisfaz referências de outros módulos até receber uma implementação
-  publicada; a célula dele ainda contém ponteiro nulo.
+   Os exports adicionais já publicados permanecem na sessão mesmo se uma fase
+   posterior falhar, mas nenhuma entrada estável muda antes de a geração nova
+   estar ligada.
+   Um trampolim órfão, criado por uma tentativa anterior que falhou na ligação,
+   não satisfaz referências de outros módulos até receber uma implementação
+   publicada; a célula dele ainda contém ponteiro nulo.
 
 2. **Publicar**: materializar as implementações (aqui é onde o código nativo é
    gerado e ligado em memória) e **só então** escrever os novos ponteiros nas
