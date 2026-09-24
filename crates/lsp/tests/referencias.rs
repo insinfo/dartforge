@@ -89,3 +89,126 @@ fn import_presente_recusa_referencias() {
     let resultado = pedir(&mut servidor, 1, uri, 2, 20, true);
     assert_eq!(resultado, Value::Null);
 }
+
+const DONO_A: &str = "file:///cross-a.dart";
+const USA_B: &str = "file:///cross-b.dart";
+
+fn coluna_em(linha: &str, alvo: &str) -> u32 {
+    linha.find(alvo).expect("alvo na linha") as u32
+}
+
+#[test]
+fn variavel_entre_abertos_lista_declaracao_e_usos() {
+    let mut servidor = Servidor::new();
+    let texto_a = "int resposta = 42;\nvoid g() { print(resposta); }";
+    let texto_b = "import 'cross-a.dart';\nvoid f() { print(resposta); }";
+    abrir(&mut servidor, DONO_A, texto_a);
+    abrir(&mut servidor, USA_B, texto_b);
+    let linha_b = texto_b.lines().nth(1).unwrap();
+    let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "resposta"), true);
+    let lista = resultado.as_array().expect("lista de locais");
+    assert_eq!(lista.len(), 3, "{lista:?}");
+    assert_eq!(lista[0]["uri"], DONO_A);
+    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(lista[0]["range"]["end"], json!({"line":0,"character":12}));
+    assert_eq!(lista[1]["uri"], DONO_A);
+    let linha_a = texto_a.lines().nth(1).unwrap();
+    assert_eq!(lista[1]["range"]["start"], json!({"line":1,"character":coluna_em(linha_a, "resposta")}));
+    assert_eq!(lista[2]["uri"], USA_B);
+    assert_eq!(lista[2]["range"]["start"], json!({"line":1,"character":coluna_em(linha_b, "resposta")}));
+    // A partir da declaração no dono agrega os abertos.
+    let da_decl = pedir(&mut servidor, 2, DONO_A, 0, 5, true);
+    assert_eq!(da_decl.as_array().expect("lista").len(), 3);
+    // Sem a declaração, só os usos dos dois arquivos.
+    let sem_decl = pedir(&mut servidor, 3, USA_B, 1, coluna_em(linha_b, "resposta"), false);
+    let usos = sem_decl.as_array().expect("lista");
+    assert_eq!(usos.len(), 2, "{usos:?}");
+    assert_eq!(usos[0]["uri"], DONO_A);
+    assert_eq!(usos[1]["uri"], USA_B);
+}
+
+#[test]
+fn tipo_entre_abertos_lista_declaracao_e_usos() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, DONO_A, "class Caixa {}\nCaixa a;");
+    abrir(&mut servidor, USA_B, "import 'cross-a.dart';\nCaixa b;");
+    let resultado = pedir(&mut servidor, 1, USA_B, 1, 2, true);
+    let lista = resultado.as_array().expect("lista");
+    assert_eq!(lista.len(), 3, "{lista:?}");
+    assert_eq!(lista[0]["uri"], DONO_A);
+    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":6}));
+    assert_eq!(lista[0]["range"]["end"], json!({"line":0,"character":11}));
+    assert_eq!(lista[1], json!({"uri": DONO_A, "range": {"start": {"line":1,"character":0}, "end": {"line":1,"character":5}}}));
+    assert_eq!(lista[2], json!({"uri": USA_B, "range": {"start": {"line":1,"character":0}, "end": {"line":1,"character":5}}}));
+}
+
+#[test]
+fn funcao_entre_abertos_lista_declaracao_e_chamadas() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, DONO_A, "int somar() => 1;\nvoid g() { print(somar()); }");
+    abrir(&mut servidor, USA_B, "import 'cross-a.dart';\nvoid f() { print(somar()); }");
+    let linha_b = "void f() { print(somar()); }";
+    let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "somar"), true);
+    let lista = resultado.as_array().expect("lista");
+    assert_eq!(lista.len(), 3, "{lista:?}");
+    assert_eq!(lista[0]["uri"], DONO_A);
+    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":4}));
+}
+
+#[test]
+fn import_com_prefixo_recusa_referencias() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, DONO_A, "int resposta = 42;");
+    abrir(&mut servidor, USA_B, "import 'cross-a.dart' as a;\nvoid f() { print(a.resposta); }");
+    let linha_b = "void f() { print(a.resposta); }";
+    let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "resposta"), true);
+    assert_eq!(resultado, Value::Null);
+}
+
+#[test]
+fn import_com_show_recusa_referencias() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, DONO_A, "int resposta = 42;");
+    abrir(&mut servidor, USA_B, "import 'cross-a.dart' show resposta;\nvoid f() { print(resposta); }");
+    let linha_b = "void f() { print(resposta); }";
+    let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "resposta"), true);
+    assert_eq!(resultado, Value::Null);
+}
+
+#[test]
+fn dono_fechado_recusa_referencias() {
+    let mut servidor = Servidor::new();
+    let texto_b = "import 'cross-a.dart';\nvoid f() { print(resposta); }";
+    abrir(&mut servidor, USA_B, texto_b);
+    let linha_b = texto_b.lines().nth(1).unwrap();
+    let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "resposta"), true);
+    assert_eq!(resultado, Value::Null);
+}
+
+#[test]
+fn sombra_no_importador_pula_o_arquivo() {
+    let mut servidor = Servidor::new();
+    let texto_a = "int resposta = 42;\nvoid g() { print(resposta); }";
+    abrir(&mut servidor, DONO_A, texto_a);
+    abrir(
+        &mut servidor,
+        USA_B,
+        "import 'cross-a.dart';\nint resposta = 1;\nvoid f() { print(resposta); }",
+    );
+    let resultado = pedir(&mut servidor, 1, DONO_A, 0, 5, true);
+    let lista = resultado.as_array().expect("lista");
+    assert_eq!(lista.len(), 2, "{lista:?}");
+    assert!(lista.iter().all(|l| l["uri"] == DONO_A), "{lista:?}");
+}
+
+#[test]
+fn dois_donos_recusa_referencias() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, DONO_A, "int resposta = 1;");
+    abrir(&mut servidor, "file:///cross-c.dart", "int resposta = 2;");
+    let texto_b = "import 'cross-a.dart';\nimport 'cross-c.dart';\nvoid f() { print(resposta); }";
+    abrir(&mut servidor, USA_B, texto_b);
+    let linha_b = texto_b.lines().nth(2).unwrap();
+    let resultado = pedir(&mut servidor, 1, USA_B, 2, coluna_em(linha_b, "resposta"), true);
+    assert_eq!(resultado, Value::Null);
+}

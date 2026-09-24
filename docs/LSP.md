@@ -97,7 +97,12 @@ classe sombreada. A posição de entrada e o intervalo de destino são UTF-16.
 Referências de expressão a uma variável de topo única também navegam quando
 nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
 O mesmo vale para uma função de topo única; uma função local homônima impede
-a navegação até haver resolução por escopo.
+a navegação até haver resolução por escopo. Entre documentos abertos, o nome
+resolve para o documento que o declara quando o arquivo só tem imports
+relativos simples e um único aberto declara o nome sozinho num espaço (tipo
+ou valor); prefixo, `show`/`hide`, `export`, `part`, `part of`, augmentations,
+`dart:`/`package:`, padrões, sombras e dono fora dos abertos devolvem vazio
+em vez de destino errado.
 URIs `dart:`/`package:` e demais nomes aguardam resolução de bibliotecas e
 elementos. A regra de ativação do literal segue a navegação de diretivas do
 analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
@@ -124,14 +129,20 @@ vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
 aguardam a formatação completa da assinatura.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
-`textDocument/references` devolve os usos no próprio documento para os mesmos
-casos seguros da definição acima (tipo, variável, função ou getter de topo
-únicos, sem diretivas que tragam outros nomes, sem padrões e sem sombras):
-declaração primeiro, depois os usos em ordem de offset, honrando
-`context.includeDeclaration`. Entre arquivos e nomes importados aguardam a
-resolução de bibliotecas e elementos. A árvore é temporária por pedido,
-mantendo o platô de memória por edição. Teste:
-`cargo test -p dartforge-lsp --test referencias --locked`.
+`textDocument/references` devolve a declaração primeiro e depois os usos em
+ordem de (URI, offset), honrando `context.includeDeclaration`. No próprio
+documento valem os mesmos casos seguros da definição acima (tipo, variável,
+função ou getter de topo únicos, sem diretivas que tragam outros nomes, sem
+padrões e sem sombras). Entre documentos abertos, o símbolo resolve para o
+único dono importado por import relativo simples, sem prefixo, `show`/`hide`,
+`deferred`, condição, `export`, `part` ou `dart:`/`package:`; cada aberto
+contribui com os usos só quando nada mais pode trazer o nome — arquivo em
+dúvida (diretiva complexa, padrão, sombra, declaração local homônima, import
+simples para fora dos abertos ou outro aberto que declare o nome) é pulado,
+e dono zero ou duplo devolve vazio. Cada árvore é temporária por pedido e
+liberada antes da próxima, como em `workspace/symbol`: só os documentos
+abertos são lidos, nunca o disco por tecla, mantendo o platô de memória por
+edição. Teste: `cargo test -p dartforge-lsp --test referencias --locked`.
 
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
@@ -140,7 +151,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: completion, definição de variáveis/funções locais e nomes importados,
+Explicitamente fora deste brief: completion, definição de variáveis/funções locais e de nomes com prefixo, `show`/`hide`, `export`, `part` ou `dart:`/`package:`,
 rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Semântica
 (nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
