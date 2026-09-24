@@ -72,11 +72,11 @@ fn modulo_compilado_passa_pela_pre_verificacao() {
     assert!(erro.message.contains("sqlite3_open"), "{erro}");
 }
 
-/// O caminho `main` usado com o SDK da fonte também reinicia os estáticos do
-/// módulo. A segunda execução deve observar o mesmo zero da primeira.
+/// O caminho `main` também reinicia os estáticos do módulo JIT do programa.
+/// Esta sessão não carrega a DLL do SDK e não testa os estáticos internos dela.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn main_do_sdk_reinicia_globais_entre_execucoes() {
+fn main_reinicia_globais_do_modulo_jit_entre_execucoes() {
     let ir = "\
 @dfg_0_ok = internal global i8 0
 define i32 @main() {

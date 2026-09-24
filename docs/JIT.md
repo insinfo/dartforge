@@ -180,10 +180,12 @@ e em cache, e custo zero para quem não usa. A biblioteca já tem as peças.
   ligação delas de `internal` para externa **na cópia** do módulo, sem mudar o
   IR emitido. Global que não começa em zero é recusada na etapa `globais`, em
   vez de ser reiniciada errado.
-* **`run_main()` com SDK da fonte** segue a mesma regra de execução limpa:
-  thread nova e globais mutáveis do módulo zeradas antes de cada chamada.
-  Isso permite reusar a sessão para macros e builders sem herdar estáticos do
-  programa anterior.
+* **`run_main()` com SDK da fonte** cria uma thread nova e zera as globais
+  mutáveis dos módulos JIT do programa antes de cada chamada. O teste de
+  regressão executa `main` duas vezes na mesma sessão sem carregar a DLL do
+  SDK. Os estáticos internos da DLL do SDK não são exportados nem reiniciados
+  por esse caminho e continuam persistentes. A reutilização de uma sessão com
+  SDK da fonte ainda não garante estado completamente limpo entre execuções.
 
 Custo medido em 2026-09-23, `cargo test -p dartforge-jit --test
 sessao_persistente medicao -- --ignored --nocapture`. Perfil `test` (o Rust sem

@@ -305,7 +305,8 @@ impl JitSession {
 
     /// Executa o `main` do programa com o SDK da fonte (que chama
     /// `dartforge_iniciar` da DLL): o código de saída é o dele. As globais
-    /// mutáveis do programa são zeradas entre execuções da mesma sessão.
+    /// mutáveis dos módulos JIT do programa são zeradas entre execuções da
+    /// mesma sessão. Estáticos internos da DLL do SDK permanecem entre chamadas.
     pub fn run_main(&self) -> Result<EntryReport, JitError> {
         let started = Instant::now();
         let globals: Vec<&ffi::MutableGlobal> = self

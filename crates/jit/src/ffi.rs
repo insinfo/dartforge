@@ -1049,7 +1049,8 @@ impl Lljit {
 
     /// Resolve o `main` do programa (SDK da fonte) e o executa numa thread
     /// nova com pilha de `stack_bytes`; o código é o que ele devolve. As
-    /// globais do módulo voltam a zero como em `run_entry`.
+    /// globais dos módulos JIT recebidos voltam a zero como em `run_entry`.
+    /// Esta operação não reinicia os estáticos internos da DLL do SDK.
     pub(crate) fn run_main(&self, stack_bytes: usize, globals: &[&MutableGlobal]) -> Result<(Duration, i32, Duration), String> {
         let phase = Instant::now();
         let address = usize::try_from(self.lookup("main")?).map_err(|_| "endereço do main".to_owned())?;
