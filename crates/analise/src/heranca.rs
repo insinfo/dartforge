@@ -3,7 +3,7 @@
 //! cadeia linear de superclasses, sem composição de interfaces ou mixins.
 
 use dartforge_diagnostics::{Diagnostic, codigos::compile_time_error as c};
-use dartforge_elements::model::{ClassId, LibraryId, Program, UnitId};
+use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{MemberKind, Name};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
@@ -13,7 +13,9 @@ use std::collections::HashSet;
 pub fn estatico_contra_super(programa: &Program, lib: LibraryId, nomes: &Interner) -> Vec<(UnitId, Diagnostic)> {
     let mut saida = Vec::new();
     for (i, classe) in programa.classes.iter().enumerate() {
-        if classe.library != lib || classe.decl.is_none() { continue; }
+        if classe.library != lib || classe.decl.is_none() || classe.kind != ClassKind::Class
+            || !classe.mixins.is_empty() || !classe.interfaces.is_empty()
+        { continue; }
         let id = ClassId(i as u32);
         let nome_classe = nomes.resolve(classe.name);
         for (unidade, membro) in programa.membros_da_classe(id) {
@@ -35,6 +37,7 @@ pub fn estatico_contra_super(programa: &Program, lib: LibraryId, nomes: &Interne
                 while let Some(base) = ancestral {
                     if !vistos.insert(base) { break; }
                     let herdada = programa.class(base);
+                    if herdada.kind == ClassKind::MixinApplication { break; }
                     let visivel = !nome.starts_with('_') || herdada.library == lib;
                     if visivel && (herdada.instance_members.contains_key(&declarado.sym)
                         || setter.is_some_and(|s| herdada.instance_members.contains_key(&s)))
