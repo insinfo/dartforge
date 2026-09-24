@@ -18,7 +18,10 @@ pub extern "C" fn dartforge_null_assert_fail() -> ! {
 
 fn id_da_classe_stack_trace() -> i64 {
     CLASS_NAMES.with(|map| {
-        map.borrow().iter().find(|(_, name)| *name == "StackTrace" || *name == "_StackTrace").map(|(&id, _)| id)
+        let map = map.borrow();
+        map.iter().find(|(_, name)| *name == "_StackTrace")
+            .or_else(|| map.iter().find(|(_, name)| *name == "StackTrace"))
+            .map(|(&id, _)| id)
     }).unwrap_or(1006)
 }
 

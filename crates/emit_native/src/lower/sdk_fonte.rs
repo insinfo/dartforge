@@ -891,7 +891,29 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
         }
         let concreta = !classe.modifiers.abstract_ && !super::membros::e_mixin(ctx, cid);
         if concreta && let Some(id) = ctx.id_de_classe(cid) {
-            module.tabelas_de_metodos.push((id, simbolo_de_tabela(ctx, cid), tabela_de_metodos(ctx, cid)));
+            let mut tabela = tabela_de_metodos(ctx, cid);
+            // A VM implementa `_StackTrace.toString` em C++, sem declaração
+            // Dart na classe. Nosso objeto guarda a string no campo zero.
+            if ctx.symbol_name(classe.name) == "_StackTrace"
+                && ctx.program.library(classe.library).uri == "dart:core"
+                && let Some(u) = unidade_de(ctx, cid)
+            {
+                let simbolo = "df.$stackTrace.toString$c".to_string();
+                let mut b = FnBuilder::new(ctx, u, simbolo.clone(), "toString".to_string(), Type::Ref);
+                let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+                b.add_param("args".to_string(), Type::Ptr);
+                b.add_param("desc".to_string(), Type::Ptr);
+                let texto = b.emit(Instruction::CallRuntime {
+                    name: "dartforge_object_get".to_string(),
+                    args: vec![(this, Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                    ret_ty: Type::Ref,
+                }, Type::Ref);
+                b.terminate(Terminator::Return(Some(texto)));
+                b.finalizar(module);
+                tabela.retain(|(s, _)| s != "c:toString");
+                tabela.push(("c:toString".to_string(), simbolo));
+            }
+            module.tabelas_de_metodos.push((id, simbolo_de_tabela(ctx, cid), tabela));
         }
     }
     // A função da tabela de toda classe concreta compilada (a alocação, em
