@@ -260,10 +260,16 @@ todo o corpus com o binário de `main` o provam. O texto não decide nada. Ele
 só **fiscaliza** (abaixo).
 
 **O algoritmo** é o do `ResolutionWorldBuilder` (§1.1). A primeira versão é
-por nome:
+por nome, com espécie de seletor:
 
-* um membro de instância vive se a classe é **instanciada** e o nome é
-  **seletor vivo**;
+* um membro de instância vive se a classe é **instanciada** e a sua chave é
+  **seletor vivo** — `foo` para leitura e chamada, `foo=` para escrita, as
+  mesmas chaves do `instance_members` (o setter mora em `foo_=`);
+* a escrita exata vem do alvo do `Assign` simples (`=` puro), desembrulhado
+  de parênteses; composto (`+=`), `++`/`--` e alvo de `for-in` registram as
+  duas espécies; o `Resolved` já distingue getter de setter onde existe;
+* nomes vindos de fora do programa (o runtime chamando por string:
+  `dsend`/`dput`…) valem para as duas espécies;
 * instanciar sobe a cadeia de superclasses e os mixins aplicados;
 * o impacto de cada elemento é calculado quando ele entra na fila, então
   código morto nunca é percorrido.

@@ -80,6 +80,23 @@ class Tear {
   Tear();
 }
 
+// Espécie de seletor: leitura (`v`) e escrita (`v=`) são independentes.
+class SoLeitura {
+  int _v = 0;
+  int get v => _v;
+  set v(int x) {
+    _v = x;
+  }
+}
+
+class SoEscrita {
+  int _w = 0;
+  int get w => _w;
+  set w(int x) {
+    _w = x;
+  }
+}
+
 class ConstUsada {
   const ConstUsada();
 }
@@ -111,4 +128,9 @@ void main() {
   var t = Tear.new;
   t();
   print(usada);
+  var sl = SoLeitura();
+  print(sl.v);
+  var se = SoEscrita();
+  se.w = 1;
+  print(se._w);
 }

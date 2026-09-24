@@ -17,6 +17,10 @@
 //! * seletor **por nome**, sem restrição pelo tipo do receptor: a inferência
 //!   ainda tem lacunas e o emissor tem busca própria de membros, então casar
 //!   por tipo seria podar pelo palpite de uma das duas partes;
+//! * seletor **por espécie**: leitura/chamada (`foo`) e escrita (`foo=`) são
+//!   seletores distintos, como as chaves do `instance_members`. Nomes vindos
+//!   de fora do programa (o runtime chamando por string) valem para as duas
+//!   espécies; usos no programa registram a espécie exata;
 //! * operadores, membros de `Object` e `call` vivem em toda classe
 //!   instanciada, e também os membros que implementam um supertipo do SDK
 //!   (o runtime pré-compilado chama por esses nomes sem que o programa veja);
@@ -157,7 +161,7 @@ pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
         v.sort();
         v
     } {
-        m.novo_seletor(&s);
+        m.novo_seletor_externo(&s);
     }
     let mut todos: Vec<ClassId> = r.classes_todos_os_membros.clone();
     todos.sort();
@@ -291,6 +295,10 @@ pub(crate) struct Motor<'a> {
     causa_var: Vec<Option<Causa>>,
     itens: usize,
     extensoes_prontas: bool,
+    /// O alvo de um `Assign` simples sendo percorrido: o membro mais externo
+    /// dele é escrita (`foo=`), não leitura. Consumido (e zerado) pelo braço
+    /// `Property`/`Identifier`; o resto do alvo continua sendo leitura.
+    pub(crate) alvo_de_escrita: Option<dartforge_frontend::ast::ExprId>,
 }
 
 impl<'a> Motor<'a> {
@@ -327,6 +335,7 @@ impl<'a> Motor<'a> {
             causa_var: vec![None; p.variables.len()],
             itens: 0,
             extensoes_prontas: false,
+            alvo_de_escrita: None,
         }
     }
 
@@ -367,7 +376,10 @@ impl<'a> Motor<'a> {
             return;
         }
         // Campo de instância é armazenamento: vive com a classe instanciada,
-        // e o acesso é por seletor. Aqui só entram topo e estáticos.
+        // e o acesso é por seletor. Aqui só entram topo e estáticos. O
+        // `Resolved` não diz se o uso é leitura ou escrita, então vale a
+        // espécie de leitura (a escrita exata vem do alvo do `Assign`); o
+        // pior caso é manter o getter, nunca podar o setter sem registro.
         if var.class.is_some() && !var.static_ && var.extension.is_none() {
             let n = self.nome(var.name).to_string();
             self.novo_seletor(&n);
@@ -388,8 +400,10 @@ impl<'a> Motor<'a> {
     }
 
     pub(crate) fn novo_seletor(&mut self, nome: &str) {
-        // Setter e getter compartilham o seletor (primeira versão, por nome).
-        let nome = nome.strip_suffix("_=").unwrap_or(nome);
+        // Leitura e chamada (`x.foo`, `x.foo()`) valem para o getter e o
+        // método; a escrita (`x.foo = v`) registra `foo=` à parte. Sem
+        // sufixo não há atendimento entre espécies: um `foo` lido nunca
+        // mantém um `set foo` vivo.
         if self.sel.contains(nome) {
             return;
         }
@@ -401,6 +415,33 @@ impl<'a> Motor<'a> {
         }
     }
 
+    /// Nome chamado por fora do programa (`dart.dsend`/`dput` no runtime):
+    /// pode ser leitura ou escrita, então vale para as duas espécies.
+    pub(crate) fn novo_seletor_externo(&mut self, nome: &str) {
+        self.novo_seletor(nome);
+        if !nome.ends_with('=') {
+            self.novo_seletor(&format!("{nome}="));
+        }
+    }
+
+    /// A chave do seletor de um membro de instância: `foo` para leitura e
+    /// chamada, `foo=` para escrita — a mesma chave do `instance_members`.
+    pub(crate) fn chave_membro_instancia(&self, f: FunctionElementId) -> String {
+        let func = self.e.program.function(f);
+        let nome = self.nome(func.name);
+        if func.kind == FunctionKind::Setter {
+            return format!("{nome}=");
+        }
+        if func.kind == FunctionKind::ImplicitAccessor {
+            if let Some(v) = func.variable {
+                if self.e.program.variable(v).setter == Some(f) {
+                    return format!("{nome}=");
+                }
+            }
+        }
+        nome.to_string()
+    }
+
     /// Uso de uma função pelo seu elemento: estática, de topo, de extensão ou
     /// construtor vão direto; membro de instância vira seletor.
     pub(crate) fn usar_funcao(&mut self, f: FunctionElementId) {
@@ -410,7 +451,7 @@ impl<'a> Motor<'a> {
             _ => {
                 let instancia = func.class.is_some() && !func.static_ && func.extension.is_none();
                 if instancia {
-                    let n = self.nome(func.name).to_string();
+                    let n = self.chave_membro_instancia(f);
                     self.novo_seletor(&n);
                 } else {
                     if let Some(v) = func.variable {
@@ -420,7 +461,7 @@ impl<'a> Motor<'a> {
                         }
                     }
                     if func.extension.is_some() {
-                        let n = self.nome(func.name).to_string();
+                        let n = self.chave_membro_instancia(f);
                         self.novo_seletor(&n);
                     }
                     if let Some(c) = func.class {
@@ -634,25 +675,27 @@ impl<'a> Motor<'a> {
         self.processar_membros(k, false);
     }
 
-    /// Membros de instância de `k` (já instanciada): vivos se o nome é
-    /// seletor vivo ou de protocolo; senão, pendentes por nome.
+    /// Membros de instância de `k` (já instanciada): vivos se a chave é
+    /// seletor vivo ou de protocolo; senão, pendentes pela chave (`foo` e
+    /// `foo=` têm pendências separadas).
     fn processar_membros(&mut self, k: ClassId, so_pendentes: bool) {
         let p = self.e.program;
         let class = p.class(k);
         let todos = self.todos_membros.contains(&k) || class.kind == ClassKind::Enum;
-        let mut membros: Vec<FunctionElementId> = class.instance_members.values().copied().collect();
-        membros.sort();
-        for f in membros {
+        let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+            class.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+        membros.sort_by_key(|(_, f)| *f);
+        for (chave, f) in membros {
             let func = p.function(f);
-            let nome = self.nome(func.name);
+            let nome = self.nome(chave).to_string();
             let vive = todos
                 || func.kind == FunctionKind::Operator
-                || self.nomes_universais.contains(nome)
-                || self.sel.contains(nome);
+                || self.nomes_universais.contains(nome.as_str())
+                || self.sel.contains(nome.as_str());
             if vive && !so_pendentes {
                 self.viva_fn(f);
             } else if !vive {
-                self.pendentes.entry(nome.to_string()).or_default().push(f);
+                self.pendentes.entry(nome).or_default().push(f);
             }
         }
     }
@@ -662,7 +705,8 @@ impl<'a> Motor<'a> {
     }
 
     /// Regra (i) do contrato: a implementação, na cadeia de `c`, de todo
-    /// membro de instância declarado num supertipo do SDK de `c`.
+    /// membro de instância declarado num supertipo do SDK de `c`. O casamento
+    /// é pela chave (`foo=` casa com `set foo`), como nos pendentes.
     fn aplicar_protocolo(&mut self, c: ClassId) {
         let p = self.e.program;
         let mut vistos: HashSet<ClassId> = HashSet::new();
@@ -674,8 +718,8 @@ impl<'a> Motor<'a> {
             }
             let class = p.class(k);
             if !self.e_usuario_classe(k) {
-                for f in class.instance_members.values() {
-                    nomes.insert(self.nome(p.function(*f).name));
+                for s in class.instance_members.keys() {
+                    nomes.insert(self.nome(*s));
                 }
             }
             fila.extend(class.supertype_class);
@@ -698,10 +742,11 @@ impl<'a> Motor<'a> {
             cur = p.class(k).supertype_class;
         }
         for k in alvo {
-            let mut membros: Vec<FunctionElementId> = p.class(k).instance_members.values().copied().collect();
-            membros.sort();
-            for f in membros {
-                if nomes.contains(self.nome(p.function(f).name)) {
+            let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+                p.class(k).instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+            membros.sort_by_key(|(_, f)| *f);
+            for (chave, f) in membros {
+                if nomes.contains(self.nome(chave)) {
                     self.viva_fn(f);
                 }
             }
@@ -722,14 +767,15 @@ impl<'a> Motor<'a> {
             if !self.e_usuario_lib(ext.library) {
                 continue;
             }
-            let mut membros: Vec<FunctionElementId> = ext.instance_members.values().copied().collect();
-            membros.sort();
-            for f in membros {
-                let nome = self.nome(p.function(f).name);
-                if self.sel.contains(nome) || p.function(f).kind == FunctionKind::Operator {
+            let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+                ext.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+            membros.sort_by_key(|(_, f)| *f);
+            for (chave, f) in membros {
+                let nome = self.nome(chave).to_string();
+                if self.sel.contains(nome.as_str()) || p.function(f).kind == FunctionKind::Operator {
                     self.viva_fn(f);
                 } else {
-                    self.pendentes.entry(nome.to_string()).or_default().push(f);
+                    self.pendentes.entry(nome).or_default().push(f);
                 }
             }
         }

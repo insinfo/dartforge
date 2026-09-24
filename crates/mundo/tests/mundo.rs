@@ -47,6 +47,26 @@ impl Caso<'_> {
     fn viva(&self, nome: &str) -> bool {
         self.m.funcao(self.funcao(nome))
     }
+    /// `C.m` por espécie: `escrita` escolhe o setter (`set m`), senão o
+    /// getter/método. Distingue pelo `FunctionKind`, porque os dois se chamam `m`.
+    fn viva_especie(&self, nome: &str, escrita: bool) -> bool {
+        use dartforge_elements::model::FunctionKind;
+        let (classe, membro) = match nome.split_once('.') {
+            Some((c, m)) => (Some(self.classe(c)), m),
+            None => (None, nome),
+        };
+        let f = (0..self.p.functions.len())
+            .map(|i| FunctionElementId(i as u32))
+            .find(|f| {
+                let func = self.p.function(*f);
+                !self.p.library(func.library).is_sdk
+                    && self.i.resolve(func.name) == membro
+                    && func.class == classe
+                    && matches!(func.kind, FunctionKind::Setter) == escrita
+            })
+            .unwrap_or_else(|| panic!("função {nome} (escrita={escrita})"));
+        self.m.funcao(f)
+    }
     fn nivel(&self, nome: &str) -> NivelClasse {
         self.m.classe(self.classe(nome))
     }
@@ -99,6 +119,9 @@ fn casos_do_mundo_fechado() {
         confere(c.m.tearoff_de_construtor(c.funcao("Tear.")), "tearoff de construtor");
         confere(c.nivel("ConstUsada") == NivelClasse::Instanciada && c.nivel("ConstMorta") == NivelClasse::Morta, "const usada e não usada");
         confere(c.nivel("Json") == NivelClasse::Morta, "classe não citada morta");
+        // espécie de seletor: leitura e escrita são independentes
+        confere(c.viva_especie("SoLeitura.v", false) && !c.viva_especie("SoLeitura.v", true), "getter lido vive, setter nunca escrito morre");
+        confere(c.viva_especie("SoEscrita.w", true) && !c.viva_especie("SoEscrita.w", false), "setter escrito vive, getter nunca lido morre");
         // conferência a seco e determinismo
         let inc = conferir(e, &raizes, &m);
         confere(inc.is_empty(), &format!("conferência: {inc:?}"));

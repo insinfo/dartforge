@@ -23,7 +23,7 @@
 
 use crate::Motor;
 use dartforge_elements::model::{ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId, VariableId};
-use dartforge_frontend::ast::{self, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, PatternId, PatternKind, StmtId, StmtKind, StringPart, TypeKind};
+use dartforge_frontend::ast::{self, AssignOp, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, PatternId, PatternKind, StmtId, StmtKind, StringPart, TypeKind, UnaryOp};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
 /// Onde o corpo sendo percorrido está.
@@ -340,12 +340,30 @@ fn alvo_for_in(m: &mut Motor<'_>, ctx: &Contexto, t: &ForInTarget) {
             }
         }
         ForInTarget::Pattern { pattern, .. } => padrao(m, ctx, *pattern),
-        ForInTarget::Expression(x) => expr(m, ctx, *x),
+        ForInTarget::Expression(x) => {
+            // `for (alvo in ...)` escreve no alvo (e o lê, se composto).
+            escrita_no_alvo(m, ctx, *x);
+            expr(m, ctx, *x);
+        }
     }
     // `for-in` chama o protocolo de iteração (`kernel_impact.dart:906-918`).
     for s in ["iterator", "moveNext", "current"] {
         m.novo_seletor(s);
     }
+}
+
+/// Um uso de escrita fora do `Assign` simples (`+=`, `++`, alvo de
+/// `for-in`): registra a espécie de escrita sem suprimir a leitura, que o
+/// percurso normal registra em seguida.
+fn escrita_no_alvo(m: &mut Motor<'_>, ctx: &Contexto, alvo: ExprId) {
+    let e = m.e;
+    let ast = &e.program.unit(ctx.unidade).ast;
+    let nome = match &ast.expr(alvo).kind {
+        ExprKind::Property { name, .. } => e.interner.resolve(name.sym),
+        ExprKind::Identifier(n) => e.interner.resolve(n.sym),
+        _ => return,
+    };
+    m.novo_seletor(&format!("{nome}="));
 }
 
 fn for_init(m: &mut Motor<'_>, ctx: &Contexto, i: &ForInit) {
@@ -711,9 +729,16 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             }
         }
         ExprKind::Identifier(n) => {
-            // `nome` solto pode ser `this.nome` implícito.
-            let s = e.interner.resolve(n.sym);
-            m.novo_seletor(s);
+            // `nome` solto pode ser `this.nome` implícito. No alvo de um
+            // `Assign` simples é escrita (`nome=`); senão, leitura.
+            if m.alvo_de_escrita == Some(id) {
+                m.alvo_de_escrita = None;
+                let s = e.interner.resolve(n.sym);
+                m.novo_seletor(&format!("{s}="));
+            } else {
+                let s = e.interner.resolve(n.sym);
+                m.novo_seletor(s);
+            }
             m.usar_nome(ctx, n.sym);
         }
         ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => expr(m, ctx, *x),
@@ -742,8 +767,17 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
         }
         ExprKind::FunctionExpression(f) => percorrer_funcao(m, ctx, *f),
         ExprKind::Property { target, name, .. } => {
-            let s = e.interner.resolve(name.sym);
-            m.novo_seletor(s);
+            // No alvo de um `Assign` simples é escrita (`nome=`); senão, é
+            // leitura ou chamada. O receptor continua sendo leitura, e o
+            // `Resolved` (que já distingue getter de setter) continua valendo.
+            if m.alvo_de_escrita == Some(id) {
+                m.alvo_de_escrita = None;
+                let s = e.interner.resolve(name.sym);
+                m.novo_seletor(&format!("{s}="));
+            } else {
+                let s = e.interner.resolve(name.sym);
+                m.novo_seletor(s);
+            }
             if let Some(a) = alvo_estatico(m, ctx, *target) {
                 membro_estatico(m, ctx, a, name.sym);
             }
@@ -797,7 +831,13 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                 tipo_ast(m, ctx, *t);
             }
         }
-        ExprKind::Unary { operand, .. } => expr(m, ctx, *operand),
+        ExprKind::Unary { op, operand } => {
+            // `++`/`--` lê e escreve (`x++` chama o getter e o setter).
+            if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec) {
+                escrita_no_alvo(m, ctx, *operand);
+            }
+            expr(m, ctx, *operand);
+        }
         ExprKind::Binary { left, right, .. } => {
             expr(m, ctx, *left);
             expr(m, ctx, *right);
@@ -811,9 +851,32 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             expr(m, ctx, *value);
             tipo_ast(m, ctx, *ty);
         }
-        ExprKind::Assign { target, value, .. } => {
-            expr(m, ctx, *target);
-            expr(m, ctx, *value);
+        ExprKind::Assign { op, target, value } => {
+            match op {
+                // Escrita pura: só o membro mais externo do alvo é `nome=`;
+                // o resto do alvo (receptor, índice) continua leitura.
+                AssignOp::Assign => {
+                    // `(x.w) = v`: o alvo real está dentro dos parênteses.
+                    let mut alvo = *target;
+                    loop {
+                        if let ExprKind::Parenthesized(x) = &e.program.unit(ctx.unidade).ast.expr(alvo).kind {
+                            alvo = *x;
+                        } else {
+                            break;
+                        }
+                    }
+                    m.alvo_de_escrita = Some(alvo);
+                    expr(m, ctx, *target);
+                    m.alvo_de_escrita = None;
+                    expr(m, ctx, *value);
+                }
+                // Composto (`+=`, `??=`): lê e escreve.
+                AssignOp::Compound(_) => {
+                    escrita_no_alvo(m, ctx, *target);
+                    expr(m, ctx, *target);
+                    expr(m, ctx, *value);
+                }
+            }
         }
         ExprKind::PatternAssign { pattern, value } => {
             padrao(m, ctx, *pattern);
