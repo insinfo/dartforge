@@ -446,6 +446,21 @@ impl<'p> Vista<'p> {
     pub fn declaracao_json(&self, t: &mut Tabela, c: &Chave) -> Option<Value> {
         match c {
             Chave::Tipo { .. } => self.classe(c).map(|id| self.classe_json(t, id)),
+            Chave::FuncaoDeTopo { .. } => {
+                let f = self.program.function(self.funcao(c)?);
+                let FunctionRef::Function { unit, function } = f.node else { return None };
+                let ast = self.program.unit(unit).ast.function(function);
+                let lib = self.biblioteca_json(t, f.library);
+                let escopo = Vec::new();
+                let retorno = self.tipo(t, unit, ast.return_type, &escopo, || Omitido { dono: c.clone(), lugar: "retorno".into() });
+                let (pos, nom) = self.parametros(t, unit, c, ast.parameters.as_deref().unwrap_or(&[]), &escopo);
+                Some(json!({"k": "funcao", "ident": self.ident(t, c.clone()), "lib": lib,
+                    "corpo": true, "external": f.external,
+                    "operador": ast.kind == ast::FunctionKind::Operator,
+                    "getter": ast.kind == ast::FunctionKind::Getter,
+                    "setter": ast.kind == ast::FunctionKind::Setter,
+                    "retorno": retorno, "posicionais": pos, "nomeados": nom, "tparams": []}))
+            }
             Chave::Metodo { lib, dono, .. } | Chave::Construtor { lib, dono, .. } | Chave::Campo { lib, dono, .. } => {
                 let cid = self.classe(&Chave::Tipo { lib: lib.clone(), nome: dono.clone() })?;
                 let tipo = match c {

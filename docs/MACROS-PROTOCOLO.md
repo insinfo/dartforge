@@ -219,6 +219,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `413_argumentos_nomeados` — macro própria `@Etiquetas(prefixo: 'A')`,
   exercitando argumento nomeado em desenvolvimento e produção. O texto
   gerado pelo hospedeiro é comparado byte a byte com o CFE 3.6.2.
+* `414_funcao_topo` — macro em função de topo (`FunctionDeclarationsMacro`),
+  exercitando o modelo da função e declaração nova na biblioteca. O programa
+  chama a função gerada e a augmentation é comparada byte a byte ao CFE.
 
 ## 8. Placar (medido nesta rodada)
 
