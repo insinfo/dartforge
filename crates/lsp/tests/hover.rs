@@ -80,3 +80,39 @@ fn variavel_local_homonima_impede_hover_de_topo() {
         "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":coluna}}}));
     assert_eq!(servidor.bombear()[0]["result"], Value::Null);
 }
+
+#[test]
+fn hover_de_funcao_de_topo_sem_parametros() {
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "capabilities":{"textDocument":{"hover":{"contentFormat":["markdown"]}}}
+    }}));
+    servidor.bombear();
+    let uri = "file:///funcao.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"int resposta() => 42;\nvoid main() { print(resposta()); }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":2,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":22}}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"]["contents"], json!({
+        "kind":"markdown","value":"```dart\nint resposta()\n```"
+    }));
+}
+
+#[test]
+fn funcao_local_homonima_impede_hover_de_topo() {
+    let mut servidor = Servidor::new();
+    let uri = "file:///sombra-funcao.dart";
+    let fonte = "int resposta() => 42;\nvoid main() { int resposta() => 1; print(resposta()); }";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":fonte}
+    }}));
+    servidor.bombear();
+    let coluna = fonte.lines().nth(1).unwrap().find("print(resposta())").unwrap() + 8;
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":coluna}}}));
+    assert_eq!(servidor.bombear()[0]["result"], Value::Null);
+}

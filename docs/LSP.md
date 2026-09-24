@@ -96,6 +96,8 @@ tipo homônimo em qualquer escopo da unidade; assim evita apontar para uma
 classe sombreada. A posição de entrada e o intervalo de destino são UTF-16.
 Referências de expressão a uma variável de topo única também navegam quando
 nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
+O mesmo vale para uma função de topo única; uma função local homônima impede
+a navegação até haver resolução por escopo.
 URIs `dart:`/`package:` e demais nomes aguardam resolução de bibliotecas e
 elementos. A regra de ativação do literal segue a navegação de diretivas do
 analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
@@ -112,6 +114,9 @@ resolução semântica. Para uma variável de topo única com tipo primitivo
 escrito (`int`, `double`, `num`, `bool`, `String`, `Object`, `dynamic`), mostra
 `tipo nome` e `Type: tipo`, como a descrição do `VariableElement` no analyzer.
 Nomes locais homônimos desligam esse hover até existir resolução por escopo.
+Funções de topo sem parâmetros e com retorno primitivo/`void` escrito recebem
+hover com assinatura `tipo nome()`; funções genéricas, com parâmetros ou
+retorno inferido aguardam a formatação completa da assinatura.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
@@ -121,7 +126,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: completion, definição de variáveis locais/funções e nomes importados, referências,
+Explicitamente fora deste brief: completion, definição de variáveis/funções locais e nomes importados, referências,
 rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Semântica
 (nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
