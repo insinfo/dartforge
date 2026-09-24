@@ -387,6 +387,28 @@ fn getter_de_topo_sem_setter_e_par_com_setter() {
 }
 
 #[test]
+fn metodo_de_classe_nao_e_setter_mesmo_com_extensao() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; class A { void foo() {} int bar = 0; void g() { foo = 0; } } extension E on A { set foo(int v) {} } void f(A a) { a.foo = 0; a.foo += 1; a.foo++; ++a.foo; a.bar = 0; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let metodos: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_METHOD.template)).collect();
+    assert_eq!(metodos.len(), 5, "{diags:?}");
+    for d in metodos {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
+    }
+    assert!(!diags.iter().any(|d| d.message.contains("'bar'")), "{diags:?}");
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
