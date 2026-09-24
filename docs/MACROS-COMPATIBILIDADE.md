@@ -100,6 +100,10 @@ fábricas de macro do projeto para chamar esse executor sem a sessão gravada.
 O adaptador do builder já serializa classes simples e campos no formato de
 `macro.executar`; o modelo de `Endereco` bate estruturalmente com o pedido
 gravado do CFE, depois de trocar apenas a URI do pacote do fixture.
+Com esse modelo, `@JsonCodable` executa a fase de declarações no mesmo isolate
+e devolve o resultado estruturado idêntico ao da sessão CFE (3 consultas ao
+hospedeiro). As respostas dessas consultas ainda vêm da sessão gravada no
+teste; o builder precisa respondê-las pelo analyzer antes de gerar o arquivo.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
