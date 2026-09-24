@@ -150,6 +150,8 @@ pub(crate) struct Reloadable {
     pub(crate) entries: BTreeMap<String, Entry>,
     /// Layout nominal das classes da versão viva: `(class_id, campos)`.
     layouts: Vec<(i64, i64)>,
+    /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
+    pub(crate) globals: Vec<ffi::MutableGlobal>,
     /// Rastreadores das gerações, **retidos** até o encerramento da sessão.
     generations: Vec<ffi::ResourceTracker>,
     /// Rastreadores dos módulos de trampolim; nunca descarregados.
@@ -558,6 +560,8 @@ impl JitSession {
         let generation = existing.map_or(1, |index| self.reloadables[index].generation + 1);
         let suffix = format!("$gen{generation}");
         let phase = Instant::now();
+        let globals = parsed.version_mutable_globals(&suffix)
+            .map_err(|detail| JitError::new("globais", "a geração tem estado que a sessão não sabe reiniciar", detail))?;
         let published = parsed.version_definitions(&suffix);
         let tracker = self.lljit.create_tracker();
         self.lljit
@@ -708,6 +712,7 @@ impl JitSession {
         }
         module.generation = generation;
         module.layouts = layouts;
+        module.globals = globals;
         module.generations.push(tracker);
         if let Some(created) = stub_tracker {
             module.stubs.push(created);
@@ -752,6 +757,7 @@ impl JitSession {
             generation: 0,
             entries: BTreeMap::new(),
             layouts: Vec::new(),
+            globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
         });
@@ -1089,6 +1095,7 @@ mod tests {
             generation: 1,
             entries,
             layouts: Vec::new(),
+            globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
         }];

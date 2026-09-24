@@ -154,6 +154,27 @@ fn nome_desconhecido_nao_promove_o_unico_modulo() {
     assert_eq!(sessao.run_main().unwrap().exit_code, 7);
 }
 
+/// A geração recarregável tem seus próprios estáticos. Execuções consecutivas
+/// do `main` reiniciam o indicador, antes e depois da troca de geração.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn main_recarregavel_reinicia_estaticos_da_geracao_ativa() {
+    let ir = "@dfg_0_ok = internal global i8 0\n\
+define i32 @main() {\n\
+  %anterior = load i8, ptr @dfg_0_ok\n\
+  store i8 1, ptr @dfg_0_ok\n\
+  %codigo = zext i8 %anterior to i32\n\
+  ret i32 %codigo\n}\n";
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", ir).expect("geração 1");
+    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+
+    sessao.hot_reload("app", ir).expect("geração 2");
+    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]

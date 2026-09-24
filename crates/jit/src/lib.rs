@@ -314,6 +314,7 @@ impl JitSession {
             .iter()
             .filter(|module| !module.removed)
             .flat_map(|module| module.globals.iter())
+            .chain(self.reloadables.iter().flat_map(|module| module.globals.iter()))
             .collect();
         let (lookup, exit_code, execute) = self
             .lljit
@@ -551,6 +552,7 @@ impl JitSession {
             .iter()
             .filter(|module| !module.removed)
             .flat_map(|module| module.globals.iter())
+            .chain(self.reloadables.iter().flat_map(|module| module.globals.iter()))
             .collect();
         let (lookup, exit_code, execute) =
             self.lljit.run_entry(PROGRAM_STACK_BYTES, &globals).map_err(|detail| {

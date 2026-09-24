@@ -1220,6 +1220,16 @@ impl ParsedModule {
     /// produz, e reiniciar é escrever zeros. Outra forma é recusada com o
     /// nome, em vez de uma reinicialização errada em silêncio.
     pub(crate) fn prepare_mutable_globals(&self) -> Result<Vec<MutableGlobal>, String> {
+        self.prepare_mutable_globals_with_suffix("")
+    }
+
+    /// A geração recarregável guarda uma cópia dos estáticos do programa.
+    /// O sufixo evita colisão entre gerações retidas na mesma `JITDylib`.
+    pub(crate) fn version_mutable_globals(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
+        self.prepare_mutable_globals_with_suffix(suffix)
+    }
+
+    fn prepare_mutable_globals_with_suffix(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
         use llvm_sys::LLVMLinkage;
         let mut globals = Vec::new();
         // SAFETY: travessia pela API do LLVM sobre o módulo vivo, terminada no
@@ -1256,6 +1266,11 @@ impl ParsedModule {
                     if matches!(linkage, LLVMLinkage::LLVMInternalLinkage | LLVMLinkage::LLVMPrivateLinkage) {
                         llvm_sys::core::LLVMSetLinkage(global, LLVMLinkage::LLVMExternalLinkage);
                     }
+                    let name = if suffix.is_empty() { name } else {
+                        let versioned = format!("{name}{suffix}");
+                        llvm_sys::core::LLVMSetValueName2(global, versioned.as_ptr().cast::<c_char>(), versioned.len());
+                        versioned
+                    };
                     globals.push(MutableGlobal { name, size });
                 }
                 global = next;
