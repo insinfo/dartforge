@@ -242,6 +242,17 @@ pub trait Analisador {
     fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         None
     }
+
+    /// Referências conservadoras no próprio documento: declaração primeiro,
+    /// depois os usos, todos como spans em bytes UTF-8.
+    ///
+    /// Só responde nos mesmos casos seguros de [`Analisador::definicao`]
+    /// (tipo, variável, função ou getter de topo únicos, sem imports nem
+    /// sombras): `None` significa "não sei", nunca "não há". O resultado é
+    /// transitório do chamador, como nos demais métodos.
+    fn referencias(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
+        None
+    }
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -346,8 +357,13 @@ impl Analisador for AnalisadorSintatico {
     fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         let features = self.features(uri, texto);
         match navegacao::destino(uri, texto, features, offset)? {
-            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?, tipo.tipo_estatico)),
             navegacao::Alvo::Arquivo(_) => None,
+            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?, tipo.tipo_estatico)),
         }
+    }
+
+    fn referencias(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
+        let features = self.features(uri, texto);
+        navegacao::referencias(uri, texto, features, offset)
     }
 }

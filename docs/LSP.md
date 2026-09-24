@@ -124,6 +124,15 @@ vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
 aguardam a formatação completa da assinatura.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
+`textDocument/references` devolve os usos no próprio documento para os mesmos
+casos seguros da definição acima (tipo, variável, função ou getter de topo
+únicos, sem diretivas que tragam outros nomes, sem padrões e sem sombras):
+declaração primeiro, depois os usos em ordem de offset, honrando
+`context.includeDeclaration`. Entre arquivos e nomes importados aguardam a
+resolução de bibliotecas e elementos. A árvore é temporária por pedido,
+mantendo o platô de memória por edição. Teste:
+`cargo test -p dartforge-lsp --test referencias --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -131,7 +140,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: completion, definição de variáveis/funções locais e nomes importados, referências,
+Explicitamente fora deste brief: completion, definição de variáveis/funções locais e nomes importados,
 rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Semântica
 (nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
