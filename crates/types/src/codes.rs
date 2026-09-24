@@ -92,6 +92,11 @@ pub const NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT: DiagnosticCode = DiagnosticCod
     "Construtor sem nome não encontrado",
 );
 
+pub const INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
+    "invalid_reference_to_generative_enum_constructor",
+    "Referência inválida a construtor gerador de enum",
+);
+
 pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
     "invocation_of_extension_without_call",
     "Invocação de extensão sem call",
