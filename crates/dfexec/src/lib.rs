@@ -11,6 +11,7 @@ const MAIOR_QUADRO: u32 = 64 << 20;
 pub fn escrever_quadro(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
     let corpo = serde_json::to_vec(m).map_err(std::io::Error::other)?;
     let n = u32::try_from(corpo.len()).map_err(std::io::Error::other)?;
+    if n > MAIOR_QUADRO { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
     w.write_all(&n.to_be_bytes())?;
     w.write_all(&corpo)?;
     w.flush()
