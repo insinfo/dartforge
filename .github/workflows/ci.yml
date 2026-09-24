@@ -71,6 +71,11 @@ jobs:
       # (LNK1104 quando duas ligações se cruzavam).
       - name: test
         run: cargo test --locked --workspace --no-fail-fast
+      # O teste de recarga pela CLI é gated por `--features jit`; o workspace
+      # padrão compila o binário sem LLVM-C e não executa esta fixture.
+      - name: recarga JIT com estado pela CLI
+        if: success() || failure()
+        run: cargo test --locked -p dartforge-cli --features jit --test reload_estado
       # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
       #   corpus_pub*       references/pub é baixado pelo proprietário, fora do git
