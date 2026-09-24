@@ -157,19 +157,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) })
     }
 
-    /// Hook da leitura de campo (SDK da fonte): o campo público de uma
-    /// classe do SDK aberta pode ser sobrescrito por um getter do programa.
+    /// Hook da leitura de campo: um getter de subclasse pode sobrescrever
+    /// inclusive o getter implícito de um campo da classe base.
     pub fn ler_campo_fonte(&mut self, obj: Operand, vid: VariableId) -> Option<Operand> {
         if !self.ctx.sdk_da_fonte || self.em_adaptador {
             return None;
         }
         let v = &self.ctx.program.variables[vid.0 as usize];
         let cid = v.class?;
-        if !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
-            return None;
-        }
         let nome = self.ctx.symbol_name(v.name).to_string();
-        if membro_fechado(self.ctx, cid, &nome)
+        let e_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
+        if !e_sdk {
+            let sobrescrito = implementacoes(self.ctx, cid, &nome).iter().any(|i| {
+                matches!(i, Implementacao::Funcao(f)
+                    if self.ctx.program.functions[*f].kind == FunctionKind::Getter)
+            });
+            if !sobrescrito {
+                return None;
+            }
+        }
+        if e_sdk && membro_fechado(self.ctx, cid, &nome)
             && implementacoes(self.ctx, cid, &nome).iter().all(|i| *i == Implementacao::Campo(vid))
         {
             return None;
