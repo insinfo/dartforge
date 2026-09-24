@@ -243,6 +243,7 @@ impl Motor {
             for (i, u) in unidades.iter().enumerate() {
                 achados.extend(dartforge_analise::locais::nao_usados(*u, &interner, curinga).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
             }
             for (i, d) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {

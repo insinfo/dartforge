@@ -8,11 +8,13 @@
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
 //! * [`externos`]: inicializadores de campos e variáveis `external`
 //!   (`ErrorVerifier`).
+//! * [`operadores`]: aridade de métodos `operator` (`ErrorVerifier`).
 
 pub mod duplicatas;
 pub mod externos;
 pub mod importacoes;
 pub mod locais;
+pub mod operadores;
 pub mod publicacao;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};

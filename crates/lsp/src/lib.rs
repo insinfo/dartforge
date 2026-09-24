@@ -326,7 +326,8 @@ impl Analisador for AnalisadorSintatico {
             .into_iter()
             .map(|(_, d)| d)
             .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga))
-            .chain(dartforge_analise::externos::inicializadores(unidade));
+            .chain(dartforge_analise::externos::inicializadores(unidade))
+            .chain(dartforge_analise::operadores::aridade(unidade, &nomes));
         saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));
         saida
     }
