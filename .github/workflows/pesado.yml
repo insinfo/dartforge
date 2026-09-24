@@ -491,6 +491,9 @@ jobs:
       - name: toString padrão de genérica inclui argumentos no SDK
         shell: pwsh
         run: cargo test --locked --release -p dartforge-emit-native --test contrato classe_generica_tostring_padrao_no_sdk -- --ignored --nocapture
+      - name: Enum do programa é subtipo de Enum no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato enum_e_subtipo_de_enum_no_sdk -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).

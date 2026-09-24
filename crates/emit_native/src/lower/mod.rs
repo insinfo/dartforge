@@ -251,6 +251,18 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         if let Some(sup) = class.supertype_class.and_then(|s| ctx.id_de_classe(s)) {
             module.subtyping_edges.push((class_id, sup));
         }
+        // Enum do programa é subtipo do `Enum` do SDK (especificação §13):
+        // sem a aresta, `valor is Enum` respondia falso. A superclasse do
+        // outline não carrega o `Enum`, então a aresta é registrada aqui.
+        // Sem id do SDK (modo sem fonte), não há o que registrar.
+        if ctx.sdk_da_fonte
+            && !ctx.program.library(class.library).is_sdk
+            && enums::e_enum(ctx, dartforge_elements::model::ClassId(c_idx as u32))
+            && let Some(enum_sdk) = ctx.classe_do_sdk("core", "Enum")
+            && let Some(enum_id) = ctx.id_de_classe(enum_sdk)
+        {
+            module.subtyping_edges.push((class_id, enum_id));
+        }
         let mut nomes_de_supertipo: Vec<&str> = Vec::new();
         if let Some(sup) = class.supertype_class {
             nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[sup.0 as usize].name));

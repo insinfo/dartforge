@@ -318,8 +318,7 @@ fn enum_values_implicito_vira_a_lista_dos_valores() {
 /// O programa acima executado (AOT com SDK da fonte).
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
-fn enum_values_implicito_no_sdk() {
-    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
@@ -367,6 +366,33 @@ fn classe_generica_tostring_padrao_no_sdk() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
                "true\nInstance of 'Caixa<String>'\nInstance of 'Caixa<Caixa<int>>'\ntrue\n");
+}
+
+/// Enum do programa é subtipo do `Enum` do SDK (especificação §13): a
+/// aresta vai no registro do módulo do programa, e `is`/`as` a enxergam.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn enum_e_subtipo_de_enum_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("enum_e_subtipo_de_enum.dart");
+    let exe = dir.path().join("enum_e_subtipo_de_enum.exe");
+    std::fs::write(&entrada, include_str!("fixtures/enum_e_subtipo_de_enum.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "true\nfalse\ntrue\nfalse\n");
 }
 
 /// O getter separado impede que `late String x = x` expanda a própria AST
