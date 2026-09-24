@@ -476,6 +476,9 @@ jobs:
       - name: Escrita covariante de List Map Set preserva tipo e conteúdo
         shell: pwsh
         run: cargo test --locked --release -p dartforge-emit-native --test contrato escrita_covariante_em_colecoes_lanca_type_error_sem_mutar -- --ignored --nocapture
+      - name: Argumento dinâmico errado do SDK lança TypeError
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato argumento_dinamico_errado_do_sdk_lanca_type_error -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).
