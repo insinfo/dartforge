@@ -4,7 +4,7 @@ O DartForge passa a ter dois perfis de execução nativa sobre **o mesmo LLVM IR
 
 | | Desenvolvimento (`crates/jit`) | Produção (`crates/native`) |
 | --- | --- | --- |
-| Comando | `dartforge run <entrada.dart>`, `dartforge reload <v1.dart> <v2.dart> …` | `dartforge aot <entrada.dart> <saida.exe>` |
+| Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--preservar-estado]` | `dartforge aot <entrada.dart> <saida.exe>` |
 | Geração de código | ORCv2 (`LLJIT`), em memória | Clang, em processo separado |
 | Runtime nativo | endereços das funções Rust publicados como símbolos absolutos | `rustc` compila `RUNTIME_MAIN` e o linker resolve os símbolos |
 | Artefato | nenhum | executável no disco |
@@ -19,8 +19,11 @@ divergir em resultado é defeito.
 > runtime publicado a partir da fonte do harness AOT, pré-verificação de
 > externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
 > `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
-> `dartforge reload` R0 (reinício a quente, estado NÃO preservado; cada geração
-> num processo `dartforge run --ir`). No harness: `--jit` e `--jit-aot`.
+> `dartforge reload` mantém R0 por padrão (reinício a quente, estado NÃO
+> preservado; cada geração num processo `dartforge run --ir`). Com
+> `--preservar-estado`, publica as gerações numa `JitSession` R1 e chama a entrada
+> na mesma thread: estáticos e heap permanecem vivos. No harness: `--jit` e
+> `--jit-aot`.
 > Runtime de fonte única (`dartforge_runtime::abi`) e sessão persistente com
 > cache de módulos (executor de macros), ver as seções abaixo. As seções «O que
 > executa» e «Hot reload» abaixo descrevem a trilha velha; o mecanismo de
@@ -28,8 +31,8 @@ divergir em resultado é defeito.
 > `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT
 > (passos 1–13).
 >
-> **O caminho de execução (`run_ir`, `dartforge-executar-ir` e o futuro
-> `dartforge run`/`reload` R0) não passa por `src/reload.rs`.** O módulo entra
+> **O caminho de execução (`run_ir`, `dartforge-executar-ir`, `dartforge run` e
+> `dartforge reload` R0) não passa por `src/reload.rs`.** O módulo entra
 > por `add_ir_module`, sem trampolim nem célula: as chamadas são diretas, como
 > no AOT. Isso é contrato, não detalhe. O trampolim acrescenta um quadro por
 > chamada, e a profundidade de recursão divergiria do executável AOT
@@ -438,30 +441,24 @@ módulo ativo por aproximação. A primeira geração de um módulo novo entra p
 
 ### O laço pela linha de comando
 
-> **Desatualizado.** O `dartforge reload` de hoje é o **R0, reinício a quente**
-> (`crates/cli/src/jit.rs`). Ele observa os `.dart` do diretório da entrada,
-> inclusive renomeações, e o `package_config.json` descoberto ou passado por
-> `--packages`; recompila tudo a cada mudança e recomeça do `main` num processo
-> novo. O estado
-> **não** é preservado, e a saída diz isso. O texto abaixo descreve o `reload`
-> da trilha velha, que usava o mecanismo desta seção.
+Sem `--preservar-estado`, `dartforge reload` mantém o R0: recompila a cada
+mudança e recomeça `main` em outro processo, sem preservar o estado.
 
-`dartforge reload` abre uma sessão, executa a primeira versão e publica cada
-arquivo seguinte como uma edição, mantendo o heap vivo entre elas:
+`dartforge reload app.dart --preservar-estado` observa os arquivos `.dart` do
+diretório da entrada. A primeira versão entra por `add_reloadable_module`; cada
+edição válida entra por `hot_reload`. A CLI executa `dartforge_entry` na **mesma
+thread**, sem zerar globais ou recriar o runtime, e o teste
+`crates/cli/tests/reload_estado.rs` confirma um contador estático (`1 → 11`) e
+uma lista no heap (`1 → 2`) depois de editar o mesmo arquivo. Falhas de compilação
+ou publicação mantêm a geração anterior; `--timings` relata emissão, recarga e
+quantidade de gerações retidas.
 
-```
-$ dartforge reload v1.dart v2.dart v3.dart
-42
-100
-150
-```
-
-`v2.dart` muda `base()` de 21 para 50; `v3.dart` muda `dobro()` para `* 3`. As
-três saídas vêm da **mesma** sessão, do mesmo processo, sem reinício. Com
-`--timings`, cada recarga imprime um objeto JSON com o custo de cada etapa
-(`frontend_ns`, `parse_ir_ns`, `contract_ns`, `add_module_ns`, `stubs_ns`,
-`link_ns`, `publish_ns`, `retire_ns`, `reload_total_ns`) mais `entries`,
-`new_entries`, `generation` e `retained_generations`.
+Este é o primeiro aceite R1 da CLI, com limites explícitos: cada edição **torna
+a chamar `main`**, enquanto a Dart VM não o reexecuta; programas que dependem de
+um `main` que fica ativo, de uma thread diferente ou de `process::exit` ainda
+precisam do R0. `--preservar-estado` ainda usa o runtime embutido e recusa
+`DARTFORGE_SDK_DA_FONTE=1`. As versões devem manter o caminho da biblioteca e o
+contrato das entradas, pois o nome do arquivo participa dos símbolos emitidos.
 
 ### Regra de visibilidade
 

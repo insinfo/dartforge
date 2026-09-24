@@ -208,17 +208,19 @@ impl Drop for DiretorioGeracoes {
 /// reinício também vale para programas que ainda estão executando, e um
 /// `exit`/`abort` do runtime encerra só aquela geração, não o observador.
 ///
-/// Recarga com estado preservado é o R1 do plano do JIT
-/// (`docs/PESQUISA-HOT-RELOAD.md`), e não existe ainda.
+/// `--preservar-estado` usa uma `JitSession` no processo observador: o heap e os
+/// estáticos continuam vivos enquanto observa edições do mesmo arquivo. O
+/// `main` roda a cada geração neste primeiro passo da integração R1.
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings]";
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--preservar-estado]";
     let mut entrada: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut intervalo_ms = 300u64;
     let mut uma_vez = false;
     let mut timings = false;
+    let mut preservar_estado = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
@@ -234,11 +236,18 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
             }
             Some("--uma-vez") => uma_vez = true,
             Some("--timings") => timings = true,
+            Some("--preservar-estado") => preservar_estado = true,
             _ if entrada.is_none() => entrada = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
     }
     let entrada = entrada.ok_or(usage)?;
+    if preservar_estado {
+        if std::env::var("DARTFORGE_SDK_DA_FONTE").is_ok_and(|v| v.trim() == "1") {
+            return Err("--preservar-estado ainda não suporta DARTFORGE_SDK_DA_FONTE".into());
+        }
+        return reload_com_estado(&entrada, sdk.as_deref(), packages.as_deref(), intervalo_ms, uma_vez, timings);
+    }
     let raiz = entrada
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -319,6 +328,68 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
             }
         } else if uma_vez && geracao == 0 {
             return Err("a primeira compilação falhou".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
+    }
+}
+
+/// Publica uma versão e só então executa a entrada na mesma thread. Se a
+/// compilação ou a publicação falhar, a versão anterior permanece instalada.
+#[cfg(feature = "jit")]
+fn publicar_com_estado(
+    sessao: &mut dartforge_jit::JitSession,
+    entrada: &Path,
+    sdk: Option<&Path>,
+    packages: Option<&Path>,
+    timings: bool,
+) -> Resultado {
+    let inicio = std::time::Instant::now();
+    let ir = emitir(entrada, sdk, packages)?;
+    let emissao = inicio.elapsed();
+    let relatorio = if sessao.retained_generations() == 0 {
+        sessao.add_reloadable_module("app", &ir.texto)?
+    } else {
+        sessao.hot_reload("app", &ir.texto)?
+    };
+    eprintln!("[reload] geração {}: estado preservado na mesma sessão", relatorio.generation);
+    if timings {
+        eprintln!(
+            "[reload] geração {}: emissão {:.1} ms; recarga {:.1} ms; gerações retidas {}",
+            relatorio.generation,
+            emissao.as_secs_f64() * 1000.0,
+            relatorio.total.as_secs_f64() * 1000.0,
+            relatorio.retained_generations
+        );
+    }
+    let execucao = sessao.run_reloadable_entry()?;
+    if execucao.exit_code != 0 {
+        return Err(format!("geração {} terminou com código {}", relatorio.generation, execucao.exit_code).into());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "jit")]
+fn reload_com_estado(
+    entrada: &Path,
+    sdk: Option<&Path>,
+    packages: Option<&Path>,
+    intervalo_ms: u64,
+    uma_vez: bool,
+    timings: bool,
+) -> Resultado {
+    let mut sessao = dartforge_jit::JitSession::new()?;
+    let raiz = entrada.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut ultimo = None;
+    loop {
+        let agora = carimbo(raiz);
+        if ultimo != Some(agora) {
+            ultimo = Some(agora);
+            match publicar_com_estado(&mut sessao, entrada, sdk, packages, timings) {
+                Ok(()) if uma_vez => return Ok(()),
+                Ok(()) => {}
+                Err(erro) if uma_vez => return Err(erro),
+                Err(erro) => eprintln!("[reload] compilação, publicação ou execução falhou: {erro}"),
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
     }

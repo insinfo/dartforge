@@ -209,6 +209,19 @@ impl StableEntry {
         self.invoke(session, Some(argument))
     }
 
+    /// Chama uma entrada sem argumentos e sem retorno, como `dartforge_entry`.
+    pub fn call_void(&self, session: &JitSession) -> Result<(), JitError> {
+        if session.id != self.session {
+            return Err(JitError {
+                stage: "lookup",
+                message: format!("a entrada estável {} pertence a outra sessão JIT", self.name),
+            });
+        }
+        session.lljit.call_stable_void(self.address, &self.signature).map_err(|detail| {
+            JitError::new("execute", &format!("não foi possível chamar a entrada estável {}", self.name), detail)
+        })
+    }
+
     /// Confere a sessão de origem e delega a chamada conferida à fronteira FFI.
     fn invoke(&self, session: &JitSession, argument: Option<i64>) -> Result<i64, JitError> {
         if session.id != self.session {

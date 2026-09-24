@@ -576,6 +576,27 @@ impl JitSession {
         })
     }
 
+    /// Executa a entrada recarregável na thread chamadora, preservando heap e
+    /// globais entre chamadas. A CLI usa esta operação após publicar cada
+    /// geração; `run_entry` continua oferecendo execuções isoladas.
+    ///
+    /// O runtime embutido usa estado por thread. Uma sessão com DLL do SDK tem
+    /// outro contrato de inicialização (`dartforge_iniciar`) e é recusada aqui.
+    pub fn run_reloadable_entry(&self) -> Result<EntryReport, JitError> {
+        if self.sdk_dll.is_some() {
+            return Err(JitError::new("execute", "recarga com estado ainda não suporta SDK da fonte", String::new()));
+        }
+        let started = Instant::now();
+        let phase = Instant::now();
+        let entry = self.stable_entry(ENTRY_SYMBOL)?;
+        let lookup = phase.elapsed();
+        let phase = Instant::now();
+        entry.call_void(self)?;
+        let exit_code = dartforge_runtime::abi::finalizar_programa();
+        let execute = phase.elapsed();
+        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
+    }
+
     /// Nomes dos módulos ainda residentes, na ordem de inclusão.
     ///
     /// Inclui os módulos recarregáveis, um por identidade e não um por geração:
