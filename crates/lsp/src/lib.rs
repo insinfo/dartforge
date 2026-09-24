@@ -290,9 +290,10 @@ impl AnalisadorSintatico {
         }
         // Uma vez por documento: o caminho canônico (é o que o
         // `package_config` guarda) e o pacote que o contém.
-        let caminho = uri
-            .strip_prefix("file:///")
-            .map(|p| std::path::PathBuf::from(p.replace("%3A", ":").replace("%3a", ":").replace("%20", " ")))
+        let caminho = url::Url::parse(uri)
+            .ok()
+            .filter(|u| u.scheme() == "file")
+            .and_then(|u| u.to_file_path().ok())
             .map(|p| dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&p).unwrap_or(p)));
         let padrao = caminho
             .as_deref()

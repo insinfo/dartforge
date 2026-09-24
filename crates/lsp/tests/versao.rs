@@ -6,7 +6,26 @@ use dartforge_lsp::{Analisador, AnalisadorSintatico, Servidor};
 use serde_json::json;
 
 fn uri(p: &std::path::Path) -> String {
-    format!("file:///{}", p.to_string_lossy().replace('\\', "/"))
+    url::Url::from_file_path(p).unwrap().to_string()
+}
+
+#[test]
+fn versao_do_pacote_com_uri_percent_encodada() {
+    let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-agent/lsp-versao-{}-acentuação", std::process::id()));
+    let _ = std::fs::remove_dir_all(&raiz);
+    std::fs::create_dir_all(raiz.join(".dart_tool")).unwrap();
+    std::fs::create_dir_all(raiz.join("lib")).unwrap();
+    std::fs::write(
+        raiz.join(".dart_tool/package_config.json"),
+        r#"{"configVersion":2,"packages":[{"name":"app","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
+    ).unwrap();
+    let arquivo = raiz.join("lib/ação.dart");
+    let fonte = "void f(final int x) {}";
+    std::fs::write(&arquivo, fonte).unwrap();
+    let mut a = AnalisadorSintatico::new();
+    assert!(a.diagnosticar(&uri(&arquivo), fonte).is_empty());
+    let _ = std::fs::remove_dir_all(&raiz);
 }
 
 #[test]

@@ -56,6 +56,8 @@ limpo ao responder. Nada de `Rc<RefCell<…>>` no estado global.
 O analisador esquece a versão de linguagem associada à URI em `didClose` e
 recarrega o `package_config.json` na próxima abertura; reabrir um documento
 já aberto também invalida esse estado.
+O caminho local da URI é decodificado como URL de arquivo, inclusive nomes
+Unicode percent-encodados, antes de descobrir o pacote e sua versão.
 
 ## Sincronização incremental e UTF-16
 
