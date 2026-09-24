@@ -909,7 +909,8 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
     if receitas.is_empty() && !usa_rti && !module.modo_sdk {
         return;
     }
-    // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e o `toString`.
+    // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e os seletores
+    // usados pelo SDK da fonte. Cada tipo tem um único objeto canônico.
     {
         let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
             return;
@@ -935,6 +936,23 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         );
         t.terminate(Terminator::Return(Some(s)));
         t.finalizar(module);
+        let mut igualdade = FnBuilder::new(ctx, u, "df.$tipo.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
+        let recv = Operand::Val(igualdade.add_param("this".to_string(), Type::Ref));
+        let args = Operand::Val(igualdade.add_param("args".to_string(), Type::Ptr));
+        igualdade.add_param("desc".to_string(), Type::Ptr);
+        let outro = igualdade.emit(
+            Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) },
+            Type::Ref,
+        );
+        let igual = igualdade.emit(Instruction::ICmp(ICmpOp::Eq, recv, outro), Type::I1);
+        let igual = igualdade.coagir(igual, Type::Ref);
+        igualdade.terminate(Terminator::Return(Some(igual)));
+        igualdade.finalizar(module);
+        module.tabelas_de_metodos.push((
+            CLASSE_TIPO as u32,
+            "df.mt.$tipo".to_string(),
+            vec![("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string())],
+        ));
         module.classes.push(ClassDef {
             id: CLASSE_TIPO as u32,
             name: "_Type".to_string(),
