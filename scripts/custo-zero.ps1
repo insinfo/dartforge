@@ -59,8 +59,10 @@ function Sessao([string]$dir, [string]$entrada, [string]$cfg, [string]$alvo) {
     $a += @($alvo, "$Edicoes")
     $saida = & $exe @a 2>&1 | Out-String
     # Tolerante à página de código do console (a saída do exemplo é UTF-8).
-    if ($saida -notmatch 'm\S*dia (\d+) ms/edi') { throw "medir sem a linha de média:`n$saida" }
-    return [double]$Matches[1]
+    # A média vem com duas casas (inteira em binários antigos, como o da base):
+    # em ms inteiros, 1 ms a ~26 ms já passava da tolerância de 3%.
+    if ($saida -notmatch 'm\S*dia (\d+(?:\.\d+)?) ms/edi') { throw "medir sem a linha de média:`n$saida" }
+    return [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
 }
 
 # Projeto sintético: ~300 bibliotecas em cadeia, sem build_runner.
