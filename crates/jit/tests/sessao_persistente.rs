@@ -72,6 +72,26 @@ fn modulo_compilado_passa_pela_pre_verificacao() {
     assert!(erro.message.contains("sqlite3_open"), "{erro}");
 }
 
+/// O caminho `main` usado com o SDK da fonte também reinicia os estáticos do
+/// módulo. A segunda execução deve observar o mesmo zero da primeira.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn main_do_sdk_reinicia_globais_entre_execucoes() {
+    let ir = "\
+@dfg_0_ok = internal global i8 0
+define i32 @main() {
+  %anterior = load i8, ptr @dfg_0_ok
+  store i8 1, ptr @dfg_0_ok
+  %codigo = zext i8 %anterior to i32
+  ret i32 %codigo
+}
+";
+    let mut sessao = JitSession::new().unwrap();
+    sessao.add_ir_module("programa", ir).unwrap();
+    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+}
+
 /// Mediana e p95 de `n` amostras de `f`, depois de 3 aquecimentos.
 fn medir(n: usize, mut f: impl FnMut() -> Duration) -> (Duration, Duration) {
     for _ in 0..3 {

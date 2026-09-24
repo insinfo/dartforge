@@ -304,12 +304,19 @@ impl JitSession {
     }
 
     /// Executa o `main` do programa com o SDK da fonte (que chama
-    /// `dartforge_iniciar` da DLL): o código de saída é o dele.
+    /// `dartforge_iniciar` da DLL): o código de saída é o dele. As globais
+    /// mutáveis do programa são zeradas entre execuções da mesma sessão.
     pub fn run_main(&self) -> Result<EntryReport, JitError> {
         let started = Instant::now();
+        let globals: Vec<&ffi::MutableGlobal> = self
+            .modules
+            .iter()
+            .filter(|module| !module.removed)
+            .flat_map(|module| module.globals.iter())
+            .collect();
         let (lookup, exit_code, execute) = self
             .lljit
-            .run_main(PROGRAM_STACK_BYTES)
+            .run_main(PROGRAM_STACK_BYTES, &globals)
             .map_err(|detail| JitError::new("execute", "a execução do programa falhou", detail))?;
         Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }

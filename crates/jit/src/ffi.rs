@@ -1048,11 +1048,15 @@ impl Lljit {
     }
 
     /// Resolve o `main` do programa (SDK da fonte) e o executa numa thread
-    /// nova com pilha de `stack_bytes`; o código é o que ele devolve.
-    pub(crate) fn run_main(&self, stack_bytes: usize) -> Result<(Duration, i32, Duration), String> {
+    /// nova com pilha de `stack_bytes`; o código é o que ele devolve. As
+    /// globais do módulo voltam a zero como em `run_entry`.
+    pub(crate) fn run_main(&self, stack_bytes: usize, globals: &[&MutableGlobal]) -> Result<(Duration, i32, Duration), String> {
         let phase = Instant::now();
         let address = usize::try_from(self.lookup("main")?).map_err(|_| "endereço do main".to_owned())?;
         let lookup = phase.elapsed();
+        for global in globals {
+            self.zero_global(global)?;
+        }
         let (code, execute) = std::thread::scope(|scope| {
             let handle = std::thread::Builder::new()
                 .stack_size(stack_bytes)

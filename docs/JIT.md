@@ -180,6 +180,10 @@ e em cache, e custo zero para quem não usa. A biblioteca já tem as peças.
   ligação delas de `internal` para externa **na cópia** do módulo, sem mudar o
   IR emitido. Global que não começa em zero é recusada na etapa `globais`, em
   vez de ser reiniciada errado.
+* **`run_main()` com SDK da fonte** segue a mesma regra de execução limpa:
+  thread nova e globais mutáveis do módulo zeradas antes de cada chamada.
+  Isso permite reusar a sessão para macros e builders sem herdar estáticos do
+  programa anterior.
 
 Custo medido em 2026-09-23, `cargo test -p dartforge-jit --test
 sessao_persistente medicao -- --ignored --nocapture`. Perfil `test` (o Rust sem
