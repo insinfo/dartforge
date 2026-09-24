@@ -83,6 +83,17 @@ passaram: **5.656/26.133 (21,6%)** na posição exata, 5.367 mensagens iguais,
 determinismo em 1/4/8 trabalhadores. `const_factory` está 15/15 sem falso
 positivo; `assignment_to_final_local` está 49/60 com 4 posições erradas.
 
+As regras adicionais de atribuição (`assignment_to_const`, getter sem
+setter e receptor tipado em atribuição composta) passaram na
+[CI 35980099471](https://github.com/insinfo/dartforge/actions/runs/35980099471)
+e no [Pesado 35980099480](https://github.com/insinfo/dartforge/actions/runs/35980099480):
+**5.700/26.133 (21,8%)** na posição exata, 5.411 mensagens iguais,
+4.378 falsos positivos, 19.964 falsos negativos, 469 posições erradas,
+determinismo em 1/4/8. São 44 acertos exatos e 44 mensagens iguais a mais
+que a rodada anterior. O mesmo Pesado mediu o nativo em **146/223** e
+JIT × AOT em **223/223 saídas idênticas**; o caso 104 ainda falha nos dois
+perfis antes da correção de passagem de variáveis de cases compartilhados.
+
 ## Fechamento do dia 2026-09-23
 
 Resumo de uma página. O detalhe de cada frente está nas seções 1 e 2.
