@@ -15,7 +15,16 @@ de desenvolvimento e produção passou o corpus completo, e macros ficaram
 **9/9**. O analyzer registrou **5.925/26.133** diagnósticos na posição exata,
 5.636 mensagens iguais, 4.319 falsos positivos, 19.740 falsos negativos e
 468 posições erradas, com resultado idêntico em 1/4/8 trabalhadores. Esta é a
-última medição combinada concluída, não a do HEAD atual.
+medição combinada anterior, preservada como referência histórica.
+
+Na integração `1a781ce`, a [CI 36011412677](https://github.com/insinfo/dartforge/actions/runs/36011412677)
+e o [Pesado 36011412710](https://github.com/insinfo/dartforge/actions/runs/36011412710)
+passaram. O nativo com SDK da fonte chegou a **166/223**; JS de
+desenvolvimento e produção passaram, e macros ficaram **15/15**. O analyzer
+atingiu **5.945/26.133** diagnósticos na posição exata, 5.656 mensagens
+iguais, 4.313 falsos positivos, 19.720 falsos negativos e 468 posições
+erradas, determinístico em 1/4/8 trabalhadores. Essa é a última medição
+combinada concluída; commits mais recentes estão em nova rodada de CI.
 
 No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
 serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente
@@ -31,7 +40,8 @@ o analyzer isolado alcançou **5.868/26.133** diagnósticos na posição exata,
 5.579 mensagens iguais, 4.326 falsos positivos, 19.797 falsos negativos e
 468 posições erradas, com determinismo em 1/4/8 trabalhadores
 ([Pesado 36008510883](https://github.com/insinfo/dartforge/actions/runs/36008510883)).
-Esses números vêm de ramos isolados; a medição conjunta do HEAD está pendente.
+Esses números vieram de ramos isolados antes da integração `1a781ce`; a
+medição conjunta acima prevalece para aquele commit.
 
 Depois dela, foram integrados `Function.apply` e `NoSuchMethodError` de
 aridade de closures, chamada de função devolvida por getter estático,
