@@ -619,7 +619,7 @@ impl Motor {
                 Some(g) => {
                     let mut v = Vec::with_capacity(executar.len());
                     for &a in &executar {
-                        v.push(self.nativo_por_acao(ctx, g, a, motivo_dart.as_deref()));
+                        v.push(self.nativo_por_acao(ctx, &mudados, g, a, motivo_dart.as_deref()));
                     }
                     v
                 }
@@ -777,7 +777,7 @@ impl Motor {
         let pedido = PedidoNativo { pacote: pacote.to_string(), raiz_do_pacote: no.raiz.clone(), acoes };
         let (resultado, consultas) = {
             let memoria = |p: &Path| self.memoria.get(p).cloned();
-            let mut c = CtxGerador::novo(ctx.programa, ctx.banco, &memoria);
+            let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
             let r = gerador.gerar(&mut c, &pedido);
             (r, std::mem::take(&mut c.consultas))
         };
@@ -865,7 +865,14 @@ impl Motor {
         r
     }
 
-    fn nativo_por_acao(&self, ctx: &Contexto<'_>, g: usize, a: usize, motivo_dart: Option<&str>) -> Registro {
+    fn nativo_por_acao(
+        &self,
+        ctx: &Contexto<'_>,
+        mudados: &HashSet<PathBuf>,
+        g: usize,
+        a: usize,
+        motivo_dart: Option<&str>,
+    ) -> Registro {
         let acao = &self.grafo.acoes[a];
         let f = &self.fases[acao.fase];
         let gerador = self.nativos[g].clone();
@@ -881,7 +888,7 @@ impl Motor {
             }],
         };
         let memoria = |p: &Path| self.memoria.get(p).cloned();
-        let mut c = CtxGerador::novo(ctx.programa, ctx.banco, &memoria);
+        let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
         let res = gerador.gerar(&mut c, &pedido);
         let consultas = std::mem::take(&mut c.consultas);
         match res {

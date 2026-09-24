@@ -7,7 +7,7 @@ use crate::grafo::AssetId;
 use crate::valor::Mapa;
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -61,6 +61,8 @@ pub trait GeradorNativo: Send + Sync {
 /// invalidá-lo).
 pub struct CtxGerador<'a> {
     pub programa: Option<(&'a Program, &'a Interner)>,
+    /// Eventos desta atualização, já normalizados pelo motor.
+    pub mudados: &'a HashSet<PathBuf>,
     pub(crate) banco: &'a dyn BancoSemantico,
     pub(crate) memoria: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
     pub(crate) consultas: Vec<(Consulta, Option<Digest>)>,
@@ -69,10 +71,11 @@ pub struct CtxGerador<'a> {
 impl<'a> CtxGerador<'a> {
     pub(crate) fn novo(
         programa: Option<(&'a Program, &'a Interner)>,
+        mudados: &'a HashSet<PathBuf>,
         banco: &'a dyn BancoSemantico,
         memoria: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
     ) -> Self {
-        CtxGerador { programa, banco, memoria, consultas: Vec::new() }
+        CtxGerador { programa, mudados, banco, memoria, consultas: Vec::new() }
     }
 
     /// Registra uma consulta com o digest da resposta de agora.

@@ -8,5 +8,5 @@ use crate::executor::GeradorNativo;
 use std::sync::Arc;
 
 pub fn todos() -> Vec<Arc<dyn GeradorNativo>> {
-    vec![Arc::new(ng::NgEstagioA), Arc::new(sass::SassNativo)]
+    vec![Arc::new(ng::NgEstagioA::default()), Arc::new(sass::SassNativo)]
 }
