@@ -253,6 +253,32 @@ fn getter_de_classe_sem_setter_em_atribuicao_simples() {
 }
 
 #[test]
+fn atribuir_a_tipos_e_funcao_de_topo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; class C<T> { void m() { T = null; } } enum E { e } typedef F = C<int>; void f() {} void g() { C = null; E = null; F = null; dynamic = 1; f = null; } void h() { var C = 0; C = 1; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    assert_eq!(diags.len(), 6, "{diags:?}");
+    let tipos: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_TYPE.template)).collect();
+    assert_eq!(tipos.len(), 5, "{diags:?}");
+    for (d, trecho) in tipos.iter().zip(["T = null", "C = null", "E = null", "F = null", "dynamic = 1"]) {
+        assert_eq!(d.span.start as usize, fonte.find(trecho).unwrap(), "{diags:?}");
+        assert_eq!(d.span.end as usize, fonte.find(trecho).unwrap() + trecho.split(' ').next().unwrap().len(), "{diags:?}");
+    }
+    let funcoes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FUNCTION.template)).collect();
+    assert_eq!(funcoes.len(), 1, "{diags:?}");
+    assert_eq!(funcoes[0].span.start as usize, fonte.find("f = null").unwrap(), "{diags:?}");
+}
+
+#[test]
 fn getter_lexico_sem_setter_em_atribuicoes_e_incrementos() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

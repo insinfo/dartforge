@@ -52,6 +52,16 @@ pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "Variáveis constantes não podem receber nova atribuição.",
 );
 
+pub const ASSIGNMENT_TO_TYPE: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_type",
+    "Tipos não podem receber uma atribuição.",
+);
+
+pub const ASSIGNMENT_TO_FUNCTION: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_function",
+    "Funções não podem receber uma atribuição.",
+);
+
 pub const NOT_INITIALIZED_NON_NULLABLE_VARIABLE: DiagnosticCode = DiagnosticCode::new(
     "not_initialized_non_nullable_variable",
     "A variável não-anulável '{0}' deve ser definitivamente atribuída antes do uso.",
