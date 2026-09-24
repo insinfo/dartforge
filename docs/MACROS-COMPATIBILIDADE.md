@@ -131,7 +131,13 @@ por isso o builder lê a AST da saída parcial e serializa os métodos e
 construtores gerados para `modelos.macro_definitions_model.json`. O modelo
 completo de membros de `Endereco` corresponde ao pedido da fase de definições
 do CFE depois de desconsiderar os IDs locais da sessão e trocar a URI do
-fixture. As consultas dessa fase ainda não são atendidas pelo builder.
+fixture.
+O hospedeiro Dart já atende `resolverIdentificador`, `resolver`,
+`ehExatamente` e `declaracao`: as 14 consultas da fase de definições de
+`Endereco` correspondem ao CFE depois de desconsiderar IDs de sessão.
+O `build_runner` também executa a fase de definições de `Endereco` no mesmo
+isolate; seu `macro.resultado` corresponde ao CFE depois da mesma
+normalização. `Usuario` ainda requer a consulta de membros de `Endereco`.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

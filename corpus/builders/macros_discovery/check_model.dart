@@ -5,6 +5,9 @@ import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:dartforge_macros_builder/src/resolver_identificadores.dart';
+import 'package:dartforge_macros_builder/src/consultas_definicoes.dart';
+import 'package:dartforge_macros_builder/src/modelo_analyzer.dart';
+import 'package:dartforge_macros_builder/src/tabela_identificadores.dart';
 import 'package:json/json.dart';
 import 'package:macros/src/executor/executar.dart';
 import 'package:macros/src/executor/modelo.dart';
@@ -40,7 +43,7 @@ Object? semIds(Object? valor) {
   if (valor is Map) {
     return {
       for (final entrada in valor.entries)
-        if (entrada.key != 'id' && entrada.key != 'chave')
+        if (entrada.key != 'id' && entrada.key != 'chave' && entrada.key != 'i')
           entrada.key: semIds(entrada.value),
     };
   }
@@ -218,6 +221,46 @@ Future<void> main() async {
     if (!igual(semIds(membrosBuilder), semIds(membrosCfe))) {
       throw StateError('modelo pós-declarações de Endereco difere do CFE');
     }
+    final tabelaDef = TabelaIdentificadores();
+    final inicialDef = modeloDaClasse(classe, tabelaDef);
+    final resolvedorDef =
+        ResolvedorIdentificadores(classe, inicialDef, tabelaDef);
+    for (final nome in ['Map', 'String', 'Object']) {
+      await resolvedorDef.resolver('dart:core', nome);
+    }
+    final consultasDef = ConsultasDefinicoes(resolvedorDef);
+    final pendentesDef = <int, Map<String, Object?>>{};
+    var respostasDef = 0;
+    for (final linha in sessao) {
+      final m = jsonDecode(linha.substring(2)) as Map;
+      if (m['t'] == 'macro.consulta' && m['execucao'] == 8) {
+        pendentesDef[m['id'] as int] = Map<String, Object?>.from(m);
+      } else if (m['t'] == 'macro.resposta' &&
+          pendentesDef.containsKey(m['id'])) {
+        final pedido = pendentesDef.remove(m['id'])!;
+        final tipo = pedido['tipo'] as String;
+        final valor = await consultasDef.consultar(
+            tipo, Map<String, Object?>.from(pedido['args'] as Map));
+        if (!igual(semIds(valor), semIds(m['valor']))) {
+          throw StateError('consulta de definição $tipo divergiu do CFE');
+        }
+        respostasDef++;
+      }
+    }
+    if (respostasDef != 14) {
+      throw StateError('$respostasDef consultas de definições; esperadas 14');
+    }
+    final definicoes = jsonDecode(
+        File('lib/modelos.macro_definitions.json').readAsStringSync()) as Map;
+    final resultadoDef = (definicoes['resultados'] as List)
+        .singleWhere((r) => r['alvo'] == 'Endereco') as Map;
+    final resultadoCfeDef = sessao
+        .map((linha) => jsonDecode(linha.substring(2)) as Map)
+        .singleWhere((m) => m['t'] == 'macro.resultado' && m['id'] == 8);
+    if (!igual(semIds(resultadoDef['resultado']),
+        semIds(resultadoCfeDef['resultado']))) {
+      throw StateError('fase de definições de Endereco divergiu do CFE');
+    }
     final peloBuilder =
         geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
     if (peloBuilder['macro'] != 'package:json/json.dart#JsonCodable' ||
@@ -240,7 +283,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; modelo pós-declarações igual ao CFE; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; modelo, $respostasDef consultas e resultado de definições de Endereco iguais ao CFE; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }

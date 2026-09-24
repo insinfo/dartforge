@@ -16,6 +16,7 @@ import 'package:macros/src/executor/modelo.dart';
 import 'package:macros/src/executor/montagem.dart';
 import 'package:macros/src/executor/resultado.dart';
 
+import 'src/consultas_definicoes.dart';
 import 'src/modelo_analyzer.dart';
 import 'src/membros_gerados.dart';
 import 'src/resolver_identificadores.dart';
@@ -32,17 +33,13 @@ Builder macroDeclarationsBuilder(
     _MacroDeclarationsBuilder(fabricas);
 
 final class _HospedeiroAnalyzer implements Hospedeiro {
-  final ResolvedorIdentificadores resolvedor;
-  _HospedeiroAnalyzer(this.resolvedor);
+  final ConsultasDefinicoes consultas;
+  _HospedeiroAnalyzer(ResolvedorIdentificadores resolvedor)
+      : consultas = ConsultasDefinicoes(resolvedor);
 
   @override
-  Future<Object?> consultar(String tipo, Map<String, Object?> args) {
-    if (tipo != 'resolverIdentificador') {
-      throw UnsupportedError(
-          'consulta $tipo ainda não implementada pelo builder');
-    }
-    return resolvedor.resolver(args['uri'] as String, args['nome'] as String);
-  }
+  Future<Object?> consultar(String tipo, Map<String, Object?> args) =>
+      consultas.consultar(tipo, args);
 }
 
 final class _MacroDeclarationsBuilder implements Builder {
@@ -55,6 +52,7 @@ final class _MacroDeclarationsBuilder implements Builder {
           '.macro_declarations.json',
           '.macro_declarations.txt',
           '.macro_definitions_model.json',
+          '.macro_definitions.json',
         ]
       };
 
@@ -63,7 +61,7 @@ final class _MacroDeclarationsBuilder implements Builder {
     final library = await step.resolver.libraryFor(step.inputId);
     final tabela = TabelaIdentificadores();
     final resultados = <Map<String, Object?>>[];
-    final execucoes = <(ClassElement, Map<String, Object?>)>[];
+    final execucoes = <(ClassElement, Map<String, Object?>, Macro)>[];
     for (final alvo in library.topLevelElements.whereType<ClassElement>()) {
       for (final anotacao in alvo.metadata) {
         final construtor = anotacao.element;
@@ -75,15 +73,16 @@ final class _MacroDeclarationsBuilder implements Builder {
             '${nomeConstrutor.isEmpty ? '' : '.$nomeConstrutor'}';
         final fabrica = fabricas[chave];
         if (fabrica == null) continue;
+        final macro = fabrica(anotacao);
         final execucao = modeloDaClasse(alvo, tabela);
-        execucoes.add((alvo, execucao));
+        execucoes.add((alvo, execucao, macro));
         final resolvedor = ResolvedorIdentificadores(alvo, execucao, tabela);
         final modelo = Modelo(_HospedeiroAnalyzer(resolvedor))
           ..receber(Map<String, Object?>.from(execucao['modelo'] as Map));
         final declaracao = modelo
             .declaracao(Map<String, Object?>.from(execucao['alvo'] as Map));
-        final resultado = await executarFase(fabrica(anotacao),
-            Fase.declaracoes, declaracao, Introspector(modelo));
+        final resultado = await executarFase(
+            macro, Fase.declaracoes, declaracao, Introspector(modelo));
         resultados.add({
           'alvo': alvo.name,
           'macro': chave,
@@ -112,7 +111,8 @@ final class _MacroDeclarationsBuilder implements Builder {
     await step.writeAsString(
         step.inputId.changeExtension('.macro_declarations.txt'), parcial);
     final modelosDeDefinicao = <Map<String, Object?>>[];
-    for (final (classe, execucao) in execucoes) {
+    final resultadosDeDefinicao = <Map<String, Object?>>[];
+    for (final (classe, execucao, macro) in execucoes) {
       final gerados = await membrosGerados(parcial, classe, execucao, tabela);
       final alvo = Map<String, Object?>.from(execucao['alvo'] as Map);
       final id = (alvo['ident'] as Map)['id'] as int;
@@ -126,10 +126,24 @@ final class _MacroDeclarationsBuilder implements Builder {
         'alvo': classe.name,
         'execucao': {'alvo': alvo, 'modelo': modelo},
       });
+      final hospedeiro = _HospedeiroAnalyzer(
+          ResolvedorIdentificadores(classe, execucao, tabela));
+      final modeloDeDefinicao = Modelo(hospedeiro)..receber(modelo);
+      final alvoDeDefinicao = modeloDeDefinicao.declaracao(alvo);
+      final resultadoDef = await executarFase(macro, Fase.definicoes,
+          alvoDeDefinicao, Introspector(modeloDeDefinicao));
+      resultadosDeDefinicao.add({
+        'alvo': classe.name,
+        'resultado': resultadoDef.paraJson(),
+      });
     }
     await step.writeAsString(
       step.inputId.changeExtension('.macro_definitions_model.json'),
       '${jsonEncode({'versao': 1, 'aplicacoes': modelosDeDefinicao})}\n',
+    );
+    await step.writeAsString(
+      step.inputId.changeExtension('.macro_definitions.json'),
+      '${jsonEncode({'versao': 1, 'resultados': resultadosDeDefinicao})}\n',
     );
   }
 }
