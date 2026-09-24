@@ -53,6 +53,9 @@ chegada da versão N substitui a N−1 no lugar e `didClose` remove. Nenhum
 cache sem teto, nenhum histórico de versões, nenhum log em memória; o
 conjunto de cancelamentos só guarda ids de requisições ainda na fila e é
 limpo ao responder. Nada de `Rc<RefCell<…>>` no estado global.
+O analisador esquece a versão de linguagem associada à URI em `didClose` e
+recarrega o `package_config.json` na próxima abertura; reabrir um documento
+já aberto também invalida esse estado.
 
 ## Sincronização incremental e UTF-16
 
