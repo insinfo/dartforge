@@ -23,16 +23,21 @@ sem precisão explícita e aplicar `%` de Dart a inteiros e doubles,
 mediu SDK da fonte: **112/223** tanto AOT quanto JIT. O corpus padrão
 chegou a **92/223**, JS desenvolvimento/produção **223/223**, Dart moderno
 **22/26**, macros **6/7**, com determinismo em 1/4/8 trabalhadores. P5c/P5d
-ainda não está completo: 111 casos do corpus do SDK da fonte falham. A
+ainda não está completo. Após preservar a RTI de `Set`/`Map` e corrigir
+os seletores de `Type` e `_StackTrace`,
+[Pesado 35971998885](https://github.com/insinfo/dartforge/actions/runs/35971998885)
+mediu **119/223** tanto AOT quanto JIT; 104 casos ainda falham. A
 correção de `%` fez `11_int_truncdiv_modulo_negativos` passar e permitiu que
 `13b_double_tostring_divergencia_web` avançasse até os seletores de `Type`.
 
 O analisador integrado passou em [CI 35970218894](https://github.com/insinfo/dartforge/actions/runs/35970218894)
 e [Pesado 35970218770](https://github.com/insinfo/dartforge/actions/runs/35970218770):
 **5.381/26.133 (20,6%)** diagnósticos na posição exata, ante 1.445/26.133
-antes do merge, com relatório idêntico em 1/4/8 trabalhadores. O teste de navegador do bundle de produção continua vermelho no
-bootstrap do `limitless_ui`; a poda de getters calculados do SDK está em
-correção separada.
+antes do merge, com relatório idêntico em 1/4/8 trabalhadores. Após
+preservar os aliases e getters do SDK e adaptar `NodeList` nativo aos
+métodos de `List` do DDC, [JS de produção 35972736058](https://github.com/insinfo/dartforge/actions/runs/35972736058)
+passou **223/223** e a galeria passou **26/26** no navegador
+([E2E 35971652262](https://github.com/insinfo/dartforge/actions/runs/35971652262)).
 
 ## Fechamento do dia 2026-09-23
 
