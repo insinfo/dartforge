@@ -15,6 +15,7 @@ pub mod duplicatas;
 pub mod enums;
 pub mod externos;
 pub mod importacoes;
+pub mod inicializacao;
 pub mod locais;
 pub mod operadores;
 pub mod publicacao;
