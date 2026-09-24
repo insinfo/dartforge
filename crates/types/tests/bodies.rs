@@ -441,6 +441,30 @@ fn sobreposicao_explicita_sem_metodo_usa_codigo_de_extensao() {
 }
 
 #[test]
+fn metodo_estatico_ausente_em_extensao_do_oraculo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    for (fonte, offset) in [
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withInference.dart")), 35),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withou_709c4429.dart")), 40),
+    ] {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+        let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
+        assert_eq!(ausentes.len(), 1, "{diags:?}");
+        assert_eq!((ausentes[0].span.start, ausentes[0].span.end), (offset, offset + 1));
+        assert!(ausentes[0].message.contains("'m' em 'E'"));
+    }
+}
+
+#[test]
 fn sobreposicao_explicita_de_extensao_rejeita_membros_estaticos() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
