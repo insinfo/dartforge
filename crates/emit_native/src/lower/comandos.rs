@@ -81,7 +81,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     {
                         self.chaves_de_const_locais.insert(sym, (k, init_id));
                     }
-                    let init_op = if let Some(init_id) = var.initializer {
+                    let init_op = if var_list.late {
+                        Self::valor_zero(ty)
+                    } else if let Some(init_id) = var.initializer {
                         let op = if var_list.const_ {
                             self.lower_em_contexto_const(ast, init_id)
                         } else {
@@ -101,6 +103,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Self::valor_zero(ty)
                     };
                     self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
+                    if var_list.late
+                        && !self.configurar_local_late(sym, var_list.final_, var.initializer)
+                    {
+                        self.nao_suportado("late local capturado", var.name.span);
+                    }
                 }
             }
             StmtKind::If {
@@ -238,12 +245,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             for var in &var_list.variables {
                                 let sym = var.name.sym;
                                 let ty = self.repr_do_local(var.name.span.start);
-                                let init_op = if let Some(init_id) = var.initializer {
+                                let init_op = if var_list.late {
+                                    Self::valor_zero(ty)
+                                } else if let Some(init_id) = var.initializer {
                                     self.lower_expr(ast, init_id)
                                 } else {
                                     Self::valor_zero(ty)
                                 };
                                 self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
+                                if var_list.late
+                                    && !self.configurar_local_late(sym, var_list.final_, var.initializer)
+                                {
+                                    self.nao_suportado("late local capturado", var.name.span);
+                                }
                             }
                         }
                         ast::ForInit::Expression(e) => {

@@ -37,6 +37,10 @@ pub struct FnBuilder<'a, 'c> {
     pub locals: HashMap<LocalId, Operand>,
     /// Escopos léxicos dos locais, do mais externo (parâmetros) ao corrente (R6).
     pub escopos: Vec<HashMap<SymbolId, super::locais::Local>>,
+    /// Inicializadores `late` que o lowering já está expandindo. Uma leitura
+    /// recursiva deve consultar a célula no runtime, não expandir o AST de
+    /// novo durante a compilação.
+    pub late_inicializadores_em_lowering: std::collections::HashSet<usize>,
     /// Quantos `alloca` já estão no começo do bloco de entrada.
     pub n_allocas: usize,
     pub value_types: HashMap<ValueId, Type>,
@@ -175,6 +179,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             next_block: 1,
             locals: HashMap::new(),
             escopos: vec![HashMap::new()],
+            late_inicializadores_em_lowering: std::collections::HashSet::new(),
             n_allocas: 0,
             value_types: HashMap::new(),
             break_targets: Vec::new(),
