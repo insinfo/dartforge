@@ -228,6 +228,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `416_definicao_funcao` — `FunctionDefinitionMacro` substitui o corpo de
   uma função de topo na fase 3. A VM executa o corpo aumentado e o texto
   estruturado pelo hospedeiro é comparado byte a byte ao CFE 3.6.2.
+* `417_aug_substitui_corpo` — `import augment` manual sob `macros` substitui
+  corpo já completo, também aceito pelo CFE 3.6.2; protege a semântica da
+  fase 3 além do nome `<biblioteca>.macro.dart`.
 
 ## 8. Placar (medido nesta rodada)
 
