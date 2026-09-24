@@ -1255,9 +1255,12 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) ->
         }
         ExprKind::Property { target, name, null_aware } => {
             let (target, name, null_aware) = (*target, *name, *null_aware);
-            let (leitura, _) = propriedade(inf, cx, alvo, target, name, null_aware);
+            let (leitura, curto_lido) = propriedade(inf, cx, alvo, target, name, null_aware);
+            let recv_lido = inf.body_types.units[cx.unit.0 as usize].get_type(target).map(|t| {
+                (if null_aware { inf.nao_nulo(t) } else { t }, curto_lido)
+            });
             let mut curto = false;
-            let escrita = escrita_propriedade(inf, cx, alvo, target, name, null_aware, &mut curto);
+            let escrita = escrita_propriedade(inf, cx, alvo, target, name, null_aware, &mut curto, recv_lido);
             registrar(inf, cx, alvo, leitura);
             (leitura, escrita, None)
         }
@@ -1411,7 +1414,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 }
                 ExprKind::Property { target, name, null_aware } => {
                     let (target, name, null_aware) = (*target, *name, *null_aware);
-                    let t = escrita_propriedade(inf, cx, alvo, target, name, null_aware, curto);
+                    let t = escrita_propriedade(inf, cx, alvo, target, name, null_aware, curto, None);
                     (t, t, None)
                 }
                 ExprKind::Index { target, index, null_aware } => {
@@ -1471,7 +1474,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
 }
 
 /// `r.x = …`: tipo do setter.
-fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId, name: ast::Name, null_aware: bool, curto: &mut bool) -> TypeId {
+fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId, name: ast::Name, null_aware: bool, curto: &mut bool, recv_lido: Option<(TypeId, bool)>) -> TypeId {
     let a = ast(inf, cx);
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
@@ -1512,7 +1515,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
         registrar(inf, cx, target, this);
         return membro_super(inf, cx, alvo, name, true);
     }
-    let (recv, c) = receptor(inf, cx, target, null_aware);
+    let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
     match inf.buscar_membro(cx.lib, recv, name.sym, true) {
         Busca::Achado(m) => {
