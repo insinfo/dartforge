@@ -443,6 +443,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return op;
                 }
                 let nome = self.ctx.symbol_name(sym).to_string();
+                // `dynamic`, `Never` e `Null` também são expressões que
+                // denotam objetos `Type`. Os dois últimos podem vir pela
+                // resolução normal; esta via cobre os nomes especiais sem
+                // elemento no outline, como já faz o emissor JS.
+                let receita = match nome.as_str() {
+                    "dynamic" => Some("D"),
+                    "Never" => Some("N"),
+                    "Null" => Some("U"),
+                    _ => None,
+                };
+                if let Some(texto) = receita {
+                    let tipo = self.rti_da_receita(&super::rti::Receita {
+                        texto: texto.to_string(),
+                        variaveis: false,
+                    });
+                    return self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_rti_objeto_tipo".to_string(),
+                            args: vec![(tipo, Type::I64)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                }
                 self.nao_suportado(&format!("identificador `{nome}`"), span)
             }
             ExprKind::Parenthesized(sub) => self.lower_expr(ast, *sub),
