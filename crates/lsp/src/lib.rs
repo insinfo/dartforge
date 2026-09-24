@@ -253,6 +253,25 @@ pub trait Analisador {
     fn referencias(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
         None
     }
+
+    /// Definição entre os documentos abertos: o literal de diretiva segue a
+    /// regra de disco; o nome resolve para o aberto que o declara (só import
+    /// relativo simples). O padrão delega ao próprio documento.
+    fn definicao_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+        let texto = documentos.get(uri)?;
+        self.definicao(uri, texto, offset)
+    }
+
+    /// Referências entre os documentos abertos: declaração primeiro, depois
+    /// os usos, cada par com a URI do documento. O padrão delega ao próprio
+    /// documento. Cada arquivo é analisado e liberado antes do próximo;
+    /// nada é retido entre pedidos, mantendo o platô de memória por edição.
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, dartforge_diagnostics::Span)>> {
+        let texto = documentos.get(uri)?;
+        self.referencias(uri, texto, offset).map(|spans| {
+            spans.into_iter().map(|span| (uri.to_string(), span)).collect()
+        })
+    }
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -288,7 +307,7 @@ impl AnalisadorSintatico {
     /// no `package_config.json` que o contém, senão a versão corrente. Sem
     /// isso, um projeto 3.6 veria erro em `final` de parâmetro (proibido na
     /// 3.13) e um 3.13 veria erro em construtor primário.
-    fn features(&mut self, uri: &str, texto: &str) -> dartforge_frontend::LibraryFeatures {
+    pub(crate) fn features(&mut self, uri: &str, texto: &str) -> dartforge_frontend::LibraryFeatures {
         use dartforge_frontend::{LanguageVersion, LibraryFeatures};
         if let Some((v, _)) = dartforge_frontend::features::marcador_versao(texto) {
             return LibraryFeatures::new(v, &[]);
@@ -365,5 +384,13 @@ impl Analisador for AnalisadorSintatico {
     fn referencias(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
         let features = self.features(uri, texto);
         navegacao::referencias(uri, texto, features, offset)
+    }
+
+    fn definicao_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+        navegacao::definicao_em(documentos, uri, offset, self)
+    }
+
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, dartforge_diagnostics::Span)>> {
+        navegacao::referencias_em(documentos, uri, offset, self)
     }
 }

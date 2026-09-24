@@ -3,10 +3,12 @@
 //! `ExportDirective` e `PartDirective` quando o destino existe.
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{DeclKind, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind};
+use dartforge_frontend::ast::{Ast, CompilationUnit, DeclKind, Directive, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind};
 use dartforge_frontend::LibraryFeatures;
 use dartforge_intern::Interner;
 use url::Url;
+
+use crate::{AnalisadorSintatico, DocumentStore};
 
 pub(super) enum Alvo {
     Arquivo(String),
@@ -31,7 +33,21 @@ pub(super) fn destino(
 ) -> Option<Alvo> {
     let mut nomes = Interner::new();
     let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
-    for diretiva in &parsed.unit.directives {
+    if let Some(destino) = alvo_de_diretiva(uri_atual, &parsed.unit, offset) {
+        return Some(Alvo::Arquivo(destino));
+    }
+    tipo_local(&parsed.unit, &parsed.ast, &nomes, offset)
+        .or_else(|| variavel_topo(&parsed.unit, &parsed.ast, &nomes, offset))
+        .or_else(|| funcao_topo(&parsed.unit, &parsed.ast, &nomes, offset))
+        .map(Alvo::NomeLocal)
+}
+
+/// Destino de um literal de diretiva (`import`, `export`, `part`, ...) sob o
+/// cursor, quando o arquivo relativo existe no disco. É um `stat` por pedido,
+/// nunca varredura: a regra de ativação segue a navegação de diretivas do
+/// analyzer (só existe alvo quando o arquivo existe).
+fn alvo_de_diretiva(uri_atual: &str, unit: &CompilationUnit, offset: usize) -> Option<String> {
+    for diretiva in &unit.directives {
         let literal = match &diretiva.kind {
             DirectiveKind::Import { uri, .. }
             | DirectiveKind::Export { uri, .. }
@@ -45,13 +61,10 @@ pub(super) fn destino(
         if literal.span.start <= offset && offset < literal.span.end {
             let base = Url::parse(uri_atual).ok()?;
             if base.scheme() != "file" { return None; }
-            return resolver(&base, literal).map(Alvo::Arquivo);
+            return resolver(&base, literal);
         }
     }
-    tipo_local(&parsed.unit, &parsed.ast, &nomes, offset)
-        .or_else(|| variavel_topo(&parsed.unit, &parsed.ast, &nomes, offset))
-        .or_else(|| funcao_topo(&parsed.unit, &parsed.ast, &nomes, offset))
-        .map(Alvo::NomeLocal)
+    None
 }
 
 fn tipo_local(
@@ -509,4 +522,398 @@ fn declaracao_de_valor(
         }
     }
     (encontrados.len() == 1).then(|| encontrados[0])
+}
+
+// ---------------------------------------------------------------------------
+// Entre documentos abertos: o menor passo útil da resolução semântica.
+// ---------------------------------------------------------------------------
+
+/// Espaço de nomes da declaração de topo: tipos e valores não colidem, então
+/// cada busca carrega o seu para não misturar `class Caixa` com `int Caixa`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Espaco {
+    Tipo,
+    Valor,
+}
+
+/// Símbolo de topo resolvido entre os documentos abertos.
+struct Simbolo {
+    dono: String,
+    espaco: Espaco,
+    nome: String,
+    declaracao: Span,
+}
+
+/// Um arquivo analisado com o seu internador: os `SymbolId` valem só dentro
+/// dele, então entre arquivos compara-se o texto (`lookup`/`resolve`).
+struct Arquivo {
+    nomes: Interner,
+    unit: CompilationUnit,
+    ast: Ast,
+}
+
+/// Analisa o texto com os recursos do próprio arquivo e descarta o diagnóstico:
+/// aqui só interessa a árvore, transitória do pedido como em [`referencias`].
+fn analisar(texto: &str, features: LibraryFeatures) -> Arquivo {
+    let mut nomes = Interner::new();
+    let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
+    Arquivo { nomes, unit: parsed.unit, ast: parsed.ast }
+}
+
+/// Classe de uma diretiva para a resolução entre abertos.
+enum ClasseDiretiva {
+    Biblioteca,
+    /// Import relativo simples: sem prefixo, combinadores, `deferred` ou
+    /// condição, com literal constante fora de `dart:`/`package:`.
+    ImportSimples(String),
+    /// Todo o resto: `export`, `part`, `part of`, augmentations, prefixo,
+    /// `show`/`hide`, `dart:`/`package:`, interpolação. Traz nomes que só a
+    /// resolução de bibliotecas distingue: arquivo com uma destas nunca é
+    /// dono nem testemunha, e cursor sob uma delas é "não sei".
+    Complexa,
+}
+
+fn classificar(diretiva: &Directive) -> ClasseDiretiva {
+    match &diretiva.kind {
+        DirectiveKind::Library { .. } => ClasseDiretiva::Biblioteca,
+        DirectiveKind::Import { uri, configurations, deferred, prefix, combinators } => {
+            if *deferred || prefix.is_some() || !combinators.is_empty() || !configurations.is_empty() {
+                return ClasseDiretiva::Complexa;
+            }
+            match uri.constant_value().and_then(|v| v.as_str().map(str::to_string)) {
+                Some(caminho)
+                    if !caminho.starts_with("dart:")
+                        && !caminho.starts_with("package:") =>
+                {
+                    ClasseDiretiva::ImportSimples(caminho)
+                }
+                _ => ClasseDiretiva::Complexa,
+            }
+        }
+        _ => ClasseDiretiva::Complexa,
+    }
+}
+
+/// Resolve um import relativo contra a URI base sem tocar no disco: junta os
+/// segmentos (`Url::join`) e devolve a URI normalizada. `None` para
+/// `dart:`/`package:`, base fora de `file:`, consulta ou fragmento. Difere do
+/// [`resolver`] de propósito: sem `canonicalize`, sem `is_file` — a pergunta
+/// aqui é "qual aberto este URI nomeia", nunca "o que existe no disco".
+fn resolver_aberto(base_uri: &str, caminho: &str) -> Option<String> {
+    if caminho.starts_with("dart:") || caminho.starts_with("package:") {
+        return None;
+    }
+    let base = Url::parse(base_uri).ok()?;
+    if base.scheme() != "file" {
+        return None;
+    }
+    let resolvida = base.join(caminho).ok()?;
+    if resolvida.scheme() != "file" || resolvida.query().is_some() || resolvida.fragment().is_some() {
+        return None;
+    }
+    Some(resolvida.to_string())
+}
+
+/// Resolve o símbolo sob o cursor para o documento aberto que o declara.
+///
+/// Caso local (sem diretivas além de `library`): o próprio arquivo, como em
+/// [`referencias`]. Caso importado (só imports simples, nome sem declaração
+/// local): o único aberto importado que declara o nome sozinho num espaço,
+/// ele mesmo sem diretivas que tragam outros nomes. Todo o resto — diretiva
+/// complexa, padrões, sombras, parâmetro de tipo homônimo, zero ou vários
+/// donos — é `None` ("não sei", nunca resposta errada).
+fn resolver_simbolo(
+    documentos: &DocumentStore,
+    uri_atual: &str,
+    offset: usize,
+    analisador: &mut AnalisadorSintatico,
+) -> Option<Simbolo> {
+    let texto = documentos.get(uri_atual)?.to_string();
+    let arquivo = analisar(&texto, analisador.features(uri_atual, &texto));
+    if !arquivo.ast.patterns.is_empty() {
+        return None;
+    }
+    let chave = chave_sob_cursor(&arquivo.unit, &arquivo.ast, offset)?;
+    if sombreado(&arquivo.ast, chave)
+        || tem_parametro_de_tipo_homonimo(&arquivo.unit, &arquivo.ast, chave)
+    {
+        return None;
+    }
+    let nome = arquivo.nomes.resolve(chave).to_string();
+    let decl_tipo = declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave);
+    let decl_valor = declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave);
+    let mut simples = Vec::new();
+    let mut so_simples = true;
+    for diretiva in &arquivo.unit.directives {
+        match classificar(diretiva) {
+            ClasseDiretiva::Biblioteca => {}
+            ClasseDiretiva::ImportSimples(caminho) => simples.push(caminho),
+            ClasseDiretiva::Complexa => so_simples = false,
+        }
+    }
+    if simples.is_empty() && so_simples {
+        return match (decl_tipo, decl_valor) {
+            (Some(declaracao), None) => Some(Simbolo {
+                dono: uri_atual.to_string(),
+                espaco: Espaco::Tipo,
+                nome,
+                declaracao,
+            }),
+            (None, Some(declaracao)) => Some(Simbolo {
+                dono: uri_atual.to_string(),
+                espaco: Espaco::Valor,
+                nome,
+                declaracao,
+            }),
+            _ => None,
+        };
+    }
+    if !so_simples || decl_tipo.is_some() || decl_valor.is_some() {
+        return None;
+    }
+    let mut candidatos = Vec::new();
+    for caminho in &simples {
+        if let Some(uri) = resolver_aberto(uri_atual, caminho) {
+            if !candidatos.contains(&uri) {
+                candidatos.push(uri);
+            }
+        }
+    }
+    dono_unico(documentos, analisador, &candidatos, &nome)
+}
+
+/// O único candidato aberto que declara `nome` sozinho num espaço, sem
+/// diretivas que tragam outros nomes, padrões, sombras ou parâmetro de tipo
+/// homônimo. Zero (dono fechado ou no disco) ou vários: `None`.
+fn dono_unico(
+    documentos: &DocumentStore,
+    analisador: &mut AnalisadorSintatico,
+    candidatos: &[String],
+    nome: &str,
+) -> Option<Simbolo> {
+    let mut achado = None;
+    for candidato in candidatos {
+        let Some(texto) = documentos.get(candidato).map(str::to_string) else {
+            continue;
+        };
+        let arquivo = analisar(&texto, analisador.features(candidato, &texto));
+        if !arquivo.ast.patterns.is_empty()
+            || arquivo.unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+        {
+            continue;
+        }
+        let Some(chave) = arquivo.nomes.lookup(nome) else {
+            continue;
+        };
+        if sombreado(&arquivo.ast, chave)
+            || tem_parametro_de_tipo_homonimo(&arquivo.unit, &arquivo.ast, chave)
+        {
+            continue;
+        }
+        let dono = match (
+            declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave),
+            declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave),
+        ) {
+            (Some(declaracao), None) => Simbolo {
+                dono: candidato.clone(),
+                espaco: Espaco::Tipo,
+                nome: nome.to_string(),
+                declaracao,
+            },
+            (None, Some(declaracao)) => Simbolo {
+                dono: candidato.clone(),
+                espaco: Espaco::Valor,
+                nome: nome.to_string(),
+                declaracao,
+            },
+            // Não declara, ou declara nos dois espaços: não é um dono limpo.
+            _ => continue,
+        };
+        if achado.is_some() {
+            return None;
+        }
+        achado = Some(dono);
+    }
+    achado
+}
+
+/// Definição entre documentos abertos: o literal de diretiva segue a regra de
+/// disco ([`alvo_de_diretiva`], um `stat`); o nome segue [`resolver_simbolo`]
+/// (só abertos, nunca o disco). `None` é "não sei".
+pub(super) fn definicao_em(
+    documentos: &DocumentStore,
+    uri_atual: &str,
+    offset: usize,
+    analisador: &mut AnalisadorSintatico,
+) -> Option<(String, Option<Span>)> {
+    let texto = documentos.get(uri_atual)?.to_string();
+    let features = analisador.features(uri_atual, &texto);
+    let mut nomes = Interner::new();
+    let parsed = dartforge_frontend::parser::parse_com(&texto, &mut nomes, features);
+    if let Some(destino) = alvo_de_diretiva(uri_atual, &parsed.unit, offset) {
+        return Some((destino, None));
+    }
+    let simbolo = resolver_simbolo(documentos, uri_atual, offset, analisador)?;
+    Some((simbolo.dono, Some(simbolo.declaracao)))
+}
+
+/// Referências entre documentos abertos via [`resolver_simbolo`]: a declaração
+/// primeiro, depois os usos ordenados por (URI, offset), cada arquivo
+/// analisado e liberado antes do próximo — como `workspace/symbol`, nada é
+/// retido entre pedidos e o `DocumentStore` continua dono único dos textos.
+///
+/// Usos de um arquivo só entram quando ele importa o dono por import simples
+/// e nada mais pode trazer o nome: diretiva complexa, padrão, sombra,
+/// declaração local homônima, import simples para fora dos abertos (cujo
+/// conteúdo o pedido não pode ler sem varrer o disco) ou outro aberto que
+/// declare o nome — qualquer dúvida pula o arquivo, nunca inventa uso nem
+/// devolve lista parcial como total: o chamador não tem como distinguir.
+pub(super) fn referencias_em(
+    documentos: &DocumentStore,
+    uri_atual: &str,
+    offset: usize,
+    analisador: &mut AnalisadorSintatico,
+) -> Option<Vec<(String, Span)>> {
+    let simbolo = resolver_simbolo(documentos, uri_atual, offset, analisador)?;
+    let mut saidas = vec![(simbolo.dono.clone(), simbolo.declaracao)];
+    let mut uris: Vec<String> = documentos.uris().map(str::to_string).collect();
+    uris.sort_unstable();
+    for uri in uris {
+        let usos = if uri == simbolo.dono {
+            usos_do_dono(documentos, analisador, &simbolo)?
+        } else {
+            let Some(usos) = usos_se_importa(documentos, analisador, &uri, &simbolo) else {
+                continue;
+            };
+            usos
+        };
+        saidas.extend(usos.into_iter().map(|span| (uri.clone(), span)));
+    }    saidas[1..].sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.start.cmp(&b.1.start)));
+    Some(saidas)
+}
+
+/// Usos no documento dono, sem a declaração. `None` quando o dono deixou de
+/// ser legível entre a resolução e a coleta (não acontece no despacho
+/// síncrono; o `None` conservador evita inventar localização).
+fn usos_do_dono(
+    documentos: &DocumentStore,
+    analisador: &mut AnalisadorSintatico,
+    simbolo: &Simbolo,
+) -> Option<Vec<Span>> {
+    let texto = documentos.get(&simbolo.dono)?.to_string();
+    let arquivo = analisar(&texto, analisador.features(&simbolo.dono, &texto));
+    let chave = arquivo.nomes.lookup(&simbolo.nome)?;
+    Some(usos_sem_declaracao(&arquivo, chave, simbolo.espaco, simbolo.declaracao))
+}
+
+/// Usos num arquivo que importa o dono por import simples. `None` pula o
+/// arquivo (dúvida ou nome ausente por outro motivo); `Some` — mesmo vazio,
+/// quando importa mas não usa — contribui.
+fn usos_se_importa(
+    documentos: &DocumentStore,
+    analisador: &mut AnalisadorSintatico,
+    uri: &str,
+    simbolo: &Simbolo,
+) -> Option<Vec<Span>> {
+    let texto = documentos.get(uri)?.to_string();
+    let arquivo = analisar(&texto, analisador.features(uri, &texto));
+    if !arquivo.ast.patterns.is_empty() {
+        return None;
+    }
+    let mut importa_dono = false;
+    for diretiva in &arquivo.unit.directives {
+        match classificar(diretiva) {
+            ClasseDiretiva::Biblioteca => {}
+            ClasseDiretiva::ImportSimples(caminho) => {
+                let Some(alvo) = resolver_aberto(uri, &caminho) else {
+                    return None;
+                };
+                if alvo == simbolo.dono {
+                    importa_dono = true;
+                } else if documentos.get(&alvo).is_some() {
+                    if declara_nome(documentos, analisador, &alvo, &simbolo.nome) {
+                        return None;
+                    }
+                } else {
+                    // Fora dos abertos: pode declarar o mesmo nome e o pedido
+                    // não lê disco por tecla. Pula o arquivo em vez de
+                    // atribuir os usos ao dono errado.
+                    return None;
+                }
+            }
+            ClasseDiretiva::Complexa => return None,
+        }
+    }
+    if !importa_dono {
+        return None;
+    }
+    let Some(chave) = arquivo.nomes.lookup(&simbolo.nome) else {
+        return Some(Vec::new());
+    };
+    if sombreado(&arquivo.ast, chave) {
+        return None;
+    }
+    if simbolo.espaco == Espaco::Tipo
+        && tem_parametro_de_tipo_homonimo(&arquivo.unit, &arquivo.ast, chave)
+    {
+        return None;
+    }
+    if declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave).is_some()
+        || declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave).is_some()
+    {
+        // Declaração local homônima: os usos miram ela, não o dono.
+        return None;
+    }
+    Some(usos_sem_declaracao(&arquivo, chave, simbolo.espaco, simbolo.declaracao))
+}
+
+/// Verdadeiro quando o aberto declara `nome` em qualquer espaço (tipo ou
+/// valor): um importador que também o importa não tem dono único.
+fn declara_nome(
+    documentos: &DocumentStore,
+    analisador: &mut AnalisadorSintatico,
+    uri: &str,
+    nome: &str,
+) -> bool {
+    let Some(texto) = documentos.get(uri).map(str::to_string) else {
+        return false;
+    };
+    let arquivo = analisar(&texto, analisador.features(uri, &texto));
+    let Some(chave) = arquivo.nomes.lookup(nome) else {
+        return false;
+    };
+    declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave).is_some()
+        || declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave).is_some()
+}
+
+/// Usos do nome no arquivo, sem a declaração do dono.
+fn usos_sem_declaracao(
+    arquivo: &Arquivo,
+    chave: dartforge_intern::SymbolId,
+    espaco: Espaco,
+    declaracao: Span,
+) -> Vec<Span> {
+    let mut usos = Vec::new();
+    match espaco {
+        Espaco::Tipo => {
+            for ty in &arquivo.ast.types {
+                let TypeKind::Named { name, .. } = &ty.kind else { continue };
+                if name.len() != 1 || name[0].sym != chave || name[0].span == declaracao {
+                    continue;
+                }
+                usos.push(name[0].span);
+            }
+        }
+        Espaco::Valor => {
+            for e in &arquivo.ast.exprs {
+                let ExprKind::Identifier(n) = &e.kind else { continue };
+                if n.sym != chave {
+                    continue;
+                }
+                usos.push(n.span);
+            }
+        }
+    }
+    usos.sort_by_key(|s| s.start);
+    usos
 }

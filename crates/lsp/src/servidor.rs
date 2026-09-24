@@ -346,22 +346,32 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let offset = self.documentos.linhas(u)?
                         .offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (destino, selecao) = self.analisador.definicao(u, &texto, offset)?;
-                    let range = selecao.map_or_else(
-                        || json!({
-                            "start": {"line": 0, "character": 0},
-                            "end": {"line": 0, "character": 0},
-                        }),
-                        |s| {
-                            let tabela = self.documentos.linhas(u).expect("documento aberto");
-                            let (l0, c0) = tabela.posicao_de_offset(&texto, s.start);
-                            let (l1, c1) = tabela.posicao_de_offset(&texto, s.end);
+                    let (destino, selecao) = self.analisador.definicao_em(&self.documentos, u, offset)?;
+                    let range = match selecao {
+                        Some(s) => {
+                            let (texto_alvo, tabela_alvo) = self
+                                .documentos
+                                .get(&destino)
+                                .zip(self.documentos.linhas(&destino))?;
+                            let de = s.start.min(texto_alvo.len());
+                            let mut ate = s.end.min(texto_alvo.len());
+                            if ate < de {
+                                ate = de;
+                            }
+                            let (l0, c0) = tabela_alvo.posicao_de_offset(texto_alvo, de);
+                            let (l1, c1) = tabela_alvo.posicao_de_offset(texto_alvo, ate);
                             json!({
                                 "start": {"line": l0, "character": c0},
                                 "end": {"line": l1, "character": c1},
                             })
-                        },
-                    );
+                        }
+                        // Literal de diretiva para arquivo fora dos abertos:
+                        // sem seleção confiável, como antes.
+                        None => json!({
+                            "start": {"line": 0, "character": 0},
+                            "end": {"line": 0, "character": 0},
+                        }),
+                    };
                     Some(json!({
                         "uri": destino,
                         "range": range,
@@ -385,25 +395,27 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let spans = self.analisador.referencias(u, &texto, offset)?;
-                    let inicio = usize::from(!incluir_declaracao).min(spans.len());
-                    let locais: Vec<Value> = spans[inicio..]
+                    let achados = self.analisador.referencias_em(&self.documentos, u, offset)?;
+                    let inicio = usize::from(!incluir_declaracao).min(achados.len());
+                    let locais: Vec<Value> = achados[inicio..]
                         .iter()
-                        .map(|s| {
-                            let de = s.start.min(texto.len());
-                            let mut ate = s.end.min(texto.len());
+                        .filter_map(|(alvo, s)| {
+                            let texto_alvo = self.documentos.get(alvo)?;
+                            let tabela_alvo = self.documentos.linhas(alvo)?;
+                            let de = s.start.min(texto_alvo.len());
+                            let mut ate = s.end.min(texto_alvo.len());
                             if ate < de {
                                 ate = de;
                             }
-                            let (l0, c0) = tabela.posicao_de_offset(&texto, de);
-                            let (l1, c1) = tabela.posicao_de_offset(&texto, ate);
-                            json!({
-                                "uri": u,
+                            let (l0, c0) = tabela_alvo.posicao_de_offset(texto_alvo, de);
+                            let (l1, c1) = tabela_alvo.posicao_de_offset(texto_alvo, ate);
+                            Some(json!({
+                                "uri": alvo,
                                 "range": {
                                     "start": {"line": l0, "character": c0},
                                     "end": {"line": l1, "character": c1},
                                 },
-                            })
+                            }))
                         })
                         .collect();
                     Some(json!(locais))
