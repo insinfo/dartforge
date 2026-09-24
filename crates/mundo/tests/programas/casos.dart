@@ -105,6 +105,21 @@ class ConstMorta {
   const ConstMorta();
 }
 
+// Restrição pelo tipo do receptor: `toca` chamado só em `Sopro` mantém
+// `toca` em `Sopro` e nas subclasses, mas não em `Flauta` (disjunta).
+class Sopro {
+  void toca() => print('Sopro.toca');
+}
+
+class Gaita extends Sopro {
+  void toca() => print('Gaita.toca');
+}
+
+class Flauta {
+  void toca() => print('Flauta.toca');
+  void assobia() => print('Flauta.assobia');
+}
+
 const usada = ConstUsada();
 const morta = ConstMorta();
 
@@ -133,4 +148,7 @@ void main() {
   var se = SoEscrita();
   se.w = 1;
   print(se._w);
+  Sopro s = Gaita();
+  s.toca();
+  print(Flauta());
 }

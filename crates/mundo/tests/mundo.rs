@@ -122,6 +122,10 @@ fn casos_do_mundo_fechado() {
         // espécie de seletor: leitura e escrita são independentes
         confere(c.viva_especie("SoLeitura.v", false) && !c.viva_especie("SoLeitura.v", true), "getter lido vive, setter nunca escrito morre");
         confere(c.viva_especie("SoEscrita.w", true) && !c.viva_especie("SoEscrita.w", false), "setter escrito vive, getter nunca lido morre");
+        // restrição pelo tipo do receptor: `toca` em `Sopro` não mantém `toca` de `Flauta`
+        confere(c.viva("Sopro.toca") && c.viva("Gaita.toca"), "toca vivo no cone do receptor (base e subclasse)");
+        confere(!c.viva("Flauta.toca") && !c.viva("Flauta.assobia"), "toca/assobia mortos na classe disjunta instanciada");
+        confere(c.nivel("Flauta") == NivelClasse::Instanciada, "Flauta instanciada mesmo com os membros podados");
         // conferência a seco e determinismo
         let inc = conferir(e, &raizes, &m);
         confere(inc.is_empty(), &format!("conferência: {inc:?}"));
