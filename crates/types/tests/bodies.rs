@@ -409,6 +409,28 @@ fn metodo_de_classe_nao_e_setter_mesmo_com_extensao() {
 }
 
 #[test]
+fn late_final_de_topo_sem_inicializador_aceita_escrita() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; late final int x; late final int y = 0; void f() { x = 0; x += 0; ++x; x++; y = 0; y += 0; ++y; y++; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    assert_eq!(finais.len(), 4, "{diags:?}");
+    for d in finais {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "y", "{diags:?}");
+    }
+    assert!(!diags.iter().any(|d| d.message.contains("'x'")), "{diags:?}");
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

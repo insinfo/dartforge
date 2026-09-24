@@ -1322,7 +1322,7 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     let ve = inf.program.variable(v);
                     if ve.const_ {
                         inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
-                    } else if ve.final_ {
+                    } else if ve.final_ && !(ve.late && inf.inicializador(v).is_none()) {
                         let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(n.sym));
                         inf.aviso(msg, n.span);
                     }
