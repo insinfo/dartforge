@@ -316,6 +316,13 @@ pub extern "C" fn dartforge_nativo_Object_haveSameRuntimeType(a: i64, b: i64) ->
     u8::from(dartforge_value_class(a) == dartforge_value_class(b))
 }
 
+/// `Object.runtimeType`: usa o universo RTI, inclusive argumentos de tipo
+/// reificados, e devolve o objeto `Type` canônico do isolate.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
+    dartforge_rti_objeto_tipo(dartforge_rti_do_valor(this))
+}
+
 /// `makeListFixedLength(list)`: uma `_List` com os mesmos elementos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Internal_makeListFixedLength(lista: i64) -> i64 {
@@ -601,4 +608,21 @@ pub extern "C" fn dartforge_nativo_DartForge_record_fieldAt(this: i64, i: i64) -
         _ => None,
     });
     v.map_or(0, valor_como_ref)
+}
+
+#[cfg(test)]
+mod testes_runtime_type {
+    use super::*;
+
+    #[test]
+    fn native_retorna_tipo_canonico_do_valor() {
+        dartforge_rti_classe_do_runtime(0, 101); // int
+        dartforge_rti_classe_do_runtime(3, 102); // String
+        let numero = dartforge_box_int(7);
+        let texto = alocar_str("sete");
+        let tipo_numero = dartforge_nativo_Object_runtimeType(numero);
+        assert_eq!(tipo_numero, dartforge_nativo_Object_runtimeType(dartforge_box_int(9)));
+        assert_ne!(tipo_numero, dartforge_nativo_Object_runtimeType(texto));
+        assert_eq!(tipo_numero, dartforge_rti_objeto_tipo(dartforge_rti_do_valor(numero)));
+    }
 }

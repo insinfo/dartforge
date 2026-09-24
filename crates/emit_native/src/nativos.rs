@@ -209,7 +209,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("Object_getHash"),
     runtime("Object_haveSameRuntimeType"),
     pendente("Object_instanceOf"),
-    pendente("Object_runtimeType"),
+    runtime("Object_runtimeType"),
     pendente("Object_simpleInstanceOf"),
     runtime("Object_toString"),
     runtime("OneByteString_allocateFromOneByteList"),
