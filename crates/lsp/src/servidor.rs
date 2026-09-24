@@ -37,6 +37,23 @@ use std::collections::{HashMap, HashSet, VecDeque};
 const SINCRONIZACAO_INCREMENTAL: u32 = 2;
 /// `severity` LSP para todo diagnóstico sintático.
 const SEVERIDADE_ERRO: u32 = 1;
+
+/// `DiagnosticSeverity` do LSP para a severidade do analyzer (1 erro, 2 aviso, 3 informação).
+fn severidade(s: dartforge_diagnostics::Severidade) -> u32 {
+    match s {
+        dartforge_diagnostics::Severidade::Error => SEVERIDADE_ERRO,
+        dartforge_diagnostics::Severidade::Warning => 2,
+        dartforge_diagnostics::Severidade::Info => 3,
+    }
+}
+
+/// A mensagem como o servidor do Dart a mostra: o problema e, se houver, a correção.
+fn mensagem(d: &dartforge_diagnostics::Diagnostic) -> String {
+    match d.correcao() {
+        Some(c) => format!("{}\n{c}", d.message),
+        None => d.message.clone(),
+    }
+}
 /// Origem publicada em cada diagnóstico.
 const FONTE: &str = "dartforge";
 
@@ -553,9 +570,10 @@ fn converter_diagnostico(
             "start": {"line": l0, "character": c0},
             "end": {"line": l1, "character": c1},
         },
-        "severity": SEVERIDADE_ERRO,
+        "severity": severidade(diagnostico.severity),
         "source": FONTE,
-        "message": diagnostico.message,
+        "message": mensagem(diagnostico),
+        "code": diagnostico.code.map(|c| c.info().nome),
     })
 }
 

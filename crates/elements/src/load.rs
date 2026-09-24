@@ -3,7 +3,7 @@ use crate::config::PackageConfig;
 use crate::model::*;
 use crate::outline;
 use crate::sdk::SdkLayout;
-use dartforge_diagnostics::{Diagnostic, Span};
+use dartforge_diagnostics::{Diagnostic, Span, codigos};
 use dartforge_frontend::ast::{self, DirectiveKind};
 use dartforge_frontend::{Feature, LanguageVersion, LibraryFeatures};
 use dartforge_intern::{Interner, SymbolId};
@@ -787,18 +787,22 @@ fn versao_propria(
     corrente: LanguageVersion,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> (LanguageVersion, Option<(LanguageVersion, Span)>) {
-    let mut erro = |msg: String, span: Span| {
-        diagnostics.push(Diagnostic::new(format!("{}:{}: {msg}", path.display(), span.start), span));
+    // O caminho e o offset na frente da mensagem, como os diagnósticos do
+    // parser; o código (quando há um no analyzer) fica no diagnóstico.
+    let prefixo = |span: Span| format!("{}:{}: ", path.display(), span.start);
+    let mut erro_cod = |mut d: Diagnostic| {
+        d.message = format!("{}{}", prefixo(d.span), d.message);
+        diagnostics.push(d);
     };
     let zero = Span { start: 0, end: 0 };
     let padrao = match config.pacote_da_biblioteca(uri, Some(path)) {
         Some(p) => {
             if let Some(t) = &p.language_version_invalida {
-                erro(format!("o languageVersion '{t}' do pacote '{}' no package_config.json não é uma versão x.y", p.name), zero);
+                erro_cod(Diagnostic::new(format!("The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.", p.name), zero));
             }
             match p.language_version {
                 Some(v) if v > corrente => {
-                    erro(format!("o pacote '{}' está na versão de linguagem {v}, acima da suportada ({corrente})", p.name), zero);
+                    erro_cod(Diagnostic::new(format!("The package '{}' has language version {v}, greater than the latest known language version: {corrente}.", p.name), zero));
                     corrente
                 }
                 Some(v) => v,
@@ -809,13 +813,18 @@ fn versao_propria(
     };
     let marcador = dartforge_frontend::features::marcador_versao(fonte).and_then(|(v, span)| {
         if v > corrente {
-            erro(format!("a versão de linguagem {v} do marcador está acima da suportada ({corrente})"), span);
+            // WarningCode.INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER.
+            let (maior, menor) = (corrente.major.to_string(), corrente.minor.to_string());
+            erro_cod(Diagnostic::com_codigo(
+                codigos::warning::INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER,
+                span,
+                [maior.as_str(), menor.as_str()],
+            ));
             None
         } else if v < LanguageVersion::MINIMA {
-            erro(
-                format!("a versão de linguagem {v} do marcador está abaixo da mínima ({}, null safety)", LanguageVersion::MINIMA),
-                span,
-            );
+            // CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE.
+            let minima = format!(">={}.0", LanguageVersion::MINIMA);
+            erro_cod(Diagnostic::com_codigo(codigos::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
             None
         } else {
             Some((v, span))

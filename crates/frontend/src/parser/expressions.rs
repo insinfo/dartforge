@@ -45,7 +45,7 @@ use crate::ast::{
 };
 use crate::features::Feature;
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
-use dartforge_diagnostics::Span;
+use dartforge_diagnostics::{Span, codigos};
 
 /// Níveis de precedência dos operadores binários, do mais baixo ao mais alto.
 /// Os valores são contíguos porque [`Parser::parse_binary`] usa `nível + 1`
@@ -187,7 +187,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 any = true;
             }
             if !any {
-                return Err(self.error("esperava uma string"));
+                return Err(self.erro(codigos::parser::EXPECTED_STRING_LITERAL, &[]));
             }
             Ok(())
         })();
@@ -695,7 +695,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let token = self.advance();
             return Ok(self.name_from("new", token.span));
         }
-        Err(self.error("esperava um nome de membro"))
+        Err(self.erro_identificador())
     }
 
     /// O `<` corrente abre argumentos de tipo de um seletor: a lista é bem
@@ -857,7 +857,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             Kind::Keyword(Keyword::Switch) => self.parse_switch_expression(start),
-            _ => Err(self.error("esperava uma expressão")),
+            _ => Err(self.erro_identificador()),
         }
     }
 
@@ -872,7 +872,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.at_identifier() {
             self.identifier()
         } else {
-            return Err(self.error("esperava um nome ou 'new' depois de '.' (atalho de ponto)"));
+            return Err(self.erro_identificador());
         };
         self.exigir(
             Feature::DotShorthands,
@@ -882,7 +882,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             },
         );
         if const_ && !self.at_op(Op::LParen) {
-            return Err(self.error("'const .nome' exige argumentos: é uma criação constante"));
+            return Err(self.erro_esperado("("));
         }
         Ok(self.push(start, ExprKind::DotShorthand { name, const_ }))
     }
@@ -897,7 +897,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.kind() {
             Kind::Op(Op::LBracket) => self.parse_list_literal(start, const_, type_args),
             Kind::Op(Op::LBrace) => self.parse_set_or_map_literal(start, const_, type_args),
-            _ => Err(self.error("esperava '[' ou '{' após argumentos de tipo")),
+            _ => Err(self.erro_esperado("[")),
         }
     }
 
@@ -1237,7 +1237,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             Kind::Op(Op::Gt) => {
                 let Some(composed) = self.composed_gt() else {
-                    return Err(self.error("esperava um operador após '#'"));
+                    return Err(self.erro_identificador());
                 };
                 let text = match composed {
                     ComposedGt::Gt => ">",
@@ -1245,7 +1245,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     ComposedGt::Shr => ">>",
                     ComposedGt::UShr => ">>>",
                     ComposedGt::ShrAssign | ComposedGt::UShrAssign => {
-                        return Err(self.error("operador inválido em símbolo"));
+                        return Err(self.erro_identificador());
                     }
                 };
                 let first = self.span();
@@ -1272,7 +1272,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let token = self.advance();
                 names.push(self.name_from(op.text(), token.span));
             }
-            _ => return Err(self.error("esperava um nome ou operador após '#'")),
+            _ => return Err(self.erro_identificador()),
         }
         Ok(self.push(start, ExprKind::Symbol(names.into_boxed_slice())))
     }
@@ -1286,7 +1286,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let expr = match previous {
                 Interp::Ident => {
                     if !self.at_identifier() {
-                        return Err(self.error("esperava um identificador após '$'"));
+                        return Err(self.erro(codigos::scanner::MISSING_IDENTIFIER, &[]));
                     }
                     let start = self.span();
                     let name = self.identifier();
@@ -1307,7 +1307,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.push_string_text(token, flags, false, leading_brace)?;
                     return Ok(());
                 }
-                _ => return Err(self.error("esperava '}' fechando interpolação")),
+                _ => return Err(self.erro_esperado("}")),
             }
         }
     }
@@ -1348,7 +1348,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.scratch_parts.push(StringPart::Text(decoded));
                 Ok(())
             }
-            Err(message) => Err(self.error_at(token.span, format!("string inválida: {message}"))),
+            Err(message) => Err({ let _ = message; self.erro_em(codigos::parser::INVALID_UNICODE_ESCAPE_STARTED, token.span, &[]) }),
         }
     }
 
@@ -1759,7 +1759,7 @@ mod tests {
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, nomes);
         assert!(p.parse_expression().is_err());
-        assert!(p.diagnostics[0].message.contains("interpolação"));
+        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "expected_token")));
     }
 
     #[test]
@@ -1976,7 +1976,7 @@ mod tests {
         let tokens = crate::lexer::lex(&src).unwrap();
         let mut p = Parser::new(&src, tokens, nomes);
         assert!(p.parse_expression().is_err());
-        assert!(p.diagnostics[0].message.contains("aninhamento"));
+        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow")));
     }
 
     // -- Testes que dependem de outros módulos (types, patterns, statements,

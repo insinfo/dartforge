@@ -35,7 +35,7 @@ use crate::ast::{
     PatternKind, TypeAnnotation, TypeKind,
 };
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::Span;
+use dartforge_diagnostics::{Span, codigos};
 
 impl<'s, 'i> Parser<'s, 'i> {
     /// `pattern` completo (com `||`, `&&`, `as`, `?`, `!`).
@@ -212,7 +212,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `.x` é atalho de ponto constante (3.10).
                 self.parse_constant_pattern(start)
             }
-            _ => Err(self.error("esperava um padrão")),
+            _ => Err(self.erro_identificador()),
         }
     }
 
@@ -229,9 +229,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.advance();
                     BinaryOp::GtEq
                 }
-                _ => return Err(self.error("esperava um operador relacional")),
+                _ => return Err(self.erro_identificador()),
             },
-            _ => return Err(self.error("esperava um operador relacional")),
+            _ => return Err(self.erro_identificador()),
         };
         self.advance();
         let value = self.parse_bitwise_or_expression()?;
@@ -423,7 +423,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 _ => {
                     let span = self.ast.pattern(pattern).span;
                     return Err(
-                        self.error_at(span, "campo ':' sem nome exige um padrão de variável")
+                        self.erro_em(codigos::parser::MISSING_IDENTIFIER, span, &[])
                     );
                 }
             }
@@ -790,7 +790,7 @@ mod tests {
 
         let out = pattern("(:_)");
         assert!(out.result.is_err());
-        assert!(out.diagnostics[0].message.contains("variável"));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_identifier")));
     }
 
     #[test]
@@ -871,7 +871,7 @@ mod tests {
     fn erros() {
         let out = pattern(")");
         assert!(out.result.is_err());
-        assert!(out.diagnostics[0].message.contains("esperava um padrão"));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_identifier")));
         let out = pattern("[a");
         assert!(out.result.is_err());
         let out = pattern("(a, b");
@@ -914,7 +914,7 @@ mod tests {
         let src = format!("{}x{}", "(".repeat(depth), ")".repeat(depth));
         let out = pattern(&src);
         assert!(out.result.is_err());
-        assert!(out.diagnostics[0].message.contains("aninhamento"));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow")));
     }
 
     // -- Dependentes de expressions.rs / types.rs ---------------------------
