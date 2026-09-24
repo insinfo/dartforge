@@ -1084,12 +1084,13 @@ impl Motor {
         if self.registros[g.acao].is_none() {
             let a = g.acao;
             let fi = self.grafo.acoes[a].fase;
-            let r = match self.nativo_da_fase(fi) {
+            let mut r = match self.nativo_da_fase(fi) {
                 Some(n) if !self.nativos[n].por_pacote() => {
                     self.nativo_por_acao(ctx, &HashSet::new(), n, a, None)
                 }
                 _ => self.apoio(a, None),
             };
+            r.impressao = self.impressao(a, &r.consultas);
             for (s, c) in &r.saidas {
                 if let Some(c) = c {
                     self.memoria.insert(self.naturais[s].clone(), c.clone());
