@@ -304,6 +304,30 @@ fn getter_de_extensao_sem_setter() {
 }
 
 #[test]
+fn sobreposicao_explicita_de_extensao_sem_setter() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; extension E on int { int get foo => 0; } extension F on int { set bar(int v) {} } void f() { E(0).foo = 1; E(0).foo += 1; F(0).bar = 1; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
+    assert_eq!(ausentes.len(), 2, "{diags:?}");
+    for d in ausentes {
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
+        assert!(d.message.contains("'foo' em 'E'"), "{diags:?}");
+    }
+    assert!(!diags.iter().any(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)), "{diags:?}");
+    assert!(!diags.iter().any(|d| d.message.contains("'bar'")), "{diags:?}");
+}
+
+#[test]
 fn campo_final_sem_setter_e_late_final_atribuivel() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

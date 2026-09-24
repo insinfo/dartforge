@@ -47,6 +47,11 @@ pub const ASSIGNMENT_TO_FINAL_NO_SETTER: DiagnosticCode = DiagnosticCode::new(
     "Não há setter para '{0}' na classe '{1}'.",
 );
 
+pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode = DiagnosticCode::new(
+    "undefined_extension_setter",
+    "Setter de extensão não encontrado",
+);
+
 pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_const",
     "Variáveis constantes não podem receber nova atribuição.",

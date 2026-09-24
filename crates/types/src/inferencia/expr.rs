@@ -1555,6 +1555,18 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     }
     let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
+    // `E(valor).m` força a extensão nomeada: na falta de setter ela emite
+    // `undefined_extension_setter`, mesmo que a extensão tenha um getter `m`.
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if let Some(m) = inf.membro_de_extensao_explicita(x, &args, name.sym, true) {
+            resolver(inf, cx, alvo, m.resolved);
+            return m.tipo;
+        }
+        let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extensao);
+        inf.aviso(msg, name.span);
+        return inf.core.dynamic_;
+    }
     match inf.buscar_membro(cx.lib, recv, name.sym, true) {
         Busca::Achado(m) => {
             resolver(inf, cx, alvo, m.resolved.clone());
