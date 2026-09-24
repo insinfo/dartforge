@@ -63,7 +63,7 @@ fn motor(dir: &Path, trabalhadores: usize) -> Result<Motor, String> {
     Ok(m)
 }
 
-struct DartFalso { preparos: Arc<AtomicUsize>, chamadas: Arc<AtomicUsize> }
+struct DartFalso { preparos: Arc<AtomicUsize>, chamadas: Arc<AtomicUsize>, fechamentos: Arc<AtomicUsize> }
 
 impl ExecutorDart for DartFalso {
     fn disponibilidade(&self) -> Disponibilidade { Disponibilidade::Disponivel }
@@ -80,7 +80,7 @@ impl ExecutorDart for DartFalso {
         }
         Ok(ResultadoAcao::default())
     }
-    fn encerrar(&mut self) {}
+    fn encerrar(&mut self) { self.fechamentos.fetch_add(1, Ordering::SeqCst); }
 }
 
 #[test]
@@ -91,7 +91,8 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
     let mut m = Motor::novo(&dir, &cfg, OpcoesMotor::default()).unwrap();
     let preparos = Arc::new(AtomicUsize::new(0));
     let chamadas = Arc::new(AtomicUsize::new(0));
-    m.definir_executor_dart(Box::new(DartFalso { preparos: preparos.clone(), chamadas: chamadas.clone() }));
+    let fechamentos = Arc::new(AtomicUsize::new(0));
+    m.definir_executor_dart(Box::new(DartFalso { preparos: preparos.clone(), chamadas: chamadas.clone(), fechamentos: fechamentos.clone() }));
     let ctx = Contexto { banco: &SemBanco, programa: None };
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
     let feitas = chamadas.load(Ordering::SeqCst);
@@ -100,6 +101,8 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
     assert_eq!(chamadas.load(Ordering::SeqCst), feitas, "ação limpa foi reexecutada");
     assert_eq!(preparos.load(Ordering::SeqCst), 1, "script de builders recompilado na sessão");
+    drop(m);
+    assert_eq!(fechamentos.load(Ordering::SeqCst), 1, "executor não foi encerrado ao fim da sessão");
 }
 
 fn resumo(linhas: &[String]) {

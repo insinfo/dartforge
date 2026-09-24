@@ -151,7 +151,8 @@ Por ação, na ordem, o primeiro que aceita:
    executor injetado e serve `BuildStep` com visibilidade, consultas e saídas
    permitidas. O cliente `build.*` já usa o canal `dfexec/1` compartilhado com
    as macros. O padrão ainda é `Indisponivel(motivo)` até existir o processo
-   Dart auto-hospedado que implemente esse serviço.
+   Dart auto-hospedado que implemente esse serviço. A sessão encerra o
+   executor ao terminar ou quando ele é substituído.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no

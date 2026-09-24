@@ -196,6 +196,12 @@ pub struct Motor {
     rotulos: HashMap<String, &'static str>,
 }
 
+impl Drop for Motor {
+    fn drop(&mut self) {
+        if let Ok(mut dart) = self.dart.lock() { dart.encerrar(); }
+    }
+}
+
 fn natural(grafo: &GrafoPacotes, id: &AssetId) -> PathBuf {
     let raiz = grafo.no(&id.pacote).map(|n| n.raiz.clone()).unwrap_or_default();
     chave(&raiz.join(id.caminho.as_ref()))
@@ -341,6 +347,7 @@ impl Motor {
     }
 
     pub fn definir_executor_dart(&mut self, e: Box<dyn ExecutorDart>) {
+        if let Ok(mut anterior) = self.dart.lock() { anterior.encerrar(); }
         self.dart = std::sync::Mutex::new(e);
         self.dart_preparado.store(false, Ordering::Release);
     }
