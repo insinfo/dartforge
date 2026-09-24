@@ -2,6 +2,28 @@
 
 use dartforge_jit::JitSession;
 
+/// Auxiliares com linkage interno pertencem a cada módulo LLVM; o emissor
+/// atual gera `df_clo_invalido` assim. Eles não podem virar entradas públicas.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn auxiliares_internos_nao_viram_trampolins() {
+    let ir = |valor: i64| format!("\
+define internal i64 @df_clo_invalido() {{ ret i64 {valor} }}
+define i64 @df_fn_0() {{
+  %r = call i64 @df_clo_invalido()
+  ret i64 %r
+}}
+");
+    let mut sessao = JitSession::new().expect("sessão");
+    let primeira = sessao.add_reloadable_module("app", &ir(1)).expect("primeira geração");
+    assert_eq!(primeira.entries, 1);
+    assert_eq!(sessao.stable_entries("app"), vec!["df_fn_0"]);
+    let entrada = sessao.stable_entry("df_fn_0").unwrap();
+    assert_eq!(entrada.call(&sessao).unwrap(), 1);
+    sessao.hot_reload("app", &ir(2)).expect("segunda geração");
+    assert_eq!(entrada.call(&sessao).unwrap(), 2);
+}
+
 /// IR inválido ou referência ausente não substitui a geração em execução.
 /// Uma versão válida ainda pode ser publicada depois das duas falhas.
 #[test]

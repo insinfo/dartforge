@@ -321,13 +321,15 @@ impl ParsedModule {
         }
     }
 
-    /// Assinaturas das funções **definidas** pelo módulo, na ordem do IR.
+    /// Assinaturas das funções **exportadas** pelo módulo, na ordem do IR.
     ///
     /// Declarações externas ficam de fora: elas são o que o módulo consome (o
-    /// runtime), não o que ele oferece para ser recarregado.
+    /// runtime), não o que ele oferece para ser recarregado. Definições
+    /// `internal`/`private` pertencem à geração e também ficam de fora.
     pub(crate) fn signatures(&self) -> Vec<FunctionSignature> {
         self.definitions()
             .into_iter()
+            .filter(|&function| !self.local_function(function))
             // SAFETY: cada `function` é uma definição viva deste módulo,
             // devolvida pela travessia do próprio LLVM.
             .map(|function| unsafe { self.signature_of(function) })
@@ -460,6 +462,11 @@ impl ParsedModule {
         // valores continuam válidos enquanto o módulo existir, e as declarações
         // acrescentadas no laço não voltam a ser visitadas.
         for function in self.definitions() {
+            // Funções `internal`/`private` pertencem apenas a esta geração.
+            // Não ganham trampolim, nem podem ser resolvidas com LLJITLookup.
+            if self.local_function(function) {
+                continue;
+            }
             // SAFETY: `function` é uma definição viva deste módulo.
             let signature = unsafe { self.signature_of(function) };
             let versioned = format!("{}{suffix}", signature.name);
@@ -524,6 +531,12 @@ impl ParsedModule {
             }
         }
         functions
+    }
+
+    fn local_function(&self, function: LLVMValueRef) -> bool {
+        // SAFETY: `function` veio da travessia de definições deste módulo.
+        let linkage = unsafe { llvm_sys::core::LLVMGetLinkage(function) };
+        matches!(linkage, llvm_sys::LLVMLinkage::LLVMInternalLinkage | llvm_sys::LLVMLinkage::LLVMPrivateLinkage)
     }
 }
 
@@ -959,6 +972,20 @@ impl Lljit {
                 signature.text()
             )),
         }
+    }
+
+    /// Invoca um trampolim recarregável com ABI `void ()`, conferida antes da FFI.
+    pub(crate) fn call_stable_void(&self, address: u64, signature: &FunctionSignature) -> Result<(), String> {
+        if signature.var_arg || signature.ret != "void" || !signature.params.is_empty() {
+            return Err(format!("a entrada estável tem assinatura {}, esperada void ()", signature.text()));
+        }
+        let pointer = usize::try_from(address)
+            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            as *const ();
+        // SAFETY: a assinatura `void ()` foi conferida acima; o endereço é o
+        // trampolim publicado pela LLJIT desta sessão e vive até ela terminar.
+        unsafe { std::mem::transmute::<*const (), extern "C" fn()>(pointer)() };
+        Ok(())
     }
 
     /// Resolve e executa a entrada do módulo, medindo as duas fases.
