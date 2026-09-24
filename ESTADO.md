@@ -8,6 +8,27 @@ worktrees antigos de `.claude`; o histórico e os arquivos rastreados foram
 preservados. As toolchains ficam em `E:\DartSDKs` e `E:\Rust`, e as compilações
 locais usam `TEMP`/`TMP` em E:.
 
+Na integração `fbf7f86`, a [CI 36005425772](https://github.com/insinfo/dartforge/actions/runs/36005425772)
+e o [Pesado 36005425989](https://github.com/insinfo/dartforge/actions/runs/36005425989)
+passaram. O corpus com SDK da fonte ficou em **162/223** no nativo; JavaScript
+de desenvolvimento e produção passou o corpus completo, e macros ficaram
+**9/9**. O analyzer registrou **5.925/26.133** diagnósticos na posição exata,
+5.636 mensagens iguais, 4.319 falsos positivos, 19.740 falsos negativos e
+468 posições erradas, com resultado idêntico em 1/4/8 trabalhadores. Esta é a
+última medição combinada concluída, não a do HEAD atual.
+
+Depois dela, foram integrados `Function.apply` e `NoSuchMethodError` de
+aridade de closures, chamada de função devolvida por getter estático,
+modelos de macros 413–415, hover/definition de import prefixado no LSP,
+diagnósticos de conflito estático com mixins e o hospedeiro `BuildStep` com
+limites de leitura/escrita por ação. Gates isolados: nativo com SDK da fonte
+**164/223** após os casos 38 e 45, sem regressão de status; macros **12/12**
+em desenvolvimento e produção, augmentations 413–415 idênticas às do CFE;
+o mixin `on` levou o analyzer isolado a **5.870/26.133**, 11 acertos a mais
+no grupo sem aumento de falsos positivos. A nova rodada combinada do HEAD
+`60336d7` é [CI 36008167645](https://github.com/insinfo/dartforge/actions/runs/36008167645)
+e [Pesado 36008167704](https://github.com/insinfo/dartforge/actions/runs/36008167704).
+
 Integração em `ci/integracao-ssd`: ajustes de caminhos, seleção do LLVM 22 no
 runner, correção de símbolos estáveis e da RTI entre módulos, regressões de
 hot reload, navegação e hover LSP, limpeza do executor de macros e avanço do
