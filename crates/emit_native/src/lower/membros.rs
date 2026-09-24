@@ -1447,11 +1447,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // ------------------------------------------------------------------
     // Globais (N6)
 
+    /// Constrói o `LateError` do SDK e lança no fluxo de exceções do HIR.
+    /// `codigo`: 0/1 campo não inicializado/já inicializado; 2/3 local.
+    pub fn lancar_erro_late(&mut self, nome: &str, codigo: i64) {
+        let n = self.emit(Instruction::Const(Constant::String(nome.to_string())), Type::Ref);
+        let erro = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_error_new".to_string(),
+                args: vec![(n, Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(erro);
+    }
+
     /// Corpo do getter preguiçoso de um global.
     pub fn lower_getter_global(&mut self, vid: VariableId, repr: Type) {
         let valor = super::simbolo_valor_global(self.ctx, vid);
         let bandeira = format!("{valor}$ok");
         let Some(init) = self.variable_initializer_em(vid) else {
+            if self.ctx.program.variables[vid.0 as usize].late {
+                let ok = self.emit(Instruction::LoadGlobal { simbolo: bandeira, ty: Type::I8 }, Type::I8);
+                let pronto = self.emit(
+                    Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
+                let b_ler = self.new_block();
+                let b_erro = self.new_block();
+                self.terminate(Terminator::CondBranch { cond: pronto, then_block: b_ler, else_block: b_erro });
+                self.set_block(b_erro);
+                let nome = self.ctx.symbol_name(self.ctx.program.variables[vid.0 as usize].name).to_string();
+                self.lancar_erro_late(&nome, 0);
+                self.set_block(b_ler);
+            }
             let v = self.emit(
                 Instruction::LoadGlobal {
                     simbolo: valor,
@@ -1581,6 +1610,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
             return val;
+        }
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if var.late && var.final_ {
+            let bandeira = format!("{}$ok", super::simbolo_valor_global(self.ctx, vid));
+            let ok = self.emit(Instruction::LoadGlobal { simbolo: bandeira, ty: Type::I8 }, Type::I8);
+            let ja_inicializado = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_gravar = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: ja_inicializado, then_block: b_erro, else_block: b_gravar });
+            self.set_block(b_erro);
+            let nome = self.ctx.symbol_name(var.name).to_string();
+            self.lancar_erro_late(&nome, 1);
+            self.set_block(b_gravar);
         }
         self.emit(
             Instruction::StoreGlobal {

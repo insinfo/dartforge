@@ -611,6 +611,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i64 @dartforge_late_error_new(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_no_such_method_error_new(i64)",
         efeitos: CONSERVADOR,
     },
