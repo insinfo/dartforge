@@ -225,6 +225,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `415_variavel_topo` — macro em variável de topo (`VariableDeclarationsMacro`),
   exercitando o modelo da variável e uma função gerada que acessa seu valor.
   O programa chama essa função e o texto é comparado byte a byte ao CFE.
+* `416_definicao_funcao` — `FunctionDefinitionMacro` substitui o corpo de
+  uma função de topo na fase 3. A VM executa o corpo aumentado e o texto
+  estruturado pelo hospedeiro é comparado byte a byte ao CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
