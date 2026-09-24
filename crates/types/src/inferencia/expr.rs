@@ -988,11 +988,31 @@ fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
     inf.interner.lookup(texto_operador(op)?)
 }
 
+fn pular_espacos_e_comentarios(trecho: &str) -> usize {
+    let bytes = trecho.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        } else if bytes.get(pos..pos + 2) == Some(b"/*") {
+            pos += 2;
+            while pos + 1 < bytes.len() && &bytes[pos..pos + 2] != b"*/" { pos += 1; }
+            pos = (pos + 2).min(bytes.len());
+        } else if bytes.get(pos..pos + 2) == Some(b"//") {
+            while pos < bytes.len() && bytes[pos] != b'\n' { pos += 1; }
+        } else {
+            break;
+        }
+    }
+    pos
+}
+
 fn span_indice(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId, target: ExprId) -> dartforge_diagnostics::Span {
     let todo = inf.span_expr(cx.unit, alvo);
     let inicio = inf.span_expr(cx.unit, target).end;
     let entre = inf.program.unit(cx.unit).source.get(inicio..todo.end).unwrap_or("");
-    let colchete = inicio + entre.find('[').unwrap_or(0);
+    let pos = pular_espacos_e_comentarios(entre);
+    let colchete = inicio + pos + entre.get(pos..).unwrap_or("").find('[').unwrap_or(0);
     dartforge_diagnostics::Span { start: colchete, end: todo.end }
 }
 
@@ -1194,21 +1214,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
                 let inicio = inf.span_expr(cx.unit, left).end;
                 let fim = inf.span_expr(cx.unit, right).start;
                 let trecho = inf.program.unit(cx.unit).source.get(inicio..fim).unwrap_or("");
-                let bytes = trecho.as_bytes();
-                let mut pos = 0;
-                while pos < bytes.len() {
-                    if bytes[pos].is_ascii_whitespace() {
-                        pos += 1;
-                    } else if bytes.get(pos..pos + 2) == Some(b"/*") {
-                        pos += 2;
-                        while pos + 1 < bytes.len() && &bytes[pos..pos + 2] != b"*/" { pos += 1; }
-                        pos = (pos + 2).min(bytes.len());
-                    } else if bytes.get(pos..pos + 2) == Some(b"//") {
-                        while pos < bytes.len() && bytes[pos] != b'\n' { pos += 1; }
-                    } else {
-                        break;
-                    }
-                }
+                let pos = pular_espacos_e_comentarios(trecho);
                 let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
                 let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, texto, extensao);
                 if trecho.get(pos..).is_some_and(|resto| resto.starts_with(texto)) {
