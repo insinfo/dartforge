@@ -137,7 +137,7 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -164,7 +164,7 @@ fn getter_de_interface_despacha_campo_e_getter() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
