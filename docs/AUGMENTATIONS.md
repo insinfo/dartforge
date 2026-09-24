@@ -104,6 +104,11 @@ agente): ele já segue `patched_by` para os patches do SDK.
 * O CFE 3.6.2 roda os inicializadores de campo das augmentations **antes**
   dos da classe e em largura (`4 1 3 2` no `403`); a spec e o 3.13.4 usam a
   pré-ordem (`1 2 3`, no `405`). Seguimos a spec.
+* O CFE 3.6.2 permite substituir o corpo de função já completa sob o
+  experimento `macros`, tanto por `FunctionDefinitionMacro` quanto por
+  `import augment` manual. O DartForge segue esse comportamento para
+  bibliotecas de augmentation com `macros` (`416`–`417`); fora desse
+  experimento preserva a regra que proíbe a substituição.
 * O CFE 3.6.2 não aceita `augment factory`, nem o texto fundido que ele
   mesmo mostra para a saída do `@JsonCodable` como **uma** biblioteca de
   augmentation (declarações da fase 2 e definições da fase 3 juntas): ele
