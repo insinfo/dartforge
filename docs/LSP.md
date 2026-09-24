@@ -133,12 +133,15 @@ aguardam a formatação completa da assinatura.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
 O binário também carrega o SDK descoberto por `SdkLayout::discover` e resolve
-variáveis de topo **importadas sem prefixo** em `definition` e `hover`.
+variáveis e funções de topo **importadas sem prefixo** em `definition` e `hover`.
 `elements` escolhe o vínculo no namespace da biblioteca, e `types` resolve a
-anotação explícita para o hover (`int resposta`, `Type: int`). A referência
+anotação explícita para o hover (`int resposta`, `Type: int`) e a assinatura
+de funções com até dois parâmetros posicionais obrigatórios de tipos primitivos
+escritos (`int soma(int a, int b)`). A referência
 precisa ser uma expressão identificadora, sem declaração local ou parâmetro
 homônimo em qualquer escopo da unidade. Vínculos ambíguos, aliases, getters,
-tipos inferidos de inicializador e imports com prefixo ainda não geram esse
+funções genéricas ou com parâmetros opcionais/nomeados, tipos inferidos de
+inicializador e imports com prefixo ainda não geram esse
 resultado. Sem SDK, permanecem as respostas sintáticas anteriores. Cada
 requisição carrega o texto vigente do editor por geração em memória;
 `Program`, `Interner`, AST e `TypeTable` são descartados ao responder.

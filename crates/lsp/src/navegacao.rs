@@ -182,7 +182,7 @@ pub(super) fn sombreado(ast: &dartforge_frontend::ast::Ast, chave: dartforge_int
         })
 }
 
-fn tipo_primitivo(ast: &dartforge_frontend::ast::Ast, nomes: &Interner, id: dartforge_frontend::ast::TypeId) -> Option<String> {
+pub(crate) fn tipo_primitivo(ast: &dartforge_frontend::ast::Ast, nomes: &Interner, id: dartforge_frontend::ast::TypeId) -> Option<String> {
     let t = ast.ty(id);
     let TypeKind::Named { name, args } = &t.kind else { return None };
     if name.len() != 1 || !args.is_empty() { return None; }

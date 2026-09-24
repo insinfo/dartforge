@@ -130,5 +130,33 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
         "textDocument":{"uri":uri},"position":{"line":1,"character":10}
     }}));
     assert_eq!(sem_arquivo.bombear()[0]["result"], Value::Null);
+
+    let biblioteca_fn = raiz.join("funcao.dart");
+    let entrada_fn = raiz.join("main_func.dart");
+    fs::write(&biblioteca_fn, "int soma(int a, int b) => a + b;\n").unwrap();
+    fs::write(&entrada_fn, "import 'funcao.dart';\nvar y = 0;\n").unwrap();
+    let uri_fn = url::Url::from_file_path(&entrada_fn).unwrap().to_string();
+    let destino_fn = url::Url::from_file_path(&biblioteca_fn).unwrap().to_string();
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri_fn,"languageId":"dart","version":1,
+            "text":"import 'funcao.dart';\nvar y = soma(1, 2);\n"}
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 81, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(requisitar(&mut servidor, 82, "textDocument/hover", &uri_fn, 9)["contents"], "int soma(int a, int b)");
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":destino_fn,"languageId":"dart","version":1,
+            "text":"// nova linha\nString soma(String a) => a;\n"}
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 83, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":1,"character":7}));
+    assert_eq!(requisitar(&mut servidor, 84, "textDocument/hover", &uri_fn, 9)["contents"], "String soma(String a)");
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+        "textDocument":{"uri":destino_fn,"version":2},
+        "contentChanges":[{"text":"int soma([int a = 0]) => a;\n"}]
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 85, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9), Value::Null);
     fs::remove_dir_all(&raiz).unwrap();
 }
