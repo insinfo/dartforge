@@ -226,6 +226,28 @@ fn verificar_diagnostico(codigo_dart: &str, diagnostic_esperado: DiagnosticCode)
 }
 
 #[test]
+fn atribuicao_a_final_local_marca_somente_o_identificador() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library teste; import 'dart:core'; void f() { final int x = 0; x = 1; x += 1; ++x; }";
+    fs::write(&main_dart, fonte).unwrap();
+
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let achados: Vec<_> = diags.iter().filter(|d| d.message.contains(ASSIGNMENT_TO_FINAL_LOCAL.template)).collect();
+    assert_eq!(achados.len(), 3, "{diags:?}");
+    for d in achados {
+        assert_eq!(&fonte[d.span.start..d.span.end], "x", "{d:?}");
+    }
+}
+
+#[test]
 fn negativos_do_analyzer_40_casos() {
     // 1. ARGUMENT_TYPE_NOT_ASSIGNABLE: passa String para int
     verificar_diagnostico(

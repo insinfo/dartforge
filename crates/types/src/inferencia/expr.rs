@@ -1200,7 +1200,8 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                 inf.atribuir_fluxo(&mut f, id, decl, res);
                 cx.fluxo = f;
-                check_final_local(inf, cx, id, span);
+                let alvo_span = inf.span_expr(cx.unit, operand);
+                check_final_local(inf, cx, id, alvo_span);
             }
             let _ = escrita;
             if prefixo {
@@ -1361,7 +1362,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                             let l = cx.local(id).clone();
                             if (l.final_ || l.const_) && (!l.late || cx.fluxo.atribuida(id)) && !cx.fluxo.nao_atribuida(id) {
                                 let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
-                                inf.aviso(msg, span);
+                                inf.aviso(msg, n.span);
                             }
                             let atual = cx.fluxo.tipo_atual(id, l.tipo);
                             (l.tipo, atual, Some(id))
@@ -1425,7 +1426,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                 inf.atribuir_fluxo(&mut f, id, decl, t);
                 cx.fluxo = f;
-                check_final_local(inf, cx, id, span);
+                let alvo_span = inf.span_expr(cx.unit, alvo);
+                check_final_local(inf, cx, id, alvo_span);
             }
             t
         }
