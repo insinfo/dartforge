@@ -151,3 +151,42 @@ fn hover_recusa_assinatura_opcional_que_precisa_formatacao_completa() {
         "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":21}}}));
     assert_eq!(servidor.bombear()[0]["result"], Value::Null);
 }
+
+#[test]
+fn hover_getter_de_topo_tipado_exibe_assinatura_e_tipo() {
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "capabilities":{"textDocument":{"hover":{"contentFormat":["markdown"]}}}
+    }}));
+    servidor.bombear();
+    let uri = "file:///getter-topo.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":"String get resposta => 'ok';\nvoid main() { print(resposta); }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":2,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":22}}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"]["contents"], json!({
+        "kind":"markdown","value":"```dart\nString get resposta\n```\nType: `String`"
+    }));
+    assert_eq!(resposta[0]["result"]["range"]["start"], json!({"line":1,"character":20}));
+    assert_eq!(resposta[0]["result"]["range"]["end"], json!({"line":1,"character":28}));
+}
+
+#[test]
+fn getter_homonimo_em_membro_impede_hover_de_topo() {
+    let mut servidor = Servidor::new();
+    let uri = "file:///getter-sombra.dart";
+    let fonte = "String get resposta => 'topo';\nclass A { String get resposta => 'membro'; void f() { print(resposta); } }";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,
+            "text":fonte}
+    }}));
+    servidor.bombear();
+    let coluna = fonte.lines().nth(1).unwrap().find("print(resposta)").unwrap() + 8;
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":coluna}}}));
+    assert_eq!(servidor.bombear()[0]["result"], Value::Null);
+}
