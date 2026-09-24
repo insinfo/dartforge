@@ -211,6 +211,17 @@ mod testes {
     }
 
     #[test]
+    fn getter_de_classe_sem_setter_preserva_argumentos() {
+        let d = Diagnostic::new(
+            format!("{}: 'x' na classe 'A'", dartforge_types::codes::ASSIGNMENT_TO_FINAL_NO_SETTER.template),
+            Span { start: 4, end: 5 },
+        );
+        let c = codificar_tipos(&d, "x");
+        assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL_NO_SETTER));
+        assert_eq!(c.message, "There isn't a setter named 'x' in class 'A'.");
+    }
+
+    #[test]
     fn sintaxe_token_esperado() {
         let d = Diagnostic::new("esperava ';'", Span { start: 3, end: 4 });
         let c = codificar_sintaxe(&d);

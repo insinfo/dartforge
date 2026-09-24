@@ -226,6 +226,33 @@ fn verificar_diagnostico(codigo_dart: &str, diagnostic_esperado: DiagnosticCode)
 }
 
 #[test]
+fn getter_de_classe_sem_setter_em_atribuicao_simples() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core'; class A { int get x => 0; } class B { int get x => 0; set x(int v) {} } void f(A a, B b) { a.x = 0; a.x += 0; ++a.x; a.x++; a.y = 0; b.x = 0; b.x += 0; ++b.x; b.x++; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+
+    let readonly: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
+    assert_eq!(readonly.len(), 4, "{diags:?}");
+    for (d, alvo) in readonly.iter().zip(["a.x = 0", "a.x += 0", "++a.x", "a.x++"]) {
+        let x = fonte.find(alvo).unwrap() + alvo.find("x").unwrap();
+        assert_eq!(d.span.start as usize, x, "{diags:?}");
+        assert_eq!(d.span.end as usize, x + 1, "{diags:?}");
+        assert!(d.message.contains("'x' na classe 'A'"), "{diags:?}");
+    }
+    let missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_SETTER.template)).collect();
+    assert_eq!(missing.len(), 1, "{diags:?}");
+    assert_eq!(missing[0].span.start as usize, fonte.find("a.y = 0").unwrap() + 2);
+}
+
+#[test]
 fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

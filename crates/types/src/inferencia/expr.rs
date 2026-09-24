@@ -1246,8 +1246,10 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) ->
         ExprKind::Property { target, name, null_aware } => {
             let (target, name, null_aware) = (*target, *name, *null_aware);
             let (leitura, _) = propriedade(inf, cx, alvo, target, name, null_aware);
+            let mut curto = false;
+            let escrita = escrita_propriedade(inf, cx, alvo, target, name, null_aware, &mut curto);
             registrar(inf, cx, alvo, leitura);
-            (leitura, leitura, None)
+            (leitura, escrita, None)
         }
         ExprKind::Index { target, index, null_aware } => {
             let (target, index, null_aware) = (*target, *index, *null_aware);
@@ -1492,6 +1494,27 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
             m.tipo
         }
         Busca::Ausente => {
+            // O analyzer recupera o getter quando a escrita não encontra um
+            // setter. Um getter declarado numa classe tem diagnóstico próprio;
+            // sem getter, continua sendo um setter indefinido.
+            if let Busca::Achado(getter) = inf.buscar_membro(cx.lib, recv, name.sym, false) {
+                if let Some(f) = getter.funcao {
+                    let fe = inf.program.function(f);
+                    if fe.kind == FunctionKind::Getter {
+                        if let Some(classe) = fe.class {
+                            let msg = format!(
+                                "{}: '{}' na classe '{}'",
+                                ASSIGNMENT_TO_FINAL_NO_SETTER.template,
+                                inf.interner.resolve(name.sym),
+                                inf.interner.resolve(inf.program.class(classe).name)
+                            );
+                            inf.aviso(msg, name.span);
+                            resolver(inf, cx, alvo, getter.resolved);
+                            return getter.tipo;
+                        }
+                    }
+                }
+            }
             let msg = format!(
                 "{}: setter '{}' não definido para o tipo '{}'",
                 UNDEFINED_SETTER.template,
