@@ -255,6 +255,50 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
                "[0, 1, 2]\ntrue\n[v0, v1]\n");
 }
 
+/// `name`/`index` implícitos (`$name`, `index`, `this.name`) no corpo de um
+/// membro de enum do programa (especificação §13 "Enums"): o elemento
+/// resolvido é o getter implícito, sem corpo — o valor mora nos dois campos
+/// implícitos do objeto (posições 1 e 0), os mesmos que o acesso explícito
+/// (`E.a.name`, `membro_de_enum`) lê. Sem Clang: só a emissão.
+#[test]
+fn enum_name_index_implicito_le_os_campos_do_valor() {
+    let fonte = "enum E { a, b; String d() => 'v=$name'; int i() => index + 1; }\n\
+        void main() { print(E.a.d()); print(E.b.i()); }\n";
+    let Some(ir) = ir_de_fonte(fonte) else { return };
+    assert!(
+        ir.contains("@dartforge_object_get(i64 %") && ir.contains(", i64 1)"),
+        "o $name implícito lê o campo 1:\n{ir}"
+    );
+    assert!(ir.contains(", i64 0)"), "o index implícito lê o campo 0:\n{ir}");
+}
+
+/// O programa acima executado (AOT com SDK da fonte): implícito e explícito
+/// dão o mesmo texto da VM.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn enum_name_index_implicito_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("enum_name_index_implicito.dart");
+    let exe = dir.path().join("enum_name_index_implicito.exe");
+    std::fs::write(&entrada, include_str!("fixtures/enum_name_index_implicito.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "terra:1\nmercurio:0\nterra\n0\nterra\n0\n");
+}
+
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]

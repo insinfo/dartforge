@@ -1134,6 +1134,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         distintos.dedup();
         let ret = self.repr_retorno(decl_fid);
         if distintos.is_empty() {
+            // Getter implícito `index`/`name` de um enum do programa
+            // (especificação §13 "Enums"): o elemento resolvido não tem corpo
+            // — o valor mora nos dois campos implícitos do objeto (posições 0
+            // e 1, gravados pelo construtor do valor). O caminho explícito
+            // (`E.a.name`, `membro_de_enum`) lê os mesmos campos; o implícito
+            // (`$name`, `index`, `this.name` no corpo de um membro do enum)
+            // chegava aqui como "sem implementação compilada".
+            if avaliados.is_empty()
+                && let Some(cid) = self.ctx.program.functions[decl_fid].class
+                && super::enums::e_enum(self.ctx, cid)
+            {
+                let nome = self.ctx.symbol_name(self.ctx.program.functions[decl_fid].name).to_string();
+                if (nome == "index" || nome == "name")
+                    && let Some(r) = self.membro_de_enum(cid, &nome, recv.clone())
+                {
+                    return self.coagir(r, ret);
+                }
+            }
             if tem_corpo(self.ctx, decl_fid) && super::funcao_do_usuario(self.ctx, decl_fid) {
                 distintos.push(decl_fid);
             } else {

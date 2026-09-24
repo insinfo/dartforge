@@ -482,6 +482,9 @@ jobs:
       - name: Iterable.generate confere função genérica no SDK
         shell: pwsh
         run: cargo test --locked --release -p dartforge-emit-native --test contrato iterable_generate_testa_assinatura_generica_no_sdk -- --ignored --nocapture
+      - name: Enum lê name e index implícitos no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato enum_name_index_implicito_no_sdk -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).
