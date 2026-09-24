@@ -440,7 +440,9 @@ módulo ativo por aproximação. A primeira geração de um módulo novo entra p
 
 > **Desatualizado.** O `dartforge reload` de hoje é o **R0, reinício a quente**
 > (`crates/cli/src/jit.rs`). Ele observa os `.dart` do diretório da entrada,
-> recompila tudo a cada edição e recomeça do `main` num processo novo. O estado
+> inclusive renomeações, e o `package_config.json` descoberto ou passado por
+> `--packages`; recompila tudo a cada mudança e recomeça do `main` num processo
+> novo. O estado
 > **não** é preservado, e a saída diz isso. O texto abaixo descreve o `reload`
 > da trilha velha, que usava o mecanismo desta seção.
 
