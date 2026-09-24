@@ -222,6 +222,19 @@ impl StableEntry {
         })
     }
 
+    /// Chama a entrada `i32 ()` do programa com SDK da fonte.
+    pub fn call_i32(&self, session: &JitSession) -> Result<i32, JitError> {
+        if session.id != self.session {
+            return Err(JitError {
+                stage: "lookup",
+                message: format!("a entrada estável {} pertence a outra sessão JIT", self.name),
+            });
+        }
+        session.lljit.call_stable_i32(self.address, &self.signature).map_err(|detail| {
+            JitError::new("execute", &format!("não foi possível chamar a entrada estável {}", self.name), detail)
+        })
+    }
+
     /// Confere a sessão de origem e delega a chamada conferida à fronteira FFI.
     fn invoke(&self, session: &JitSession, argument: Option<i64>) -> Result<i64, JitError> {
         if session.id != self.session {

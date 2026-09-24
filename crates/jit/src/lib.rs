@@ -303,6 +303,27 @@ impl JitSession {
         })
     }
 
+    /// Abre uma sessão com o runtime correto para o IR emitido. Programas com
+    /// SDK da fonte usam `DARTFORGE_SDK_DLL` e só publicam os exports pedidos.
+    pub fn new_for_ir(ir: &str) -> Result<Self, JitError> {
+        if !ir.contains("declare void @df.registrar.") {
+            return Self::new();
+        }
+        let dll = std::env::var_os("DARTFORGE_SDK_DLL").ok_or_else(|| {
+            JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
+        })?;
+        let usados: Vec<String> = ir
+            .lines()
+            .filter_map(|l| {
+                let r = l.strip_prefix("declare ")?;
+                let i = r.find('@')? + 1;
+                let f = r[i..].find('(')? + i;
+                Some(r[i..f].to_string())
+            })
+            .collect();
+        Self::new_com_sdk(std::path::Path::new(&dll), &usados)
+    }
+
     /// Executa o `main` do programa com o SDK da fonte (que chama
     /// `dartforge_iniciar` da DLL): o código de saída é o dele. As globais
     /// mutáveis dos módulos JIT do programa são zeradas entre execuções da
@@ -597,6 +618,23 @@ impl JitSession {
         Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
+    /// Executa o `main` recarregável do SDK da fonte na thread chamadora.
+    /// O `dartforge_iniciar` da DLL conserva o runtime dessa thread e faz a
+    /// finalização; nenhuma global dos módulos JIT é zerada aqui.
+    pub fn run_reloadable_main(&self) -> Result<EntryReport, JitError> {
+        if self.sdk_dll.is_none() {
+            return Err(JitError::new("execute", "a entrada main recarregável exige SDK da fonte", String::new()));
+        }
+        let started = Instant::now();
+        let phase = Instant::now();
+        let entry = self.stable_entry("main")?;
+        let lookup = phase.elapsed();
+        let phase = Instant::now();
+        let exit_code = entry.call_i32(self)?;
+        let execute = phase.elapsed();
+        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
+    }
+
     /// Nomes dos módulos ainda residentes, na ordem de inclusão.
     ///
     /// Inclui os módulos recarregáveis, um por identidade e não um por geração:
@@ -709,27 +747,8 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
-    // Programa com o SDK da fonte (a entrada chama o registro das bibliotecas
-    // do SDK): a sessão carrega a DLL do SDK que `DARTFORGE_SDK_DLL` indica.
     let com_sdk = ir.contains("declare void @df.registrar.");
-    let mut session = if com_sdk {
-        let dll = std::env::var_os("DARTFORGE_SDK_DLL").ok_or_else(|| {
-            JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
-        })?;
-        // Só os nomes que o IR declara (a DLL exporta dezenas de milhares).
-        let usados: Vec<String> = ir
-            .lines()
-            .filter_map(|l| {
-                let r = l.strip_prefix("declare ")?;
-                let i = r.find('@')? + 1;
-                let f = r[i..].find('(')? + i;
-                Some(r[i..f].to_string())
-            })
-            .collect();
-        JitSession::new_com_sdk(std::path::Path::new(&dll), &usados)?
-    } else {
-        JitSession::new()?
-    };
+    let mut session = JitSession::new_for_ir(ir)?;
     let session_time = phase.elapsed();
     let module = session.add_ir_module("dartforge", ir)?;
     let entry = if com_sdk { session.run_main()? } else { session.run_entry()? };

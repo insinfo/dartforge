@@ -243,9 +243,6 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
     }
     let entrada = entrada.ok_or(usage)?;
     if preservar_estado {
-        if std::env::var("DARTFORGE_SDK_DA_FONTE").is_ok_and(|v| v.trim() == "1") {
-            return Err("--preservar-estado ainda não suporta DARTFORGE_SDK_DA_FONTE".into());
-        }
         return reload_com_estado(&entrada, sdk.as_deref(), packages.as_deref(), intervalo_ms, uma_vez, timings);
     }
     let raiz = entrada
@@ -337,7 +334,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
 /// compilação ou a publicação falhar, a versão anterior permanece instalada.
 #[cfg(feature = "jit")]
 fn publicar_com_estado(
-    sessao: &mut dartforge_jit::JitSession,
+    sessao: &mut Option<dartforge_jit::JitSession>,
     entrada: &Path,
     sdk: Option<&Path>,
     packages: Option<&Path>,
@@ -346,11 +343,26 @@ fn publicar_com_estado(
     let inicio = std::time::Instant::now();
     let ir = emitir(entrada, sdk, packages)?;
     let emissao = inicio.elapsed();
-    let relatorio = if sessao.retained_generations() == 0 {
-        sessao.add_reloadable_module("app", &ir.texto)?
+    if sessao.is_none() {
+        *sessao = Some(dartforge_jit::JitSession::new_for_ir(&ir.texto)?);
+    }
+    let primeira = sessao.as_ref().is_some_and(|atual| atual.retained_generations() == 0);
+    let publicada = if primeira {
+        sessao.as_mut().expect("sessão criada acima").add_reloadable_module("app", &ir.texto)
     } else {
-        sessao.hot_reload("app", &ir.texto)?
+        sessao.as_mut().expect("sessão criada acima").hot_reload("app", &ir.texto)
     };
+    let relatorio = match publicada {
+        Ok(relatorio) => relatorio,
+        Err(erro) => {
+            // Antes da primeira publicação não há programa vivo a preservar.
+            // Descartar a sessão também descarta trampolins órfãos de falha de
+            // ligação e permite tentar de novo na próxima edição.
+            if primeira { *sessao = None; }
+            return Err(erro.into());
+        }
+    };
+    let sessao = sessao.as_ref().expect("geração publicada");
     eprintln!("[reload] geração {}: estado preservado na mesma sessão", relatorio.generation);
     if timings {
         eprintln!(
@@ -361,7 +373,11 @@ fn publicar_com_estado(
             relatorio.retained_generations
         );
     }
-    let execucao = sessao.run_reloadable_entry()?;
+    let execucao = if ir.texto.contains("declare void @df.registrar.") {
+        sessao.run_reloadable_main()?
+    } else {
+        sessao.run_reloadable_entry()?
+    };
     if execucao.exit_code != 0 {
         return Err(format!("geração {} terminou com código {}", relatorio.generation, execucao.exit_code).into());
     }
@@ -377,7 +393,7 @@ fn reload_com_estado(
     uma_vez: bool,
     timings: bool,
 ) -> Resultado {
-    let mut sessao = dartforge_jit::JitSession::new()?;
+    let mut sessao = None;
     let raiz = entrada.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let mut ultimo = None;
     loop {

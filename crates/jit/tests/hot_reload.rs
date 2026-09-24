@@ -24,6 +24,33 @@ define i64 @df_fn_0() {{
     assert_eq!(entrada.call(&sessao).unwrap(), 2);
 }
 
+/// O `main` com SDK da fonte tem ABI `i32 ()` e deve usar o trampolim
+/// atualizado. Uma DLL do Windows basta para testar a fronteira sem compilar
+/// o SDK inteiro localmente; o teste de CLI remoto cobre a DLL real.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn main_da_sessao_com_dll_chama_geracao_nova() {
+    struct Diretorio(std::path::PathBuf);
+    impl Drop for Diretorio {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+    let dir = Diretorio(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-jit-main-dll-{}", std::process::id())));
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let origem = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
+        .join("System32/kernel32.dll");
+    let dll = dir.0.join("kernel32.dll");
+    std::fs::copy(origem, &dll).unwrap();
+    std::fs::write(dir.0.join("exportados.def"), "EXPORTS\nGetTickCount\n").unwrap();
+
+    let ir = |valor: i32| format!("define i32 @main() {{ ret i32 {valor} }}\n");
+    let mut sessao = JitSession::new_com_sdk(&dll, &[]).unwrap();
+    sessao.add_reloadable_module("app", &ir(7)).unwrap();
+    assert_eq!(sessao.run_reloadable_main().unwrap().exit_code, 7);
+    sessao.hot_reload("app", &ir(9)).unwrap();
+    assert_eq!(sessao.run_reloadable_main().unwrap().exit_code, 9);
+}
+
 /// IR inválido ou referência ausente não substitui a geração em execução.
 /// Uma versão válida ainda pode ser publicada depois das duas falhas.
 #[test]

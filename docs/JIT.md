@@ -22,7 +22,8 @@ divergir em resultado é defeito.
 > `dartforge reload` mantém R0 por padrão (reinício a quente, estado NÃO
 > preservado; cada geração num processo `dartforge run --ir`). Com
 > `--preservar-estado`, publica as gerações numa `JitSession` R1 e chama a entrada
-> na mesma thread: estáticos e heap permanecem vivos. No harness: `--jit` e
+> na mesma thread: estáticos e heap permanecem vivos, inclusive com a DLL do
+> SDK da fonte. No harness: `--jit` e
 > `--jit-aot`.
 > Runtime de fonte única (`dartforge_runtime::abi`) e sessão persistente com
 > cache de módulos (executor de macros), ver as seções abaixo. As seções «O que
@@ -456,8 +457,9 @@ quantidade de gerações retidas.
 Este é o primeiro aceite R1 da CLI, com limites explícitos: cada edição **torna
 a chamar `main`**, enquanto a Dart VM não o reexecuta; programas que dependem de
 um `main` que fica ativo, de uma thread diferente ou de `process::exit` ainda
-precisam do R0. `--preservar-estado` ainda usa o runtime embutido e recusa
-`DARTFORGE_SDK_DA_FONTE=1`. As versões devem manter o caminho da biblioteca e o
+precisam do R0. Com `DARTFORGE_SDK_DA_FONTE=1`, a sessão carrega a DLL indicada
+por `DARTFORGE_SDK_DLL`, chama o `main` gerado via trampolim e conserva o
+runtime da DLL na mesma thread. As versões devem manter o caminho da biblioteca e o
 contrato das entradas, pois o nome do arquivo participa dos símbolos emitidos.
 
 ### Regra de visibilidade

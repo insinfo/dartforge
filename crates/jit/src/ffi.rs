@@ -988,6 +988,19 @@ impl Lljit {
         Ok(())
     }
 
+    /// Chama uma entrada estável com ABI `i32 ()` (o `main` do SDK da fonte).
+    pub(crate) fn call_stable_i32(&self, address: u64, signature: &FunctionSignature) -> Result<i32, String> {
+        if signature.var_arg || signature.ret != "i32" || !signature.params.is_empty() {
+            return Err(format!("a entrada estável tem assinatura {}, esperada i32 ()", signature.text()));
+        }
+        let pointer = usize::try_from(address)
+            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            as *const ();
+        // SAFETY: ABI `i32 ()` conferida acima; o trampolim pertence à LLJIT
+        // viva desta sessão, e o chamador só recarrega quando não há execução.
+        Ok(unsafe { std::mem::transmute::<*const (), extern "C" fn() -> i32>(pointer)() })
+    }
+
     /// Resolve e executa a entrada do módulo, medindo as duas fases.
     ///
     /// A assinatura é segura de propósito: o nome do símbolo **não** vem do

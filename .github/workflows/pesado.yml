@@ -418,6 +418,9 @@ jobs:
           jit: 'true'
           aceitar-placar-parcial: 'true'
           exige: '^JIT × AOT: '
+      - name: Recarga JIT da CLI com SDK da fonte
+        shell: pwsh
+        run: cargo test --locked -p dartforge-cli --features jit --test reload_estado cli_preserva_estatico_com_sdk_da_fonte -- --ignored --nocapture
       - name: Produção autocontida (um .exe, sem DLL do DartForge)
         shell: pwsh
         env:
