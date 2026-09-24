@@ -35,6 +35,18 @@ Object? trocarUri(Object? valor) {
   return valor;
 }
 
+Object? semIds(Object? valor) {
+  if (valor is List) return [for (final item in valor) semIds(item)];
+  if (valor is Map) {
+    return {
+      for (final entrada in valor.entries)
+        if (entrada.key != 'id' && entrada.key != 'chave')
+          entrada.key: semIds(entrada.value),
+    };
+  }
+  return valor;
+}
+
 bool igual(Object? a, Object? b) {
   if (a is List && b is List) {
     return a.length == b.length &&
@@ -187,6 +199,25 @@ Future<void> main() async {
         throw StateError('declarações montadas de $alvo diferem do CFE');
       }
     }
+    final modelosDeDefinicao = jsonDecode(
+            File('lib/modelos.macro_definitions_model.json').readAsStringSync())
+        as Map;
+    final pedidosDeDefinicao = modelosDeDefinicao['aplicacoes'] as List;
+    if (modelosDeDefinicao['versao'] != 1 || pedidosDeDefinicao.length != 4) {
+      throw StateError('modelos de definições incompletos');
+    }
+    final pedidoCfeDef = sessao
+        .map((linha) => jsonDecode(linha.substring(2)) as Map)
+        .singleWhere((m) => m['t'] == 'macro.executar' && m['id'] == 8);
+    final membrosCfe =
+        trocarUri((pedidoCfeDef['modelo'] as Map)['membros']['1']);
+    final geradoEndereco =
+        pedidosDeDefinicao.singleWhere((a) => a['alvo'] == 'Endereco') as Map;
+    final membrosBuilder =
+        ((geradoEndereco['execucao'] as Map)['modelo'] as Map)['membros']['1'];
+    if (!igual(semIds(membrosBuilder), semIds(membrosCfe))) {
+      throw StateError('modelo pós-declarações de Endereco difere do CFE');
+    }
     final peloBuilder =
         geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
     if (peloBuilder['macro'] != 'package:json/json.dart#JsonCodable' ||
@@ -209,7 +240,7 @@ Future<void> main() async {
     if (!rejeitouReexportacao)
       throw StateError('reexportação aceita como declaração local');
     print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; reexportação rejeitada');
+        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; modelo pós-declarações igual ao CFE; reexportação rejeitada');
   } finally {
     await contextos.dispose();
   }

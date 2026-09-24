@@ -9,6 +9,7 @@ final class TabelaIdentificadores {
   final _ids = <String, int>{};
   final _elementos = <int, Element>{};
   final _bibliotecas = <String, int>{};
+  final _omitidos = <String, int>{};
   int _proximo = 1;
 
   int biblioteca(String uri) =>
@@ -40,6 +41,14 @@ final class TabelaIdentificadores {
   }
 
   Element? elemento(int id) => _elementos[id];
+
+  /// Declarações introduzidas por uma augmentation ainda não têm Element no
+  /// analyzer 7.3; a chave textual conserva o id entre fases.
+  int idGerado(String chave) =>
+      _ids.putIfAbsent('gerado:$chave', () => _proximo++);
+
+  int omitido(String chave) =>
+      _omitidos.putIfAbsent(chave, () => _omitidos.length + 1);
 
   String _chave(Element elemento) {
     final uri = elemento.librarySource?.uri;

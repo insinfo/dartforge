@@ -17,6 +17,7 @@ import 'package:macros/src/executor/montagem.dart';
 import 'package:macros/src/executor/resultado.dart';
 
 import 'src/modelo_analyzer.dart';
+import 'src/membros_gerados.dart';
 import 'src/resolver_identificadores.dart';
 import 'src/resolvedor_montagem_analyzer.dart';
 import 'src/tabela_identificadores.dart';
@@ -50,7 +51,11 @@ final class _MacroDeclarationsBuilder implements Builder {
 
   @override
   Map<String, List<String>> get buildExtensions => const {
-        '.dart': ['.macro_declarations.json', '.macro_declarations.txt']
+        '.dart': [
+          '.macro_declarations.json',
+          '.macro_declarations.txt',
+          '.macro_definitions_model.json',
+        ]
       };
 
   @override
@@ -58,6 +63,7 @@ final class _MacroDeclarationsBuilder implements Builder {
     final library = await step.resolver.libraryFor(step.inputId);
     final tabela = TabelaIdentificadores();
     final resultados = <Map<String, Object?>>[];
+    final execucoes = <(ClassElement, Map<String, Object?>)>[];
     for (final alvo in library.topLevelElements.whereType<ClassElement>()) {
       for (final anotacao in alvo.metadata) {
         final construtor = anotacao.element;
@@ -70,6 +76,7 @@ final class _MacroDeclarationsBuilder implements Builder {
         final fabrica = fabricas[chave];
         if (fabrica == null) continue;
         final execucao = modeloDaClasse(alvo, tabela);
+        execucoes.add((alvo, execucao));
         final resolvedor = ResolvedorIdentificadores(alvo, execucao, tabela);
         final modelo = Modelo(_HospedeiroAnalyzer(resolvedor))
           ..receber(Map<String, Object?>.from(execucao['modelo'] as Map));
@@ -104,6 +111,26 @@ final class _MacroDeclarationsBuilder implements Builder {
     );
     await step.writeAsString(
         step.inputId.changeExtension('.macro_declarations.txt'), parcial);
+    final modelosDeDefinicao = <Map<String, Object?>>[];
+    for (final (classe, execucao) in execucoes) {
+      final gerados = await membrosGerados(parcial, classe, execucao, tabela);
+      final alvo = Map<String, Object?>.from(execucao['alvo'] as Map);
+      final id = (alvo['ident'] as Map)['id'] as int;
+      final modelo = Map<String, Object?>.from(execucao['modelo'] as Map);
+      final membros = Map<String, Object?>.from(modelo['membros'] as Map);
+      final daClasse = Map<String, Object?>.from(membros['$id'] as Map);
+      daClasse.addAll(gerados);
+      membros['$id'] = daClasse;
+      modelo['membros'] = membros;
+      modelosDeDefinicao.add({
+        'alvo': classe.name,
+        'execucao': {'alvo': alvo, 'modelo': modelo},
+      });
+    }
+    await step.writeAsString(
+      step.inputId.changeExtension('.macro_definitions_model.json'),
+      '${jsonEncode({'versao': 1, 'aplicacoes': modelosDeDefinicao})}\n',
+    );
   }
 }
 

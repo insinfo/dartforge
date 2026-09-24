@@ -13,6 +13,8 @@ try {
     if (-not (Test-Path -LiteralPath $declaracoes)) { throw 'resultado da fase de declaracoes ausente' }
     $parcial = Join-Path $caso 'lib/modelos.macro_declarations.txt'
     if (-not (Test-Path -LiteralPath $parcial)) { throw 'augmentation parcial ausente' }
+    $modeloDef = Join-Path $caso 'lib/modelos.macro_definitions_model.json'
+    if (-not (Test-Path -LiteralPath $modeloDef)) { throw 'modelo de definicoes ausente' }
     $manifesto = Get-Content -LiteralPath $saida -Raw -Encoding utf8 | ConvertFrom-Json
     $nomes = @($manifesto.aplicacoes | ForEach-Object { "$($_.alvo):$($_.classe)" })
     $esperados = @('Endereco:JsonCodable', 'Usuario:JsonCodable', 'SoSaida:JsonEncodable', 'SoEntrada:JsonDecodable')

@@ -126,6 +126,12 @@ O adaptador de montagem do analyzer já funde essas quatro declarações em
 comparados byte a byte com a parte correspondente da augmentation do CFE.
 O `.txt` é uma saída intermediária, pois ainda faltam a recarga do analyzer
 com essas declarações e a fase de definições para formar `.macro.dart`.
+O analyzer 7.3 não associa `import augment` à classe original neste ensaio;
+por isso o builder lê a AST da saída parcial e serializa os métodos e
+construtores gerados para `modelos.macro_definitions_model.json`. O modelo
+completo de membros de `Endereco` corresponde ao pedido da fase de definições
+do CFE depois de desconsiderar os IDs locais da sessão e trocar a URI do
+fixture. As consultas dessa fase ainda não são atendidas pelo builder.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
