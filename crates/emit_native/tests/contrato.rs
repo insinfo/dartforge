@@ -368,12 +368,53 @@ fn classe_generica_tostring_padrao_no_sdk() {
                "true\nInstance of 'Caixa<String>'\nInstance of 'Caixa<Caixa<int>>'\ntrue\n");
 }
 
+/// Encaminhador `noSuchMethod` estático de método só com posicionais
+/// (casos 57/216/223, primeira fatia): `p.saudacao('mundo')` com
+/// `Servico.saudacao` abstrato e `Proxy.noSuchMethod` monta
+/// `Invocation.method(#saudacao, ['mundo'])` e chama o nsm — antes era
+/// "chamada de membro sem implementação compilada". Sem Clang: só a emissão.
+#[test]
+fn nsm_encaminhador_metodo_posicional_emite_nsm() {
+    let fonte = "abstract class Servico { String saudacao(String quem); }\n\
+        class Proxy implements Servico {\n\
+        \x20 dynamic noSuchMethod(Invocation i) => 'nsm(${i.positionalArguments.join(',')})';\n\
+        }\n\
+        void main() { final p = Proxy(); print(p.saudacao('mundo')); }\n";
+    let Some(ir) = ir_de_fonte(fonte) else { return };
+    assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
+}
+
+/// O programa acima executado (AOT com SDK da fonte): a saída bate com a VM 3.6.2.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn nsm_encaminhador_metodo_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("nsm_encaminhador_metodo.dart");
+    let exe = dir.path().join("nsm_encaminhador_metodo.exe");
+    std::fs::write(&entrada, include_str!("fixtures/nsm_encaminhador_metodo.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "nsm(mundo)\nSymbol(\"saudacao\")\n");
+}
+
 /// Enum do programa é subtipo do `Enum` do SDK (especificação §13): a
 /// aresta vai no registro do módulo do programa, e `is`/`as` a enxergam.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
-fn enum_e_subtipo_de_enum_no_sdk() {
-    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();

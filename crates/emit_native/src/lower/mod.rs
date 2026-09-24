@@ -22,6 +22,7 @@ pub mod heranca;
 pub mod literais;
 pub mod locais;
 pub mod membros;
+pub mod nsm;
 pub mod operadores;
 pub mod padroes;
 pub mod registros;

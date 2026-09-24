@@ -1175,6 +1175,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if tem_corpo(self.ctx, decl_fid) && super::funcao_do_usuario(self.ctx, decl_fid) {
                 distintos.push(decl_fid);
             } else {
+                // Encaminhador `noSuchMethod` estático (casos 57, 216, 223):
+                // a classe concreta tem `noSuchMethod` e o CFE sintetizaria o
+                // encaminhador com a assinatura do membro. Só dispara onde
+                // antes era erro; fora do escopo (getter, nomeado, genérico,
+                // múltiplos nsm) mantém o diagnóstico antigo.
+                if let Some(r) = super::nsm::encaminhar_metodo_para_nsm(self, recv, decl_fid, avaliados, span) {
+                    return r;
+                }
                 return self.nao_suportado("chamada de membro sem implementação compilada", span);
             }
         }
