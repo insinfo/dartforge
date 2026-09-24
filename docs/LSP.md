@@ -81,6 +81,12 @@ memória por edição. Edições `didChange` com versão antiga são ignoradas s
 republicar diagnósticos. Testes direcionados: `cargo test -p dartforge-lsp
 --test simbolos --locked`.
 
+`workspace/symbol` busca nos **documentos abertos** (sem índice em disco),
+com comparação sem distinguir maiúsculas e minúsculas. As URIs são ordenadas
+antes da análise, e cada AST é liberada antes da próxima: uma consulta não
+mantém cópias das versões já substituídas. O resultado é sempre
+`SymbolInformation[]`, no intervalo do nome.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,

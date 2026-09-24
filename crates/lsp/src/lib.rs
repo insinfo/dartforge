@@ -191,6 +191,11 @@ impl DocumentStore {
         self.documentos.len()
     }
 
+    /// URIs dos documentos abertos, sem reter cópia dos textos.
+    pub(crate) fn uris(&self) -> impl Iterator<Item = &str> {
+        self.documentos.keys().map(String::as_str)
+    }
+
     /// Verdadeiro quando nenhum documento está aberto.
     pub fn is_empty(&self) -> bool {
         self.documentos.is_empty()

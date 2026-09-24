@@ -258,6 +258,7 @@ impl<A: Analisador> Servidor<A> {
                         "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
                         "positionEncoding": "utf-16",
                         "documentSymbolProvider": true,
+                        "workspaceSymbolProvider": true,
                     },
                     "serverInfo": {
                         "name": "dartforge-lsp",
@@ -286,6 +287,26 @@ impl<A: Analisador> Servidor<A> {
                     }
                     planos
                 };
+                resposta(&id, json!(resultado))
+            }
+            "workspace/symbol" => {
+                let consulta = mensagem.get("params")
+                    .and_then(|p| p.get("query"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_lowercase();
+                let mut uris: Vec<String> = self.documentos.uris().map(str::to_string).collect();
+                uris.sort_unstable();
+                let mut resultado = Vec::new();
+                for uri in uris {
+                    let Some(texto) = self.documentos.get(&uri).map(str::to_string) else {
+                        continue;
+                    };
+                    for simbolo in self.analisador.simbolos(&uri, &texto) {
+                        achatar_simbolos(&simbolo, &uri, None, &mut resultado);
+                    }
+                }
+                resultado.retain(|s| s["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&consulta)));
                 resposta(&id, json!(resultado))
             }
             METODO_DORMIR => {
