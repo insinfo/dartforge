@@ -210,6 +210,22 @@ Future<void> main() async {
         throw StateError('declarações montadas de $alvo diferem do CFE');
       }
     }
+    final completo = File('lib/modelos.macro_complete.txt')
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+    String blocoCompleto(String texto, String nome) {
+      final inicio = texto.indexOf('augment class $nome {\n');
+      if (inicio < 0) throw StateError('classe $nome ausente da montagem');
+      final fim = texto.indexOf('\n}', inicio);
+      if (fim < 0) throw StateError('classe $nome sem fechamento na montagem');
+      return texto.substring(inicio, fim + 2);
+    }
+    for (final alvo in ['Endereco', 'SoSaida', 'SoEntrada']) {
+      if (blocoCompleto(completo, alvo) !=
+          blocoCompleto(augmentationCfe, alvo)) {
+        throw StateError('montagem completa de $alvo difere do CFE');
+      }
+    }
     final modelosDeDefinicao = jsonDecode(
             File('lib/modelos.macro_definitions_model.json').readAsStringSync())
         as Map;

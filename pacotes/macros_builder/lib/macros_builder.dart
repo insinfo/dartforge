@@ -54,6 +54,7 @@ final class _MacroDeclarationsBuilder implements Builder {
           '.macro_declarations.txt',
           '.macro_definitions_model.json',
           '.macro_definitions.json',
+          '.macro_complete.txt',
         ]
       };
 
@@ -149,6 +150,19 @@ final class _MacroDeclarationsBuilder implements Builder {
       step.inputId.changeExtension('.macro_definitions.json'),
       '${jsonEncode({'versao': 1, 'resultados': resultadosDeDefinicao})}\n',
     );
+    final completo = montarAugmentation(
+      [
+        for (final item in resultados)
+          item['resultado'] as Map<String, Object?>,
+        for (final item in resultadosDeDefinicao)
+          item['resultado'] as Map<String, Object?>,
+      ],
+      ResolvedorMontagemAnalyzer(tabela),
+      cabecalho: 'augment library',
+      uri: uri,
+    );
+    await step.writeAsString(
+        step.inputId.changeExtension('.macro_complete.txt'), completo);
   }
 }
 

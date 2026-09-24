@@ -143,6 +143,10 @@ fixture reduzido. Os resultados de `Endereco`, `SoSaida` e `SoEntrada`
 coincidem estruturalmente com o CFE depois de remover IDs de sessão;
 `Usuario` tem menos campos no fixture e requer o corpus completo para essa
 comparação.
+O builder também monta `modelos.macro_complete.txt` com as duas fases. Os
+blocos completos de `Endereco`, `SoSaida` e `SoEntrada` são comparados byte a
+byte com o CFE. A saída continua `.txt` até a validação integral de `Usuario`
+com o corpus completo e da URI da biblioteca materializada.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

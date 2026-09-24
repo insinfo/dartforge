@@ -14,6 +14,26 @@ final class ResolvedorMontagemAnalyzer implements ResolvedorMontagem {
   @override
   IdentificadorResolvido identificador(int id) {
     final elemento = tabela.elemento(id);
+    final gerado = tabela.gerado(id);
+    if (gerado != null) {
+      final categoria = gerado.categoria;
+      return IdentificadorResolvido(
+        gerado.nome,
+        switch (categoria) {
+          CategoriaGerada.metodo => TipoDeIdentificador.instancia,
+          CategoriaGerada.estatico ||
+          CategoriaGerada.construtor =>
+            TipoDeIdentificador.estatico,
+          CategoriaGerada.parametro => TipoDeIdentificador.local,
+          CategoriaGerada.tipo => TipoDeIdentificador.topo,
+        },
+        uri: categoria == CategoriaGerada.estatico ||
+                categoria == CategoriaGerada.construtor
+            ? gerado.uri
+            : null,
+        escopo: gerado.dono,
+      );
+    }
     if (elemento is ClassElement) {
       return IdentificadorResolvido(elemento.name, TipoDeIdentificador.topo,
           uri: elemento.librarySource.uri.toString());

@@ -88,7 +88,9 @@ Future<Map<String, Object?>> membrosGerados(
     return {
       'k': 'parametro',
       'ident': {
-        'id': tabela.idGerado('parametro:$chaveDoDono:$nome'),
+        'id': tabela.idGerado('parametro:$chaveDoDono:$nome',
+            significado:
+                IdentificadorGerado(nome, uriAlvo, CategoriaGerada.parametro)),
         'nome': nome,
       },
       'lib': lib,
@@ -117,7 +119,17 @@ Future<Map<String, Object?>> membrosGerados(
     }
     metodos.add({
       'k': 'metodo',
-      'ident': {'id': tabela.idGerado('metodo:$chave'), 'nome': nome},
+      'ident': {
+        'id': tabela.idGerado('metodo:$chave',
+            significado: IdentificadorGerado(
+                nome,
+                uriAlvo,
+                metodo.isStatic
+                    ? CategoriaGerada.estatico
+                    : CategoriaGerada.metodo,
+                dono: classe.name)),
+        'nome': nome
+      },
       'lib': lib,
       'dono': ident,
       'static': metodo.isStatic,
@@ -143,7 +155,13 @@ Future<Map<String, Object?>> membrosGerados(
     }
     construtores.add({
       'k': 'construtor',
-      'ident': {'id': tabela.idGerado('construtor:$chave'), 'nome': nome},
+      'ident': {
+        'id': tabela.idGerado('construtor:$chave',
+            significado: IdentificadorGerado(
+                nome, uriAlvo, CategoriaGerada.construtor,
+                dono: classe.name)),
+        'nome': nome
+      },
       'lib': lib,
       'dono': ident,
       'corpo': true,

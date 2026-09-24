@@ -5,9 +5,20 @@ library;
 
 import 'package:analyzer/dart/element/element.dart';
 
+enum CategoriaGerada { metodo, estatico, construtor, parametro, tipo }
+
+final class IdentificadorGerado {
+  final String nome;
+  final String uri;
+  final String? dono;
+  final CategoriaGerada categoria;
+  const IdentificadorGerado(this.nome, this.uri, this.categoria, {this.dono});
+}
+
 final class TabelaIdentificadores {
   final _ids = <String, int>{};
   final _elementos = <int, Element>{};
+  final _gerados = <int, IdentificadorGerado>{};
   final _bibliotecas = <String, int>{};
   final _omitidos = <String, int>{};
   int _proximo = 1;
@@ -44,8 +55,13 @@ final class TabelaIdentificadores {
 
   /// Declarações introduzidas por uma augmentation ainda não têm Element no
   /// analyzer 7.3; a chave textual conserva o id entre fases.
-  int idGerado(String chave) =>
-      _ids.putIfAbsent('gerado:$chave', () => _proximo++);
+  int idGerado(String chave, {IdentificadorGerado? significado}) {
+    final id = _ids.putIfAbsent('gerado:$chave', () => _proximo++);
+    if (significado != null) _gerados[id] = significado;
+    return id;
+  }
+
+  IdentificadorGerado? gerado(int id) => _gerados[id];
 
   int omitido(String chave) =>
       _omitidos.putIfAbsent(chave, () => _omitidos.length + 1);
