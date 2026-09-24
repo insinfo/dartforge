@@ -12,6 +12,7 @@
 //! trocada pela semântica (`crates/types`) sem tocar no transporte.
 
 pub mod servidor;
+mod simbolos;
 pub mod transporte;
 pub mod utf16;
 
@@ -220,6 +221,11 @@ pub trait Analisador {
     /// para que N edições não retenham N análises (o modo de falha do LSP do
     /// Dart, medido no PLANO.md).
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic>;
+
+    /// Símbolos sintáticos do documento, sem guardar a árvore entre edições.
+    fn simbolos(&mut self, _uri: &str, _texto: &str) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -306,5 +312,10 @@ impl Analisador for AnalisadorSintatico {
             .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga));
         saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));
         saida
+    }
+
+    fn simbolos(&mut self, uri: &str, texto: &str) -> Vec<serde_json::Value> {
+        let features = self.features(uri, texto);
+        simbolos::do_documento(texto, features)
     }
 }

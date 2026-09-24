@@ -90,6 +90,8 @@ pub struct Servidor<A = AnalisadorSintatico> {
     encerrar: bool,
     /// Código de saída correspondente.
     codigo: i32,
+    /// O cliente aceita a árvore `DocumentSymbol` (LSP 3.10+).
+    simbolos_hierarquicos: bool,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -117,6 +119,7 @@ impl<A: Analisador> Servidor<A> {
             desligando: false,
             encerrar: false,
             codigo: 1,
+            simbolos_hierarquicos: false,
         }
     }
 
@@ -236,9 +239,9 @@ impl<A: Analisador> Servidor<A> {
                 let uri = doc.get("uri")?.as_str()?;
                 let versao = doc.get("version")?.as_i64()? as i32;
                 let mudancas = ler_mudancas(params.get("contentChanges")?);
-                self.documentos.apply(uri, versao, &mudancas);
-                self.documentos.get(uri)?;
-                Some(self.publicar(uri))
+                self.documentos
+                    .apply(uri, versao, &mudancas)
+                    .then(|| self.publicar(uri))
             }
             "textDocument/didClose" => {
                 let params = mensagem.get("params")?;
@@ -262,22 +265,45 @@ impl<A: Analisador> Servidor<A> {
         }
         let metodo = mensagem.get("method").and_then(Value::as_str).unwrap_or("");
         match metodo {
-            "initialize" => resposta(
-                &id,
-                json!({
+            "initialize" => {
+                self.simbolos_hierarquicos = mensagem
+                    .pointer("/params/capabilities/textDocument/documentSymbol/hierarchicalDocumentSymbolSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                resposta(&id, json!({
                     "capabilities": {
                         "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
                         "positionEncoding": "utf-16",
+                        "documentSymbolProvider": true,
                     },
                     "serverInfo": {
                         "name": "dartforge-lsp",
                         "version": env!("CARGO_PKG_VERSION"),
                     },
-                }),
-            ),
+                }))
+            }
             "shutdown" => {
                 self.desligando = true;
                 resposta(&id, Value::Null)
+            }
+            "textDocument/documentSymbol" => {
+                let uri = mensagem.get("params")
+                    .and_then(|p| p.get("textDocument"))
+                    .and_then(|d| d.get("uri"))
+                    .and_then(Value::as_str);
+                let simbolos = uri
+                    .and_then(|u| self.documentos.get(u).map(|t| (u, t.to_string())))
+                    .map_or_else(Vec::new, |(u, t)| self.analisador.simbolos(u, &t));
+                let resultado = if self.simbolos_hierarquicos {
+                    simbolos
+                } else {
+                    let mut planos = Vec::new();
+                    for simbolo in &simbolos {
+                        achatar_simbolos(simbolo, uri.unwrap_or(""), None, &mut planos);
+                    }
+                    planos
+                };
+                resposta(&id, json!(resultado))
             }
             METODO_DORMIR => {
                 let ms = mensagem
@@ -369,6 +395,26 @@ fn publicacao_vazia(uri: &str) -> Value {
         "method": "textDocument/publishDiagnostics",
         "params": {"uri": uri, "diagnostics": []},
     })
+}
+
+/// O LSP exige `SymbolInformation[]` para clientes que não anunciaram suporte
+/// a `DocumentSymbol[]` hierárquico. A localização plana é a seleção do nome.
+fn achatar_simbolos(simbolo: &Value, uri: &str, pai: Option<&str>, saida: &mut Vec<Value>) {
+    let nome = simbolo.get("name").and_then(Value::as_str).unwrap_or("");
+    let mut plano = json!({
+        "name": nome,
+        "kind": simbolo["kind"],
+        "location": {"uri": uri, "range": simbolo["selectionRange"]},
+    });
+    if let Some(pai) = pai {
+        plano["containerName"] = json!(pai);
+    }
+    saida.push(plano);
+    if let Some(filhos) = simbolo.get("children").and_then(Value::as_array) {
+        for filho in filhos {
+            achatar_simbolos(filho, uri, Some(nome), saida);
+        }
+    }
 }
 
 /// Converte `contentChanges` do protocolo em mudanças internas.

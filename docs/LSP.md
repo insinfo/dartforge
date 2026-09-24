@@ -72,6 +72,15 @@ entre — o custo por tecla será remedido então.
 
 ## Capacidades
 
+`textDocument/documentSymbol` lista declarações de topo e membros a partir da
+AST do documento aberto. Usa `DocumentSymbol[]` hierárquico quando o cliente
+anuncia `hierarchicalDocumentSymbolSupport`; caso contrário devolve
+`SymbolInformation[]` plano, como exige o contrato do LSP. Os intervalos são
+UTF-16. A árvore é descartada depois de cada pedido, mantendo o platô de
+memória por edição. Edições `didChange` com versão antiga são ignoradas sem
+republicar diagnósticos. Testes direcionados: `cargo test -p dartforge-lsp
+--test simbolos --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -80,7 +89,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 execução; clientes reais nunca enviam).
 
 Explicitamente fora deste brief: hover, completion, definição, referências,
-rename, code actions, símbolos, formatação e `diagnosticProvider` por
+rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Semântica
 (nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
 pela costura `trait Analisador { fn diagnosticar(&mut self, uri, texto) }`
