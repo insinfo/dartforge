@@ -44,6 +44,8 @@ const APELIDOS: &[(&str, &str)] = &[
 const VARIANTES: &[(&str, &str)] = &[
     ("return_of_invalid_type", "CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION"),
     ("class_instantiation_access_to_instance_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER"),
+    ("class_instantiation_access_to_static_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER"),
+    ("class_instantiation_access_to_unknown_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER"),
 ];
 
 fn por_nome(nome: &str) -> Option<Codigo> {
@@ -74,6 +76,8 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::UNDEFINED_EXTENSION_METHOD,
         c::STATIC_ACCESS_TO_INSTANCE_MEMBER,
         c::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER,
+        c::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER,
+        c::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER,
         c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
         c::UNDEFINED_EXTENSION_OPERATOR,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
@@ -346,6 +350,24 @@ mod testes {
         assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER));
         assert_eq!(c.message, "The instance member 'i' can't be accessed on a class instantiation.");
         assert_eq!((c.span.start, c.span.end), (7, 15));
+    }
+
+    #[test]
+    fn membro_estatico_ou_desconhecido_em_instanciacao_de_classe() {
+        let estatico = Diagnostic::new(
+            format!("{}: 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER.template),
+            Span { start: 7, end: 15 },
+        );
+        let c = codificar_tipos(&estatico, "A<int>.i");
+        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER));
+        assert_eq!(c.message, "The static member 'i' can't be accessed on a class instantiation.");
+        let desconhecido = Diagnostic::new(
+            format!("{}: 'A', 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER.template),
+            Span { start: 7, end: 15 },
+        );
+        let c = codificar_tipos(&desconhecido, "A<int>.i");
+        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER));
+        assert_eq!(c.message, "The class 'A' doesn't have a constructor named 'i'.");
     }
 
     #[test]
