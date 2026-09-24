@@ -1075,7 +1075,17 @@ impl Motor {
     /// Conteúdo de uma saída pelo caminho natural, calculando-a se ainda não
     /// foi (a demanda de um `.css` pedido pelo navegador).
     pub fn materializar(&mut self, ctx: &Contexto<'_>, caminho: &Path) -> Option<Arc<[u8]>> {
-        let k = chave(caminho);
+        let mut k = chave(caminho);
+        // `package_config.json` usa a raiz canônica; a URL servida pode
+        // chegar pela grafia lexical (alias 8.3 ou link no Windows). O
+        // arquivo gerado ainda não existe, então canonizamos só o pai.
+        if !self.naturais.values().any(|n| n == &k) {
+            if let (Some(pai), Some(nome)) = (caminho.parent(), caminho.file_name()) {
+                if let Ok(pai) = std::fs::canonicalize(pai) {
+                    k = chave(&dartforge_elements::config::sem_verbatim(pai).join(nome));
+                }
+            }
+        }
         if let Some(c) = self.memoria.get(&k) {
             return Some(c.clone());
         }

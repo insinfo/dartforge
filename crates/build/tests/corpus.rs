@@ -185,9 +185,8 @@ fn sass_release_css_sob_demanda_sem_apoio() {
     m.atualizar(&ctx, &[], Demanda::Carregador).unwrap();
     let destino = dartforge_elements::gerado::chave(&dir.join("web/principal.css"));
     assert!(
-        m.naturais.values().any(|p| p == &destino),
-        "CSS fora do grafo: {:?}",
-        m.naturais.iter().filter(|(id, _)| id.caminho.contains("principal")).collect::<Vec<_>>()
+        m.naturais.keys().any(|id| id.caminho.as_ref() == "web/principal.css"),
+        "CSS fora do grafo: {destino:?}"
     );
     let css = m.materializar(&ctx, &destino).unwrap_or_else(|| {
         let estado_completo = m.estado_canonico();
