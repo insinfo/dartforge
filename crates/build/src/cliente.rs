@@ -238,4 +238,16 @@ mod testes {
         assert_eq!(enviadas[4], json!({"t":"build.resposta","id":10}));
         assert_eq!(enviadas[5]["erro"], "SaidaNaoPermitida");
     }
+
+    #[test]
+    fn handshake_recusa_executores_sem_servico_build() {
+        for resposta in [
+            json!({"t":"ola","protocolo":"dfexec/2","servicos":["build"]}),
+            json!({"t":"ola","protocolo":"dfexec/1","servicos":["macro"]}),
+        ] {
+            let canal = CanalFalso { recebidas: [resposta].into(), enviadas: Arc::new(Mutex::new(Vec::new())) };
+            let mut cliente = ClienteBuild::novo(canal);
+            assert!(cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).is_err());
+        }
+    }
 }
