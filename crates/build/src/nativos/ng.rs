@@ -85,6 +85,12 @@ impl GeradorNativo for NgEstagioA {
         if !e_raiz {
             return Err("ngdart (estágio A): só o pacote da entrada".into());
         }
+        // Num HTML existente, a lista de consultas conservadoras do pacote
+        // não ganha termos novos. O motor conserva as respostas anteriores e
+        // substitui apenas o digest deste arquivo.
+        if let Some(saida) = self.tentar_html(ctx, pedido) {
+            return Ok(saida);
+        }
         let t = std::time::Instant::now();
         let mut v = Vec::new();
         for d in ["lib", "web", "test"] {
@@ -135,19 +141,6 @@ impl GeradorNativo for NgEstagioA {
             }
         }
         let t_consultas = t.elapsed();
-        // A rodada continua registrando as mesmas consultas conservadoras
-        // do estágio A; a aceleração, por ora, só corta a geração.
-        if let Some(saida) = self.tentar_html(ctx, pedido) {
-            if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
-                eprintln!(
-                    "ngdart (estágio B): consultas {:.1} ms ({} arquivos), regeneração {:.1} ms",
-                    t_consultas.as_secs_f64() * 1000.0,
-                    v.len(),
-                    (t.elapsed() - t_consultas).as_secs_f64() * 1000.0,
-                );
-            }
-            return Ok(saida);
-        }
         let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: raiz.clone() };
         let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         let mut nomes = dartforge_intern::Interner::new();
@@ -194,14 +187,22 @@ impl GeradorNativo for NgEstagioA {
 }
 
 fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
-    SaidaNativa { saidas: s.saidas.clone(), recusas: s.recusas.clone(), unidades_geradas: s.unidades_geradas }
+    SaidaNativa {
+        saidas: s.saidas.clone(),
+        recusas: s.recusas.clone(),
+        unidades_geradas: s.unidades_geradas,
+        reutilizar_consultas: s.reutilizar_consultas,
+    }
 }
 
 impl NgEstagioA {
-    fn tentar_html(&self, ctx: &CtxGerador<'_>, pedido: &PedidoNativo) -> Option<SaidaNativa> {
-        let mut mudados = ctx.mudados.iter().filter(|p| p.starts_with(&pedido.raiz_do_pacote));
+    fn tentar_html(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Option<SaidaNativa> {
+        let mut mudados = ctx.mudados.iter();
         let html = mudados.next()?;
-        if mudados.next().is_some() || html.extension().is_none_or(|e| e != "html") {
+        if mudados.next().is_some()
+            || !html.starts_with(&pedido.raiz_do_pacote)
+            || html.extension().is_none_or(|e| e != "html")
+        {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;
@@ -243,6 +244,8 @@ impl NgEstagioA {
         }
         let mut saida = clone_saida(&cache.saida);
         saida.unidades_geradas = componentes;
+        saida.reutilizar_consultas = true;
+        ctx.registrar(Consulta::Arquivo(html.clone()));
         Some(saida)
     }
 }

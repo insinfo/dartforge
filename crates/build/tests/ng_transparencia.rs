@@ -125,6 +125,7 @@ fn ng_incremental_igual_ao_do_zero() {
             .expect("atualizar");
         if arq.extension().is_some_and(|e| e == "html") {
             assert_eq!(atual.rel.unidades_nativas, 1, "a edição de um HTML deve regenerar só seu componente");
+            assert_eq!(atual.rel.consultas_gerador, 1, "só o digest do HTML mudado deve ser registrado novamente");
         }
         let novo = motor(&raiz, &p, &nomes);
         assert_eq!(vivo.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());

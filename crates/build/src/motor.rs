@@ -95,6 +95,8 @@ pub struct RelMotor {
     pub nativas: usize,
     /// Unidades efetivamente regeneradas dentro de um gerador por pacote.
     pub unidades_nativas: usize,
+    /// Consultas registradas por geradores nesta atualização.
+    pub consultas_gerador: usize,
     pub apoio: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
     pub tempo: Duration,
@@ -107,13 +109,14 @@ pub struct RelMotor {
 impl RelMotor {
     pub fn texto(&self) -> String {
         let mut s = format!(
-            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio, {} unidades regeneradas), {} consultas reavaliadas, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
+            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio, {} unidades regeneradas), {} consultas reavaliadas, {} consultas do gerador, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
             self.acoes_verificadas,
             self.acoes_executadas,
             self.nativas,
             self.apoio,
             self.unidades_nativas,
             self.consultas_reavaliadas,
+            self.consultas_gerador,
             self.saidas_alteradas,
             self.tempo.as_secs_f64() * 1000.0,
             self.tempo_revalidar.as_secs_f64() * 1000.0,
@@ -785,9 +788,23 @@ impl Motor {
             let r = gerador.gerar(&mut c, &pedido);
             (r, std::mem::take(&mut c.consultas))
         };
+        rel.consultas_gerador += consultas.len();
         let rodada = match resultado {
             Ok(s) => RodadaPacote {
-                registro_consultas: consultas,
+                registro_consultas: if s.reutilizar_consultas {
+                    let anterior = self.pacotes.get(&k).ok_or("ngdart: consultas anteriores ausentes")?;
+                    let mut mantidas = anterior.registro_consultas.clone();
+                    for (nova, digest) in consultas {
+                        if let Some((_, antigo)) = mantidas.iter_mut().find(|(c, _)| *c == nova) {
+                            *antigo = digest;
+                        } else {
+                            mantidas.push((nova, digest));
+                        }
+                    }
+                    mantidas
+                } else {
+                    consultas
+                },
                 saidas: s.saidas.into_iter().map(|(p, b)| (chave(&p), Arc::from(b))).collect(),
                 recusas: s.recusas.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
                 erro: None,

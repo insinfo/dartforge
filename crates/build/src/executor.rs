@@ -41,6 +41,9 @@ pub struct SaidaNativa {
     pub recusas: BTreeMap<PathBuf, String>,
     /// Arquivos que o gerador realmente regenerou nesta chamada.
     pub unidades_geradas: usize,
+    /// O gerador confirmou que as consultas da rodada anterior continuam
+    /// válidas; `CtxGerador` registra só as respostas que mudaram.
+    pub reutilizar_consultas: bool,
 }
 
 /// Gerador em Rust que imita um builder do ecossistema byte a byte.
