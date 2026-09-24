@@ -509,6 +509,31 @@ fn override_sem_call_do_oraculo() {
 }
 
 #[test]
+fn operador_unario_em_override_do_oraculo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    for (fonte, ausente) in [
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minu_99f91916.dart")), true),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minus_defined.dart")), false),
+    ] {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let operadores: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).collect();
+        assert_eq!(operadores.len(), usize::from(ausente), "{diags:?}");
+        if ausente {
+            assert_eq!((operadores[0].span.start, operadores[0].span.end), (33, 34));
+            assert!(operadores[0].message.contains("'unary-' em 'E'"));
+        }
+    }
+}
+
+#[test]
 fn campo_final_sem_setter_e_late_final_atribuivel() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

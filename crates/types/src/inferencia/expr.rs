@@ -1183,6 +1183,20 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let c = if literal { _ctx } else { inf.core.unknown };
             let t = inferir(inf, cx, operand, c);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };
+            if let Some((x, args)) = cx.sobreposicoes.get(&operand).cloned() {
+                if let Some(m) = sym.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)) {
+                    resolver(inf, cx, e, m.resolved.clone());
+                    return match inf.table.get(m.tipo) {
+                        Type::Function { ret, .. } => *ret,
+                        _ => inf.core.dynamic_,
+                    };
+                }
+                let operador = if op == UnaryOp::Neg { "unary-" } else { "~" };
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, operador, extensao);
+                inf.aviso(msg, dartforge_diagnostics::Span { start: span.start, end: span.start + 1 });
+                return inf.core.dynamic_;
+            }
             let Some(sym) = sym else { return inf.core.dynamic_ };
             match inf.buscar_membro(cx.lib, t, sym, false) {
                 Busca::Achado(m) => {
