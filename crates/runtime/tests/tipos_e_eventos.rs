@@ -67,6 +67,45 @@ fn subtipagem_e_avaliacao() {
     });
 }
 
+/// Os allocators de listas do SDK recebem `L<E>` pela ABI. A fatia de uma
+/// `_List<E>` e a cópia `_ImmutableList<E>` conservam E nos metadados, mesmo
+/// quando a classe concreta do resultado é diferente da origem.
+#[test]
+#[allow(unsafe_code)]
+fn allocators_de_lista_preservam_argumento_de_tipo() {
+    numa_thread(|| {
+        // 10 = List<E>; 11 = _List<E>; 12 = _ImmutableList<E>;
+        // 13 = _GrowableList<E>. Os índices 7–9 são os CIDs de lista.
+        let mut cids = [0_i64; 12];
+        cids[7] = 13;
+        cids[8] = 11;
+        cids[9] = 12;
+        // SAFETY: `cids` fica vivo durante a cópia feita pelo runtime.
+        unsafe { dartforge_registrar_cids(cids.as_ptr(), cids.len() as i64) };
+        dartforge_rti_classe_do_runtime(4, 10);
+        for classe in [11, 12, 13] {
+            dartforge_rti_regra(classe, receita("C10<P0>"));
+        }
+
+        let fixo = dartforge_nativo_List_allocate(dartforge_box_int(2), receita("L<C1>"));
+        assert!(dartforge_rti_e(fixo, receita("C10<C1>")) != 0);
+        let fatia = dartforge_nativo_List_slice(fixo, 0, 2, 1);
+        assert!(dartforge_rti_e(fatia, receita("C10<C1>")) != 0);
+
+        let imutavel = dartforge_nativo_ImmutableList_from(fixo, 0, 2, receita("L<C1>"));
+        assert!(dartforge_rti_e(imutavel, receita("C10<C1>")) != 0);
+        assert!(dartforge_rti_e(imutavel, receita("C10<C2>")) == 0);
+
+        let imutavel_de_copia = dartforge_nativo_Internal_makeFixedListUnmodifiable(fixo);
+        assert!(dartforge_rti_e(imutavel_de_copia, receita("C10<C1>")) != 0);
+        let fixo_de_copia = dartforge_nativo_Internal_makeListFixedLength(imutavel_de_copia);
+        assert!(dartforge_rti_e(fixo_de_copia, receita("C10<C1>")) != 0);
+
+        let mutavel = dartforge_nativo_GrowableList_allocate(fixo, receita("L<C1>"));
+        assert!(dartforge_rti_e(mutavel, receita("C10<C1>")) != 0);
+    });
+}
+
 thread_local! {
     static ORDEM: std::cell::RefCell<Vec<i64>> = const { std::cell::RefCell::new(Vec::new()) };
 }

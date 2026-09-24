@@ -123,27 +123,35 @@ pub extern "C" fn dartforge_nativo_DartForge_lista_get(this: i64, indice: i64) -
 /// `_List._sliceInternal(start, count, needsTypeArgument)`: `_List` novo.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_List_slice(this: i64, inicio: i64, quantos: i64, _tipo: u8) -> i64 {
-    HEAP.with(|heap| {
+    let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(this) else { return 0 };
         let fatia: Vec<TaggedValue> = itens[inicio as usize..(inicio + quantos) as usize].to_vec();
         let h = heap.allocate(Value::List(fatia));
         heap.fixas.insert(h);
         h
-    })
+    });
+    if h != 0 && let Some(tipo) = tipo_lista_copiada(this, cid_do_runtime(h)) {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+    }
+    h
 }
 
 /// `_ImmutableList._from(from, offset, length)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, inicio: i64, quantos: i64) -> i64 {
-    HEAP.with(|heap| {
+pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, inicio: i64, quantos: i64, tupla: i64) -> i64 {
+    let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(de) else { return 0 };
         let fatia: Vec<TaggedValue> = itens[inicio as usize..(inicio + quantos) as usize].to_vec();
         let h = heap.allocate(Value::List(fatia));
         heap.imutaveis.insert(h);
         h
-    })
+    });
+    if h != 0 && let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+    }
+    h
 }
 
 /// `_GrowableList._withData(data)`: tamanho 0; os elementos de `data` ficam
@@ -334,28 +342,36 @@ pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
 /// `makeListFixedLength(list)`: uma `_List` com os mesmos elementos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Internal_makeListFixedLength(lista: i64) -> i64 {
-    HEAP.with(|heap| {
+    let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(lista) else { return 0 };
         let itens = itens.clone();
         let h = heap.allocate(Value::List(itens));
         heap.fixas.insert(h);
         h
-    })
+    });
+    if h != 0 && let Some(tipo) = tipo_lista_copiada(lista, cid_do_runtime(h)) {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+    }
+    h
 }
 
 /// `makeFixedListUnmodifiable(list)`: uma `_ImmutableList` com os mesmos
 /// elementos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Internal_makeFixedListUnmodifiable(lista: i64) -> i64 {
-    HEAP.with(|heap| {
+    let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(lista) else { return 0 };
         let itens = itens.clone();
         let h = heap.allocate(Value::List(itens));
         heap.imutaveis.insert(h);
         h
-    })
+    });
+    if h != 0 && let Some(tipo) = tipo_lista_copiada(lista, cid_do_runtime(h)) {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+    }
+    h
 }
 
 /// `_Double.toInt()`: truncado; NaN e infinito lançam `UnsupportedError`
