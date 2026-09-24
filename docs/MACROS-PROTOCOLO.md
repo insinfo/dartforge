@@ -234,6 +234,9 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `418_definicao_metodo` — `MethodDefinitionMacro` substitui o corpo de um
   método de instância na fase 3; VM, JS dev e JS produção executam o novo
   corpo, com augmentation comparada integralmente ao CFE.
+* `419_definicao_construtor` — `ConstructorDefinitionMacro` substitui o
+  corpo de construtor já completo; o estado final do objeto é comparado nos
+  executores e a augmentation, byte a byte com o CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
