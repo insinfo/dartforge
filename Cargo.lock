@@ -111,10 +111,10 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "dartforge-dfexec",
  "dartforge-elements",
  "dartforge-gerador-ng",
  "dartforge-intern",
- "dartforge-macros-host",
  "serde_json",
  "tempfile",
  "url",
@@ -152,6 +152,13 @@ dependencies = [
  "dartforge-intern",
  "dartforge-types",
  "tempfile",
+]
+
+[[package]]
+name = "dartforge-dfexec"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -283,6 +290,7 @@ dependencies = [
 name = "dartforge-macros-host"
 version = "0.1.0"
 dependencies = [
+ "dartforge-dfexec",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",

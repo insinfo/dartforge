@@ -4,7 +4,7 @@ use crate::executor::{Disponibilidade, ErroExecutor, ExecutorDart, Nivel, Pedido
 use crate::grafo::AssetId;
 use crate::valor::{Mapa, Valor};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use dartforge_macros_host::protocolo::{Canal, PROTOCOLO};
+use dartforge_dfexec::{Canal, PROTOCOLO};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -194,7 +194,7 @@ fn valor_json(valor: &Valor) -> Value {
 #[cfg(test)]
 mod testes {
     use super::*;
-    use dartforge_macros_host::protocolo::Canal;
+    use dartforge_dfexec::Canal;
     use std::collections::VecDeque;
     use std::sync::Mutex;
 

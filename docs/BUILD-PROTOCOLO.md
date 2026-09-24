@@ -10,8 +10,9 @@ permite escrever saídas declaradas da ação. O motor agora invoca um
 `ExecutorDart` injetado nas ações sem gerador nativo verificado, prepara o
 script uma vez por sessão e publica as saídas após o corte por digest. Um
 executor falso do corpus verifica esse caminho de ponta a ponta. O cliente
-`build.*` em `crates/build/src/cliente.rs` usa o canal compartilhado com
-macros, confere o handshake e serve `BuildStep` durante a execução. O processo
+`build.*` em `crates/build/src/cliente.rs` usa o canal de
+`crates/dfexec` compartilhado com macros, confere o handshake e serve
+`BuildStep` durante a execução. O processo
 Dart real ainda falta; `ExecutorDart` continua `Indisponivel` por padrão.
 O processo virá do backend nativo auto-hospedado
 (sem Node e sem a VM oficial no produto).

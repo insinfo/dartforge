@@ -17,7 +17,7 @@ nativos = ["dep:dartforge-gerador-ng"]
 [dependencies]
 dartforge-elements = { path = "../elements" }
 dartforge-intern = { path = "../intern" }
-dartforge-macros-host = { path = "../macros_host" }
+dartforge-dfexec = { path = "../dfexec" }
 dartforge-gerador-ng = { path = "../gerador_ng", optional = true }
 base64 = "0.22"
 blake3 = "1"

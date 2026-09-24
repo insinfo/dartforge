@@ -1,0 +1,13 @@
+[package]
+name = "dartforge-dfexec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Canal enquadrado dfexec/1 compartilhado por builders Dart e macros."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = "1"
