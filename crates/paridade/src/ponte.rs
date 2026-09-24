@@ -71,6 +71,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::UNDEFINED_EXTENSION_GETTER,
         c::UNDEFINED_EXTENSION_METHOD,
         c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
+        c::UNDEFINED_EXTENSION_OPERATOR,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
         c::ASSIGNMENT_TO_CONST,
         c::ASSIGNMENT_TO_TYPE,
@@ -295,6 +296,17 @@ mod testes {
         let c = codificar_tipos(&d, "E(0)");
         assert_eq!(c.code, Some(codigos::compile_time_error::INVOCATION_OF_EXTENSION_WITHOUT_CALL));
         assert_eq!(c.message, "The extension 'E' doesn't define a 'call' method so the override can't be used in an invocation.");
+    }
+
+    #[test]
+    fn operador_ausente_em_override() {
+        let d = Diagnostic::new(
+            format!("{}: 'unary-' em 'E'", dartforge_types::codes::UNDEFINED_EXTENSION_OPERATOR.template),
+            Span { start: 33, end: 34 },
+        );
+        let c = codificar_tipos(&d, "-");
+        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_OPERATOR));
+        assert_eq!(c.message, "The operator 'unary-' isn't defined for the extension 'E'.");
     }
 
     #[test]
