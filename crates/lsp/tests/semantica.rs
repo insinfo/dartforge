@@ -172,5 +172,22 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 88, "textDocument/definition", &uri_getter, 9)["range"]["start"], json!({"line":0,"character":8}));
     assert_eq!(requisitar(&mut servidor, 89, "textDocument/hover", &uri_getter, 9)["contents"], "int get resposta\nType: int");
+    let entrada_prefixada = raiz.join("main_prefix.dart");
+    fs::write(&entrada_prefixada, "import 'getter.dart' as p;\nvar y = 0;\n").unwrap();
+    let uri_prefixada = url::Url::from_file_path(&entrada_prefixada).unwrap().to_string();
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri_prefixada,"languageId":"dart","version":1,
+            "text":"import 'getter.dart' as p;\nvar y = p.resposta;\n"}
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 90, "textDocument/definition", &uri_prefixada, 12)["range"]["start"], json!({"line":0,"character":8}));
+    assert_eq!(requisitar(&mut servidor, 91, "textDocument/hover", &uri_prefixada, 12)["contents"], "int get resposta\nType: int");
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+        "textDocument":{"uri":uri_prefixada,"version":2},
+        "contentChanges":[{"text":"import 'getter.dart' as p;\nvar p = 0; var y = p.resposta;\n"}]
+    }}));
+    servidor.bombear();
+    assert_eq!(requisitar(&mut servidor, 92, "textDocument/definition", &uri_prefixada, 23), Value::Null);
+    assert_eq!(requisitar(&mut servidor, 93, "textDocument/hover", &uri_prefixada, 23), Value::Null);
     fs::remove_dir_all(&raiz).unwrap();
 }
