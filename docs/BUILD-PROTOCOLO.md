@@ -4,9 +4,12 @@ Contrato do canal entre o motor de build (`crates/build`, hospedeiro) e o
 **executor** que roda código Dart em tempo de compilação: builders do
 ecossistema (serviço `build.*`) e, depois, macros (serviço `macro.*`).
 Um protocolo e um executor para os dois (regra governante, PLANO.md,
-item 2). Hoje **não há implementação**: o motor tem só a trait
-`ExecutorDart` e a implementação `Indisponivel`. O executor virá do backend
-nativo auto-hospedado (sem Node e sem a VM oficial no produto).
+item 2). O hospedeiro agora tem `ServicoAcao`, a implementação de
+`ServicoBuildStep` que limita leituras ao grafo, registra consultas e só
+permite escrever saídas declaradas da ação. O transporte `build.*` e o
+executor Dart ainda não estão ligados ao motor: `ExecutorDart` continua
+`Indisponivel` por padrão. O executor virá do backend nativo auto-hospedado
+(sem Node e sem a VM oficial no produto).
 
 ## 1. Transporte e enquadramento
 
