@@ -533,6 +533,27 @@ fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
 }
 
 #[test]
+fn escrita_em_metodo_de_instancia_pelo_tipo_e_setter_indefinido() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/static/field3_test.dart"));
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let offset = fonte.find("Foo.m = 1").unwrap() + "Foo.".len();
+    let no_alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+    assert_eq!(no_alvo.len(), 1, "{diags:?}");
+    assert!(no_alvo[0].message.starts_with(UNDEFINED_SETTER.template), "{diags:?}");
+    assert!(no_alvo[0].message.contains("'m'"), "{diags:?}");
+    assert_eq!(no_alvo[0].span.end as usize, offset + 1);
+}
+
+#[test]
 fn membro_de_instancia_em_instanciacao_explicita_tem_codigo_e_span_proprios() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

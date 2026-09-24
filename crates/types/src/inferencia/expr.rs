@@ -1766,6 +1766,27 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
             None => {
                 if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
                     if inf.membro_estatico(*c, name.sym, false).is_none() {
+                        // Um método de instância não declara setter. Em `C.m = v`,
+                        // o analyzer procura o setter estático e relata sua
+                        // ausência, enquanto `C.m` como leitura é acesso
+                        // estático indevido ao método de instância.
+                        let classe = inf.program.class(*c);
+                        let setter_de_instancia = inf.chave_setter(name.sym)
+                            .is_some_and(|chave| classe.instance_members.contains_key(&chave));
+                        let metodo_de_instancia = classe.instance_members.get(&name.sym)
+                            .is_some_and(|&f| inf.program.function(f).kind == FunctionKind::Function);
+                        if !instancia_explicita && !setter_de_instancia && metodo_de_instancia
+                            && (!inf.interner.resolve(name.sym).starts_with('_') || classe.library == cx.lib)
+                        {
+                            let msg = format!(
+                                "{}: setter '{}' não definido para o tipo '{}'",
+                                UNDEFINED_SETTER.template,
+                                inf.interner.resolve(name.sym),
+                                inf.interner.resolve(classe.name),
+                            );
+                            inf.aviso(msg, name.span);
+                            return inf.core.dynamic_;
+                        }
                         if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, *c, name, true) {
                             return inf.core.dynamic_;
                         }
