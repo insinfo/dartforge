@@ -1,0 +1,6 @@
+name: caso_pedido
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  json: 0.20.4

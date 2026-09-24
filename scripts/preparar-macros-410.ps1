@@ -6,6 +6,8 @@ $trabalho = Join-Path $caso 'target/410-materializado'
 $fonte = Join-Path $caso 'lib/modelos.dart'
 $fonteForge = Join-Path $caso 'lib/modelos.forge.dart'
 $augmentationForge = Join-Path $caso 'lib/modelos.forge.macro.dart'
+$pedidoOriginal = Join-Path $raiz 'corpus/macros/411_pedido_independente'
+$pedidoAugmentation = Join-Path $caso 'lib/pedido.macro.dart'
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 New-Item -ItemType Directory -Force -Path $trabalho | Out-Null
@@ -37,6 +39,14 @@ $obtido = [IO.File]::ReadAllText($augmentationForge).Replace([Environment]::NewL
 if ($obtido -cne $esperado) {
     throw 'augmentation da entrada Forge divergiu do CFE após normalizar URIs'
 }
+$pedidoEsperado = [IO.File]::ReadAllText(
+    (Join-Path $pedidoOriginal 'esperado/pedido.augmentation.dart')).Replace(
+    "augment library 'package:caso_pedido/pedido.dart';",
+    "augment library 'pedido.dart';").Replace([Environment]::NewLine, [string][char]10)
+$pedidoObtido = [IO.File]::ReadAllText($pedidoAugmentation).Replace([Environment]::NewLine, [string][char]10)
+if ($pedidoObtido -cne $pedidoEsperado) {
+    throw 'augmentation independente de Pedido divergiu do CFE'
+}
 
 $fonteTexto = [IO.File]::ReadAllText($fonteForge)
 $importJson = "import 'package:json/json.dart';"
@@ -50,4 +60,4 @@ $main = [IO.File]::ReadAllText((Join-Path $original 'main.dart')).Replace(
     'package:caso_json/modelos.dart',
     'package:corpus_macros_discovery/modelos.forge.dart')
 [IO.File]::WriteAllText((Join-Path $trabalho 'main.dart'), $main, $utf8)
-Write-Host '410 preparado: fonte Forge separada, augmentation integral igual ao CFE'
+Write-Host '410 preparado; augmentation independente de Pedido integral igual ao CFE'

@@ -81,9 +81,9 @@ JS embutido nem runtime de terceiros. `int` tem a semântica da VM (64 bits).
 
 | implementação | uso |
 |---|---|
-| `Indisponivel` | a do produto hoje: o `compile-js` de um programa com aplicação dá erro claro **na anotação** |
+| `Indisponivel` | diagnóstico quando nenhum executor foi configurado; não é o caminho normal do JS com macro |
 | `ExecutorDfexec<C: Canal>` | o cliente `macro.*` sobre qualquer canal: processo (`CanalDeProcesso`), gravação (`CanalGravador`) ou sessão gravada (`CanalGravado`, o executor falso dos testes) |
-| `vm::iniciar` | o executor de **materialização**: a mesma API numa VM Dart (MACROS-COMPATIBILIDADE.md) — ferramenta de compatibilidade, não dependência do compilador |
+| `vm::iniciar` | executor de materialização e caminho provisório de `compile-js`/`jsprod`: executa a nossa API numa VM Dart (MACROS-COMPATIBILIDADE.md) e recarrega a augmentation em memória |
 
 **O que espera o executor nativo**: compilar `pacotes/macros` (a API, o
 `executor/servico.dart` e o `canal_stdio.dart`) e a biblioteca da macro com o
@@ -208,6 +208,10 @@ dos identificadores é local. As declarações `augment` que os builders da fase
   e `esperado/sessao.dfexec` a sessão gravada do protocolo. O job de macros
   executa a fonte original nos oráculos e uma cópia com `.macro.dart`
   materializado pelo `build_runner` nos backends DartForge.
+* `411_pedido_independente` — `@JsonCodable` em uma biblioteca nova, fonte
+  anotada original nos quatro executores; o JS roda a macro automaticamente
+  com o executor VM provisório, sem `dartforge-entrada.txt` nem preparação
+  manual. O `.macro.dart` do builder também é comparado byte a byte ao CFE.
 
 ## 8. Placar (medido nesta rodada)
 
