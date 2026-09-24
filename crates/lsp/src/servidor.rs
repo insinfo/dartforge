@@ -362,13 +362,18 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (span, descricao) = self.analisador.hover(u, &texto, offset)?;
+                    let (span, descricao, tipo) = self.analisador.hover(u, &texto, offset)?;
                     let (l0, c0) = tabela.posicao_de_offset(&texto, span.start);
                     let (l1, c1) = tabela.posicao_de_offset(&texto, span.end);
                     let conteudo = if self.hover_markdown {
-                        json!({"kind": "markdown", "value": format!("```dart\n{descricao}\n```")})
+                        let mut valor = format!("```dart\n{descricao}\n```");
+                        if let Some(ref t) = tipo {
+                            valor.push_str(&format!("\nType: `{t}`"));
+                        }
+                        json!({"kind": "markdown", "value": valor})
                     } else {
-                        json!(descricao)
+                        let valor = tipo.map_or(descricao.clone(), |t| format!("{descricao}\nType: {t}"));
+                        json!(valor)
                     };
                     Some(json!({
                         "contents": conteudo,

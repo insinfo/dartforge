@@ -239,7 +239,7 @@ pub trait Analisador {
     }
 
     /// Descrição sintática segura e intervalo da referência sob o cursor.
-    fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String)> {
+    fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         None
     }
 }
@@ -329,10 +329,10 @@ impl Analisador for AnalisadorSintatico {
         }
     }
 
-    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String)> {
+    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         let features = self.features(uri, texto);
         match navegacao::destino(uri, texto, features, offset)? {
-            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?)),
+            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?, tipo.tipo_estatico)),
             navegacao::Alvo::Arquivo(_) => None,
         }
     }
