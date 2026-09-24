@@ -341,6 +341,17 @@ impl JitSession {
     /// # Ok::<(), dartforge_jit::JitError>(())
     /// ```
     pub fn hot_reload(&mut self, name: &str, novo_ir: &str) -> Result<HotReloadReport, JitError> {
+        if self.poisoned.is_none()
+            && !self.reloadables.iter().any(|module| module.name == name)
+            && !self.modules.iter().any(|module| !module.removed && module.name == name)
+        {
+            return Err(JitError {
+                stage: "contract",
+                message: format!(
+                    "nenhum módulo chamado '{name}' está carregado nesta sessão; use add_reloadable_module para a primeira geração"
+                ),
+            });
+        }
         self.install_generation(name, novo_ir)
     }
 
@@ -786,31 +797,13 @@ impl JitSession {
 
     /// Índice do módulo simples que a recarga substitui, se houver.
     ///
-    /// Procura pelo nome e, mantendo o comportamento anterior do crate, aceita o
-    /// único módulo ativo quando o nome não casa — uma sessão com um programa só
-    /// é o caso corrente do laço de desenvolvimento.
+    /// A identidade é o nome informado na carga; um nome diferente nunca pode
+    /// selecionar e descarregar o único módulo ativo por acidente.
     fn plain_module_index(&self, name: &str, reloadable_exists: bool) -> Option<usize> {
         if reloadable_exists {
             return None;
         }
-        if let Some(index) = self
-            .modules
-            .iter()
-            .rposition(|module| !module.removed && module.name == name)
-        {
-            return Some(index);
-        }
-        let active: Vec<usize> = self
-            .modules
-            .iter()
-            .enumerate()
-            .filter(|(_, module)| !module.removed)
-            .map(|(index, _)| index)
-            .collect();
-        match active.as_slice() {
-            [only] if self.reloadables.is_empty() => Some(*only),
-            _ => None,
-        }
+        self.modules.iter().rposition(|module| !module.removed && module.name == name)
     }
 
     /// Envenena a sessão quando a falha aconteceu dentro da janela de promoção.

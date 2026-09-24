@@ -140,6 +140,20 @@ define i32 @main() {\n\
     assert_eq!(sessao.generation("app"), None);
 }
 
+/// Um erro no nome não escolhe por aproximação o único módulo da sessão.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn nome_desconhecido_nao_promove_o_unico_modulo() {
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_ir_module("app", "define i32 @main() { ret i32 7 }\n").unwrap();
+    let erro = sessao.hot_reload("outro", "define i32 @main() { ret i32 8 }\n")
+        .unwrap_err();
+    assert_eq!(erro.stage, "contract");
+    assert!(erro.message.contains("outro"), "{erro}");
+    assert_eq!(sessao.module_names(), vec!["app"]);
+    assert_eq!(sessao.run_main().unwrap().exit_code, 7);
+}
+
 /// Uma edição que passa a usar outro export da DLL publica esse nome antes
 /// de materializar a geração nova. Nome ausente não toca a versão em execução.
 #[test]

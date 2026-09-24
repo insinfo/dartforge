@@ -428,6 +428,11 @@ sessao.add_reloadable_module("app", &ir)?;   // geração 1 já nasce atrás dos
 sessao.hot_reload("app", &ir_novo)?;         // transacional de ponta a ponta
 ```
 
+O nome de `hot_reload` deve corresponder ao nome informado na carga inicial.
+Um nome desconhecido devolve erro de contrato; a sessão nunca promove o único
+módulo ativo por aproximação. A primeira geração de um módulo novo entra por
+`add_reloadable_module`.
+
 ### O laço pela linha de comando
 
 > **Desatualizado.** O `dartforge reload` de hoje é o **R0, reinício a quente**
