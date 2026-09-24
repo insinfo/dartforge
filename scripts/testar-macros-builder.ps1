@@ -13,7 +13,7 @@ try {
     $nomes = @($manifesto.aplicacoes | ForEach-Object { "$($_.alvo):$($_.classe)" })
     $esperados = @('Endereco:JsonCodable', 'Usuario:JsonCodable', 'SoSaida:JsonEncodable', 'SoEntrada:JsonDecodable')
     if ($manifesto.versao -ne 1 -or ($nomes -join '|') -ne ($esperados -join '|')) {
-        throw "manifesto diferente: $($nomes -join ', ')"
+        throw "manifesto diferente: $(Get-Content -LiteralPath $saida -Raw -Encoding utf8)"
     }
     Write-Host "descoberta de macros: $($nomes.Count)/$($esperados.Count) aplicações resolvidas"
 }

@@ -44,8 +44,8 @@ final class _MacroDiscoveryBuilder implements Builder {
 }
 
 bool _eMacro(ClassElement classe) {
-  // `ClassElement` do analyzer 7.3 não expõe `isMacro`. O token inicial da
-  // declaração resolvida preserva `macro` mesmo que haja comentários antes.
+  // `ClassElement` do analyzer 7.3 não expõe `isMacro`. O primeiro token após
+  // comentários/metadados preserva `macro` mesmo com documentação na classe.
   final fonte = classe.source.contents.data;
   final unidade = parseString(
     content: fonte,
@@ -53,6 +53,6 @@ bool _eMacro(ClassElement classe) {
     throwIfDiagnostics: false,
   ).unit;
   return unidade.declarations.whereType<ClassDeclaration>().any(
-        (d) => d.name.lexeme == classe.name && d.beginToken.lexeme == 'macro',
+        (d) => d.name.lexeme == classe.name && d.firstTokenAfterCommentAndMetadata.lexeme == 'macro',
       );
 }
