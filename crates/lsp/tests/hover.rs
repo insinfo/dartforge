@@ -190,3 +190,111 @@ fn getter_homonimo_em_membro_impede_hover_de_topo() {
         "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":coluna}}}));
     assert_eq!(servidor.bombear()[0]["result"], Value::Null);
 }
+
+fn abrir(servidor: &mut Servidor, uri: &str, texto: &str) {
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":texto}
+    }}));
+    servidor.bombear();
+}
+
+fn pedir_hover(servidor: &mut Servidor, id: i64, uri: &str, linha: u32, coluna: u32) -> Value {
+    servidor.receber(json!({"jsonrpc":"2.0","id":id,"method":"textDocument/hover",
+        "params":{"textDocument":{"uri":uri},"position":{"line":linha,"character":coluna}}}));
+    servidor.bombear()[0]["result"].clone()
+}
+
+fn com_markdown(servidor: &mut Servidor) {
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "capabilities":{"textDocument":{"hover":{"contentFormat":["markdown"]}}}
+    }}));
+    servidor.bombear();
+}
+
+#[test]
+fn hover_de_classe_importada_formata_a_partir_do_dono() {
+    let mut servidor = Servidor::new();
+    com_markdown(&mut servidor);
+    abrir(&mut servidor, "file:///hover-dono-classe.dart", "class Caixa {}");
+    let texto = "import 'hover-dono-classe.dart';\nCaixa b;";
+    abrir(&mut servidor, "file:///hover-usa-classe.dart", texto);
+    let resultado = pedir_hover(&mut servidor, 2, "file:///hover-usa-classe.dart", 1, 2);
+    assert_eq!(resultado["contents"],
+        json!({"kind":"markdown","value":"```dart\nclass Caixa\n```"}));
+    assert_eq!(resultado["range"]["start"], json!({"line":1,"character":0}));
+    assert_eq!(resultado["range"]["end"], json!({"line":1,"character":5}));
+}
+
+#[test]
+fn hover_de_variavel_importada_mostra_tipo_do_dono() {
+    let mut servidor = Servidor::new();
+    com_markdown(&mut servidor);
+    abrir(&mut servidor, "file:///hover-dono-var.dart", "int resposta = 42;");
+    let texto = "import 'hover-dono-var.dart';\nvoid f() { print(resposta); }";
+    abrir(&mut servidor, "file:///hover-usa-var.dart", texto);
+    let linha = texto.lines().nth(1).unwrap();
+    let coluna = linha.find("resposta").unwrap() as u32;
+    let resultado = pedir_hover(&mut servidor, 2, "file:///hover-usa-var.dart", 1, coluna);
+    assert_eq!(resultado["contents"], json!({
+        "kind":"markdown","value":"```dart\nint resposta\n```\nType: `int`"
+    }));
+    assert_eq!(resultado["range"]["start"], json!({"line":1,"character":coluna}));
+    assert_eq!(resultado["range"]["end"], json!({"line":1,"character":coluna + 8}));
+}
+
+#[test]
+fn hover_de_funcao_importada_mostra_assinatura_do_dono() {
+    let mut servidor = Servidor::new();
+    com_markdown(&mut servidor);
+    abrir(&mut servidor, "file:///hover-dono-func.dart", "int soma(int a, int b) => a + b;");
+    let texto = "import 'hover-dono-func.dart';\nvoid f() { print(soma(1, 2)); }";
+    abrir(&mut servidor, "file:///hover-usa-func.dart", texto);
+    let linha = texto.lines().nth(1).unwrap();
+    let coluna = linha.find("soma").unwrap() as u32;
+    let resultado = pedir_hover(&mut servidor, 2, "file:///hover-usa-func.dart", 1, coluna);
+    assert_eq!(resultado["contents"], json!({
+        "kind":"markdown","value":"```dart\nint soma(int a, int b)\n```"
+    }));
+}
+
+#[test]
+fn hover_com_prefixo_nao_inventa_descricao() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, "file:///hover-dono-prefixo.dart", "int resposta = 42;");
+    let texto = "import 'hover-dono-prefixo.dart' as d;\nvoid f() { print(d.resposta); }";
+    abrir(&mut servidor, "file:///hover-usa-prefixo.dart", texto);
+    let linha = texto.lines().nth(1).unwrap();
+    let coluna = (linha.find("resposta").unwrap() as u32) + 1;
+    assert_eq!(
+        pedir_hover(&mut servidor, 1, "file:///hover-usa-prefixo.dart", 1, coluna),
+        Value::Null
+    );
+}
+
+#[test]
+fn hover_com_show_nao_inventa_descricao() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, "file:///hover-dono-show.dart", "int resposta = 42;");
+    let texto = "import 'hover-dono-show.dart' show resposta;\nvoid f() { print(resposta); }";
+    abrir(&mut servidor, "file:///hover-usa-show.dart", texto);
+    let linha = texto.lines().nth(1).unwrap();
+    let coluna = linha.find("resposta").unwrap() as u32;
+    assert_eq!(
+        pedir_hover(&mut servidor, 1, "file:///hover-usa-show.dart", 1, coluna),
+        Value::Null
+    );
+}
+
+#[test]
+fn hover_de_simbolo_ausente_no_dono_devolve_vazio() {
+    let mut servidor = Servidor::new();
+    abrir(&mut servidor, "file:///hover-dono-ausente.dart", "int outra = 1;");
+    let texto = "import 'hover-dono-ausente.dart';\nvoid f() { print(resposta); }";
+    abrir(&mut servidor, "file:///hover-usa-ausente.dart", texto);
+    let linha = texto.lines().nth(1).unwrap();
+    let coluna = linha.find("resposta").unwrap() as u32;
+    assert_eq!(
+        pedir_hover(&mut servidor, 1, "file:///hover-usa-ausente.dart", 1, coluna),
+        Value::Null
+    );
+}

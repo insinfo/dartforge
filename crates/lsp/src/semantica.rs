@@ -180,7 +180,16 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn definicao_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<Span>)> {
-        self.definir(uri, texto, offset, Some(documentos))
+        self.sintatico.definicao_no_workspace(uri, texto, offset, documentos)
+            .or_else(|| self.definir(uri, texto, offset, Some(documentos)))
+    }
+
+    fn referencias(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Vec<Span>> {
+        self.sintatico.referencias(uri, texto, offset)
+    }
+
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, Span)>> {
+        self.sintatico.referencias_em(documentos, uri, offset)
     }
 
     fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(Span, String, Option<String>)> {
@@ -188,7 +197,8 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(Span, String, Option<String>)> {
-        self.passar_hover(uri, texto, offset, Some(documentos))
+        self.sintatico.hover_no_workspace(uri, texto, offset, documentos)
+            .or_else(|| self.passar_hover(uri, texto, offset, Some(documentos)))
     }
 
     fn documento_fechado(&mut self, uri: &str) {

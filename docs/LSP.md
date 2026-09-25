@@ -105,7 +105,12 @@ classe sombreada. A posição de entrada e o intervalo de destino são UTF-16.
 Referências de expressão a uma variável de topo única também navegam quando
 nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
 O mesmo vale para uma função de topo única; uma função local homônima impede
-a navegação até haver resolução por escopo.
+a navegação até haver resolução por escopo. Entre documentos abertos, o nome
+resolve para o documento que o declara quando o arquivo só tem imports
+relativos simples e um único aberto declara o nome sozinho num espaço (tipo
+ou valor); prefixo, `show`/`hide`, `export`, `part`, `part of`, augmentations,
+`dart:`/`package:`, padrões, sombras e dono fora dos abertos devolvem vazio
+em vez de destino errado.
 URIs `dart:` e os demais nomes importados aguardam cobertura de navegação.
 A regra de ativação do literal segue a navegação de diretivas do
 analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
@@ -117,8 +122,7 @@ pela regra conservadora da definição acima: `class C`, `enum E`, `mixin M`
 ou `extension type X`, quando não genérico. Usa Markdown se o cliente o
 anuncia; caso contrário devolve texto simples. O intervalo cobre apenas o
 nome sob o cursor. Tipos genéricos e typedefs aguardam a formatação de
-assinatura do modelo de elementos, e referências importadas aguardam
-resolução semântica. Para uma variável de topo única com tipo primitivo
+assinatura do modelo de elementos. Para uma variável de topo única com tipo primitivo
 escrito (`int`, `double`, `num`, `bool`, `String`, `Object`, `dynamic`), mostra
 `tipo nome` e `Type: tipo`, como a descrição do `VariableElement` no analyzer.
 Nomes locais homônimos desligam esse hover até existir resolução por escopo.
@@ -129,7 +133,12 @@ primitivo escrito mostram `tipo get nome` e `Type: tipo`, seguindo o formato
 dos testes de hover do servidor Dart. A navegação para a declaração funciona
 mesmo quando a assinatura não pode ser mostrada; nesses casos o hover fica
 vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
-aguardam a formatação completa da assinatura.
+aguardam a formatação completa da assinatura. Entre documentos abertos, o
+hover resolve como a definição (só import relativo simples, sem prefixo,
+`show`/`hide`, `export`, `part`, `dart:`/`package:`) e formata a descrição a
+partir do documento dono, com as mesmas regras do hover local; o intervalo
+continua no arquivo do cursor. Dono não-aberto, símbolo ambíguo ou
+assinatura sem formato fiel devolvem hover vazio (null), nunca texto errado.
 Teste: `cargo test -p dartforge-lsp --test hover --locked`.
 
 O binário também carrega o SDK descoberto por `SdkLayout::discover` e resolve
@@ -154,6 +163,21 @@ fontes fica retida depois da consulta.
 de definição em outro arquivo é convertido com as linhas **desse arquivo**.
 Teste: `cargo test -p dartforge-lsp --test semantica --locked`.
 
+`textDocument/references` devolve a declaração primeiro e depois os usos em
+ordem de (URI, offset), honrando `context.includeDeclaration`. No próprio
+documento valem os mesmos casos seguros da definição acima (tipo, variável,
+função ou getter de topo únicos, sem diretivas que tragam outros nomes, sem
+padrões e sem sombras). Entre documentos abertos, o símbolo resolve para o
+único dono importado por import relativo simples, sem prefixo, `show`/`hide`,
+`deferred`, condição, `export`, `part` ou `dart:`/`package:`; cada aberto
+contribui com os usos só quando nada mais pode trazer o nome — arquivo em
+dúvida (diretiva complexa, padrão, sombra, declaração local homônima, import
+simples para fora dos abertos ou outro aberto que declare o nome) é pulado,
+e dono zero ou duplo devolve vazio. Cada árvore é temporária por pedido e
+liberada antes da próxima, como em `workspace/symbol`: só os documentos
+abertos são lidos, nunca o disco por tecla, mantendo o platô de memória por
+edição. Teste: `cargo test -p dartforge-lsp --test referencias --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -161,7 +185,7 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: completion, definição de variáveis/funções locais e demais nomes importados, referências,
+Explicitamente fora deste brief: completion, definição de variáveis/funções locais e demais nomes importados,
 rename, code actions, formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Diagnósticos
 semânticos (nomes não resolvidos, erros de tipo) chegam depois via `crates/types`,

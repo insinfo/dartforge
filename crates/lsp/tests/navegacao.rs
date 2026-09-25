@@ -165,3 +165,46 @@ fn leitura_de_getter_de_topo_navega_para_declaracao() {
     assert_eq!(resposta[0]["result"]["range"]["start"], json!({"line":0,"character":11}));
     assert_eq!(resposta[0]["result"]["range"]["end"], json!({"line":0,"character":19}));
 }
+
+#[test]
+fn uso_importado_navega_para_declaracao_em_outro_aberto() {
+    let mut servidor = Servidor::new();
+    let dono = "file:///nav-dono.dart";
+    let usa = "file:///nav-usa.dart";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":dono,"languageId":"dart","version":1,
+            "text":"int resposta = 42;"}
+    }}));
+    servidor.bombear();
+    let texto_usa = "import 'nav-dono.dart';\nvoid f() { print(resposta); }";
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":usa,"languageId":"dart","version":1,"text":texto_usa}
+    }}));
+    servidor.bombear();
+    let linha = texto_usa.lines().nth(1).unwrap();
+    let coluna = linha.find("resposta").unwrap() as u32;
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/definition",
+        "params":{"textDocument":{"uri":usa},"position":{"line":1,"character":coluna}}}));
+    let resposta = servidor.bombear();
+    assert_eq!(resposta[0]["result"]["uri"], dono);
+    assert_eq!(resposta[0]["result"]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(resposta[0]["result"]["range"]["end"], json!({"line":0,"character":12}));
+}
+
+#[test]
+fn uso_com_prefixo_nao_inventa_destino_em_outro_aberto() {
+    let mut servidor = Servidor::new();
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":"file:///nav-dono.dart","languageId":"dart","version":1,
+            "text":"int resposta = 42;"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":"file:///nav-usa.dart","languageId":"dart","version":1,
+            "text":"import 'nav-dono.dart' as d;\nvoid f() { print(d.resposta); }"}
+    }}));
+    servidor.bombear();
+    servidor.receber(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/definition",
+        "params":{"textDocument":{"uri":"file:///nav-usa.dart"},"position":{"line":1,"character":24}}}));
+    assert_eq!(servidor.bombear()[0]["result"], Value::Null);
+}

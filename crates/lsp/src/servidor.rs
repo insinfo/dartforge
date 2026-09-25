@@ -288,6 +288,7 @@ impl<A: Analisador> Servidor<A> {
                         "documentSymbolProvider": true,
                         "workspaceSymbolProvider": true,
                         "definitionProvider": true,
+                        "referencesProvider": true,
                         "hoverProvider": true,
                     },
                     "serverInfo": {
@@ -373,6 +374,49 @@ impl<A: Analisador> Servidor<A> {
                         "uri": destino,
                         "range": range,
                     }))
+                });
+                resposta(&id, resultado.unwrap_or(Value::Null))
+            }
+            "textDocument/references" => {
+                let params = mensagem.get("params");
+                let uri = params
+                    .and_then(|p| p.get("textDocument"))
+                    .and_then(|d| d.get("uri"))
+                    .and_then(Value::as_str);
+                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
+                let incluir_declaracao = params
+                    .and_then(|p| p.get("context"))
+                    .and_then(|c| c.get("includeDeclaration"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                let resultado = uri.zip(posicao).and_then(|(u, p)| {
+                    let texto = self.documentos.get(u)?.to_string();
+                    let tabela = self.documentos.linhas(u)?;
+                    let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
+                    let achados = self.analisador.referencias_em(&self.documentos, u, offset)?;
+                    let inicio = usize::from(!incluir_declaracao).min(achados.len());
+                    let locais: Vec<Value> = achados[inicio..]
+                        .iter()
+                        .filter_map(|(alvo, s)| {
+                            let texto_alvo = self.documentos.get(alvo)?;
+                            let tabela_alvo = self.documentos.linhas(alvo)?;
+                            let de = s.start.min(texto_alvo.len());
+                            let mut ate = s.end.min(texto_alvo.len());
+                            if ate < de {
+                                ate = de;
+                            }
+                            let (l0, c0) = tabela_alvo.posicao_de_offset(texto_alvo, de);
+                            let (l1, c1) = tabela_alvo.posicao_de_offset(texto_alvo, ate);
+                            Some(json!({
+                                "uri": alvo,
+                                "range": {
+                                    "start": {"line": l0, "character": c0},
+                                    "end": {"line": l1, "character": c1},
+                                },
+                            }))
+                        })
+                        .collect();
+                    Some(json!(locais))
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
             }
