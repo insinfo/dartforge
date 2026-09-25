@@ -1178,9 +1178,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // Encaminhador `noSuchMethod` estático (casos 57, 216, 223):
                 // a classe concreta tem `noSuchMethod` e o CFE sintetizaria o
                 // encaminhador com a assinatura do membro. Só dispara onde
-                // antes era erro; fora do escopo (getter, nomeado, genérico,
+                // antes era erro; fora do escopo (setter, nomeado, genérico,
                 // múltiplos nsm) mantém o diagnóstico antigo.
-                if let Some(r) = super::nsm::encaminhar_metodo_para_nsm(self, recv, decl_fid, avaliados, span) {
+                if let Some(r) = super::nsm::encaminhar_metodo_para_nsm(self, recv.clone(), decl_fid, avaliados, span) {
+                    return r;
+                }
+                if let Some(r) = super::nsm::encaminhar_getter_para_nsm(self, recv, decl_fid, avaliados, span) {
                     return r;
                 }
                 return self.nao_suportado("chamada de membro sem implementação compilada", span);

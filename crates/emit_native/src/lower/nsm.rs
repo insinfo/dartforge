@@ -17,8 +17,8 @@
 //! "chamada de membro sem implementação compilada"; o resto devolve `None` e o
 //! diagnóstico antigo prevalece.
 //!
-//! Limites da primeira versão (cada um vira o próximo item, um por vez):
-//! só método (não getter/setter), só sem nomeados, só não genérico, só um
+//! Limites da versão atual (cada um vira o próximo item, um por vez):
+//! método e getter (não setter), só sem nomeados, só não genérico, só um
 //! `noSuchMethod` concreto distinto, só nome público.
 
 use super::fn_builder::FnBuilder;
@@ -42,8 +42,9 @@ pub fn encaminhar_metodo_para_nsm(
         return None;
     }
     let decl = &b.ctx.program.functions[decl_fid];
-    // Só método de instância não estático; getter/setter/acessor implícito
-    // têm `Invocation.getter/setter` próprios (próximo item).
+    // Só método de instância não estático; o getter tem
+    // `encaminhar_getter_para_nsm` (`Invocation.getter`) e o setter é o
+    // próximo item (`Invocation.setter`).
     if decl.static_ || decl.factory {
         return None;
     }
@@ -76,6 +77,55 @@ pub fn encaminhar_metodo_para_nsm(
     }
     let lista = b.emit(Instruction::AllocList { elements: elems }, Type::Ref);
     let invocacao = instanciar_invocation_method(b, simbolo, lista, span)?;
+    let args = b.casar_args(nsm, &[(None, invocacao)]);
+    let r = b.chamar_direto(nsm, Some(recv), args);
+    let ret = b.repr_retorno(decl_fid);
+    Some(if matches!(ret, Type::Void) {
+        Operand::Constant(Constant::Null)
+    } else {
+        b.coagir(r, ret)
+    })
+}
+
+/// Tenta encaminhar a leitura `recv.<getter>` para `noSuchMethod`.
+///
+/// `None` = fora do escopo da versão atual (o chamador mantém o diagnóstico
+/// antigo, sem mudar o placar dos casos restantes). Monta
+/// `Invocation.getter(simbolo)` pela factory do SDK da fonte e chama o
+/// `noSuchMethod` concreto (caso 216, `p.versao`).
+pub fn encaminhar_getter_para_nsm(
+    b: &mut FnBuilder<'_, '_>,
+    recv: Operand,
+    decl_fid: usize,
+    avaliados: &[Avaliado],
+    span: Span,
+) -> Option<Operand> {
+    if !b.ctx.sdk_da_fonte {
+        return None;
+    }
+    let decl = &b.ctx.program.functions[decl_fid];
+    if decl.static_ || decl.factory {
+        return None;
+    }
+    // Só getter explícito; método, setter e acessor implícito têm seus
+    // próprios caminhos.
+    if !matches!(decl.kind, FunctionKind::Getter) {
+        return None;
+    }
+    // Leitura de getter não leva argumentos.
+    if !avaliados.is_empty() {
+        return None;
+    }
+    let cdecl = decl.class?;
+    let nome = b.ctx.symbol_name(decl.name).to_string();
+    if nome.starts_with('_') {
+        // Privado leva `@biblioteca` no `Symbol` (mangled da VM); fica para o
+        // item dos nomeados/privados.
+        return None;
+    }
+    let nsm = nsm_concreto_unico(b, cdecl)?;
+    let simbolo = simbolo_do_nome(b, &nome, span)?;
+    let invocacao = instanciar_invocation_getter(b, simbolo, span)?;
     let args = b.casar_args(nsm, &[(None, invocacao)]);
     let r = b.chamar_direto(nsm, Some(recv), args);
     let ret = b.repr_retorno(decl_fid);
@@ -138,6 +188,18 @@ fn simbolo_do_nome(b: &mut FnBuilder<'_, '_>, nome: &str, span: Span) -> Option<
     let ctor = *b.ctx.program.classes[classe.0 as usize].constructors.get(&vazio)?;
     let texto = b.emit(Instruction::Const(Constant::String(nome.to_string())), Type::Ref);
     Some(b.instanciar_avaliados(ctor, &[(None, texto)], span))
+}
+
+/// `Invocation.getter(simbolo)` pela factory do SDK da fonte.
+fn instanciar_invocation_getter(
+    b: &mut FnBuilder<'_, '_>,
+    simbolo: Operand,
+    span: Span,
+) -> Option<Operand> {
+    let classe = b.ctx.classe_do_sdk("core", "Invocation")?;
+    let getter = b.ctx.interner.lookup("getter")?;
+    let ctor = *b.ctx.program.classes[classe.0 as usize].constructors.get(&getter)?;
+    Some(b.instanciar_avaliados(ctor, &[(None, simbolo)], span))
 }
 
 /// `Invocation.method(simbolo, posicionais)` pela factory do SDK da fonte.
