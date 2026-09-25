@@ -1482,6 +1482,40 @@ impl<'s, 'i> Parser<'s, 'i> {
             let id = self.parse_accessor(mods, start, None, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
+        // `foo;`, `foo = e;`, `foo, ...` (também `static = 1;`, `external;`,
+        // `C;`): o identificador é o NOME do campo sem tipo — `modifier_ok`
+        // já recusou o papel de modificador onde cabia. O fasta 3.6.2 relata
+        // `missing_const_final_var_or_type` no nome, salvo com
+        // `const`/`final`/`var`, que dispensam o tipo sem erro (sondado no
+        // SDK local, membro e topo).
+        if self.at_identifier()
+            && matches!(
+                self.kind_at(1),
+                Kind::Op(Op::Semicolon | Op::Assign | Op::Comma)
+            )
+        {
+            let nome = self.identifier();
+            if !mods.var_ && !mods.final_ && !mods.const_ {
+                self.erro_em(
+                    codigos::parser::MISSING_CONST_FINAL_VAR_OR_TYPE,
+                    nome.span,
+                    &[],
+                );
+            }
+            let variables = self.parse_declared_variables_tail(nome)?;
+            return Ok(FunctionOrVariables::Variables(VariableList {
+                external: mods.external,
+                static_: mods.static_,
+                abstract_: mods.abstract_,
+                covariant: mods.covariant,
+                late: mods.late,
+                final_: mods.final_,
+                const_: mods.const_,
+                var_: mods.var_,
+                ty: None,
+                variables: variables.into_boxed_slice(),
+            }));
+        }
         let ty = if mods.var_ {
             None
         } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier_em_declaracao(self.pos) {
@@ -2579,6 +2613,35 @@ mod tests {
         assert!(matches!(decl(&out, 0), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
     }
 
+    /// `foo;`, `foo = 1;`, `foo, bar;` em membro: o nome é campo sem tipo —
+    /// `missing_const_final_var_or_type` nele (salvo `const`/`final`/`var`),
+    /// sondado no SDK 3.6.2 local. Também `static = 1;` e `C;`.
+    #[test]
+    fn membro_fasta_campo_sem_tipo_acusa_no_nome() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        for (membro, inicio, fim, erros) in [
+            ("foo;", 12, 15, 1),
+            ("foo = 1;", 12, 15, 1),
+            ("foo, bar;", 12, 15, 1),
+            ("static = 1;", 12, 18, 1),
+            ("external;", 12, 20, 1),
+            ("int;", 12, 15, 1),
+            ("const foo;", 0, 0, 0),
+            ("final foo;", 0, 0, 0),
+            ("var foo;", 0, 0, 0),
+        ] {
+            let fonte = format!("class C {{\n  {membro}\n}}\n");
+            let mut nomes = Interner::new();
+            let out = parse(&fonte, &mut nomes);
+            assert_eq!(out.diagnostics.len(), erros, "{fonte}: {:?}", out.diagnostics);
+            if erros == 1 {
+                let unico = &out.diagnostics[0];
+                assert_eq!(unico.code, Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE), "{fonte}");
+                assert_eq!((unico.span.start, unico.span.end), (inicio, fim), "{fonte}");
+            }
+        }
+    }
     /// `int? ab]` em membro continua declaração: falta `;` no nome e o `]`
     /// é `expected_class_member` nele (sondado no SDK 3.6.2 local).
     #[test]
