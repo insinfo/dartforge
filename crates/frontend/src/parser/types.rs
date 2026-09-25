@@ -580,10 +580,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '$')
             && Keyword::from_text(resto).is_none();
         if !valido {
-            self.diagnostics.push(Diagnostic::new(
-                format!("The private named parameter '{texto}' has no corresponding public name."),
-                n.span,
-            ));
+            // Sem o recurso, o analyzer 3.13.4 relata só o recurso desligado,
+            // sem conferir o nome público (oráculo gravado, biblioteca 3.6).
+            if self.features.tem(Feature::PrivateNamedParameters) {
+                self.diagnostics.push(Diagnostic::new(
+                    format!("The private named parameter '{texto}' has no corresponding public name."),
+                    n.span,
+                ));
+            }
             return None;
         }
         let sym = self.interner.intern(resto);

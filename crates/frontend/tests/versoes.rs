@@ -256,23 +256,24 @@ fn new_e_factory_sem_o_nome_da_classe() {
 #[test]
 fn erros_do_construtor_primario() {
     for (fonte, trecho) in [
+        // Mensagens oficiais do analyzer 3.13.4 (oráculo gravado).
         (
             "class C { this {} }",
-            "requires a primary constructor in the declaration header",
+            "A primary constructor body requires a primary constructor declaration.",
         ),
         (
             "class C(int x) { this {} this {} }",
-            "Only one primary constructor body",
+            "Only one primary constructor body declaration is allowed.",
         ),
-        ("class C(int x) { C.outro(); }", "non-redirecting generative constructor"),
+        ("class C(int x) { C.outro(); }", "can't have non-redirecting generative constructors"),
         (
             "class const C(final int x) { this { } }",
-            "constant primary constructor can't have a body",
+            "The body part of a constant primary constructor can't have a block body.",
         ),
-        ("class C(int x) { this => 1; }", "must be a block"),
+        ("class C(int x) { this => 1; }", "A primary constructor body can't use '=>'."),
         (
             "class C(covariant int x);",
-            "covariant declaring parameter must be declared with 'var'",
+            "Can't have modifier 'covariant' in a primary constructor.",
         ),
         (
             "extension type E(var int x) {}",

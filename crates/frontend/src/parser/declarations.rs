@@ -863,17 +863,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             .collect();
         let Some(cab) = cab else {
             for &i in &partes {
-                let span = self.ast.member(members[i]).span;
-                self.diagnostics.push(Diagnostic::new("A primary constructor body requires a primary constructor in the declaration header.", span));
+                let span = self.span_do_this(members[i]);
+                self.erro_em(codigos::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION, span, &[]);
             }
             return None;
         };
         for &i in partes.iter().skip(1) {
-            let span = self.ast.member(members[i]).span;
-            self.diagnostics.push(Diagnostic::new(
-                "Only one primary constructor body is allowed.",
-                span,
-            ));
+            let span = self.span_do_this(members[i]);
+            self.erro_em(codigos::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
         }
         // Construtor generativo não redirecionador no corpo: proibido (o k2 é
         // o único, para os inicializadores de campo poderem ler os
@@ -888,18 +885,33 @@ impl<'s, 'i> Parser<'s, 'i> {
                     .iter()
                     .any(|i| matches!(i, Initializer::Redirect { .. }));
                 if !c.factory && !redireciona {
-                    let span = self.ast.member(m).span;
-                    self.diagnostics.push(Diagnostic::new(
-                        "A class with a primary constructor can't have a non-redirecting generative constructor.",
+                    // No nome do construtor (`C` ou `C.nome`), como o analyzer.
+                    let fim = c.name.map_or(c.class_name.span.end, |n| n.span.end);
+                    let span = Span { start: c.class_name.span.start, end: fim };
+                    self.diagnostics.push(Diagnostic::com_codigo(
+                        codigos::compile_time_error::NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY,
                         span,
+                        Vec::<&str>::new(),
                     ));
                 }
                 if c.name.map(|n| n.sym) == cab.nome.map(|n| n.sym) {
-                    let span = self.ast.member(m).span;
-                    self.diagnostics.push(Diagnostic::new(
-                        "The primary constructor already has this name.",
-                        span,
-                    ));
+                    // O construtor do corpo repete o nome do primário: o
+                    // `duplicate_constructor` do analyzer, no nome do segundo.
+                    let fim = c.name.map_or(c.class_name.span.end, |n| n.span.end);
+                    let span = Span { start: c.class_name.span.start, end: fim };
+                    let d = match c.name {
+                        None => Diagnostic::com_codigo(
+                            codigos::compile_time_error::DUPLICATE_CONSTRUCTOR_DEFAULT,
+                            span,
+                            Vec::<&str>::new(),
+                        ),
+                        Some(n) => Diagnostic::com_codigo(
+                            codigos::compile_time_error::DUPLICATE_CONSTRUCTOR_NAME,
+                            span,
+                            [&self.source[n.span.start..n.span.end]],
+                        ),
+                    };
+                    self.diagnostics.push(d);
                 }
             }
         }
@@ -912,10 +924,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut parametros = cab.params;
         for p in parametros.iter_mut() {
             if p.covariant && !p.var_ {
-                self.diagnostics.push(Diagnostic::new(
-                    "A covariant declaring parameter must be declared with 'var'.",
-                    p.span,
-                ));
+                // `covariant` sem `var`: o modificador sobra (no `covariant`).
+                let texto = &self.source[p.span.start..p.span.end];
+                let inicio = p.span.start + texto.find("covariant").unwrap_or(0);
+                let span = Span { start: inicio, end: inicio + "covariant".len() };
+                self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);
             }
             if p.required && p.default_value.is_some() {
                 self.diagnostics.push(Diagnostic::com_codigo(
@@ -960,7 +973,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             p.covariant = false;
         }
         // Lista de inicialização e corpo da parte `this`.
-        let (initializers, body, span_parte) = match partes.first() {
+        let (initializers, body, span_parte, corpo_parte) = match partes.first() {
             Some(&i) => {
                 let mid = members[i];
                 let span = self.ast.member(mid).span;
@@ -969,15 +982,25 @@ impl<'s, 'i> Parser<'s, 'i> {
                 };
                 let inits = std::mem::take(&mut c.initializers);
                 let body = std::mem::replace(&mut c.body, FunctionBody::Empty);
-                (inits, body, Some(span))
+                let corpo = self.corpos_primarios.get(&c.class_name.span.start).copied();
+                (inits, body, Some(span), corpo)
             }
-            None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None),
+            None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None, None),
         };
-        if let (true, FunctionBody::Block(_), Some(span)) = (const_, &body, span_parte) {
-            self.diagnostics.push(Diagnostic::new(
-                "A constant primary constructor can't have a body.",
-                span,
-            ));
+        // Corpo da parte `this`, no `{`/`=>` que o abre (registrado no parse):
+        // `const` não aceita corpo nenhum; fora dele, `=>` é o erro.
+        if let Some(span) = corpo_parte {
+            let codigo = match (&body, const_) {
+                (FunctionBody::Block(_), true) => Some(codigos::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY),
+                (FunctionBody::Expression(_), true) => Some(codigos::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY),
+                (FunctionBody::Expression(_), false) => {
+                    Some(codigos::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY)
+                }
+                _ => None,
+            };
+            if let Some(codigo) = codigo {
+                self.erro_em(codigo, span, &[]);
+            }
         }
         let k2 = Member {
             span: span_parte.unwrap_or(cab.span),
@@ -1717,7 +1740,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let kind = if parte {
             // `this : inits? corpo` / `this;`: parte de corpo do construtor
             // primário.
-            self.parse_parte_primaria(fstart)?
+            self.parse_parte_primaria()?
         } else if self.at_kw(Keyword::New)
             && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
         {
@@ -1974,7 +1997,15 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `this (: inits)? corpo` (3.13): a parte de corpo do construtor
     /// primário. Vira um `Constructor { parte_primaria: true }` que a
     /// elaboração funde no `k2` da declaração. `async`/`sync*`/`=>` são erro.
-    fn parse_parte_primaria(&mut self, inicio: Span) -> PResult<MemberKind> {
+    /// O `this` de uma parte de construtor primário (o `class_name` dela).
+    fn span_do_this(&self, membro: MemberId) -> Span {
+        match &self.ast.member(membro).kind {
+            MemberKind::Constructor(c) => c.class_name.span,
+            _ => self.ast.member(membro).span,
+        }
+    }
+
+    fn parse_parte_primaria(&mut self) -> PResult<MemberKind> {
         let t = self.advance();
         self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
         let mut initializers = Vec::new();
@@ -1986,12 +2017,24 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
         }
+        let antes = self.pos;
         let (modificador, body) = self.parse_function_body()?;
-        if modificador != AsyncModifier::None || matches!(body, FunctionBody::Expression(_)) {
-            self.diagnostics.push(Diagnostic::new(
-                "A primary constructor body must be a block without 'async' or 'sync*', or ';'.",
-                self.span_from(inicio),
-            ));
+        // `async`, `async*`, `sync*` antes do corpo: o analyzer relata no
+        // `async`/`sync`, com o modificador inteiro no texto. O corpo
+        // (`=>`/`{`) é julgado na elaboração, que sabe se é `const`.
+        let mut corpo = antes;
+        if modificador != AsyncModifier::None {
+            let texto = match modificador {
+                AsyncModifier::Async => "async",
+                AsyncModifier::AsyncStar => "async*",
+                _ => "sync*",
+            };
+            let span = self.tokens[antes].span;
+            self.erro_em(codigos::parser::PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER, span, &[texto]);
+            corpo += if texto.ends_with('*') { 2 } else { 1 };
+        }
+        if let Some(tok) = self.tokens.get(corpo) {
+            self.corpos_primarios.insert(t.span.start, tok.span);
         }
         Ok(MemberKind::Constructor(Constructor {
             external: false,
@@ -2935,6 +2978,24 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(class(&out, 0).members.len(), 2);
+    }
+
+    /// Nomeado privado sem nome público (`{this._123}`) e sem o recurso: o
+    /// analyzer 3.13.4 relata só `experiment_not_enabled` no nome (oráculo
+    /// gravado, biblioteca 3.6); a falta de nome público só é erro com o
+    /// recurso ligado.
+    #[test]
+    fn nomeado_privado_sem_recurso_so_acusa_o_recurso() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  int? _123;\n  C({this._123});\n}\n";
+        let inicio = fonte.rfind("_123").unwrap();
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(codigos, [(Some(c::EXPERIMENT_NOT_ENABLED), (inicio, inicio + 4))], "{:?}", out.diagnostics);
     }
 
     /// `T X.Y` sem parênteses: os dois erros (`int C.named;`, sondado).

@@ -26,6 +26,87 @@ const CLASSES: &[(&str, &str, &str)] = &[
     ("TodoCode", "todo", "analyzer-6.11.0/lib/src/dart/error/todo_codes.dart"),
 ];
 
+/// Códigos do analyzer do SDK 3.13.4 que a tabela 6.11 não tem e que o
+/// parser emite (construtores primários, 3.13). Transcritos do
+/// `messages.yaml` da referência (`references/dart-sdk/pkg/_fe_analyzer_shared`
+/// e `pkg/analyzer`) e conferidos, texto e tipo, contra o oráculo 3.13.4
+/// gravado em `corpus/diagnosticos`. Vão no fim da tabela: os índices dos
+/// códigos da 6.11 não mudam.
+///
+/// (classe, módulo, constante, nome, unico, mensagem, correção, tipo)
+const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY",
+        "non_redirecting_generative_constructor_with_primary",
+        "CompileTimeErrorCode.NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY",
+        "Classes with primary constructors can't have non-redirecting generative constructors.",
+        "Try making the constructor redirect to the primary constructor, or remove the primary constructor.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION",
+        "primary_constructor_body_without_declaration",
+        "CompileTimeErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION",
+        "A primary constructor body requires a primary constructor declaration.",
+        "Try adding the primary constructor declaration.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS",
+        "multiple_primary_constructor_body_declarations",
+        "CompileTimeErrorCode.MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS",
+        "Only one primary constructor body declaration is allowed.",
+        "Try removing all but one of the primary constructor body declarations.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY",
+        "primary_constructor_body_with_expression_body",
+        "CompileTimeErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY",
+        "A primary constructor body can't use '=>'.",
+        "Try using a block body.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "ParserErrorCode",
+        "parser",
+        "CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY",
+        "const_primary_constructor_with_body",
+        "ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY",
+        "The body part of a constant primary constructor can't have a block body.",
+        "Try replacing the block body with a semicolon, or removing the 'const' modifier.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "ParserErrorCode",
+        "parser",
+        "CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY",
+        "const_primary_constructor_with_body",
+        "ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY",
+        "The body part of a constant primary constructor can't have an expression body.",
+        "Try replacing the expression body with a semicolon, or removing the 'const' modifier.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "ParserErrorCode",
+        "parser",
+        "PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER",
+        "primary_constructor_body_with_modifier",
+        "ParserErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER",
+        "A primary constructor body can't have the modifier '{0}'.",
+        "Try removing the modifier.",
+        "SYNTACTIC_ERROR",
+    ),
+];
+
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Id(String),
@@ -310,6 +391,19 @@ fn main() {
             todas.push((e, modulo, tipo.clone(), sev.clone()));
         }
     }
+    for (classe, modulo, constante, nome, unico, mensagem, correcao, tipo) in SUPLEMENTO_3_13 {
+        let e = Entrada {
+            classe: classe.to_string(),
+            constante: constante.to_string(),
+            nome: nome.to_string(),
+            unico: unico.to_string(),
+            mensagem: mensagem.to_string(),
+            correcao: Some(correcao.to_string()),
+            documentado: false,
+        };
+        todas.push((e, modulo, tipo.to_string(), format!("tipo:{tipo}")));
+    }
+    let _ = writeln!(resumo, "suplemento 3.13.4 (construtores primários): {}", SUPLEMENTO_3_13.len());
     let n = todas.len();
     let mut s = String::new();
     s.push_str("// GERADO por `cargo run -p dartforge-paridade --example gerar_codigos`. NÃO EDITE.\n");

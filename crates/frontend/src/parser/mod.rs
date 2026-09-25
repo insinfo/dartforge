@@ -200,6 +200,10 @@ pub struct Parser<'s, 'i> {
     /// Lendo a lista de parâmetros de um construtor primário (Dart 3.13):
     /// `var`/`final` declaram campo e nomeado privado declarante é permitido.
     pub(crate) em_construtor_primario: bool,
+    /// O token que abre o corpo (`{` ou `=>`) de cada parte `this` de
+    /// construtor primário, pelo início do `this`: a elaboração, que sabe se
+    /// o construtor é `const`, relata ali os erros de corpo do analyzer.
+    pub(crate) corpos_primarios: std::collections::HashMap<usize, Span>,
 }
 
 /// Limite de aninhamento antes de um diagnóstico de profundidade.
@@ -222,6 +226,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             scratch_parts: Vec::new(),
             features: LibraryFeatures::atual(),
             em_construtor_primario: false,
+            corpos_primarios: std::collections::HashMap::new(),
         }
     }
 

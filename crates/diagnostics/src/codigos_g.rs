@@ -8,11 +8,12 @@
 // ParserErrorCode: 265
 // ScannerErrorCode: 12
 // TodoCode: 4
+// suplemento 3.13.4 (construtores primários): 7
 #![allow(missing_docs)]
 
 use crate::{InfoCodigo, Severidade, TipoErro};
 
-pub(crate) static TABELA: [InfoCodigo; 1030] = [
+pub(crate) static TABELA: [InfoCodigo; 1037] = [
     InfoCodigo { nome: "abstract_field_initializer", unico: "CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER", mensagem: "Abstract fields can't have initializers.", correcao: Some("Try removing the field initializer or the 'abstract' keyword from the field declaration."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
     InfoCodigo { nome: "abstract_field_initializer", unico: "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER", mensagem: "Abstract fields can't have initializers.", correcao: Some("Try removing the initializer or the 'abstract' keyword."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
     InfoCodigo { nome: "abstract_super_member_reference", unico: "CompileTimeErrorCode.ABSTRACT_SUPER_MEMBER_REFERENCE", mensagem: "The {0} '{1}' is always abstract in the supertype.", correcao: None, tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
@@ -1043,9 +1044,16 @@ pub(crate) static TABELA: [InfoCodigo; 1030] = [
     InfoCodigo { nome: "fixme", unico: "TodoCode.FIXME", mensagem: "{0}", correcao: None, tipo: TipoErro::Todo, severidade: Severidade::Info, documentado: false },
     InfoCodigo { nome: "hack", unico: "TodoCode.HACK", mensagem: "{0}", correcao: None, tipo: TipoErro::Todo, severidade: Severidade::Info, documentado: false },
     InfoCodigo { nome: "undone", unico: "TodoCode.UNDONE", mensagem: "{0}", correcao: None, tipo: TipoErro::Todo, severidade: Severidade::Info, documentado: false },
+    InfoCodigo { nome: "non_redirecting_generative_constructor_with_primary", unico: "CompileTimeErrorCode.NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY", mensagem: "Classes with primary constructors can't have non-redirecting generative constructors.", correcao: Some("Try making the constructor redirect to the primary constructor, or remove the primary constructor."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "primary_constructor_body_without_declaration", unico: "CompileTimeErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION", mensagem: "A primary constructor body requires a primary constructor declaration.", correcao: Some("Try adding the primary constructor declaration."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "multiple_primary_constructor_body_declarations", unico: "CompileTimeErrorCode.MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS", mensagem: "Only one primary constructor body declaration is allowed.", correcao: Some("Try removing all but one of the primary constructor body declarations."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "primary_constructor_body_with_expression_body", unico: "CompileTimeErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY", mensagem: "A primary constructor body can't use '=>'.", correcao: Some("Try using a block body."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "const_primary_constructor_with_body", unico: "ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY", mensagem: "The body part of a constant primary constructor can't have a block body.", correcao: Some("Try replacing the block body with a semicolon, or removing the 'const' modifier."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "const_primary_constructor_with_body", unico: "ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY", mensagem: "The body part of a constant primary constructor can't have an expression body.", correcao: Some("Try replacing the expression body with a semicolon, or removing the 'const' modifier."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "primary_constructor_body_with_modifier", unico: "ParserErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER", mensagem: "A primary constructor body can't have the modifier '{0}'.", correcao: Some("Try removing the modifier."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
 ];
 
-pub(crate) static POR_UNICO: [(&str, u16); 1030] = [
+pub(crate) static POR_UNICO: [(&str, u16); 1037] = [
     ("CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER", 0),
     ("CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER", 1),
     ("CompileTimeErrorCode.ABSTRACT_SUPER_MEMBER_REFERENCE", 2),
@@ -1375,6 +1383,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1030] = [
     ("CompileTimeErrorCode.MIXIN_SUPER_CLASS_CONSTRAINT_DISALLOWED_CLASS", 326),
     ("CompileTimeErrorCode.MIXIN_SUPER_CLASS_CONSTRAINT_NON_INTERFACE", 327),
     ("CompileTimeErrorCode.MIXIN_WITH_NON_CLASS_SUPERCLASS", 328),
+    ("CompileTimeErrorCode.MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS", 1032),
     ("CompileTimeErrorCode.MULTIPLE_REDIRECTING_CONSTRUCTOR_INVOCATIONS", 329),
     ("CompileTimeErrorCode.MULTIPLE_SUPER_INITIALIZERS", 330),
     ("CompileTimeErrorCode.NEW_WITH_NON_TYPE", 331),
@@ -1414,6 +1423,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1030] = [
     ("CompileTimeErrorCode.NON_FINAL_FIELD_IN_ENUM", 365),
     ("CompileTimeErrorCode.NON_GENERATIVE_CONSTRUCTOR", 366),
     ("CompileTimeErrorCode.NON_GENERATIVE_IMPLICIT_CONSTRUCTOR", 367),
+    ("CompileTimeErrorCode.NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY", 1030),
     ("CompileTimeErrorCode.NON_SYNC_FACTORY", 368),
     ("CompileTimeErrorCode.NON_TYPE_AS_TYPE_ARGUMENT", 369),
     ("CompileTimeErrorCode.NON_TYPE_IN_CATCH_CLAUSE", 370),
@@ -1461,6 +1471,8 @@ pub(crate) static POR_UNICO: [(&str, u16); 1030] = [
     ("CompileTimeErrorCode.PREFIX_COLLIDES_WITH_TOP_LEVEL_MEMBER", 412),
     ("CompileTimeErrorCode.PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT", 413),
     ("CompileTimeErrorCode.PREFIX_SHADOWED_BY_LOCAL_DECLARATION", 414),
+    ("CompileTimeErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION", 1031),
+    ("CompileTimeErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY", 1033),
     ("CompileTimeErrorCode.PRIVATE_COLLISION_IN_MIXIN_APPLICATION", 415),
     ("CompileTimeErrorCode.PRIVATE_OPTIONAL_PARAMETER", 416),
     ("CompileTimeErrorCode.PRIVATE_SETTER", 417),
@@ -1672,6 +1684,8 @@ pub(crate) static POR_UNICO: [(&str, u16); 1030] = [
     ("ParserErrorCode.CONST_CONSTRUCTOR_WITH_BODY", 774),
     ("ParserErrorCode.CONST_FACTORY", 775),
     ("ParserErrorCode.CONST_METHOD", 776),
+    ("ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY", 1034),
+    ("ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY", 1035),
     ("ParserErrorCode.CONTINUE_OUTSIDE_OF_LOOP", 777),
     ("ParserErrorCode.CONTINUE_WITHOUT_LABEL_IN_CASE", 778),
     ("ParserErrorCode.COVARIANT_AND_STATIC", 779),
@@ -1871,6 +1885,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1030] = [
     ("ParserErrorCode.POSITIONAL_AFTER_NAMED_ARGUMENT", 973),
     ("ParserErrorCode.POSITIONAL_PARAMETER_OUTSIDE_GROUP", 974),
     ("ParserErrorCode.PREFIX_AFTER_COMBINATOR", 975),
+    ("ParserErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER", 1036),
     ("ParserErrorCode.RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA", 976),
     ("ParserErrorCode.RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA", 977),
     ("ParserErrorCode.REDIRECTING_CONSTRUCTOR_WITH_BODY", 978),
@@ -2624,6 +2639,10 @@ pub mod modulos {
         pub const YIELD_EACH_OF_INVALID_TYPE: Codigo = Codigo(539);
         pub const YIELD_IN_NON_GENERATOR: Codigo = Codigo(540);
         pub const YIELD_OF_INVALID_TYPE: Codigo = Codigo(541);
+        pub const NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY: Codigo = Codigo(1030);
+        pub const PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION: Codigo = Codigo(1031);
+        pub const MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS: Codigo = Codigo(1032);
+        pub const PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY: Codigo = Codigo(1033);
     }
     /// `StaticWarningCode`.
     pub mod static_warning {
@@ -3116,6 +3135,9 @@ pub mod modulos {
         pub const WITH_BEFORE_EXTENDS: Codigo = Codigo(1011);
         pub const WRONG_SEPARATOR_FOR_POSITIONAL_PARAMETER: Codigo = Codigo(1012);
         pub const WRONG_TERMINATOR_FOR_PARAMETER_GROUP: Codigo = Codigo(1013);
+        pub const CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY: Codigo = Codigo(1034);
+        pub const CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY: Codigo = Codigo(1035);
+        pub const PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER: Codigo = Codigo(1036);
     }
     /// `ScannerErrorCode`.
     pub mod scanner {

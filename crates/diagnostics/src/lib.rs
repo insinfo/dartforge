@@ -353,13 +353,16 @@ mod testes {
         assert_eq!(formatar("{x} {9}", &a), "{x} {9}");
     }
 
+    /// A tabela do analyzer 6.11 mais o suplemento 3.13.4 do gerador
+    /// (`SUPLEMENTO_3_13`: 4 `CompileTimeErrorCode` e 3 `ParserErrorCode`
+    /// de construtores primários).
     #[test]
-    fn tabela_tem_as_contagens_do_analyzer_6_11() {
+    fn tabela_tem_as_contagens_do_analyzer_6_11_e_do_suplemento() {
         let conta = |prefixo: &str| Codigo::todos().filter(|c| c.info().unico.starts_with(prefixo)).count();
-        assert_eq!(conta("CompileTimeErrorCode."), 542);
+        assert_eq!(conta("CompileTimeErrorCode."), 542 + 4);
         assert_eq!(conta("StaticWarningCode."), 7);
         assert_eq!(conta("WarningCode."), 144);
-        assert_eq!(conta("ParserErrorCode."), 265);
+        assert_eq!(conta("ParserErrorCode."), 265 + 3);
         for c in Codigo::todos() {
             assert_eq!(Codigo::por_unico(c.info().unico), Some(c));
         }
