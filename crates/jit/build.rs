@@ -19,6 +19,13 @@
 //! Com `LLVM-C.dll`, alocação e liberação acontecem as duas dentro da DLL, com
 //! a CRT dela. O preço é uma dependência de execução: a DLL precisa estar
 //! alcançável pelo carregador. Veja `docs/JIT.md`.
+//!
+//! # Linux e macOS: escolha do projeto, não do sistema
+//!
+//! `DARTFORGE_LLVM_LINK` escolhe: `shared` (a `libLLVM` pelo
+//! `llvm-config --link-shared`; falha se a instalação não a tiver), `static`
+//! (as `libLLVM*.a` pelo `llvm-config --link-static`) ou `auto`, o padrão —
+//! a compartilhada quando a instalação a oferece, senão a estática.
 use std::path::{Path, PathBuf};
 
 /// Emite as diretivas de ligação e as dependências de reexecução do script.
@@ -36,7 +43,153 @@ fn main() {
         );
     }
     println!("cargo::rustc-link-search=native={}", libdir.display());
-    println!("cargo::rustc-link-lib=dylib={}", shared_library_name());
+    println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_LINK");
+    let modo = std::env::var("DARTFORGE_LLVM_LINK").unwrap_or_else(|_| "auto".to_owned());
+    let alvo_windows = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
+    if alvo_windows {
+        // O pacote oficial de Windows só permite a DLL da API C (topo deste arquivo).
+        assert!(modo != "static", "DARTFORGE_LLVM_LINK=static não é suportado no Windows: ver o topo de crates/jit/build.rs");
+        println!("cargo::rustc-link-lib=dylib={}", shared_library_name());
+        return;
+    }
+    match modo.as_str() {
+        "shared" => {
+            if let Err(motivo) = link_shared(&prefix) {
+                panic!(
+                    "DARTFORGE_LLVM_LINK=shared, mas o LLVM em {} não oferece a biblioteca compartilhada: {motivo}",
+                    prefix.display()
+                );
+            }
+        }
+        "static" => {
+            if let Err(motivo) = link_static(&prefix) {
+                panic!("DARTFORGE_LLVM_LINK=static, mas o LLVM em {} não oferece as bibliotecas estáticas: {motivo}", prefix.display());
+            }
+        }
+        "auto" => {
+            if let Err(compartilhada) = link_shared(&prefix)
+                && let Err(estatica) = link_static(&prefix)
+            {
+                panic!(
+                    "o LLVM em {} não oferece nem a ligação compartilhada ({compartilhada}) nem a estática ({estatica})",
+                    prefix.display()
+                );
+            }
+        }
+        outro => panic!("DARTFORGE_LLVM_LINK={outro}: use shared, static ou auto"),
+    }
+}
+
+/// Componentes do LLVM que o JIT usa.
+const COMPONENTES: [&str; 4] = ["orcjit", "native", "irreader", "passes"];
+
+/// Executa o `llvm-config` do prefixo escolhido (nunca o do `PATH`, que pode
+/// ser de outra instalação) e devolve a saída.
+fn llvm_config(prefix: &Path, args: &[&str]) -> Result<String, String> {
+    let config = prefix.join("bin").join("llvm-config");
+    let out = std::process::Command::new(&config)
+        .args(args)
+        .output()
+        .map_err(|e| format!("não foi possível executar {}: {e}", config.display()))?;
+    if !out.status.success() {
+        return Err(format!("{} {args:?}: {}", config.display(), String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Ligação dinâmica fora do Windows, pelo `llvm-config --link-shared`.
+///
+/// Serve quando a instalação escolhida foi construída com
+/// `LLVM_BUILD_LLVM_DYLIB=ON` (os pacotes do apt.llvm.org e do Debian trazem
+/// `libLLVM-22.so`; o Homebrew, `libLLVM.dylib`). `Err` quando ela não a
+/// oferece: o próprio `llvm-config` recusa a consulta.
+///
+/// A biblioteca precisa estar alcançável pelo carregador na execução (no
+/// caminho do sistema, ou por `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH`); os
+/// binários e testes deste crate levam o `rpath` do `lib` do prefixo.
+fn link_shared(prefix: &Path) -> Result<(), String> {
+    exigir_arquivos(prefix, "--link-shared")?;
+    let mut args = vec!["--link-shared", "--libs"];
+    args.extend(COMPONENTES);
+    let libs = llvm_config(prefix, &args)?;
+    let sistema = llvm_config(prefix, &["--link-shared", "--system-libs"]).unwrap_or_default();
+    for lib in libs.split_whitespace().chain(sistema.split_whitespace()) {
+        if let Some(nome) = lib.strip_prefix("-l") {
+            println!("cargo::rustc-link-lib=dylib={nome}");
+        }
+    }
+    println!("cargo::rustc-link-arg=-Wl,-rpath,{}", prefix.join("lib").display());
+    Ok(())
+}
+
+/// Ligação estática fora do Windows, pelo `llvm-config --link-static`.
+///
+/// É o caminho de `auto` quando a instalação escolhida não tem a biblioteca
+/// compartilhada — o caso, verificado, do pacote pré-compilado
+/// `LLVM-22.1.8-Linux-X64.tar.xz` (o `lib/` dele só tem `libLLVM*.a`). Não é
+/// limitação do Linux: é como aquele pacote foi construído
+/// (`LLVM_BUILD_LLVM_DYLIB` é `OFF` por padrão). O conflito de CRT que obriga
+/// a DLL no Windows (`/MT` × `/MD`) não se aplica a esta configuração; o que
+/// continua valendo é a ABI da biblioteca C++ do sistema (`libstdc++` ou
+/// `libc++`), com que o pacote foi compilado.
+fn link_static(prefix: &Path) -> Result<(), String> {
+    exigir_arquivos(prefix, "--link-static")?;
+    let mut args = vec!["--link-static", "--libs"];
+    args.extend(COMPONENTES);
+    let libs = llvm_config(prefix, &args)?;
+    for lib in libs.split_whitespace() {
+        if let Some(nome) = lib.strip_prefix("-l") {
+            println!("cargo::rustc-link-lib=static={nome}");
+        }
+    }
+    // As bibliotecas do sistema que o pacote declara valem para o LLVM
+    // inteiro; só entram as que os componentes acima usam, e as ausentes
+    // desta máquina não derrubam a ligação:
+    // * `xml2` só serve ao `LLVMWindowsManifest`, que não está na lista;
+    // * `zstd` vem como caminho absoluto do `.a` da máquina que empacotou;
+    //   usa-se o arquivo se existir aqui, senão a compressão fica de fora
+    //   (o JIT não lê seção comprimida).
+    for lib in llvm_config(prefix, &["--link-static", "--system-libs"])?.split_whitespace() {
+        if let Some(nome) = lib.strip_prefix("-l") {
+            if nome == "xml2" && !libs.contains("WindowsManifest") {
+                continue;
+            }
+            println!("cargo::rustc-link-lib=dylib={nome}");
+        } else {
+            let caminho = Path::new(lib);
+            let nome = caminho.file_stem().and_then(|n| n.to_str()).unwrap_or_default().trim_start_matches("lib");
+            if lib.ends_with(".tbd") || lib.ends_with(".dylib") || lib.ends_with(".so") {
+                // O macOS devolve caminhos (`/usr/lib/libz.tbd`); o nome basta.
+                println!("cargo::rustc-link-lib=dylib={nome}");
+            } else if lib.ends_with(".a") && caminho.is_file() {
+                if let Some(dir) = caminho.parent() {
+                    println!("cargo::rustc-link-search=native={}", dir.display());
+                }
+                println!("cargo::rustc-link-lib=static={nome}");
+            } else if let Some(diretiva) = shared_system_library(nome) {
+                println!("{diretiva}");
+            } else {
+                println!("cargo::warning=biblioteca do sistema {lib} ausente; instale o pacote de desenvolvimento dela");
+            }
+        }
+    }
+    let macos = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos");
+    println!("cargo::rustc-link-lib=dylib={}", if macos { "c++" } else { "stdc++" });
+    Ok(())
+}
+
+/// Confere, antes de emitir qualquer diretiva, que os arquivos das
+/// bibliotecas dos [`COMPONENTES`] existem no modo pedido: pelo código de
+/// saída do `llvm-config <modo> --libfiles` (e não pelo texto da mensagem)
+/// e pela presença de cada arquivo listado.
+fn exigir_arquivos(prefix: &Path, modo: &str) -> Result<(), String> {
+    let mut args = vec![modo, "--libfiles"];
+    args.extend(COMPONENTES);
+    let arquivos = llvm_config(prefix, &args)?;
+    if let Some(falta) = arquivos.split_whitespace().find(|a| !Path::new(a).is_file()) {
+        return Err(format!("{falta} não existe"));
+    }
+    Ok(())
 }
 
 /// Prefixo da distribuição completa do LLVM 22.1.x.
@@ -65,15 +218,33 @@ const FALLBACK_PREFIX: &str = if cfg!(windows) {
     "/usr/lib/llvm-22"
 };
 
-/// Nome da biblioteca compartilhada da API C, tal como cada pacote a publica.
-///
-/// Windows publica `bin/LLVM-C.dll` com a import library `lib/LLVM-C.lib`. Os
-/// pacotes Unix publicam a biblioteca completa como `libLLVM-22.so`/`.dylib`, e
-/// a API C está dentro dela — não há `libLLVM-C` separada.
-fn shared_library_name() -> &'static str {
-    if Path::new(&prefix()).join("lib/LLVM-C.lib").is_file() || cfg!(windows) {
-        "LLVM-C"
-    } else {
-        "LLVM-22"
+/// A biblioteca compartilhada `lib<nome>` do sistema, quando o `.a` que o
+/// pacote do LLVM declara não existe aqui: `lib<nome>.so` se o pacote de
+/// desenvolvimento estiver instalado, senão a versão de execução
+/// (`lib<nome>.so.1`) pelo nome literal.
+fn shared_system_library(nome: &str) -> Option<String> {
+    let dirs = ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib", "/lib/x86_64-linux-gnu"];
+    for dir in dirs {
+        let d = Path::new(dir);
+        if d.join(format!("lib{nome}.so")).is_file() {
+            return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib={nome}"));
+        }
+        let Ok(entradas) = std::fs::read_dir(d) else { continue };
+        let mut versoes: Vec<String> = entradas
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.starts_with(&format!("lib{nome}.so.")))
+            .collect();
+        versoes.sort_by_key(|n| n.len());
+        if let Some(v) = versoes.first() {
+            return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib:+verbatim={v}"));
+        }
     }
+    None
+}
+
+/// Nome da biblioteca compartilhada da API C no pacote de Windows:
+/// `bin/LLVM-C.dll` com a biblioteca de importação `lib/LLVM-C.lib`.
+fn shared_library_name() -> &'static str {
+    "LLVM-C"
 }

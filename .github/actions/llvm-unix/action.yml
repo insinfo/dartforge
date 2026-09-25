@@ -1,0 +1,81 @@
+name: LLVM 22.1.8 (Linux e macOS)
+description: >
+  Instala a MESMA versão de LLVM do Windows (22.1.8) a partir do pacote oficial
+  do sistema do runner (LLVM-22.1.8-Linux-X64 ou LLVM-22.1.8-macOS-ARM64) e
+  exporta DARTFORGE_CLANG, DARTFORGE_LLVM_DIR e LLVM_SYS_221_PREFIX.
+
+# O recorte extraído é o que o backend nativo e o JIT usam:
+#   bin/clang*, bin/lld*, bin/ld.lld, bin/ld64.lld  compilar o IR e ligar (ThinLTO)
+#   bin/llvm-config                                o build.rs do llvm-sys e do crates/jit
+#   lib/libLLVM*.a                                 o JIT liga estático com este pacote
+#   lib/clang/                                     recursos do Clang (no macOS, o
+#                                                  libclang_rt.osx.a que a ligação pede)
+#   include/llvm-c/, include/llvm/Config/          cabeçalhos da API C (llvm-sys)
+# O pacote Linux X64 não traz a libLLVM compartilhada (verificado); se o de macOS
+# trouxer, ela não é extraída aqui, e `auto` liga estático nos dois. O apt.llvm.org
+# traz a compartilhada (job `nativo-unix` do ci.yml). Ver docs/JIT.md, «Linux e macOS».
+
+runs:
+  using: composite
+  steps:
+    - id: nome
+      shell: bash
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) echo "pacote=LLVM-22.1.8-Linux-X64" >> "$GITHUB_OUTPUT" ;;
+          Linux-ARM64) echo "pacote=LLVM-22.1.8-Linux-ARM64" >> "$GITHUB_OUTPUT" ;;
+          macOS-ARM64) echo "pacote=LLVM-22.1.8-macOS-ARM64" >> "$GITHUB_OUTPUT" ;;
+          *) echo "::error::sem pacote oficial do LLVM 22.1.8 para $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+
+    - id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ runner.temp }}/llvm-22.1.8
+        key: ${{ steps.nome.outputs.pacote }}-v1
+
+    - name: Baixar e extrair o LLVM 22.1.8
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PACOTE: ${{ steps.nome.outputs.pacote }}
+      run: |
+        set -euo pipefail
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/$PACOTE.tar.xz"
+        pacote="$RUNNER_TEMP/llvm.tar.xz"
+        destino="$RUNNER_TEMP/llvm-22.1.8"
+        inicio=$SECONDS
+        curl -fsSL --retry 3 -o "$pacote" "$url"
+        echo "download: $((SECONDS - inicio)) s"
+        mkdir -p "$destino"
+        padroes=("$PACOTE/bin/clang*" "$PACOTE/bin/lld*" "$PACOTE/bin/ld.lld" "$PACOTE/bin/ld64.lld"
+                 "$PACOTE/bin/llvm-config" "$PACOTE/lib/libLLVM*.a" "$PACOTE/lib/clang/*"
+                 "$PACOTE/include/llvm-c/*" "$PACOTE/include/llvm/Config/*")
+        # O tar do macOS é o bsdtar, sem --wildcards (os padrões já são globs nele).
+        if tar --version 2>/dev/null | grep -q GNU; then
+          tar -xJf "$pacote" -C "$destino" --strip-components=1 --wildcards "${padroes[@]}"
+        else
+          tar -xJf "$pacote" -C "$destino" --strip-components=1 "${padroes[@]}"
+        fi
+        rm -f "$pacote"
+        echo "extração: $((SECONDS - inicio)) s no total"
+        du -sh "$destino" "$destino"/*
+
+    - name: Exportar o LLVM para os passos seguintes
+      shell: bash
+      run: |
+        set -euo pipefail
+        prefixo="$RUNNER_TEMP/llvm-22.1.8"
+        "$prefixo/bin/clang" --version
+        echo "DARTFORGE_CLANG=$prefixo/bin/clang" >> "$GITHUB_ENV"
+        echo "DARTFORGE_LLVM_DIR=$prefixo" >> "$GITHUB_ENV"
+        echo "LLVM_SYS_221_PREFIX=$prefixo" >> "$GITHUB_ENV"
+        echo "$prefixo/bin" >> "$GITHUB_PATH"
+        # macOS: as libLLVM*.a do pacote são bitcode (LTO) do LLVM 22, que o
+        # ligador da Apple lê pela libLTO dele, de outra versão ("Unknown
+        # attribute kind"). O Rust liga pelo clang do pacote com o ld64.lld
+        # dele, que lê o bitcode da mesma versão.
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          echo "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=$prefixo/bin/clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS=-C link-arg=-fuse-ld=lld" >> "$GITHUB_ENV"
+        fi

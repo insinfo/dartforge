@@ -18,8 +18,10 @@ fn cli_preserva_estatico_com_sdk_da_fonte() {
 
 fn verificar_recarga(com_sdk_da_fonte: bool) {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    // Um diretório por teste: os dois rodam em paralelo no mesmo processo, e
+    // a limpeza de um apagava a fixture do outro.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-cli-{}", std::process::id()));
+        .join(format!("../../target/tmp-reload-cli-{}-{}", std::process::id(), u8::from(com_sdk_da_fonte)));
     std::fs::create_dir_all(&dir).expect("diretório da fixture");
     let entrada = dir.join("main.dart");
     std::fs::copy(fixtures.join("reload_estado_v1.dart"), &entrada).expect("versão 1");

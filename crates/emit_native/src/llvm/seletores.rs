@@ -242,6 +242,10 @@ impl LlvmEmitter<'_> {
         if !compartilhado {
             return ("", String::new());
         }
+        if !crate::alvo::tem_comdat() {
+            // Mach-O: a definição `linkonce_odr` já é fraca, sem `comdat`.
+            return ("linkonce_odr ", String::new());
+        }
         self.comdats.push(simbolo.to_string());
         ("linkonce_odr ", format!(" comdat($\"{simbolo}\")"))
     }
