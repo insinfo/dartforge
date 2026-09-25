@@ -820,6 +820,23 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
             _ => None,
         }
     };
+    // `void`: o valor não pode ser usado (analyzer: `use_of_void_result`, no nome).
+    if matches!(inf.table.get(recv), Type::Void) {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        return (inf.core.dynamic_, curto);
+    }
+    // Receptor potencialmente anulável sem o membro em `Object` nem numa
+    // extensão: `unchecked_use_of_nullable_value` no nome, e a leitura segue
+    // pelo tipo não anulável só para recuperar o tipo (sem `undefined_getter`).
+    let checar_nulo = !cx.sobreposicoes.contains_key(&target) && inf.exige_checagem_de_nulo(cx.lib, recv, name.sym, false);
+    if checar_nulo {
+        let nome = inf.interner.resolve(name.sym).to_string();
+        inf.aviso_com_codigo(
+            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+            name.span,
+            &[&nome],
+        );
+    }
     let t = match buscar_membro_do_alvo(inf, cx, target, recv, name.sym, false) {
         Busca::Achado(m) => {
             resolver(inf, cx, e, m.resolved.clone());
@@ -828,6 +845,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 None => m.tipo,
             }
         }
+        Busca::Ausente if checar_nulo => inf.core.dynamic_,
         Busca::Dinamico => {
             resolver(inf, cx, e, Resolved::Dynamic);
             // `hashCode`, `runtimeType`, `toString`… de `Object` valem também em `dynamic`.
@@ -1160,8 +1178,24 @@ pub(crate) fn operador_binario(
         inferir_livre(inf, cx, arg);
         return (inf.core.dynamic_, None);
     };
+    // Receptor potencialmente anulável: o analyzer relata a invocação do
+    // operador (`[]`/`[]=` como invocação de método) sem checagem de nulo.
+    let checar_nulo = inf.exige_checagem_de_nulo(cx.lib, recv, op, false);
+    if checar_nulo {
+        let texto = inf.interner.resolve(op).to_string();
+        let codigo = if texto == "[]" || texto == "[]=" {
+            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
+        } else {
+            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE
+        };
+        inf.aviso_com_codigo(codigo, span, &[&texto]);
+    }
     match inf.buscar_membro(cx.lib, recv, op, false) {
         Busca::Achado(m) => operador_binario_com_membro(inf, cx, recv, op, arg, ctx, no, m),
+        Busca::Ausente if checar_nulo => {
+            inferir_livre(inf, cx, arg);
+            (inf.core.dynamic_, None)
+        }
         Busca::Dinamico => {
             inferir_livre(inf, cx, arg);
             (inf.core.dynamic_, None)

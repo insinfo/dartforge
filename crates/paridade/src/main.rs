@@ -609,6 +609,12 @@ fn cmd_projetos(a: &Args) -> ExitCode {
     }
     s.push('\n');
     s.push_str(&total.tabela("projetos reais (todo diagnóstico nosso sem par no oráculo é FP)"));
+    if a.detalhes {
+        s.push_str("
+amostras:
+");
+        s.push_str(&total.amostras_texto());
+    }
     if a.oraculo {
         let texto = serde_json::to_string_pretty(&registro).expect("JSON") + "\n";
         if let Err(e) = std::fs::write(a.corpus.join("projetos.json"), texto) {

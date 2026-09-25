@@ -20,7 +20,7 @@
 02_genericos/gen14_horizontal_cadeia.dart:258:8	Parenthesized	nós=Object?	oráculo=int
 02_genericos/gen14_horizontal_cadeia.dart:264:1	Identifier	nós=Object?	oráculo=int
 02_genericos/gen14_horizontal_cadeia.dart:308:1	Identifier	nós=dynamic	oráculo=bool
-02_genericos/gen14_horizontal_cadeia.dart:aviso:270	O getter '{0}' não está definido para o tipo '{1}'.: getter 'isEven' não definido para o tipo 'Object?'
+02_genericos/gen14_horizontal_cadeia.dart:aviso:270	The property 'isEven' can't be unconditionally accessed because the receiver can be 'null'.
 03_literais/lit03_conjunto_mapa.dart:269:6	SetOrMap	nós=Map<dynamic, dynamic>	oráculo=Set<int>
 03_literais/lit03_conjunto_mapa.dart:401:1	Identifier	nós=Map<dynamic, dynamic>	oráculo=Set<int>
 05_closures/clo04_geradores.dart:239:11	FunctionExpression	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()

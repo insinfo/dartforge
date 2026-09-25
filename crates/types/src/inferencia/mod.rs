@@ -376,6 +376,13 @@ impl<'a> BodyInferrer<'a> {
         self.unidades_dos_avisos.push(self.unidade_corrente);
     }
 
+    /// Aviso já com o código do analyzer, a mensagem oficial e os
+    /// argumentos (o desenho do T1): a ponte da paridade o deixa como está.
+    pub(crate) fn aviso_com_codigo(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
+        self.diagnostics.push(Diagnostic::com_codigo(codigo, span, args.iter().copied()));
+        self.unidades_dos_avisos.push(self.unidade_corrente);
+    }
+
     /// Registra um erro de linguagem (`codes::ERRO_DE_LINGUAGEM`,
     /// docs/VERSOES-LINGUAGEM.md §3): aborta a compilação, com o arquivo e o
     /// deslocamento na mensagem, como os erros de carga.

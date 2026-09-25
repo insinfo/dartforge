@@ -397,6 +397,27 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
+            // `void` e receptor anulável: as mesmas regras do acesso a
+            // propriedade (`expr::propriedade`), na variante de invocação.
+            if matches!(inf.table.get(r_ty), crate::table::Type::Void) {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+                let d = inf.core.dynamic_;
+                registrar(inf, cx, target, d);
+                for x in args.args.iter() {
+                    inferir_livre(inf, cx, x.value);
+                }
+                return (d, curto);
+            }
+            let checar_nulo =
+                !cx.sobreposicoes.contains_key(&recv) && inf.exige_checagem_de_nulo(cx.lib, r_ty, name.sym, false);
+            if checar_nulo {
+                let nome = inf.interner.resolve(name.sym).to_string();
+                inf.aviso_com_codigo(
+                    dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
+                    name.span,
+                    &[&nome],
+                );
+            }
             let mut busca = expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false);
             if matches!(busca, Busca::Ausente) {
                 if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {
@@ -472,6 +493,14 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         inferir_livre(inf, cx, x.value);
                     }
                     (inf.core.never, curto)
+                }
+                Busca::Ausente if checar_nulo => {
+                    let d = inf.core.dynamic_;
+                    registrar(inf, cx, target, d);
+                    for x in args.args.iter() {
+                        inferir_livre(inf, cx, x.value);
+                    }
+                    (d, curto)
                 }
                 Busca::Ausente => {
                     if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {

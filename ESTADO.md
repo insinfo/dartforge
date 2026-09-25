@@ -64,7 +64,8 @@ o 3.13.4 (sondas nos testes de `declarations.rs`):
 | + correções do parser (`augment`, intervalos, versão) | 23.030 | 8.866 (38,5%) | 2.636 | 13.755 | 409 |
 | + membros `new`/`this` sem o recurso como o 3.13.4 | 23.030 | 8.992 (39,0%) | 2.377 | 13.631 | 407 |
 | + códigos oficiais dos erros de construtor primário; nomeado privado sem o recurso | 23.030 | 9.064 (39,4%) | 2.244 | 13.559 | 407 |
-| + bibliotecas da VM (`dart:ffi`, `dart:mirrors`…) visíveis na análise | 23.030 | **9.074 (39,4%)** | **1.917** | **13.547** | **409** |
+| + bibliotecas da VM (`dart:ffi`, `dart:mirrors`…) visíveis na análise | 23.030 | 9.074 (39,4%) | 1.917 | 13.547 | 409 |
+| + receptor anulável e `void` como o analyzer; promoção em closure (T1) | 23.030 | **9.260 (40,2%)** | **1.776** | **13.275** | 495 |
 
 O denominador caiu porque o 3.13.4 não produz a cascata do 3.6.2 nesses
 arquivos. Por código, no fim: `experiment_not_enabled` 1.586/1.736,
@@ -97,6 +98,37 @@ bibliotecas das seções da VM, sem os patches: `undefined_class` foi de 335
 a 104 FP. O Pesado 36180760974 (`eb2c4304`) mediu no runner exatamente o
 placar local daquele commit (8.992/23.030, FP 2.377), verde em todos os
 jobs.
+
+**Receptor anulável e `void`** (`crates/types`, com o código do analyzer já
+na emissão — o desenho do T1 — por `aviso_com_codigo`). Pelo
+`TypePropertyResolver` do analyzer: com receptor potencialmente anulável,
+se o membro não é de `Object` nem de extensão sobre o tipo anulável, o erro
+é sempre `unchecked_use_of_nullable_value` (acesso, método ou operador,
+conforme o nó) — nunca `undefined_*`, mesmo quando o membro também falta
+no tipo não anulável. Receptor `void` dá `use_of_void_result`. Antes, a
+busca tirava a anulabilidade em silêncio (FN) ou relatava `undefined_*`
+(FP). Resultado: `unchecked_use_of_nullable_value` 144 acertos, 13 FP;
+`use_of_void_result` 44 acertos, 0 FP.
+
+**Promoção em closure.** Dois defeitos de fluxo apareceram como FP nos
+projetos reais, cada um conferido no analyzer 3.6.2 e 3.13.4:
+
+* escrita **fora** de closures só tira as promoções na entrada dela; a
+  variável continua promovível dentro (porte do commit `31eddfe` do T1, a
+  regra `conservativeJoin(anywhere.written, anywhere.captured)`); só a
+  escrita **dentro** de alguma closure ou função local a captura. O teste
+  `cadeia_clamp_e_funcao_local` fixava o contrário e foi corrigido;
+* as escritas eram coletadas por **nome**: num `main` de teste com vários
+  `test(…)`, `x = …` numa closure capturava um `x` homônimo de outra. A
+  varredura agora tem escopos léxicos e resolve cada escrita para a
+  declaração (`instrucoes::Escrita`, `local_da_escrita`).
+
+Projetos reais com o ambiente completo (`dart pub get` no `new_sali`, que
+não tinha `.dart_tool` nesta máquina): **2, 119 e 183** diagnósticos
+nossos, os mesmos da base, **0 publicados** e 0 da regra nova. O
+`new_sali/frontend` sobe por falta dos gerados do `build_runner` aqui
+(`uri_has_not_been_generated` e a cascata). O comando `projetos` passou a
+imprimir as amostras com `--detalhes`.
 
 **Próximos alvos, pelo placar:** (1) os FN de tipo continuam os maiores
 (`type_argument_not_matching_bounds` 1.175, `use_of_void_result` 479,

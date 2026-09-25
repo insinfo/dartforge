@@ -260,6 +260,27 @@ impl<'a> BodyInferrer<'a> {
         Busca::Ausente
     }
 
+    /// O acesso a `nome` num receptor potencialmente anulável exige checagem
+    /// de nulo: o membro não é de `Object` nem de uma extensão que se aplica
+    /// ao tipo anulável. O analyzer (`TypePropertyResolver`) relata então
+    /// `unchecked_use_of_nullable_value` — nunca `undefined_*`, mesmo quando
+    /// o membro também não existe no tipo não anulável. `void` fica de fora
+    /// (é `use_of_void_result`, conferido antes), como `dynamic` e `Never`.
+    pub(crate) fn exige_checagem_de_nulo(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool) -> bool {
+        match self.table.get(recv) {
+            Type::Dynamic | Type::Never | Type::Void => return false,
+            _ => {}
+        }
+        if self.e_desconhecido(recv) || self.e_nao_anulavel(recv) {
+            return false;
+        }
+        let o = self.core.object;
+        if self.membro_de_interface(o, nome, setter).is_some() {
+            return false;
+        }
+        self.membro_de_extensao(lib, recv, nome, setter).is_none()
+    }
+
     /// Argumentos da extensão `e` para o receptor, se ela se aplica.
     pub(crate) fn extensao_aplicavel(&mut self, e: ExtensionId, recv: TypeId) -> Option<Vec<TypeId>> {
         let dados = self.outline.extensions[e.0 as usize].clone();
