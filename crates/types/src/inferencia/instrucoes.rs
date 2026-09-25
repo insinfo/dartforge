@@ -633,6 +633,21 @@ fn varrer_funcao_aninhada(a: &ast::Ast, f: &ast::Function, em_closure: &mut Vec<
     }
 }
 
+/// Nomes escritos num corpo, separados: `(fora de literais de função,
+/// dentro de literais)` — `assignedVariables.anywhere.written` e
+/// `.captured` do analyzer.
+pub(crate) fn nomes_escritos_separados(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> (Vec<SymbolId>, Vec<SymbolId>) {
+    let a = &inf.program.unit(unit).ast;
+    let mut nomes = Vec::new();
+    let mut em_closure = Vec::new();
+    match body {
+        ast::FunctionBody::Block(s) => varrer_stmt(a, *s, &mut nomes, &mut em_closure, false),
+        ast::FunctionBody::Expression(e) => varrer_expr(a, *e, &mut nomes, &mut em_closure, false),
+        _ => {}
+    }
+    (nomes, em_closure)
+}
+
 /// Nomes escritos num corpo (inclusive dentro de closures dele).
 pub(crate) fn nomes_escritos_em_corpo(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> Vec<SymbolId> {
     let a = &inf.program.unit(unit).ast;

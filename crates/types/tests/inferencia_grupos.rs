@@ -415,8 +415,11 @@ int g(A a) {
 }
 
 /// `?.` promove o receptor só dentro da cadeia (argumentos inclusive);
-/// `clamp` com contexto `double`; variável escrita no corpo não se promove
-/// dentro de função local.
+/// `clamp` com contexto `double`; dentro de função local, variável escrita
+/// fora dela (mesmo depois) se promove, e escrita dentro de outra função
+/// local não (`conservativeJoin(anywhere.written, anywhere.captured)`;
+/// sondado no analyzer 3.6.2 e 3.13.4: só o segundo caso dá
+/// `unchecked_use_of_nullable_value`).
 #[test]
 fn cadeia_clamp_e_funcao_local() {
     let r = ou_pula!(inferir(
@@ -427,16 +430,25 @@ void f(S? s, double? h, double ph) {
   final double y = h != null ? h.clamp(1, ph) : 50.0;
   StringBuffer? buf;
   void fecha() {
-    if (buf != null) { buf.toString(); }
+    if (buf != null) { buf.write('x'); }
   }
   buf = StringBuffer();
+}
+void g() {
+  StringBuffer? cap;
+  void abre() { cap = null; }
+  void usa() {
+    if (cap != null) { cap.write('x'); }
+  }
 }
 "#
     ));
     let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
     assert_eq!(tipos("s"), ["S?", "S"]);
     assert_eq!(tipos("1"), ["double"]);
-    assert_eq!(tipos("buf")[..2], ["StringBuffer?", "StringBuffer?"]);
+    assert_eq!(tipos("buf")[..2], ["StringBuffer?", "StringBuffer"]);
+    // `cap = null` (escrita), `cap != null`, `cap.write`: capturada, não promove.
+    assert_eq!(tipos("cap")[1..3], ["StringBuffer?", "StringBuffer?"]);
 }
 
 /// Casos dos corpos do SDK compilado da fonte: limite de parâmetro de

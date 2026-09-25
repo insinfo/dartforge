@@ -86,7 +86,8 @@ pub(crate) struct Corpo {
     /// closure eles não ficam promovidos (`functionExpression_begin` faz a
     /// junção conservadora com `assignedVariables.anywhere`).
     /// Calculado na primeira closure (a maioria dos corpos não tem nenhuma).
-    pub escritos_no_corpo: Option<Vec<SymbolId>>,
+    /// `(escritos fora de literais, escritos dentro de literais)` do membro.
+    pub escritos_no_corpo: Option<(Vec<SymbolId>, Vec<SymbolId>)>,
     /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
     pub raiz: Raiz,
     /// Campos promovíveis (Dart 3.2) já referidos: `(base, campo) -> local

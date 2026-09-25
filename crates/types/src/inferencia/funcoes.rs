@@ -406,15 +406,26 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         cx.escritos_no_corpo = Some(match cx.raiz {
             // O membro inteiro, inclusive escritas nos próprios parâmetros
             // (R-FLU-07 regra 2; `base ??= const {}` e depois a closure).
-            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &a.function(f).body),
+            super::corpo::Raiz::Funcao(f) => instrucoes::nomes_escritos_separados(inf, cx.unit, &a.function(f).body),
             super::corpo::Raiz::Construtor(m) => match &a.member(m).kind {
-                ast::MemberKind::Constructor(c) => instrucoes::nomes_escritos_em_corpo(inf, cx.unit, &c.body),
-                _ => Vec::new(),
+                ast::MemberKind::Constructor(c) => instrucoes::nomes_escritos_separados(inf, cx.unit, &c.body),
+                _ => Default::default(),
             },
-            super::corpo::Raiz::Nada => Vec::new(),
+            super::corpo::Raiz::Nada => Default::default(),
         });
     }
-    for e in cx.escritos_no_corpo.clone().unwrap_or_default().iter() {
+    // `functionExpression_begin`: `conservativeJoin(anywhere.written,
+    // anywhere.captured)` — escrita em qualquer lugar do membro perde as
+    // promoções dentro do literal mas continua promovível; escrita dentro de
+    // algum literal do membro (antes ou depois deste) é capturada e não
+    // promove (R-FLU-07 regra 2).
+    let (fora, dentro) = cx.escritos_no_corpo.clone().unwrap_or_default();
+    for e in fora.iter() {
+        if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
+            fluxo_dentro.juncao_conservadora(&[id], &[]);
+        }
+    }
+    for e in dentro.iter() {
         if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
             fluxo_dentro.juncao_conservadora(&[], &[id]);
         }
