@@ -708,20 +708,40 @@ parte do produto, não um extra.
 
 ### Linux e macOS
 
-Fora do Windows o `build.rs` escolhe pelo pacote:
+Fora do Windows a forma de ligar o LLVM é **política do projeto**, escolhida
+por `DARTFORGE_LLVM_LINK`:
 
-* se o prefixo traz a biblioteca compartilhada completa (`libLLVM-22.so`,
-  `libLLVM.dylib` — pacotes do apt.llvm.org e do Homebrew), liga contra ela;
-* senão — o pacote oficial `LLVM-22.1.8-Linux-X64.tar.xz` e o de macOS só
-  trazem as estáticas —, liga **estático**, pelos componentes `orcjit native
-  irreader passes` do `llvm-config --link-static`. Não há o conflito de CRT do
-  Windows (há uma `libc` só). Das bibliotecas do sistema que o pacote declara,
-  `xml2` fica de fora (só o `LLVMWindowsManifest` a usa) e o `zstd`, que vem
-  como caminho absoluto da máquina que empacotou, cai na `libzstd.so.N` do
-  sistema quando o `.a` não existe.
+* `shared` — a biblioteca compartilhada (`libLLVM-22.so`, `libLLVM.dylib`),
+  pelo `llvm-config --link-shared` da instalação escolhida; falha na build se
+  ela não a oferecer;
+* `static` — as `libLLVM*.a`, pelo `llvm-config --link-static`;
+* `auto` (padrão) — a compartilhada quando a instalação a oferece, senão a
+  estática.
 
-Não há dependência de execução: o `dartforge` não carrega nada do LLVM ao
-iniciar. A biblioteca do SDK da fonte (`libdfsdk_<chave>.so`/`.dylib`) é
+O Linux tem, claro, bibliotecas dinâmicas (`.so` é o equivalente da `.dll`), e
+o LLVM gera a `libLLVM.so` quando construído com `LLVM_BUILD_LLVM_DYLIB=ON` —
+os pacotes do apt.llvm.org e do Debian a trazem. O que foi verificado é mais
+estreito: o pacote pré-compilado **`LLVM-22.1.8-Linux-X64.tar.xz`** não a
+inclui (o `lib/` só tem `libLLVM*.a`, e o `llvm-config --link-shared` dele
+responde `libLLVM-22.so is missing`). Com esse pacote, `auto` liga estático.
+Isso não é limitação do Linux, e sim de como aquele pacote foi construído.
+
+O conflito de CRT do Windows (`/MT` × `/MD`, dois heaps) não se aplica a essas
+configurações. Continua valendo a compatibilidade com a biblioteca C++ do
+sistema (`libstdc++`/`libc++`) com que o pacote foi compilado. Das bibliotecas
+de sistema que o `llvm-config` declara para o LLVM inteiro, a ligação estática
+deixa de fora a `xml2` (só o `LLVMWindowsManifest` a usa). O `zstd` vem como
+caminho absoluto da máquina que empacotou e, quando esse `.a` não existe aqui,
+cai na `libzstd.so.N` do sistema.
+
+O CI cobre os dois caminhos: `ci.yml` (job `nativo-unix`) compila no Ubuntu com
+a `libLLVM-22.so` do apt.llvm.org e `DARTFORGE_LLVM_LINK=shared`, e no macOS
+arm64 com o pacote oficial. O `pesado.yml` (job `nativo-unix`) roda o corpus
+inteiro no Linux e no macOS com os pacotes oficiais.
+
+Com a ligação estática não há dependência de execução do LLVM; com a
+dinâmica, a `libLLVM` precisa estar no caminho do carregador (a do apt está).
+A biblioteca do SDK da fonte (`libdfsdk_<chave>.so`/`.dylib`) é
 carregada com `dlopen(RTLD_NOW | RTLD_LOCAL)` e os nomes vêm de
 `exportados.def`, como no Windows. `dartforge run`/`reload` acham a biblioteca
 sozinhos (o cache, compilada na primeira vez) quando `DARTFORGE_SDK_DLL` não

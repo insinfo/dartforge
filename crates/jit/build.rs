@@ -19,6 +19,13 @@
 //! Com `LLVM-C.dll`, alocação e liberação acontecem as duas dentro da DLL, com
 //! a CRT dela. O preço é uma dependência de execução: a DLL precisa estar
 //! alcançável pelo carregador. Veja `docs/JIT.md`.
+//!
+//! # Linux e macOS: escolha do projeto, não do sistema
+//!
+//! `DARTFORGE_LLVM_LINK` escolhe: `shared` (a `libLLVM` pelo
+//! `llvm-config --link-shared`; falha se a instalação não a tiver), `static`
+//! (as `libLLVM*.a` pelo `llvm-config --link-static`) ou `auto`, o padrão —
+//! a compartilhada quando a instalação a oferece, senão a estática.
 use std::path::{Path, PathBuf};
 
 /// Emite as diretivas de ligação e as dependências de reexecução do script.
@@ -36,40 +43,89 @@ fn main() {
         );
     }
     println!("cargo::rustc-link-search=native={}", libdir.display());
+    println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_LINK");
+    let modo = std::env::var("DARTFORGE_LLVM_LINK").unwrap_or_else(|_| "auto".to_owned());
     let alvo_windows = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
-    if alvo_windows || shared_library_available(&prefix) {
+    if alvo_windows {
+        // O pacote oficial de Windows só permite a DLL da API C (topo deste arquivo).
+        assert!(modo != "static", "DARTFORGE_LLVM_LINK=static não é suportado no Windows: ver o topo de crates/jit/build.rs");
         println!("cargo::rustc-link-lib=dylib={}", shared_library_name());
-    } else {
-        link_static(&prefix);
+        return;
+    }
+    match modo.as_str() {
+        "shared" => {
+            if let Err(motivo) = link_shared(&prefix) {
+                panic!(
+                    "DARTFORGE_LLVM_LINK=shared, mas o LLVM em {} não oferece a biblioteca compartilhada: {motivo}",
+                    prefix.display()
+                );
+            }
+        }
+        "static" => link_static(&prefix),
+        "auto" => {
+            if link_shared(&prefix).is_err() {
+                link_static(&prefix);
+            }
+        }
+        outro => panic!("DARTFORGE_LLVM_LINK={outro}: use shared, static ou auto"),
     }
 }
 
-/// Se o pacote traz a biblioteca compartilhada completa (`libLLVM-22.so`,
-/// `libLLVM.dylib`…), como os do apt.llvm.org e do Homebrew.
-fn shared_library_available(prefix: &Path) -> bool {
-    let lib = prefix.join("lib");
-    ["libLLVM-22.so", "libLLVM.so", "libLLVM-22.dylib", "libLLVM.dylib"].iter().any(|n| lib.join(n).is_file())
+/// Componentes do LLVM que o JIT usa.
+const COMPONENTES: [&str; 4] = ["orcjit", "native", "irreader", "passes"];
+
+/// Executa o `llvm-config` do prefixo escolhido (nunca o do `PATH`, que pode
+/// ser de outra instalação) e devolve a saída.
+fn llvm_config(prefix: &Path, args: &[&str]) -> Result<String, String> {
+    let config = prefix.join("bin").join("llvm-config");
+    let out = std::process::Command::new(&config)
+        .args(args)
+        .output()
+        .map_err(|e| format!("não foi possível executar {}: {e}", config.display()))?;
+    if !out.status.success() {
+        return Err(format!("{} {args:?}: {}", config.display(), String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Ligação estática fora do Windows, pelo `llvm-config` do pacote.
+/// Ligação dinâmica fora do Windows, pelo `llvm-config --link-shared`.
 ///
-/// O pacote oficial de Linux (`LLVM-22.1.8-Linux-X64.tar.xz`) não traz a
-/// biblioteca compartilhada, só as estáticas. Fora do Windows não há o
-/// conflito de CRT que motiva a DLL (há uma `libc` só), então ligar estático
-/// é seguro; o custo é o tamanho do executável, não a correção.
+/// Serve quando a instalação escolhida foi construída com
+/// `LLVM_BUILD_LLVM_DYLIB=ON` (os pacotes do apt.llvm.org e do Debian trazem
+/// `libLLVM-22.so`; o Homebrew, `libLLVM.dylib`). `Err` quando ela não a
+/// oferece: o próprio `llvm-config` recusa a consulta.
+///
+/// A biblioteca precisa estar alcançável pelo carregador na execução (no
+/// caminho do sistema, ou por `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH`); os
+/// binários e testes deste crate levam o `rpath` do `lib` do prefixo.
+fn link_shared(prefix: &Path) -> Result<(), String> {
+    let mut args = vec!["--link-shared", "--libs"];
+    args.extend(COMPONENTES);
+    let libs = llvm_config(prefix, &args)?;
+    let sistema = llvm_config(prefix, &["--link-shared", "--system-libs"]).unwrap_or_default();
+    for lib in libs.split_whitespace().chain(sistema.split_whitespace()) {
+        if let Some(nome) = lib.strip_prefix("-l") {
+            println!("cargo::rustc-link-lib=dylib={nome}");
+        }
+    }
+    println!("cargo::rustc-link-arg=-Wl,-rpath,{}", prefix.join("lib").display());
+    Ok(())
+}
+
+/// Ligação estática fora do Windows, pelo `llvm-config --link-static`.
+///
+/// É o caminho de `auto` quando a instalação escolhida não tem a biblioteca
+/// compartilhada — o caso, verificado, do pacote pré-compilado
+/// `LLVM-22.1.8-Linux-X64.tar.xz` (o `lib/` dele só tem `libLLVM*.a`). Não é
+/// limitação do Linux: é como aquele pacote foi construído
+/// (`LLVM_BUILD_LLVM_DYLIB` é `OFF` por padrão). O conflito de CRT que obriga
+/// a DLL no Windows (`/MT` × `/MD`) não se aplica a esta configuração; o que
+/// continua valendo é a ABI da biblioteca C++ do sistema (`libstdc++` ou
+/// `libc++`), com que o pacote foi compilado.
 fn link_static(prefix: &Path) {
-    let config = prefix.join("bin").join("llvm-config");
-    let run = |args: &[&str]| -> String {
-        let out = std::process::Command::new(&config)
-            .args(args)
-            .output()
-            .unwrap_or_else(|e| panic!("não foi possível executar {}: {e}", config.display()));
-        assert!(out.status.success(), "{} {args:?} falhou", config.display());
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    };
-    let componentes = ["orcjit", "native", "irreader", "passes"];
+    let run = |args: &[&str]| llvm_config(prefix, args).unwrap_or_else(|e| panic!("{e}"));
     let mut args = vec!["--link-static", "--libs"];
-    args.extend(componentes);
+    args.extend(COMPONENTES);
     let libs = run(&args);
     for lib in libs.split_whitespace() {
         if let Some(nome) = lib.strip_prefix("-l") {
@@ -162,20 +218,8 @@ fn shared_system_library(nome: &str) -> Option<String> {
     None
 }
 
-/// Nome da biblioteca compartilhada da API C, tal como cada pacote a publica.
-///
-/// Fora do Windows só é usado quando [`shared_library_available`] a achou.
-///
-/// Windows publica `bin/LLVM-C.dll` com a import library `lib/LLVM-C.lib`. Os
-/// pacotes Unix publicam a biblioteca completa como `libLLVM-22.so`/`.dylib`, e
-/// a API C está dentro dela — não há `libLLVM-C` separada.
+/// Nome da biblioteca compartilhada da API C no pacote de Windows:
+/// `bin/LLVM-C.dll` com a biblioteca de importação `lib/LLVM-C.lib`.
 fn shared_library_name() -> &'static str {
-    let lib = prefix().join("lib");
-    if lib.join("LLVM-C.lib").is_file() || cfg!(windows) {
-        "LLVM-C"
-    } else if lib.join("libLLVM-22.so").is_file() || lib.join("libLLVM-22.dylib").is_file() {
-        "LLVM-22"
-    } else {
-        "LLVM"
-    }
+    "LLVM-C"
 }
