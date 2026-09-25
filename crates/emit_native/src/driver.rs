@@ -221,16 +221,29 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], runtime_lib: &Path, output: 
         // CRT do runtime, ThinLTO entre o programa e o SDK (lld), e o ligador
         // tira as seções que nada alcança.
         // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só é
-        // lido pela mesma versão). O `lld-link` irmão do próprio Clang vai
-        // explícito em `-fuse-ld=` com caminho: o valor literal `lld` pega o
-        // primeiro do PATH, que no runner do CI é de outro LLVM (medido:
-        // LLVM 20 lendo bitcode 22 — `Unknown attribute kind (105)`).
-        // Recusar sua ausência evita cair nesse lld errado em silêncio.
+        // lido pela mesma versão). O Clang no Windows com ThinLTO exige o
+        // literal `lld` em `-fuse-ld=` (caminho absoluto dá
+        // `clang: error: LTO requires -fuse-ld=lld`); então o diretório bin
+        // irmão do próprio Clang vai ao PATH só deste spawn, para o `lld`
+        // resolvido ser o da mesma versão. Recusar sua ausência evita cair
+        // num lld errado do PATH em silêncio (medido: LLVM 20 lendo
+        // bitcode 22 — `Unknown attribute kind (105)`).
         let lld = clang.with_file_name("lld-link.exe");
         if !lld.is_file() {
             return Err(format!("ThinLTO requer lld-link.exe ao lado de {}", clang.display()));
         }
-        cmd.arg(format!("-fuse-ld={}", lld.display()));
+        if let Some(bin) = clang.parent()
+            && !bin.as_os_str().is_empty()
+        {
+            let mut caminhos = vec![bin.to_path_buf()];
+            if let Some(atual) = std::env::var_os("PATH") {
+                caminhos.extend(std::env::split_paths(&atual));
+            }
+            if let Ok(novo) = std::env::join_paths(caminhos) {
+                cmd.env("PATH", novo);
+            }
+        }
+        cmd.arg("-fuse-ld=lld");
         cmd.args([
             "-flto=thin",
             "-O2",
