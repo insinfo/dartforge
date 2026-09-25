@@ -63,7 +63,8 @@ o 3.13.4 (sondas nos testes de `declarations.rs`):
 | só o oráculo 3.13.4 nos 566 arquivos | 23.030 | 6.735 (29,2%) | 3.066 | 14.816 | 1.479 |
 | + correções do parser (`augment`, intervalos, versão) | 23.030 | 8.866 (38,5%) | 2.636 | 13.755 | 409 |
 | + membros `new`/`this` sem o recurso como o 3.13.4 | 23.030 | 8.992 (39,0%) | 2.377 | 13.631 | 407 |
-| + códigos oficiais dos erros de construtor primário; nomeado privado sem o recurso | 23.030 | **9.064 (39,4%)** | **2.244** | **13.559** | **407** |
+| + códigos oficiais dos erros de construtor primário; nomeado privado sem o recurso | 23.030 | 9.064 (39,4%) | 2.244 | 13.559 | 407 |
+| + bibliotecas da VM (`dart:ffi`, `dart:mirrors`…) visíveis na análise | 23.030 | **9.074 (39,4%)** | **1.917** | **13.547** | **409** |
 
 O denominador caiu porque o 3.13.4 não produz a cascata do 3.6.2 nesses
 arquivos. Por código, no fim: `experiment_not_enabled` 1.586/1.736,
@@ -86,6 +87,16 @@ O gerador (`gerar_codigos`) acrescenta agora um suplemento de 7 códigos do
 `this`, o nome do construtor, o `{`/`=>`, o `async`). O nomeado privado sem
 nome público, sem o recurso, deixou de ser erro: o 3.13.4 só relata o
 recurso desligado (59 FP). `dartforge_sem_codigo` zerou.
+
+**`dart:ffi` na análise.** O motor de paridade carregava o SDK pelo perfil
+do DDC, que não tem `dart:ffi`, `dart:mirrors`, `dart:cli` nem
+`dart:nativewrappers`; o `dart analyze` enxerga toda biblioteca pública da
+plataforma, pela fonte e sem patches. Sem elas, cada `Pointer`, `Struct`,
+`Array`… virava `undefined_class`. O motor agora acrescenta essas
+bibliotecas das seções da VM, sem os patches: `undefined_class` foi de 335
+a 104 FP. O Pesado 36180760974 (`eb2c4304`) mediu no runner exatamente o
+placar local daquele commit (8.992/23.030, FP 2.377), verde em todos os
+jobs.
 
 **Próximos alvos, pelo placar:** (1) os FN de tipo continuam os maiores
 (`type_argument_not_matching_bounds` 1.175, `use_of_void_result` 479,

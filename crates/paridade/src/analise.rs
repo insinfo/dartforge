@@ -103,7 +103,23 @@ fn gerado_pelo_build(c: &dartforge_elements::PackageConfig, alvo: &Path) -> bool
 
 impl Motor {
     pub fn novo(sdk_lib: &Path) -> Result<Motor, String> {
-        let sdk = SdkLayout::load(sdk_lib, "dartdevc")?;
+        let mut sdk = SdkLayout::load(sdk_lib, "dartdevc")?;
+        // O `dart analyze` não usa perfil de compilação: enxerga toda
+        // biblioteca pública da plataforma, pela fonte e sem patches. As que
+        // o perfil do DDC não tem (`dart:ffi`, `dart:mirrors`, `dart:cli`,
+        // `dart:nativewrappers`) vêm das seções da VM, sem os patches dela;
+        // sem isso, `import 'dart:ffi'` não resolvia e cada `Pointer`,
+        // `Struct`… virava `undefined_class`.
+        for secao in ["vm_common", "vm"] {
+            if let Ok(vm) = SdkLayout::load(sdk_lib, secao) {
+                for (nome, mut lib) in vm.libraries {
+                    if !nome.starts_with('_') && !sdk.libraries.contains_key(&nome) {
+                        lib.patches.clear();
+                        sdk.libraries.insert(nome, lib);
+                    }
+                }
+            }
+        }
         let json: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(sdk_lib.join("libraries.json")).map_err(|e| e.to_string())?,
         )
