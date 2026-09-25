@@ -15,9 +15,11 @@
 //! Decisões de conservadorismo (o contrato está em `docs/JS-PRODUCAO.md` §1.7):
 //!
 //! * seletor por nome **com restrição pelo tipo do receptor**: `foo` chamado
-//!   só em receptores de tipo estático `T` mantém `foo` vivo só nas classes
-//!   do cone de `T` (a classe e as que são subtipo dela pela cadeia de
-//!   superclasse, mixins, interfaces e `on`). Receptor dinâmico ou
+//!   só em receptores de tipo estático `T` mantém `foo` vivo nas classes
+//!   alcançáveis de `T` — ela mesma, as superclasses que ela herda (o membro
+//!   mora no dono, não no receptor), as subclasses que a sobrescrevem e a
+//!   hierarquia que um subtipo instanciado de `T` traz (mixin aplicado ou
+//!   interface implementada só na subclasse). Receptor dinâmico ou
 //!   desconhecido (`dynamic`, lacuna de inferência) registra o seletor
 //!   irrestrito, como antes — nunca se poda por falta de informação;
 //! * seletor **por espécie**: leitura/chamada (`foo`) e escrita (`foo_=`)
@@ -138,14 +140,30 @@ impl Mundo {
         self.sel_cone.contains_key(nome)
     }
     /// `nome` mantém vivo um membro da `classe`: seletor irrestrito vale para
-    /// todas; restrito, só para as classes do cone do receptor (a classe do
-    /// tipo estático e as subtipos dela).
+    /// todas; restrito, só para as classes alcançáveis do cone do receptor
+    /// (a mesma regra do ponto fixo, [`Motor::alcanca`]).
     pub fn seletor_vivo_para(&self, program: &Program, nome: &str, classe: ClassId) -> bool {
         if self.seletores.contains(nome) {
             return true;
         }
         let Some(cones) = self.sel_cone.get(nome) else { return false };
-        cones.iter().any(|c| contem_na_cadeia(program, classe, *c))
+        cones.iter().any(|c| self.alcancada(program, classe, *c))
+    }
+    /// A regra de alcance fora do ponto fixo (sem memo): `membro` atende um
+    /// receptor de tipo estático `cone` se é a mesma classe, se um é
+    /// ancestral do outro (herdado ou sobrescrito) ou se algum subtipo
+    /// **instanciado** do cone tem o membro na cadeia (o subtipo traz
+    /// mixin/interface fora da hierarquia do cone).
+    fn alcancada(&self, program: &Program, membro: ClassId, cone: ClassId) -> bool {
+        if contem_na_cadeia(program, membro, cone) || contem_na_cadeia(program, cone, membro) {
+            return true;
+        }
+        self.classes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| **n == NivelClasse::Instanciada)
+            .map(|(i, _)| ClassId(i as u32))
+            .any(|s| contem_na_cadeia(program, s, cone) && contem_na_cadeia(program, s, membro))
     }
     /// Os seletores vivos, em ordem alfabética (o conjunto é um `HashSet`).
     pub fn seletores(&self) -> impl Iterator<Item = &str> {
@@ -313,9 +331,8 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
 }
 
 /// `alvo` está na cadeia de supertipos de `classe` (ela mesma, superclasse,
-/// mixins aplicados, interfaces e `on`, transitivamente): `classe` é subtipo
-/// nominal de `alvo` e um receptor de tipo estático `alvo` pode receber uma
-/// instância de `classe` em execução. Só anda na hierarquia de classes, sem
+/// mixins aplicados, interfaces e `on`, transitivamente) — dirigido: `classe`
+/// é subtipo nominal de `alvo`. Só anda na hierarquia de classes, sem
 /// consultar a `TypeTable`: argumentos de tipo são ignorados de propósito
 /// (nível de nome, conservador para genéricos).
 fn contem_na_cadeia(p: &Program, classe: ClassId, alvo: ClassId) -> bool {
@@ -350,7 +367,7 @@ pub(crate) struct Motor<'a> {
     /// Seletores com receptor de tipo conhecido: nome → classes dos tipos
     /// estáticos dos receptores (`foo` chamado em `T` vive no cone de `T`).
     sel_cone: HashMap<String, HashSet<ClassId>>,
-    /// Cadeias de supertipos já calculadas (memo de [`contem_na_cadeia`]).
+    /// Cadeias de supertipos já calculadas (memo de [`Motor::e_subtipo`]).
     ancestrais: HashMap<ClassId, HashSet<ClassId>>,
     /// Membros de classes instanciadas cujo nome ainda não é seletor vivo
     /// (`_invokableInstanceMembersByName`, `resolution_world_builder.dart:232`).
@@ -528,7 +545,7 @@ impl<'a> Motor<'a> {
                     // Membro de extensão não tem classe dona: vive por nome,
                     // como antes (a aplicabilidade `on` é do emissor).
                     None => true,
-                    Some(k) => self.no_cone(k, t),
+                    Some(k) => self.alcanca(k, t),
                 };
                 if dentro {
                     self.viva_fn(f);
@@ -542,17 +559,19 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `classe` está no cone de `cone` (é ela ou subtipo nominal dela).
-    pub(crate) fn no_cone(&mut self, classe: ClassId, cone: ClassId) -> bool {
-        if classe == cone {
+    /// `sup` está na cadeia de supertipos de `sub` (ela mesma, superclasse,
+    /// mixins aplicados, interfaces e `on`, transitivamente) — dirigido, com
+    /// memo. É o [`contem_na_cadeia`] do ponto fixo.
+    pub(crate) fn e_subtipo(&mut self, sub: ClassId, sup: ClassId) -> bool {
+        if sub == sup {
             return true;
         }
-        if let Some(a) = self.ancestrais.get(&classe) {
-            return a.contains(&cone);
+        if let Some(a) = self.ancestrais.get(&sub) {
+            return a.contains(&sup);
         }
         let p = self.e.program;
         let mut vistos: HashSet<ClassId> = HashSet::new();
-        let mut pilha = vec![classe];
+        let mut pilha = vec![sub];
         while let Some(k) = pilha.pop() {
             if !vistos.insert(k) {
                 continue;
@@ -563,13 +582,30 @@ impl<'a> Motor<'a> {
             pilha.extend(c.interface_classes.iter().copied());
             pilha.extend(c.on_classes.iter().copied());
         }
-        let r = vistos.contains(&cone);
-        self.ancestrais.insert(classe, vistos);
+        let r = vistos.contains(&sup);
+        self.ancestrais.insert(sub, vistos);
         r
     }
 
+    /// Um membro declarado em `membro` atende um receptor de tipo estático
+    /// `cone`: a mesma classe, um herdado (`cone` subtipo do dono — `f` numa
+    /// `Folha` executa o `descreve` do `Raiz`), um sobrescrito (dono subtipo
+    /// do cone) ou um herdado por algum subtipo **instanciado** do cone (o
+    /// subtipo traz mixin/interface fora da hierarquia do cone). Só o que não
+    /// é nenhum dos quatro é poda de desenho.
+    pub(crate) fn alcanca(&mut self, membro: ClassId, cone: ClassId) -> bool {
+        if self.e_subtipo(membro, cone) || self.e_subtipo(cone, membro) {
+            return true;
+        }
+        let insts: Vec<ClassId> = (0..self.classes.len() as u32)
+            .map(ClassId)
+            .filter(|c| self.classes[c.0 as usize] == NivelClasse::Instanciada)
+            .collect();
+        insts.into_iter().any(|s| self.e_subtipo(s, cone) && self.e_subtipo(s, membro))
+    }
+
     /// O seletor `nome` (irrestrito ou restrito) mantém vivo um membro da
-    /// `classe` instanciada.
+    /// `classe` instanciada (a regra é [`Motor::alcanca`]).
     pub(crate) fn seletor_para(&mut self, nome: &str, classe: ClassId) -> bool {
         if self.sel.contains(nome) {
             return true;
@@ -578,7 +614,7 @@ impl<'a> Motor<'a> {
             Some(c) => c.iter().copied().collect(),
             None => return false,
         };
-        cones.into_iter().any(|c| self.no_cone(classe, c))
+        cones.into_iter().any(|c| self.alcanca(classe, c))
     }
 
     /// O seletor `nome` vive de algum jeito (irrestrito ou restrito): o que os
