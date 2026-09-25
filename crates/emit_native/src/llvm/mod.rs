@@ -153,8 +153,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_header(&mut self) {
-        self.out.push_str("target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
-        self.out.push_str("target triple = \"x86_64-pc-windows-msvc\"\n\n");
+        self.out.push_str(crate::alvo::cabecalho_ir());
     }
 
     fn emit_runtime_decls(&mut self) {

@@ -41,6 +41,23 @@ Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
    objeto por hash do IR (`cache_objeto.rs`) e o runtime Rust compilado uma vez
    por conteúdo (`cache.rs`).
 
+### 1.1 Sistemas
+
+Windows (COFF), Linux (ELF) e macOS (Mach-O); o alvo é sempre o do
+hospedeiro, e tudo o que muda entre eles está em
+`crates/emit_native/src/alvo.rs`:
+
+| | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| cabeçalho do IR | `x86_64-pc-windows-msvc` | `x86_64-unknown-linux-gnu` | nenhum (o do hospedeiro) |
+| `comdat` | sim | sim | não (`linkonce_odr` já é fraco) |
+| SDK da fonte (desenvolvimento) | `dfsdk_<chave>.dll` + `.lib` de importação, `/DEF` | `libdfsdk_<chave>.so`, `-soname`, `rpath=$ORIGIN` | `libdfsdk_<chave>.dylib`, `@rpath`, `rpath=@executable_path` |
+| produção (ThinLTO) | `lld-link`, `/OPT:REF` | `ld.lld`, `--gc-sections`, sem símbolos | `ld64.lld`, `-dead_strip`, sem símbolos |
+
+O IR e as bandeiras no Windows são os de antes do porte, então as chaves de
+cache e os resumos de determinismo não mudaram. O mesmo IR vai ao JIT
+(`docs/JIT.md`, «Linux e macOS»).
+
 ---
 
 ## 2. Modelo de objetos (runtime, `crates/runtime`)

@@ -706,7 +706,74 @@ Sem um prefixo válido a build do workspace inteiro falha, porque `crates/jit` �
 membro de `crates/*`. Essa é a consequência de o perfil de desenvolvimento ser
 parte do produto, não um extra.
 
-### Por que a ligação é dinâmica, e o que isso custa
+### Linux e macOS
+
+Fora do Windows a forma de ligar o LLVM é **política do projeto**, escolhida
+por `DARTFORGE_LLVM_LINK`:
+
+* `shared` — a biblioteca compartilhada (`libLLVM-22.so`, `libLLVM.dylib`),
+  pelo `llvm-config --link-shared` da instalação escolhida; falha na build se
+  ela não a oferecer;
+* `static` — as `libLLVM*.a`, pelo `llvm-config --link-static`;
+* `auto` (padrão) — a compartilhada quando a instalação a oferece, senão a
+  estática.
+
+O Linux tem, claro, bibliotecas dinâmicas (`.so` é o equivalente da `.dll`), e
+o LLVM gera a `libLLVM.so` quando construído com `LLVM_BUILD_LLVM_DYLIB=ON` —
+os pacotes do apt.llvm.org e do Debian a trazem. O que foi verificado é mais
+estreito: o pacote pré-compilado **`LLVM-22.1.8-Linux-X64.tar.xz`** não a
+inclui (o `lib/` só tem `libLLVM*.a`, e o `llvm-config --link-shared` dele
+responde `libLLVM-22.so is missing`). Com esse pacote, `auto` liga estático.
+A verificação, sobre o arquivo original (SHA-256
+`df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384`):
+`tar -tJf` lista 11.073 entradas (código 0); `grep -E
+'(^|/)libLLVM[^/]*\.so($|\.)'` não acha nenhuma, contando os nomes
+versionados; há 220 `libLLVM*.a`. Outras `.so` estão lá (`libclang-cpp`,
+`libLTO`, `liblldb`), a `libLLVM` monolítica não. É o esperado da
+configuração de construção dessa versão: o `release-binaries.yml` usa
+`clang/cmake/caches/Release.cmake`, que não liga `LLVM_BUILD_LLVM_DYLIB`
+nem `LLVM_LINK_LLVM_DYLIB` (padrão `OFF`).
+
+Os modos conferem os arquivos antes de ligar (`llvm-config <modo>
+--libfiles` dos componentes, pelo código de saída e pela existência de cada
+arquivo); `auto` tenta a compartilhada, depois a estática, e falha com os dois
+motivos se nenhuma servir.
+Isso não é limitação do Linux, e sim de como aquele pacote foi construído.
+
+O conflito de CRT do Windows (`/MT` × `/MD`, dois heaps) não se aplica a essas
+configurações. Continua valendo a compatibilidade com a biblioteca C++ do
+sistema (`libstdc++`/`libc++`) com que o pacote foi compilado. Das bibliotecas
+de sistema que o `llvm-config` declara para o LLVM inteiro, a ligação estática
+deixa de fora a `xml2` (só o `LLVMWindowsManifest` a usa). O `zstd` vem como
+caminho absoluto da máquina que empacotou e, quando esse `.a` não existe aqui,
+cai na `libzstd.so.N` do sistema.
+
+O CI cobre os dois caminhos: `ci.yml` (job `nativo-unix`) compila no Ubuntu com
+a `libLLVM-22.so` do apt.llvm.org e `DARTFORGE_LLVM_LINK=shared`, e no macOS
+arm64 com o pacote oficial. O `pesado.yml` (job `nativo-unix`) roda o corpus
+inteiro no Linux e no macOS com os pacotes oficiais.
+
+Com a ligação estática não há dependência de execução do LLVM; com a
+dinâmica, a `libLLVM` precisa estar no caminho do carregador (a do apt está).
+A biblioteca do SDK da fonte (`libdfsdk_<chave>.so`/`.dylib`) é
+carregada com `dlopen(RTLD_NOW | RTLD_LOCAL)` e os nomes vêm de
+`exportados.def`, como no Windows. `dartforge run`/`reload` acham a biblioteca
+sozinhos (o cache, compilada na primeira vez) quando `DARTFORGE_SDK_DLL` não
+está definida.
+
+Ambiente mínimo, medido num Linux x86-64 (o mesmo que o CI prepara):
+
+```sh
+export LLVM_SYS_221_PREFIX=/opt/LLVM-22.1.8-Linux-X64
+export DARTFORGE_LLVM_DIR=$LLVM_SYS_221_PREFIX
+export DARTFORGE_CLANG=$LLVM_SYS_221_PREFIX/bin/clang
+cargo build --release -p dartforge-cli --features nativo,jit
+```
+
+Com isso o corpus dá 184/224 no JIT e no AOT com o SDK da fonte, 224/224
+saídas idênticas JIT × AOT, e os testes de `crates/jit` passam inteiros.
+
+### Por que a ligação é dinâmica no Windows, e o que isso custa
 
 A feature `no-llvm-linking` do `llvm-sys` está ligada: as diretivas de ligação
 saem do `build.rs` deste crate, que liga `LLVM-C` — a **biblioteca

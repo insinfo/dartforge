@@ -1,5 +1,6 @@
 //! Compilador nativo LLVM do DartForge sobre a trilha nova.
 
+pub mod alvo;
 pub mod cache;
 pub mod cache_objeto;
 pub mod context;
