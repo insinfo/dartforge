@@ -410,6 +410,47 @@ fn nsm_encaminhador_metodo_no_sdk() {
                "nsm(mundo)\nSymbol(\"saudacao\")\n");
 }
 
+/// Encaminhador `noSuchMethod` estático de getter (caso 216, `p.versao`):
+/// o getter abstrato sem implementação concreta monta
+/// `Invocation.getter(#versao)` e chama o nsm — antes era "chamada de
+/// membro sem implementação compilada". Sem Clang: só a emissão.
+#[test]
+fn nsm_encaminhador_getter_emite_nsm() {
+    let fonte = "abstract class Servico { int get versao; }\n\
+        class Proxy implements Servico {\n\
+        \x20 dynamic noSuchMethod(Invocation i) => 42;\n\
+        }\n\
+        void main() { final p = Proxy(); print(p.versao); }\n";
+    let Some(ir) = ir_de_fonte(fonte) else { return };
+    assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
+}
+
+/// O programa acima executado (AOT com SDK da fonte): a saída bate com a VM 3.6.2.
+#[test]
+#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+fn nsm_encaminhador_getter_no_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+        .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
+        .expect("SDK de teste");
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = dir.path().join("nsm_encaminhador_getter.dart");
+    let exe = dir.path().join("nsm_encaminhador_getter.exe");
+    std::fs::write(&entrada, include_str!("fixtures/nsm_encaminhador_getter.dart")).unwrap();
+    let exe_para_thread = exe.clone();
+    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
+        let options = CompileOptions {
+            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+        };
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    }).unwrap().join().unwrap();
+    let output = std::process::Command::new(&exe).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+               "42\n");
+}
+
 /// Enum do programa é subtipo do `Enum` do SDK (especificação §13): a
 /// aresta vai no registro do módulo do programa, e `is`/`as` a enxergam.
 #[test]
