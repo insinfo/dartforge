@@ -1164,6 +1164,7 @@ Cada frente tem o seu oráculo, e nenhuma anda sem ele:
 | gerador do ngdart | `corpus/ngdart` e os arquivos que o `build_runner` gerou nos projetos reais |
 | AOT e JIT | `corpus/js` contra a VM, pelo harness `--nativo` |
 | folhas de estilo | a saída do `sass_builder` e do `shadow_css`, normalizada |
+| analisador (diagnósticos) | `dart analyze` gravado em `corpus/diagnosticos`: 3.6.2 nas bibliotecas 3.6, e 3.13.4 **sobre a mesma biblioteca 3.6** nos arquivos com sintaxe que o 3.6.2 não conhece (`sintaxe-nova.json`) — a referência é a versão corrente da ferramenta (3.13), não um SDK que ignora o recurso |
 
 E duas disciplinas que já pagaram: **recusar o que não se entende** em vez
 de emitir aproximação — saída errada compila e faz outra coisa —, e

@@ -1,4 +1,95 @@
-# Estado do DartForge — 2026-09-24
+# Estado do DartForge — 2026-09-25
+
+## Integração no `main` e oráculo pela versão da ferramenta (2026-09-25)
+
+**Um ramo só.** As 12 frentes que estavam em worktrees separadas foram
+mescladas no `main` (analyzer, LSP, macros, JS e nativo), e as worktrees e
+branches antigas foram apagadas; restam `main` e `exploracao-inicial`. O
+histórico foi reescrito sem trailers de assistente de IA, e a regra agora
+está no repositório (`CONTRIBUTING.md`, `AGENTS.md`, hook
+`scripts/hooks/commit-msg` e o job `mensagens` do CI). Os conflitos de
+integração foram quase todos o mesmo commit trazido por dois caminhos; o
+único de desenho foi o do LSP (duas APIs de navegação entre documentos):
+ficou a do servidor (`definicao_no_workspace`/`hover_no_workspace`), com a
+navegação sintática e as referências (`referencias_em`) por baixo dela.
+Fora da integração, por ser um porte e não um merge: o T1 de `types`
+(`wip/inferencia`, códigos do analyzer em `types` e o fim da
+`paridade/src/ponte.rs`), preservado só no backup em bundle.
+
+**O placar do analyzer media o SDK errado em 566 arquivos.** Sondado hoje:
+numa biblioteca 3.6, o analyzer **3.13.4** relata atalho de ponto e
+construtor primário como `experiment_not_enabled` e continua analisando —
+exatamente o que o nosso parser faz —, enquanto o **3.6.2**, que não
+conhece esses recursos, responde com cascata (`missing_identifier`,
+`expected_executable`, `missing_const_final_var_or_type`). Como a
+ferramenta é 3.13 (VERSOES-LINGUAGEM.md, D2), a referência nesses arquivos
+é o 3.13.4. O comando novo `dartforge-paridade sintaxe-nova` roda o 3.13.4
+sobre os grupos 3.6 **sem mudar a versão do pacote**, escolhe pelo próprio
+oráculo os arquivos em que ele acusa um recurso desconhecido do 3.6.2
+(`dot-shorthands`, `primary-constructors`, `private-named-parameters`) e
+troca só os registros deles: **498 em `analyzer` e 68 em `linguagem`**
+(`corpus/diagnosticos/sintaxe-nova.json`). O `oraculo` respeita a lista ao
+regravar, e a linha de cada grupo do placar diz quantos arquivos são do
+3.13.4. Não foi `// @dart=3.13` por arquivo: os arquivos continuam
+bibliotecas 3.6.
+
+**Correções do parser** que o oráculo novo expôs, cada uma conferida contra
+o 3.13.4 (sondas nos testes de `declarations.rs`):
+
+* `augment` sem o experimento é **identificador comum** em qualquer posição,
+  como no scanner do fasta (`abstract_scanner.dart`); antes, `augment class`
+  e afins viravam modificador com `experiment_not_enabled`. `augment class
+  C {}` agora dá `expected_token` e `missing_const_final_var_or_type` no
+  `augment`, e `augment mixin M {}` dá `missing_identifier` no `mixin` (o
+  `TopLevelDeclarationIdentifierContext` do fasta), nos dois SDKs.
+* `experiment_not_enabled` no lugar do analyzer: no `(` (ou `.`) do
+  cabeçalho primário, não no cabeçalho inteiro; no `.` do atalho de ponto
+  (ou no `const` de `const .x(…)`), não em `.nome`.
+* A versão na correção: `x.y.0` quando o erro vem do parser do fasta, `x.y`
+  quando vem do `AstBuilder` do analyzer (corpo `;`, membros `this`/`new`,
+  `final` declarante) — `Parser::exigir_no_ast`.
+* Membros `new`/`this` sem o recurso: o 3.13.4 os lê como com o recurso
+  (com os diagnósticos da parte `this`) e só acrescenta
+  `experiment_not_enabled`. Os commits de 2026-09-24 que os faziam imitar o
+  3.6.2 (`expected_class_member`) foram revertidos por essa regra; eram 176
+  FP. `factory(` continua dependendo da versão: antes da 3.13 é um método
+  chamado `factory`.
+
+**Placar local** (8 trabalhadores, `work/placar/`):
+
+| medição | oráculo | acertos exatos | FP | FN | posição errada |
+|---|---|---|---|---|---|
+| `main` antes (oráculo antigo) | 26.133 | 6.464 (24,7%) | 4.337 | 19.190 | 479 |
+| só o oráculo 3.13.4 nos 566 arquivos | 23.030 | 6.735 (29,2%) | 3.066 | 14.816 | 1.479 |
+| + correções do parser (`augment`, intervalos, versão) | 23.030 | 8.866 (38,5%) | 2.636 | 13.755 | 409 |
+| + membros `new`/`this` sem o recurso como o 3.13.4 | 23.030 | **8.992 (39,0%)** | **2.377** | **13.631** | **407** |
+
+O denominador caiu porque o 3.13.4 não produz a cascata do 3.6.2 nesses
+arquivos. Por código, no fim: `experiment_not_enabled` 1.586/1.736,
+`missing_const_final_var_or_type` 513/541, `expected_token` 912/1.107,
+`expected_class_member` 0 FP (eram 176).
+
+**Próximos alvos, pelo placar:** (1) a tabela de códigos é a do analyzer
+6.11; os erros da 3.13 (`primary_constructor_body_*` e afins) saem sem
+código — `dartforge_sem_codigo`, 142 FP —, e a tabela precisa vir também
+do analyzer 3.13.4; (2) os FN de tipo continuam os maiores
+(`type_argument_not_matching_bounds` 1.175, `use_of_void_result` 479,
+`unchecked_use_of_nullable_value` 384), e dependem do porte do T1; (3)
+`undefined_class` tem 335 FP e `undefined_identifier` 292.
+
+**Outras correções do dia:** o teste nativo
+`construto_nao_suportado_e_erro_com_todos_os_diagnosticos` esperava que
+`#a` fosse recusado, e o nativo passou a baixá-lo; agora usa a entrada de
+mapa null-aware, recusa explícita e estável. As referências passaram de
+`D:/Projects/dartforge/references` (apagado) para `E:/references`, e o LLVM
+de `E:/DartSDKs/llvm` para `E:/llvm` (`.cargo/config.toml`, `jit/build.rs`,
+`emit_native/driver.rs`, `diferencial`, `scripts/env.ps1`).
+
+**Suíte local inteira verde** (`cargo test --workspace`), com o ambiente
+que o CI prepara: `scripts/env.ps1` (põe o `bin` do LLVM no `PATH` — sem
+ele, os testes do JIT caem com `STATUS_DLL_NOT_FOUND` ao carregar
+`LLVM-C.dll`), `scripts/gerar-dart-sdk.ps1` (`runtime/ddc/dart_sdk.js`, que
+os testes de `dev` e `emit_js` leem) e `dart pub get` em `corpus/ngdart`.
 
 ## Continuação no SSD (2026-09-24)
 
@@ -1208,7 +1299,10 @@ verificados. O caminho até os demais:
 2. **Sintaxe**: portar a recuperação do fasta — um erro por token no topo
    (`expected_executable`) e nos membros (`expected_class_member`), e a
    do comando (`missing_const_final_var_or_type`). Recurso de linguagem que
-   o SDK 3.6.2 não conhece: pede um parser que o rejeite na versão 3.6.
+   o SDK 3.6.2 não conhece **não** pede um parser que o rejeite na versão
+   3.6: o analyzer 3.13.4 relata `experiment_not_enabled` na mesma
+   biblioteca, como nós; o oráculo desses arquivos passou a ser o 3.13.4
+   (2026-09-25, ver o topo deste arquivo).
 3. **A3 restante**: `unused_import` exato (o `ImportsTracking` pede a
    resolução completa), `unused_element` dos privados de topo e membros,
    `unused_field`, `dead_code`.
