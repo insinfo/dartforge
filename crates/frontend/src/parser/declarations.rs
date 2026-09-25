@@ -1122,7 +1122,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let mut members = if self.eat_op(Op::Semicolon) {
-            self.parse_member_list(Some(name_text), primario.is_some())?
+            // Membros de enum nunca valem `this`/`new` sem o recurso: o
+            // oráculo 3.6 rejeita só o cabeçalho (`unexpected_tokens`) e lê
+            // o corpo como enum (`this => 0` denuncia `this` e o `=>`).
+            self.parse_member_list(Some(name_text), false)?
         } else {
             self.expect_op(Op::RBrace)?;
             Vec::new()
@@ -1676,6 +1679,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_member(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
+        // `=>` onde um membro era esperado: método sem nome nem parâmetros
+        // (o fasta denuncia os dois no `=>`, sondado no SDK 3.6.2 local).
+        if self.at_op(Op::Arrow) {
+            let span = self.span();
+            self.erro_em(codigos::parser::MISSING_IDENTIFIER, span, &[]);
+            self.erro_em(codigos::parser::MISSING_METHOD_PARAMETERS, span, &[]);
+            return Err(self.pular_membro_quebrado());
+        }
         let primarios = self.features.tem(Feature::PrimaryConstructors) || primaria;
         // `this` (parte de construtor primário) e `new` (construtor sem o
         // nome da classe) também iniciam membro, desde a 3.13.
@@ -2845,6 +2856,50 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `this => 0;` em enum com cabeçalho primário: `expected_class_member`
+    /// no `this` e o par sem-nome/sem-parâmetros no `=>` (sondado); `=> 0;`
+    /// em classe dá só o par.
+    #[test]
+    fn membro_fasta_this_arrow_denuncia_this_e_seta() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "enum E() {\n  v;\n  this => 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert!(
+            codigos.contains(&(Some(c::EXPECTED_CLASS_MEMBER), (18, 22))),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert!(
+            codigos.contains(&(Some(c::MISSING_IDENTIFIER), (23, 25))),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert!(
+            codigos.contains(&(Some(c::MISSING_METHOD_PARAMETERS), (23, 25))),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+
+        let fonte = "class C {\n  => 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::MISSING_IDENTIFIER), (12, 14)),
+                (Some(c::MISSING_METHOD_PARAMETERS), (12, 14)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// `new foo();` sem o recurso 3.13 é `expected_class_member` no `new`
