@@ -9,23 +9,21 @@ posição errada 468 (de manhã: 6.464/26.133, 24,7%, FP 4.337). Projetos
 reais: 2, 119 e 183 diagnósticos nossos, 0 publicados. Suíte do workspace
 verde com o ambiente completo. Pesado de `eb2c4304` verde em todos os jobs
 (placar do runner igual ao local); o Pesado 36186964445 de `625ef30c`
-(regra do receptor anulável e escopo das escritas) estava em andamento no
-fechamento — conferir.
+(regra do receptor anulável e escopo das escritas) também passou em todos
+os jobs (JS, produção, nativo, JIT × AOT, determinismo, análise).
 
 **O que falta, em ordem:**
 
-1. Conferir o Pesado 36186964445; se o JS/nativo mudou com as correções de
-   fluxo em `types`, investigar antes de seguir.
-2. Portar o T1 (`wip/inferencia`, só no bundle de backup): códigos do
+1. Portar o T1 (`wip/inferencia`, só no bundle de backup): códigos do
    analyzer emitidos por `types` em todo lugar (`aviso_com_codigo` já é o
    caminho) e o fim da `paridade/src/ponte.rs`. Os FN maiores são de tipo:
    `type_argument_not_matching_bounds` 1.175, `use_of_void_result` 383,
    `unchecked_use_of_nullable_value` 206.
-3. FP restantes: `expected_token` 329, `undefined_identifier` 185,
+2. FP restantes: `expected_token` 329, `undefined_identifier` 185,
    `undefined_method` 146 (mensagens com `'{1}'` sem o tipo, em casos que o
    analyzer relata com outro código: enum, `invocation_of_non_function`,
    `instantiate_abstract_class`), `undefined_class` 104.
-4. `new_sali/frontend` sem os gerados do `build_runner` nesta máquina: rodar
+3. `new_sali/frontend` sem os gerados do `build_runner` nesta máquina: rodar
    o `build_runner` lá para o placar dos projetos voltar a medir só o nosso.
 
 ## Integração no `main` e oráculo pela versão da ferramenta (2026-09-25)
