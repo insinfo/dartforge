@@ -874,13 +874,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             return Err(self.erro_identificador());
         };
-        self.exigir(
-            Feature::DotShorthands,
-            Span {
-                start: ponto.span.start,
-                end: name.span.end,
-            },
-        );
+        // O analyzer 3.13.4 relata no `.` (ou no `const` de `const .x(…)`).
+        self.exigir(Feature::DotShorthands, if const_ { start } else { ponto.span });
         if const_ && !self.at_op(Op::LParen) {
             return Err(self.erro_esperado("("));
         }

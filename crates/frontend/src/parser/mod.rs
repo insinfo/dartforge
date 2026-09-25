@@ -487,6 +487,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
+    /// Como [`Parser::exigir`], para os recursos que o analyzer confere ao
+    /// montar a árvore (`AstBuilder`), não no parser do fasta: a correção
+    /// leva a versão como `x.y` (`3.13`), não `x.y.0`. São o corpo `;`, os
+    /// membros `this`/`new` e o `final` declarante (medido no oráculo 3.13.4).
+    pub(crate) fn exigir_no_ast(&mut self, f: Feature, span: Span) {
+        if self.features.tem(f) {
+            return;
+        }
+        match f.habilitado_em() {
+            Some(v) => {
+                let versao = v.to_string();
+                self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &versao]);
+            }
+            None => self.exigir(f, span),
+        }
+    }
+
     /// Entra num nível de aninhamento; falha além de [`MAX_DEPTH`].
     pub(crate) fn enter(&mut self) -> PResult<()> {
         if self.depth >= MAX_DEPTH {

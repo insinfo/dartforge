@@ -9,11 +9,15 @@
 //!   sincronizado até a próxima fronteira plausível (`;` ou `}` no nível de
 //!   aninhamento em que a declaração começou, ou um token que inicia
 //!   declaração de topo). A recuperação de membros segue o mesmo desenho,
-//!   um membro por vez. Rejeitar sintaxe 3.13 em biblioteca ≤3.6 para imitar
-//!   o fasta 3.6.2 token a token é pendente: hoje vale o superconjunto com
-//!   `experiment_not_enabled` (ver `docs/VERSOES-LINGUAGEM.md` e
-//!   `tests/versoes.rs`), e o lookahead de declaração ainda recusa `]`/`}`
-//!   como continuação (`int? a]` vira `expected_token` no tipo, não no nome).
+//!   um membro por vez. Sintaxe 3.7+ em biblioteca ≤3.6 é o superconjunto com
+//!   `experiment_not_enabled`, e **não** a cascata do fasta 3.6.2: a
+//!   ferramenta é 3.13 (D2), e o analyzer 3.13.4 relata o mesmo na mesma
+//!   biblioteca e segue analisando (sondado em 2026-09-25; o oráculo desses
+//!   arquivos é o 3.13.4, `corpus/diagnosticos/sintaxe-nova.json`). A
+//!   exceção é `augment` sem o experimento: o scanner do fasta o faz
+//!   identificador comum, e a cascata vale nos dois SDKs. O lookahead de
+//!   declaração ainda recusa `]`/`}` como continuação (`int? a]` vira
+//!   `expected_token` no tipo, não no nome).
 //! * **Construtor × método.** `Nome(` é construtor quando `Nome` é o da
 //!   classe corrente (o nome é passado ao parser de membros); `Nome.x(` é
 //!   sempre construtor, porque métodos não têm nome pontuado; `factory` e
@@ -162,28 +166,22 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `augment` é identificador embutido só onde o recurso existe: com
     /// `augmentations` ou `macros` ligados, é modificador quando vem antes de
     /// outra palavra (`augment class`, `augment void f()`, `augment C.x(`).
-    /// Sem eles, só as formas que não podem ser outra coisa (`augment class`,
-    /// `augment mixin`, …) são lidas como modificador — com o diagnóstico de
-    /// recurso desligado —, para não quebrar código 3.6 que usa `augment`
-    /// como nome.
+    /// Sem eles, é sempre um identificador comum, como no scanner do fasta
+    /// (`abstract_scanner.dart`: `!_enableAugmentations && keyword ==
+    /// Keyword.AUGMENT` vira `tokenizeIdentifier`). Até `augment class C {}`
+    /// cai na recuperação de topo (`expected_token` e
+    /// `missing_const_final_var_or_type` no `augment`), sem
+    /// `experiment_not_enabled`: é o que o analyzer 3.13.4 e o 3.6.2 relatam.
     fn parse_augment_opt(&mut self) -> bool {
         if !self.at_ident("augment") {
             return false;
         }
         let ligado =
             self.features.tem(Feature::Augmentations) || self.features.tem(Feature::Macros);
-        let seguinte_e_palavra = matches!(self.kind_at(1), Kind::Ident | Kind::Keyword(_));
-        let inequivoco = matches!(self.kind_at(1), Kind::Keyword(Keyword::Class | Keyword::Enum))
-            || (self.kind_at(1) == Kind::Ident
-                && matches!(self.text_of(self.pos + 1), "mixin" | "extension" | "abstract" | "base" | "sealed" | "interface")
-                && matches!(self.kind_at(2), Kind::Ident | Kind::Keyword(_)));
-        if !(seguinte_e_palavra && (ligado || inequivoco)) {
+        if !ligado || !matches!(self.kind_at(1), Kind::Ident | Kind::Keyword(_)) {
             return false;
         }
-        let t = self.advance();
-        if !ligado {
-            self.exigir(Feature::Augmentations, t.span);
-        }
+        self.advance();
         true
     }
 
@@ -336,7 +334,6 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         start_pos: usize,
         class_name: Option<&'s str>,
-        primaria: bool,
         members: &mut Vec<MemberId>,
     ) {
         if self.pos == start_pos && !self.at_eof() {
@@ -388,7 +385,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     && self.starts_member() =>
                 {
                     let marco = self.diagnostics.len();
-                    match self.parse_member(class_name, primaria) {
+                    match self.parse_member(class_name) {
                         Ok(id) => {
                             members.push(id);
                             return;
@@ -670,7 +667,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             let fstart = self.span();
             let mods = self.parse_modifiers();
-            match self.parse_function_or_variables(mods, fstart, mods.external_span)? {
+            match self.parse_function_or_variables(mods, fstart, mods.external_span, true)? {
                 FunctionOrVariables::Function(id) => DeclKind::Function(id),
                 FunctionOrVariables::Variables(list) => DeclKind::Variables(list),
             }
@@ -769,7 +766,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        let mut members = self.parse_class_body_ou_vazio(Some(name_text), primario.is_some())?;
+        let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
         let primary_constructor = self.elaborar_construtor_primario(
             name,
@@ -818,7 +815,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.em_construtor_primario = salvo;
         let params = params?;
         let span = self.span_from(comeco);
-        self.exigir(Feature::PrimaryConstructors, span);
+        // O analyzer 3.13.4 relata o recurso desligado no primeiro token do
+        // cabeçalho (`(`, ou o `.` de `C.nome(`), não no cabeçalho inteiro.
+        self.exigir(Feature::PrimaryConstructors, comeco);
         Ok(Some(CabecalhoPrimario {
             span: Span {
                 start: inicio.start,
@@ -831,17 +830,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `{ membros }` ou, a partir da 3.13, `;` (corpo vazio).
-    fn parse_class_body_ou_vazio(
-        &mut self,
-        class_name: Option<&'s str>,
-        primaria: bool,
-    ) -> PResult<Vec<MemberId>> {
+    fn parse_class_body_ou_vazio(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
         if self.at_op(Op::Semicolon) {
             let t = self.advance();
-            self.exigir(Feature::PrimaryConstructors, t.span);
+            self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
             return Ok(Vec::new());
         }
-        self.parse_class_body(class_name, primaria)
+        self.parse_class_body(class_name)
     }
 
     /// Derivação D → D2 do construtor primário (spec 3.13, `:926-1025`),
@@ -1087,7 +1082,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        let members = self.parse_class_body_ou_vazio(Some(name_text), false)?;
+        let members = self.parse_class_body_ou_vazio(Some(name_text))?;
         Ok(MixinDecl {
             base,
             name,
@@ -1122,7 +1117,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let mut members = if self.eat_op(Op::Semicolon) {
-            self.parse_member_list(Some(name_text), primario.is_some())?
+            self.parse_member_list(Some(name_text))?
         } else {
             self.expect_op(Op::RBrace)?;
             Vec::new()
@@ -1202,7 +1197,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let type_params = self.parse_type_parameters_opt()?;
         self.expect_ident("on")?;
         let on = self.parse_type()?;
-        let members = self.parse_class_body_ou_vazio(name_text, false)?;
+        let members = self.parse_class_body_ou_vazio(name_text)?;
         Ok(ExtensionDecl {
             name,
             type_params: type_params.into_boxed_slice(),
@@ -1230,7 +1225,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // é erro num extension type (a representação não tem setter).
         if self.at_kw(Keyword::Final) {
             let t = self.advance();
-            self.exigir(Feature::PrimaryConstructors, t.span);
+            self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
         } else if self.at_kw(Keyword::Var) {
             let t = self.advance();
             self.diagnostics.push(Diagnostic::com_codigo(
@@ -1243,7 +1238,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let representation_name = self.expect_identifier()?;
         self.expect_op(Op::RParen)?;
         let implements = self.parse_implements_opt()?;
-        let members = self.parse_class_body_ou_vazio(Some(name_text), false)?;
+        let members = self.parse_class_body_ou_vazio(Some(name_text))?;
         Ok(ExtensionTypeDecl {
             const_,
             name,
@@ -1482,6 +1477,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         mods: Modifiers,
         start: Span,
         external_topo: Option<Span>,
+        topo: bool,
     ) -> PResult<FunctionOrVariables> {
         if let Some(kind) = self.accessor_follows() {
             let id = self.parse_accessor(mods, start, None, kind, external_topo)?;
@@ -1492,11 +1488,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         // já recusou o papel de modificador onde cabia. O fasta 3.6.2 relata
         // `missing_const_final_var_or_type` no nome, salvo com
         // `const`/`final`/`var`, que dispensam o tipo sem erro (sondado no
-        // SDK local, membro e topo).
+        // SDK local, membro e topo). Seguido de palavra reservada
+        // (`augment class C {}` sem o experimento), o identificador também é
+        // o nome: uma palavra reservada não pode ser o nome depois de um tipo
+        // (`computeType` do fasta devolve `noType`), e o `;` que falta é
+        // relatado depois dele.
         if self.at_identifier()
             && matches!(
                 self.kind_at(1),
-                Kind::Op(Op::Semicolon | Op::Assign | Op::Comma)
+                Kind::Op(Op::Semicolon | Op::Assign | Op::Comma) | Kind::Keyword(_)
             )
         {
             let nome = self.identifier();
@@ -1538,6 +1538,25 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `recover_top_level`), em vez do `missing_identifier` genérico.
         if ty.is_none() && !mods.algum() && self.at_op(Op::LParen) {
             return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
+        }
+        // Fasta `TopLevelDeclarationIdentifierContext`: no topo, uma palavra
+        // que abre a declaração seguinte (`mixin M`, `extension X`,
+        // `typedef`, `import`…) não é aceita como nome depois de um tipo, a
+        // menos que venha `;`, `=` ou `,`. O nome vira sintético (antes
+        // dela), com `missing_identifier` na palavra, e o `;` que falta é
+        // relatado no tipo (`augment mixin M {}` sem o experimento).
+        if topo
+            && ty.is_some()
+            && self.kind() == Kind::Ident
+            && matches!(
+                self.text_of(self.pos),
+                "extension" | "export" | "import" | "library" | "mixin" | "part" | "typedef" | "get" | "set"
+            )
+            && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma))
+        {
+            let palavra = self.span();
+            self.erro_em(codigos::parser::MISSING_IDENTIFIER, palavra, &[]);
+            return Err(self.erro_esperado(";"));
         }
         let name = self.expect_identifier()?;
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) {
@@ -1641,19 +1660,15 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `primaria` diz se a declaração tem cabeçalho primário: nele, `this`
     /// e `new` abrem parte de corpo mesmo sem o recurso ligado (o oráculo
     /// 3.6 silencia pela cascata do cabeçalho, que aceitamos por superconjunto).
-    fn parse_class_body(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<Vec<MemberId>> {
+    fn parse_class_body(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
         self.expect_op(Op::LBrace)?;
-        self.parse_member_list(class_name, primaria)
+        self.parse_member_list(class_name)
     }
 
     /// Membros até a `}` de fechamento (inclusive), com recuperação por
     /// membro. Um fim de arquivo prematuro registra o erro mas devolve os
     /// membros já lidos.
-    fn parse_member_list(
-        &mut self,
-        class_name: Option<&'s str>,
-        primaria: bool,
-    ) -> PResult<Vec<MemberId>> {
+    fn parse_member_list(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
         let mut members = Vec::new();
         loop {
             if self.eat_op(Op::RBrace) {
@@ -1664,16 +1679,16 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(members);
             }
             let start_pos = self.pos;
-            match self.parse_member(class_name, primaria) {
+            match self.parse_member(class_name) {
                 Ok(id) => members.push(id),
-                Err(ParseError) => self.recover_member(start_pos, class_name, primaria, &mut members),
+                Err(ParseError) => self.recover_member(start_pos, class_name, &mut members),
             }
         }
     }
 
     /// Um `classMemberDefinition`: campo, método, acessor, operador ou
     /// construtor. `class_name` decide se `Nome(` é construtor.
-    fn parse_member(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<MemberId> {
+    fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
         // `=>` onde um membro era esperado: método sem nome nem parâmetros
@@ -1684,46 +1699,36 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.erro_em(codigos::parser::MISSING_METHOD_PARAMETERS, span, &[]);
             return Err(self.pular_membro_quebrado());
         }
-        let com_recurso = self.features.tem(Feature::PrimaryConstructors);
-        let primarios = com_recurso || primaria;
         // `this` (parte de construtor primário) e `new` (construtor sem o
-        // nome da classe) também iniciam membro, desde a 3.13 (ou, sem o
-        // recurso, em classe com cabeçalho primário).
-        if !self.can_start_declaration()
-            && !(primarios && self.at_kw(Keyword::This))
-            && !(primarios && self.at_kw(Keyword::New))
-        {
+        // nome da classe) iniciam membro em qualquer versão: sem o recurso,
+        // o analyzer 3.13.4 lê o membro como com ele (com os diagnósticos
+        // próprios da parte `this`) e só acrescenta `experiment_not_enabled`
+        // no `this`/`new` (sondado numa biblioteca 3.6). O superconjunto
+        // vale até em classe sem cabeçalho primário.
+        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New) {
             return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let augment = self.parse_augment_opt();
         let fstart = self.span();
         let mods = self.parse_modifiers();
-        // `this` abre parte de corpo: com o recurso, qualquer corpo (os
-        // diagnósticos próprios valem); sem ele, só `:`/`;` em classe com
-        // cabeçalho primário (superconjunto silencioso, como o oráculo).
-        // `this => ...` sem o recurso denuncia `this` (o `=>` dá o par).
-        let parte = self.at_kw(Keyword::This)
-            && !self.at_op_at(1, Op::Dot)
-            && (com_recurso
-                || (primaria
-                    && (self.at_op_at(1, Op::Colon) || self.at_op_at(1, Op::Semicolon))));
+        // `this` abre parte de corpo com qualquer corpo (os diagnósticos
+        // próprios valem), com ou sem o recurso.
+        let parte = self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot);
         let kind = if parte {
             // `this : inits? corpo` / `this;`: parte de corpo do construtor
             // primário.
             self.parse_parte_primaria(fstart)?
-        } else if primarios
-            && self.at_kw(Keyword::New)
+        } else if self.at_kw(Keyword::New)
             && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
         {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
             self.parse_construtor_new(mods, class_name)?
-        } else if !mods.algum() && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
-            // `this` sem parte (`=>`, ...): não abre membro (sondado no SDK
-            // 3.6.2 local); a recuperação denuncia o resto (`=>` dá o par).
-            return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         } else if self.at_ident("factory")
-            && (self.at_identifier_at(1) || (primarios && self.at_op_at(1, Op::LParen)))
+            && (self.at_identifier_at(1)
+                || (self.features.tem(Feature::PrimaryConstructors) && self.at_op_at(1, Op::LParen)))
         {
+            // `factory(` só é construtor a partir da 3.13; antes, é um método
+            // chamado `factory` (a versão decide, VERSOES-LINGUAGEM.md §4.5).
             self.parse_constructor(mods, true, class_name)?
         } else if self.constructor_follows(class_name, mods) {
             self.parse_constructor(mods, false, class_name)?
@@ -1772,7 +1777,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             );
             return Err(self.pular_membro_quebrado());
         } else {
-            match self.parse_function_or_variables(mods, fstart, None)? {
+            match self.parse_function_or_variables(mods, fstart, None, false)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
                 FunctionOrVariables::Variables(list) => {
                     // Fasta `AstBuilder._endClassFields`: a restrição deixa de
@@ -1956,7 +1961,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         classe: Option<&'s str>,
     ) -> PResult<MemberKind> {
         let t = self.advance();
-        self.exigir(Feature::PrimaryConstructors, t.span);
+        self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
         let class_name = self.nome_da_classe(classe, t.span);
         let nome = if self.at_identifier() {
             Some(self.identifier())
@@ -1971,7 +1976,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// elaboração funde no `k2` da declaração. `async`/`sync*`/`=>` são erro.
     fn parse_parte_primaria(&mut self, inicio: Span) -> PResult<MemberKind> {
         let t = self.advance();
-        self.exigir(Feature::PrimaryConstructors, t.span);
+        self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
         let mut initializers = Vec::new();
         if self.eat_op(Op::Colon) {
             loop {
@@ -2868,34 +2873,28 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
     }
 
-    /// `this => 0;` em enum com cabeçalho primário: `expected_class_member`
-    /// no `this` e o par sem-nome/sem-parâmetros no `=>` (sondado); `=> 0;`
-    /// em classe dá só o par.
+    /// `this => 0;` sem o recurso: o analyzer 3.13.4 lê a parte `this` como
+    /// com o recurso e só acrescenta `experiment_not_enabled` — no `(` do
+    /// cabeçalho (`3.13.0`, do parser) e no `this` (`3.13`, do
+    /// `AstBuilder`) —, sem `expected_class_member` (sondado numa
+    /// biblioteca 3.6). `=> 0;` em classe dá só o par sem-nome/sem-parâmetros.
     #[test]
-    fn membro_fasta_this_arrow_denuncia_this_e_seta() {
+    fn membro_this_arrow_sem_recurso_segue_o_3_13_4() {
         use crate::features::{LanguageVersion, LibraryFeatures};
         use crate::parser::parse_com;
         use dartforge_diagnostics::codigos::parser as c;
 
-        let fonte = "enum E() {\n  v;\n  this => 0;\n}\n";
+        let fonte = "class A(int x) {\n  this => 0;\n}\n";
         let mut nomes = Interner::new();
         let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
-        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
-        assert!(
-            codigos.contains(&(Some(c::EXPECTED_CLASS_MEMBER), (18, 22))),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(
-            codigos.contains(&(Some(c::MISSING_IDENTIFIER), (23, 25))),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
-        assert!(
-            codigos.contains(&(Some(c::MISSING_METHOD_PARAMETERS), (23, 25))),
-            "{fonte}: {:?}",
-            out.diagnostics
-        );
+        let recurso: Vec<_> = out
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == Some(c::EXPERIMENT_NOT_ENABLED))
+            .map(|d| ((d.span.start, d.span.end), d.args[1].to_string()))
+            .collect();
+        assert_eq!(recurso, [((7, 8), "3.13.0".to_string()), ((19, 23), "3.13".to_string())], "{:?}", out.diagnostics);
+        assert!(!out.diagnostics.iter().any(|d| d.code == Some(c::EXPECTED_CLASS_MEMBER)), "{:?}", out.diagnostics);
 
         let fonte = "class C {\n  => 0;\n}\n";
         let mut nomes = Interner::new();
@@ -2912,11 +2911,11 @@ mod tests {
         );
     }
 
-    /// `new foo();` sem o recurso 3.13 é `expected_class_member` no `new`
-    /// (sondado no SDK 3.6.2 local: o recurso nem existia, sem
-    /// `experiment_not_enabled`); com ele ligado, é construtor válido.
+    /// `new foo();` sem o recurso é o construtor da 3.13 com
+    /// `experiment_not_enabled` no `new` (versão `3.13`) e nada mais de
+    /// sintaxe (sondado no analyzer 3.13.4, biblioteca 3.6).
     #[test]
-    fn membro_fasta_new_sem_recurso_e_classe() {
+    fn membro_new_sem_recurso_e_construtor_com_recurso_desligado() {
         use crate::features::{LanguageVersion, LibraryFeatures};
         use crate::parser::parse_com;
         use dartforge_diagnostics::codigos::parser as c;
@@ -2924,9 +2923,18 @@ mod tests {
         let fonte = "class C {\n  new foo();\n  static int foo = 0;\n}\n";
         let mut nomes = Interner::new();
         let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
-        let primeiro = &out.diagnostics[0];
-        assert_eq!(primeiro.code, Some(c::EXPECTED_CLASS_MEMBER), "{fonte}: {:?}", out.diagnostics);
-        assert_eq!((primeiro.span.start, primeiro.span.end), (12, 15), "{fonte}");
+        let codigos: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end), d.args.iter().map(|a| a.to_string()).collect::<Vec<_>>()))
+            .collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::EXPERIMENT_NOT_ENABLED), (12, 15), vec!["primary-constructors".to_string(), "3.13".to_string()])],
+            "{:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 2);
     }
 
     /// `T X.Y` sem parênteses: os dois erros (`int C.named;`, sondado).
@@ -3489,11 +3497,47 @@ mod tests {
             let out = com(&[], "var augment = 1; int f() => augment; void augment2() {}", &mut names);
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
             assert!(!out.ast.decl(out.unit.declarations[0]).augment);
-            // A forma inequívoca é lida, com o diagnóstico de recurso desligado.
+            // Nem `augment class` é modificador: o fasta tokeniza `augment`
+            // como identificador e a recuperação de topo relata o par do
+            // analyzer 3.13.4 no `augment` (sondado), sem recurso desligado.
             let out = com(&[], "augment class C {}", &mut names);
-            assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
-            assert!(out.diagnostics[0].message.contains("augmentations"));
-            assert!(out.ast.decl(out.unit.declarations[0]).augment);
+            let mut codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, d.span.start, d.span.end)).collect();
+            codigos.sort();
+            use dartforge_diagnostics::codigos::parser as c;
+            let mut esperado = [(Some(c::EXPECTED_TOKEN), 0, 7), (Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE), 0, 7)];
+            esperado.sort();
+            assert_eq!(
+                codigos,
+                esperado,
+                "{:?}",
+                out.diagnostics
+            );
+            assert!(out.unit.declarations.iter().all(|&d| !out.ast.decl(d).augment));
+        }
+
+        /// Sem o experimento, `augment` antes de uma declaração é nome comum
+        /// e cai na recuperação de topo. Códigos sintáticos e intervalos do
+        /// analyzer 3.13.4 num pacote 3.6 (sondados; `undefined_class` e
+        /// `unused_element` são semânticos e ficam fora).
+        #[test]
+        fn augment_sem_o_recurso_segue_a_recuperacao_do_fasta() {
+            use dartforge_diagnostics::codigos::parser as c;
+            let casos: [(&str, &[(dartforge_diagnostics::Codigo, usize, usize)]); 5] = [
+                ("augment class C {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7)]),
+                ("augment enum E { a }", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7)]),
+                ("augment mixin M {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 13)]),
+                ("augment extension X on int {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 17)]),
+                ("augment abstract class D {}", &[(c::EXPECTED_TOKEN, 8, 16)]),
+            ];
+            for (fonte, esperado) in casos {
+                let mut names = Interner::new();
+                let out = com(&[], fonte, &mut names);
+                let mut achado: Vec<_> = out.diagnostics.iter().map(|d| (d.code.unwrap(), d.span.start, d.span.end)).collect();
+                let mut esperado = esperado.to_vec();
+                achado.sort_by_key(|&(c, s, e)| (s, e, c));
+                esperado.sort_by_key(|&(c, s, e)| (s, e, c));
+                assert_eq!(achado, esperado, "{fonte}: {:?}", out.diagnostics);
+            }
         }
 
         #[test]
